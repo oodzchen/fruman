@@ -1,0 +1,26 @@
+{
+  "name": "sl2d-game",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "format": "prettier . --write",
+    "lint": "npm run lint:eslint && npm run lint:tsc",
+    "lint:eslint": "eslint src/**/*.ts",
+    "lint:tsc": "tsc --noEmit"
+  },
+  "dependencies": {
+    "box2d3-wasm": "^5.1.3"
+  },
+  "devDependencies": {
+    "@trivago/prettier-plugin-sort-imports": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.50.1",
+    "@typescript-eslint/parser": "^8.50.1",
+    "eslint": "^9.39.2",
+    "prettier": "^3.3.3",
+    "prettier-plugin-merge": "^0.8.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}
