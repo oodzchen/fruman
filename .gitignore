@@ -142,12 +142,3 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 *~
-dev-dist
-CLAUDE.md
-.e2e-static/
-
-# Playwright
-/test-results/
-/playwright-report/
-/playwright/.cache/
-/e2e-results/
