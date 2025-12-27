@@ -7,33 +7,534 @@
     <style>
       body {
         margin: 0;
-        padding: 0;
+        padding: 5px;
         overflow: hidden;
-        background-color: #333;
+      }
+      #gameContainer {
         display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
+        gap: 10px;
+        align-items: flex-start;
       }
       canvas {
-        border: 1px solid #666;
-        background-color: #000000;
+        border: 1px solid #000;
+        background-color: #000;
+        flex-shrink: 0;
       }
       #info {
         position: absolute;
-        top: 10px;
-        left: 10px;
+        top: 5px;
+        left: 5px;
         color: white;
         font-family: monospace;
+        font-size: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 5px;
+      }
+      #controlPanel {
+        border: 1px solid #ccc;
+        padding: 5px;
+        width: 350px;
+        height: 100vh;
+        overflow-y: auto;
+        font-size: 12px;
+        box-sizing: border-box;
+      }
+      #controlPanel h3 {
+        margin: 0 0 5px 0;
         font-size: 14px;
-        background: rgba(0, 0, 0, 0.5);
-        padding: 10px;
-        border-radius: 5px;
+      }
+      details {
+        margin: 5px 0;
+        border: 1px solid #ddd;
+        padding: 3px;
+      }
+      summary {
+        font-weight: bold;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 3px;
+      }
+      .control-group {
+        margin-bottom: 8px;
+        padding: 0 5px;
+      }
+      .control-group label {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 11px;
+      }
+      .control-inputs {
+        display: flex;
+        gap: 5px;
+        align-items: center;
+      }
+      .control-group input[type='range'] {
+        flex: 1;
+      }
+      .control-group input[type='number'] {
+        width: 80px;
+        font-size: 11px;
+        flex-shrink: 0;
+      }
+      .needs-restart {
+        color: #f90;
+        font-size: 10px;
+      }
+      button {
+        font-size: 11px;
+        padding: 2px 4px;
+        margin: 2px;
+      }
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        margin-bottom: 5px;
+      }
+      .button-row button {
+        flex: 1;
+        margin: 0;
       }
     </style>
   </head>
   <body>
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="gameContainer">
+      <canvas id="gameCanvas" width="800" height="600"></canvas>
+      <div id="controlPanel">
+        <h3>游戏控制</h3>
+        <div class="button-row">
+          <button id="btnStop" title="暂停或继续游戏">暂停</button>
+          <button id="btnRestart" title="重新开始游戏，角色回到初始位置">
+            重启
+          </button>
+          <button id="btnKill" title="让角色死亡，进入布娃娃状态 (快捷键K)">
+            死亡
+          </button>
+          <button id="btnRevive" title="让角色复活，恢复站立状态 (快捷键L)">
+            复活
+          </button>
+        </div>
+
+        <details id="detailsJump" open>
+          <summary>跳跃参数</summary>
+          <div class="control-group">
+            <label for="jumpForce" title="初始跳跃的向上速度大小"
+              >跳跃力度</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="jumpForce"
+                min="0"
+                max="50"
+                step="0.5"
+                value="15"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="jumpForceNum"
+                min="0"
+                max="100"
+                step="0.5"
+                value="15"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="maxJumpDuration"
+              title="按住跳跃键时持续施加向上力的最大时长"
+              >跳跃持续时间(ms)</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="maxJumpDuration"
+                min="0"
+                max="2000"
+                step="50"
+                value="500"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="maxJumpDurationNum"
+                min="0"
+                max="5000"
+                step="50"
+                value="500"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="jumpForceMultiplier"
+              title="持续跳跃时施加的力相对于jumpForce的倍数"
+              >持续跳跃力倍数</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="jumpForceMultiplier"
+                min="0"
+                max="5"
+                step="0.1"
+                value="0.8"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="jumpForceMultiplierNum"
+                min="0"
+                max="10"
+                step="0.1"
+                value="0.8"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="wallJumpPushAway"
+              title="蹬墙跳时推离墙壁的横向速度倍数（相对于moveSpeed）"
+              >蹬墙横向推离倍数</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="wallJumpPushAway"
+                min="0"
+                max="10"
+                step="0.1"
+                value="1.5"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="wallJumpPushAwayNum"
+                min="0"
+                max="20"
+                step="0.1"
+                value="1.5"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="wallJumpUpward"
+              title="蹬墙跳时向上速度倍数（相对于jumpForce）"
+              >蹬墙向上速度倍数</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="wallJumpUpward"
+                min="0"
+                max="5"
+                step="0.1"
+                value="0.8"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="wallJumpUpwardNum"
+                min="0"
+                max="10"
+                step="0.1"
+                value="0.8"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="maxWallJumps" title="每次离地最多允许的蹬墙跳次数"
+              >最大蹬墙次数</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="maxWallJumps"
+                min="0"
+                max="5"
+                step="1"
+                value="1"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="maxWallJumpsNum"
+                min="0"
+                max="10"
+                step="1"
+                value="1"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+        </details>
+
+        <details id="detailsFriction" open>
+          <summary>摩擦力和阻尼</summary>
+          <div class="control-group">
+            <label for="groundFriction" title="地面与角色接触时的摩擦力"
+              >地面摩擦力</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="groundFriction"
+                min="0"
+                max="3"
+                step="0.1"
+                value="1.0"
+              />
+              <input
+                type="number"
+                id="groundFrictionNum"
+                min="0"
+                max="3"
+                step="0.1"
+                value="1.0"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="obstacleFriction" title="障碍物与角色接触时的摩擦力"
+              >障碍物摩擦力</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="obstacleFriction"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.5"
+              />
+              <input
+                type="number"
+                id="obstacleFrictionNum"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.5"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="bodyFriction" title="身体各部件与其他物体接触时的摩擦力"
+              >身体摩擦力</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="bodyFriction"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.6"
+              />
+              <input
+                type="number"
+                id="bodyFrictionNum"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.6"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="footFriction"
+              title="脚部与地面接触时的摩擦力，越大越不容易滑动"
+              >脚部摩擦力</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="footFriction"
+                min="0"
+                max="5"
+                step="0.1"
+                value="1.0"
+              />
+              <input
+                type="number"
+                id="footFrictionNum"
+                min="0"
+                max="5"
+                step="0.1"
+                value="1.0"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="hipLinearDamping"
+              title="髋部的线性阻尼，抑制髋部横向和纵向运动"
+              >髋部线性阻尼</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="hipLinearDamping"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.5"
+              />
+              <input
+                type="number"
+                id="hipLinearDampingNum"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.5"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="bodyLinearDamping"
+              title="其他身体部件的线性阻尼，抑制它们的运动"
+              >身体线性阻尼</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="bodyLinearDamping"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.0"
+              />
+              <input
+                type="number"
+                id="bodyLinearDampingNum"
+                min="0"
+                max="3"
+                step="0.1"
+                value="0.0"
+              />
+            </div>
+          </div>
+        </details>
+
+        <details id="detailsJoint">
+          <summary>关节和移动</summary>
+          <div class="control-group">
+            <label for="hertz" title="关节弹簧的振动频率，越高越硬，0表示无弹簧"
+              >关节弹簧频率</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="hertz"
+                min="0"
+                max="20"
+                step="0.5"
+                value="8"
+              />
+              <input
+                type="number"
+                id="hertzNum"
+                min="0"
+                max="20"
+                step="0.5"
+                value="8"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="dampingRatio"
+              title="关节弹簧的阻尼比，控制振动衰减速度，1为临界阻尼"
+              >关节阻尼比</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="dampingRatio"
+                min="0"
+                max="2"
+                step="0.1"
+                value="1"
+              />
+              <input
+                type="number"
+                id="dampingRatioNum"
+                min="0"
+                max="2"
+                step="0.1"
+                value="1"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="frictionTorque" title="关节的摩擦扭矩，限制关节自由转动"
+              >关节摩擦扭矩</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="frictionTorque"
+                min="0"
+                max="50"
+                step="1"
+                value="20"
+              />
+              <input
+                type="number"
+                id="frictionTorqueNum"
+                min="0"
+                max="50"
+                step="1"
+                value="20"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="moveSpeed" title="角色左右移动的速度">移动速度</label>
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="moveSpeed"
+                min="1"
+                max="15"
+                step="0.5"
+                value="5"
+              />
+              <input
+                type="number"
+                id="moveSpeedNum"
+                min="1"
+                max="15"
+                step="0.5"
+                value="5"
+              />
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
     <div id="info">
       使用 A/D 或 ←/→ 移动<br />
       按空格跳跃（支持蹬墙跳）<br />

@@ -1,13 +1,15 @@
-import { Player } from './player'
-import type { MainModule, b2BodyId, b2WorldId } from './types'
+import { HumanPlayer } from './humanPlayer'
+import type { MainModule, b2BodyId, b2ShapeId, b2WorldId } from './types'
 
 export class Game {
   private box2d: MainModule
   private worldId: b2WorldId
-  private player: Player
+  private player: HumanPlayer
   private groundBodyId: b2BodyId
+  private groundShapeId!: b2ShapeId
   private obstacles: Array<{
     bodyId: b2BodyId
+    shapeId: b2ShapeId
     width: number
     height: number
   }> = []
@@ -21,6 +23,9 @@ export class Game {
   private zoomLevels = [0.6, 1.0, 1.8]
   private currentZoomLevel = 1
   private spaceKeyPressed = false
+  private isPaused = false
+  private groundFriction = 1.0
+  private obstacleFriction = 0.5
 
   constructor(
     box2d: MainModule,
@@ -43,9 +48,16 @@ export class Game {
     this.groundBodyId = this.createGround()
     this.createObstacles()
 
-    // 玩家初始位置：在地面上方一点点
-    const groundY = this.canvas.height / this.pixelsPerMeter - 0.5
-    this.player = new Player(this.box2d, this.worldId, 2, groundY - 2)
+    const groundHeight = 0.5
+    const groundY = this.canvas.height / this.pixelsPerMeter - groundHeight
+    const groundTopY = groundY - groundHeight
+    const footOffset = 0.29
+    this.player = new HumanPlayer(
+      this.box2d,
+      this.worldId,
+      2,
+      groundTopY - footOffset
+    )
 
     this.setupInput()
   }
@@ -69,8 +81,9 @@ export class Game {
 
     const groundBox = b2MakeBox(50, groundHeight)
     const shapeDef = b2DefaultShapeDef()
-    shapeDef.material.friction = 0.6
-    b2CreatePolygonShape(groundBodyId, shapeDef, groundBox)
+    shapeDef.material.friction = this.groundFriction
+    shapeDef.material.restitution = 0
+    this.groundShapeId = b2CreatePolygonShape(groundBodyId, shapeDef, groundBox)
 
     groundDef.delete()
     groundBox.delete()
@@ -94,8 +107,6 @@ export class Game {
     // 创建多个不同高度的障碍物/柱子作为参考
     const obstacleConfigs = [
       { x: -10, width: 1, height: 2 },
-      { x: -5, width: 1, height: 3 },
-      { x: 0, width: 0.5, height: 1.5 },
       { x: 5, width: 1, height: 2.5 },
       { x: 10, width: 1, height: 1 },
       { x: 15, width: 0.8, height: 3.5 },
@@ -110,10 +121,16 @@ export class Game {
 
       const box = b2MakeBox(obs.width, obs.height)
       const shapeDef = b2DefaultShapeDef()
-      shapeDef.material.friction = 0.05
-      b2CreatePolygonShape(bodyId, shapeDef, box)
+      shapeDef.material.friction = this.obstacleFriction
+      shapeDef.material.restitution = 0
+      const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
 
-      this.obstacles.push({ bodyId, width: obs.width, height: obs.height })
+      this.obstacles.push({
+        bodyId,
+        shapeId,
+        width: obs.width,
+        height: obs.height,
+      })
 
       bodyDef.delete()
       box.delete()
@@ -147,6 +164,10 @@ export class Game {
         // 复原：回到中间级别
         this.currentZoomLevel = 1
         this.targetZoom = this.zoomLevels[this.currentZoomLevel]
+      } else if (e.key.toLowerCase() === 'k') {
+        this.player.setAlive(false)
+      } else if (e.key.toLowerCase() === 'l') {
+        this.player.setAlive(true)
       }
     })
 
@@ -161,6 +182,8 @@ export class Game {
   }
 
   update(_deltaTime: number) {
+    if (this.isPaused) return
+
     let moveDirection = 0
     if (this.keys.has('a') || this.keys.has('arrowleft')) moveDirection -= 1
     if (this.keys.has('d') || this.keys.has('arrowright')) moveDirection += 1
@@ -171,6 +194,8 @@ export class Game {
     const { b2World_Step } = this.box2d
     const timeStep = 1 / 60
     b2World_Step(this.worldId, timeStep, 4)
+    this.player.postStepUpdate()
+    this.updateWallProximity()
 
     const playerPos = this.player.getPosition()
     // 相机跟随角色，保持角色在屏幕中心（不受缩放影响）
@@ -187,6 +212,48 @@ export class Game {
     } else {
       this.zoom = this.targetZoom
     }
+  }
+
+  private updateWallProximity() {
+    const { b2Body_GetPosition } = this.box2d
+    const playerPos = this.player.getPosition()
+    const playerHalfHeight = 1.1
+    const wallDistanceThreshold = 0.25
+    let closestDirection = 0
+    let closestDistance = Number.POSITIVE_INFINITY
+
+    for (const obstacle of this.obstacles) {
+      const obstaclePos = b2Body_GetPosition(obstacle.bodyId)
+      const minY = obstaclePos.y - obstacle.height - playerHalfHeight
+      const maxY = obstaclePos.y + obstacle.height + playerHalfHeight
+
+      if (playerPos.y < minY || playerPos.y > maxY) {
+        obstaclePos.delete()
+        continue
+      }
+
+      const left = obstaclePos.x - obstacle.width
+      const right = obstaclePos.x + obstacle.width
+
+      if (playerPos.x < left) {
+        const distance = left - playerPos.x
+        if (distance <= wallDistanceThreshold && distance < closestDistance) {
+          closestDistance = distance
+          closestDirection = 1
+        }
+      } else if (playerPos.x > right) {
+        const distance = playerPos.x - right
+        if (distance <= wallDistanceThreshold && distance < closestDistance) {
+          closestDistance = distance
+          closestDirection = -1
+        }
+      }
+
+      obstaclePos.delete()
+    }
+
+    playerPos.delete()
+    this.player.setWallProximity(closestDirection)
   }
 
   render() {
@@ -260,5 +327,63 @@ export class Game {
         obstacle.height * 2 * this.pixelsPerMeter
       )
     })
+  }
+
+  // Public methods for control panel
+  stop() {
+    this.isPaused = true
+  }
+
+  start() {
+    this.isPaused = false
+  }
+
+  restart() {
+    // Destroy old player first
+    this.player.destroy()
+
+    // Recreate player at initial position
+    const groundHeight = 0.5
+    const groundY = this.canvas.height / this.pixelsPerMeter - groundHeight
+    const groundTopY = groundY - groundHeight
+    const footOffset = 0.29
+    this.player = new HumanPlayer(
+      this.box2d,
+      this.worldId,
+      2,
+      groundTopY - footOffset
+    )
+    this.isPaused = false
+
+    // Log all parameters
+    this.logParameters()
+  }
+
+  logParameters() {
+    console.log('=== 游戏重启 - 当前参数 ===')
+    console.log('--- 环境参数 ---')
+    console.log({
+      地面摩擦力: this.groundFriction,
+      障碍物摩擦力: this.obstacleFriction,
+    })
+    this.player.logParameters()
+  }
+
+  getPlayer(): HumanPlayer {
+    return this.player
+  }
+
+  setGroundFriction(value: number) {
+    this.groundFriction = value
+    const { b2Shape_SetFriction } = this.box2d
+    b2Shape_SetFriction(this.groundShapeId, value)
+  }
+
+  setObstacleFriction(value: number) {
+    this.obstacleFriction = value
+    const { b2Shape_SetFriction } = this.box2d
+    for (const obstacle of this.obstacles) {
+      b2Shape_SetFriction(obstacle.shapeId, value)
+    }
   }
 }
