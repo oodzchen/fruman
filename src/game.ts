@@ -1,31 +1,40 @@
-import { HumanPlayer } from './humanPlayer'
+import {
+  DEFAULT_CAMERA_ZOOM,
+  DEFAULT_GROUND_FRICTION,
+  DEFAULT_OBSTACLE_FRICTION,
+} from './constants'
+import { Player } from './player'
 import type { MainModule, b2BodyId, b2ShapeId, b2WorldId } from './types'
+
+type ObstacleRenderData = {
+  bodyId: b2BodyId
+  shapeId: b2ShapeId
+  width: number
+  height: number
+}
 
 export class Game {
   private box2d: MainModule
   private worldId: b2WorldId
-  private player: HumanPlayer
+  private player: Player
   private groundBodyId: b2BodyId
   private groundShapeId!: b2ShapeId
-  private obstacles: Array<{
-    bodyId: b2BodyId
-    shapeId: b2ShapeId
-    width: number
-    height: number
-  }> = []
+  private obstacles: ObstacleRenderData[] = []
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private camera: { x: number; y: number }
   private pixelsPerMeter = 50
   private keys = new Set<string>()
-  private zoom = 1.0
-  private targetZoom = 1.0
-  private zoomLevels = [0.6, 1.0, 1.8]
-  private currentZoomLevel = 1
+  private zoom = DEFAULT_CAMERA_ZOOM
+  private targetZoom = DEFAULT_CAMERA_ZOOM
   private spaceKeyPressed = false
+  private jumpRequested = false
   private isPaused = false
-  private groundFriction = 1.0
-  private obstacleFriction = 0.5
+  private groundFriction = DEFAULT_GROUND_FRICTION
+  private obstacleFriction = DEFAULT_OBSTACLE_FRICTION
+  private backgroundPattern: CanvasPattern | null = null
+  private groundPattern: CanvasPattern | null = null
+  private obstaclePattern: CanvasPattern | null = null
 
   constructor(
     box2d: MainModule,
@@ -47,17 +56,14 @@ export class Game {
 
     this.groundBodyId = this.createGround()
     this.createObstacles()
+    this.backgroundPattern = this.createBackgroundPattern()
+    this.groundPattern = this.createGroundPattern()
+    this.obstaclePattern = this.createObstaclePattern()
 
     const groundHeight = 0.5
     const groundY = this.canvas.height / this.pixelsPerMeter - groundHeight
     const groundTopY = groundY - groundHeight
-    const footOffset = 0.29
-    this.player = new HumanPlayer(
-      this.box2d,
-      this.worldId,
-      2,
-      groundTopY - footOffset
-    )
+    this.player = new Player(this.box2d, this.worldId, 2, groundTopY - 0.6)
 
     this.setupInput()
   }
@@ -104,14 +110,10 @@ export class Game {
     const canvasHeightInMeters = this.canvas.height / this.pixelsPerMeter
     const groundY = canvasHeightInMeters - 0.5
 
-    // 创建多个不同高度的障碍物/柱子作为参考
     const obstacleConfigs = [
       { x: -10, width: 1, height: 2 },
-      { x: 5, width: 1, height: 2.5 },
-      { x: 10, width: 1, height: 1 },
-      { x: 15, width: 0.8, height: 3.5 },
-      { x: -15, width: 1.2, height: 2.8 },
-      { x: 20, width: 1, height: 2 },
+      { x: 10, width: 1, height: 1.5 },
+      { x: 20, width: 1, height: 2.5 },
     ]
 
     obstacleConfigs.forEach((obs) => {
@@ -145,29 +147,19 @@ export class Game {
       // 只有在空格键之前没有按下时才触发跳跃（避免键盘重复触发）
       if (e.key === ' ' && !this.spaceKeyPressed) {
         this.spaceKeyPressed = true
-        this.player.startJump()
+        this.jumpRequested = true
       }
 
-      // 缩放控制（三阶段）
+      // 缩放控制（阶梯0.2，不限制范围）
       if (e.key.toLowerCase() === 'i') {
-        // 放大：增加级别
-        this.currentZoomLevel = Math.min(
-          this.currentZoomLevel + 1,
-          this.zoomLevels.length - 1
-        )
-        this.targetZoom = this.zoomLevels[this.currentZoomLevel]
+        // 放大：增加0.2
+        this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
       } else if (e.key.toLowerCase() === 'o') {
-        // 缩小：减少级别
-        this.currentZoomLevel = Math.max(this.currentZoomLevel - 1, 0)
-        this.targetZoom = this.zoomLevels[this.currentZoomLevel]
+        // 缩小：减少0.2
+        this.targetZoom = Math.max(0.1, this.targetZoom - 0.2)
       } else if (e.key.toLowerCase() === 'u') {
-        // 复原：回到中间级别
-        this.currentZoomLevel = 1
-        this.targetZoom = this.zoomLevels[this.currentZoomLevel]
-      } else if (e.key.toLowerCase() === 'k') {
-        this.player.setAlive(false)
-      } else if (e.key.toLowerCase() === 'l') {
-        this.player.setAlive(true)
+        // 复原：回到1.0
+        this.targetZoom = 1.0
       }
     })
 
@@ -179,6 +171,16 @@ export class Game {
         this.player.stopJump()
       }
     })
+
+    // 鼠标滚轮缩放
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault()
+      const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1
+      this.targetZoom = Math.max(
+        0.1,
+        Math.min(2.0, this.targetZoom + zoomDelta)
+      )
+    })
   }
 
   update(_deltaTime: number) {
@@ -188,18 +190,46 @@ export class Game {
     if (this.keys.has('a') || this.keys.has('arrowleft')) moveDirection -= 1
     if (this.keys.has('d') || this.keys.has('arrowright')) moveDirection += 1
 
+    if (this.jumpRequested) {
+      this.player.startJump()
+      this.jumpRequested = false
+    }
+
     this.player.move(moveDirection)
     this.player.updateJump()
 
     const { b2World_Step } = this.box2d
     const timeStep = 1 / 60
     b2World_Step(this.worldId, timeStep, 4)
-    this.player.postStepUpdate()
-    this.updateWallProximity()
 
     const playerPos = this.player.getPosition()
-    // 相机跟随角色，保持角色在屏幕中心（不受缩放影响）
-    this.camera.x = playerPos.x - this.canvas.width / (2 * this.pixelsPerMeter)
+
+    // 相机死区跟随：计算玩家在屏幕上的位置，判断是否在1/8死区内
+    const centerX = this.canvas.width / 2
+    // 玩家在屏幕上的x坐标（考虑缩放变换）
+    const playerScreenX =
+      centerX +
+      ((playerPos.x - this.camera.x) * this.pixelsPerMeter - centerX) *
+        this.zoom
+
+    const deadZoneLeft = this.canvas.width / 8
+    const deadZoneRight = (7 * this.canvas.width) / 8
+
+    // 玩家在左边1/8死区外，调整相机让玩家回到左边界
+    if (playerScreenX < deadZoneLeft) {
+      // 解方程：deadZoneLeft = centerX + ((playerPos.x - camera.x) * pixelsPerMeter - centerX) * zoom
+      const targetCameraX =
+        playerPos.x -
+        ((deadZoneLeft - centerX) / this.zoom + centerX) / this.pixelsPerMeter
+      this.camera.x = targetCameraX
+    }
+    // 玩家在右边1/8死区外，调整相机让玩家回到右边界
+    else if (playerScreenX > deadZoneRight) {
+      const targetCameraX =
+        playerPos.x -
+        ((deadZoneRight - centerX) / this.zoom + centerX) / this.pixelsPerMeter
+      this.camera.x = targetCameraX
+    }
 
     // 让相机保持在底部，这样地面始终可见
     const canvasHeightInMeters = this.canvas.height / this.pixelsPerMeter
@@ -214,60 +244,19 @@ export class Game {
     }
   }
 
-  private updateWallProximity() {
-    const { b2Body_GetPosition } = this.box2d
-    const playerPos = this.player.getPosition()
-    const playerHalfHeight = 1.1
-    const wallDistanceThreshold = 0.25
-    let closestDirection = 0
-    let closestDistance = Number.POSITIVE_INFINITY
-
-    for (const obstacle of this.obstacles) {
-      const obstaclePos = b2Body_GetPosition(obstacle.bodyId)
-      const minY = obstaclePos.y - obstacle.height - playerHalfHeight
-      const maxY = obstaclePos.y + obstacle.height + playerHalfHeight
-
-      if (playerPos.y < minY || playerPos.y > maxY) {
-        obstaclePos.delete()
-        continue
-      }
-
-      const left = obstaclePos.x - obstacle.width
-      const right = obstaclePos.x + obstacle.width
-
-      if (playerPos.x < left) {
-        const distance = left - playerPos.x
-        if (distance <= wallDistanceThreshold && distance < closestDistance) {
-          closestDistance = distance
-          closestDirection = 1
-        }
-      } else if (playerPos.x > right) {
-        const distance = playerPos.x - right
-        if (distance <= wallDistanceThreshold && distance < closestDistance) {
-          closestDistance = distance
-          closestDirection = -1
-        }
-      }
-
-      obstaclePos.delete()
-    }
-
-    playerPos.delete()
-    this.player.setWallProximity(closestDirection)
-  }
-
   render() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    this.drawBackground()
 
     this.ctx.save()
 
-    // 以画布中心为缩放中心（固定位置，避免跳跃时垂直晃动）
+    // 以画布底部中心为缩放中心，确保地面始终贴着视窗底部
     const centerX = this.canvas.width / 2
-    const centerY = this.canvas.height / 2
+    const bottomY = this.canvas.height
 
-    this.ctx.translate(centerX, centerY)
+    this.ctx.translate(centerX, bottomY)
     this.ctx.scale(this.zoom, this.zoom)
-    this.ctx.translate(-centerX, -centerY)
+    this.ctx.translate(-centerX, -bottomY)
 
     // 应用相机偏移
     this.ctx.translate(
@@ -275,8 +264,8 @@ export class Game {
       -this.camera.y * this.pixelsPerMeter
     )
 
-    this.drawGround()
     this.drawObstacles()
+    this.drawGround()
     this.player.render(this.ctx, this.pixelsPerMeter)
 
     this.ctx.restore()
@@ -290,7 +279,7 @@ export class Game {
     const topY = (pos.y - groundHeight) * this.pixelsPerMeter
     const height = groundHeight * 2 * this.pixelsPerMeter
 
-    this.ctx.fillStyle = '#654321'
+    this.ctx.fillStyle = this.groundPattern ?? '#654321'
     this.ctx.fillRect(
       (pos.x - 50) * this.pixelsPerMeter,
       topY,
@@ -302,14 +291,11 @@ export class Game {
   private drawObstacles() {
     const { b2Body_GetPosition } = this.box2d
 
-    this.obstacles.forEach((obstacle, index) => {
+    this.obstacles.forEach((obstacle, _index) => {
       const pos = b2Body_GetPosition(obstacle.bodyId)
 
-      // 使用不同颜色以区分
-      const colors = ['#8B4513', '#A0522D', '#D2691E', '#CD853F', '#DEB887']
-      this.ctx.fillStyle = colors[index % colors.length]
-
-      // 使用实际的物理形状尺寸绘制
+      // 使用简单几何纹理填充
+      this.ctx.fillStyle = this.obstaclePattern ?? '#d2691e'
       this.ctx.fillRect(
         (pos.x - obstacle.width) * this.pixelsPerMeter,
         (pos.y - obstacle.height) * this.pixelsPerMeter,
@@ -339,23 +325,12 @@ export class Game {
   }
 
   restart() {
-    // Destroy old player first
-    this.player.destroy()
-
-    // Recreate player at initial position
     const groundHeight = 0.5
     const groundY = this.canvas.height / this.pixelsPerMeter - groundHeight
     const groundTopY = groundY - groundHeight
-    const footOffset = 0.29
-    this.player = new HumanPlayer(
-      this.box2d,
-      this.worldId,
-      2,
-      groundTopY - footOffset
-    )
+    this.player = new Player(this.box2d, this.worldId, 2, groundTopY - 0.6)
     this.isPaused = false
 
-    // Log all parameters
     this.logParameters()
   }
 
@@ -366,10 +341,9 @@ export class Game {
       地面摩擦力: this.groundFriction,
       障碍物摩擦力: this.obstacleFriction,
     })
-    this.player.logParameters()
   }
 
-  getPlayer(): HumanPlayer {
+  getPlayer(): Player {
     return this.player
   }
 
@@ -385,5 +359,165 @@ export class Game {
     for (const obstacle of this.obstacles) {
       b2Shape_SetFriction(obstacle.shapeId, value)
     }
+  }
+
+  getZoom(): number {
+    return this.targetZoom
+  }
+
+  setZoom(value: number) {
+    this.targetZoom = Math.max(0.1, Math.min(2.0, value))
+  }
+
+  setJumpBufferWindow(value: number) {
+    this.player.setJumpBufferWindow(value)
+  }
+
+  private createBackgroundPattern(): CanvasPattern | null {
+    const patternSize = 80
+    const patternCanvas = document.createElement('canvas')
+    patternCanvas.width = patternSize
+    patternCanvas.height = patternSize
+    const patternCtx = patternCanvas.getContext('2d')
+
+    if (!patternCtx) {
+      return null
+    }
+
+    patternCtx.fillStyle = '#0b0c0e'
+    patternCtx.fillRect(0, 0, patternSize, patternSize)
+
+    patternCtx.strokeStyle = '#394155'
+    patternCtx.lineWidth = 1
+
+    const drawTriangle = (
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      x3: number,
+      y3: number
+    ) => {
+      patternCtx.beginPath()
+      patternCtx.moveTo(x1, y1)
+      patternCtx.lineTo(x2, y2)
+      patternCtx.lineTo(x3, y3)
+      patternCtx.closePath()
+      patternCtx.stroke()
+    }
+
+    const halfSize = patternSize / 2
+    const height = (Math.sqrt(3) / 2) * halfSize
+
+    // 顶部三角形带轻微错位，便于平铺无缝
+    drawTriangle(0, height, halfSize, 0, halfSize, height)
+    drawTriangle(halfSize, 0, patternSize, height, halfSize, height)
+
+    // 底部三角形
+    drawTriangle(0, height, halfSize, height * 2, halfSize, height)
+    drawTriangle(halfSize, height * 2, patternSize, height, halfSize, height)
+
+    // 中央衔接线，确保重复时边缘连续
+    patternCtx.beginPath()
+    patternCtx.moveTo(0, height)
+    patternCtx.lineTo(patternSize, height)
+    patternCtx.stroke()
+
+    return this.ctx.createPattern(patternCanvas, 'repeat')
+  }
+
+  private drawBackground() {
+    if (!this.backgroundPattern) {
+      return
+    }
+    this.ctx.save()
+    this.ctx.fillStyle = this.backgroundPattern
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
+    this.ctx.restore()
+  }
+
+  private createGroundPattern(): CanvasPattern | null {
+    const size = 96
+    const patternCanvas = document.createElement('canvas')
+    patternCanvas.width = size
+    patternCanvas.height = size
+    const patternCtx = patternCanvas.getContext('2d')
+
+    if (!patternCtx) {
+      return null
+    }
+
+    patternCtx.fillStyle = '#826343'
+    patternCtx.fillRect(0, 0, size, size)
+
+    patternCtx.strokeStyle = '#a29f4f'
+    patternCtx.lineWidth = 1
+
+    const mid = size / 2
+    patternCtx.beginPath()
+    patternCtx.moveTo(0, mid)
+    patternCtx.lineTo(mid, 0)
+    patternCtx.lineTo(size, mid)
+    patternCtx.lineTo(mid, size)
+    patternCtx.closePath()
+    patternCtx.stroke()
+
+    patternCtx.beginPath()
+    patternCtx.moveTo(mid / 2, mid)
+    patternCtx.lineTo(mid, mid / 2)
+    patternCtx.lineTo((mid * 3) / 2, mid)
+    patternCtx.lineTo(mid, (mid * 3) / 2)
+    patternCtx.closePath()
+    patternCtx.stroke()
+
+    return this.ctx.createPattern(patternCanvas, 'repeat')
+  }
+
+  private createObstaclePattern(): CanvasPattern | null {
+    const size = 88
+    const patternCanvas = document.createElement('canvas')
+    patternCanvas.width = size
+    patternCanvas.height = size
+    const patternCtx = patternCanvas.getContext('2d')
+
+    if (!patternCtx) {
+      return null
+    }
+
+    patternCtx.fillStyle = '#70400e'
+    patternCtx.fillRect(0, 0, size, size)
+
+    patternCtx.strokeStyle = '#d7a168'
+    patternCtx.lineWidth = 1
+
+    const radius = size / 4
+    const rowHeight = Math.sqrt(3) * radius
+
+    const drawHex = (cx: number, cy: number) => {
+      patternCtx.beginPath()
+      for (let i = 0; i < 6; i += 1) {
+        const angle = (Math.PI / 3) * i + Math.PI / 6
+        const x = cx + radius * Math.cos(angle)
+        const y = cy + radius * Math.sin(angle)
+        if (i === 0) {
+          patternCtx.moveTo(x, y)
+        } else {
+          patternCtx.lineTo(x, y)
+        }
+      }
+      patternCtx.closePath()
+      patternCtx.stroke()
+    }
+
+    for (let row = -1; row <= 2; row += 1) {
+      const y = row * rowHeight + rowHeight
+      for (let col = -1; col <= 2; col += 1) {
+        const xOffset = row % 2 === 0 ? 0 : radius
+        const x = col * radius * 2 + radius + xOffset
+        drawHex(x, y)
+      }
+    }
+
+    return this.ctx.createPattern(patternCanvas, 'repeat')
   }
 }

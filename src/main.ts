@@ -126,8 +126,8 @@ async function initialize() {
   // Setup control panel
   const btnStop = document.getElementById('btnStop') as HTMLButtonElement
   const btnRestart = document.getElementById('btnRestart') as HTMLButtonElement
-  const btnKill = document.getElementById('btnKill') as HTMLButtonElement
-  const btnRevive = document.getElementById('btnRevive') as HTMLButtonElement
+  const _btnKill = document.getElementById('btnKill') as HTMLButtonElement
+  const _btnRevive = document.getElementById('btnRevive') as HTMLButtonElement
 
   btnStop.addEventListener('click', () => {
     game.stop()
@@ -149,13 +149,13 @@ async function initialize() {
     btnStop.textContent = '暂停'
   })
 
-  btnKill.addEventListener('click', () => {
-    game.getPlayer().setAlive(false)
-  })
+  // btnKill.addEventListener('click', () => {
+  //   game.getPlayer().setAlive(false)
+  // })
 
-  btnRevive.addEventListener('click', () => {
-    game.getPlayer().setAlive(true)
-  })
+  // btnRevive.addEventListener('click', () => {
+  //   game.getPlayer().setAlive(true)
+  // })
 
   // Setup parameter controls
   applyControls.push(
@@ -172,58 +172,22 @@ async function initialize() {
 
   applyControls.push(
     syncInputs(
+      'jumpBufferWindow',
+      'jumpBufferWindowNum',
+      (value) => {
+        game.setJumpBufferWindow(value)
+      },
+      storedValues,
+      updateStoredValue
+    )
+  )
+
+  applyControls.push(
+    syncInputs(
       'maxJumpDuration',
       'maxJumpDurationNum',
       (value) => {
         game.getPlayer().setMaxJumpDuration(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'hertz',
-      'hertzNum',
-      (value) => {
-        game.getPlayer().setHertz(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'dampingRatio',
-      'dampingRatioNum',
-      (value) => {
-        game.getPlayer().setDampingRatio(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'frictionTorque',
-      'frictionTorqueNum',
-      (value) => {
-        game.getPlayer().setFrictionTorque(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'moveSpeed',
-      'moveSpeedNum',
-      (value) => {
-        game.getPlayer().setMoveSpeed(value)
       },
       storedValues,
       updateStoredValue
@@ -280,34 +244,22 @@ async function initialize() {
 
   applyControls.push(
     syncInputs(
+      'moveSpeed',
+      'moveSpeedNum',
+      (value) => {
+        game.getPlayer().setMoveSpeed(value)
+      },
+      storedValues,
+      updateStoredValue
+    )
+  )
+
+  applyControls.push(
+    syncInputs(
       'bodyFriction',
       'bodyFrictionNum',
       (value) => {
         game.getPlayer().setBodyFriction(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'footFriction',
-      'footFrictionNum',
-      (value) => {
-        game.getPlayer().setFootFriction(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'hipLinearDamping',
-      'hipLinearDampingNum',
-      (value) => {
-        game.getPlayer().setHipLinearDamping(value)
       },
       storedValues,
       updateStoredValue
@@ -350,11 +302,32 @@ async function initialize() {
     )
   )
 
+  // 缩放控件
+  applyControls.push(
+    syncInputs(
+      'cameraZoom',
+      'cameraZoomNum',
+      (value) => {
+        game.setZoom(value)
+      },
+      storedValues,
+      updateStoredValue
+    )
+  )
+
   applyControls.forEach((apply) => apply())
 
   // Log initial parameters
   console.log('=== 游戏初始化完成 ===')
   game.logParameters()
+
+  // 获取缩放控件引用，用于实时同步
+  const cameraZoomRange = document.getElementById(
+    'cameraZoom'
+  ) as HTMLInputElement
+  const cameraZoomNum = document.getElementById(
+    'cameraZoomNum'
+  ) as HTMLInputElement
 
   let lastTime = 0
   function gameLoop(currentTime: number) {
@@ -363,6 +336,13 @@ async function initialize() {
 
     game.update(Math.min(deltaTime, 0.1))
     game.render()
+
+    // 实时同步缩放值到UI控件
+    const currentZoom = game.getZoom().toFixed(1)
+    if (cameraZoomRange.value !== currentZoom) {
+      cameraZoomRange.value = currentZoom
+      cameraZoomNum.value = currentZoom
+    }
 
     requestAnimationFrame(gameLoop)
   }
