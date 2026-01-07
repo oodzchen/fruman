@@ -7,6 +7,7 @@ import {
   DEFAULT_MAX_JUMP_DURATION,
   DEFAULT_MAX_WALL_JUMPS,
   DEFAULT_MOVE_SPEED,
+  DEFAULT_PLAYER_RADIUS,
   DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
   DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
 } from './constants'
@@ -65,7 +66,7 @@ export class Player {
     const shape = new b2Capsule()
     shape.center1.Set(0, 0)
     shape.center2.Set(0, 0)
-    shape.radius = 0.5
+    shape.radius = DEFAULT_PLAYER_RADIUS
     const fixtureDef = b2DefaultShapeDef()
     fixtureDef.density = 1.0
     fixtureDef.material.friction = DEFAULT_BODY_FRICTION
@@ -254,6 +255,10 @@ export class Player {
   getPosition(): b2Vec2 {
     const { b2Body_GetPosition } = this.box2d
     return b2Body_GetPosition(this.bodyId)
+  }
+
+  getFacingDirection(): number {
+    return this.lastMoveDirection !== 0 ? this.lastMoveDirection : 1
   }
 
   render(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {

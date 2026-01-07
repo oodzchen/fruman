@@ -2,6 +2,25 @@ import {
   DEFAULT_CAMERA_ZOOM,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
+  DEFAULT_PLAYER_RADIUS,
+  DEFAULT_WEAPON_ATTACK_PAUSE_MS,
+  DEFAULT_WEAPON_ATTACK_RADIUS,
+  DEFAULT_WEAPON_ATTACK_RECOVER_MS,
+  DEFAULT_WEAPON_ATTACK_SWING_MS,
+  DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+  DEFAULT_WEAPON_COMBAT_TIMEOUT_MS,
+  DEFAULT_WEAPON_CORNER_RADIUS,
+  DEFAULT_WEAPON_FINAL_WINDUP_MS,
+  DEFAULT_WEAPON_FOLLOW_OFFSET_X,
+  DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
+  DEFAULT_WEAPON_FRONT_OFFSET_X,
+  DEFAULT_WEAPON_FRONT_OFFSET_Y,
+  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+  DEFAULT_WEAPON_HEIGHT,
+  DEFAULT_WEAPON_PICKUP_DISTANCE,
+  DEFAULT_WEAPON_PLAYER_CLEARANCE,
+  DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+  DEFAULT_WEAPON_WIDTH,
 } from './constants'
 import { Player } from './player'
 import type { MainModule, b2BodyId, b2ShapeId, b2WorldId } from './types'
@@ -12,6 +31,43 @@ type ObstacleRenderData = {
   width: number
   height: number
 }
+
+type WeaponState = {
+  width: number
+  height: number
+  cornerRadius: number
+  position: { x: number; y: number }
+  rotation: number
+  isEquipped: boolean
+  isInCombat: boolean
+  attackPhase:
+    | 'idle'
+    | 'windup'
+    | 'swing'
+    | 'pause'
+    | 'resetHead'
+    | 'headHold'
+    | 'recover'
+    | 'finalWindup'
+  attackElapsedMs: number
+  lastAttackTimestamp: number
+  attackStartTransform: WeaponTransform
+  visual: WeaponTransform
+  attackQueued: boolean
+  comboCount: number
+  swingDirection: 'toFront' | 'toHead'
+  nextSwingDirection: 'toFront' | 'toHead'
+  attackFacing: number
+  attackStartOffset: WeaponRelativeTransform
+  swingStartOffset: WeaponRelativeTransform
+  swingEndOffset: WeaponRelativeTransform
+  swingStartTransform: WeaponTransform
+  swingEndTransform: WeaponTransform
+  attackRadius: number
+}
+
+type WeaponTransform = { x: number; y: number; rotation: number }
+type WeaponRelativeTransform = { dx: number; dy: number; rotation: number }
 
 export class Game {
   private box2d: MainModule
@@ -35,6 +91,9 @@ export class Game {
   private backgroundPattern: CanvasPattern | null = null
   private groundPattern: CanvasPattern | null = null
   private obstaclePattern: CanvasPattern | null = null
+  private weapon: WeaponState | null = null
+  private groundTopY = 0
+  private attackKeyPressed = false
 
   constructor(
     box2d: MainModule,
@@ -63,7 +122,9 @@ export class Game {
     const groundHeight = 0.5
     const groundY = this.canvas.height / this.pixelsPerMeter - groundHeight
     const groundTopY = groundY - groundHeight
+    this.groundTopY = groundTopY
     this.player = new Player(this.box2d, this.worldId, 2, groundTopY - 0.6)
+    this.initializeWeapon(groundTopY)
 
     this.setupInput()
   }
@@ -150,6 +211,11 @@ export class Game {
         this.jumpRequested = true
       }
 
+      if (e.key.toLowerCase() === 'j' && !this.attackKeyPressed) {
+        this.attackKeyPressed = true
+        this.startAttack()
+      }
+
       // 缩放控制（阶梯0.2，不限制范围）
       if (e.key.toLowerCase() === 'i') {
         // 放大：增加0.2
@@ -170,6 +236,10 @@ export class Game {
         this.spaceKeyPressed = false
         this.player.stopJump()
       }
+
+      if (e.key.toLowerCase() === 'j') {
+        this.attackKeyPressed = false
+      }
     })
 
     // 鼠标滚轮缩放
@@ -183,8 +253,12 @@ export class Game {
     })
   }
 
-  update(_deltaTime: number) {
+  update(deltaTime: number) {
     if (this.isPaused) return
+
+    this.tryPickUpWeapon()
+
+    const deltaMs = Math.max(0, deltaTime * 1000)
 
     let moveDirection = 0
     if (this.keys.has('a') || this.keys.has('arrowleft')) moveDirection -= 1
@@ -197,6 +271,7 @@ export class Game {
 
     this.player.move(moveDirection)
     this.player.updateJump()
+    this.updateWeapon(deltaMs)
 
     const { b2World_Step } = this.box2d
     const timeStep = 1 / 60
@@ -264,8 +339,9 @@ export class Game {
       -this.camera.y * this.pixelsPerMeter
     )
 
-    this.drawObstacles()
     this.drawGround()
+    this.drawObstacles()
+    this.renderWeapon()
     this.player.render(this.ctx, this.pixelsPerMeter)
 
     this.ctx.restore()
@@ -328,7 +404,9 @@ export class Game {
     const groundHeight = 0.5
     const groundY = this.canvas.height / this.pixelsPerMeter - groundHeight
     const groundTopY = groundY - groundHeight
+    this.groundTopY = groundTopY
     this.player = new Player(this.box2d, this.worldId, 2, groundTopY - 0.6)
+    this.initializeWeapon(groundTopY)
     this.isPaused = false
 
     this.logParameters()
@@ -371,6 +449,605 @@ export class Game {
 
   setJumpBufferWindow(value: number) {
     this.player.setJumpBufferWindow(value)
+  }
+
+  setWeaponSize(width: number, height: number) {
+    if (!this.weapon) return
+    const safeWidth = Math.max(0.1, width)
+    const safeHeight = Math.max(0.05, height)
+    this.weapon.width = safeWidth
+    this.weapon.height = safeHeight
+
+    if (!this.weapon.isEquipped) {
+      this.weapon.position.y = this.groundTopY - safeHeight / 2
+    }
+  }
+
+  private initializeWeapon(groundTopY: number) {
+    const initialX = 6
+    this.weapon = {
+      width: DEFAULT_WEAPON_WIDTH,
+      height: DEFAULT_WEAPON_HEIGHT,
+      cornerRadius: DEFAULT_WEAPON_CORNER_RADIUS,
+      position: {
+        x: initialX,
+        y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+      },
+      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+      isEquipped: false,
+      isInCombat: false,
+      attackPhase: 'idle',
+      attackElapsedMs: 0,
+      lastAttackTimestamp: 0,
+      attackStartTransform: {
+        x: initialX,
+        y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+        rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+      },
+      visual: {
+        x: initialX,
+        y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+        rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+      },
+      attackQueued: false,
+      comboCount: 0,
+      swingDirection: 'toFront',
+      nextSwingDirection: 'toFront',
+      attackFacing: 1,
+      attackStartOffset: {
+        dx: 0,
+        dy: 0,
+        rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+      },
+      swingStartOffset: {
+        dx: 0,
+        dy: 0,
+        rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+      },
+      swingEndOffset: {
+        dx: 0,
+        dy: 0,
+        rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+      },
+      swingStartTransform: {
+        x: initialX,
+        y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+        rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+      },
+      swingEndTransform: {
+        x: initialX,
+        y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+        rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+      },
+      attackRadius: DEFAULT_WEAPON_ATTACK_RADIUS,
+    }
+  }
+
+  private tryPickUpWeapon() {
+    if (!this.weapon || this.weapon.isEquipped) return
+    const playerPos = this.player.getPosition()
+    const dx = playerPos.x - this.weapon.position.x
+    const dy = playerPos.y - this.weapon.position.y
+    const distance = Math.hypot(dx, dy)
+
+    if (distance > DEFAULT_WEAPON_PICKUP_DISTANCE) return
+
+    this.weapon.isEquipped = true
+    this.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    this.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+  }
+
+  private startAttack() {
+    if (!this.weapon || !this.weapon.isEquipped) return
+
+    const now = Date.now()
+    const playerPos = this.player.getPosition()
+    const facing = this.player.getFacingDirection()
+    const attackRadius = this.getAttackRadius()
+    this.weapon.attackRadius = attackRadius
+    this.weapon.attackFacing = facing
+
+    // 每个连续序列最多5次
+    if (this.weapon.comboCount >= 5) return
+
+    if (this.weapon.attackPhase === 'idle') {
+      const { swingStartTransform, swingEndTransform } =
+        this.getSwingTransforms(
+          attackRadius,
+          facing,
+          this.weapon.swingDirection,
+          playerPos
+        )
+      const attackStartOffset = this.getOffsetFromTransform(
+        {
+          x: this.weapon.visual.x,
+          y: this.weapon.visual.y,
+          rotation: this.weapon.visual.rotation,
+        },
+        playerPos
+      )
+      const swingStartOffset = this.getOffsetFromTransform(
+        swingStartTransform,
+        playerPos
+      )
+      const swingEndOffset = this.getOffsetFromTransform(
+        swingEndTransform,
+        playerPos
+      )
+
+      this.weapon.swingDirection = this.weapon.nextSwingDirection
+      this.weapon.nextSwingDirection =
+        this.weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
+      this.weapon.isInCombat = true
+      this.weapon.attackPhase = 'windup'
+      this.weapon.attackElapsedMs = 0
+      this.weapon.lastAttackTimestamp = now
+      this.weapon.attackStartOffset = attackStartOffset
+      this.weapon.swingStartOffset = swingStartOffset
+      this.weapon.swingEndOffset = swingEndOffset
+      this.weapon.attackStartTransform = this.applyOffset(
+        attackStartOffset,
+        playerPos
+      )
+      this.weapon.swingStartTransform = swingStartTransform
+      this.weapon.swingEndTransform = swingEndTransform
+      this.weapon.attackRadius = attackRadius
+      this.weapon.comboCount = 1
+      this.weapon.attackQueued = false
+      this.weapon.visual = this.applyOffset(attackStartOffset, playerPos)
+      return
+    }
+
+    // 非idle阶段记录队列请求
+    if (!this.weapon.attackQueued) {
+      this.weapon.attackQueued = true
+      this.weapon.lastAttackTimestamp = now
+    }
+  }
+
+  private updateWeapon(deltaMs: number) {
+    if (!this.weapon) return
+
+    // 非装备状态保持地面静止
+    if (!this.weapon.isEquipped) {
+      this.weapon.visual = {
+        x: this.weapon.position.x,
+        y: this.weapon.position.y,
+        rotation: this.weapon.rotation,
+      }
+      return
+    }
+
+    const playerPos = this.player.getPosition()
+    const facing = this.player.getFacingDirection()
+    const now = Date.now()
+    const attackRadius = this.weapon.attackRadius || this.getAttackRadius()
+    const attackFacing = this.weapon.attackFacing || facing
+    const attackStartTransform = this.applyOffset(
+      this.weapon.attackStartOffset,
+      playerPos
+    )
+    const swingStartTransform = this.applyOffset(
+      this.weapon.swingStartOffset,
+      playerPos
+    )
+    const swingEndTransform = this.applyOffset(
+      this.weapon.swingEndOffset,
+      playerPos
+    )
+    this.weapon.attackStartTransform = attackStartTransform
+    this.weapon.swingStartTransform = swingStartTransform
+    this.weapon.swingEndTransform = swingEndTransform
+
+    // 超时退出战斗状态并重置连击
+    const hasTimedOut =
+      this.weapon.isInCombat &&
+      now - this.weapon.lastAttackTimestamp > DEFAULT_WEAPON_COMBAT_TIMEOUT_MS
+    if (hasTimedOut) {
+      this.weapon.isInCombat = false
+      this.weapon.comboCount = 0
+      this.weapon.attackQueued = false
+      this.weapon.nextSwingDirection = 'toFront'
+    }
+
+    if (this.weapon.attackPhase === 'idle') {
+      this.weapon.visual = this.weapon.isInCombat
+        ? this.getFrontTransform(playerPos, facing)
+        : this.getBackTransform(playerPos, facing)
+
+      // 如果在idle阶段存在排队攻击，则立刻开启新攻击
+      if (this.weapon.attackQueued && this.weapon.comboCount < 5) {
+        this.weapon.attackQueued = false
+        this.weapon.comboCount += 1
+        this.weapon.swingDirection = this.weapon.nextSwingDirection
+        this.weapon.nextSwingDirection =
+          this.weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
+        const { swingStartTransform, swingEndTransform } =
+          this.getSwingTransforms(
+            attackRadius,
+            attackFacing,
+            this.weapon.swingDirection,
+            playerPos
+          )
+        const attackStartOffset = this.getOffsetFromTransform(
+          this.weapon.visual,
+          playerPos
+        )
+        const swingStartOffset = this.getOffsetFromTransform(
+          swingStartTransform,
+          playerPos
+        )
+        const swingEndOffset = this.getOffsetFromTransform(
+          swingEndTransform,
+          playerPos
+        )
+        this.weapon.isInCombat = true
+        this.weapon.attackPhase = 'windup'
+        this.weapon.attackElapsedMs = 0
+        this.weapon.lastAttackTimestamp = now
+        this.weapon.attackFacing = attackFacing
+        this.weapon.attackStartOffset = attackStartOffset
+        this.weapon.swingStartOffset = swingStartOffset
+        this.weapon.swingEndOffset = swingEndOffset
+        this.weapon.attackStartTransform = this.applyOffset(
+          attackStartOffset,
+          playerPos
+        )
+        this.weapon.swingStartTransform = swingStartTransform
+        this.weapon.swingEndTransform = swingEndTransform
+        this.weapon.attackRadius = attackRadius
+        this.weapon.visual = this.applyOffset(attackStartOffset, playerPos)
+      }
+      return
+    }
+
+    this.weapon.attackElapsedMs += deltaMs
+
+    if (this.weapon.attackPhase === 'windup') {
+      const t = this.clamp01(
+        this.weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_WINDUP_MS
+      )
+      const target = this.weapon.swingStartTransform
+      this.weapon.visual = this.lerpTransform(
+        this.weapon.attackStartTransform,
+        target,
+        t
+      )
+      if (t >= 1) {
+        this.weapon.attackPhase = 'swing'
+        this.weapon.attackElapsedMs = 0
+        this.weapon.attackStartTransform = this.weapon.swingStartTransform
+      }
+      return
+    }
+
+    if (this.weapon.attackPhase === 'finalWindup') {
+      const t = this.clamp01(
+        this.weapon.attackElapsedMs / DEFAULT_WEAPON_FINAL_WINDUP_MS
+      )
+      const target = this.weapon.swingStartTransform
+      this.weapon.visual = this.lerpTransform(
+        this.weapon.attackStartTransform,
+        target,
+        t
+      )
+      if (t >= 1) {
+        this.weapon.attackPhase = 'swing'
+        this.weapon.attackElapsedMs = 0
+        this.weapon.attackStartTransform = this.weapon.swingStartTransform
+      }
+      return
+    }
+
+    if (this.weapon.attackPhase === 'swing') {
+      const t = this.clamp01(
+        this.weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_SWING_MS
+      )
+      const from = this.weapon.swingStartTransform
+      const to = this.weapon.swingEndTransform
+      this.weapon.visual = this.lerpTransform(from, to, t)
+      if (t >= 1) {
+        this.weapon.attackPhase = 'pause'
+        this.weapon.attackElapsedMs = 0
+        this.weapon.attackStartOffset = this.getOffsetFromTransform(
+          this.weapon.visual,
+          playerPos
+        )
+        this.weapon.attackStartTransform = this.weapon.visual
+        this.weapon.lastAttackTimestamp = now
+      }
+      return
+    }
+
+    if (this.weapon.attackPhase === 'pause') {
+      this.weapon.visual = this.weapon.attackStartTransform
+
+      const reachedPause =
+        this.weapon.attackElapsedMs >= DEFAULT_WEAPON_ATTACK_PAUSE_MS
+      const canChain = this.weapon.attackQueued && this.weapon.comboCount < 5
+
+      if (canChain) {
+        this.weapon.attackQueued = false
+        this.weapon.comboCount += 1
+        const isFinalAttack = this.weapon.comboCount === 5
+
+        this.weapon.swingDirection = this.weapon.nextSwingDirection
+        this.weapon.nextSwingDirection =
+          this.weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
+
+        const frontAngle = attackFacing === 1 ? 0 : -Math.PI
+        const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+
+        if (isFinalAttack) {
+          const finalWindupRadius = attackRadius * 1.5
+          const windupAngle =
+            this.weapon.swingDirection === 'toFront' ? headAngle : frontAngle
+          const finalWindupTransform = this.getTransformAtAngle(
+            playerPos,
+            windupAngle,
+            finalWindupRadius
+          )
+          const finalWindupOffset = this.getOffsetFromTransform(
+            finalWindupTransform,
+            playerPos
+          )
+
+          const swingEndAngle =
+            this.weapon.swingDirection === 'toFront' ? frontAngle : headAngle
+          const swingEndTransform = this.getTransformAtAngle(
+            playerPos,
+            swingEndAngle,
+            attackRadius
+          )
+          const swingEndOffset = this.getOffsetFromTransform(
+            swingEndTransform,
+            playerPos
+          )
+
+          this.weapon.attackPhase = 'finalWindup'
+          this.weapon.attackElapsedMs = 0
+          this.weapon.attackStartOffset = this.getOffsetFromTransform(
+            this.weapon.visual,
+            playerPos
+          )
+          this.weapon.swingStartOffset = finalWindupOffset
+          this.weapon.swingEndOffset = swingEndOffset
+          this.weapon.attackStartTransform = this.weapon.visual
+          this.weapon.swingStartTransform = finalWindupTransform
+          this.weapon.swingEndTransform = swingEndTransform
+          this.weapon.lastAttackTimestamp = now
+          return
+        }
+
+        const swingEndAngle =
+          this.weapon.swingDirection === 'toFront' ? frontAngle : headAngle
+        const swingEndTransform = this.getTransformAtAngle(
+          playerPos,
+          swingEndAngle,
+          attackRadius
+        )
+
+        const swingStartOffset = this.getOffsetFromTransform(
+          this.weapon.visual,
+          playerPos
+        )
+        const swingEndOffset = this.getOffsetFromTransform(
+          swingEndTransform,
+          playerPos
+        )
+
+        this.weapon.attackPhase = 'swing'
+        this.weapon.attackElapsedMs = 0
+        this.weapon.swingStartOffset = swingStartOffset
+        this.weapon.swingEndOffset = swingEndOffset
+        this.weapon.swingStartTransform = this.weapon.visual
+        this.weapon.swingEndTransform = swingEndTransform
+        this.weapon.attackStartTransform = this.weapon.visual
+        this.weapon.lastAttackTimestamp = now
+        return
+      }
+
+      if (!reachedPause) return
+
+      this.weapon.attackPhase = 'recover'
+      this.weapon.attackElapsedMs = 0
+      this.weapon.attackStartTransform = this.weapon.visual
+      return
+    }
+
+    if (this.weapon.attackPhase === 'recover') {
+      const t = this.clamp01(
+        this.weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_RECOVER_MS
+      )
+      const target = this.getFrontTransform(playerPos, facing)
+      this.weapon.visual = this.lerpTransform(
+        this.weapon.attackStartTransform,
+        target,
+        t
+      )
+      if (t >= 1) {
+        this.weapon.attackPhase = 'idle'
+        this.weapon.attackElapsedMs = 0
+        this.weapon.lastAttackTimestamp = now
+        this.weapon.attackQueued = false
+        this.weapon.comboCount = 0
+        this.weapon.swingDirection = 'toFront'
+        this.weapon.nextSwingDirection = 'toFront'
+        this.weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
+      }
+    }
+  }
+
+  private clamp01(value: number): number {
+    if (value < 0) return 0
+    if (value > 1) return 1
+    return value
+  }
+
+  private getAttackRadius(): number {
+    if (!this.weapon) {
+      return DEFAULT_WEAPON_ATTACK_RADIUS
+    }
+    const minRadius =
+      DEFAULT_PLAYER_RADIUS +
+      this.weapon.width / 2 +
+      DEFAULT_WEAPON_PLAYER_CLEARANCE
+    return Math.max(DEFAULT_WEAPON_ATTACK_RADIUS, minRadius)
+  }
+
+  private lerpTransform(
+    from: WeaponTransform,
+    to: WeaponTransform,
+    t: number
+  ): WeaponTransform {
+    const clampedT = this.clamp01(t)
+    return {
+      x: from.x + (to.x - from.x) * clampedT,
+      y: from.y + (to.y - from.y) * clampedT,
+      rotation: from.rotation + (to.rotation - from.rotation) * clampedT,
+    }
+  }
+
+  private getOffsetFromTransform(
+    transform: WeaponTransform,
+    playerPos: { x: number; y: number }
+  ): WeaponRelativeTransform {
+    return {
+      dx: transform.x - playerPos.x,
+      dy: transform.y - playerPos.y,
+      rotation: transform.rotation,
+    }
+  }
+
+  private applyOffset(
+    offset: WeaponRelativeTransform,
+    playerPos: { x: number; y: number }
+  ): WeaponTransform {
+    return {
+      x: playerPos.x + offset.dx,
+      y: playerPos.y + offset.dy,
+      rotation: offset.rotation,
+    }
+  }
+
+  private getBackTransform(
+    playerPos: { x: number; y: number },
+    facing: number
+  ) {
+    return {
+      x: playerPos.x - facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X,
+      y: playerPos.y + DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
+      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+    }
+  }
+
+  private getFrontTransform(
+    playerPos: { x: number; y: number },
+    facing: number
+  ) {
+    return {
+      x: playerPos.x + facing * DEFAULT_WEAPON_FRONT_OFFSET_X,
+      y: playerPos.y + DEFAULT_WEAPON_FRONT_OFFSET_Y,
+      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+    }
+  }
+
+  private getSwingTransforms(
+    radius: number,
+    facing: number,
+    direction: 'toFront' | 'toHead',
+    playerPos: { x: number; y: number }
+  ): {
+    swingStartTransform: WeaponTransform
+    swingEndTransform: WeaponTransform
+  } {
+    const frontAngle = facing === 1 ? 0 : -Math.PI
+    const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    const swingStartAngle = direction === 'toFront' ? headAngle : frontAngle
+    const swingEndAngle = direction === 'toFront' ? frontAngle : headAngle
+
+    return {
+      swingStartTransform: this.getTransformAtAngle(
+        playerPos,
+        swingStartAngle,
+        radius
+      ),
+      swingEndTransform: this.getTransformAtAngle(
+        playerPos,
+        swingEndAngle,
+        radius
+      ),
+    }
+  }
+
+  private getTransformAtAngle(
+    playerPos: { x: number; y: number },
+    angle: number,
+    radius: number
+  ): WeaponTransform {
+    return {
+      x: playerPos.x + Math.cos(angle) * radius,
+      y: playerPos.y + Math.sin(angle) * radius,
+      rotation: angle,
+    }
+  }
+
+  private renderWeapon() {
+    if (!this.weapon) return
+
+    const weapon = this.weapon
+    const widthPx = weapon.width * this.pixelsPerMeter
+    const heightPx = weapon.height * this.pixelsPerMeter
+    const radiusPx = weapon.cornerRadius * this.pixelsPerMeter
+
+    this.ctx.save()
+    this.ctx.translate(
+      weapon.visual.x * this.pixelsPerMeter,
+      weapon.visual.y * this.pixelsPerMeter
+    )
+    this.ctx.rotate(weapon.visual.rotation)
+    this.ctx.fillStyle = '#c7b58f'
+    this.ctx.strokeStyle = '#5a4b2a'
+    this.ctx.lineWidth = 2
+    this.drawRoundedRect(widthPx, heightPx, radiusPx)
+    this.ctx.fill()
+    this.ctx.stroke()
+    this.ctx.restore()
+  }
+
+  private drawRoundedRect(widthPx: number, heightPx: number, radiusPx: number) {
+    const r = Math.min(radiusPx, widthPx / 2, heightPx / 2)
+    this.ctx.beginPath()
+    this.ctx.moveTo(-widthPx / 2 + r, -heightPx / 2)
+    this.ctx.lineTo(widthPx / 2 - r, -heightPx / 2)
+    this.ctx.quadraticCurveTo(
+      widthPx / 2,
+      -heightPx / 2,
+      widthPx / 2,
+      -heightPx / 2 + r
+    )
+    this.ctx.lineTo(widthPx / 2, heightPx / 2 - r)
+    this.ctx.quadraticCurveTo(
+      widthPx / 2,
+      heightPx / 2,
+      widthPx / 2 - r,
+      heightPx / 2
+    )
+    this.ctx.lineTo(-widthPx / 2 + r, heightPx / 2)
+    this.ctx.quadraticCurveTo(
+      -widthPx / 2,
+      heightPx / 2,
+      -widthPx / 2,
+      heightPx / 2 - r
+    )
+    this.ctx.lineTo(-widthPx / 2, -heightPx / 2 + r)
+    this.ctx.quadraticCurveTo(
+      -widthPx / 2,
+      -heightPx / 2,
+      -widthPx / 2 + r,
+      -heightPx / 2
+    )
+    this.ctx.closePath()
   }
 
   private createBackgroundPattern(): CanvasPattern | null {

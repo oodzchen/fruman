@@ -36,3 +36,53 @@ export const DEFAULT_OBSTACLE_FRICTION = 0
 
 // 镜头初始缩放倍数
 export const DEFAULT_CAMERA_ZOOM = 1
+
+// 武器默认长度（米）
+export const DEFAULT_WEAPON_WIDTH = 1.2
+
+// 武器默认厚度（米）
+export const DEFAULT_WEAPON_HEIGHT = 0.25
+
+// 武器圆角半径（米）
+export const DEFAULT_WEAPON_CORNER_RADIUS = 0.08
+
+// 武器在地面上的初始旋转（弧度，负值代表向左倾斜）
+export const DEFAULT_WEAPON_GROUND_ROTATION_RAD = (-25 * Math.PI) / 180
+
+// 武器拾取判定距离（米）
+export const DEFAULT_WEAPON_PICKUP_DISTANCE = 1.2
+
+// 武器跟随玩家时的水平偏移量（米，乘以朝向后放在身后）
+export const DEFAULT_WEAPON_FOLLOW_OFFSET_X = 0.7
+
+// 武器跟随玩家时的垂直偏移量（米）
+export const DEFAULT_WEAPON_FOLLOW_OFFSET_Y = -0.1
+
+// 武器跟随时保持竖直的旋转角度（弧度）
+export const DEFAULT_WEAPON_VERTICAL_ROTATION_RAD = -Math.PI / 2
+
+// 武器在战斗状态下的默认前方偏移（米）
+export const DEFAULT_WEAPON_FRONT_OFFSET_X = 0.7
+export const DEFAULT_WEAPON_FRONT_OFFSET_Y = -0.1
+
+// 武器抬起到头顶时的垂直偏移量（米，负值向上）
+export const DEFAULT_WEAPON_HEAD_OFFSET_Y = -1.0
+
+// 攻击前摇/攻击/后摇时长（毫秒）
+export const DEFAULT_WEAPON_ATTACK_WINDUP_MS = 200
+export const DEFAULT_WEAPON_ATTACK_SWING_MS = 140
+export const DEFAULT_WEAPON_ATTACK_RECOVER_MS = 200
+export const DEFAULT_WEAPON_ATTACK_PAUSE_MS = 500
+export const DEFAULT_WEAPON_FINAL_WINDUP_MS = 100
+
+// 攻击挥舞半径（米）
+export const DEFAULT_WEAPON_ATTACK_RADIUS = 0.9
+
+// 武器与玩家之间预留的安全距离（米），用于攻击时保持分离
+export const DEFAULT_WEAPON_PLAYER_CLEARANCE = 0.1
+
+// 角色半径（米），用于与武器距离计算
+export const DEFAULT_PLAYER_RADIUS = 0.5
+
+// 战斗状态超时时长（毫秒）
+export const DEFAULT_WEAPON_COMBAT_TIMEOUT_MS = 30000
