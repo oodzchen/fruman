@@ -50,6 +50,9 @@ export class MovementComponent extends Component {
   lastContactUpdate = 0
   contactUpdateIntervalMs = 16
 
+  baseWeight = 0
+  carryWeight = 0
+
   getName(): string {
     return 'Movement'
   }
@@ -90,6 +93,7 @@ export class WeaponComponent extends Component {
   width = 0
   height = 0
   cornerRadius = 0
+  weight = 0
   position = { x: 0, y: 0 }
   rotation = 0
   isEquipped = false

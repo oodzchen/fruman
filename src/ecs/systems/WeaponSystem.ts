@@ -374,6 +374,9 @@ export class WeaponSystem extends System {
     entity.weapon.isEquipped = true
     entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    if (entity.movement) {
+      entity.movement.carryWeight = entity.weapon.weight
+    }
   }
 
   startAttack(entity: Entity): void {

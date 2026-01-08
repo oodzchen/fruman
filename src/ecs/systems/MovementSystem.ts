@@ -1,3 +1,4 @@
+import { DEFAULT_PLAYER_WEIGHT, PLAYER_WEIGHT_REFERENCE } from '../../constants'
 import type { MainModule } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -139,6 +140,8 @@ export class MovementSystem extends System {
     const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
     const mass = b2Body_GetMass(entity.physics.bodyId)
     const jumpDuration = Date.now() - entity.movement.jumpStartTime
+    const weightFactor = this.getWeightFactor(entity)
+    const jumpScale = 1 / weightFactor
 
     if (
       vel.y < 0 &&
@@ -147,7 +150,10 @@ export class MovementSystem extends System {
     ) {
       const force = new b2Vec2(
         0,
-        -entity.movement.jumpForce * mass * entity.movement.jumpForceMultiplier
+        -entity.movement.jumpForce *
+          mass *
+          entity.movement.jumpForceMultiplier *
+          jumpScale
       )
       b2Body_ApplyForceToCenter(entity.physics.bodyId, force, true)
       force.delete()
@@ -184,6 +190,9 @@ export class MovementSystem extends System {
     } = this.box2d
 
     const mass = b2Body_GetMass(entity.physics.bodyId)
+    const weightFactor = this.getWeightFactor(entity)
+    const jumpScale = 1 / weightFactor
+
     entity.movement.isJumping = true
     entity.movement.jumpStartTime = Date.now()
 
@@ -196,9 +205,12 @@ export class MovementSystem extends System {
       const pushAwaySpeed =
         -entity.movement.wallDirection *
         entity.movement.moveSpeed *
-        entity.movement.wallJumpPushAwayMultiplier
+        entity.movement.wallJumpPushAwayMultiplier *
+        jumpScale
       const upwardSpeed =
-        -entity.movement.jumpForce * entity.movement.wallJumpUpwardMultiplier
+        -entity.movement.jumpForce *
+        entity.movement.wallJumpUpwardMultiplier *
+        jumpScale
 
       const velocity = new b2Vec2(pushAwaySpeed, upwardSpeed)
       b2Body_SetLinearVelocity(entity.physics.bodyId, velocity)
@@ -208,9 +220,28 @@ export class MovementSystem extends System {
       entity.movement.wallJumpCount++
     } else if (entity.movement.isGrounded) {
       entity.movement.wallJumpCount = 0
-      const impulse = new b2Vec2(0, -entity.movement.jumpForce * mass * 0.6)
+      const impulse = new b2Vec2(
+        0,
+        -entity.movement.jumpForce * mass * 0.6 * jumpScale
+      )
       b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, impulse, true)
       impulse.delete()
     }
+  }
+
+  private getWeightFactor(entity: Entity): number {
+    if (!entity.movement) return 1
+    const baseWeight =
+      entity.movement.baseWeight > 0
+        ? entity.movement.baseWeight
+        : DEFAULT_PLAYER_WEIGHT
+    const carryWeight = Math.max(0, entity.movement.carryWeight)
+    const effectiveWeight = baseWeight + carryWeight
+    const referenceWeight =
+      PLAYER_WEIGHT_REFERENCE > 0
+        ? PLAYER_WEIGHT_REFERENCE
+        : DEFAULT_PLAYER_WEIGHT
+    const factor = effectiveWeight / referenceWeight
+    return factor > 0 ? factor : 1
   }
 }

@@ -1,6 +1,9 @@
 // 初始跳跃力度（向上初速度）；可由控制面板调整
 export const DEFAULT_JUMP_FORCE = 22
 
+// 全局重力加速度（米/秒²）
+export const DEFAULT_GRAVITY = 50
+
 // 初始跳跃预输入时间（毫秒）；运行时可被控制面板的设置覆盖
 export const DEFAULT_JUMP_BUFFER_WINDOW = 500
 
@@ -15,6 +18,15 @@ export const DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER = 0.5
 
 // 蹬墙跳向上速度倍数（相对于初始跳跃力度）
 export const DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER = 0.8
+
+// 角色基础重量（可理解为 kg，影响跳跃与下落）
+export const DEFAULT_PLAYER_WEIGHT = 80
+
+// 武器重量（可理解为 kg，角色装备后会叠加）
+export const DEFAULT_WEAPON_WEIGHT = 2
+
+// 计算跳跃衰减时的参考重量（不随配置变化，用于对比）
+export const PLAYER_WEIGHT_REFERENCE = 100
 
 // 每次离地后允许的最大蹬墙跳次数
 export const DEFAULT_MAX_WALL_JUMPS = 1

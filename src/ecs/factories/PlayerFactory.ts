@@ -8,6 +8,7 @@ import {
   DEFAULT_MAX_WALL_JUMPS,
   DEFAULT_MOVE_SPEED,
   DEFAULT_PLAYER_RADIUS,
+  DEFAULT_PLAYER_WEIGHT,
   DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
   DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
   DEFAULT_WEAPON_ATTACK_RADIUS,
@@ -15,6 +16,7 @@ import {
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+  DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
@@ -86,6 +88,8 @@ export function createPlayer(
   movement.wallJumpPushAwayMultiplier = DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER
   movement.wallJumpUpwardMultiplier = DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER
   movement.maxWallJumps = DEFAULT_MAX_WALL_JUMPS
+  movement.baseWeight = DEFAULT_PLAYER_WEIGHT
+  movement.carryWeight = 0
   entity.addComponent(movement)
 
   const input = new InputComponent()
@@ -104,6 +108,7 @@ export function createPlayer(
   weapon.width = DEFAULT_WEAPON_WIDTH
   weapon.height = DEFAULT_WEAPON_HEIGHT
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+  weapon.weight = DEFAULT_WEAPON_WEIGHT
   const weaponX = 6
   const weaponY = groundTopY - DEFAULT_WEAPON_HEIGHT / 2
   weapon.position = {

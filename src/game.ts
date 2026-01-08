@@ -1,5 +1,6 @@
 import {
   DEFAULT_CAMERA_ZOOM,
+  DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
   DEFAULT_PLAYER_RADIUS,
@@ -107,7 +108,7 @@ export class Game {
     const { b2DefaultWorldDef, b2CreateWorld, b2Vec2 } = this.box2d
 
     const worldDef = b2DefaultWorldDef()
-    worldDef.gravity = new b2Vec2(0, 30)
+    worldDef.gravity = new b2Vec2(0, DEFAULT_GRAVITY)
     this.worldId = b2CreateWorld(worldDef)
     worldDef.delete()
 

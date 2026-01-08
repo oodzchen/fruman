@@ -1,5 +1,6 @@
 import {
   DEFAULT_CAMERA_ZOOM,
+  DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
 } from './constants'
@@ -63,7 +64,7 @@ export class GameECS {
     const { b2DefaultWorldDef, b2CreateWorld, b2Vec2 } = this.box2d
 
     const worldDef = b2DefaultWorldDef()
-    worldDef.gravity = new b2Vec2(0, 30)
+    worldDef.gravity = new b2Vec2(0, DEFAULT_GRAVITY)
     this.worldId = b2CreateWorld(worldDef)
     worldDef.delete()
 
@@ -599,6 +600,23 @@ export class GameECS {
         if (this.playerEntity.physics) {
           const { b2Body_SetLinearDamping } = this.box2d
           b2Body_SetLinearDamping(this.playerEntity.physics.bodyId, value)
+        }
+      },
+      setBaseWeight: (value: number) => {
+        if (this.playerEntity.movement) {
+          this.playerEntity.movement.baseWeight = Math.max(1, value)
+        }
+      },
+      setWeaponWeight: (value: number) => {
+        if (this.playerEntity.weapon) {
+          this.playerEntity.weapon.weight = Math.max(0, value)
+          if (
+            this.playerEntity.weapon.isEquipped &&
+            this.playerEntity.movement
+          ) {
+            this.playerEntity.movement.carryWeight =
+              this.playerEntity.weapon.weight
+          }
         }
       },
     }
