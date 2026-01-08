@@ -290,6 +290,7 @@ export class GameECS {
 
     this.weaponSystem.setEntities(this.world.getEntities())
     this.world.update(deltaTime)
+    this.cleanupDestroyedEntities()
 
     if (this.playerEntity.transform) {
       this.updateCamera(this.playerEntity.transform.x)
@@ -348,10 +349,14 @@ export class GameECS {
 
     this.drawGround()
     this.drawObstacles()
-
-    this.renderSystem.renderWeapon(this.playerEntity)
-
     const entities = this.world.getEntities()
+
+    for (const entity of entities) {
+      if (entity.weapon) {
+        this.renderSystem.renderWeapon(entity)
+      }
+    }
+
     for (const entity of entities) {
       if (entity.transform && entity.render) {
         this.renderSystem.update([entity], 0)
@@ -359,6 +364,23 @@ export class GameECS {
     }
 
     this.ctx.restore()
+  }
+
+  private cleanupDestroyedEntities(): void {
+    const entities = this.world.getEntities()
+    for (const entity of entities) {
+      const isPlayer = entity.id === this.playerEntity.id
+      if (entity.stats?.isDead && entity.weapon) {
+        entity.weapon.hitEntityIds.clear()
+        entity.removeComponent('Weapon')
+      }
+      if (entity.stats?.isVanished && !isPlayer) {
+        if (this.enemyEntity && this.enemyEntity.id === entity.id) {
+          this.enemyEntity = null
+        }
+        this.world.destroyEntity(entity)
+      }
+    }
   }
 
   private drawBackground(): void {

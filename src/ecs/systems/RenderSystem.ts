@@ -82,6 +82,7 @@ export class RenderSystem extends System {
 
   renderWeapon(entity: Entity): void {
     if (!entity.weapon) return
+    if (entity.stats?.isDead || entity.stats?.isVanished) return
 
     const weapon = entity.weapon
     const widthPx = weapon.width * this.pixelsPerMeter
