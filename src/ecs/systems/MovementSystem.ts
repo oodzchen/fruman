@@ -148,7 +148,9 @@ export class MovementSystem extends System {
       entity.weapon.isEquipped &&
       (entity.weapon.attackPhase === 'windup' ||
         entity.weapon.attackPhase === 'finalWindup' ||
-        entity.weapon.attackPhase === 'swing')
+        entity.weapon.attackPhase === 'swing' ||
+        entity.weapon.attackPhase === 'pause' ||
+        entity.weapon.attackPhase === 'recover')
 
     if (isInAttackAction) return false
 
@@ -222,7 +224,9 @@ export class MovementSystem extends System {
       entity.weapon.isEquipped &&
       (entity.weapon.attackPhase === 'windup' ||
         entity.weapon.attackPhase === 'finalWindup' ||
-        entity.weapon.attackPhase === 'swing')
+        entity.weapon.attackPhase === 'swing' ||
+        entity.weapon.attackPhase === 'pause' ||
+        entity.weapon.attackPhase === 'recover')
 
     if (!isInAttackAction) {
       if (entity.input.facingOverride !== null) {
@@ -264,7 +268,9 @@ export class MovementSystem extends System {
       entity.weapon.isEquipped &&
       (entity.weapon.attackPhase === 'windup' ||
         entity.weapon.attackPhase === 'finalWindup' ||
-        entity.weapon.attackPhase === 'swing')
+        entity.weapon.attackPhase === 'swing' ||
+        entity.weapon.attackPhase === 'pause' ||
+        entity.weapon.attackPhase === 'recover')
 
     if (isInAttackAction) {
       return
