@@ -103,6 +103,7 @@ export class WeaponComponent extends Component {
     | 'idle'
     | 'windup'
     | 'swing'
+    | 'rebound'
     | 'pause'
     | 'resetHead'
     | 'headHold'
@@ -123,6 +124,9 @@ export class WeaponComponent extends Component {
   swingStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   swingEndTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   attackRadius = 0
+  reboundLockedPause = false
+  reboundTargetTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  reboundTargetOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
 
   getName(): string {
     return 'Weapon'

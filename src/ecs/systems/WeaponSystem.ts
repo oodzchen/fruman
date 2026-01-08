@@ -23,6 +23,7 @@ import { System } from '../System'
 
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
 const FRONT_SWING_TILT_RAD = Math.PI / 14
+const REBOUND_PAUSE_MS = 150
 
 type ObstacleCollider = {
   bodyId: b2BodyId
@@ -114,6 +115,11 @@ export class WeaponSystem extends System {
 
     if (weapon.attackPhase === 'swing') {
       this.handleSwingPhase(entity, playerPos, now)
+      return
+    }
+
+    if (weapon.attackPhase === 'rebound') {
+      this.handleReboundPhase(weapon, playerPos, now)
       return
     }
 
@@ -235,6 +241,8 @@ export class WeaponSystem extends System {
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
       this.applyPushback(entity, weapon)
+      this.startRebound(entity, playerPos, now)
+      return
     }
     if (t >= 1) {
       weapon.attackPhase = 'pause'
@@ -260,9 +268,21 @@ export class WeaponSystem extends System {
     const weapon = entity.weapon
     weapon.visual = weapon.attackStartTransform
 
-    const reachedPause =
-      weapon.attackElapsedMs >= DEFAULT_WEAPON_ATTACK_PAUSE_MS
-    const canChain = weapon.attackQueued && weapon.comboCount < 5
+    const pauseThreshold = weapon.reboundLockedPause
+      ? Math.max(REBOUND_PAUSE_MS, DEFAULT_WEAPON_ATTACK_PAUSE_MS)
+      : DEFAULT_WEAPON_ATTACK_PAUSE_MS
+    const reachedPause = weapon.attackElapsedMs >= pauseThreshold
+    if (weapon.reboundLockedPause && !reachedPause) {
+      return
+    }
+    if (weapon.reboundLockedPause && reachedPause) {
+      weapon.reboundLockedPause = false
+    }
+
+    const canChain =
+      weapon.attackQueued &&
+      weapon.comboCount < 5 &&
+      weapon.attackPhase !== 'rebound'
 
     if (canChain) {
       weapon.attackQueued = false
@@ -351,6 +371,7 @@ export class WeaponSystem extends System {
     if (!reachedPause) return
 
     weapon.attackPhase = 'recover'
+    weapon.reboundLockedPause = false
     weapon.attackElapsedMs = 0
     weapon.attackStartTransform = weapon.visual
   }
@@ -613,6 +634,64 @@ export class WeaponSystem extends System {
     const impulse = new b2Vec2(-dirX * impulseStrength, -dirY * impulseStrength)
     b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, impulse, true)
     impulse.delete()
+  }
+
+  private startRebound(
+    entity: Entity,
+    playerPos: { x: number; y: number },
+    now: number
+  ): void {
+    if (!entity.weapon) return
+    const weapon = entity.weapon
+    const radius =
+      weapon.attackRadius !== 0
+        ? weapon.attackRadius
+        : this.getAttackRadius(weapon)
+    const reboundTargetOffset = this.getOffsetFromTransform(
+      weapon.swingStartTransform,
+      playerPos
+    )
+    const reboundTransform = this.applyOffset(reboundTargetOffset, playerPos)
+    weapon.attackPhase = 'rebound'
+    weapon.attackElapsedMs = 0
+    weapon.attackQueued = false
+    weapon.reboundLockedPause = true
+    weapon.reboundTargetTransform = reboundTransform
+    weapon.reboundTargetOffset = reboundTargetOffset
+    const currentOffset = this.getOffsetFromTransform(weapon.visual, playerPos)
+    weapon.attackStartOffset = currentOffset
+    weapon.swingStartOffset = currentOffset
+    weapon.swingEndOffset = reboundTargetOffset
+    weapon.attackStartTransform = weapon.visual
+    weapon.swingStartTransform = weapon.visual
+    weapon.swingEndTransform = reboundTransform
+    weapon.lastAttackTimestamp = now
+  }
+
+  private handleReboundPhase(
+    weapon: Entity['weapon'],
+    playerPos: { x: number; y: number },
+    now: number
+  ): void {
+    if (!weapon) return
+
+    const reboundDurationMs = DEFAULT_WEAPON_ATTACK_SWING_MS * 0.8
+    const target =
+      weapon.reboundTargetOffset && playerPos
+        ? this.applyOffset(weapon.reboundTargetOffset, playerPos)
+        : weapon.reboundTargetTransform || weapon.swingEndTransform
+    const t = this.clamp01(weapon.attackElapsedMs / reboundDurationMs)
+    weapon.visual = this.lerpTransform(weapon.swingStartTransform, target, t)
+    if (t >= 1) {
+      weapon.attackPhase = 'pause'
+      weapon.attackElapsedMs = 0
+      weapon.attackStartOffset = this.getOffsetFromTransform(
+        weapon.visual,
+        playerPos
+      )
+      weapon.attackStartTransform = weapon.visual
+      weapon.lastAttackTimestamp = now
+    }
   }
 
   private getTransformAtAngle(
