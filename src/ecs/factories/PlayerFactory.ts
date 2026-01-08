@@ -1,4 +1,6 @@
 import {
+  CATEGORY_ENEMY,
+  CATEGORY_PLAYER,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_ENEMY_ATTACK_DESIRE,
@@ -26,6 +28,8 @@ import {
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
+  MASK_ENEMY,
+  MASK_PLAYER,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
 import {
@@ -82,6 +86,8 @@ export function createPlayer(
   const fixtureDef = b2DefaultShapeDef()
   fixtureDef.density = 1.0
   fixtureDef.material.friction = DEFAULT_BODY_FRICTION
+  fixtureDef.filter.categoryBits = CATEGORY_PLAYER
+  fixtureDef.filter.maskBits = MASK_PLAYER
   physics.shapeId = b2CreateCapsuleShape(physics.bodyId, fixtureDef, shape)
 
   bodyDef.delete()
@@ -89,6 +95,7 @@ export function createPlayer(
   fixtureDef.delete()
 
   entity.addComponent(physics)
+  // ... (rest of function unchanged)
 
   const movement = new MovementComponent()
   movement.moveSpeed = DEFAULT_MOVE_SPEED
@@ -190,6 +197,14 @@ export function createEnemy(
   const ai = new EnemyAIComponent()
   ai.attackDesire = attackDesire
   enemy.addComponent(ai)
+
+  if (enemy.physics) {
+    const { b2Shape_GetFilter, b2Shape_SetFilter } = box2d
+    const filter = b2Shape_GetFilter(enemy.physics.shapeId)
+    filter.categoryBits = CATEGORY_ENEMY
+    filter.maskBits = MASK_ENEMY
+    b2Shape_SetFilter(enemy.physics.shapeId, filter)
+  }
 
   if (enemy.faction) {
     enemy.faction.faction = Faction.Enemy

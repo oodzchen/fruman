@@ -1,4 +1,6 @@
 import {
+  CATEGORY_GROUND,
+  CATEGORY_OBSTACLE,
   DEFAULT_CAMERA_ZOOM,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
@@ -170,6 +172,7 @@ export class GameECS {
     const shapeDef = b2DefaultShapeDef()
     shapeDef.material.friction = this.groundFriction
     shapeDef.material.restitution = 0
+    shapeDef.filter.categoryBits = CATEGORY_GROUND
     this.groundShapeId = b2CreatePolygonShape(groundBodyId, shapeDef, groundBox)
 
     groundDef.delete()
@@ -205,6 +208,7 @@ export class GameECS {
       const shapeDef = b2DefaultShapeDef()
       shapeDef.material.friction = this.obstacleFriction
       shapeDef.material.restitution = 0
+      shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
       const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
 
       this.obstacles.push({

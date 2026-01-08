@@ -4,6 +4,8 @@ import {
   DEFAULT_ROLL_COOLDOWN,
   DEFAULT_ROLL_DURATION,
   DEFAULT_ROLL_SPEED,
+  MASK_PLAYER,
+  MASK_PLAYER_ROLLING,
   PLAYER_WEIGHT_REFERENCE,
 } from '../../constants'
 import type { MainModule } from '../../types'
@@ -154,7 +156,7 @@ export class MovementSystem extends System {
   }
 
   private startRoll(entity: Entity): void {
-    if (!entity.movement || !entity.input) return
+    if (!entity.movement || !entity.input || !entity.physics) return
 
     entity.movement.isRolling = true
     entity.movement.rollStartTime = Date.now()
@@ -165,6 +167,12 @@ export class MovementSystem extends System {
     entity.movement.rollDirection = facing
 
     entity.movement.isJumping = false
+
+    // 修改碰撞掩码以穿过敌人
+    const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
+    const filter = b2Shape_GetFilter(entity.physics.shapeId)
+    filter.maskBits = MASK_PLAYER_ROLLING
+    b2Shape_SetFilter(entity.physics.shapeId, filter)
 
     // 开始翻滚时立即更新一次物理状态
     this.updateRollPhysics(entity)
@@ -189,9 +197,15 @@ export class MovementSystem extends System {
   }
 
   private endRoll(entity: Entity): void {
-    if (!entity.movement) return
+    if (!entity.movement || !entity.physics) return
     entity.movement.isRolling = false
     entity.movement.rollCooldownEndTime = Date.now() + DEFAULT_ROLL_COOLDOWN
+
+    // 恢复碰撞掩码
+    const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
+    const filter = b2Shape_GetFilter(entity.physics.shapeId)
+    filter.maskBits = MASK_PLAYER
+    b2Shape_SetFilter(entity.physics.shapeId, filter)
   }
 
   private handleMove(entity: Entity): void {

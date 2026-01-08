@@ -131,3 +131,13 @@ export const DEFAULT_HIT_SHAKE_INTENSITY = 0.3
 export const DEFAULT_ROLL_DURATION = 500
 export const DEFAULT_ROLL_SPEED = 8
 export const DEFAULT_ROLL_COOLDOWN = 800
+
+// 碰撞分类
+export const CATEGORY_GROUND = 0x0001
+export const CATEGORY_PLAYER = 0x0002
+export const CATEGORY_ENEMY = 0x0004
+export const CATEGORY_OBSTACLE = 0x0008
+
+export const MASK_PLAYER = 0xffff
+export const MASK_PLAYER_ROLLING = 0xffff & ~CATEGORY_ENEMY
+export const MASK_ENEMY = 0xffff
