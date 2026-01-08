@@ -1,6 +1,6 @@
 import Box2DFactory from 'box2d3-wasm'
 
-import { Game } from './game'
+import { GameECS } from './GameECS'
 import type { MainModule } from './types'
 
 const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
@@ -114,7 +114,7 @@ function syncInputs(
 async function initialize() {
   const box2d: MainModule = await Box2DFactory()
 
-  const game = new Game(box2d, canvas, ctx)
+  const game = new GameECS(box2d, canvas, ctx)
   const storedValues = loadStoredValues()
   const updateStoredValue = (id: string, value: string) => {
     storedValues[id] = value
