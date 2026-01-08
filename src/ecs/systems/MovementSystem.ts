@@ -116,10 +116,9 @@ export class MovementSystem extends System {
     const isInAttackAction =
       entity.weapon &&
       entity.weapon.isEquipped &&
-      (entity.weapon.attackPhase === 'swing' ||
-        entity.weapon.attackPhase === 'pause' ||
-        entity.weapon.attackPhase === 'recover' ||
-        entity.weapon.attackPhase === 'rebound')
+      (entity.weapon.attackPhase === 'windup' ||
+        entity.weapon.attackPhase === 'finalWindup' ||
+        entity.weapon.attackPhase === 'swing')
 
     if (!isInAttackAction) {
       if (entity.input.facingOverride !== null) {
@@ -155,6 +154,17 @@ export class MovementSystem extends System {
 
   private handleJump(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
+
+    const isInAttackAction =
+      entity.weapon &&
+      entity.weapon.isEquipped &&
+      (entity.weapon.attackPhase === 'windup' ||
+        entity.weapon.attackPhase === 'finalWindup' ||
+        entity.weapon.attackPhase === 'swing')
+
+    if (isInAttackAction) {
+      return
+    }
 
     entity.input.inputBuffer.update()
     entity.input.inputBuffer.tryExecute(

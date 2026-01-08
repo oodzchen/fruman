@@ -125,12 +125,12 @@ export class WeaponSystem extends System {
     weapon.attackElapsedMs += deltaMs
 
     if (weapon.attackPhase === 'windup') {
-      this.handleWindupPhase(weapon, entity, playerPos)
+      this.handleWindupPhase(weapon)
       return
     }
 
     if (weapon.attackPhase === 'finalWindup') {
-      this.handleFinalWindupPhase(weapon, entity, playerPos)
+      this.handleFinalWindupPhase(weapon)
       return
     }
 
@@ -216,24 +216,8 @@ export class WeaponSystem extends System {
     }
   }
 
-  private handleWindupPhase(
-    weapon: Entity['weapon'],
-    entity?: Entity,
-    playerPos?: { x: number; y: number }
-  ): void {
+  private handleWindupPhase(weapon: Entity['weapon']): void {
     if (!weapon) return
-
-    if (entity && playerPos && entity.input) {
-      const currentFacing =
-        entity.input.lastMoveDirection !== 0
-          ? entity.input.lastMoveDirection
-          : weapon.attackFacing
-
-      if (currentFacing !== weapon.attackFacing) {
-        this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
-        return
-      }
-    }
 
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_WINDUP_MS
@@ -248,24 +232,8 @@ export class WeaponSystem extends System {
     }
   }
 
-  private handleFinalWindupPhase(
-    weapon: Entity['weapon'],
-    entity?: Entity,
-    playerPos?: { x: number; y: number }
-  ): void {
+  private handleFinalWindupPhase(weapon: Entity['weapon']): void {
     if (!weapon) return
-
-    if (entity && playerPos && entity.input) {
-      const currentFacing =
-        entity.input.lastMoveDirection !== 0
-          ? entity.input.lastMoveDirection
-          : weapon.attackFacing
-
-      if (currentFacing !== weapon.attackFacing) {
-        this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
-        return
-      }
-    }
 
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_FINAL_WINDUP_MS
