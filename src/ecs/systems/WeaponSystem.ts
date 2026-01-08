@@ -718,6 +718,46 @@ export class WeaponSystem extends System {
     weapon.visual = this.getBackTransform(playerPos, facing)
   }
 
+  private checkOBBvsAABB(
+    obbCenterX: number,
+    obbCenterY: number,
+    obbWidth: number,
+    obbHeight: number,
+    obbRotation: number,
+    aabbCenterX: number,
+    aabbCenterY: number,
+    aabbHalfWidth: number,
+    aabbHalfHeight: number
+  ): boolean {
+    const cos = Math.cos(obbRotation)
+    const sin = Math.sin(obbRotation)
+
+    const dx = obbCenterX - aabbCenterX
+    const dy = obbCenterY - aabbCenterY
+
+    const projD1 = Math.abs(dx * cos + dy * sin)
+    const projAABB1 =
+      aabbHalfWidth * Math.abs(cos) + aabbHalfHeight * Math.abs(sin)
+    if (projD1 > obbWidth / 2 + projAABB1) return false
+
+    const projD2 = Math.abs(-dx * sin + dy * cos)
+    const projAABB2 =
+      aabbHalfWidth * Math.abs(sin) + aabbHalfHeight * Math.abs(cos)
+    if (projD2 > obbHeight / 2 + projAABB2) return false
+
+    const projD3 = Math.abs(dx)
+    const projOBB3 =
+      (obbWidth / 2) * Math.abs(cos) + (obbHeight / 2) * Math.abs(sin)
+    if (projD3 > projOBB3 + aabbHalfWidth) return false
+
+    const projD4 = Math.abs(dy)
+    const projOBB4 =
+      (obbWidth / 2) * Math.abs(sin) + (obbHeight / 2) * Math.abs(cos)
+    if (projD4 > projOBB4 + aabbHalfHeight) return false
+
+    return true
+  }
+
   private checkObstacleCollision(weapon?: Entity['weapon']): boolean {
     if (!this.box2d || !weapon) return false
     if (this.obstacles.length === 0) return false
@@ -725,21 +765,32 @@ export class WeaponSystem extends System {
     const { b2Body_GetPosition } = this.box2d
     const wx = weapon.visual.x
     const wy = weapon.visual.y
-    const weaponRadius = Math.hypot(weapon.width / 2, weapon.height / 2)
+    const wWidth = weapon.width
+    const wHeight = weapon.height
+    const wRotation = weapon.visual.rotation
 
     for (const obstacle of this.obstacles) {
       const pos = b2Body_GetPosition(obstacle.bodyId)
       const halfW = obstacle.width
       const halfH = obstacle.height
-      const closestX = Math.max(pos.x - halfW, Math.min(wx, pos.x + halfW))
-      const closestY = Math.max(pos.y - halfH, Math.min(wy, pos.y + halfH))
-      const dx = wx - closestX
-      const dy = wy - closestY
-      pos.delete()
 
-      if (dx * dx + dy * dy <= weaponRadius * weaponRadius) {
+      if (
+        this.checkOBBvsAABB(
+          wx,
+          wy,
+          wWidth,
+          wHeight,
+          wRotation,
+          pos.x,
+          pos.y,
+          halfW,
+          halfH
+        )
+      ) {
+        pos.delete()
         return true
       }
+      pos.delete()
     }
 
     return false
