@@ -24,7 +24,7 @@ import { System } from '../System'
 import type { StatsSystem } from './StatsSystem'
 
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
-const FRONT_SWING_TILT_RAD = Math.PI / 14
+const FRONT_SWING_TILT_RAD = Math.PI / 16
 const REBOUND_PAUSE_MS = 150
 
 type ObstacleCollider = {
@@ -72,6 +72,18 @@ export class WeaponSystem extends System {
 
     const weapon = entity.weapon
     const playerPos = { x: entity.transform.x, y: entity.transform.y }
+    const inputFacing =
+      entity.input && entity.input.lastMoveDirection !== 0
+        ? entity.input.lastMoveDirection
+        : weapon.attackFacing
+
+    if (
+      weapon.attackPhase === 'idle' ||
+      weapon.attackPhase === 'pause' ||
+      weapon.attackPhase === 'recover'
+    ) {
+      weapon.attackFacing = inputFacing
+    }
 
     if (!weapon.isEquipped) {
       weapon.visual = {
@@ -283,6 +295,19 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
 
     const weapon = entity.weapon
+    const currentFacing =
+      entity.input && entity.input.lastMoveDirection !== 0
+        ? entity.input.lastMoveDirection
+        : attackFacing
+    if (currentFacing !== weapon.attackFacing) {
+      this.realignToFacing(
+        weapon,
+        playerPos,
+        currentFacing,
+        DEFAULT_WEAPON_ATTACK_PAUSE_MS
+      )
+    }
+
     weapon.visual = weapon.attackStartTransform
 
     const pauseThreshold = weapon.reboundLockedPause
@@ -311,7 +336,7 @@ export class WeaponSystem extends System {
         weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
 
       const frontAngle =
-        attackFacing === 1
+        weapon.attackFacing === 1
           ? FRONT_SWING_TILT_RAD
           : -Math.PI - FRONT_SWING_TILT_RAD
       const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
@@ -404,6 +429,15 @@ export class WeaponSystem extends System {
     const weapon = entity.weapon
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+
+    if (facing !== weapon.attackFacing) {
+      this.realignToFacing(
+        weapon,
+        playerPos,
+        facing,
+        DEFAULT_WEAPON_ATTACK_RECOVER_MS
+      )
+    }
 
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_RECOVER_MS
@@ -561,6 +595,26 @@ export class WeaponSystem extends System {
       y: playerPos.y + offset.dy,
       rotation: offset.rotation,
     }
+  }
+
+  private realignToFacing(
+    weapon: Entity['weapon'],
+    playerPos: { x: number; y: number },
+    facing: number,
+    minimumElapsedMs: number
+  ): void {
+    if (!weapon) return
+    const frontTransform = this.getFrontTransform(playerPos, facing)
+    const offset = this.getOffsetFromTransform(frontTransform, playerPos)
+    weapon.attackFacing = facing
+    weapon.attackStartTransform = frontTransform
+    weapon.attackStartOffset = offset
+    weapon.swingStartTransform = frontTransform
+    weapon.swingEndTransform = frontTransform
+    weapon.swingStartOffset = offset
+    weapon.swingEndOffset = offset
+    weapon.visual = frontTransform
+    weapon.attackElapsedMs = Math.max(weapon.attackElapsedMs, minimumElapsedMs)
   }
 
   private getBackTransform(

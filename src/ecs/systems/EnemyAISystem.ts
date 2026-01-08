@@ -62,6 +62,7 @@ export class EnemyAISystem extends System {
         ENEMY_ATTACK_RANGE_BUFFER
       const spacingTolerance = 0.2
       const facing = dx >= 0 ? 1 : -1
+      entity.input.facingOverride = facing
 
       if (ai.attackDesire <= 0 || distance > ai.detectionRange) {
         entity.input.moveDirection = 0
@@ -168,6 +169,7 @@ export class EnemyAISystem extends System {
     for (const entity of entities) {
       if (!entity.input || entity.faction?.faction !== Faction.Enemy) continue
       entity.input.moveDirection = 0
+      entity.input.facingOverride = null
       if (entity.weapon) {
         entity.weapon.attackQueued = false
       }

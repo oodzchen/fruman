@@ -80,6 +80,7 @@ export class InputComponent extends Component {
   attackRequested = false
 
   lastMoveDirection = 0
+  facingOverride: number | null = null
   inputBuffer = new InputBuffer()
 
   getName(): string {

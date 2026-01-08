@@ -104,7 +104,9 @@ export class MovementSystem extends System {
 
     const direction = entity.input.moveDirection
 
-    if (direction !== 0) {
+    if (entity.input.facingOverride !== null) {
+      entity.input.lastMoveDirection = entity.input.facingOverride
+    } else if (direction !== 0) {
       entity.input.lastMoveDirection = direction
     }
 
