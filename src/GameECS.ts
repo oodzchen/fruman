@@ -8,7 +8,7 @@ import type { WeaponComponent } from './ecs/Component'
 import { componentRegistry } from './ecs/ComponentRegistry'
 import type { Entity } from './ecs/Entity'
 import { World } from './ecs/World'
-import { createPlayer } from './ecs/factories/PlayerFactory'
+import { createEnemy, createPlayer } from './ecs/factories/PlayerFactory'
 import { MovementSystem } from './ecs/systems/MovementSystem'
 import { PhysicsSystem } from './ecs/systems/PhysicsSystem'
 import { RenderSystem } from './ecs/systems/RenderSystem'
@@ -28,6 +28,7 @@ export class GameECS {
   private worldId: ReturnType<MainModule['b2CreateWorld']>
   private world: World
   private playerEntity!: Entity
+  private enemyEntity: Entity | null = null
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private camera: { x: number; y: number }
@@ -104,10 +105,10 @@ export class GameECS {
   }
 
   private initializeSystems(): void {
-    this.statsSystem = new StatsSystem()
+    this.statsSystem = new StatsSystem(this.box2d, this.worldId)
     this.physicsSystem = new PhysicsSystem(this.box2d, this.worldId)
     this.movementSystem = new MovementSystem(this.box2d)
-    this.weaponSystem = new WeaponSystem(this.box2d)
+    this.weaponSystem = new WeaponSystem(this.box2d, this.statsSystem)
     this.renderSystem = new RenderSystem(
       this.ctx,
       this.pixelsPerMeter,
@@ -127,6 +128,14 @@ export class GameECS {
       this.box2d,
       this.worldId,
       2,
+      groundTopY - 0.6,
+      groundTopY
+    )
+    this.enemyEntity = createEnemy(
+      this.world,
+      this.box2d,
+      this.worldId,
+      4,
       groundTopY - 0.6,
       groundTopY
     )
@@ -279,6 +288,7 @@ export class GameECS {
       }
     }
 
+    this.weaponSystem.setEntities(this.world.getEntities())
     this.world.update(deltaTime)
 
     if (this.playerEntity.transform) {

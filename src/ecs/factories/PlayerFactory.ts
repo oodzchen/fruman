@@ -16,6 +16,8 @@ import {
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_CORNER_RADIUS,
+  DEFAULT_WEAPON_FOLLOW_OFFSET_X,
+  DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
@@ -170,6 +172,60 @@ export function createPlayer(
   entity.addComponent(weapon)
 
   return entity
+}
+
+export function createEnemy(
+  world: World,
+  box2d: MainModule,
+  worldId: b2WorldId,
+  x: number,
+  y: number,
+  groundTopY: number
+): Entity {
+  const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY)
+
+  if (enemy.faction) {
+    enemy.faction.faction = Faction.Enemy
+  }
+
+  if (enemy.render) {
+    enemy.render.color = '#55585c'
+  }
+
+  if (enemy.weapon && enemy.transform) {
+    const facing = 1
+    const followX = enemy.transform.x - facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X
+    const followY = enemy.transform.y + DEFAULT_WEAPON_FOLLOW_OFFSET_Y
+    const equippedTransform = {
+      x: followX,
+      y: followY,
+      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+    }
+
+    enemy.weapon.isEquipped = true
+    enemy.weapon.position = { x: followX, y: followY }
+    enemy.weapon.visual = equippedTransform
+    enemy.weapon.attackStartTransform = equippedTransform
+    enemy.weapon.swingStartTransform = equippedTransform
+    enemy.weapon.swingEndTransform = equippedTransform
+    enemy.weapon.attackStartOffset = {
+      dx: followX - enemy.transform.x,
+      dy: followY - enemy.transform.y,
+      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+    }
+    enemy.weapon.swingStartOffset = enemy.weapon.attackStartOffset
+    enemy.weapon.swingEndOffset = enemy.weapon.attackStartOffset
+    enemy.weapon.attackFacing = facing
+    enemy.weapon.attackPhase = 'idle'
+    enemy.weapon.attackQueued = false
+    enemy.weapon.isInCombat = false
+
+    if (enemy.movement) {
+      enemy.movement.carryWeight = enemy.weapon.weight
+    }
+  }
+
+  return enemy
 }
 
 export function createWeapon(

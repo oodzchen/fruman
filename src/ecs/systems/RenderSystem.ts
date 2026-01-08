@@ -26,6 +26,7 @@ export class RenderSystem extends System {
   update(entities: Entity[], _deltaTime: number): void {
     for (const entity of entities) {
       if (!entity.transform || !entity.render) continue
+      if (entity.stats?.isVanished) continue
       if (!entity.render.visible) continue
 
       this.renderEntity(entity)
@@ -41,10 +42,17 @@ export class RenderSystem extends System {
     const centerX = pos.x * this.pixelsPerMeter
     const centerY = pos.y * this.pixelsPerMeter
     const radius = render.radius * this.pixelsPerMeter
+    const deathScale = this.getDeathScale(entity)
+    const alpha = this.getDeathAlpha(entity)
+
+    this.ctx.save()
+    this.ctx.translate(centerX, centerY)
+    this.ctx.scale(deathScale.x, deathScale.y)
+    this.ctx.globalAlpha *= alpha
 
     this.ctx.fillStyle = render.color
     this.ctx.beginPath()
-    this.ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI)
+    this.ctx.arc(0, 0, radius, 0, 2 * Math.PI)
     this.ctx.fill()
 
     this.ctx.strokeStyle = render.borderColor
@@ -57,13 +65,15 @@ export class RenderSystem extends System {
 
     const direction =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
-    const eyeX = centerX + (direction < 0 ? -eyeOffsetX : eyeOffsetX)
-    const eyeY = centerY + eyeOffsetY
+    const eyeX = direction < 0 ? -eyeOffsetX : eyeOffsetX
+    const eyeY = eyeOffsetY
 
     this.ctx.fillStyle = '#000000'
     this.ctx.beginPath()
     this.ctx.arc(eyeX, eyeY, eyeRadius, 0, 2 * Math.PI)
     this.ctx.fill()
+
+    this.ctx.restore()
 
     if (entity.stats) {
       this.drawStatusBars(entity.stats, centerX, centerY, render.radius)
@@ -201,5 +211,33 @@ export class RenderSystem extends System {
     this.ctx.strokeStyle = '#111111'
     this.ctx.lineWidth = 1
     this.ctx.strokeRect(x, y, width, height)
+  }
+
+  private getDeathScale(entity: Entity): { x: number; y: number } {
+    if (!entity.stats || !entity.stats.isDead) {
+      return { x: 1, y: 1 }
+    }
+    const elapsed = entity.stats.deathElapsedSec
+    const flash = entity.stats.deathFlashDurationSec
+    const flatten = entity.stats.deathFlattenDurationSec
+    if (elapsed <= flash) {
+      return { x: 1, y: 1 }
+    }
+    const progress = Math.min(1, Math.max(0, (elapsed - flash) / flatten))
+    const scaleY = Math.max(0.05, 1 - progress)
+    const scaleX = 1 + progress * 0.3
+    return { x: scaleX, y: scaleY }
+  }
+
+  private getDeathAlpha(entity: Entity): number {
+    if (!entity.stats || !entity.stats.isDead) return 1
+    const elapsed = entity.stats.deathElapsedSec
+    const flash = entity.stats.deathFlashDurationSec
+    const flatten = entity.stats.deathFlattenDurationSec
+    if (elapsed <= flash) {
+      return 0.5 + 0.5 * Math.sin(elapsed * 20)
+    }
+    const progress = Math.min(1, Math.max(0, (elapsed - flash) / flatten))
+    return 1 - progress
   }
 }

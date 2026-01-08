@@ -1,14 +1,26 @@
 import {
+  DEFAULT_BODY_FRICTION,
+  DEFAULT_BODY_LINEAR_DAMPING,
+  DEFAULT_DEATH_FLASH_DURATION,
+  DEFAULT_DEATH_FLATTEN_DURATION,
+  DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
 } from '../../constants'
+import type { MainModule, b2WorldId } from '../../types'
+import { PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 
 export class StatsSystem extends System {
-  constructor() {
+  private box2d?: MainModule
+  private worldId?: b2WorldId
+
+  constructor(box2d?: MainModule, worldId?: b2WorldId) {
     super()
+    this.box2d = box2d
+    this.worldId = worldId
     const statsType = componentRegistry.getComponentType('Stats')
     this.setRequiredComponents([statsType])
   }
@@ -17,7 +29,22 @@ export class StatsSystem extends System {
     const deltaSeconds = deltaTime > 0 ? deltaTime : 0
     for (const entity of entities) {
       if (!entity.stats) continue
-      if (entity.stats.isDead) continue
+      if (entity.stats.isDead) {
+        if (!entity.stats.isVanished) {
+          entity.stats.deathElapsedSec += deltaSeconds
+          const totalDuration =
+            entity.stats.deathFlashDurationSec +
+            entity.stats.deathFlattenDurationSec
+          if (entity.stats.deathElapsedSec >= totalDuration) {
+            entity.stats.isVanished = true
+            if (entity.render) {
+              entity.render.visible = false
+            }
+            this.removePhysics(entity)
+          }
+        }
+        continue
+      }
 
       if (entity.stats.toughness < entity.stats.maxToughness) {
         const recovery = entity.stats.toughnessRecoveryPerSecond * deltaSeconds
@@ -67,6 +94,13 @@ export class StatsSystem extends System {
 
     if (entity.stats.health === 0) {
       entity.stats.isDead = true
+      entity.stats.isVanished = false
+      entity.stats.deathElapsedSec = 0
+      entity.stats.deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
+      entity.stats.deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
+      if (entity.render) {
+        entity.render.visible = true
+      }
       if (entity.input) {
         entity.input.moveDirection = 0
         entity.input.jumpRequested = false
@@ -78,7 +112,9 @@ export class StatsSystem extends System {
         entity.weapon.attackQueued = false
         entity.weapon.isInCombat = false
         entity.weapon.isColliding = false
+        entity.weapon.hitEntityIds.clear()
       }
+      this.stabilizeBody(entity)
     }
   }
 
@@ -88,5 +124,77 @@ export class StatsSystem extends System {
     entity.stats.health = entity.stats.maxHealth
     entity.stats.toughness = entity.stats.maxToughness
     entity.stats.isDead = false
+    entity.stats.isVanished = false
+    entity.stats.deathElapsedSec = 0
+    if (entity.render) {
+      entity.render.visible = true
+    }
+    if (!entity.physics) {
+      this.recreatePhysics(entity)
+    }
+  }
+
+  private stabilizeBody(entity: Entity): void {
+    if (!this.box2d || !entity.physics) return
+
+    const { b2Body_SetLinearVelocity, b2Vec2, b2Body_SetLinearDamping } =
+      this.box2d
+    const stopVelocity = new b2Vec2(0, 0)
+    b2Body_SetLinearVelocity(entity.physics.bodyId, stopVelocity)
+    b2Body_SetLinearDamping(entity.physics.bodyId, 10)
+    stopVelocity.delete()
+
+    if (entity.physics.shapeId) {
+      const { b2Shape_SetFriction } = this.box2d
+      b2Shape_SetFriction(entity.physics.shapeId, 3)
+    }
+  }
+
+  private removePhysics(entity: Entity): void {
+    if (!this.box2d) return
+    if (!entity.physics) return
+
+    const { b2DestroyBody } = this.box2d
+    b2DestroyBody(entity.physics.bodyId)
+    entity.removeComponent('Physics')
+  }
+
+  private recreatePhysics(entity: Entity): void {
+    if (!this.box2d || !this.worldId) return
+    if (!entity.transform) return
+
+    const {
+      b2DefaultBodyDef,
+      b2CreateBody,
+      b2BodyType,
+      b2Capsule,
+      b2DefaultShapeDef,
+      b2CreateCapsuleShape,
+    } = this.box2d
+
+    const bodyDef = b2DefaultBodyDef()
+    bodyDef.type = b2BodyType.b2_dynamicBody
+    bodyDef.position.Set(entity.transform.x, entity.transform.y)
+    bodyDef.motionLocks.angularZ = true
+    bodyDef.linearDamping = DEFAULT_BODY_LINEAR_DAMPING
+    const bodyId = b2CreateBody(this.worldId, bodyDef)
+
+    const shape = new b2Capsule()
+    shape.center1.Set(0, 0)
+    shape.center2.Set(0, 0)
+    shape.radius = DEFAULT_PLAYER_RADIUS
+    const fixtureDef = b2DefaultShapeDef()
+    fixtureDef.density = 1.0
+    fixtureDef.material.friction = DEFAULT_BODY_FRICTION
+    const shapeId = b2CreateCapsuleShape(bodyId, fixtureDef, shape)
+
+    bodyDef.delete()
+    shape.delete()
+    fixtureDef.delete()
+
+    const physics = new PhysicsComponent()
+    physics.bodyId = bodyId
+    physics.shapeId = shapeId
+    entity.addComponent(physics)
   }
 }

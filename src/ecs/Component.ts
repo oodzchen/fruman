@@ -1,4 +1,6 @@
 import {
+  DEFAULT_DEATH_FLASH_DURATION,
+  DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_TOUGHNESS,
   DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC,
@@ -96,6 +98,10 @@ export class StatsComponent extends Component {
   toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
   toughnessRecoveryPerSecond = DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC
   isDead = false
+  isVanished = false
+  deathElapsedSec = 0
+  deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
+  deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
 
   getName(): string {
     return 'Stats'
@@ -149,6 +155,7 @@ export class WeaponComponent extends Component {
   reboundLockedPause = false
   reboundTargetTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   reboundTargetOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
+  hitEntityIds: Set<number> = new Set()
 
   getName(): string {
     return 'Weapon'

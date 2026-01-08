@@ -31,6 +31,10 @@ export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 1
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 10
 export const DEFAULT_WEAPON_TOUGHNESS_DAMAGE = 2
 
+// 死亡动画（秒）
+export const DEFAULT_DEATH_FLASH_DURATION = 0.3
+export const DEFAULT_DEATH_FLATTEN_DURATION = 0.7
+
 // 武器重量（可理解为 kg，角色装备后会叠加）
 export const DEFAULT_WEAPON_WEIGHT = 2
 

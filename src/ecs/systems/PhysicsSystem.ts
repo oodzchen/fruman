@@ -24,6 +24,7 @@ export class PhysicsSystem extends System {
 
     for (const entity of entities) {
       if (!entity.transform || !entity.physics) continue
+      if (entity.stats?.isVanished) continue
 
       const pos = b2Body_GetPosition(entity.physics.bodyId)
       entity.transform.x = pos.x

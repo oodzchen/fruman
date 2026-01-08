@@ -20,6 +20,7 @@ import type { WeaponRelativeTransform, WeaponTransform } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
+import type { StatsSystem } from './StatsSystem'
 
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
 const FRONT_SWING_TILT_RAD = Math.PI / 14
@@ -34,10 +35,13 @@ type ObstacleCollider = {
 export class WeaponSystem extends System {
   private box2d?: MainModule
   private obstacles: ObstacleCollider[] = []
+  private statsSystem?: StatsSystem
+  private allEntities: Entity[] = []
 
-  constructor(box2d?: MainModule) {
+  constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
     this.box2d = box2d
+    this.statsSystem = statsSystem
 
     const transformType = componentRegistry.getComponentType('Transform')
     const weaponType = componentRegistry.getComponentType('Weapon')
@@ -56,6 +60,10 @@ export class WeaponSystem extends System {
       }
       this.updateWeapon(entity, deltaMs)
     }
+  }
+
+  setEntities(entities: Entity[]): void {
+    this.allEntities = entities
   }
 
   private updateWeapon(entity: Entity, deltaMs: number): void {
@@ -195,6 +203,7 @@ export class WeaponSystem extends System {
       weapon.swingEndTransform = swingEndTransform
       weapon.attackRadius = attackRadius
       weapon.visual = this.applyOffset(attackStartOffset, playerPos)
+      weapon.hitEntityIds.clear()
     }
   }
 
@@ -210,6 +219,7 @@ export class WeaponSystem extends System {
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
       weapon.attackStartTransform = weapon.swingStartTransform
+      weapon.hitEntityIds.clear()
     }
   }
 
@@ -225,6 +235,7 @@ export class WeaponSystem extends System {
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
       weapon.attackStartTransform = weapon.swingStartTransform
+      weapon.hitEntityIds.clear()
     }
   }
 
@@ -248,6 +259,7 @@ export class WeaponSystem extends System {
       this.startRebound(entity, playerPos, now)
       return
     }
+    this.checkEntityHits(entity, weapon)
     if (t >= 1) {
       weapon.attackPhase = 'pause'
       weapon.attackElapsedMs = 0
@@ -369,6 +381,7 @@ export class WeaponSystem extends System {
       weapon.swingEndTransform = swingEndTransform
       weapon.attackStartTransform = weapon.visual
       weapon.lastAttackTimestamp = now
+      weapon.hitEntityIds.clear()
       return
     }
 
@@ -489,6 +502,7 @@ export class WeaponSystem extends System {
       weapon.comboCount = 1
       weapon.attackQueued = false
       weapon.visual = this.applyOffset(attackStartOffset, playerPos)
+      weapon.hitEntityIds.clear()
       return
     }
 
@@ -612,6 +626,7 @@ export class WeaponSystem extends System {
     weapon.attackPhase = 'idle'
     weapon.attackElapsedMs = 0
     weapon.isColliding = false
+    weapon.hitEntityIds.clear()
 
     if (!entity.transform) return
 
@@ -671,6 +686,38 @@ export class WeaponSystem extends System {
     impulse.delete()
   }
 
+  private checkEntityHits(attacker: Entity, weapon: Entity['weapon']): void {
+    if (!this.statsSystem) return
+    if (!attacker.transform || !attacker.faction) return
+    if (!weapon || !weapon.hitEntityIds) return
+
+    const attackRadius =
+      weapon.attackRadius !== 0
+        ? weapon.attackRadius
+        : this.getAttackRadius(weapon)
+    const weaponX = weapon.visual.x
+    const weaponY = weapon.visual.y
+
+    for (const target of this.allEntities) {
+      if (!target || target.id === attacker.id) continue
+      if (!target.transform || !target.stats || target.stats.isDead) continue
+      if (!target.faction || !attacker.faction.canAttack(target.faction))
+        continue
+
+      const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      const hitRange = attackRadius + targetRadius
+      const dx = weaponX - target.transform.x
+      const dy = weaponY - target.transform.y
+      if (dx * dx + dy * dy > hitRange * hitRange) continue
+
+      if (weapon.hitEntityIds.has(target.id)) continue
+
+      this.statsSystem.applyWeaponHit(target, weapon)
+      weapon.isColliding = true
+      weapon.hitEntityIds.add(target.id)
+    }
+  }
+
   private startRebound(
     entity: Entity,
     playerPos: { x: number; y: number },
@@ -701,6 +748,7 @@ export class WeaponSystem extends System {
     weapon.swingStartTransform = weapon.visual
     weapon.swingEndTransform = reboundTransform
     weapon.lastAttackTimestamp = now
+    weapon.hitEntityIds.clear()
   }
 
   private handleReboundPhase(
