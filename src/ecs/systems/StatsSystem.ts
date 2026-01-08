@@ -3,6 +3,8 @@ import {
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_DEATH_FLASH_DURATION,
   DEFAULT_DEATH_FLATTEN_DURATION,
+  DEFAULT_HIT_SHAKE_DURATION_MS,
+  DEFAULT_HIT_SHAKE_INTENSITY,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
@@ -27,6 +29,7 @@ export class StatsSystem extends System {
 
   update(entities: Entity[], deltaTime: number): void {
     const deltaSeconds = deltaTime > 0 ? deltaTime : 0
+    const deltaMs = deltaSeconds * 1000
     for (const entity of entities) {
       if (!entity.stats) continue
       if (entity.stats.isDead) {
@@ -46,6 +49,14 @@ export class StatsSystem extends System {
         continue
       }
 
+      if (entity.stats.hitShakeDurationMs > 0) {
+        entity.stats.hitShakeElapsedMs += deltaMs
+        if (entity.stats.hitShakeElapsedMs >= entity.stats.hitShakeDurationMs) {
+          entity.stats.hitShakeDurationMs = 0
+          entity.stats.hitShakeElapsedMs = 0
+        }
+      }
+
       if (entity.stats.toughness < entity.stats.maxToughness) {
         const recovery = entity.stats.toughnessRecoveryPerSecond * deltaSeconds
         entity.stats.toughness = Math.min(
@@ -62,7 +73,8 @@ export class StatsSystem extends System {
 
   applyWeaponHit(
     entity: Entity,
-    weapon?: { attackDamage: number; toughnessDamage: number }
+    weapon?: { attackDamage: number; toughnessDamage: number },
+    hitSource?: { x: number; y: number }
   ): void {
     const attackDamage = Math.max(
       0,
@@ -72,13 +84,14 @@ export class StatsSystem extends System {
       0,
       weapon?.toughnessDamage ?? DEFAULT_WEAPON_TOUGHNESS_DAMAGE
     )
-    this.applyDamage(entity, attackDamage, toughnessDamage)
+    this.applyDamage(entity, attackDamage, toughnessDamage, hitSource)
   }
 
   private applyDamage(
     entity: Entity,
     healthDamage: number,
-    toughnessDamage: number
+    toughnessDamage: number,
+    hitSource?: { x: number; y: number }
   ): void {
     if (!entity.stats) return
     if (entity.stats.isDead) return
@@ -91,6 +104,17 @@ export class StatsSystem extends System {
       0,
       entity.stats.toughness - clampedToughnessDamage
     )
+
+    if (hitSource && entity.transform) {
+      const dirX = entity.transform.x - hitSource.x
+      const distance = Math.hypot(dirX, entity.transform.y - hitSource.y)
+      const normalizedDirX = distance > 0 ? dirX / distance : 1
+
+      entity.stats.hitShakeElapsedMs = 0
+      entity.stats.hitShakeDurationMs = DEFAULT_HIT_SHAKE_DURATION_MS
+      entity.stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
+      entity.stats.hitShakeDirectionX = normalizedDirX
+    }
 
     if (entity.stats.health === 0) {
       entity.stats.isDead = true

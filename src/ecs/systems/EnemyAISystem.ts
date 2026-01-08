@@ -96,13 +96,7 @@ export class EnemyAISystem extends System {
 
       if (ai.state === 'combo') {
         ai.lastFacing = facing
-        if (distance > weaponRange + spacingTolerance) {
-          entity.input.moveDirection = facing
-        } else if (distance < weaponRange - spacingTolerance) {
-          entity.input.moveDirection = -facing
-        } else {
-          entity.input.moveDirection = 0
-        }
+        entity.input.moveDirection = 0
         this.queueAttack(entity, facing, ai)
         const weapon = entity.weapon
         const comboFinished =

@@ -815,7 +815,10 @@ export class WeaponSystem extends System {
 
       if (weapon.hitEntityIds.has(target.id)) continue
 
-      this.statsSystem.applyWeaponHit(target, weapon)
+      this.statsSystem.applyWeaponHit(target, weapon, {
+        x: weaponX,
+        y: weaponY,
+      })
       weapon.isColliding = true
       weapon.hitEntityIds.add(target.id)
     }

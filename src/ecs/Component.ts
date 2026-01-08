@@ -111,6 +111,11 @@ export class StatsComponent extends Component {
   deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
   deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
 
+  hitShakeElapsedMs = 0
+  hitShakeDurationMs = 0
+  hitShakeIntensity = 0
+  hitShakeDirectionX = 0
+
   getName(): string {
     return 'Stats'
   }

@@ -39,8 +39,9 @@ export class RenderSystem extends System {
     const pos = entity.transform
     const render = entity.render
 
-    const centerX = pos.x * this.pixelsPerMeter
-    const centerY = pos.y * this.pixelsPerMeter
+    const shakeOffset = this.getHitShakeOffset(entity)
+    const centerX = (pos.x + shakeOffset.x) * this.pixelsPerMeter
+    const centerY = (pos.y + shakeOffset.y) * this.pixelsPerMeter
     const radius = render.radius * this.pixelsPerMeter
     const deathScale = this.getDeathScale(entity)
     const alpha = this.getDeathAlpha(entity)
@@ -240,5 +241,22 @@ export class RenderSystem extends System {
     }
     const progress = Math.min(1, Math.max(0, (elapsed - flash) / flatten))
     return 1 - progress
+  }
+
+  private getHitShakeOffset(entity: Entity): { x: number; y: number } {
+    if (!entity.stats || entity.stats.hitShakeDurationMs === 0) {
+      return { x: 0, y: 0 }
+    }
+
+    const progress =
+      entity.stats.hitShakeElapsedMs / entity.stats.hitShakeDurationMs
+    const decay = 1 - progress
+    const frequency = 30
+    const shake = Math.sin(progress * frequency) * decay
+
+    const offsetX =
+      shake * entity.stats.hitShakeIntensity * entity.stats.hitShakeDirectionX
+
+    return { x: offsetX, y: 0 }
   }
 }

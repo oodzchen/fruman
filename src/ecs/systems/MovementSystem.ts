@@ -1,4 +1,8 @@
-import { DEFAULT_PLAYER_WEIGHT, PLAYER_WEIGHT_REFERENCE } from '../../constants'
+import {
+  DEFAULT_PLAYER_RADIUS,
+  DEFAULT_PLAYER_WEIGHT,
+  PLAYER_WEIGHT_REFERENCE,
+} from '../../constants'
 import type { MainModule } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -6,6 +10,7 @@ import { System } from '../System'
 
 export class MovementSystem extends System {
   private box2d: MainModule
+  private allEntities: Entity[] = []
 
   constructor(box2d: MainModule) {
     super()
@@ -15,6 +20,10 @@ export class MovementSystem extends System {
     const movementType = componentRegistry.getComponentType('Movement')
     const inputType = componentRegistry.getComponentType('Input')
     this.setRequiredComponents([physicsType, movementType, inputType])
+  }
+
+  setEntities(entities: Entity[]): void {
+    this.allEntities = entities
   }
 
   update(entities: Entity[], _deltaTime: number): void {
@@ -102,12 +111,22 @@ export class MovementSystem extends System {
       this.box2d
     const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
 
-    const direction = entity.input.moveDirection
+    let direction = entity.input.moveDirection
 
-    if (entity.input.facingOverride !== null) {
-      entity.input.lastMoveDirection = entity.input.facingOverride
-    } else if (direction !== 0) {
-      entity.input.lastMoveDirection = direction
+    const isInAttackAction =
+      entity.weapon &&
+      entity.weapon.isEquipped &&
+      (entity.weapon.attackPhase === 'swing' ||
+        entity.weapon.attackPhase === 'pause' ||
+        entity.weapon.attackPhase === 'recover' ||
+        entity.weapon.attackPhase === 'rebound')
+
+    if (!isInAttackAction) {
+      if (entity.input.facingOverride !== null) {
+        entity.input.lastMoveDirection = entity.input.facingOverride
+      } else if (direction !== 0) {
+        entity.input.lastMoveDirection = direction
+      }
     }
 
     const wallJumpCooldown = 150
@@ -116,6 +135,14 @@ export class MovementSystem extends System {
 
     if (isInWallJumpCooldown) {
       return
+    }
+
+    if (isInAttackAction) {
+      direction = 0
+    }
+
+    if (direction !== 0 && this.isEnemyBlocking(entity, direction)) {
+      direction = 0
     }
 
     const velocity = new b2Vec2(
@@ -250,5 +277,37 @@ export class MovementSystem extends System {
         : DEFAULT_PLAYER_WEIGHT
     const factor = effectiveWeight / referenceWeight
     return factor > 0 ? factor : 1
+  }
+
+  private isEnemyBlocking(entity: Entity, direction: number): boolean {
+    if (!entity.transform || !entity.faction) return false
+
+    const myRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const myX = entity.transform.x
+
+    for (const other of this.allEntities) {
+      if (other.id === entity.id) continue
+      if (!other.transform || !other.faction) continue
+      if (other.stats?.isDead) continue
+
+      if (!entity.faction.canAttack(other.faction)) continue
+
+      const otherRadius = other.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      const otherX = other.transform.x
+
+      const dx = otherX - myX
+      const dy = other.transform.y - entity.transform.y
+      const distance = Math.hypot(dx, dy)
+      const touchDistance = myRadius + otherRadius
+
+      if (distance > touchDistance) continue
+
+      const isInFront = (direction > 0 && dx > 0) || (direction < 0 && dx < 0)
+      if (isInFront) {
+        return true
+      }
+    }
+
+    return false
   }
 }

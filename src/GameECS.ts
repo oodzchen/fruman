@@ -296,6 +296,7 @@ export class GameECS {
     }
 
     this.weaponSystem.setEntities(this.world.getEntities())
+    this.movementSystem.setEntities(this.world.getEntities())
     this.world.update(deltaTime)
     this.cleanupDestroyedEntities()
 
