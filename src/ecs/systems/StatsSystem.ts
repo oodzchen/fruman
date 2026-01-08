@@ -168,6 +168,25 @@ export class StatsSystem extends System {
         if (entity.movement) {
           entity.movement.knockbackEndTime = Date.now() + 200
         }
+
+        // 受到击退时强制打断攻击动作并重置连击
+        if (entity.weapon) {
+          entity.weapon.attackPhase = 'idle'
+          entity.weapon.attackElapsedMs = 0
+          entity.weapon.attackQueued = false
+          entity.weapon.isColliding = false
+          entity.weapon.hitEntityIds.clear()
+          entity.weapon.comboCount = 0
+          entity.weapon.swingDirection = 'toFront'
+          entity.weapon.nextSwingDirection = 'toFront'
+          // 保持 isInCombat 为 true，因为受击通常意味着还在战斗中
+        }
+
+        // 重置敌人AI状态
+        if (entity.enemyAI) {
+          entity.enemyAI.state = 'approach'
+          entity.enemyAI.comboSwingsDone = 0
+        }
       }
     }
 

@@ -14,6 +14,7 @@ import {
   DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
   DEFAULT_WEAPON_FRONT_OFFSET_X,
   DEFAULT_WEAPON_FRONT_OFFSET_Y,
+  DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS,
   DEFAULT_WEAPON_PICKUP_DISTANCE,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
@@ -358,7 +359,8 @@ export class WeaponSystem extends System {
     const canChain =
       weapon.attackQueued &&
       weapon.comboCount < 5 &&
-      weapon.attackPhase !== 'rebound'
+      weapon.attackPhase !== 'rebound' &&
+      weapon.attackElapsedMs >= DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS
 
     if (canChain) {
       weapon.attackQueued = false
