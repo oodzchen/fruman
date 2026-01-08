@@ -334,6 +334,10 @@ export class WeaponSystem extends System {
 
     weapon.visual = weapon.attackStartTransform
 
+    if (entity.movement && !entity.movement.isGrounded) {
+      this.checkEntityHits(entity, weapon)
+    }
+
     const pauseThreshold = weapon.reboundLockedPause
       ? Math.max(REBOUND_PAUSE_MS, DEFAULT_WEAPON_ATTACK_PAUSE_MS)
       : DEFAULT_WEAPON_ATTACK_PAUSE_MS
