@@ -98,7 +98,7 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'swing') {
-      this.handleSwingPhase(weapon, now)
+      this.handleSwingPhase(weapon, playerPos, now)
       return
     }
 
@@ -203,7 +203,11 @@ export class WeaponSystem extends System {
     }
   }
 
-  private handleSwingPhase(weapon: Entity['weapon'], now: number): void {
+  private handleSwingPhase(
+    weapon: Entity['weapon'],
+    playerPos: { x: number; y: number },
+    now: number
+  ): void {
     if (!weapon) return
 
     const t = this.clamp01(
@@ -215,7 +219,6 @@ export class WeaponSystem extends System {
     if (t >= 1) {
       weapon.attackPhase = 'pause'
       weapon.attackElapsedMs = 0
-      const playerPos = { x: 0, y: 0 }
       weapon.attackStartOffset = this.getOffsetFromTransform(
         weapon.visual,
         playerPos
