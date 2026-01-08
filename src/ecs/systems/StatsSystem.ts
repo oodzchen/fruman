@@ -73,7 +73,11 @@ export class StatsSystem extends System {
 
   applyWeaponHit(
     entity: Entity,
-    weapon?: { attackDamage: number; toughnessDamage: number },
+    weapon?: {
+      attackDamage: number
+      toughnessDamage: number
+      knockback?: number
+    },
     hitSource?: { x: number; y: number }
   ): void {
     const attackDamage = Math.max(
@@ -84,13 +88,21 @@ export class StatsSystem extends System {
       0,
       weapon?.toughnessDamage ?? DEFAULT_WEAPON_TOUGHNESS_DAMAGE
     )
-    this.applyDamage(entity, attackDamage, toughnessDamage, hitSource)
+    const knockback = Math.max(0, weapon?.knockback ?? 0)
+    this.applyDamage(
+      entity,
+      attackDamage,
+      toughnessDamage,
+      knockback,
+      hitSource
+    )
   }
 
   private applyDamage(
     entity: Entity,
     healthDamage: number,
     toughnessDamage: number,
+    knockback: number,
     hitSource?: { x: number; y: number }
   ): void {
     if (!entity.stats) return
@@ -99,13 +111,30 @@ export class StatsSystem extends System {
     // 翻滚期间无敌
     if (entity.movement?.isRolling) return
 
-    const clampedHealthDamage = Math.max(0, healthDamage)
-    const clampedToughnessDamage = Math.max(0, toughnessDamage)
+    let finalHealthDamage = Math.max(0, healthDamage)
+    const finalToughnessDamage = Math.max(0, toughnessDamage)
 
-    entity.stats.health = Math.max(0, entity.stats.health - clampedHealthDamage)
+    // 格挡逻辑
+    if (entity.weapon?.isBlocking && hitSource && entity.transform) {
+      const dx = hitSource.x - entity.transform.x
+      // 获取当前朝向
+      const facing =
+        entity.input?.lastMoveDirection !== 0
+          ? (entity.input?.lastMoveDirection ?? 1)
+          : entity.weapon.attackFacing || 1
+
+      // 判断攻击来源是否在前方
+      const isFrontalHit = (facing > 0 && dx > 0) || (facing < 0 && dx < 0)
+
+      if (isFrontalHit) {
+        finalHealthDamage = 0
+      }
+    }
+
+    entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)
     entity.stats.toughness = Math.max(
       0,
-      entity.stats.toughness - clampedToughnessDamage
+      entity.stats.toughness - finalToughnessDamage
     )
 
     if (hitSource && entity.transform) {
@@ -113,10 +142,33 @@ export class StatsSystem extends System {
       const distance = Math.hypot(dirX, entity.transform.y - hitSource.y)
       const normalizedDirX = distance > 0 ? dirX / distance : 1
 
-      entity.stats.hitShakeElapsedMs = 0
-      entity.stats.hitShakeDurationMs = DEFAULT_HIT_SHAKE_DURATION_MS
-      entity.stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
-      entity.stats.hitShakeDirectionX = normalizedDirX
+      if (finalHealthDamage > 0) {
+        entity.stats.hitShakeElapsedMs = 0
+        entity.stats.hitShakeDurationMs = DEFAULT_HIT_SHAKE_DURATION_MS
+        entity.stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
+        entity.stats.hitShakeDirectionX = normalizedDirX
+      }
+
+      // 应用击退
+      if (knockback > 0 && entity.physics && this.box2d) {
+        const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass, b2Vec2 } =
+          this.box2d
+        const mass = b2Body_GetMass(entity.physics.bodyId)
+
+        // 调整击退力度
+        const impulseX = normalizedDirX * knockback * 2 * mass
+        const impulseY = 0
+
+        const impulse = new b2Vec2(impulseX, impulseY)
+
+        b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, impulse, true)
+        impulse.delete()
+
+        // 设置击退硬直时间（例如200ms）
+        if (entity.movement) {
+          entity.movement.knockbackEndTime = Date.now() + 200
+        }
+      }
     }
 
     if (entity.stats.health === 0) {

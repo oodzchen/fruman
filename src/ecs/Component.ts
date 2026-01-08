@@ -74,6 +74,7 @@ export class MovementComponent extends Component {
   rollDuration = 0
   rollDirection = 0
   rollCooldownEndTime = 0
+  knockbackEndTime = 0
 
   getName(): string {
     return 'Movement'
@@ -84,6 +85,7 @@ export class InputComponent extends Component {
   moveDirection = 0
   jumpRequested = false
   attackRequested = false
+  blockRequested = false
 
   lastMoveDirection = 0
   facingOverride: number | null = null
@@ -141,11 +143,13 @@ export class WeaponComponent extends Component {
   weight = 0
   attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+  knockback = 0
   isColliding = false
   position = { x: 0, y: 0 }
   rotation = 0
   isEquipped = false
   isInCombat = false
+  isBlocking = false
   attackPhase:
     | 'idle'
     | 'windup'

@@ -243,6 +243,12 @@ export class GameECS {
         this.weaponSystem.startAttack(this.playerEntity)
       }
 
+      if (e.key.toLowerCase() === 'k' && !isPlayerDead) {
+        if (this.playerEntity.input) {
+          this.playerEntity.input.blockRequested = true
+        }
+      }
+
       if (e.key.toLowerCase() === 'i') {
         this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
       } else if (e.key.toLowerCase() === 'o') {
@@ -264,6 +270,12 @@ export class GameECS {
 
       if (e.key.toLowerCase() === 'j') {
         this.attackKeyPressed = false
+      }
+
+      if (e.key.toLowerCase() === 'k') {
+        if (this.playerEntity.input) {
+          this.playerEntity.input.blockRequested = false
+        }
       }
     })
 

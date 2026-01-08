@@ -1,4 +1,6 @@
 import {
+  COMBO_FINISHER_KNOCKBACK,
+  DEFAULT_ATTACK_KNOCKBACK,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_PAUSE_MS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
@@ -118,6 +120,10 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'idle') {
+      if (entity.input && entity.input.blockRequested) {
+        this.handleBlockPhase(entity, playerPos, inputFacing)
+        return
+      }
       this.handleIdlePhase(entity, playerPos, attackRadius, attackFacing, now)
       return
     }
@@ -154,6 +160,35 @@ export class WeaponSystem extends System {
     }
   }
 
+  private handleBlockPhase(
+    entity: Entity,
+    playerPos: { x: number; y: number },
+    facing: number
+  ): void {
+    if (!entity.weapon) return
+    const weapon = entity.weapon
+    weapon.isBlocking = true
+    weapon.isInCombat = true
+    weapon.lastAttackTimestamp = Date.now()
+
+    // 设置格挡姿态：武器竖直在身前
+    const blockX = playerPos.x + facing * DEFAULT_WEAPON_FRONT_OFFSET_X
+    const blockY = playerPos.y // 稍微向下调整或保持居中
+    const blockRotation = -Math.PI / 2 // 竖直向上
+
+    weapon.visual = {
+      x: blockX,
+      y: blockY,
+      rotation: blockRotation,
+    }
+
+    // 如果松开格挡键，且没有排队的攻击，则恢复idle
+    if (entity.input && !entity.input.blockRequested) {
+      weapon.isBlocking = false
+      // 不做额外处理，下一帧 handleIdlePhase 会接管
+    }
+  }
+
   private handleIdlePhase(
     entity: Entity,
     playerPos: { x: number; y: number },
@@ -164,6 +199,7 @@ export class WeaponSystem extends System {
     if (!entity.input || !entity.weapon) return
 
     const weapon = entity.weapon
+    weapon.isBlocking = false
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
 
@@ -212,6 +248,7 @@ export class WeaponSystem extends System {
       weapon.swingEndTransform = swingEndTransform
       weapon.attackRadius = attackRadius
       weapon.visual = this.applyOffset(attackStartOffset, playerPos)
+      weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
     }
   }
@@ -376,6 +413,7 @@ export class WeaponSystem extends System {
         weapon.swingStartTransform = finalWindupTransform
         weapon.swingEndTransform = swingEndTransform
         weapon.lastAttackTimestamp = now
+        weapon.knockback = COMBO_FINISHER_KNOCKBACK
         return
       }
 
@@ -404,6 +442,7 @@ export class WeaponSystem extends System {
       weapon.swingEndTransform = swingEndTransform
       weapon.attackStartTransform = weapon.visual
       weapon.lastAttackTimestamp = now
+      weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
       return
     }
@@ -474,6 +513,9 @@ export class WeaponSystem extends System {
     if (!entity.weapon.isEquipped) return
     if (entity.stats?.isDead) return
 
+    // 击退硬直期间无法攻击
+    if (entity.movement && Date.now() < entity.movement.knockbackEndTime) return
+
     const weapon = entity.weapon
     const now = Date.now()
     const playerPos = { x: entity.transform.x, y: entity.transform.y }
@@ -530,6 +572,7 @@ export class WeaponSystem extends System {
       weapon.comboCount = 1
       weapon.attackQueued = false
       weapon.visual = this.applyOffset(attackStartOffset, playerPos)
+      weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
       return
     }

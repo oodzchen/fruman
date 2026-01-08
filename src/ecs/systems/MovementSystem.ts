@@ -213,6 +213,9 @@ export class MovementSystem extends System {
   private handleMove(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
+    // 处于击退硬直状态时，不处理移动输入，保留物理惯性
+    if (Date.now() < entity.movement.knockbackEndTime) return
+
     const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity, b2Vec2 } =
       this.box2d
     const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
@@ -262,6 +265,9 @@ export class MovementSystem extends System {
 
   private handleJump(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
+
+    // 击退硬直期间无法跳跃
+    if (Date.now() < entity.movement.knockbackEndTime) return
 
     const isInAttackAction =
       entity.weapon &&

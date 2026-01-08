@@ -48,6 +48,11 @@ export class EnemyAISystem extends System {
         continue
       }
 
+      // 如果处于击退硬直中，暂停AI控制，让物理引擎接管运动
+      if (entity.movement && entity.movement.knockbackEndTime > now) {
+        continue
+      }
+
       const ai = entity.enemyAI
       if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
         continue
