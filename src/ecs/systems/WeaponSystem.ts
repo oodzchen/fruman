@@ -15,14 +15,28 @@ import {
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
 } from '../../constants'
+import type { MainModule, b2BodyId } from '../../types'
 import type { WeaponRelativeTransform, WeaponTransform } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 
+// 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
+const FRONT_SWING_TILT_RAD = Math.PI / 14
+
+type ObstacleCollider = {
+  bodyId: b2BodyId
+  width: number
+  height: number
+}
+
 export class WeaponSystem extends System {
-  constructor() {
+  private box2d?: MainModule
+  private obstacles: ObstacleCollider[] = []
+
+  constructor(box2d?: MainModule) {
     super()
+    this.box2d = box2d
 
     const transformType = componentRegistry.getComponentType('Transform')
     const weaponType = componentRegistry.getComponentType('Weapon')
@@ -34,6 +48,7 @@ export class WeaponSystem extends System {
 
     for (const entity of entities) {
       if (!entity.transform || !entity.weapon) continue
+      entity.weapon.isColliding = false
       this.updateWeapon(entity, deltaMs)
     }
   }
@@ -98,7 +113,7 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'swing') {
-      this.handleSwingPhase(weapon, playerPos, now)
+      this.handleSwingPhase(entity, playerPos, now)
       return
     }
 
@@ -204,11 +219,12 @@ export class WeaponSystem extends System {
   }
 
   private handleSwingPhase(
-    weapon: Entity['weapon'],
+    entity: Entity,
     playerPos: { x: number; y: number },
     now: number
   ): void {
-    if (!weapon) return
+    if (!entity.weapon) return
+    const weapon = entity.weapon
 
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_SWING_MS
@@ -216,6 +232,10 @@ export class WeaponSystem extends System {
     const from = weapon.swingStartTransform
     const to = weapon.swingEndTransform
     weapon.visual = this.lerpTransform(from, to, t)
+    if (this.checkObstacleCollision(weapon)) {
+      weapon.isColliding = true
+      this.applyPushback(entity, weapon)
+    }
     if (t >= 1) {
       weapon.attackPhase = 'pause'
       weapon.attackElapsedMs = 0
@@ -253,7 +273,10 @@ export class WeaponSystem extends System {
       weapon.nextSwingDirection =
         weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
 
-      const frontAngle = attackFacing === 1 ? 0 : -Math.PI
+      const frontAngle =
+        attackFacing === 1
+          ? FRONT_SWING_TILT_RAD
+          : -Math.PI - FRONT_SWING_TILT_RAD
       const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 
       if (isFinalAttack) {
@@ -529,7 +552,8 @@ export class WeaponSystem extends System {
     swingStartTransform: WeaponTransform
     swingEndTransform: WeaponTransform
   } {
-    const frontAngle = facing === 1 ? 0 : -Math.PI
+    const frontAngle =
+      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
     const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     const swingStartAngle = direction === 'toFront' ? headAngle : frontAngle
     const swingEndAngle = direction === 'toFront' ? frontAngle : headAngle
@@ -546,6 +570,49 @@ export class WeaponSystem extends System {
         radius
       ),
     }
+  }
+
+  setObstacles(obstacles: ObstacleCollider[]): void {
+    this.obstacles = obstacles
+  }
+
+  private checkObstacleCollision(weapon?: Entity['weapon']): boolean {
+    if (!this.box2d || !weapon) return false
+    if (this.obstacles.length === 0) return false
+
+    const { b2Body_GetPosition } = this.box2d
+    const wx = weapon.visual.x
+    const wy = weapon.visual.y
+    const weaponRadius = Math.hypot(weapon.width / 2, weapon.height / 2)
+
+    for (const obstacle of this.obstacles) {
+      const pos = b2Body_GetPosition(obstacle.bodyId)
+      const halfW = obstacle.width
+      const halfH = obstacle.height
+      const closestX = Math.max(pos.x - halfW, Math.min(wx, pos.x + halfW))
+      const closestY = Math.max(pos.y - halfH, Math.min(wy, pos.y + halfH))
+      const dx = wx - closestX
+      const dy = wy - closestY
+      pos.delete()
+
+      if (dx * dx + dy * dy <= weaponRadius * weaponRadius) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private applyPushback(entity: Entity, weapon: Entity['weapon']): void {
+    if (!entity.physics || !this.box2d || !weapon) return
+
+    const { b2Body_ApplyLinearImpulseToCenter, b2Vec2 } = this.box2d
+    const dirX = Math.cos(weapon.visual.rotation)
+    const dirY = Math.sin(weapon.visual.rotation)
+    const impulseStrength = 0.2
+    const impulse = new b2Vec2(-dirX * impulseStrength, -dirY * impulseStrength)
+    b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, impulse, true)
+    impulse.delete()
   }
 
   private getTransformAtAngle(

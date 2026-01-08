@@ -102,7 +102,7 @@ export class GameECS {
   private initializeSystems(): void {
     this.physicsSystem = new PhysicsSystem(this.box2d, this.worldId)
     this.movementSystem = new MovementSystem(this.box2d)
-    this.weaponSystem = new WeaponSystem()
+    this.weaponSystem = new WeaponSystem(this.box2d)
     this.renderSystem = new RenderSystem(
       this.ctx,
       this.pixelsPerMeter,
@@ -112,6 +112,7 @@ export class GameECS {
     this.world.addSystem(this.movementSystem)
     this.world.addSystem(this.physicsSystem)
     this.world.addSystem(this.weaponSystem)
+    this.weaponSystem.setObstacles(this.obstacles)
   }
 
   private createPlayerAndWeapon(groundTopY: number): void {

@@ -80,8 +80,13 @@ export class RenderSystem extends System {
     )
     this.ctx.rotate(weapon.visual.rotation)
     this.ctx.fillStyle = '#c7b58f'
-    this.ctx.strokeStyle = '#5a4b2a'
-    this.ctx.lineWidth = 2
+    const isSwinging = weapon.attackPhase === 'swing'
+    this.ctx.strokeStyle = weapon.isColliding
+      ? '#ff4d4f'
+      : isSwinging
+        ? '#ffffff'
+        : '#5a4b2a'
+    this.ctx.lineWidth = weapon.isColliding ? 3 : 2
     this.drawRoundedRect(widthPx, heightPx, radiusPx)
     this.ctx.fill()
     this.ctx.stroke()

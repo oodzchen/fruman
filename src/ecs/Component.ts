@@ -94,6 +94,7 @@ export class WeaponComponent extends Component {
   height = 0
   cornerRadius = 0
   weight = 0
+  isColliding = false
   position = { x: 0, y: 0 }
   rotation = 0
   isEquipped = false
