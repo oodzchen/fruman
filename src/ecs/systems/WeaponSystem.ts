@@ -220,9 +220,7 @@ export class WeaponSystem extends System {
     if (!weapon) return
 
     const isGrounded = entity.movement?.isGrounded ?? true
-    const windupDuration = isGrounded
-      ? DEFAULT_WEAPON_ATTACK_WINDUP_MS
-      : 250
+    const windupDuration = isGrounded ? DEFAULT_WEAPON_ATTACK_WINDUP_MS : 250
 
     const t = this.clamp01(weapon.attackElapsedMs / windupDuration)
     const target = weapon.swingStartTransform

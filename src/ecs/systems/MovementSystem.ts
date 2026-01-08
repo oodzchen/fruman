@@ -1,6 +1,9 @@
 import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
+  DEFAULT_ROLL_COOLDOWN,
+  DEFAULT_ROLL_DURATION,
+  DEFAULT_ROLL_SPEED,
   PLAYER_WEIGHT_REFERENCE,
 } from '../../constants'
 import type { MainModule } from '../../types'
@@ -100,8 +103,95 @@ export class MovementSystem extends System {
   private handleInput(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
+    this.handleRoll(entity)
+
+    if (entity.movement.isRolling) {
+      return
+    }
+
     this.handleMove(entity)
     this.handleJump(entity)
+  }
+
+  private handleRoll(entity: Entity): void {
+    if (!entity.movement || !entity.input || !entity.physics) return
+
+    const now = Date.now()
+
+    if (entity.movement.isRolling) {
+      const elapsed = now - entity.movement.rollStartTime
+      if (elapsed >= entity.movement.rollDuration) {
+        this.endRoll(entity)
+      } else {
+        this.updateRollPhysics(entity)
+      }
+      return
+    }
+
+    if (now < entity.movement.rollCooldownEndTime) return
+
+    entity.input.inputBuffer.tryExecute(
+      'roll',
+      () => this.canRoll(entity),
+      () => this.startRoll(entity)
+    )
+  }
+
+  private canRoll(entity: Entity): boolean {
+    if (!entity.movement) return false
+
+    // 不能在攻击动作中翻滚
+    const isInAttackAction =
+      entity.weapon &&
+      entity.weapon.isEquipped &&
+      (entity.weapon.attackPhase === 'windup' ||
+        entity.weapon.attackPhase === 'finalWindup' ||
+        entity.weapon.attackPhase === 'swing')
+
+    if (isInAttackAction) return false
+
+    return entity.movement.isGrounded
+  }
+
+  private startRoll(entity: Entity): void {
+    if (!entity.movement || !entity.input) return
+
+    entity.movement.isRolling = true
+    entity.movement.rollStartTime = Date.now()
+    entity.movement.rollDuration = DEFAULT_ROLL_DURATION
+
+    const facing =
+      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    entity.movement.rollDirection = facing
+
+    entity.movement.isJumping = false
+
+    // 开始翻滚时立即更新一次物理状态
+    this.updateRollPhysics(entity)
+  }
+
+  private updateRollPhysics(entity: Entity): void {
+    if (!entity.physics || !entity.movement) return
+
+    const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity, b2Vec2 } =
+      this.box2d
+
+    const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const rollSpeed = DEFAULT_ROLL_SPEED
+    const velX = entity.movement.rollDirection * rollSpeed
+
+    // 保持当前的垂直速度（重力）
+    const newVel = new b2Vec2(velX, currentVel.y)
+    b2Body_SetLinearVelocity(entity.physics.bodyId, newVel)
+
+    newVel.delete()
+    currentVel.delete()
+  }
+
+  private endRoll(entity: Entity): void {
+    if (!entity.movement) return
+    entity.movement.isRolling = false
+    entity.movement.rollCooldownEndTime = Date.now() + DEFAULT_ROLL_COOLDOWN
   }
 
   private handleMove(entity: Entity): void {

@@ -126,3 +126,8 @@ export const ENEMY_RETREAT_EXTRA_DISTANCE = 1
 // 受击振动效果
 export const DEFAULT_HIT_SHAKE_DURATION_MS = 150
 export const DEFAULT_HIT_SHAKE_INTENSITY = 0.3
+
+// 翻滚参数
+export const DEFAULT_ROLL_DURATION = 500
+export const DEFAULT_ROLL_SPEED = 8
+export const DEFAULT_ROLL_COOLDOWN = 800

@@ -51,6 +51,14 @@ export class RenderSystem extends System {
     this.ctx.scale(deathScale.x, deathScale.y)
     this.ctx.globalAlpha *= alpha
 
+    if (entity.movement && entity.movement.isRolling) {
+      const elapsed = Date.now() - entity.movement.rollStartTime
+      const duration = entity.movement.rollDuration || 1
+      const progress = Math.min(1, Math.max(0, elapsed / duration))
+      const angle = progress * 2 * Math.PI * entity.movement.rollDirection
+      this.ctx.rotate(angle)
+    }
+
     this.ctx.fillStyle = render.color
     this.ctx.beginPath()
     this.ctx.arc(0, 0, radius, 0, 2 * Math.PI)

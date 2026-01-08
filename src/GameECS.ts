@@ -263,6 +263,15 @@ export class GameECS {
       }
     })
 
+    window.addEventListener('keypress', (e) => {
+      const isPlayerDead = this.playerEntity.stats?.isDead
+      if (e.key.toLowerCase() === 'l' && !isPlayerDead) {
+        if (this.playerEntity.input) {
+          this.playerEntity.input.inputBuffer.bufferAction('roll')
+        }
+      }
+    })
+
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault()
       const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1

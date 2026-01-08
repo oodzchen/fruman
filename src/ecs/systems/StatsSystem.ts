@@ -96,6 +96,9 @@ export class StatsSystem extends System {
     if (!entity.stats) return
     if (entity.stats.isDead) return
 
+    // 翻滚期间无敌
+    if (entity.movement?.isRolling) return
+
     const clampedHealthDamage = Math.max(0, healthDamage)
     const clampedToughnessDamage = Math.max(0, toughnessDamage)
 

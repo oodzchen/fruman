@@ -69,6 +69,12 @@ export class MovementComponent extends Component {
   baseWeight = 0
   carryWeight = 0
 
+  isRolling = false
+  rollStartTime = 0
+  rollDuration = 0
+  rollDirection = 0
+  rollCooldownEndTime = 0
+
   getName(): string {
     return 'Movement'
   }
