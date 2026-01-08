@@ -164,9 +164,14 @@ export class MovementSystem extends System {
     entity.movement.rollStartTime = Date.now()
     entity.movement.rollDuration = DEFAULT_ROLL_DURATION
 
-    const facing =
-      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
-    entity.movement.rollDirection = facing
+    // 优先使用当前按下的移动方向，如果没有按键则使用朝向
+    const direction =
+      entity.input.moveDirection !== 0
+        ? entity.input.moveDirection
+        : entity.input.lastMoveDirection !== 0
+          ? entity.input.lastMoveDirection
+          : 1
+    entity.movement.rollDirection = direction
 
     entity.movement.isJumping = false
 
@@ -247,7 +252,8 @@ export class MovementSystem extends System {
       return
     }
 
-    if (isInAttackAction) {
+    // 地面攻击时锁定位移，空中攻击允许移动
+    if (isInAttackAction && entity.movement.isGrounded) {
       direction = 0
     }
 

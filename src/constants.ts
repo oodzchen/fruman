@@ -136,7 +136,7 @@ export const DEFAULT_HIT_SHAKE_INTENSITY = 0.3
 // 翻滚参数
 export const DEFAULT_ROLL_DURATION = 500
 export const DEFAULT_ROLL_SPEED = 8
-export const DEFAULT_ROLL_COOLDOWN = 800
+export const DEFAULT_ROLL_COOLDOWN = 0
 
 // 碰撞分类
 export const CATEGORY_GROUND = 0x0001
