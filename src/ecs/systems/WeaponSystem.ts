@@ -759,6 +759,42 @@ export class WeaponSystem extends System {
     return true
   }
 
+  private checkOBBvsCircle(
+    obbCenterX: number,
+    obbCenterY: number,
+    obbWidth: number,
+    obbHeight: number,
+    obbRotation: number,
+    circleX: number,
+    circleY: number,
+    circleRadius: number
+  ): boolean {
+    const cos = Math.cos(-obbRotation)
+    const sin = Math.sin(-obbRotation)
+
+    const dx = circleX - obbCenterX
+    const dy = circleY - obbCenterY
+
+    const localX = dx * cos - dy * sin
+    const localY = dx * sin + dy * cos
+
+    const halfWidth = obbWidth / 2
+    const halfHeight = obbHeight / 2
+
+    const clampedX = Math.max(-halfWidth, Math.min(halfWidth, localX))
+    const clampedY = Math.max(-halfHeight, Math.min(halfHeight, localY))
+
+    const closestX = clampedX
+    const closestY = clampedY
+
+    const distanceX = localX - closestX
+    const distanceY = localY - closestY
+
+    const distanceSquared = distanceX * distanceX + distanceY * distanceY
+
+    return distanceSquared <= circleRadius * circleRadius
+  }
+
   private checkObstacleCollision(weapon?: Entity['weapon']): boolean {
     if (!this.box2d || !weapon) return false
     if (this.obstacles.length === 0) return false
@@ -814,12 +850,17 @@ export class WeaponSystem extends System {
     if (!attacker.transform || !attacker.faction) return
     if (!weapon || !weapon.hitEntityIds) return
 
+    const weaponX = weapon.visual.x
+    const weaponY = weapon.visual.y
+    const weaponWidth = weapon.width
+    const weaponHeight = weapon.height
+    const weaponRotation = weapon.visual.rotation
+
+    // 使用攻击半径进行宽阶段检测优化
     const attackRadius =
       weapon.attackRadius !== 0
         ? weapon.attackRadius
         : this.getAttackRadius(weapon)
-    const weaponX = weapon.visual.x
-    const weaponY = weapon.visual.y
 
     for (const target of this.allEntities) {
       if (!target || target.id === attacker.id) continue
@@ -828,6 +869,8 @@ export class WeaponSystem extends System {
         continue
 
       const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
+
+      // 宽阶段检测：距离检查
       const hitRange = attackRadius + targetRadius
       const dx = weaponX - target.transform.x
       const dy = weaponY - target.transform.y
@@ -835,12 +878,26 @@ export class WeaponSystem extends System {
 
       if (weapon.hitEntityIds.has(target.id)) continue
 
-      this.statsSystem.applyWeaponHit(target, weapon, {
-        x: weaponX,
-        y: weaponY,
-      })
-      weapon.isColliding = true
-      weapon.hitEntityIds.add(target.id)
+      // 精确检测：OBB vs Circle
+      if (
+        this.checkOBBvsCircle(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation,
+          target.transform.x,
+          target.transform.y,
+          targetRadius
+        )
+      ) {
+        this.statsSystem.applyWeaponHit(target, weapon, {
+          x: weaponX,
+          y: weaponY,
+        })
+        weapon.isColliding = true
+        weapon.hitEntityIds.add(target.id)
+      }
     }
   }
 
