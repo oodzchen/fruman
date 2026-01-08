@@ -418,7 +418,8 @@ export class MovementSystem extends System {
       const dx = otherX - myX
       const dy = other.transform.y - entity.transform.y
       const distance = Math.hypot(dx, dy)
-      const touchDistance = myRadius + otherRadius
+      // 增加 0.1 的缓冲距离，避免贴合时产生物理推挤
+      const touchDistance = myRadius + otherRadius + 0.1
 
       if (distance > touchDistance) continue
 

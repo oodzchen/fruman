@@ -115,7 +115,15 @@ export class EnemyAISystem extends System {
 
       if (ai.state === 'retreat') {
         const targetDistance = weaponRange + ENEMY_RETREAT_EXTRA_DISTANCE
-        if (distance < targetDistance) {
+        // 如果在撤退时玩家紧追（处于攻击范围内），不再撤退而是直接迎击
+        const tooCloseThreshold = weaponRange
+
+        if (distance < tooCloseThreshold) {
+          ai.state = 'combo'
+          ai.comboSwingsDone = 0
+          entity.input.moveDirection = 0
+          this.queueAttack(entity, facing, ai)
+        } else if (distance < targetDistance) {
           entity.input.moveDirection = ai.retreatDirection
         } else {
           ai.state = 'approach'
