@@ -5,6 +5,7 @@ import {
   DEFAULT_WEAPON_ATTACK_RECOVER_MS,
   DEFAULT_WEAPON_ATTACK_SWING_MS,
   DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+  DEFAULT_WEAPON_CENTER_OFFSET_X,
   DEFAULT_WEAPON_COMBAT_TIMEOUT_MS,
   DEFAULT_WEAPON_FINAL_WINDUP_MS,
   DEFAULT_WEAPON_FOLLOW_OFFSET_X,
@@ -578,7 +579,7 @@ export class WeaponSystem extends System {
     facing: number
   ): WeaponTransform {
     return {
-      x: playerPos.x + facing * DEFAULT_WEAPON_FRONT_OFFSET_X,
+      x: playerPos.x + facing * DEFAULT_WEAPON_CENTER_OFFSET_X,
       y: playerPos.y + DEFAULT_WEAPON_FRONT_OFFSET_Y,
       rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
     }

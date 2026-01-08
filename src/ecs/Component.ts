@@ -1,11 +1,18 @@
 import {
   DEFAULT_DEATH_FLASH_DURATION,
   DEFAULT_DEATH_FLATTEN_DURATION,
+  DEFAULT_ENEMY_ATTACK_DESIRE,
+  DEFAULT_ENEMY_MOVE_SPEED,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_TOUGHNESS,
   DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  ENEMY_DECISION_COOLDOWN_MS,
+  ENEMY_DETECTION_RANGE,
+  ENEMY_PACE_PAUSE_MS,
+  ENEMY_PACE_SWITCH_INTERVAL_MS,
+  ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../constants'
 import { InputBuffer } from '../inputBuffer'
 import type { b2BodyId, b2ShapeId } from '../types'
@@ -183,5 +190,28 @@ export class FactionComponent extends Component {
       return false
     }
     return this.faction !== other.faction
+  }
+}
+
+export class EnemyAIComponent extends Component {
+  attackDesire = DEFAULT_ENEMY_ATTACK_DESIRE
+  detectionRange = ENEMY_DETECTION_RANGE
+  decisionCooldownMs = ENEMY_DECISION_COOLDOWN_MS
+  paceSwitchIntervalMs = ENEMY_PACE_SWITCH_INTERVAL_MS
+  pacePauseMs = ENEMY_PACE_PAUSE_MS
+  paceDirection: -1 | 1 = 1
+  lastDecisionTimestamp = 0
+  lastPaceSwitchTimestamp = 0
+  nextPaceResumeTimestamp = 0
+  moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
+  state: 'approach' | 'combo' | 'retreat' = 'approach'
+  comboSwingsDone = 0
+  comboSwingTarget = 5
+  lastFacing: -1 | 1 = 1
+  retreatDirection: -1 | 1 = -1
+  retreatTargetDistance = ENEMY_RETREAT_EXTRA_DISTANCE + 1
+
+  getName(): string {
+    return 'EnemyAI'
   }
 }

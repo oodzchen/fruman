@@ -1,5 +1,6 @@
 import type { Component } from './Component'
 import {
+  EnemyAIComponent,
   FactionComponent,
   InputComponent,
   MovementComponent,
@@ -23,6 +24,7 @@ export class Entity {
   input?: InputComponent
   render?: RenderComponent
   stats?: StatsComponent
+  enemyAI?: EnemyAIComponent
   weapon?: WeaponComponent
   faction?: FactionComponent
 
@@ -86,6 +88,9 @@ export class Entity {
       case 'Weapon':
         this.weapon = component as WeaponComponent
         break
+      case 'EnemyAI':
+        this.enemyAI = component as EnemyAIComponent
+        break
       case 'Faction':
         this.faction = component as FactionComponent
         break
@@ -114,6 +119,9 @@ export class Entity {
         break
       case 'Weapon':
         this.weapon = undefined
+        break
+      case 'EnemyAI':
+        this.enemyAI = undefined
         break
       case 'Faction':
         this.faction = undefined

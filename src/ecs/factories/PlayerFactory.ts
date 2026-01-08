@@ -1,6 +1,8 @@
 import {
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
+  DEFAULT_ENEMY_ATTACK_DESIRE,
+  DEFAULT_ENEMY_MOVE_SPEED,
   DEFAULT_JUMP_BUFFER_WINDOW,
   DEFAULT_JUMP_FORCE,
   DEFAULT_JUMP_FORCE_MULTIPLIER,
@@ -27,6 +29,7 @@ import {
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
 import {
+  EnemyAIComponent,
   Faction,
   FactionComponent,
   InputComponent,
@@ -180,9 +183,13 @@ export function createEnemy(
   worldId: b2WorldId,
   x: number,
   y: number,
-  groundTopY: number
+  groundTopY: number,
+  attackDesire: number = DEFAULT_ENEMY_ATTACK_DESIRE
 ): Entity {
   const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY)
+  const ai = new EnemyAIComponent()
+  ai.attackDesire = attackDesire
+  enemy.addComponent(ai)
 
   if (enemy.faction) {
     enemy.faction.faction = Faction.Enemy
@@ -190,6 +197,10 @@ export function createEnemy(
 
   if (enemy.render) {
     enemy.render.color = '#55585c'
+  }
+
+  if (enemy.movement) {
+    enemy.movement.moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
   }
 
   if (enemy.weapon && enemy.transform) {

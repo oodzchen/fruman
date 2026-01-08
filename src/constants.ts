@@ -89,6 +89,7 @@ export const DEFAULT_WEAPON_VERTICAL_ROTATION_RAD = -Math.PI / 2
 // 武器在战斗状态下的默认前方偏移（米）
 export const DEFAULT_WEAPON_FRONT_OFFSET_X = 0.7
 export const DEFAULT_WEAPON_FRONT_OFFSET_Y = -0.1
+export const DEFAULT_WEAPON_CENTER_OFFSET_X = 0
 
 // 武器抬起到头顶时的垂直偏移量（米，负值向上）
 export const DEFAULT_WEAPON_HEAD_OFFSET_Y = -1.0
@@ -111,3 +112,13 @@ export const DEFAULT_PLAYER_RADIUS = 0.5
 
 // 战斗状态超时时长（毫秒）
 export const DEFAULT_WEAPON_COMBAT_TIMEOUT_MS = 30000
+
+// 敌人AI参数
+export const DEFAULT_ENEMY_ATTACK_DESIRE = 0
+export const DEFAULT_ENEMY_MOVE_SPEED = 3
+export const ENEMY_DETECTION_RANGE = 10
+export const ENEMY_ATTACK_RANGE_BUFFER = 0.35
+export const ENEMY_PACE_SWITCH_INTERVAL_MS = 1800
+export const ENEMY_DECISION_COOLDOWN_MS = 90
+export const ENEMY_PACE_PAUSE_MS = 700
+export const ENEMY_RETREAT_EXTRA_DISTANCE = 1

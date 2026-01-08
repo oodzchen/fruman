@@ -9,6 +9,7 @@ import { componentRegistry } from './ecs/ComponentRegistry'
 import type { Entity } from './ecs/Entity'
 import { World } from './ecs/World'
 import { createEnemy, createPlayer } from './ecs/factories/PlayerFactory'
+import { EnemyAISystem } from './ecs/systems/EnemyAISystem'
 import { MovementSystem } from './ecs/systems/MovementSystem'
 import { PhysicsSystem } from './ecs/systems/PhysicsSystem'
 import { RenderSystem } from './ecs/systems/RenderSystem'
@@ -55,6 +56,7 @@ export class GameECS {
   private statsSystem!: StatsSystem
   private weaponSystem!: WeaponSystem
   private renderSystem!: RenderSystem
+  private enemyAISystem!: EnemyAISystem
 
   constructor(
     box2d: MainModule,
@@ -102,13 +104,16 @@ export class GameECS {
     componentRegistry.registerComponent('Stats')
     componentRegistry.registerComponent('Weapon')
     componentRegistry.registerComponent('Faction')
+    componentRegistry.registerComponent('EnemyAI')
   }
 
   private initializeSystems(): void {
     this.statsSystem = new StatsSystem(this.box2d, this.worldId)
+    this.enemyAISystem = new EnemyAISystem()
     this.physicsSystem = new PhysicsSystem(this.box2d, this.worldId)
     this.movementSystem = new MovementSystem(this.box2d)
     this.weaponSystem = new WeaponSystem(this.box2d, this.statsSystem)
+    this.enemyAISystem.setWeaponSystem(this.weaponSystem)
     this.renderSystem = new RenderSystem(
       this.ctx,
       this.pixelsPerMeter,
@@ -116,6 +121,7 @@ export class GameECS {
     )
 
     this.world.addSystem(this.statsSystem)
+    this.world.addSystem(this.enemyAISystem)
     this.world.addSystem(this.movementSystem)
     this.world.addSystem(this.physicsSystem)
     this.world.addSystem(this.weaponSystem)
@@ -127,7 +133,7 @@ export class GameECS {
       this.world,
       this.box2d,
       this.worldId,
-      2,
+      -2,
       groundTopY - 0.6,
       groundTopY
     )
@@ -135,10 +141,12 @@ export class GameECS {
       this.world,
       this.box2d,
       this.worldId,
-      4,
+      8,
       groundTopY - 0.6,
       groundTopY
     )
+
+    this.enemyAISystem.setPlayer(this.playerEntity)
   }
 
   private createGround(): b2BodyId {
@@ -184,9 +192,8 @@ export class GameECS {
     const groundY = canvasHeightInMeters - 0.5
 
     const obstacleConfigs = [
-      { x: -10, width: 1, height: 2 },
-      { x: 10, width: 1, height: 1.5 },
-      { x: 20, width: 1, height: 2.5 },
+      { x: -9.5, width: 1.2, height: 2.8 },
+      { x: 9.5, width: 1.2, height: 2.8 },
     ]
 
     obstacleConfigs.forEach((obs) => {
@@ -350,16 +357,22 @@ export class GameECS {
     this.drawGround()
     this.drawObstacles()
     const entities = this.world.getEntities()
-
     for (const entity of entities) {
-      if (entity.weapon) {
+      const facing =
+        entity.input && entity.input.lastMoveDirection !== 0
+          ? entity.input.lastMoveDirection
+          : 1
+
+      if (facing < 0 && entity.weapon) {
         this.renderSystem.renderWeapon(entity)
       }
-    }
 
-    for (const entity of entities) {
       if (entity.transform && entity.render) {
         this.renderSystem.update([entity], 0)
+      }
+
+      if (facing >= 0 && entity.weapon) {
+        this.renderSystem.renderWeapon(entity)
       }
     }
 
@@ -587,6 +600,7 @@ export class GameECS {
     this.world.clear()
     this.initializeSystems()
     this.createPlayerAndWeapon(groundTopY)
+    this.enemyAISystem.setPlayer(this.playerEntity)
 
     this.isPaused = false
     this.logParameters()
