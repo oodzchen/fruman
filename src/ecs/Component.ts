@@ -1,3 +1,10 @@
+import {
+  DEFAULT_PLAYER_MAX_HEALTH,
+  DEFAULT_PLAYER_MAX_TOUGHNESS,
+  DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC,
+  DEFAULT_WEAPON_ATTACK_DAMAGE,
+  DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+} from '../constants'
 import { InputBuffer } from '../inputBuffer'
 import type { b2BodyId, b2ShapeId } from '../types'
 import { componentRegistry } from './ComponentRegistry'
@@ -82,6 +89,19 @@ export class RenderComponent extends Component {
   }
 }
 
+export class StatsComponent extends Component {
+  maxHealth = DEFAULT_PLAYER_MAX_HEALTH
+  health = DEFAULT_PLAYER_MAX_HEALTH
+  maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+  toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+  toughnessRecoveryPerSecond = DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC
+  isDead = false
+
+  getName(): string {
+    return 'Stats'
+  }
+}
+
 export type WeaponTransform = { x: number; y: number; rotation: number }
 export type WeaponRelativeTransform = {
   dx: number
@@ -94,6 +114,8 @@ export class WeaponComponent extends Component {
   height = 0
   cornerRadius = 0
   weight = 0
+  attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
+  toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
   isColliding = false
   position = { x: 0, y: 0 }
   rotation = 0

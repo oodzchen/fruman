@@ -1,3 +1,4 @@
+import type { StatsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -63,6 +64,10 @@ export class RenderSystem extends System {
     this.ctx.beginPath()
     this.ctx.arc(eyeX, eyeY, eyeRadius, 0, 2 * Math.PI)
     this.ctx.fill()
+
+    if (entity.stats) {
+      this.drawStatusBars(entity.stats, centerX, centerY, render.radius)
+    }
   }
 
   renderWeapon(entity: Entity): void {
@@ -135,5 +140,66 @@ export class RenderSystem extends System {
   setCamera(x: number, y: number): void {
     this.camera.x = x
     this.camera.y = y
+  }
+
+  private drawStatusBars(
+    stats: StatsComponent,
+    centerX: number,
+    centerY: number,
+    radius: number
+  ): void {
+    const barWidth = radius * 2.2 * this.pixelsPerMeter
+    const barHeight = 6
+    const spacing = 2
+    const startX = centerX - barWidth / 2
+    const barTopOffset = 18
+    const baseY = centerY - radius * this.pixelsPerMeter - barTopOffset
+    const healthY = baseY
+    const toughnessY = baseY + barHeight + spacing
+
+    const healthRatio = stats.maxHealth > 0 ? stats.health / stats.maxHealth : 0
+    this.drawBar(
+      startX,
+      healthY,
+      barWidth,
+      barHeight,
+      healthRatio,
+      '#5a1b1b',
+      '#ff4d4f'
+    )
+
+    const toughnessRatio =
+      stats.maxToughness > 0 ? stats.toughness / stats.maxToughness : 0
+    this.drawBar(
+      startX,
+      toughnessY,
+      barWidth,
+      barHeight,
+      toughnessRatio,
+      '#665511',
+      '#ffd666'
+    )
+  }
+
+  private drawBar(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    ratio: number,
+    background: string,
+    foreground: string
+  ): void {
+    const clampedRatio = Math.max(0, Math.min(1, ratio))
+
+    this.ctx.fillStyle = background
+    this.ctx.fillRect(x, y, width, height)
+
+    this.ctx.fillStyle = foreground
+    this.ctx.fillRect(x, y, width * clampedRatio, height)
+
+    this.ctx.strokeStyle = '#111111'
+    this.ctx.lineWidth = 1
+    this.ctx.strokeRect(x, y, width, height)
   }
 }

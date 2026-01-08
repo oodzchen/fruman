@@ -7,14 +7,18 @@ import {
   DEFAULT_MAX_JUMP_DURATION,
   DEFAULT_MAX_WALL_JUMPS,
   DEFAULT_MOVE_SPEED,
+  DEFAULT_PLAYER_MAX_HEALTH,
+  DEFAULT_PLAYER_MAX_TOUGHNESS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
   DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
   DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
+  DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_CORNER_RADIUS,
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
+  DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
@@ -27,6 +31,7 @@ import {
   MovementComponent,
   PhysicsComponent,
   RenderComponent,
+  StatsComponent,
   TransformComponent,
   WeaponComponent,
 } from '../Component'
@@ -96,6 +101,13 @@ export function createPlayer(
   input.inputBuffer.setDefaultBufferWindow(DEFAULT_JUMP_BUFFER_WINDOW)
   entity.addComponent(input)
 
+  const stats = new StatsComponent()
+  stats.maxHealth = DEFAULT_PLAYER_MAX_HEALTH
+  stats.health = DEFAULT_PLAYER_MAX_HEALTH
+  stats.maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+  stats.toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+  entity.addComponent(stats)
+
   const render = new RenderComponent()
   render.radius = DEFAULT_PLAYER_RADIUS
   entity.addComponent(render)
@@ -109,6 +121,8 @@ export function createPlayer(
   weapon.height = DEFAULT_WEAPON_HEIGHT
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weight = DEFAULT_WEAPON_WEIGHT
+  weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
+  weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
   const weaponX = 6
   const weaponY = groundTopY - DEFAULT_WEAPON_HEIGHT / 2
   weapon.position = {
@@ -175,6 +189,9 @@ export function createWeapon(
   weapon.width = DEFAULT_WEAPON_WIDTH
   weapon.height = DEFAULT_WEAPON_HEIGHT
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+  weapon.weight = DEFAULT_WEAPON_WEIGHT
+  weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
+  weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
   weapon.position = {
     x: x,
     y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,

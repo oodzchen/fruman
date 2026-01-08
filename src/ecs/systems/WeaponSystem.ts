@@ -50,6 +50,10 @@ export class WeaponSystem extends System {
     for (const entity of entities) {
       if (!entity.transform || !entity.weapon) continue
       entity.weapon.isColliding = false
+      if (entity.stats?.isDead) {
+        this.resetWeaponState(entity)
+        continue
+      }
       this.updateWeapon(entity, deltaMs)
     }
   }
@@ -407,6 +411,7 @@ export class WeaponSystem extends System {
   tryPickUpWeapon(entity: Entity): void {
     if (!entity.transform || !entity.weapon) return
     if (entity.weapon.isEquipped) return
+    if (entity.stats?.isDead) return
 
     const playerPos = { x: entity.transform.x, y: entity.transform.y }
     const dx = playerPos.x - entity.weapon.position.x
@@ -426,6 +431,7 @@ export class WeaponSystem extends System {
   startAttack(entity: Entity): void {
     if (!entity.transform || !entity.input || !entity.weapon) return
     if (!entity.weapon.isEquipped) return
+    if (entity.stats?.isDead) return
 
     const weapon = entity.weapon
     const now = Date.now()
@@ -595,6 +601,35 @@ export class WeaponSystem extends System {
 
   setObstacles(obstacles: ObstacleCollider[]): void {
     this.obstacles = obstacles
+  }
+
+  private resetWeaponState(entity: Entity): void {
+    if (!entity.weapon) return
+
+    const weapon = entity.weapon
+    weapon.attackQueued = false
+    weapon.isInCombat = false
+    weapon.attackPhase = 'idle'
+    weapon.attackElapsedMs = 0
+    weapon.isColliding = false
+
+    if (!entity.transform) return
+
+    if (!weapon.isEquipped) {
+      weapon.visual = {
+        x: weapon.position.x,
+        y: weapon.position.y,
+        rotation: weapon.rotation,
+      }
+      return
+    }
+
+    const facing =
+      entity.input && entity.input.lastMoveDirection !== 0
+        ? entity.input.lastMoveDirection
+        : 1
+    const playerPos = { x: entity.transform.x, y: entity.transform.y }
+    weapon.visual = this.getBackTransform(playerPos, facing)
   }
 
   private checkObstacleCollision(weapon?: Entity['weapon']): boolean {

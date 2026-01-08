@@ -20,6 +20,11 @@ export class MovementSystem extends System {
   update(entities: Entity[], _deltaTime: number): void {
     for (const entity of entities) {
       if (!entity.physics || !entity.movement || !entity.input) continue
+      if (entity.stats?.isDead) {
+        entity.input.moveDirection = 0
+        entity.input.jumpRequested = false
+        continue
+      }
 
       this.updateContactState(entity)
       this.handleInput(entity)

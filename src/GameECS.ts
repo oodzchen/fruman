@@ -4,6 +4,7 @@ import {
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
 } from './constants'
+import type { WeaponComponent } from './ecs/Component'
 import { componentRegistry } from './ecs/ComponentRegistry'
 import type { Entity } from './ecs/Entity'
 import { World } from './ecs/World'
@@ -11,6 +12,7 @@ import { createPlayer } from './ecs/factories/PlayerFactory'
 import { MovementSystem } from './ecs/systems/MovementSystem'
 import { PhysicsSystem } from './ecs/systems/PhysicsSystem'
 import { RenderSystem } from './ecs/systems/RenderSystem'
+import { StatsSystem } from './ecs/systems/StatsSystem'
 import { WeaponSystem } from './ecs/systems/WeaponSystem'
 import type { MainModule, b2BodyId, b2ShapeId } from './types'
 
@@ -49,6 +51,7 @@ export class GameECS {
 
   private physicsSystem!: PhysicsSystem
   private movementSystem!: MovementSystem
+  private statsSystem!: StatsSystem
   private weaponSystem!: WeaponSystem
   private renderSystem!: RenderSystem
 
@@ -95,11 +98,13 @@ export class GameECS {
     componentRegistry.registerComponent('Movement')
     componentRegistry.registerComponent('Input')
     componentRegistry.registerComponent('Render')
+    componentRegistry.registerComponent('Stats')
     componentRegistry.registerComponent('Weapon')
     componentRegistry.registerComponent('Faction')
   }
 
   private initializeSystems(): void {
+    this.statsSystem = new StatsSystem()
     this.physicsSystem = new PhysicsSystem(this.box2d, this.worldId)
     this.movementSystem = new MovementSystem(this.box2d)
     this.weaponSystem = new WeaponSystem(this.box2d)
@@ -109,6 +114,7 @@ export class GameECS {
       this.camera
     )
 
+    this.world.addSystem(this.statsSystem)
     this.world.addSystem(this.movementSystem)
     this.world.addSystem(this.physicsSystem)
     this.world.addSystem(this.weaponSystem)
@@ -201,13 +207,18 @@ export class GameECS {
   private setupInput(): void {
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.key.toLowerCase())
+      const isPlayerDead = this.playerEntity.stats?.isDead
 
-      if (e.key === ' ' && !this.spaceKeyPressed) {
+      if (e.key === ' ' && !this.spaceKeyPressed && !isPlayerDead) {
         this.spaceKeyPressed = true
         this.jumpRequested = true
       }
 
-      if (e.key.toLowerCase() === 'j' && !this.attackKeyPressed) {
+      if (
+        e.key.toLowerCase() === 'j' &&
+        !this.attackKeyPressed &&
+        !isPlayerDead
+      ) {
         this.attackKeyPressed = true
         this.weaponSystem.startAttack(this.playerEntity)
       }
@@ -254,12 +265,16 @@ export class GameECS {
     let moveDirection = 0
     if (this.keys.has('a') || this.keys.has('arrowleft')) moveDirection -= 1
     if (this.keys.has('d') || this.keys.has('arrowright')) moveDirection += 1
+    const isPlayerDead = this.playerEntity.stats?.isDead ?? false
 
     if (this.playerEntity.input) {
-      this.playerEntity.input.moveDirection = moveDirection
-      if (this.jumpRequested) {
+      this.playerEntity.input.moveDirection = isPlayerDead ? 0 : moveDirection
+      if (this.jumpRequested && !isPlayerDead) {
         this.playerEntity.input.inputBuffer.bufferAction('jump')
         this.playerEntity.input.jumpRequested = true
+        this.jumpRequested = false
+      } else if (isPlayerDead) {
+        this.playerEntity.input.jumpRequested = false
         this.jumpRequested = false
       }
     }
@@ -554,6 +569,15 @@ export class GameECS {
     })
   }
 
+  applyPlayerHit(attackerWeapon?: WeaponComponent): void {
+    const weaponStats = attackerWeapon ?? this.playerEntity.weapon
+    this.statsSystem.applyWeaponHit(this.playerEntity, weaponStats)
+  }
+
+  revivePlayer(): void {
+    this.statsSystem.revive(this.playerEntity)
+  }
+
   getPlayer() {
     return {
       setJumpForce: (value: number) => {
@@ -619,6 +643,12 @@ export class GameECS {
               this.playerEntity.weapon.weight
           }
         }
+      },
+      applyHit: () => {
+        this.applyPlayerHit()
+      },
+      revive: () => {
+        this.revivePlayer()
       },
     }
   }

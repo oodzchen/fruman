@@ -22,6 +22,15 @@ export const DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER = 0.8
 // 角色基础重量（可理解为 kg，影响跳跃与下落）
 export const DEFAULT_PLAYER_WEIGHT = 80
 
+// 角色生命与韧性
+export const DEFAULT_PLAYER_MAX_HEALTH = 100
+export const DEFAULT_PLAYER_MAX_TOUGHNESS = 20
+export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 1
+
+// 武器默认伤害与削韧
+export const DEFAULT_WEAPON_ATTACK_DAMAGE = 10
+export const DEFAULT_WEAPON_TOUGHNESS_DAMAGE = 2
+
 // 武器重量（可理解为 kg，角色装备后会叠加）
 export const DEFAULT_WEAPON_WEIGHT = 2
 

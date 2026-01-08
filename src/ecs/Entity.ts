@@ -5,6 +5,7 @@ import {
   MovementComponent,
   PhysicsComponent,
   RenderComponent,
+  StatsComponent,
   TransformComponent,
   WeaponComponent,
 } from './Component'
@@ -21,6 +22,7 @@ export class Entity {
   movement?: MovementComponent
   input?: InputComponent
   render?: RenderComponent
+  stats?: StatsComponent
   weapon?: WeaponComponent
   faction?: FactionComponent
 
@@ -78,6 +80,9 @@ export class Entity {
       case 'Render':
         this.render = component as RenderComponent
         break
+      case 'Stats':
+        this.stats = component as StatsComponent
+        break
       case 'Weapon':
         this.weapon = component as WeaponComponent
         break
@@ -103,6 +108,9 @@ export class Entity {
         break
       case 'Render':
         this.render = undefined
+        break
+      case 'Stats':
+        this.stats = undefined
         break
       case 'Weapon':
         this.weapon = undefined
