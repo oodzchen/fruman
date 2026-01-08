@@ -125,7 +125,7 @@ export class WeaponSystem extends System {
     weapon.attackElapsedMs += deltaMs
 
     if (weapon.attackPhase === 'windup') {
-      this.handleWindupPhase(weapon)
+      this.handleWindupPhase(entity, weapon)
       return
     }
 
@@ -216,12 +216,15 @@ export class WeaponSystem extends System {
     }
   }
 
-  private handleWindupPhase(weapon: Entity['weapon']): void {
+  private handleWindupPhase(entity: Entity, weapon: Entity['weapon']): void {
     if (!weapon) return
 
-    const t = this.clamp01(
-      weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_WINDUP_MS
-    )
+    const isGrounded = entity.movement?.isGrounded ?? true
+    const windupDuration = isGrounded
+      ? DEFAULT_WEAPON_ATTACK_WINDUP_MS
+      : 250
+
+    const t = this.clamp01(weapon.attackElapsedMs / windupDuration)
     const target = weapon.swingStartTransform
     weapon.visual = this.lerpTransform(weapon.attackStartTransform, target, t)
     if (t >= 1) {
