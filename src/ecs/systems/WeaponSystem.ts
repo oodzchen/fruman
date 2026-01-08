@@ -77,11 +77,7 @@ export class WeaponSystem extends System {
         ? entity.input.lastMoveDirection
         : weapon.attackFacing
 
-    if (
-      weapon.attackPhase === 'idle' ||
-      weapon.attackPhase === 'pause' ||
-      weapon.attackPhase === 'recover'
-    ) {
+    if (weapon.attackPhase === 'idle') {
       weapon.attackFacing = inputFacing
     }
 
@@ -129,12 +125,12 @@ export class WeaponSystem extends System {
     weapon.attackElapsedMs += deltaMs
 
     if (weapon.attackPhase === 'windup') {
-      this.handleWindupPhase(weapon)
+      this.handleWindupPhase(weapon, entity, playerPos)
       return
     }
 
     if (weapon.attackPhase === 'finalWindup') {
-      this.handleFinalWindupPhase(weapon)
+      this.handleFinalWindupPhase(weapon, entity, playerPos)
       return
     }
 
@@ -220,8 +216,24 @@ export class WeaponSystem extends System {
     }
   }
 
-  private handleWindupPhase(weapon: Entity['weapon']): void {
+  private handleWindupPhase(
+    weapon: Entity['weapon'],
+    entity?: Entity,
+    playerPos?: { x: number; y: number }
+  ): void {
     if (!weapon) return
+
+    if (entity && playerPos && entity.input) {
+      const currentFacing =
+        entity.input.lastMoveDirection !== 0
+          ? entity.input.lastMoveDirection
+          : weapon.attackFacing
+
+      if (currentFacing !== weapon.attackFacing) {
+        this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
+        return
+      }
+    }
 
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_WINDUP_MS
@@ -236,8 +248,24 @@ export class WeaponSystem extends System {
     }
   }
 
-  private handleFinalWindupPhase(weapon: Entity['weapon']): void {
+  private handleFinalWindupPhase(
+    weapon: Entity['weapon'],
+    entity?: Entity,
+    playerPos?: { x: number; y: number }
+  ): void {
     if (!weapon) return
+
+    if (entity && playerPos && entity.input) {
+      const currentFacing =
+        entity.input.lastMoveDirection !== 0
+          ? entity.input.lastMoveDirection
+          : weapon.attackFacing
+
+      if (currentFacing !== weapon.attackFacing) {
+        this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
+        return
+      }
+    }
 
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_FINAL_WINDUP_MS
@@ -300,12 +328,8 @@ export class WeaponSystem extends System {
         ? entity.input.lastMoveDirection
         : attackFacing
     if (currentFacing !== weapon.attackFacing) {
-      this.realignToFacing(
-        weapon,
-        playerPos,
-        currentFacing,
-        DEFAULT_WEAPON_ATTACK_PAUSE_MS
-      )
+      this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
+      return
     }
 
     weapon.visual = weapon.attackStartTransform
@@ -431,12 +455,8 @@ export class WeaponSystem extends System {
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
 
     if (facing !== weapon.attackFacing) {
-      this.realignToFacing(
-        weapon,
-        playerPos,
-        facing,
-        DEFAULT_WEAPON_ATTACK_RECOVER_MS
-      )
+      this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
+      return
     }
 
     const t = this.clamp01(
@@ -670,6 +690,30 @@ export class WeaponSystem extends System {
 
   setObstacles(obstacles: ObstacleCollider[]): void {
     this.obstacles = obstacles
+  }
+
+  private retractWeaponOnDirectionChange(
+    entity: Entity,
+    weapon: Entity['weapon'],
+    playerPos: { x: number; y: number }
+  ): void {
+    if (!weapon || !entity.input) return
+
+    const newFacing =
+      entity.input.lastMoveDirection !== 0
+        ? entity.input.lastMoveDirection
+        : weapon.attackFacing
+
+    weapon.attackPhase = 'idle'
+    weapon.attackElapsedMs = 0
+    weapon.attackQueued = false
+    weapon.attackFacing = newFacing
+    weapon.comboCount = 0
+    weapon.swingDirection = 'toFront'
+    weapon.nextSwingDirection = 'toFront'
+    weapon.hitEntityIds.clear()
+
+    weapon.visual = this.getFrontTransform(playerPos, newFacing)
   }
 
   private resetWeaponState(entity: Entity): void {
