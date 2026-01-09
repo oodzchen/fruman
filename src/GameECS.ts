@@ -62,6 +62,10 @@ export class GameECS {
   private enemyAISystem!: EnemyAISystem
   private targetingSystem!: TargetingSystem
 
+  private fps = 0
+  private frameCount = 0
+  private fpsUpdateTime = 0
+
   constructor(
     box2d: MainModule,
     canvas: HTMLCanvasElement,
@@ -329,6 +333,14 @@ export class GameECS {
   update(deltaTime: number): void {
     if (this.isPaused) return
 
+    this.frameCount++
+    this.fpsUpdateTime += deltaTime
+    if (this.fpsUpdateTime >= 1.0) {
+      this.fps = Math.round(this.frameCount / this.fpsUpdateTime)
+      this.frameCount = 0
+      this.fpsUpdateTime = 0
+    }
+
     this.weaponSystem.tryPickUpWeapon(this.playerEntity)
 
     let moveDirection = 0
@@ -434,6 +446,16 @@ export class GameECS {
     // 在所有实体和武器绘制完成后，最后绘制锁定准星
     this.renderSystem.renderLockOn(entities)
 
+    this.ctx.restore()
+
+    this.ctx.save()
+    this.ctx.font = '20px monospace'
+    this.ctx.fillStyle = '#00ff00'
+    this.ctx.strokeStyle = '#000000'
+    this.ctx.lineWidth = 3
+    const fpsText = `${this.fps} FPS`
+    this.ctx.strokeText(fpsText, 10, 30)
+    this.ctx.fillText(fpsText, 10, 30)
     this.ctx.restore()
   }
 
