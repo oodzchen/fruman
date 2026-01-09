@@ -190,11 +190,7 @@ export class TargetingSystem extends System {
     const startY = y + Math.sin(baseAngle) * 0.6
 
     // Fixed angles: Up-Forward (-45deg), Forward (0), Down-Forward (+45deg)
-    const angles = [
-      baseAngle - Math.PI / 4,
-      baseAngle,
-      baseAngle + Math.PI / 4,
-    ]
+    const angles = [baseAngle - Math.PI / 4, baseAngle, baseAngle + Math.PI / 4]
 
     entity.sensor.scanResults = []
     let detectedHostileId: number | null = null
@@ -214,17 +210,20 @@ export class TargetingSystem extends System {
     }
     filter.maskBits = mask
 
-    const shouldLog = entity.faction?.faction === Faction.Player && Math.random() < 0.02
+    const shouldLog =
+      entity.faction?.faction === Faction.Player && Math.random() < 0.02
 
     for (const rayAngle of angles) {
-      const endX = startX + Math.cos(rayAngle) * radius
-      const endY = startY + Math.sin(rayAngle) * radius
-      const endVec = new b2Vec2(endX, endY)
+      const dx = Math.cos(rayAngle) * radius
+      const dy = Math.sin(rayAngle) * radius
+      const endX = startX + dx
+      const endY = startY + dy
+      const translationVec = new b2Vec2(dx, dy)
 
       const output = b2World_CastRayClosest(
         this.worldId,
         startVec,
-        endVec,
+        translationVec,
         filter
       )
 
@@ -258,7 +257,7 @@ export class TargetingSystem extends System {
       }
 
       if (shouldLog) {
-         console.log(
+        console.log(
           `RayDebug: Ray ${angles.indexOf(rayAngle)}: start=(${startX.toFixed(2)}, ${startY.toFixed(2)}) end=(${endX.toFixed(2)}, ${endY.toFixed(2)}) hit=${hit} hitPt=(${hitPoint?.x.toFixed(2)}, ${hitPoint?.y.toFixed(2)}) entity=${hitEntityId}`
         )
       }
@@ -272,7 +271,7 @@ export class TargetingSystem extends System {
         isHostile,
       })
 
-      endVec.delete()
+      translationVec.delete()
     }
 
     startVec.delete()
@@ -280,7 +279,7 @@ export class TargetingSystem extends System {
 
     if (detectedHostileId !== null) {
       entity.sensor.detectedTargetId = detectedHostileId
-      
+
       // Auto-combat state for player/enemies upon detection
       if (entity.weapon && !entity.weapon.isInCombat) {
         entity.weapon.isInCombat = true
