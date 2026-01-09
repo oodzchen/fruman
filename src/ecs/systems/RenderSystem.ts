@@ -130,6 +130,18 @@ export class RenderSystem extends System {
       }
       this.ctx.stroke()
 
+      // Draw start point
+      this.ctx.beginPath()
+      this.ctx.fillStyle = '#0000FF' // Blue
+      this.ctx.arc(startX, startY, 5, 0, Math.PI * 2)
+      this.ctx.fill()
+
+      // Draw end point
+      this.ctx.beginPath()
+      this.ctx.fillStyle = res.hit ? '#FF0000' : '#FFFF00' // Red if hit, Yellow if miss
+      this.ctx.arc(endX, endY, 5, 0, Math.PI * 2)
+      this.ctx.fill()
+
       if (res.hit) {
         this.ctx.beginPath()
         this.ctx.arc(endX, endY, 2, 0, Math.PI * 2)

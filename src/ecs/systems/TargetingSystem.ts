@@ -165,23 +165,8 @@ export class TargetingSystem extends System {
   private updateSensor(entity: Entity): void {
     if (!entity.transform || !entity.sensor) return
 
-    const { radius, fov } = entity.sensor
+    const { radius } = entity.sensor
     const { x, y } = entity.transform
-
-    const prevAngle = entity.sensor.scanAngle
-
-    // Update Scan Angle
-    const delta = entity.sensor.scanDirection * entity.sensor.scanSpeed * 0.05
-    entity.sensor.scanAngle += delta
-
-    let hitBoundary = false
-    if (entity.sensor.scanAngle > fov / 2) {
-      entity.sensor.scanAngle = fov / 2
-      entity.sensor.scanDirection = -1
-    } else if (entity.sensor.scanAngle < -fov / 2) {
-      entity.sensor.scanAngle = -fov / 2
-      entity.sensor.scanDirection = 1
-    }
 
     let facingDir = 1
     if (entity.input) {
@@ -198,21 +183,25 @@ export class TargetingSystem extends System {
     }
 
     // Default to right if facingDir is >= 0. Left if < 0.
-
     const baseAngle = facingDir >= 0 ? 0 : Math.PI
 
-    const rayAngle = baseAngle + entity.sensor.scanAngle
+    // Offset ray start by 0.6m in facing direction to avoid self-intersection/walls
+    const startX = x + Math.cos(baseAngle) * 0.6
+    const startY = y + Math.sin(baseAngle) * 0.6
 
-    // Debug smoothness (approx once per second at 60fps)
+    // Fixed angles: Up-Forward (-45deg), Forward (0), Down-Forward (+45deg)
+    const angles = [
+      baseAngle - Math.PI / 4,
+      baseAngle,
+      baseAngle + Math.PI / 4,
+    ]
 
-    if (entity.id === this.player?.id && Math.random() < 0.016) {
-      // console.log(`Scan: angle=${entity.sensor.scanAngle.toFixed(2)} ray=${rayAngle.toFixed(2)} facing=${facingDir}`)
-    }
+    entity.sensor.scanResults = []
+    let detectedHostileId: number | null = null
 
     const { b2Vec2, b2World_CastRayClosest, b2DefaultQueryFilter } = this.box2d
 
-    const startVec = new b2Vec2(x, y)
-
+    const startVec = new b2Vec2(startX, startY)
     const filter = b2DefaultQueryFilter()
 
     // Determine mask based on faction to avoid hitting self
@@ -225,82 +214,75 @@ export class TargetingSystem extends System {
     }
     filter.maskBits = mask
 
-    entity.sensor.scanResults = []
+    const shouldLog = entity.faction?.faction === Faction.Player && Math.random() < 0.02
 
-    const endX = x + Math.cos(rayAngle) * radius
-    const endY = y + Math.sin(rayAngle) * radius
-    const endVec = new b2Vec2(endX, endY)
+    for (const rayAngle of angles) {
+      const endX = startX + Math.cos(rayAngle) * radius
+      const endY = startY + Math.sin(rayAngle) * radius
+      const endVec = new b2Vec2(endX, endY)
 
-    const output = b2World_CastRayClosest(
-      this.worldId,
-      startVec,
-      endVec,
-      filter
-    )
+      const output = b2World_CastRayClosest(
+        this.worldId,
+        startVec,
+        endVec,
+        filter
+      )
 
-    const hit = output.hit
-    let hitEntityId: number | undefined
-    let hitPoint: { x: number; y: number } | undefined
-    let isHostile = false
+      const hit = output.hit
+      let hitEntityId: number | undefined
+      let hitPoint: { x: number; y: number } | undefined
+      let isHostile = false
 
-    if (hit) {
-      hitPoint = { x: output.point.x, y: output.point.y }
+      if (hit) {
+        hitPoint = { x: output.point.x, y: output.point.y }
 
-      const shapeKey = this.getShapeKey(output.shapeId)
-      const hitEntity = this.shapeMap.get(shapeKey)
+        const shapeKey = this.getShapeKey(output.shapeId)
+        const hitEntity = this.shapeMap.get(shapeKey)
 
-      if (hitEntity) {
-        hitEntityId = hitEntity.id
+        if (hitEntity) {
+          hitEntityId = hitEntity.id
 
-        // Check for hostile
-        if (
-          entity.faction &&
-          hitEntity.faction &&
-          entity.faction.canAttack(hitEntity.faction) &&
-          !hitEntity.stats?.isDead &&
-          !hitEntity.stats?.isVanished
-        ) {
-          // Detected!
-          isHostile = true
-          entity.sensor.detectedTargetId = hitEntityId
+          // Check for hostile
+          if (
+            entity.faction &&
+            hitEntity.faction &&
+            entity.faction.canAttack(hitEntity.faction) &&
+            !hitEntity.stats?.isDead &&
+            !hitEntity.stats?.isVanished
+          ) {
+            // Detected!
+            isHostile = true
+            detectedHostileId = hitEntityId
+          }
         }
       }
+
+      if (shouldLog) {
+         console.log(
+          `RayDebug: Ray ${angles.indexOf(rayAngle)}: start=(${startX.toFixed(2)}, ${startY.toFixed(2)}) end=(${endX.toFixed(2)}, ${endY.toFixed(2)}) hit=${hit} hitPt=(${hitPoint?.x.toFixed(2)}, ${hitPoint?.y.toFixed(2)}) entity=${hitEntityId}`
+        )
+      }
+
+      entity.sensor.scanResults.push({
+        start: { x: startX, y: startY },
+        end: { x: endX, y: endY },
+        hit,
+        hitPoint,
+        hitEntityId,
+        isHostile,
+      })
+
+      endVec.delete()
     }
-    entity.sensor.scanResults.push({
-      start: { x, y },
-      end: { x: endX, y: endY },
-      hit,
-      hitPoint,
-      hitEntityId,
-      isHostile,
-    })
 
     startVec.delete()
-    endVec.delete()
-
     filter.delete()
 
-    // Note: We do NOT clear detectedTargetId if miss,
-    // because a single scanning ray will miss most frames even if the enemy is there.
-    // The "Combat" state logic in AI system should handle the behavior.
-    // However, if we never clear it, they will track forever.
-    // We should probably rely on a "Memory" or just verify distance/existence in AI system.
-    // For now, updateSensor only UPDATES if hit.
-
-    // Auto-combat state for player/enemies upon detection
-    if (
-      entity.sensor.detectedTargetId !== null &&
-      entity.weapon &&
-      !entity.weapon.isInCombat
-    ) {
-      // Re-verify the target is still valid/close just in case?
-      // Actually, if we just detected them, they are close.
-      const target = this.shapeMap.get(
-        this.getShapeKey({ index: entity.sensor.detectedTargetId })
-      ) // Logic check
-      // But we don't have easy access to Entity via ID without loop or map.
-      // We only update detectedTargetId if we HIT them this frame.
-      if (hitEntityId === entity.sensor.detectedTargetId) {
+    if (detectedHostileId !== null) {
+      entity.sensor.detectedTargetId = detectedHostileId
+      
+      // Auto-combat state for player/enemies upon detection
+      if (entity.weapon && !entity.weapon.isInCombat) {
         entity.weapon.isInCombat = true
         entity.weapon.lastAttackTimestamp = Date.now()
       }

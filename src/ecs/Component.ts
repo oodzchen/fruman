@@ -250,16 +250,11 @@ export type RayCastResult = {
 export class SensorComponent extends Component {
   radius = 10
   fov = (90 * Math.PI) / 180 // +/- 45 degrees
-  rayCount = 1 // Single rotating ray
+  rayCount = 3 // Fixed 3 rays
   scanResults: RayCastResult[] = []
   lastScanTimestamp = 0
   scanIntervalMs = 0 // Update every frame for smooth scanning
   detectedTargetId: number | null = null
-
-  // Rotating ray state
-  scanAngle = 0
-  scanDirection = 1
-  scanSpeed = 0.3
 
   getName(): string {
     return 'Sensor'
