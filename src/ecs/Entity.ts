@@ -34,6 +34,10 @@ export class Entity {
     this.id = nextEntityId++
   }
 
+  renewId(): void {
+    this.id = nextEntityId++
+  }
+
   addComponent(component: Component): void {
     const name = component.getName()
     this.components.set(name, component)

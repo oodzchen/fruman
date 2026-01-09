@@ -45,6 +45,14 @@ export class WeaponSystem extends System {
   private spatialHash: SpatialHash | null = null
   private tempVec?: InstanceType<MainModule['b2Vec2']>
 
+  // Temporary objects to avoid garbage collection
+  private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  private tempRelativeTransform: WeaponRelativeTransform = {
+    dx: 0,
+    dy: 0,
+    rotation: 0,
+  }
+
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
     this.box2d = box2d
@@ -95,11 +103,9 @@ export class WeaponSystem extends System {
     }
 
     if (!weapon.isEquipped) {
-      weapon.visual = {
-        x: weapon.position.x,
-        y: weapon.position.y,
-        rotation: weapon.rotation,
-      }
+      weapon.visual.x = weapon.position.x
+      weapon.visual.y = weapon.position.y
+      weapon.visual.rotation = weapon.rotation
       return
     }
 
@@ -107,18 +113,17 @@ export class WeaponSystem extends System {
     const attackRadius = weapon.attackRadius || this.getAttackRadius(weapon)
     const attackFacing = weapon.attackFacing
 
-    const attackStartTransform = this.applyOffset(
+    this.applyOffset(
       weapon.attackStartOffset,
-      playerPos
+      playerPos,
+      weapon.attackStartTransform
     )
-    const swingStartTransform = this.applyOffset(
+    this.applyOffset(
       weapon.swingStartOffset,
-      playerPos
+      playerPos,
+      weapon.swingStartTransform
     )
-    const swingEndTransform = this.applyOffset(weapon.swingEndOffset, playerPos)
-    weapon.attackStartTransform = attackStartTransform
-    weapon.swingStartTransform = swingStartTransform
-    weapon.swingEndTransform = swingEndTransform
+    this.applyOffset(weapon.swingEndOffset, playerPos, weapon.swingEndTransform)
 
     const hasTimedOut =
       weapon.isInCombat &&
@@ -187,11 +192,9 @@ export class WeaponSystem extends System {
     const blockY = playerPos.y // 稍微向下调整或保持居中
     const blockRotation = -Math.PI / 2 // 竖直向上
 
-    weapon.visual = {
-      x: blockX,
-      y: blockY,
-      rotation: blockRotation,
-    }
+    weapon.visual.x = blockX
+    weapon.visual.y = blockY
+    weapon.visual.rotation = blockRotation
 
     // 如果松开格挡键，且没有排队的攻击，则恢复idle
     if (entity.input && !entity.input.blockRequested) {
@@ -214,9 +217,11 @@ export class WeaponSystem extends System {
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
 
-    weapon.visual = weapon.isInCombat
-      ? this.getFrontTransform(playerPos, facing)
-      : this.getBackTransform(playerPos, facing)
+    if (weapon.isInCombat) {
+      this.getFrontTransform(playerPos, facing, weapon.visual)
+    } else {
+      this.getBackTransform(playerPos, facing, weapon.visual)
+    }
 
     if (weapon.attackQueued && weapon.comboCount < 5) {
       weapon.attackQueued = false
@@ -224,41 +229,49 @@ export class WeaponSystem extends System {
       weapon.swingDirection = weapon.nextSwingDirection
       weapon.nextSwingDirection =
         weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
-      const { swingStartTransform, swingEndTransform } =
-        this.getSwingTransforms(
-          attackRadius,
-          attackFacing,
-          weapon.swingDirection,
-          playerPos
-        )
-      const attackStartOffset = this.getOffsetFromTransform(
+
+      this.getSwingTransforms(
+        attackRadius,
+        attackFacing,
+        weapon.swingDirection,
+        playerPos,
+        weapon.swingStartTransform,
+        weapon.swingEndTransform
+      )
+
+      this.getOffsetFromTransform(
         weapon.visual,
-        playerPos
+        playerPos,
+        weapon.attackStartOffset
       )
-      const swingStartOffset = this.getOffsetFromTransform(
-        swingStartTransform,
-        playerPos
+      this.getOffsetFromTransform(
+        weapon.swingStartTransform,
+        playerPos,
+        weapon.swingStartOffset
       )
-      const swingEndOffset = this.getOffsetFromTransform(
-        swingEndTransform,
-        playerPos
+      this.getOffsetFromTransform(
+        weapon.swingEndTransform,
+        playerPos,
+        weapon.swingEndOffset
       )
+
       weapon.isInCombat = true
       weapon.attackPhase = 'windup'
       weapon.attackElapsedMs = 0
       weapon.lastAttackTimestamp = now
       weapon.attackFacing = attackFacing
-      weapon.attackStartOffset = attackStartOffset
-      weapon.swingStartOffset = swingStartOffset
-      weapon.swingEndOffset = swingEndOffset
-      weapon.attackStartTransform = this.applyOffset(
-        attackStartOffset,
-        playerPos
+
+      // Update attackStartTransform based on current visual (which was just set)
+      this.applyOffset(
+        weapon.attackStartOffset,
+        playerPos,
+        weapon.attackStartTransform
       )
-      weapon.swingStartTransform = swingStartTransform
-      weapon.swingEndTransform = swingEndTransform
+
+      // Visual starts at attackStartTransform
+      this.copyTransform(weapon.visual, weapon.attackStartTransform)
+
       weapon.attackRadius = attackRadius
-      weapon.visual = this.applyOffset(attackStartOffset, playerPos)
       weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
     }
@@ -272,11 +285,14 @@ export class WeaponSystem extends System {
 
     const t = this.clamp01(weapon.attackElapsedMs / windupDuration)
     const target = weapon.swingStartTransform
-    weapon.visual = this.lerpTransform(weapon.attackStartTransform, target, t)
+    this.lerpTransform(weapon.attackStartTransform, target, t, weapon.visual)
     if (t >= 1) {
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
-      weapon.attackStartTransform = weapon.swingStartTransform
+      this.copyTransform(
+        weapon.attackStartTransform,
+        weapon.swingStartTransform
+      )
       weapon.hitEntityIds.clear()
     }
   }
@@ -288,11 +304,14 @@ export class WeaponSystem extends System {
       weapon.attackElapsedMs / DEFAULT_WEAPON_FINAL_WINDUP_MS
     )
     const target = weapon.swingStartTransform
-    weapon.visual = this.lerpTransform(weapon.attackStartTransform, target, t)
+    this.lerpTransform(weapon.attackStartTransform, target, t, weapon.visual)
     if (t >= 1) {
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
-      weapon.attackStartTransform = weapon.swingStartTransform
+      this.copyTransform(
+        weapon.attackStartTransform,
+        weapon.swingStartTransform
+      )
       weapon.hitEntityIds.clear()
     }
   }
@@ -310,7 +329,8 @@ export class WeaponSystem extends System {
     )
     const from = weapon.swingStartTransform
     const to = weapon.swingEndTransform
-    weapon.visual = this.lerpTransform(from, to, t)
+    this.lerpTransform(from, to, t, weapon.visual)
+
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
       this.applyPushback(entity, weapon)
@@ -321,11 +341,12 @@ export class WeaponSystem extends System {
     if (t >= 1) {
       weapon.attackPhase = 'pause'
       weapon.attackElapsedMs = 0
-      weapon.attackStartOffset = this.getOffsetFromTransform(
+      this.getOffsetFromTransform(
         weapon.visual,
-        playerPos
+        playerPos,
+        weapon.attackStartOffset
       )
-      weapon.attackStartTransform = weapon.visual
+      this.copyTransform(weapon.attackStartTransform, weapon.visual)
       weapon.lastAttackTimestamp = now
     }
   }
@@ -349,7 +370,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    weapon.visual = weapon.attackStartTransform
+    this.copyTransform(weapon.visual, weapon.attackStartTransform)
 
     if (entity.movement && !entity.movement.isGrounded) {
       this.checkEntityHits(entity, weapon)
@@ -391,39 +412,51 @@ export class WeaponSystem extends System {
         const finalWindupRadius = attackRadius * 1.5
         const windupAngle =
           weapon.swingDirection === 'toFront' ? headAngle : frontAngle
-        const finalWindupTransform = this.getTransformAtAngle(
+
+        // Use tempTransform for intermediate result
+        this.getTransformAtAngle(
           playerPos,
           windupAngle,
-          finalWindupRadius
+          finalWindupRadius,
+          this.tempTransform
         )
-        const finalWindupOffset = this.getOffsetFromTransform(
-          finalWindupTransform,
-          playerPos
+        // Copy to swingStartTransform (which is finalWindupTransform in this context)
+        this.copyTransform(weapon.swingStartTransform, this.tempTransform)
+
+        this.getOffsetFromTransform(
+          weapon.swingStartTransform, // finalWindupTransform
+          playerPos,
+          weapon.swingStartOffset // finalWindupOffset
         )
 
         const swingEndAngle =
           weapon.swingDirection === 'toFront' ? frontAngle : headAngle
-        const swingEndTransform = this.getTransformAtAngle(
+
+        this.getTransformAtAngle(
           playerPos,
           swingEndAngle,
-          attackRadius
+          attackRadius,
+          weapon.swingEndTransform
         )
-        const swingEndOffset = this.getOffsetFromTransform(
-          swingEndTransform,
-          playerPos
+
+        this.getOffsetFromTransform(
+          weapon.swingEndTransform,
+          playerPos,
+          weapon.swingEndOffset
         )
 
         weapon.attackPhase = 'finalWindup'
         weapon.attackElapsedMs = 0
-        weapon.attackStartOffset = this.getOffsetFromTransform(
+        this.getOffsetFromTransform(
           weapon.visual,
-          playerPos
+          playerPos,
+          weapon.attackStartOffset
         )
-        weapon.swingStartOffset = finalWindupOffset
-        weapon.swingEndOffset = swingEndOffset
-        weapon.attackStartTransform = weapon.visual
-        weapon.swingStartTransform = finalWindupTransform
-        weapon.swingEndTransform = swingEndTransform
+
+        this.copyTransform(weapon.attackStartTransform, weapon.visual)
+        // weapon.swingStartTransform is already set above
+        // weapon.swingEndTransform is already set above
+
         weapon.lastAttackTimestamp = now
         weapon.knockback = COMBO_FINISHER_KNOCKBACK
         return
@@ -431,28 +464,32 @@ export class WeaponSystem extends System {
 
       const swingEndAngle =
         weapon.swingDirection === 'toFront' ? frontAngle : headAngle
-      const swingEndTransform = this.getTransformAtAngle(
+
+      this.getTransformAtAngle(
         playerPos,
         swingEndAngle,
-        attackRadius
+        attackRadius,
+        weapon.swingEndTransform
       )
 
-      const swingStartOffset = this.getOffsetFromTransform(
+      this.getOffsetFromTransform(
         weapon.visual,
-        playerPos
+        playerPos,
+        weapon.swingStartOffset
       )
-      const swingEndOffset = this.getOffsetFromTransform(
-        swingEndTransform,
-        playerPos
+      this.getOffsetFromTransform(
+        weapon.swingEndTransform,
+        playerPos,
+        weapon.swingEndOffset
       )
 
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
-      weapon.swingStartOffset = swingStartOffset
-      weapon.swingEndOffset = swingEndOffset
-      weapon.swingStartTransform = weapon.visual
-      weapon.swingEndTransform = swingEndTransform
-      weapon.attackStartTransform = weapon.visual
+
+      this.copyTransform(weapon.swingStartTransform, weapon.visual)
+      // weapon.swingEndTransform is set above
+
+      this.copyTransform(weapon.attackStartTransform, weapon.visual)
       weapon.lastAttackTimestamp = now
       weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
@@ -464,7 +501,7 @@ export class WeaponSystem extends System {
     weapon.attackPhase = 'recover'
     weapon.reboundLockedPause = false
     weapon.attackElapsedMs = 0
-    weapon.attackStartTransform = weapon.visual
+    this.copyTransform(weapon.attackStartTransform, weapon.visual)
   }
 
   private handleRecoverPhase(
@@ -486,8 +523,15 @@ export class WeaponSystem extends System {
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_RECOVER_MS
     )
-    const target = this.getFrontTransform(playerPos, facing)
-    weapon.visual = this.lerpTransform(weapon.attackStartTransform, target, t)
+
+    this.getFrontTransform(playerPos, facing, this.tempTransform)
+    this.lerpTransform(
+      weapon.attackStartTransform,
+      this.tempTransform,
+      t,
+      weapon.visual
+    )
+
     if (t >= 1) {
       weapon.attackPhase = 'idle'
       weapon.attackElapsedMs = 0
@@ -540,28 +584,29 @@ export class WeaponSystem extends System {
     if (weapon.comboCount >= 5) return
 
     if (weapon.attackPhase === 'idle') {
-      const { swingStartTransform, swingEndTransform } =
-        this.getSwingTransforms(
-          attackRadius,
-          facing,
-          weapon.swingDirection,
-          playerPos
-        )
-      const attackStartOffset = this.getOffsetFromTransform(
-        {
-          x: weapon.visual.x,
-          y: weapon.visual.y,
-          rotation: weapon.visual.rotation,
-        },
-        playerPos
+      this.getSwingTransforms(
+        attackRadius,
+        facing,
+        weapon.swingDirection,
+        playerPos,
+        weapon.swingStartTransform,
+        weapon.swingEndTransform
       )
-      const swingStartOffset = this.getOffsetFromTransform(
-        swingStartTransform,
-        playerPos
+
+      this.getOffsetFromTransform(
+        weapon.visual,
+        playerPos,
+        weapon.attackStartOffset
       )
-      const swingEndOffset = this.getOffsetFromTransform(
-        swingEndTransform,
-        playerPos
+      this.getOffsetFromTransform(
+        weapon.swingStartTransform,
+        playerPos,
+        weapon.swingStartOffset
+      )
+      this.getOffsetFromTransform(
+        weapon.swingEndTransform,
+        playerPos,
+        weapon.swingEndOffset
       )
 
       weapon.swingDirection = weapon.nextSwingDirection
@@ -571,19 +616,19 @@ export class WeaponSystem extends System {
       weapon.attackPhase = 'windup'
       weapon.attackElapsedMs = 0
       weapon.lastAttackTimestamp = now
-      weapon.attackStartOffset = attackStartOffset
-      weapon.swingStartOffset = swingStartOffset
-      weapon.swingEndOffset = swingEndOffset
-      weapon.attackStartTransform = this.applyOffset(
-        attackStartOffset,
-        playerPos
+
+      this.applyOffset(
+        weapon.attackStartOffset,
+        playerPos,
+        weapon.attackStartTransform
       )
-      weapon.swingStartTransform = swingStartTransform
-      weapon.swingEndTransform = swingEndTransform
+
       weapon.attackRadius = attackRadius
       weapon.comboCount = 1
       weapon.attackQueued = false
-      weapon.visual = this.applyOffset(attackStartOffset, playerPos)
+
+      this.applyOffset(weapon.attackStartOffset, playerPos, weapon.visual)
+
       weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
       return
@@ -613,36 +658,33 @@ export class WeaponSystem extends System {
   private lerpTransform(
     from: WeaponTransform,
     to: WeaponTransform,
-    t: number
-  ): WeaponTransform {
+    t: number,
+    out: WeaponTransform
+  ): void {
     const clampedT = this.clamp01(t)
-    return {
-      x: from.x + (to.x - from.x) * clampedT,
-      y: from.y + (to.y - from.y) * clampedT,
-      rotation: from.rotation + (to.rotation - from.rotation) * clampedT,
-    }
+    out.x = from.x + (to.x - from.x) * clampedT
+    out.y = from.y + (to.y - from.y) * clampedT
+    out.rotation = from.rotation + (to.rotation - from.rotation) * clampedT
   }
 
   private getOffsetFromTransform(
     transform: WeaponTransform,
-    playerPos: { x: number; y: number }
-  ): WeaponRelativeTransform {
-    return {
-      dx: transform.x - playerPos.x,
-      dy: transform.y - playerPos.y,
-      rotation: transform.rotation,
-    }
+    playerPos: { x: number; y: number },
+    out: WeaponRelativeTransform
+  ): void {
+    out.dx = transform.x - playerPos.x
+    out.dy = transform.y - playerPos.y
+    out.rotation = transform.rotation
   }
 
   private applyOffset(
     offset: WeaponRelativeTransform,
-    playerPos: { x: number; y: number }
-  ): WeaponTransform {
-    return {
-      x: playerPos.x + offset.dx,
-      y: playerPos.y + offset.dy,
-      rotation: offset.rotation,
-    }
+    playerPos: { x: number; y: number },
+    out: WeaponTransform
+  ): void {
+    out.x = playerPos.x + offset.dx
+    out.y = playerPos.y + offset.dy
+    out.rotation = offset.rotation
   }
 
   private realignToFacing(
@@ -652,68 +694,62 @@ export class WeaponSystem extends System {
     minimumElapsedMs: number
   ): void {
     if (!weapon) return
-    const frontTransform = this.getFrontTransform(playerPos, facing)
-    const offset = this.getOffsetFromTransform(frontTransform, playerPos)
+    this.getFrontTransform(playerPos, facing, weapon.visual)
+    this.getOffsetFromTransform(
+      weapon.visual,
+      playerPos,
+      weapon.attackStartOffset
+    )
     weapon.attackFacing = facing
-    weapon.attackStartTransform = frontTransform
-    weapon.attackStartOffset = offset
-    weapon.swingStartTransform = frontTransform
-    weapon.swingEndTransform = frontTransform
-    weapon.swingStartOffset = offset
-    weapon.swingEndOffset = offset
-    weapon.visual = frontTransform
+    this.copyTransform(weapon.attackStartTransform, weapon.visual)
+    this.copyTransform(weapon.swingStartTransform, weapon.visual)
+    this.copyTransform(weapon.swingEndTransform, weapon.visual)
+    this.getOffsetFromTransform(
+      weapon.visual,
+      playerPos,
+      weapon.swingStartOffset
+    )
+    this.getOffsetFromTransform(weapon.visual, playerPos, weapon.swingEndOffset)
+
     weapon.attackElapsedMs = Math.max(weapon.attackElapsedMs, minimumElapsedMs)
   }
 
   private getBackTransform(
     playerPos: { x: number; y: number },
-    facing: number
-  ): WeaponTransform {
-    return {
-      x: playerPos.x - facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X,
-      y: playerPos.y + DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
-      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-    }
+    facing: number,
+    out: WeaponTransform
+  ): void {
+    out.x = playerPos.x - facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X
+    out.y = playerPos.y + DEFAULT_WEAPON_FOLLOW_OFFSET_Y
+    out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
   private getFrontTransform(
     playerPos: { x: number; y: number },
-    facing: number
-  ): WeaponTransform {
-    return {
-      x: playerPos.x + facing * DEFAULT_WEAPON_CENTER_OFFSET_X,
-      y: playerPos.y + DEFAULT_WEAPON_FRONT_OFFSET_Y,
-      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-    }
+    facing: number,
+    out: WeaponTransform
+  ): void {
+    out.x = playerPos.x + facing * DEFAULT_WEAPON_CENTER_OFFSET_X
+    out.y = playerPos.y + DEFAULT_WEAPON_FRONT_OFFSET_Y
+    out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
   private getSwingTransforms(
     radius: number,
     facing: number,
     direction: 'toFront' | 'toHead',
-    playerPos: { x: number; y: number }
-  ): {
-    swingStartTransform: WeaponTransform
-    swingEndTransform: WeaponTransform
-  } {
+    playerPos: { x: number; y: number },
+    outStart: WeaponTransform,
+    outEnd: WeaponTransform
+  ): void {
     const frontAngle =
       facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
     const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     const swingStartAngle = direction === 'toFront' ? headAngle : frontAngle
     const swingEndAngle = direction === 'toFront' ? frontAngle : headAngle
 
-    return {
-      swingStartTransform: this.getTransformAtAngle(
-        playerPos,
-        swingStartAngle,
-        radius
-      ),
-      swingEndTransform: this.getTransformAtAngle(
-        playerPos,
-        swingEndAngle,
-        radius
-      ),
-    }
+    this.getTransformAtAngle(playerPos, swingStartAngle, radius, outStart)
+    this.getTransformAtAngle(playerPos, swingEndAngle, radius, outEnd)
   }
 
   setObstacles(obstacles: ObstacleCollider[]): void {
@@ -741,7 +777,7 @@ export class WeaponSystem extends System {
     weapon.nextSwingDirection = 'toFront'
     weapon.hitEntityIds.clear()
 
-    weapon.visual = this.getFrontTransform(playerPos, newFacing)
+    this.getFrontTransform(playerPos, newFacing, weapon.visual)
   }
 
   private resetWeaponState(entity: Entity): void {
@@ -758,11 +794,9 @@ export class WeaponSystem extends System {
     if (!entity.transform) return
 
     if (!weapon.isEquipped) {
-      weapon.visual = {
-        x: weapon.position.x,
-        y: weapon.position.y,
-        rotation: weapon.rotation,
-      }
+      weapon.visual.x = weapon.position.x
+      weapon.visual.y = weapon.position.y
+      weapon.visual.rotation = weapon.rotation
       return
     }
 
@@ -771,7 +805,7 @@ export class WeaponSystem extends System {
         ? entity.input.lastMoveDirection
         : 1
     const playerPos = { x: entity.transform.x, y: entity.transform.y }
-    weapon.visual = this.getBackTransform(playerPos, facing)
+    this.getBackTransform(playerPos, facing, weapon.visual)
   }
 
   private checkOBBvsAABB(
@@ -971,24 +1005,47 @@ export class WeaponSystem extends System {
       weapon.attackRadius !== 0
         ? weapon.attackRadius
         : this.getAttackRadius(weapon)
-    const reboundTargetOffset = this.getOffsetFromTransform(
+
+    // reboundTargetOffset is WeaponRelativeTransform
+    this.getOffsetFromTransform(
       weapon.swingStartTransform,
-      playerPos
+      playerPos,
+      weapon.reboundTargetOffset
     )
-    const reboundTransform = this.applyOffset(reboundTargetOffset, playerPos)
+
+    // reboundTargetTransform is WeaponTransform
+    this.applyOffset(
+      weapon.reboundTargetOffset,
+      playerPos,
+      weapon.reboundTargetTransform
+    )
+
     weapon.attackPhase = 'rebound'
     weapon.attackElapsedMs = 0
     weapon.attackQueued = false
     weapon.reboundLockedPause = true
-    weapon.reboundTargetTransform = reboundTransform
-    weapon.reboundTargetOffset = reboundTargetOffset
-    const currentOffset = this.getOffsetFromTransform(weapon.visual, playerPos)
-    weapon.attackStartOffset = currentOffset
-    weapon.swingStartOffset = currentOffset
-    weapon.swingEndOffset = reboundTargetOffset
-    weapon.attackStartTransform = weapon.visual
-    weapon.swingStartTransform = weapon.visual
-    weapon.swingEndTransform = reboundTransform
+
+    // update attackStartOffset/swingStartOffset with current visual pos
+    this.getOffsetFromTransform(
+      weapon.visual,
+      playerPos,
+      weapon.attackStartOffset
+    )
+    this.getOffsetFromTransform(
+      weapon.visual,
+      playerPos,
+      weapon.swingStartOffset
+    )
+
+    this.copyRelativeTransform(
+      weapon.swingEndOffset,
+      weapon.reboundTargetOffset
+    )
+
+    this.copyTransform(weapon.attackStartTransform, weapon.visual)
+    this.copyTransform(weapon.swingStartTransform, weapon.visual)
+    this.copyTransform(weapon.swingEndTransform, weapon.reboundTargetTransform)
+
     weapon.lastAttackTimestamp = now
     weapon.hitEntityIds.clear()
   }
@@ -1001,20 +1058,21 @@ export class WeaponSystem extends System {
     if (!weapon) return
 
     const reboundDurationMs = DEFAULT_WEAPON_ATTACK_SWING_MS * 0.8
-    const target =
-      weapon.reboundTargetOffset && playerPos
-        ? this.applyOffset(weapon.reboundTargetOffset, playerPos)
-        : weapon.reboundTargetTransform || weapon.swingEndTransform
+    // We can assume reboundTargetTransform is set from startRebound
+    const target = weapon.reboundTargetTransform
+
     const t = this.clamp01(weapon.attackElapsedMs / reboundDurationMs)
-    weapon.visual = this.lerpTransform(weapon.swingStartTransform, target, t)
+    this.lerpTransform(weapon.swingStartTransform, target, t, weapon.visual)
+
     if (t >= 1) {
       weapon.attackPhase = 'pause'
       weapon.attackElapsedMs = 0
-      weapon.attackStartOffset = this.getOffsetFromTransform(
+      this.getOffsetFromTransform(
         weapon.visual,
-        playerPos
+        playerPos,
+        weapon.attackStartOffset
       )
-      weapon.attackStartTransform = weapon.visual
+      this.copyTransform(weapon.attackStartTransform, weapon.visual)
       weapon.lastAttackTimestamp = now
     }
   }
@@ -1022,12 +1080,29 @@ export class WeaponSystem extends System {
   private getTransformAtAngle(
     playerPos: { x: number; y: number },
     angle: number,
-    radius: number
-  ): WeaponTransform {
-    return {
-      x: playerPos.x + Math.cos(angle) * radius,
-      y: playerPos.y + Math.sin(angle) * radius,
-      rotation: angle,
-    }
+    radius: number,
+    out: WeaponTransform
+  ): void {
+    out.x = playerPos.x + Math.cos(angle) * radius
+    out.y = playerPos.y + Math.sin(angle) * radius
+    out.rotation = angle
+  }
+
+  private copyTransform(
+    target: WeaponTransform,
+    source: WeaponTransform
+  ): void {
+    target.x = source.x
+    target.y = source.y
+    target.rotation = source.rotation
+  }
+
+  private copyRelativeTransform(
+    target: WeaponRelativeTransform,
+    source: WeaponRelativeTransform
+  ): void {
+    target.dx = source.dx
+    target.dy = source.dy
+    target.rotation = source.rotation
   }
 }

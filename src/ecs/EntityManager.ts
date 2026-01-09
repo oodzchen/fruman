@@ -16,7 +16,12 @@ export class EntityManager {
   }
 
   createEntity(): Entity {
-    const entity = this.entityPool.acquire()
+    let entity = this.entityPool.acquire()
+    if (typeof entity.renewId === 'function') {
+      entity.renewId()
+    } else {
+      entity = new Entity()
+    }
     const index = this.entities.length
     this.entities.push(entity)
     this.entityIndexMap.set(entity.id, index)

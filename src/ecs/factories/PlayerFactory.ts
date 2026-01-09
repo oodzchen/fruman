@@ -243,17 +243,17 @@ export function createEnemy(
 
     enemy.weapon.isEquipped = true
     enemy.weapon.position = { x: followX, y: followY }
-    enemy.weapon.visual = equippedTransform
-    enemy.weapon.attackStartTransform = equippedTransform
-    enemy.weapon.swingStartTransform = equippedTransform
-    enemy.weapon.swingEndTransform = equippedTransform
+    enemy.weapon.visual = { ...equippedTransform }
+    enemy.weapon.attackStartTransform = { ...equippedTransform }
+    enemy.weapon.swingStartTransform = { ...equippedTransform }
+    enemy.weapon.swingEndTransform = { ...equippedTransform }
     enemy.weapon.attackStartOffset = {
       dx: followX - enemy.transform.x,
       dy: followY - enemy.transform.y,
       rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
     }
-    enemy.weapon.swingStartOffset = enemy.weapon.attackStartOffset
-    enemy.weapon.swingEndOffset = enemy.weapon.attackStartOffset
+    enemy.weapon.swingStartOffset = { ...enemy.weapon.attackStartOffset }
+    enemy.weapon.swingEndOffset = { ...enemy.weapon.attackStartOffset }
     enemy.weapon.attackFacing = facing
     enemy.weapon.attackPhase = 'idle'
     enemy.weapon.attackQueued = false
