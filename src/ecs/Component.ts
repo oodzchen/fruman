@@ -259,7 +259,7 @@ export class SensorComponent extends Component {
   // Rotating ray state
   scanAngle = 0
   scanDirection = 1
-  scanSpeed = 0.5 // Reduced speed
+  scanSpeed = 0.3
 
   getName(): string {
     return 'Sensor'

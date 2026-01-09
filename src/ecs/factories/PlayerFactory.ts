@@ -133,7 +133,6 @@ export function createPlayer(
   const sensor = new SensorComponent()
   sensor.radius = ENEMY_DETECTION_RANGE
   sensor.fov = (90 * Math.PI) / 180 // +/- 45 degrees
-  sensor.scanSpeed = 0.15
   entity.addComponent(sensor)
 
   const weapon = new WeaponComponent()
@@ -210,7 +209,6 @@ export function createEnemy(
   if (enemy.sensor) {
     enemy.sensor.radius = ENEMY_DETECTION_RANGE
     enemy.sensor.fov = (90 * Math.PI) / 180 // +/- 45 degrees
-    enemy.sensor.scanSpeed = 0.15
   }
 
   if (enemy.physics) {
