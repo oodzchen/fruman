@@ -86,6 +86,9 @@ export class InputComponent extends Component {
   jumpRequested = false
   attackRequested = false
   blockRequested = false
+  lockedTargetId: number | null = null
+  lockToggleRequested = false
+  lockSwitchIntent = 0
 
   lastMoveDirection = 0
   facingOverride: number | null = null

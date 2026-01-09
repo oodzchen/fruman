@@ -16,6 +16,7 @@ import { MovementSystem } from './ecs/systems/MovementSystem'
 import { PhysicsSystem } from './ecs/systems/PhysicsSystem'
 import { RenderSystem } from './ecs/systems/RenderSystem'
 import { StatsSystem } from './ecs/systems/StatsSystem'
+import { TargetingSystem } from './ecs/systems/TargetingSystem'
 import { WeaponSystem } from './ecs/systems/WeaponSystem'
 import type { MainModule, b2BodyId, b2ShapeId } from './types'
 
@@ -59,6 +60,7 @@ export class GameECS {
   private weaponSystem!: WeaponSystem
   private renderSystem!: RenderSystem
   private enemyAISystem!: EnemyAISystem
+  private targetingSystem!: TargetingSystem
 
   constructor(
     box2d: MainModule,
@@ -116,6 +118,7 @@ export class GameECS {
     this.movementSystem = new MovementSystem(this.box2d)
     this.weaponSystem = new WeaponSystem(this.box2d, this.statsSystem)
     this.enemyAISystem.setWeaponSystem(this.weaponSystem)
+    this.targetingSystem = new TargetingSystem()
     this.renderSystem = new RenderSystem(
       this.ctx,
       this.pixelsPerMeter,
@@ -127,6 +130,7 @@ export class GameECS {
     this.world.addSystem(this.movementSystem)
     this.world.addSystem(this.physicsSystem)
     this.world.addSystem(this.weaponSystem)
+    this.world.addSystem(this.targetingSystem)
     this.weaponSystem.setObstacles(this.obstacles)
   }
 
@@ -147,8 +151,19 @@ export class GameECS {
       groundTopY - 0.6,
       groundTopY
     )
+    // 添加第二个敌人用于测试锁定切换
+    createEnemy(
+      this.world,
+      this.box2d,
+      this.worldId,
+      -8,
+      groundTopY - 0.6,
+      groundTopY
+    )
 
     this.enemyAISystem.setPlayer(this.playerEntity)
+    this.targetingSystem.setPlayer(this.playerEntity)
+    this.renderSystem.setPlayer(this.playerEntity)
   }
 
   private createGround(): b2BodyId {
@@ -249,6 +264,19 @@ export class GameECS {
         }
       }
 
+      if (e.key.toLowerCase() === 'h' && !isPlayerDead) {
+        if (this.playerEntity.input) {
+          const dir = this.playerEntity.input.moveDirection
+          const isLocked = this.playerEntity.input.lockedTargetId !== null
+
+          if (dir !== 0 && isLocked) {
+            this.playerEntity.input.lockSwitchIntent = dir
+          } else {
+            this.playerEntity.input.lockToggleRequested = true
+          }
+        }
+      }
+
       if (e.key.toLowerCase() === 'i') {
         this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
       } else if (e.key.toLowerCase() === 'o') {
@@ -322,6 +350,7 @@ export class GameECS {
 
     this.weaponSystem.setEntities(this.world.getEntities())
     this.movementSystem.setEntities(this.world.getEntities())
+    // TargetingSystem doesn't need setEntities as it receives them in update
     this.world.update(deltaTime)
     this.cleanupDestroyedEntities()
 
@@ -401,6 +430,9 @@ export class GameECS {
         this.renderSystem.renderWeapon(entity)
       }
     }
+
+    // 在所有实体和武器绘制完成后，最后绘制锁定准星
+    this.renderSystem.renderLockOn(entities)
 
     this.ctx.restore()
   }
@@ -627,6 +659,8 @@ export class GameECS {
     this.initializeSystems()
     this.createPlayerAndWeapon(groundTopY)
     this.enemyAISystem.setPlayer(this.playerEntity)
+    this.targetingSystem.setPlayer(this.playerEntity)
+    this.renderSystem.setPlayer(this.playerEntity)
 
     this.isPaused = false
     this.logParameters()

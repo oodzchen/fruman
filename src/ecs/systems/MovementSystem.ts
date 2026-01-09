@@ -239,6 +239,15 @@ export class MovementSystem extends System {
     if (!isInAttackAction) {
       if (entity.input.facingOverride !== null) {
         entity.input.lastMoveDirection = entity.input.facingOverride
+      } else if (entity.input.lockedTargetId !== null) {
+        // 如果有锁定目标，始终面朝目标
+        const target = this.allEntities.find(
+          (e) => e.id === entity.input?.lockedTargetId
+        )
+        if (target && target.transform && entity.transform) {
+          const dx = target.transform.x - entity.transform.x
+          entity.input.lastMoveDirection = dx >= 0 ? 1 : -1
+        }
       } else if (direction !== 0) {
         entity.input.lastMoveDirection = direction
       }

@@ -7,6 +7,7 @@ export class RenderSystem extends System {
   private ctx: CanvasRenderingContext2D
   private pixelsPerMeter: number
   private camera: { x: number; y: number }
+  private player?: Entity
 
   constructor(
     ctx: CanvasRenderingContext2D,
@@ -23,6 +24,10 @@ export class RenderSystem extends System {
     this.setRequiredComponents([transformType, renderType])
   }
 
+  setPlayer(player: Entity): void {
+    this.player = player
+  }
+
   update(entities: Entity[], _deltaTime: number): void {
     for (const entity of entities) {
       if (!entity.transform || !entity.render) continue
@@ -31,6 +36,64 @@ export class RenderSystem extends System {
 
       this.renderEntity(entity)
     }
+  }
+
+  renderLockOn(entities: Entity[]): void {
+    if (this.player?.input?.lockedTargetId) {
+      const targetId = this.player.input.lockedTargetId
+      const target = entities.find((e) => e.id === targetId)
+      if (target && target.transform && !target.stats?.isVanished) {
+        this.drawLockOnReticle(target)
+      }
+    }
+  }
+
+  private drawLockOnReticle(target: Entity): void {
+    if (!target.transform) return
+    const pos = target.transform
+    // 计算屏幕位置（逻辑同 renderEntity）
+    const shakeOffset = this.getHitShakeOffset(target)
+    const centerX = (pos.x + shakeOffset.x) * this.pixelsPerMeter
+    const centerY = (pos.y + shakeOffset.y) * this.pixelsPerMeter
+
+    this.ctx.save()
+    this.ctx.translate(centerX, centerY)
+
+    // 绘制白色十字架标识
+
+    this.ctx.strokeStyle = '#FFFFFF'
+
+    this.ctx.lineWidth = 1 // 线条变细
+
+    const size = 7.5 // 十字架臂长缩短 1/4 (10 -> 7.5)
+
+    this.ctx.beginPath()
+
+    // 横线
+
+    this.ctx.moveTo(-size, 0)
+
+    this.ctx.lineTo(size, 0)
+
+    // 竖线
+
+    this.ctx.moveTo(0, -size)
+
+    this.ctx.lineTo(0, size)
+
+    this.ctx.stroke()
+
+    // 中心白色圆点
+
+    this.ctx.fillStyle = '#FFFFFF'
+
+    this.ctx.beginPath()
+
+    this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2) // 圆点变大
+
+    this.ctx.fill()
+
+    this.ctx.restore()
   }
 
   private renderEntity(entity: Entity): void {
@@ -86,6 +149,19 @@ export class RenderSystem extends System {
 
     if (entity.stats) {
       this.drawStatusBars(entity.stats, centerX, centerY, render.radius)
+    }
+
+    if (entity.input?.lockedTargetId) {
+      // 这里的entity是玩家，lockedTargetId是敌人的ID
+      // 这里的RenderSystem是遍历所有实体渲染，没办法直接获得“全部实体”来查找目标位置
+      // 所以我们把绘制锁定准星的逻辑放在 update 的循环外或者 GameECS 中可能更好
+      // 或者在这里判断，如果“当前渲染的实体”是被玩家锁定的实体，则绘制准星
+      // 但 RenderSystem 不知道谁是玩家。
+      // 方案调整：在 GameECS 的 render 方法中额外绘制准星，或者给被锁定的实体加一个标记组件。
+      // 鉴于 RenderSystem 的结构，我们可以简单地在 drawStatusBars 后面补充逻辑：
+      // 如果当前渲染的实体被某些人锁定了？不，应该是“如果当前渲染的是玩家，且他有锁定目标”，则需要在目标位置画准星。
+      // 但这里我们没有目标的引用。
+      // 更好的方式：在 GameECS 中传递 playerEntity 给 RenderSystem 或者在 RenderSystem 中存储 playerEntity。
     }
   }
 
