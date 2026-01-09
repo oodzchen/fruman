@@ -16,6 +16,9 @@ export class TargetingSystem extends System {
   private worldId: b2WorldId
   private shapeMap: Map<string, Entity> = new Map()
   private player?: Entity
+  private shapeMapDirty = true
+  private lastShapeMapRebuild = 0
+  private shapeMapRebuildInterval = 1000
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
@@ -27,20 +30,33 @@ export class TargetingSystem extends System {
     this.setRequiredComponents([transformType, sensorType, inputType])
   }
 
+  markShapeMapDirty(): void {
+    this.shapeMapDirty = true
+  }
+
   setPlayer(player: Entity): void {
     this.player = player
   }
 
   update(entities: Entity[], _deltaTime: number): void {
-    // 1. 重建 Shape ID 映射表
-    this.rebuildShapeMap(entities)
+    const now = Date.now()
+
+    // 1. 只在必要时重建 Shape ID 映射表
+    if (
+      this.shapeMapDirty ||
+      now - this.lastShapeMapRebuild > this.shapeMapRebuildInterval
+    ) {
+      this.rebuildShapeMap(entities)
+      this.shapeMapDirty = false
+      this.lastShapeMapRebuild = now
+    }
 
     // 2. 更新所有带有传感器的实体
-    const now = Date.now()
     for (const entity of entities) {
       if (!entity.transform || !entity.sensor) continue
+      if (entity.stats?.isDead || entity.stats?.isVanished) continue
 
-      // 简单的频率限制
+      // 频率限制
       if (
         now - entity.sensor.lastScanTimestamp <
         entity.sensor.scanIntervalMs
@@ -185,9 +201,11 @@ export class TargetingSystem extends System {
     // Default to right if facingDir is >= 0. Left if < 0.
     const baseAngle = facingDir >= 0 ? 0 : Math.PI
 
-    // Offset ray start by 0.6m in facing direction to avoid self-intersection/walls
-    const startX = x + Math.cos(baseAngle) * 0.6
-    const startY = y + Math.sin(baseAngle) * 0.6
+    // Ray starts from eye position (offset from entity center)
+    const eyeOffsetX = facingDir >= 0 ? 0.25 : -0.25
+    const eyeOffsetY = -0.25
+    const startX = x + eyeOffsetX
+    const startY = y + eyeOffsetY
 
     // Fixed angles: Up-Forward (-45deg), Forward (0), Down-Forward (+45deg)
     const angles = [baseAngle - Math.PI / 4, baseAngle, baseAngle + Math.PI / 4]
@@ -198,6 +216,7 @@ export class TargetingSystem extends System {
     const { b2Vec2, b2World_CastRayClosest, b2DefaultQueryFilter } = this.box2d
 
     const startVec = new b2Vec2(startX, startY)
+    const translationVec = new b2Vec2(0, 0)
     const filter = b2DefaultQueryFilter()
 
     // Determine mask based on faction to avoid hitting self
@@ -210,15 +229,12 @@ export class TargetingSystem extends System {
     }
     filter.maskBits = mask
 
-    const shouldLog =
-      entity.faction?.faction === Faction.Player && Math.random() < 0.02
-
     for (const rayAngle of angles) {
       const dx = Math.cos(rayAngle) * radius
       const dy = Math.sin(rayAngle) * radius
       const endX = startX + dx
       const endY = startY + dy
-      const translationVec = new b2Vec2(dx, dy)
+      translationVec.Set(dx, dy)
 
       const output = b2World_CastRayClosest(
         this.worldId,
@@ -249,17 +265,10 @@ export class TargetingSystem extends System {
             !hitEntity.stats?.isDead &&
             !hitEntity.stats?.isVanished
           ) {
-            // Detected!
             isHostile = true
             detectedHostileId = hitEntityId
           }
         }
-      }
-
-      if (shouldLog) {
-        console.log(
-          `RayDebug: Ray ${angles.indexOf(rayAngle)}: start=(${startX.toFixed(2)}, ${startY.toFixed(2)}) end=(${endX.toFixed(2)}, ${endY.toFixed(2)}) hit=${hit} hitPt=(${hitPoint?.x.toFixed(2)}, ${hitPoint?.y.toFixed(2)}) entity=${hitEntityId}`
-        )
       }
 
       entity.sensor.scanResults.push({
@@ -270,10 +279,9 @@ export class TargetingSystem extends System {
         hitEntityId,
         isHostile,
       })
-
-      translationVec.delete()
     }
 
+    translationVec.delete()
     startVec.delete()
     filter.delete()
 

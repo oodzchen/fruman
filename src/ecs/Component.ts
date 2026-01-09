@@ -253,7 +253,7 @@ export class SensorComponent extends Component {
   rayCount = 3 // Fixed 3 rays
   scanResults: RayCastResult[] = []
   lastScanTimestamp = 0
-  scanIntervalMs = 0 // Update every frame for smooth scanning
+  scanIntervalMs = 100
   detectedTargetId: number | null = null
 
   getName(): string {

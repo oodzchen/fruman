@@ -35,9 +35,9 @@ export class RenderSystem extends System {
       if (!entity.render.visible) continue
 
       this.renderEntity(entity)
-      if (entity.sensor) {
-        this.renderSensorRays(entity)
-      }
+      // if (entity.sensor) {
+      //   this.renderSensorRays(entity)
+      // }
       // this.renderDebugInfo(entity) // Removed old debug line
     }
   }
@@ -129,25 +129,6 @@ export class RenderSystem extends System {
         this.ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)' // Green for clear
       }
       this.ctx.stroke()
-
-      // Draw start point
-      this.ctx.beginPath()
-      this.ctx.fillStyle = '#0000FF' // Blue
-      this.ctx.arc(startX, startY, 5, 0, Math.PI * 2)
-      this.ctx.fill()
-
-      // Draw end point
-      this.ctx.beginPath()
-      this.ctx.fillStyle = res.hit ? '#FF0000' : '#FFFF00' // Red if hit, Yellow if miss
-      this.ctx.arc(endX, endY, 5, 0, Math.PI * 2)
-      this.ctx.fill()
-
-      if (res.hit) {
-        this.ctx.beginPath()
-        this.ctx.arc(endX, endY, 2, 0, Math.PI * 2)
-        this.ctx.fillStyle = this.ctx.strokeStyle
-        this.ctx.fill()
-      }
     }
     this.ctx.restore()
   }
