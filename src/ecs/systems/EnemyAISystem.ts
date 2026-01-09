@@ -1,9 +1,12 @@
 import {
+  CATEGORY_GROUND,
+  CATEGORY_OBSTACLE,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   ENEMY_ATTACK_RANGE_BUFFER,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../../constants'
-import { Faction } from '../Component'
+import type { MainModule, b2WorldId } from '../../types'
+import { EnemyAIComponent, Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -12,9 +15,13 @@ import type { WeaponSystem } from './WeaponSystem'
 export class EnemyAISystem extends System {
   private player?: Entity
   private weaponSystem?: WeaponSystem
+  private box2d: MainModule
+  private worldId: b2WorldId
 
-  constructor() {
+  constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
+    this.box2d = box2d
+    this.worldId = worldId
     const transformType = componentRegistry.getComponentType('Transform')
     const inputType = componentRegistry.getComponentType('Input')
     const factionType = componentRegistry.getComponentType('Faction')
@@ -69,13 +76,22 @@ export class EnemyAISystem extends System {
       const facing = dx >= 0 ? 1 : -1
       entity.input.facingOverride = facing
 
-      if (ai.attackDesire <= 0 || distance > ai.detectionRange) {
-        entity.input.moveDirection = 0
+      const hasLineOfSight = this.checkLineOfSight(
+        entity.transform,
+        this.player.transform
+      )
+      ai.hasLineOfSight = hasLineOfSight
+
+      if (
+        ai.attackDesire <= 0 ||
+        distance > ai.detectionRange ||
+        !hasLineOfSight
+      ) {
+        // 巡逻逻辑
+        this.handlePatrol(entity, ai, now)
         if (entity.weapon) {
           entity.weapon.attackQueued = false
         }
-        ai.state = 'approach'
-        ai.comboSwingsDone = 0
         continue
       }
 
@@ -137,6 +153,74 @@ export class EnemyAISystem extends System {
         }
       }
     }
+  }
+
+  private checkLineOfSight(
+    start: { x: number; y: number },
+    end: { x: number; y: number }
+  ): boolean {
+    const { b2World_CastRayClosest, b2Vec2, b2DefaultQueryFilter } = this.box2d
+
+    const startVec = new b2Vec2(start.x, start.y)
+    const endVec = new b2Vec2(end.x, end.y)
+    const filter = b2DefaultQueryFilter()
+    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
+
+    const output = b2World_CastRayClosest(
+      this.worldId,
+      startVec,
+      endVec,
+      filter
+    )
+    const hit = output.hit
+    let visible = true
+
+    if (hit) {
+      visible = false
+    }
+
+    startVec.delete()
+    endVec.delete()
+    filter.delete()
+    output.delete()
+    return visible
+  }
+
+  private handlePatrol(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    now: number
+  ): void {
+    if (!entity.input || !entity.transform) return
+
+    // 简单巡逻：如果在巡逻范围外，向中心移动；如果在范围内，随机停顿或移动
+    const dx = entity.transform.x - ai.patrolCenter.x
+    const dist = Math.abs(dx)
+
+    if (dist > ai.patrolRange) {
+      // 超出范围，返回中心
+      entity.input.moveDirection = dx > 0 ? -1 : 1
+      entity.input.facingOverride = entity.input.moveDirection
+    } else {
+      // 在范围内，随机移动
+      // 使用简单的计时器来切换移动方向
+      const patrolPeriod = 3000 // 3秒周期
+      const phase = now % patrolPeriod
+      if (phase < 1000) {
+        entity.input.moveDirection = 1
+        entity.input.facingOverride = 1
+      } else if (phase < 2000) {
+        entity.input.moveDirection = -1
+        entity.input.facingOverride = -1
+      } else {
+        entity.input.moveDirection = 0
+        entity.input.facingOverride = null
+      }
+    }
+
+    // 重置战斗状态
+    ai.state = 'approach'
+    ai.comboSwingsDone = 0
   }
 
   private queueAttack(

@@ -196,6 +196,7 @@ export function createEnemy(
   const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY)
   const ai = new EnemyAIComponent()
   ai.attackDesire = attackDesire
+  ai.patrolCenter = { x, y }
   enemy.addComponent(ai)
 
   if (enemy.physics) {

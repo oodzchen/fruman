@@ -35,6 +35,7 @@ export class RenderSystem extends System {
       if (!entity.render.visible) continue
 
       this.renderEntity(entity)
+      this.renderDebugInfo(entity)
     }
   }
 
@@ -92,6 +93,40 @@ export class RenderSystem extends System {
     this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2) // 圆点变大
 
     this.ctx.fill()
+
+    this.ctx.restore()
+  }
+
+  private renderDebugInfo(entity: Entity): void {
+    if (!entity.transform || !entity.enemyAI || !this.player?.transform) return
+
+    const startX = entity.transform.x * this.pixelsPerMeter
+
+    const startY = entity.transform.y * this.pixelsPerMeter
+
+    const targetX = this.player.transform.x * this.pixelsPerMeter
+
+    const targetY = this.player.transform.y * this.pixelsPerMeter
+
+    this.ctx.save()
+
+    // 不需要手动计算屏幕坐标，直接使用当前的 World Transform
+
+    this.ctx.beginPath()
+
+    this.ctx.moveTo(startX, startY)
+
+    this.ctx.lineTo(targetX, targetY)
+
+    if (entity.enemyAI.hasLineOfSight) {
+      this.ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)' // 绿色表示可见
+    } else {
+      this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)' // 红色表示被遮挡
+    }
+
+    this.ctx.lineWidth = 2
+
+    this.ctx.stroke()
 
     this.ctx.restore()
   }

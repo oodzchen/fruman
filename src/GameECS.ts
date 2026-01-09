@@ -113,12 +113,12 @@ export class GameECS {
 
   private initializeSystems(): void {
     this.statsSystem = new StatsSystem(this.box2d, this.worldId)
-    this.enemyAISystem = new EnemyAISystem()
+    this.enemyAISystem = new EnemyAISystem(this.box2d, this.worldId)
     this.physicsSystem = new PhysicsSystem(this.box2d, this.worldId)
     this.movementSystem = new MovementSystem(this.box2d)
     this.weaponSystem = new WeaponSystem(this.box2d, this.statsSystem)
     this.enemyAISystem.setWeaponSystem(this.weaponSystem)
-    this.targetingSystem = new TargetingSystem()
+    this.targetingSystem = new TargetingSystem(this.box2d, this.worldId)
     this.renderSystem = new RenderSystem(
       this.ctx,
       this.pixelsPerMeter,
@@ -139,7 +139,7 @@ export class GameECS {
       this.world,
       this.box2d,
       this.worldId,
-      -2,
+      -12, // 玩家在左侧障碍物左边
       groundTopY - 0.6,
       groundTopY
     )
@@ -147,7 +147,7 @@ export class GameECS {
       this.world,
       this.box2d,
       this.worldId,
-      8,
+      -7, // 敌人在左侧障碍物右边 (障碍物在 -9.5)
       groundTopY - 0.6,
       groundTopY
     )
@@ -156,7 +156,7 @@ export class GameECS {
       this.world,
       this.box2d,
       this.worldId,
-      -8,
+      8,
       groundTopY - 0.6,
       groundTopY
     )

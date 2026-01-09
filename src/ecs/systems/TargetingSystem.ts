@@ -1,4 +1,10 @@
-import { DEFAULT_PLAYER_RADIUS, ENEMY_DETECTION_RANGE } from '../../constants'
+import {
+  CATEGORY_GROUND,
+  CATEGORY_OBSTACLE,
+  DEFAULT_PLAYER_RADIUS,
+  ENEMY_DETECTION_RANGE,
+} from '../../constants'
+import type { MainModule, b2WorldId } from '../../types'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -6,9 +12,13 @@ import { System } from '../System'
 
 export class TargetingSystem extends System {
   private player?: Entity
+  private box2d: MainModule
+  private worldId: b2WorldId
 
-  constructor() {
+  constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
+    this.box2d = box2d
+    this.worldId = worldId
     const transformType = componentRegistry.getComponentType('Transform')
     const inputType = componentRegistry.getComponentType('Input')
     const factionType = componentRegistry.getComponentType('Faction')
@@ -168,8 +178,10 @@ export class TargetingSystem extends System {
       const dist = Math.hypot(dx, dy)
 
       if (dist <= ENEMY_DETECTION_RANGE) {
-        enemyInDetectionRange = true
-        break // 只要发现一个敌人就足够进入战斗状态
+        if (this.checkLineOfSight(playerPos, entity.transform)) {
+          enemyInDetectionRange = true
+          break // 只要发现一个敌人就足够进入战斗状态
+        }
       }
     }
 
@@ -177,5 +189,36 @@ export class TargetingSystem extends System {
       this.player.weapon.isInCombat = true
       this.player.weapon.lastAttackTimestamp = Date.now()
     }
+  }
+
+  private checkLineOfSight(
+    start: { x: number; y: number },
+    end: { x: number; y: number }
+  ): boolean {
+    const { b2World_CastRayClosest, b2Vec2, b2DefaultQueryFilter } = this.box2d
+
+    const startVec = new b2Vec2(start.x, start.y)
+    const endVec = new b2Vec2(end.x, end.y)
+    const filter = b2DefaultQueryFilter()
+    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
+
+    const output = b2World_CastRayClosest(
+      this.worldId,
+      startVec,
+      endVec,
+      filter
+    )
+    const hit = output.hit
+    let visible = true
+
+    if (hit) {
+      visible = false
+    }
+
+    startVec.delete()
+    endVec.delete()
+    filter.delete()
+    output.delete()
+    return visible
   }
 }

@@ -229,6 +229,9 @@ export class EnemyAIComponent extends Component {
   lastFacing: -1 | 1 = 1
   retreatDirection: -1 | 1 = -1
   retreatTargetDistance = ENEMY_RETREAT_EXTRA_DISTANCE + 1
+  patrolRange = 5
+  patrolCenter = { x: 0, y: 0 }
+  hasLineOfSight = false
 
   getName(): string {
     return 'EnemyAI'
