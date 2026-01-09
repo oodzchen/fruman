@@ -9,6 +9,9 @@ export class RenderSystem extends System {
   private camera: { x: number; y: number }
   private player?: Entity
 
+  private tempOffset = { x: 0, y: 0 }
+  private tempScale = { x: 1, y: 1 }
+
   constructor(
     ctx: CanvasRenderingContext2D,
     pixelsPerMeter: number,
@@ -133,7 +136,7 @@ export class RenderSystem extends System {
     this.ctx.restore()
   }
 
-  private renderEntity(entity: Entity): void {
+  renderEntity(entity: Entity): void {
     if (!entity.transform || !entity.render || !entity.input) return
 
     const pos = entity.transform
@@ -338,18 +341,24 @@ export class RenderSystem extends System {
 
   private getDeathScale(entity: Entity): { x: number; y: number } {
     if (!entity.stats || !entity.stats.isDead) {
-      return { x: 1, y: 1 }
+      this.tempScale.x = 1
+      this.tempScale.y = 1
+      return this.tempScale
     }
     const elapsed = entity.stats.deathElapsedSec
     const flash = entity.stats.deathFlashDurationSec
     const flatten = entity.stats.deathFlattenDurationSec
     if (elapsed <= flash) {
-      return { x: 1, y: 1 }
+      this.tempScale.x = 1
+      this.tempScale.y = 1
+      return this.tempScale
     }
     const progress = Math.min(1, Math.max(0, (elapsed - flash) / flatten))
     const scaleY = Math.max(0.05, 1 - progress)
     const scaleX = 1 + progress * 0.3
-    return { x: scaleX, y: scaleY }
+    this.tempScale.x = scaleX
+    this.tempScale.y = scaleY
+    return this.tempScale
   }
 
   private getDeathAlpha(entity: Entity): number {
@@ -366,7 +375,9 @@ export class RenderSystem extends System {
 
   private getHitShakeOffset(entity: Entity): { x: number; y: number } {
     if (!entity.stats || entity.stats.hitShakeDurationMs === 0) {
-      return { x: 0, y: 0 }
+      this.tempOffset.x = 0
+      this.tempOffset.y = 0
+      return this.tempOffset
     }
 
     const progress =
@@ -378,6 +389,8 @@ export class RenderSystem extends System {
     const offsetX =
       shake * entity.stats.hitShakeIntensity * entity.stats.hitShakeDirectionX
 
-    return { x: offsetX, y: 0 }
+    this.tempOffset.x = offsetX
+    this.tempOffset.y = 0
+    return this.tempOffset
   }
 }

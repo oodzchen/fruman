@@ -31,10 +31,19 @@ export class World {
     const entities = this.entityManager.getEntities()
 
     for (const system of this.systems) {
-      const matchingEntities = entities.filter((entity) =>
-        system.matches(entity)
-      )
-      this.systemEntityCache.set(system, matchingEntities)
+      let matchingEntities = this.systemEntityCache.get(system)
+      if (!matchingEntities) {
+        matchingEntities = []
+        this.systemEntityCache.set(system, matchingEntities)
+      } else {
+        matchingEntities.length = 0
+      }
+
+      for (const entity of entities) {
+        if (system.matches(entity)) {
+          matchingEntities.push(entity)
+        }
+      }
     }
 
     this.cacheNeedsRebuild = false

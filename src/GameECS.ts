@@ -366,12 +366,7 @@ export class GameECS {
 
     const entities = this.world.getEntities()
 
-    this.spatialHash.clear()
-    for (const entity of entities) {
-      if (entity.transform) {
-        this.spatialHash.insert(entity, entity.transform.x, entity.transform.y)
-      }
-    }
+    this.spatialHash.update(entities)
 
     this.weaponSystem.setEntities(entities)
     this.weaponSystem.setSpatialHash(this.spatialHash)
@@ -450,7 +445,7 @@ export class GameECS {
       }
 
       if (entity.transform && entity.render) {
-        this.renderSystem.update([entity], 0)
+        this.renderSystem.renderEntity(entity)
       }
 
       if (facing >= 0 && entity.weapon) {
@@ -458,7 +453,6 @@ export class GameECS {
       }
     }
 
-    // 在所有实体和武器绘制完成后，最后绘制锁定准星
     this.renderSystem.renderLockOn(entities)
 
     this.ctx.restore()
