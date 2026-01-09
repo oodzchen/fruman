@@ -9,6 +9,7 @@ import {
 import type { WeaponComponent } from './ecs/Component'
 import { componentRegistry } from './ecs/ComponentRegistry'
 import type { Entity } from './ecs/Entity'
+import { SpatialHash } from './ecs/SpatialHash'
 import { World } from './ecs/World'
 import { createEnemy, createPlayer } from './ecs/factories/PlayerFactory'
 import { EnemyAISystem } from './ecs/systems/EnemyAISystem'
@@ -66,6 +67,8 @@ export class GameECS {
   private frameCount = 0
   private fpsUpdateTime = 0
 
+  private spatialHash: SpatialHash
+
   constructor(
     box2d: MainModule,
     canvas: HTMLCanvasElement,
@@ -84,6 +87,7 @@ export class GameECS {
 
     this.camera = { x: 0, y: 0 }
     this.world = new World()
+    this.spatialHash = new SpatialHash(5)
 
     this.registerComponents()
 
@@ -360,8 +364,19 @@ export class GameECS {
       }
     }
 
-    this.weaponSystem.setEntities(this.world.getEntities())
-    this.movementSystem.setEntities(this.world.getEntities())
+    const entities = this.world.getEntities()
+
+    this.spatialHash.clear()
+    for (const entity of entities) {
+      if (entity.transform) {
+        this.spatialHash.insert(entity, entity.transform.x, entity.transform.y)
+      }
+    }
+
+    this.weaponSystem.setEntities(entities)
+    this.weaponSystem.setSpatialHash(this.spatialHash)
+    this.movementSystem.setEntities(entities)
+    this.movementSystem.setSpatialHash(this.spatialHash)
     // TargetingSystem doesn't need setEntities as it receives them in update
     this.world.update(deltaTime)
     this.cleanupDestroyedEntities()

@@ -11,11 +11,13 @@ import {
 import type { MainModule } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 
 export class MovementSystem extends System {
   private box2d: MainModule
   private allEntities: Entity[] = []
+  private spatialHash: SpatialHash | null = null
 
   constructor(box2d: MainModule) {
     super()
@@ -29,6 +31,10 @@ export class MovementSystem extends System {
 
   setEntities(entities: Entity[]): void {
     this.allEntities = entities
+  }
+
+  setSpatialHash(spatialHash: SpatialHash): void {
+    this.spatialHash = spatialHash
   }
 
   update(entities: Entity[], _deltaTime: number): void {
@@ -426,7 +432,15 @@ export class MovementSystem extends System {
     const myRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
     const myX = entity.transform.x
 
-    for (const other of this.allEntities) {
+    const nearbyEntities = this.spatialHash
+      ? this.spatialHash.query(
+          entity.transform.x,
+          entity.transform.y,
+          myRadius + 2
+        )
+      : this.allEntities
+
+    for (const other of nearbyEntities) {
       if (other.id === entity.id) continue
       if (!other.transform || !other.faction) continue
       if (other.stats?.isDead) continue
@@ -439,7 +453,6 @@ export class MovementSystem extends System {
       const dx = otherX - myX
       const dy = other.transform.y - entity.transform.y
       const distance = Math.hypot(dx, dy)
-      // 增加 0.1 的缓冲距离，避免贴合时产生物理推挤
       const touchDistance = myRadius + otherRadius + 0.1
 
       if (distance > touchDistance) continue

@@ -23,6 +23,7 @@ import type { MainModule, b2BodyId } from '../../types'
 import type { WeaponRelativeTransform, WeaponTransform } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { StatsSystem } from './StatsSystem'
 
@@ -41,6 +42,7 @@ export class WeaponSystem extends System {
   private obstacles: ObstacleCollider[] = []
   private statsSystem?: StatsSystem
   private allEntities: Entity[] = []
+  private spatialHash: SpatialHash | null = null
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -68,6 +70,10 @@ export class WeaponSystem extends System {
 
   setEntities(entities: Entity[]): void {
     this.allEntities = entities
+  }
+
+  setSpatialHash(spatialHash: SpatialHash): void {
+    this.spatialHash = spatialHash
   }
 
   private updateWeapon(entity: Entity, deltaMs: number): void {
@@ -907,7 +913,11 @@ export class WeaponSystem extends System {
         ? weapon.attackRadius
         : this.getAttackRadius(weapon)
 
-    for (const target of this.allEntities) {
+    const nearbyEntities = this.spatialHash
+      ? this.spatialHash.query(weaponX, weaponY, attackRadius + 2)
+      : this.allEntities
+
+    for (const target of nearbyEntities) {
       if (!target || target.id === attacker.id) continue
       if (!target.transform || !target.stats || target.stats.isDead) continue
       if (!target.faction || !attacker.faction.canAttack(target.faction))
