@@ -1,7 +1,6 @@
-import Box2DFactory from 'box2d3-wasm'
-
-import { GameECS } from './GameECS'
-import type { MainModule } from './types'
+// import Box2DFactory from 'box2d3-wasm' // Not needed in main thread anymore
+import { GameClient } from './GameClient'
+// import type { MainModule } from './types'
 
 const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
@@ -112,9 +111,10 @@ function syncInputs(
 }
 
 async function initialize() {
-  const box2d: MainModule = await Box2DFactory()
+  // const box2d: MainModule = await Box2DFactory() // Moved to worker
 
-  const game = new GameECS(box2d, canvas, ctx)
+  const game = new GameClient(canvas, ctx)
+  
   const storedValues = loadStoredValues()
   const updateStoredValue = (id: string, value: string) => {
     storedValues[id] = value
@@ -148,14 +148,6 @@ async function initialize() {
     applyControls.forEach((apply) => apply())
     btnStop.textContent = '暂停'
   })
-
-  // btnKill.addEventListener('click', () => {
-  //   game.getPlayer().setAlive(false)
-  // })
-
-  // btnRevive.addEventListener('click', () => {
-  //   game.getPlayer().setAlive(true)
-  // })
 
   // Setup parameter controls
   applyControls.push(
@@ -318,7 +310,7 @@ async function initialize() {
   applyControls.forEach((apply) => apply())
 
   // Log initial parameters
-  console.log('=== 游戏初始化完成 ===')
+  console.log('=== 游戏初始化完成 (Worker Mode) ===')
   game.logParameters()
 
   // 获取缩放控件引用，用于实时同步
@@ -329,25 +321,17 @@ async function initialize() {
     'cameraZoomNum'
   ) as HTMLInputElement
 
-  let lastTime = 0
-  function gameLoop(currentTime: number) {
-    const deltaTime = (currentTime - lastTime) / 1000
-    lastTime = currentTime
-
-    game.update(Math.min(deltaTime, 0.1))
-    game.render()
-
-    // 实时同步缩放值到UI控件
+  // Game Loop is handled inside GameClient for rendering
+  // But we need to update UI for zoom
+  function uiLoop() {
     const currentZoom = game.getZoom().toFixed(1)
-    if (cameraZoomRange.value !== currentZoom) {
+    if (cameraZoomRange.value !== currentZoom && document.activeElement !== cameraZoomRange && document.activeElement !== cameraZoomNum) {
       cameraZoomRange.value = currentZoom
       cameraZoomNum.value = currentZoom
     }
-
-    requestAnimationFrame(gameLoop)
+    requestAnimationFrame(uiLoop)
   }
-
-  requestAnimationFrame(gameLoop)
+  requestAnimationFrame(uiLoop)
 }
 
 initialize()
