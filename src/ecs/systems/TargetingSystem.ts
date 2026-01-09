@@ -25,6 +25,7 @@ export class TargetingSystem extends System {
     const input = this.player.input
 
     const playerPos = this.player.transform
+    let enemyInDetectionRange = false
 
     // 处理锁定切换
 
@@ -148,6 +149,33 @@ export class TargetingSystem extends System {
           input.lockedTargetId = null
         }
       }
+    }
+
+    // 自动检测范围内的敌人以进入战斗状态
+    for (const entity of entities) {
+      if (entity.id === this.player.id) continue
+      if (
+        !entity.transform ||
+        !entity.faction ||
+        entity.stats?.isDead ||
+        entity.stats?.isVanished
+      )
+        continue
+      if (entity.faction.faction !== Faction.Enemy) continue
+
+      const dx = entity.transform.x - playerPos.x
+      const dy = entity.transform.y - playerPos.y
+      const dist = Math.hypot(dx, dy)
+
+      if (dist <= ENEMY_DETECTION_RANGE) {
+        enemyInDetectionRange = true
+        break // 只要发现一个敌人就足够进入战斗状态
+      }
+    }
+
+    if (enemyInDetectionRange && this.player.weapon?.isEquipped) {
+      this.player.weapon.isInCombat = true
+      this.player.weapon.lastAttackTimestamp = Date.now()
     }
   }
 }
