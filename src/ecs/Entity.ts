@@ -67,6 +67,21 @@ export class Entity {
     return (this.signature & requiredSignature) === requiredSignature
   }
 
+  reset(): void {
+    this.components.clear()
+    this.signature = 0
+    this.transform = undefined
+    this.physics = undefined
+    this.movement = undefined
+    this.input = undefined
+    this.render = undefined
+    this.stats = undefined
+    this.weapon = undefined
+    this.faction = undefined
+    this.enemyAI = undefined
+    this.sensor = undefined
+  }
+
   private updateCachedComponents(name: string, component: Component): void {
     switch (name) {
       case 'Transform':

@@ -43,11 +43,15 @@ export class WeaponSystem extends System {
   private statsSystem?: StatsSystem
   private allEntities: Entity[] = []
   private spatialHash: SpatialHash | null = null
+  private tempVec?: InstanceType<MainModule['b2Vec2']>
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
     this.box2d = box2d
     this.statsSystem = statsSystem
+    if (box2d) {
+      this.tempVec = new box2d.b2Vec2(0, 0)
+    }
 
     const transformType = componentRegistry.getComponentType('Transform')
     const weaponType = componentRegistry.getComponentType('Weapon')
@@ -885,15 +889,15 @@ export class WeaponSystem extends System {
   }
 
   private applyPushback(entity: Entity, weapon: Entity['weapon']): void {
-    if (!entity.physics || !this.box2d || !weapon) return
+    if (!entity.physics || !this.box2d || !weapon || !this.tempVec) return
 
-    const { b2Body_ApplyLinearImpulseToCenter, b2Vec2 } = this.box2d
+    const { b2Body_ApplyLinearImpulseToCenter } = this.box2d
     const dirX = Math.cos(weapon.visual.rotation)
     const dirY = Math.sin(weapon.visual.rotation)
     const impulseStrength = 0.2
-    const impulse = new b2Vec2(-dirX * impulseStrength, -dirY * impulseStrength)
-    b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, impulse, true)
-    impulse.delete()
+    this.tempVec.x = -dirX * impulseStrength
+    this.tempVec.y = -dirY * impulseStrength
+    b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, this.tempVec, true)
   }
 
   private checkEntityHits(attacker: Entity, weapon: Entity['weapon']): void {

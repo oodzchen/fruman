@@ -155,11 +155,7 @@ export class RenderSystem extends System {
     this.ctx.globalAlpha *= alpha
 
     if (entity.movement && entity.movement.isRolling) {
-      const elapsed = Date.now() - entity.movement.rollStartTime
-      const duration = entity.movement.rollDuration || 1
-      const progress = Math.min(1, Math.max(0, elapsed / duration))
-      const angle = progress * 2 * Math.PI * entity.movement.rollDirection
-      this.ctx.rotate(angle)
+      this.ctx.rotate(entity.movement.rollAngle)
     }
 
     this.ctx.fillStyle = render.color

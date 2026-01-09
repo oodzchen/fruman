@@ -73,6 +73,7 @@ export class MovementComponent extends Component {
   rollStartTime = 0
   rollDuration = 0
   rollDirection = 0
+  rollAngle = 0
   rollCooldownEndTime = 0
   knockbackEndTime = 0
 

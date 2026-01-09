@@ -1,7 +1,7 @@
 import type { Entity } from './Entity'
 
 type CellData = {
-  entities: Entity[]
+  entities: Set<Entity>
   frameNumber: number
 }
 
@@ -46,26 +46,23 @@ export class SpatialHash {
         for (const oldKey of prevKeys) {
           const cellData = this.grid.get(oldKey)
           if (cellData) {
-            const idx = cellData.entities.indexOf(entity)
-            if (idx !== -1) {
-              cellData.entities.splice(idx, 1)
-            }
+            cellData.entities.delete(entity)
           }
         }
       }
 
       let cellData = this.grid.get(key)
       if (!cellData) {
-        cellData = { entities: [], frameNumber: this.currentFrame }
+        cellData = { entities: new Set(), frameNumber: this.currentFrame }
         this.grid.set(key, cellData)
       } else {
         if (cellData.frameNumber !== this.currentFrame) {
-          cellData.entities.length = 0
+          cellData.entities.clear()
           cellData.frameNumber = this.currentFrame
         }
       }
 
-      cellData.entities.push(entity)
+      cellData.entities.add(entity)
       this.entityCellCache.set(entity.id, [key])
     }
   }

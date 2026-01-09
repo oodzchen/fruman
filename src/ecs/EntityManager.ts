@@ -1,12 +1,25 @@
 import { Entity } from './Entity'
+import { ObjectPool } from './ObjectPool'
 
 export class EntityManager {
   private entities: Entity[] = []
   private entitiesToRemove: Entity[] = []
+  private entityIndexMap = new Map<number, number>()
+  private entityPool: ObjectPool<Entity>
+
+  constructor() {
+    this.entityPool = new ObjectPool<Entity>(
+      () => new Entity(),
+      (entity) => entity.reset(),
+      10
+    )
+  }
 
   createEntity(): Entity {
-    const entity = new Entity()
+    const entity = this.entityPool.acquire()
+    const index = this.entities.length
     this.entities.push(entity)
+    this.entityIndexMap.set(entity.id, index)
     return entity
   }
 
@@ -21,17 +34,29 @@ export class EntityManager {
   update(): void {
     if (this.entitiesToRemove.length > 0) {
       for (const entity of this.entitiesToRemove) {
-        const index = this.entities.indexOf(entity)
-        if (index !== -1) {
-          this.entities.splice(index, 1)
+        const index = this.entityIndexMap.get(entity.id)
+        if (index !== undefined) {
+          const lastIndex = this.entities.length - 1
+
+          if (index !== lastIndex) {
+            const lastEntity = this.entities[lastIndex]
+            this.entities[index] = lastEntity
+            this.entityIndexMap.set(lastEntity.id, index)
+          }
+
+          this.entities.pop()
+          this.entityIndexMap.delete(entity.id)
+          this.entityPool.release(entity)
         }
       }
-      this.entitiesToRemove = []
+
+      this.entitiesToRemove.length = 0
     }
   }
 
   clear(): void {
-    this.entities = []
-    this.entitiesToRemove = []
+    this.entities.length = 0
+    this.entitiesToRemove.length = 0
+    this.entityIndexMap.clear()
   }
 }

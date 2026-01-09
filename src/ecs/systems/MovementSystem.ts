@@ -18,10 +18,14 @@ export class MovementSystem extends System {
   private box2d: MainModule
   private allEntities: Entity[] = []
   private spatialHash: SpatialHash | null = null
+  private tempVec: InstanceType<MainModule['b2Vec2']>
+  private tempVec2: InstanceType<MainModule['b2Vec2']>
 
   constructor(box2d: MainModule) {
     super()
     this.box2d = box2d
+    this.tempVec = new box2d.b2Vec2(0, 0)
+    this.tempVec2 = new box2d.b2Vec2(0, 0)
 
     const physicsType = componentRegistry.getComponentType('Physics')
     const movementType = componentRegistry.getComponentType('Movement')
@@ -132,6 +136,12 @@ export class MovementSystem extends System {
         this.endRoll(entity)
       } else {
         this.updateRollPhysics(entity)
+        const progress = Math.min(
+          1,
+          Math.max(0, elapsed / entity.movement.rollDuration)
+        )
+        entity.movement.rollAngle =
+          progress * 2 * Math.PI * entity.movement.rollDirection
       }
       return
     }
@@ -194,18 +204,16 @@ export class MovementSystem extends System {
   private updateRollPhysics(entity: Entity): void {
     if (!entity.physics || !entity.movement) return
 
-    const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity, b2Vec2 } =
-      this.box2d
+    const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity } = this.box2d
 
     const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
     const rollSpeed = DEFAULT_ROLL_SPEED
     const velX = entity.movement.rollDirection * rollSpeed
 
-    // 保持当前的垂直速度（重力）
-    const newVel = new b2Vec2(velX, currentVel.y)
-    b2Body_SetLinearVelocity(entity.physics.bodyId, newVel)
+    this.tempVec.x = velX
+    this.tempVec.y = currentVel.y
+    b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
 
-    newVel.delete()
     currentVel.delete()
   }
 
@@ -276,12 +284,9 @@ export class MovementSystem extends System {
       direction = 0
     }
 
-    const velocity = new b2Vec2(
-      direction * entity.movement.moveSpeed,
-      currentVel.y
-    )
-    b2Body_SetLinearVelocity(entity.physics.bodyId, velocity)
-    velocity.delete()
+    this.tempVec.x = direction * entity.movement.moveSpeed
+    this.tempVec.y = currentVel.y
+    b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
   }
 
   private handleJump(entity: Entity): void {
@@ -329,15 +334,13 @@ export class MovementSystem extends System {
       jumpDuration < entity.movement.maxJumpDuration &&
       entity.input.jumpRequested
     ) {
-      const force = new b2Vec2(
-        0,
+      this.tempVec.x = 0
+      this.tempVec.y =
         -entity.movement.jumpForce *
-          mass *
-          entity.movement.jumpForceMultiplier *
-          jumpScale
-      )
-      b2Body_ApplyForceToCenter(entity.physics.bodyId, force, true)
-      force.delete()
+        mass *
+        entity.movement.jumpForceMultiplier *
+        jumpScale
+      b2Body_ApplyForceToCenter(entity.physics.bodyId, this.tempVec, true)
     } else if (
       jumpDuration >= entity.movement.maxJumpDuration ||
       vel.y >= 0 ||
@@ -367,7 +370,6 @@ export class MovementSystem extends System {
       b2Body_ApplyLinearImpulseToCenter,
       b2Body_SetLinearVelocity,
       b2Body_GetMass,
-      b2Vec2,
     } = this.box2d
 
     const mass = b2Body_GetMass(entity.physics.bodyId)
@@ -393,20 +395,21 @@ export class MovementSystem extends System {
         entity.movement.wallJumpUpwardMultiplier *
         jumpScale
 
-      const velocity = new b2Vec2(pushAwaySpeed, upwardSpeed)
-      b2Body_SetLinearVelocity(entity.physics.bodyId, velocity)
-      velocity.delete()
+      this.tempVec.x = pushAwaySpeed
+      this.tempVec.y = upwardSpeed
+      b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
 
       entity.movement.wallJumpTime = Date.now()
       entity.movement.wallJumpCount++
     } else if (entity.movement.isGrounded) {
       entity.movement.wallJumpCount = 0
-      const impulse = new b2Vec2(
-        0,
-        -entity.movement.jumpForce * mass * 0.6 * jumpScale
+      this.tempVec.x = 0
+      this.tempVec.y = -entity.movement.jumpForce * mass * 0.6 * jumpScale
+      b2Body_ApplyLinearImpulseToCenter(
+        entity.physics.bodyId,
+        this.tempVec,
+        true
       )
-      b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, impulse, true)
-      impulse.delete()
     }
   }
 
