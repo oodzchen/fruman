@@ -26,7 +26,14 @@ export class EnemyAISystem extends System {
     const inputType = componentRegistry.getComponentType('Input')
     const factionType = componentRegistry.getComponentType('Faction')
     const aiType = componentRegistry.getComponentType('EnemyAI')
-    this.setRequiredComponents([transformType, inputType, factionType, aiType])
+    const sensorType = componentRegistry.getComponentType('Sensor')
+    this.setRequiredComponents([
+      transformType,
+      inputType,
+      factionType,
+      aiType,
+      sensorType,
+    ])
   }
 
   setPlayer(player: Entity): void {
@@ -76,11 +83,10 @@ export class EnemyAISystem extends System {
       const facing = dx >= 0 ? 1 : -1
       entity.input.facingOverride = facing
 
-      const hasLineOfSight = this.checkLineOfSight(
-        entity.transform,
-        this.player.transform
-      )
-      ai.hasLineOfSight = hasLineOfSight
+      // 使用传感器结果判断视线
+      const hasLineOfSight =
+        entity.sensor && entity.sensor.detectedTargetId === this.player.id
+      ai.hasLineOfSight = !!hasLineOfSight
 
       if (
         ai.attackDesire <= 0 ||
@@ -153,37 +159,6 @@ export class EnemyAISystem extends System {
         }
       }
     }
-  }
-
-  private checkLineOfSight(
-    start: { x: number; y: number },
-    end: { x: number; y: number }
-  ): boolean {
-    const { b2World_CastRayClosest, b2Vec2, b2DefaultQueryFilter } = this.box2d
-
-    const startVec = new b2Vec2(start.x, start.y)
-    const endVec = new b2Vec2(end.x, end.y)
-    const filter = b2DefaultQueryFilter()
-    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
-
-    const output = b2World_CastRayClosest(
-      this.worldId,
-      startVec,
-      endVec,
-      filter
-    )
-    const hit = output.hit
-    let visible = true
-
-    if (hit) {
-      visible = false
-    }
-
-    startVec.delete()
-    endVec.delete()
-    filter.delete()
-    output.delete()
-    return visible
   }
 
   private handlePatrol(

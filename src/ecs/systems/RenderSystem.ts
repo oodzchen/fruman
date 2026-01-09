@@ -35,7 +35,10 @@ export class RenderSystem extends System {
       if (!entity.render.visible) continue
 
       this.renderEntity(entity)
-      this.renderDebugInfo(entity)
+      if (entity.sensor) {
+        this.renderSensorRays(entity)
+      }
+      // this.renderDebugInfo(entity) // Removed old debug line
     }
   }
 
@@ -97,37 +100,43 @@ export class RenderSystem extends System {
     this.ctx.restore()
   }
 
-  private renderDebugInfo(entity: Entity): void {
-    if (!entity.transform || !entity.enemyAI || !this.player?.transform) return
-
-    const startX = entity.transform.x * this.pixelsPerMeter
-
-    const startY = entity.transform.y * this.pixelsPerMeter
-
-    const targetX = this.player.transform.x * this.pixelsPerMeter
-
-    const targetY = this.player.transform.y * this.pixelsPerMeter
+  private renderSensorRays(entity: Entity): void {
+    if (!entity.sensor) return
+    const { scanResults } = entity.sensor
 
     this.ctx.save()
+    this.ctx.lineWidth = 3
 
-    // 不需要手动计算屏幕坐标，直接使用当前的 World Transform
+    for (const res of scanResults) {
+      const startX = res.start.x * this.pixelsPerMeter
+      const startY = res.start.y * this.pixelsPerMeter
+      const endX =
+        (res.hitPoint ? res.hitPoint.x : res.end.x) * this.pixelsPerMeter
+      const endY =
+        (res.hitPoint ? res.hitPoint.y : res.end.y) * this.pixelsPerMeter
 
-    this.ctx.beginPath()
+      this.ctx.beginPath()
+      this.ctx.moveTo(startX, startY)
+      this.ctx.lineTo(endX, endY)
 
-    this.ctx.moveTo(startX, startY)
+      if (res.hit) {
+        if (res.isHostile) {
+          this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)' // Red for hostile entity hit
+        } else {
+          this.ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)' // Grey for non-hostile hit (ground, obstacles)
+        }
+      } else {
+        this.ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)' // Green for clear
+      }
+      this.ctx.stroke()
 
-    this.ctx.lineTo(targetX, targetY)
-
-    if (entity.enemyAI.hasLineOfSight) {
-      this.ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)' // 绿色表示可见
-    } else {
-      this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)' // 红色表示被遮挡
+      if (res.hit) {
+        this.ctx.beginPath()
+        this.ctx.arc(endX, endY, 2, 0, Math.PI * 2)
+        this.ctx.fillStyle = this.ctx.strokeStyle
+        this.ctx.fill()
+      }
     }
-
-    this.ctx.lineWidth = 2
-
-    this.ctx.stroke()
-
     this.ctx.restore()
   }
 

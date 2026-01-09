@@ -237,3 +237,31 @@ export class EnemyAIComponent extends Component {
     return 'EnemyAI'
   }
 }
+
+export type RayCastResult = {
+  start: { x: number; y: number }
+  end: { x: number; y: number }
+  hit: boolean
+  hitPoint?: { x: number; y: number }
+  hitEntityId?: number
+  isHostile?: boolean
+}
+
+export class SensorComponent extends Component {
+  radius = 10
+  fov = (90 * Math.PI) / 180 // +/- 45 degrees
+  rayCount = 1 // Single rotating ray
+  scanResults: RayCastResult[] = []
+  lastScanTimestamp = 0
+  scanIntervalMs = 0 // Update every frame for smooth scanning
+  detectedTargetId: number | null = null
+
+  // Rotating ray state
+  scanAngle = 0
+  scanDirection = 1
+  scanSpeed = 0.5 // Reduced speed
+
+  getName(): string {
+    return 'Sensor'
+  }
+}

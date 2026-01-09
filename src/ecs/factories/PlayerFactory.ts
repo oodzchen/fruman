@@ -28,6 +28,7 @@ import {
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
+  ENEMY_DETECTION_RANGE,
   MASK_ENEMY,
   MASK_PLAYER,
 } from '../../constants'
@@ -40,6 +41,7 @@ import {
   MovementComponent,
   PhysicsComponent,
   RenderComponent,
+  SensorComponent,
   StatsComponent,
   TransformComponent,
   WeaponComponent,
@@ -128,6 +130,12 @@ export function createPlayer(
   faction.faction = Faction.Player
   entity.addComponent(faction)
 
+  const sensor = new SensorComponent()
+  sensor.radius = ENEMY_DETECTION_RANGE
+  sensor.fov = (90 * Math.PI) / 180 // +/- 45 degrees
+  sensor.scanSpeed = 0.15
+  entity.addComponent(sensor)
+
   const weapon = new WeaponComponent()
   weapon.width = DEFAULT_WEAPON_WIDTH
   weapon.height = DEFAULT_WEAPON_HEIGHT
@@ -198,6 +206,12 @@ export function createEnemy(
   ai.attackDesire = attackDesire
   ai.patrolCenter = { x, y }
   enemy.addComponent(ai)
+
+  if (enemy.sensor) {
+    enemy.sensor.radius = ENEMY_DETECTION_RANGE
+    enemy.sensor.fov = (90 * Math.PI) / 180 // +/- 45 degrees
+    enemy.sensor.scanSpeed = 0.15
+  }
 
   if (enemy.physics) {
     const { b2Shape_GetFilter, b2Shape_SetFilter } = box2d

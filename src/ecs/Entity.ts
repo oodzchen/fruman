@@ -6,6 +6,7 @@ import {
   MovementComponent,
   PhysicsComponent,
   RenderComponent,
+  SensorComponent,
   StatsComponent,
   TransformComponent,
   WeaponComponent,
@@ -24,9 +25,10 @@ export class Entity {
   input?: InputComponent
   render?: RenderComponent
   stats?: StatsComponent
-  enemyAI?: EnemyAIComponent
   weapon?: WeaponComponent
   faction?: FactionComponent
+  enemyAI?: EnemyAIComponent
+  sensor?: SensorComponent
 
   constructor() {
     this.id = nextEntityId++
@@ -94,6 +96,9 @@ export class Entity {
       case 'Faction':
         this.faction = component as FactionComponent
         break
+      case 'Sensor':
+        this.sensor = component as SensorComponent
+        break
     }
   }
 
@@ -125,6 +130,9 @@ export class Entity {
         break
       case 'Faction':
         this.faction = undefined
+        break
+      case 'Sensor':
+        this.sensor = undefined
         break
     }
   }

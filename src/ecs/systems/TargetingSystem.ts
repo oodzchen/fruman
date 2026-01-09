@@ -1,28 +1,30 @@
 import {
+  CATEGORY_ENEMY,
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
-  DEFAULT_PLAYER_RADIUS,
+  CATEGORY_PLAYER,
   ENEMY_DETECTION_RANGE,
 } from '../../constants'
-import type { MainModule, b2WorldId } from '../../types'
-import { Faction } from '../Component'
+import type { MainModule, b2ShapeId, b2WorldId } from '../../types'
+import { Faction, SensorComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 
 export class TargetingSystem extends System {
-  private player?: Entity
   private box2d: MainModule
   private worldId: b2WorldId
+  private shapeMap: Map<string, Entity> = new Map()
+  private player?: Entity
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
     this.box2d = box2d
     this.worldId = worldId
     const transformType = componentRegistry.getComponentType('Transform')
+    const sensorType = componentRegistry.getComponentType('Sensor')
     const inputType = componentRegistry.getComponentType('Input')
-    const factionType = componentRegistry.getComponentType('Faction')
-    this.setRequiredComponents([transformType, inputType, factionType])
+    this.setRequiredComponents([transformType, sensorType, inputType])
   }
 
   setPlayer(player: Entity): void {
@@ -30,177 +32,204 @@ export class TargetingSystem extends System {
   }
 
   update(entities: Entity[], _deltaTime: number): void {
-    if (!this.player || !this.player.input || !this.player.transform) return
+    // 1. 重建 Shape ID 映射表
+    this.rebuildShapeMap(entities)
 
-    const input = this.player.input
+    // 2. 更新所有带有传感器的实体
+    const now = Date.now()
+    for (const entity of entities) {
+      if (!entity.transform || !entity.sensor) continue
 
-    const playerPos = this.player.transform
-    let enemyInDetectionRange = false
+      // 简单的频率限制
+      if (
+        now - entity.sensor.lastScanTimestamp <
+        entity.sensor.scanIntervalMs
+      ) {
+        continue
+      }
+      entity.sensor.lastScanTimestamp = now
 
-    // 处理锁定切换
+      this.updateSensor(entity)
+    }
 
+    // 3. 处理玩家锁定逻辑
+    if (this.player) {
+      this.handlePlayerLock(this.player, entities)
+    }
+  }
+
+  private handlePlayerLock(player: Entity, entities: Entity[]): void {
+    if (!player.input || !player.transform) return
+    const input = player.input
+
+    // Toggle Lock
+    if (input.lockToggleRequested) {
+      input.lockToggleRequested = false
+      if (input.lockedTargetId !== null) {
+        input.lockedTargetId = null
+      } else {
+        // Lock onto the closest detected target from sensor
+        // If sensor detected someone, use it.
+        // Note: sensor.detectedTargetId is the closest hostile already.
+        if (player.sensor && player.sensor.detectedTargetId !== null) {
+          input.lockedTargetId = player.sensor.detectedTargetId
+        }
+      }
+    }
+
+    // Switch Target (Simplified: Iterate all entities to find best candidate in direction)
+    // Maintaining old logic for switching as it might need to search outside current narrow ray hits?
+    // Or restrict to visible? Let's restrict to visible for consistency.
     if (input.lockSwitchIntent !== 0 && input.lockedTargetId !== null) {
       const currentTarget = entities.find((e) => e.id === input.lockedTargetId)
-
       if (currentTarget && currentTarget.transform) {
         const switchDir = input.lockSwitchIntent
-
-        let bestCandidateId: number | null = null
-
+        let bestId: number | null = null
         let minDistance = Infinity
 
+        // Search inside scan results first? Or global?
+        // Let's use global but check visibility if we can, or just distance.
+        // Given the request for "Raycast detection", locking should probably imply visibility.
+        // But for switching, maybe we just search entities list.
         for (const entity of entities) {
-          if (entity.id === this.player.id || entity.id === currentTarget.id)
+          if (entity.id === player.id || entity.id === currentTarget.id)
             continue
-
           if (
-            !entity.transform ||
-            !entity.faction ||
+            entity.faction?.faction !== Faction.Enemy ||
             entity.stats?.isDead ||
             entity.stats?.isVanished
           )
             continue
 
-          if (entity.faction.faction !== Faction.Enemy) continue
-
-          const dx = entity.transform.x - currentTarget.transform.x
-
-          // 只找指定方向的敌人（例如按右键只找右边的）
-
+          const dx = entity.transform!.x - currentTarget.transform.x
           if ((switchDir > 0 && dx > 0) || (switchDir < 0 && dx < 0)) {
-            const dist = Math.abs(dx) // 简单使用X轴距离作为优先级
-
+            const dist = Math.abs(dx)
             if (dist < minDistance) {
               minDistance = dist
-
-              bestCandidateId = entity.id
+              bestId = entity.id
             }
           }
         }
 
-        if (bestCandidateId !== null) {
-          input.lockedTargetId = bestCandidateId
+        if (bestId !== null) {
+          input.lockedTargetId = bestId
         }
       }
-
       input.lockSwitchIntent = 0
     }
 
-    // 处理锁定/解锁
-
-    if (input.lockToggleRequested) {
-      input.lockToggleRequested = false
-
-      if (input.lockedTargetId !== null) {
-        // 已锁定 -> 解锁
-
-        input.lockedTargetId = null
-      } else {
-        // 未锁定 -> 寻找最近敌人
-
-        let nearestDist = Infinity
-
-        let nearestTargetId: number | null = null
-
-        for (const entity of entities) {
-          if (entity.id === this.player.id) continue
-
-          if (
-            !entity.transform ||
-            !entity.faction ||
-            entity.stats?.isDead ||
-            entity.stats?.isVanished
-          )
-            continue
-
-          if (entity.faction.faction !== Faction.Enemy) continue
-
-          const dx = entity.transform.x - playerPos.x
-
-          const dy = entity.transform.y - playerPos.y
-
-          const dist = Math.hypot(dx, dy)
-
-          if (dist > ENEMY_DETECTION_RANGE * 1.5) continue
-
-          if (dist < nearestDist) {
-            nearestDist = dist
-
-            nearestTargetId = entity.id
-          }
-        }
-
-        input.lockedTargetId = nearestTargetId
-      }
-    }
-
-    // 验证当前目标是否有效（例如死亡或超出范围），如果无效则解除锁定
-
+    // Validate Lock
     if (input.lockedTargetId !== null) {
       const target = entities.find((e) => e.id === input.lockedTargetId)
-
-      if (
-        !target ||
-        !target.transform ||
-        target.stats?.isDead ||
-        target.stats?.isVanished
-      ) {
+      if (!target || target.stats?.isDead || target.stats?.isVanished) {
         input.lockedTargetId = null
       } else {
-        const dx = target.transform.x - playerPos.x
-
-        const dy = target.transform.y - playerPos.y
-
-        const dist = Math.hypot(dx, dy)
-
-        if (dist > ENEMY_DETECTION_RANGE * 2.0) {
-          // 超出最大锁定距离自动脱锁
-
+        // Distance check
+        const dx = target.transform!.x - player.transform.x
+        const dy = target.transform!.y - player.transform.y
+        if (Math.hypot(dx, dy) > ENEMY_DETECTION_RANGE * 2.0) {
           input.lockedTargetId = null
         }
       }
     }
+  }
 
-    // 自动检测范围内的敌人以进入战斗状态
+  private rebuildShapeMap(entities: Entity[]): void {
+    this.shapeMap.clear()
     for (const entity of entities) {
-      if (entity.id === this.player.id) continue
-      if (
-        !entity.transform ||
-        !entity.faction ||
-        entity.stats?.isDead ||
-        entity.stats?.isVanished
-      )
-        continue
-      if (entity.faction.faction !== Faction.Enemy) continue
-
-      const dx = entity.transform.x - playerPos.x
-      const dy = entity.transform.y - playerPos.y
-      const dist = Math.hypot(dx, dy)
-
-      if (dist <= ENEMY_DETECTION_RANGE) {
-        if (this.checkLineOfSight(playerPos, entity.transform)) {
-          enemyInDetectionRange = true
-          break // 只要发现一个敌人就足够进入战斗状态
-        }
+      if (entity.physics && entity.physics.shapeId) {
+        // 假设 box2d-wasm 的 shapeId 包含 index 属性
+        // 如果 shapeId 是数字则直接使用
+        const key = this.getShapeKey(entity.physics.shapeId)
+        this.shapeMap.set(key, entity)
       }
-    }
-
-    if (enemyInDetectionRange && this.player.weapon?.isEquipped) {
-      this.player.weapon.isInCombat = true
-      this.player.weapon.lastAttackTimestamp = Date.now()
     }
   }
 
-  private checkLineOfSight(
-    start: { x: number; y: number },
-    end: { x: number; y: number }
-  ): boolean {
-    const { b2World_CastRayClosest, b2Vec2, b2DefaultQueryFilter } = this.box2d
+  private getShapeKey(shapeId: any): string {
+    if (typeof shapeId === 'object' && shapeId !== null) {
+      // Box2D v3 uses index1, world0, generation
 
-    const startVec = new b2Vec2(start.x, start.y)
-    const endVec = new b2Vec2(end.x, end.y)
+      const index = shapeId.index ?? shapeId.index1 ?? 0
+
+      const world0 = shapeId.world0 ?? 0
+
+      const revision = shapeId.revision ?? shapeId.generation ?? 0
+
+      return `${index}_${world0}_${revision}`
+    }
+
+    return String(shapeId)
+  }
+
+  private updateSensor(entity: Entity): void {
+    if (!entity.transform || !entity.sensor) return
+
+    const { radius, fov } = entity.sensor
+    const { x, y } = entity.transform
+
+    const prevAngle = entity.sensor.scanAngle
+
+    // Update Scan Angle
+    const delta = entity.sensor.scanDirection * entity.sensor.scanSpeed * 0.05
+    entity.sensor.scanAngle += delta
+
+    let hitBoundary = false
+    if (entity.sensor.scanAngle > fov / 2) {
+      entity.sensor.scanAngle = fov / 2
+      entity.sensor.scanDirection = -1
+    } else if (entity.sensor.scanAngle < -fov / 2) {
+      entity.sensor.scanAngle = -fov / 2
+      entity.sensor.scanDirection = 1
+    }
+
+    let facingDir = 1
+    if (entity.input) {
+      if (
+        entity.input.facingOverride !== null &&
+        entity.input.facingOverride !== 0
+      ) {
+        facingDir = entity.input.facingOverride
+      } else if (entity.input.lastMoveDirection !== 0) {
+        facingDir = entity.input.lastMoveDirection
+      }
+    } else if (entity.weapon) {
+      facingDir = entity.weapon.attackFacing
+    }
+
+    // Default to right if facingDir is >= 0. Left if < 0.
+
+    const baseAngle = facingDir >= 0 ? 0 : Math.PI
+
+    const rayAngle = baseAngle + entity.sensor.scanAngle
+
+    // Debug smoothness (approx once per second at 60fps)
+
+    if (entity.id === this.player?.id && Math.random() < 0.016) {
+      // console.log(`Scan: angle=${entity.sensor.scanAngle.toFixed(2)} ray=${rayAngle.toFixed(2)} facing=${facingDir}`)
+    }
+
+    const { b2Vec2, b2World_CastRayClosest, b2DefaultQueryFilter } = this.box2d
+
+    const startVec = new b2Vec2(x, y)
+
     const filter = b2DefaultQueryFilter()
-    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
+
+    // Determine mask based on faction to avoid hitting self
+    let mask =
+      CATEGORY_OBSTACLE | CATEGORY_GROUND | CATEGORY_PLAYER | CATEGORY_ENEMY
+    if (entity.faction?.faction === Faction.Player) {
+      mask &= ~CATEGORY_PLAYER
+    } else if (entity.faction?.faction === Faction.Enemy) {
+      mask &= ~CATEGORY_ENEMY
+    }
+    filter.maskBits = mask
+
+    entity.sensor.scanResults = []
+
+    const endX = x + Math.cos(rayAngle) * radius
+    const endY = y + Math.sin(rayAngle) * radius
+    const endVec = new b2Vec2(endX, endY)
 
     const output = b2World_CastRayClosest(
       this.worldId,
@@ -208,17 +237,77 @@ export class TargetingSystem extends System {
       endVec,
       filter
     )
+
     const hit = output.hit
-    let visible = true
+    let hitEntityId: number | undefined
+    let hitPoint: { x: number; y: number } | undefined
+    let isHostile = false
 
     if (hit) {
-      visible = false
+      hitPoint = { x: output.point.x, y: output.point.y }
+
+      const shapeKey = this.getShapeKey(output.shapeId)
+      const hitEntity = this.shapeMap.get(shapeKey)
+
+      if (hitEntity) {
+        hitEntityId = hitEntity.id
+
+        // Check for hostile
+        if (
+          entity.faction &&
+          hitEntity.faction &&
+          entity.faction.canAttack(hitEntity.faction) &&
+          !hitEntity.stats?.isDead &&
+          !hitEntity.stats?.isVanished
+        ) {
+          // Detected!
+          isHostile = true
+          entity.sensor.detectedTargetId = hitEntityId
+        }
+      }
     }
+    entity.sensor.scanResults.push({
+      start: { x, y },
+      end: { x: endX, y: endY },
+      hit,
+      hitPoint,
+      hitEntityId,
+      isHostile,
+    })
 
     startVec.delete()
     endVec.delete()
+
     filter.delete()
-    output.delete()
-    return visible
+
+    // Note: We do NOT clear detectedTargetId if miss,
+    // because a single scanning ray will miss most frames even if the enemy is there.
+    // The "Combat" state logic in AI system should handle the behavior.
+    // However, if we never clear it, they will track forever.
+    // We should probably rely on a "Memory" or just verify distance/existence in AI system.
+    // For now, updateSensor only UPDATES if hit.
+
+    // Auto-combat state for player/enemies upon detection
+    if (
+      entity.sensor.detectedTargetId !== null &&
+      entity.weapon &&
+      !entity.weapon.isInCombat
+    ) {
+      // Re-verify the target is still valid/close just in case?
+      // Actually, if we just detected them, they are close.
+      const target = this.shapeMap.get(
+        this.getShapeKey({ index: entity.sensor.detectedTargetId })
+      ) // Logic check
+      // But we don't have easy access to Entity via ID without loop or map.
+      // We only update detectedTargetId if we HIT them this frame.
+      if (hitEntityId === entity.sensor.detectedTargetId) {
+        entity.weapon.isInCombat = true
+        entity.weapon.lastAttackTimestamp = Date.now()
+      }
+    }
+  }
+
+  private processScanResults(_entity: Entity): void {
+    // Logic moved to updateSensor to avoid double loops
   }
 }
