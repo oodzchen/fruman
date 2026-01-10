@@ -19,7 +19,7 @@ import { StatsSystem } from '../ecs/systems/StatsSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
 import type { MainModule, b2BodyId, b2ShapeId } from '../types'
-import { ENTITY_STRIDE, FLAGS, MAX_ENTITIES, OFFSETS } from './BinaryProtocol'
+import { ENTITY_STRIDE, FLAGS, MAX_ENTITIES, OFFSETS } from './binaryProtocol'
 import type { MainToWorkerMessage, WorkerToMainMessage } from './protocol'
 
 // Worker global scope

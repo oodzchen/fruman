@@ -3,7 +3,7 @@ import {
   FLAGS,
   MAX_ENTITIES,
   OFFSETS,
-} from './worker/BinaryProtocol'
+} from './worker/binaryProtocol'
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
