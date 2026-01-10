@@ -228,7 +228,7 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'finalWindup') {
-      this.handleFinalWindupPhase(weapon)
+      this.handleFinalWindupPhase(entity, weapon)
       return
     }
 
@@ -283,12 +283,23 @@ export class WeaponSystem extends System {
       weapon.parryElapsedTime = 0
       weapon.parryHitWeaponIds.clear()
 
-      // 记录起始位置（当前武器位置）
+      // 记录起始相对位置
+      this.getOffsetFromTransform(
+        weapon.visual,
+        playerPos,
+        weapon.parryStartOffset
+      )
+
+      // 记录结束相对位置（格挡姿态）
+      weapon.parryEndOffset.dx = facing * DEFAULT_WEAPON_FRONT_OFFSET_X
+      weapon.parryEndOffset.dy = 0
+      weapon.parryEndOffset.rotation = blockRotation
+
+      // 同时也更新一下绝对变换，虽然后续主要用 offset，但保持数据一致性也好
       weapon.parryStartTransform.x = weapon.visual.x
       weapon.parryStartTransform.y = weapon.visual.y
       weapon.parryStartTransform.rotation = weapon.visual.rotation
 
-      // 记录结束位置（格挡姿态）
       weapon.parryEndTransform.x = blockX
       weapon.parryEndTransform.y = blockY
       weapon.parryEndTransform.rotation = blockRotation
@@ -299,18 +310,14 @@ export class WeaponSystem extends System {
       const elapsedMs = weapon.parryElapsedTime * 1000
       const progress = Math.min(1, elapsedMs / DEFAULT_PARRY_WINDOW_MS)
 
-      // 插值武器位置
-      weapon.visual.x =
-        weapon.parryStartTransform.x +
-        (weapon.parryEndTransform.x - weapon.parryStartTransform.x) * progress
-      weapon.visual.y =
-        weapon.parryStartTransform.y +
-        (weapon.parryEndTransform.y - weapon.parryStartTransform.y) * progress
-      weapon.visual.rotation =
-        weapon.parryStartTransform.rotation +
-        (weapon.parryEndTransform.rotation -
-          weapon.parryStartTransform.rotation) *
-          progress
+      // 插值相对位置并应用
+      this.lerpRelativeTransform(
+        weapon.parryStartOffset,
+        weapon.parryEndOffset,
+        progress,
+        this.tempRelativeTransform
+      )
+      this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
       // 弹反窗口内检测敌人武器碰撞
       this.checkParryHits(entity)
@@ -320,10 +327,8 @@ export class WeaponSystem extends System {
         weapon.isParrying = false
       }
     } else {
-      // 弹反窗口结束后，保持格挡姿态
-      weapon.visual.x = blockX
-      weapon.visual.y = blockY
-      weapon.visual.rotation = blockRotation
+      // 弹反窗口结束后，保持格挡姿态（相对于角色）
+      this.applyOffset(weapon.parryEndOffset, playerPos, weapon.visual)
     }
   }
 
@@ -598,17 +603,33 @@ export class WeaponSystem extends System {
   }
 
   private handleWindupPhase(entity: Entity, weapon: Entity['weapon']): void {
-    if (!weapon) return
+    if (!weapon || !entity.transform) return
 
     const isGrounded = entity.movement?.isGrounded ?? true
     const windupDuration = isGrounded ? DEFAULT_WEAPON_ATTACK_WINDUP_MS : 250
 
     const t = this.clamp01(weapon.attackElapsedMs / windupDuration)
-    const target = weapon.swingStartTransform
-    this.lerpTransform(weapon.attackStartTransform, target, t, weapon.visual)
+
+    this.lerpRelativeTransform(
+      weapon.attackStartOffset,
+      weapon.swingStartOffset,
+      t,
+      this.tempRelativeTransform
+    )
+
+    this.tempPlayerPos.x = entity.transform.x
+    this.tempPlayerPos.y = entity.transform.y
+    this.applyOffset(
+      this.tempRelativeTransform,
+      this.tempPlayerPos,
+      weapon.visual
+    )
+
     if (t >= 1) {
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
+      // We don't need to copyTransform(attackStartTransform, swingStartTransform) anymore for logic,
+      // but keeping data consistent is fine. However, logic now relies on offsets.
       this.copyTransform(
         weapon.attackStartTransform,
         weapon.swingStartTransform
@@ -617,14 +638,31 @@ export class WeaponSystem extends System {
     }
   }
 
-  private handleFinalWindupPhase(weapon: Entity['weapon']): void {
-    if (!weapon) return
+  private handleFinalWindupPhase(
+    entity: Entity,
+    weapon: Entity['weapon']
+  ): void {
+    if (!weapon || !entity.transform) return
 
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_FINAL_WINDUP_MS
     )
-    const target = weapon.swingStartTransform
-    this.lerpTransform(weapon.attackStartTransform, target, t, weapon.visual)
+
+    this.lerpRelativeTransform(
+      weapon.attackStartOffset,
+      weapon.swingStartOffset,
+      t,
+      this.tempRelativeTransform
+    )
+
+    this.tempPlayerPos.x = entity.transform.x
+    this.tempPlayerPos.y = entity.transform.y
+    this.applyOffset(
+      this.tempRelativeTransform,
+      this.tempPlayerPos,
+      weapon.visual
+    )
+
     if (t >= 1) {
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
@@ -647,9 +685,14 @@ export class WeaponSystem extends System {
     const t = this.clamp01(
       weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_SWING_MS
     )
-    const from = weapon.swingStartTransform
-    const to = weapon.swingEndTransform
-    this.lerpTransform(from, to, t, weapon.visual)
+
+    this.lerpRelativeTransform(
+      weapon.swingStartOffset,
+      weapon.swingEndOffset,
+      t,
+      this.tempRelativeTransform
+    )
+    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
@@ -844,13 +887,23 @@ export class WeaponSystem extends System {
       weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_RECOVER_MS
     )
 
-    this.getFrontTransform(playerPos, facing, this.tempTransform)
-    this.lerpTransform(
-      weapon.attackStartTransform,
-      this.tempTransform,
+    // Calculate target offset (Idle Front)
+    const targetOffset = this.tempRelativeTransform // Reuse temp as target container temporarily?
+    // Actually, lerpRelativeTransform writes to 'out'. I need 'to' argument.
+    // I can construct a literal object or use another component field.
+    // Let's use weapon.swingEndOffset as a temporary holder since it's not used in recover.
+    weapon.swingEndOffset.dx = facing * DEFAULT_WEAPON_CENTER_OFFSET_X
+    weapon.swingEndOffset.dy = DEFAULT_WEAPON_FRONT_OFFSET_Y
+    weapon.swingEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+
+    this.lerpRelativeTransform(
+      weapon.attackStartOffset,
+      weapon.swingEndOffset,
       t,
-      weapon.visual
+      this.tempRelativeTransform // Output
     )
+
+    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (t >= 1) {
       weapon.attackPhase = 'idle'
@@ -988,6 +1041,18 @@ export class WeaponSystem extends System {
     const clampedT = this.clamp01(t)
     out.x = from.x + (to.x - from.x) * clampedT
     out.y = from.y + (to.y - from.y) * clampedT
+    out.rotation = from.rotation + (to.rotation - from.rotation) * clampedT
+  }
+
+  private lerpRelativeTransform(
+    from: WeaponRelativeTransform,
+    to: WeaponRelativeTransform,
+    t: number,
+    out: WeaponRelativeTransform
+  ): void {
+    const clampedT = this.clamp01(t)
+    out.dx = from.dx + (to.dx - from.dx) * clampedT
+    out.dy = from.dy + (to.dy - from.dy) * clampedT
     out.rotation = from.rotation + (to.rotation - from.rotation) * clampedT
   }
 
@@ -1385,11 +1450,16 @@ export class WeaponSystem extends System {
     if (!weapon) return
 
     const reboundDurationMs = DEFAULT_WEAPON_ATTACK_SWING_MS * 0.8
-    // We can assume reboundTargetTransform is set from startRebound
-    const target = weapon.reboundTargetTransform
 
     const t = this.clamp01(weapon.attackElapsedMs / reboundDurationMs)
-    this.lerpTransform(weapon.swingStartTransform, target, t, weapon.visual)
+
+    this.lerpRelativeTransform(
+      weapon.swingStartOffset,
+      weapon.reboundTargetOffset,
+      t,
+      this.tempRelativeTransform
+    )
+    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (t >= 1) {
       weapon.attackPhase = 'pause'

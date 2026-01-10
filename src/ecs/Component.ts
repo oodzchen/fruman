@@ -202,6 +202,8 @@ export class WeaponComponent extends Component {
   parryWindowDuration = 200
   parryStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   parryEndTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  parryStartOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
+  parryEndOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   parryHitWeaponIds: Set<number> = new Set()
 
   isDropping = false
