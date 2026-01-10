@@ -24,7 +24,7 @@ type ShapeIdKeySource = {
 export class TargetingSystem extends System {
   private box2d: MainModule
   private worldId: b2WorldId
-  private shapeMap: Map<string, Entity> = new Map()
+  private shapeMap = new Map<number, Entity>()
   private player?: Entity
   private shapeMapDirty = true
   private lastShapeMapRebuild = 0
@@ -184,18 +184,13 @@ export class TargetingSystem extends System {
     }
   }
 
-  private getShapeKey(shapeId: b2ShapeId | number): string {
-    if (typeof shapeId === 'object' && shapeId !== null) {
-      // Box2D v3 uses index1, world0, generation
-      const shape = shapeId as ShapeIdKeySource
-      const index = shape.index ?? shape.index1 ?? 0
-      const world0 = shape.world0 ?? 0
-      const revision = shape.revision ?? shape.generation ?? 0
-
-      return `${index}_${world0}_${revision}`
-    }
-
-    return String(shapeId)
+  private getShapeKey(shapeId: b2ShapeId | number): number {
+    if (typeof shapeId === 'number') return shapeId
+    const shape = shapeId as ShapeIdKeySource
+    const index = shape.index ?? shape.index1 ?? 0
+    const world0 = shape.world0 ?? 0
+    const revision = shape.revision ?? shape.generation ?? 0
+    return (index << 16) | (world0 << 8) | revision
   }
 
   private updateSensor(entity: Entity): void {

@@ -50,6 +50,21 @@ export class InputBuffer {
     }
   }
 
+  hasActiveAction(action: string): boolean {
+    const now = performance.now()
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      const input = this.bufferedInputs[i]
+      if (!input.active || input.action !== action) continue
+      const elapsed = now - input.timestamp
+      if (input.bufferWindow !== 0 && elapsed >= input.bufferWindow) {
+        input.active = false
+        continue
+      }
+      return true
+    }
+    return false
+  }
+
   tryExecute(
     action: string,
     canExecute: () => boolean,

@@ -61,7 +61,7 @@ let sharedStateBuffer: SharedArrayBuffer | null = null
 let stateBuffer: Float32Array<ArrayBufferLike> = new Float32Array(
   STATE_BUFFER_FLOATS
 )
-const reusableStateBuffers: ArrayBuffer[] = []
+const stateBufferViews: Float32Array[] = []
 
 // Helper for color parsing (simple cache)
 const colorCache = new Map<string, number>()
@@ -77,8 +77,8 @@ function parseColor(color: string): number {
 }
 
 // Game State needed for logic
-let keys = new Set<string>()
-const currentKeys = new Set<string>()
+let prevKeys = new Set<string>()
+let currKeys = new Set<string>()
 let canvasHeight = 0
 let pixelsPerMeter = 50
 let groundFriction = DEFAULT_GROUND_FRICTION
@@ -152,25 +152,26 @@ function initStateBuffers(): void {
   if (supportsSharedArrayBuffer) {
     sharedStateBuffer = new SharedArrayBuffer(STATE_BUFFER_BYTES)
     stateBuffer = new Float32Array(sharedStateBuffer)
-    reusableStateBuffers.length = 0
+    stateBufferViews.length = 0
     return
   }
 
   sharedStateBuffer = null
-  reusableStateBuffers.length = 0
+  stateBufferViews.length = 0
   for (let i = 0; i < 2; i++) {
-    reusableStateBuffers.push(new ArrayBuffer(STATE_BUFFER_BYTES))
+    const buffer = new ArrayBuffer(STATE_BUFFER_BYTES)
+    stateBufferViews.push(new Float32Array(buffer))
   }
-  const initialBuffer = reusableStateBuffers.pop()
-  if (initialBuffer) {
-    stateBuffer = new Float32Array(initialBuffer)
+  const initialView = stateBufferViews.pop()
+  if (initialView) {
+    stateBuffer = initialView
   }
 }
 
 function releaseStateBuffer(buffer: ArrayBuffer): void {
   if (sharedStateBuffer) return
   if (buffer.byteLength !== STATE_BUFFER_BYTES) return
-  reusableStateBuffers.push(buffer)
+  stateBufferViews.push(new Float32Array(buffer))
 }
 
 function registerComponents() {
@@ -304,44 +305,41 @@ function createPlayerAndWeapon(groundY: number) {
 }
 
 function handleInput(activeKeys: string[], mouseZoomTarget: number) {
-  currentKeys.clear()
+  const temp = prevKeys
+  prevKeys = currKeys
+  currKeys = temp
+  currKeys.clear()
   for (let i = 0; i < activeKeys.length; i++) {
-    currentKeys.add(activeKeys[i])
+    currKeys.add(activeKeys[i])
   }
 
-  // Check specific actions
   const isPlayerDead = playerEntity.stats?.isDead ?? false
 
   if (playerEntity.input) {
     let moveDirection = 0
-    if (currentKeys.has('a') || currentKeys.has('arrowleft')) moveDirection -= 1
-    if (currentKeys.has('d') || currentKeys.has('arrowright'))
-      moveDirection += 1
+    if (currKeys.has('a') || currKeys.has('arrowleft')) moveDirection -= 1
+    if (currKeys.has('d') || currKeys.has('arrowright')) moveDirection += 1
 
     playerEntity.input.moveDirection = isPlayerDead ? 0 : moveDirection
 
-    // Jump
-    if (currentKeys.has(' ') && !keys.has(' ') && !isPlayerDead) {
+    if (currKeys.has(' ') && !prevKeys.has(' ') && !isPlayerDead) {
       playerEntity.input.inputBuffer.bufferAction('jump')
       playerEntity.input.jumpRequested = true
-    } else if (!currentKeys.has(' ')) {
+    } else if (!currKeys.has(' ')) {
       playerEntity.input.jumpRequested = false
     }
 
-    // Attack
-    if (currentKeys.has('j') && !keys.has('j') && !isPlayerDead) {
+    if (currKeys.has('j') && !prevKeys.has('j') && !isPlayerDead) {
       weaponSystem.startAttack(playerEntity)
     }
 
-    // Block
-    if (currentKeys.has('k') && !isPlayerDead) {
+    if (currKeys.has('k') && !isPlayerDead) {
       playerEntity.input.blockRequested = true
     } else {
       playerEntity.input.blockRequested = false
     }
 
-    // Lock On
-    if (currentKeys.has('h') && !keys.has('h') && !isPlayerDead) {
+    if (currKeys.has('h') && !prevKeys.has('h') && !isPlayerDead) {
       const dir = playerEntity.input.moveDirection
       const isLocked = playerEntity.input.lockedTargetId !== null
       if (dir !== 0 && isLocked) {
@@ -351,18 +349,11 @@ function handleInput(activeKeys: string[], mouseZoomTarget: number) {
       }
     }
 
-    // Roll
-    if (currentKeys.has('l') && !keys.has('l') && !isPlayerDead) {
-      // Using 'l' (lowercase L) for roll based on original code 'keypress'
+    if (currKeys.has('l') && !prevKeys.has('l') && !isPlayerDead) {
       playerEntity.input.inputBuffer.bufferAction('roll')
     }
   }
 
-  // Swap keys: copy currentKeys to keys for next frame comparison
-  keys.clear()
-  for (const k of currentKeys) {
-    keys.add(k)
-  }
   targetZoom = mouseZoomTarget
 }
 
@@ -453,7 +444,7 @@ function cleanupDestroyedEntities() {
 }
 
 function sendState() {
-  if (!sharedStateBuffer && reusableStateBuffers.length === 0) {
+  if (!sharedStateBuffer && stateBufferViews.length === 0) {
     return
   }
 
@@ -537,9 +528,9 @@ function sendState() {
   const buffer = stateBuffer.buffer as ArrayBuffer
   ctx.postMessage(stateMessage, [buffer])
 
-  const nextBuffer = reusableStateBuffers.pop()
-  if (nextBuffer) {
-    stateBuffer = new Float32Array(nextBuffer)
+  const nextView = stateBufferViews.pop()
+  if (nextView) {
+    stateBuffer = nextView
   }
 }
 

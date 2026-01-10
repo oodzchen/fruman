@@ -154,11 +154,16 @@ export class MovementSystem extends System {
 
     if (now < entity.movement.rollCooldownEndTime) return
 
-    entity.input.inputBuffer.tryExecute(
-      'roll',
-      () => this.canRoll(entity),
-      () => this.startRoll(entity)
-    )
+    if (
+      entity.input.inputBuffer.hasActiveAction('roll') &&
+      this.canRoll(entity)
+    ) {
+      entity.input.inputBuffer.tryExecute(
+        'roll',
+        () => true,
+        () => this.startRoll(entity)
+      )
+    }
   }
 
   private canRoll(entity: Entity): boolean {
@@ -325,11 +330,16 @@ export class MovementSystem extends System {
     }
 
     entity.input.inputBuffer.update()
-    entity.input.inputBuffer.tryExecute(
-      'jump',
-      () => this.canJump(entity),
-      () => this.doJump(entity)
-    )
+    if (
+      entity.input.inputBuffer.hasActiveAction('jump') &&
+      this.canJump(entity)
+    ) {
+      entity.input.inputBuffer.tryExecute(
+        'jump',
+        () => true,
+        () => this.doJump(entity)
+      )
+    }
 
     if (!entity.movement.isJumping) return
 
@@ -459,13 +469,16 @@ export class MovementSystem extends System {
           myRadius + 2
         )
       : this.allEntities
+    const nearbyCount = this.spatialHash
+      ? this.spatialHash.getQueryResultLength()
+      : nearbyEntities.length
 
-    for (const other of nearbyEntities) {
+    for (let i = 0; i < nearbyCount; i++) {
+      const other = nearbyEntities[i]
       if (other.id === entity.id) continue
       if (!other.transform || !other.faction) continue
       if (other.stats?.isDead) continue
 
-      // 玩家被敌人阻挡，敌人被其他敌人阻挡
       const shouldBlock =
         entity.faction.canAttack(other.faction) ||
         (myFaction === Faction.Enemy && other.faction.faction === Faction.Enemy)

@@ -48,10 +48,9 @@ export class ClientRenderer {
   }
 
   private getColorString(colorInt: number): string {
-    if (this.colorCache.has(colorInt)) return this.colorCache.get(colorInt)!
-    let hex = colorInt.toString(16)
-    while (hex.length < 6) hex = '0' + hex
-    const str = '#' + hex
+    const cached = this.colorCache.get(colorInt)
+    if (cached) return cached
+    const str = `#${colorInt.toString(16).padStart(6, '0')}`
     this.colorCache.set(colorInt, str)
     return str
   }

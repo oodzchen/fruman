@@ -1,135 +1,78 @@
 import type { Entity } from './Entity'
 
-type CellData = {
-  entities: Set<Entity>
-  frameNumber: number
-}
-
 export class SpatialHash {
   private cellSize: number
-  private grid = new Map<string, CellData>()
-  private queryResultCache: Entity[] = []
-  private queryResultSet = new Set<Entity>()
-  private keyCache = new Map<number, Map<number, string>>()
-  private currentFrame = 0
-  private entityCellCache = new Map<number, string>()
+  private invCellSize: number
+  private grid = new Map<number, Entity[]>()
+  private cellPool: Entity[][] = []
+  private queryResult: Entity[] = []
+  private queryResultLength = 0
 
   constructor(cellSize = 5) {
     this.cellSize = cellSize
-  }
-
-  beginFrame(): void {
-    this.currentFrame++
+    this.invCellSize = 1 / cellSize
+    for (let i = 0; i < 64; i++) {
+      this.cellPool.push([])
+    }
   }
 
   update(entities: Entity[]): void {
-    this.beginFrame()
+    for (const cell of this.grid.values()) {
+      cell.length = 0
+      this.cellPool.push(cell)
+    }
+    this.grid.clear()
 
-    for (const entity of entities) {
+    for (let i = 0; i < entities.length; i++) {
+      const entity = entities[i]
       if (!entity.transform) continue
 
-      const x = entity.transform.x
-      const y = entity.transform.y
-      const key = this.getKey(x, y)
-
-      const prevKey = this.entityCellCache.get(entity.id)
-
-      if (prevKey === key) {
-        const cellData = this.grid.get(key)
-        if (cellData && cellData.frameNumber === this.currentFrame) {
-          cellData.entities.add(entity)
-          continue
-        }
+      const key = this.getKey(entity.transform.x, entity.transform.y)
+      let cell = this.grid.get(key)
+      if (!cell) {
+        cell = this.cellPool.length > 0 ? this.cellPool.pop()! : []
+        this.grid.set(key, cell)
       }
-
-      if (prevKey) {
-        const cellData = this.grid.get(prevKey)
-        if (cellData) {
-          cellData.entities.delete(entity)
-        }
-      }
-
-      let cellData = this.grid.get(key)
-      if (!cellData) {
-        cellData = { entities: new Set(), frameNumber: this.currentFrame }
-        this.grid.set(key, cellData)
-      } else {
-        if (cellData.frameNumber !== this.currentFrame) {
-          cellData.entities.clear()
-          cellData.frameNumber = this.currentFrame
-        }
-      }
-
-      cellData.entities.add(entity)
-      this.entityCellCache.set(entity.id, key)
+      cell.push(entity)
     }
   }
 
-  removeEntity(entity: Entity): void {
-    const key = this.entityCellCache.get(entity.id)
-    if (!key) return
-    const cellData = this.grid.get(key)
-    if (cellData) {
-      cellData.entities.delete(entity)
-      if (cellData.entities.size === 0) {
-        this.grid.delete(key)
-      }
-    }
-    this.entityCellCache.delete(entity.id)
-  }
+  removeEntity(_entity: Entity): void {}
 
   query(x: number, y: number, radius: number): Entity[] {
-    const minX = x - radius
-    const maxX = x + radius
-    const minY = y - radius
-    const maxY = y + radius
+    const startCellX = Math.floor((x - radius) * this.invCellSize)
+    const endCellX = Math.floor((x + radius) * this.invCellSize)
+    const startCellY = Math.floor((y - radius) * this.invCellSize)
+    const endCellY = Math.floor((y + radius) * this.invCellSize)
 
-    const startCellX = Math.floor(minX / this.cellSize)
-    const endCellX = Math.floor(maxX / this.cellSize)
-    const startCellY = Math.floor(minY / this.cellSize)
-    const endCellY = Math.floor(maxY / this.cellSize)
-
-    this.queryResultSet.clear()
+    this.queryResultLength = 0
 
     for (let cellX = startCellX; cellX <= endCellX; cellX++) {
       for (let cellY = startCellY; cellY <= endCellY; cellY++) {
-        const key = this.getKeyCached(cellX, cellY)
-        const cellData = this.grid.get(key)
-        if (cellData && cellData.frameNumber === this.currentFrame) {
-          for (const entity of cellData.entities) {
-            this.queryResultSet.add(entity)
+        const key = this.computeKey(cellX, cellY)
+        const cell = this.grid.get(key)
+        if (cell) {
+          for (let i = 0; i < cell.length; i++) {
+            this.queryResult[this.queryResultLength++] = cell[i]
           }
         }
       }
     }
 
-    this.queryResultCache.length = 0
-    for (const entity of this.queryResultSet) {
-      this.queryResultCache.push(entity)
-    }
-
-    return this.queryResultCache
+    return this.queryResult
   }
 
-  private getKey(x: number, y: number): string {
-    const cellX = Math.floor(x / this.cellSize)
-    const cellY = Math.floor(y / this.cellSize)
-    return this.getKeyCached(cellX, cellY)
+  getQueryResultLength(): number {
+    return this.queryResultLength
   }
 
-  private getKeyCached(cellX: number, cellY: number): string {
-    let xMap = this.keyCache.get(cellX)
-    if (!xMap) {
-      xMap = new Map()
-      this.keyCache.set(cellX, xMap)
-    }
+  private getKey(x: number, y: number): number {
+    const cellX = Math.floor(x * this.invCellSize)
+    const cellY = Math.floor(y * this.invCellSize)
+    return this.computeKey(cellX, cellY)
+  }
 
-    let key = xMap.get(cellY)
-    if (key === undefined) {
-      key = `${cellX},${cellY}`
-      xMap.set(cellY, key)
-    }
-
-    return key
+  private computeKey(cellX: number, cellY: number): number {
+    return ((cellX + 32768) << 16) | ((cellY + 32768) & 0xffff)
   }
 }

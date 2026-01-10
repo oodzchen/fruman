@@ -45,13 +45,13 @@ export class WeaponSystem extends System {
   private spatialHash: SpatialHash | null = null
   private tempVec?: InstanceType<MainModule['b2Vec2']>
 
-  // Temporary objects to avoid garbage collection
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempRelativeTransform: WeaponRelativeTransform = {
     dx: 0,
     dy: 0,
     rotation: 0,
   }
+  private tempPlayerPos = { x: 0, y: 0 }
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -92,7 +92,9 @@ export class WeaponSystem extends System {
     if (!entity.transform || !entity.weapon) return
 
     const weapon = entity.weapon
-    const playerPos = { x: entity.transform.x, y: entity.transform.y }
+    this.tempPlayerPos.x = entity.transform.x
+    this.tempPlayerPos.y = entity.transform.y
+    const playerPos = this.tempPlayerPos
     const inputFacing =
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
@@ -549,9 +551,8 @@ export class WeaponSystem extends System {
     if (entity.weapon.isEquipped) return
     if (entity.stats?.isDead) return
 
-    const playerPos = { x: entity.transform.x, y: entity.transform.y }
-    const dx = playerPos.x - entity.weapon.position.x
-    const dy = playerPos.y - entity.weapon.position.y
+    const dx = entity.transform.x - entity.weapon.position.x
+    const dy = entity.transform.y - entity.weapon.position.y
     const distance = Math.hypot(dx, dy)
 
     if (distance > DEFAULT_WEAPON_PICKUP_DISTANCE) return
@@ -574,7 +575,9 @@ export class WeaponSystem extends System {
 
     const weapon = entity.weapon
     const now = Date.now()
-    const playerPos = { x: entity.transform.x, y: entity.transform.y }
+    this.tempPlayerPos.x = entity.transform.x
+    this.tempPlayerPos.y = entity.transform.y
+    const playerPos = this.tempPlayerPos
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
     const attackRadius = this.getAttackRadius(weapon)
@@ -804,8 +807,9 @@ export class WeaponSystem extends System {
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
         : 1
-    const playerPos = { x: entity.transform.x, y: entity.transform.y }
-    this.getBackTransform(playerPos, facing, weapon.visual)
+    this.tempPlayerPos.x = entity.transform.x
+    this.tempPlayerPos.y = entity.transform.y
+    this.getBackTransform(this.tempPlayerPos, facing, weapon.visual)
   }
 
   private checkOBBvsAABB(
@@ -954,8 +958,12 @@ export class WeaponSystem extends System {
     const nearbyEntities = this.spatialHash
       ? this.spatialHash.query(weaponX, weaponY, attackRadius + 2)
       : this.allEntities
+    const nearbyCount = this.spatialHash
+      ? this.spatialHash.getQueryResultLength()
+      : nearbyEntities.length
 
-    for (const target of nearbyEntities) {
+    for (let i = 0; i < nearbyCount; i++) {
+      const target = nearbyEntities[i]
       if (!target || target.id === attacker.id) continue
       if (!target.transform || !target.stats || target.stats.isDead) continue
       if (!target.faction || !attacker.faction.canAttack(target.faction))
@@ -963,7 +971,6 @@ export class WeaponSystem extends System {
 
       const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
 
-      // 宽阶段检测：距离检查
       const hitRange = attackRadius + targetRadius
       const dx = weaponX - target.transform.x
       const dy = weaponY - target.transform.y
@@ -971,7 +978,6 @@ export class WeaponSystem extends System {
 
       if (weapon.hitEntityIds.has(target.id)) continue
 
-      // 精确检测：OBB vs Circle
       if (
         this.checkOBBvsCircle(
           weaponX,

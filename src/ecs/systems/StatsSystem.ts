@@ -18,11 +18,15 @@ import { System } from '../System'
 export class StatsSystem extends System {
   private box2d?: MainModule
   private worldId?: b2WorldId
+  private tempVec?: InstanceType<MainModule['b2Vec2']>
 
   constructor(box2d?: MainModule, worldId?: b2WorldId) {
     super()
     this.box2d = box2d
     this.worldId = worldId
+    if (box2d) {
+      this.tempVec = new box2d.b2Vec2(0, 0)
+    }
     const statsType = componentRegistry.getComponentType('Stats')
     this.setRequiredComponents([statsType])
   }
@@ -149,20 +153,19 @@ export class StatsSystem extends System {
         entity.stats.hitShakeDirectionX = normalizedDirX
       }
 
-      // 应用击退
-      if (knockback > 0 && entity.physics && this.box2d) {
-        const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass, b2Vec2 } =
-          this.box2d
+      if (knockback > 0 && entity.physics && this.box2d && this.tempVec) {
+        const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = this.box2d
         const mass = b2Body_GetMass(entity.physics.bodyId)
 
-        // 调整击退力度
         const impulseX = normalizedDirX * knockback * 2 * mass
-        const impulseY = 0
+        this.tempVec.x = impulseX
+        this.tempVec.y = 0
 
-        const impulse = new b2Vec2(impulseX, impulseY)
-
-        b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, impulse, true)
-        impulse.delete()
+        b2Body_ApplyLinearImpulseToCenter(
+          entity.physics.bodyId,
+          this.tempVec,
+          true
+        )
 
         // 设置击退硬直时间（例如200ms）
         if (entity.movement) {
@@ -233,14 +236,13 @@ export class StatsSystem extends System {
   }
 
   private stabilizeBody(entity: Entity): void {
-    if (!this.box2d || !entity.physics) return
+    if (!this.box2d || !entity.physics || !this.tempVec) return
 
-    const { b2Body_SetLinearVelocity, b2Vec2, b2Body_SetLinearDamping } =
-      this.box2d
-    const stopVelocity = new b2Vec2(0, 0)
-    b2Body_SetLinearVelocity(entity.physics.bodyId, stopVelocity)
+    const { b2Body_SetLinearVelocity, b2Body_SetLinearDamping } = this.box2d
+    this.tempVec.x = 0
+    this.tempVec.y = 0
+    b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
     b2Body_SetLinearDamping(entity.physics.bodyId, 10)
-    stopVelocity.delete()
 
     if (entity.physics.shapeId) {
       const { b2Shape_SetFriction } = this.box2d
