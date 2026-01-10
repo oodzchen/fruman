@@ -444,10 +444,6 @@ export class GameClient {
     this.worker.postMessage({ type: 'control', action: 'restart' })
   }
 
-  logParameters() {
-    console.log('Control via Worker - Parameters not locally available')
-  }
-
   // Parameter Setters
   setGroundFriction(v: number) {
     this.updateParam('groundFriction', v)

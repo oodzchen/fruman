@@ -1,36 +1,111 @@
-// import Box2DFactory from 'box2d3-wasm' // Not needed in main thread anymore
 import { GameClient } from './GameClient'
+import {
+  DEFAULT_BODY_FRICTION,
+  DEFAULT_BODY_LINEAR_DAMPING,
+  DEFAULT_CAMERA_ZOOM,
+  DEFAULT_GROUND_FRICTION,
+  DEFAULT_JUMP_BUFFER_WINDOW,
+  DEFAULT_JUMP_FORCE,
+  DEFAULT_JUMP_FORCE_MULTIPLIER,
+  DEFAULT_MAX_JUMP_DURATION,
+  DEFAULT_MAX_WALL_JUMPS,
+  DEFAULT_MOVE_SPEED,
+  DEFAULT_OBSTACLE_FRICTION,
+  DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
+  DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
+} from './constants'
+import { loadStoredValues, saveStoredValues } from './storage'
 
-// import type { MainModule } from './types'
+interface ParamConfig {
+  id: string
+  numberId: string
+  label: string
+  defaultValue: number
+}
+
+const PARAM_CONFIGS: ParamConfig[] = [
+  {
+    id: 'jumpForce',
+    numberId: 'jumpForceNum',
+    label: '跳跃力度',
+    defaultValue: DEFAULT_JUMP_FORCE,
+  },
+  {
+    id: 'jumpBufferWindow',
+    numberId: 'jumpBufferWindowNum',
+    label: '跳跃预输入时间(ms)',
+    defaultValue: DEFAULT_JUMP_BUFFER_WINDOW,
+  },
+  {
+    id: 'maxJumpDuration',
+    numberId: 'maxJumpDurationNum',
+    label: '跳跃持续时间(ms)',
+    defaultValue: DEFAULT_MAX_JUMP_DURATION,
+  },
+  {
+    id: 'jumpForceMultiplier',
+    numberId: 'jumpForceMultiplierNum',
+    label: '持续跳跃力倍数',
+    defaultValue: DEFAULT_JUMP_FORCE_MULTIPLIER,
+  },
+  {
+    id: 'wallJumpPushAway',
+    numberId: 'wallJumpPushAwayNum',
+    label: '蹬墙横向推离倍数',
+    defaultValue: DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
+  },
+  {
+    id: 'wallJumpUpward',
+    numberId: 'wallJumpUpwardNum',
+    label: '蹬墙向上速度倍数',
+    defaultValue: DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
+  },
+  {
+    id: 'maxWallJumps',
+    numberId: 'maxWallJumpsNum',
+    label: '最大蹬墙次数',
+    defaultValue: DEFAULT_MAX_WALL_JUMPS,
+  },
+  {
+    id: 'moveSpeed',
+    numberId: 'moveSpeedNum',
+    label: '移动速度',
+    defaultValue: DEFAULT_MOVE_SPEED,
+  },
+  {
+    id: 'bodyFriction',
+    numberId: 'bodyFrictionNum',
+    label: '身体摩擦力',
+    defaultValue: DEFAULT_BODY_FRICTION,
+  },
+  {
+    id: 'bodyLinearDamping',
+    numberId: 'bodyLinearDampingNum',
+    label: '角色线性阻尼',
+    defaultValue: DEFAULT_BODY_LINEAR_DAMPING,
+  },
+  {
+    id: 'groundFriction',
+    numberId: 'groundFrictionNum',
+    label: '地面摩擦力',
+    defaultValue: DEFAULT_GROUND_FRICTION,
+  },
+  {
+    id: 'obstacleFriction',
+    numberId: 'obstacleFrictionNum',
+    label: '障碍物摩擦力',
+    defaultValue: DEFAULT_OBSTACLE_FRICTION,
+  },
+  {
+    id: 'cameraZoom',
+    numberId: 'cameraZoomNum',
+    label: '镜头缩放',
+    defaultValue: DEFAULT_CAMERA_ZOOM,
+  },
+]
 
 const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
-
-const controlStorageKey = 'sl2d:control-panel'
-
-const loadStoredValues = (): Record<string, string> => {
-  try {
-    const raw = localStorage.getItem(controlStorageKey)
-    if (!raw) {
-      return {}
-    }
-    const parsed = JSON.parse(raw) as Record<string, string>
-    if (parsed && typeof parsed === 'object') {
-      return parsed
-    }
-  } catch {
-    return {}
-  }
-  return {}
-}
-
-const saveStoredValues = (values: Record<string, string>) => {
-  try {
-    localStorage.setItem(controlStorageKey, JSON.stringify(values))
-  } catch {
-    return
-  }
-}
 
 const setupDetailsState = (
   storedValues: Record<string, string>,
@@ -54,23 +129,29 @@ const setupDetailsState = (
   })
 }
 
-// Helper function to sync range and number inputs
+interface SyncInputsResult {
+  apply: () => void
+  getValue: () => number
+}
+
 function syncInputs(
-  rangeId: string,
-  numberId: string,
+  config: ParamConfig,
   callback: (value: number) => void,
   storedValues: Record<string, string>,
   updateStoredValue: (id: string, value: string) => void
-) {
+): SyncInputsResult {
+  const { id: rangeId, numberId, defaultValue } = config
   const range = document.getElementById(rangeId)
   const number = document.getElementById(numberId)
 
+  let currentValue = defaultValue
+
   if (!(range instanceof HTMLInputElement)) {
-    return () => {}
+    return { apply: () => {}, getValue: () => currentValue }
   }
 
   if (!(number instanceof HTMLInputElement)) {
-    return () => {}
+    return { apply: () => {}, getValue: () => currentValue }
   }
 
   const applyValue = (rawValue: string, shouldStore: boolean) => {
@@ -78,6 +159,7 @@ function syncInputs(
     if (!Number.isFinite(value)) {
       return
     }
+    currentValue = value
     callback(value)
     if (shouldStore) {
       updateStoredValue(rangeId, rawValue)
@@ -106,17 +188,20 @@ function syncInputs(
   const storedValue = storedValues[rangeId]
   if (typeof storedValue === 'string') {
     setPairValue(storedValue, false)
+  } else {
+    setPairValue(String(defaultValue), false)
   }
 
-  return () => setPairValue(range.value, false)
+  return {
+    apply: () => setPairValue(range.value, false),
+    getValue: () => currentValue,
+  }
 }
 
 async function initialize() {
-  // const box2d: MainModule = await Box2DFactory() // Moved to worker
-
   const game = new GameClient(canvas, ctx)
 
-  const storedValues = loadStoredValues()
+  const storedValues = await loadStoredValues()
   const updateStoredValue = (id: string, value: string) => {
     storedValues[id] = value
     saveStoredValues(storedValues)
@@ -150,169 +235,52 @@ async function initialize() {
     btnStop.textContent = '暂停'
   })
 
-  // Setup parameter controls
-  applyControls.push(
-    syncInputs(
-      'jumpForce',
-      'jumpForceNum',
-      (value) => {
-        game.getPlayer().setJumpForce(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
+  // 参数回调映射
+  const paramCallbacks: Record<string, (value: number) => void> = {
+    jumpForce: (v) => game.getPlayer().setJumpForce(v),
+    jumpBufferWindow: (v) => game.setJumpBufferWindow(v),
+    maxJumpDuration: (v) => game.getPlayer().setMaxJumpDuration(v),
+    jumpForceMultiplier: (v) => game.getPlayer().setJumpForceMultiplier(v),
+    wallJumpPushAway: (v) => game.getPlayer().setWallJumpPushAwayMultiplier(v),
+    wallJumpUpward: (v) => game.getPlayer().setWallJumpUpwardMultiplier(v),
+    maxWallJumps: (v) => game.getPlayer().setMaxWallJumps(v),
+    moveSpeed: (v) => game.getPlayer().setMoveSpeed(v),
+    bodyFriction: (v) => game.getPlayer().setBodyFriction(v),
+    bodyLinearDamping: (v) => game.getPlayer().setBodyLinearDamping(v),
+    groundFriction: (v) => game.setGroundFriction(v),
+    obstacleFriction: (v) => game.setObstacleFriction(v),
+    cameraZoom: (v) => game.setZoom(v),
+  }
 
-  applyControls.push(
-    syncInputs(
-      'jumpBufferWindow',
-      'jumpBufferWindowNum',
-      (value) => {
-        game.setJumpBufferWindow(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'maxJumpDuration',
-      'maxJumpDurationNum',
-      (value) => {
-        game.getPlayer().setMaxJumpDuration(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'jumpForceMultiplier',
-      'jumpForceMultiplierNum',
-      (value) => {
-        game.getPlayer().setJumpForceMultiplier(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'wallJumpPushAway',
-      'wallJumpPushAwayNum',
-      (value) => {
-        game.getPlayer().setWallJumpPushAwayMultiplier(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'wallJumpUpward',
-      'wallJumpUpwardNum',
-      (value) => {
-        game.getPlayer().setWallJumpUpwardMultiplier(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'maxWallJumps',
-      'maxWallJumpsNum',
-      (value) => {
-        game.getPlayer().setMaxWallJumps(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'moveSpeed',
-      'moveSpeedNum',
-      (value) => {
-        game.getPlayer().setMoveSpeed(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'bodyFriction',
-      'bodyFrictionNum',
-      (value) => {
-        game.getPlayer().setBodyFriction(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'bodyLinearDamping',
-      'bodyLinearDampingNum',
-      (value) => {
-        game.getPlayer().setBodyLinearDamping(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'groundFriction',
-      'groundFrictionNum',
-      (value) => {
-        game.setGroundFriction(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  applyControls.push(
-    syncInputs(
-      'obstacleFriction',
-      'obstacleFrictionNum',
-      (value) => {
-        game.setObstacleFriction(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
-
-  // 缩放控件
-  applyControls.push(
-    syncInputs(
-      'cameraZoom',
-      'cameraZoomNum',
-      (value) => {
-        game.setZoom(value)
-      },
-      storedValues,
-      updateStoredValue
-    )
-  )
+  // 设置所有参数控件
+  const paramResults: Record<string, SyncInputsResult> = {}
+  for (const config of PARAM_CONFIGS) {
+    const callback = paramCallbacks[config.id]
+    if (callback) {
+      const result = syncInputs(
+        config,
+        callback,
+        storedValues,
+        updateStoredValue
+      )
+      paramResults[config.id] = result
+      applyControls.push(result.apply)
+    }
+  }
 
   applyControls.forEach((apply) => apply())
 
-  // Log initial parameters
-  console.log('=== 游戏初始化完成 (Worker Mode) ===')
-  game.logParameters()
+  // 打印最终实际使用的可配置参数
+  console.log('=== 游戏初始化完成 ===')
+  console.log('可配置参数:')
+  const paramLog: Record<string, number> = {}
+  for (const config of PARAM_CONFIGS) {
+    const result = paramResults[config.id]
+    if (result) {
+      paramLog[config.label] = result.getValue()
+    }
+  }
+  console.table(paramLog)
 
   // 获取缩放控件引用，用于实时同步
   const cameraZoomRange = document.getElementById(
