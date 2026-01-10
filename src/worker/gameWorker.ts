@@ -297,8 +297,15 @@ function createPlayerAndWeapon(groundY: number) {
     groundY - 0.6,
     groundY
   )
-  enemyEntity = createEnemy(world, box2d, worldId, -7, groundY - 0.6, groundY)
-  createEnemy(world, box2d, worldId, 8, groundY - 0.6, groundY)
+
+  // Initialize 10 enemies
+  for (let i = 0; i < 6; i++) {
+    const x = -8 + i * 2 // Distribute enemies from x = -8 to x = 10
+    const enemy = createEnemy(world, box2d, worldId, x, groundY - 0.6, groundY)
+    if (i === 0) {
+      enemyEntity = enemy
+    }
+  }
 
   enemyAISystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)
