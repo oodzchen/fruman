@@ -1,3 +1,4 @@
+import { InputBuffer } from '../InputBuffer'
 import {
   DEFAULT_DEATH_FLASH_DURATION,
   DEFAULT_DEATH_FLATTEN_DURATION,
@@ -14,7 +15,6 @@ import {
   ENEMY_PACE_SWITCH_INTERVAL_MS,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../constants'
-import { InputBuffer } from '../InputBuffer'
 import type { b2BodyId, b2ShapeId } from '../types'
 import { componentRegistry } from './ComponentRegistry'
 

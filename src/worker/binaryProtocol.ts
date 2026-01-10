@@ -36,6 +36,7 @@ export const FLAGS = {
   ROLLING: 8,
   STAGGERED: 16,
   WEAPON_ATTACKING: 32,
+  IS_PLAYER: 64,
 }
 
 export const MAX_ENTITIES = 2000

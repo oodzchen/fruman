@@ -487,6 +487,7 @@ function sendState() {
       e.weapon?.attackPhase === 'swing' ||
       (e.weapon?.attackPhase === 'pause' && !e.movement?.isGrounded)
     if (isWeaponAttacking) flags |= FLAGS.WEAPON_ATTACKING
+    if (e.id === playerEntity.id) flags |= FLAGS.IS_PLAYER
 
     stateBuffer[offset + OFFSETS.FLAGS] = flags
 

@@ -59,12 +59,12 @@ export class ClientRenderer {
     if (this.entityCount === 0) return
     const buf = this.stateBuffer
 
-    // First pass: Find Player (ID=0 heuristic)
+    // First pass: Find Player (Check for IS_PLAYER flag)
     let playerLockedTargetId = -1
     for (let i = 0; i < this.entityCount; i++) {
       const offset = i * ENTITY_STRIDE
-      const id = buf[offset + OFFSETS.ID]
-      if (id === 0) {
+      const flags = buf[offset + OFFSETS.FLAGS]
+      if (flags & FLAGS.IS_PLAYER) {
         playerLockedTargetId = buf[offset + OFFSETS.LOCKED_TARGET_ID]
         break
       }
