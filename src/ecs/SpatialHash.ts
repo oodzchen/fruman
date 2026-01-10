@@ -37,6 +37,7 @@ export class SpatialHash {
       if (prevKey === key) {
         const cellData = this.grid.get(key)
         if (cellData && cellData.frameNumber === this.currentFrame) {
+          cellData.entities.add(entity)
           continue
         }
       }
