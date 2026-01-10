@@ -216,11 +216,13 @@ export class ClientRenderer {
     const wHeight = buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter
     const wRad = buf[offset + OFFSETS.WEAPON_R] * this.pixelsPerMeter
 
+    const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
+
     this.ctx.save()
     this.ctx.translate(wx * this.pixelsPerMeter, wy * this.pixelsPerMeter)
     this.ctx.rotate(wRot)
     this.ctx.fillStyle = '#c7b58f'
-    this.ctx.strokeStyle = '#5a4b2a'
+    this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : '#5a4b2a'
     this.ctx.lineWidth = 2
     this.drawRoundedRect(wWidth, wHeight, wRad)
     this.ctx.fill()

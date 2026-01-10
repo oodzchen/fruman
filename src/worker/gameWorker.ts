@@ -481,6 +481,13 @@ function sendState() {
     if (e.stats?.isVanished) flags |= FLAGS.VANISHED
     if (e.movement?.isRolling) flags |= FLAGS.ROLLING
     if (e.stats?.isStaggered) flags |= FLAGS.STAGGERED
+
+    // 武器具有伤害力的条件（与实际碰撞检测逻辑一致）
+    const isWeaponAttacking =
+      e.weapon?.attackPhase === 'swing' ||
+      (e.weapon?.attackPhase === 'pause' && !e.movement?.isGrounded)
+    if (isWeaponAttacking) flags |= FLAGS.WEAPON_ATTACKING
+
     stateBuffer[offset + OFFSETS.FLAGS] = flags
 
     stateBuffer[offset + OFFSETS.MOVE_DIR] = e.input
