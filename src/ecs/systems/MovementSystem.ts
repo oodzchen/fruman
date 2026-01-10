@@ -9,6 +9,7 @@ import {
   PLAYER_WEIGHT_REFERENCE,
 } from '../../constants'
 import type { MainModule } from '../../types'
+import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
@@ -449,6 +450,7 @@ export class MovementSystem extends System {
 
     const myRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
     const myX = entity.transform.x
+    const myFaction = entity.faction.faction
 
     const nearbyEntities = this.spatialHash
       ? this.spatialHash.query(
@@ -463,7 +465,11 @@ export class MovementSystem extends System {
       if (!other.transform || !other.faction) continue
       if (other.stats?.isDead) continue
 
-      if (!entity.faction.canAttack(other.faction)) continue
+      // 玩家被敌人阻挡，敌人被其他敌人阻挡
+      const shouldBlock =
+        entity.faction.canAttack(other.faction) ||
+        (myFaction === Faction.Enemy && other.faction.faction === Faction.Enemy)
+      if (!shouldBlock) continue
 
       const otherRadius = other.render?.radius ?? DEFAULT_PLAYER_RADIUS
       const otherX = other.transform.x

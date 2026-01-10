@@ -1,7 +1,9 @@
 import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
+  DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
+  DEFAULT_WEAPON_PLAYER_CLEARANCE,
   ENEMY_ATTACK_RANGE_BUFFER,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../../constants'
@@ -76,10 +78,13 @@ export class EnemyAISystem extends System {
       const dx = this.player.transform.x - entity.transform.x
       const dy = this.player.transform.y - entity.transform.y
       const distance = Math.hypot(dx, dy)
-      const weaponRange =
-        (entity.weapon?.attackRadius || DEFAULT_WEAPON_ATTACK_RADIUS) +
-        ENEMY_ATTACK_RANGE_BUFFER
-      const spacingTolerance = 0.2
+
+      // 计算武器的有效攻击半径（与 WeaponSystem.getAttackRadius 相同逻辑）
+      const weaponAttackRadius = this.getWeaponAttackRadius(entity.weapon)
+      // 考虑目标（玩家）的半径，得到实际可攻击的距离
+      const playerRadius = this.player.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      const weaponRange = weaponAttackRadius + playerRadius
+
       const facing = dx >= 0 ? 1 : -1
       entity.input.facingOverride = facing
 
@@ -242,9 +247,13 @@ export class EnemyAISystem extends System {
     }
   }
 
-  private clamp01(value: number): number {
-    if (value < 0) return 0
-    if (value > 1) return 1
-    return value
+  private getWeaponAttackRadius(weapon: Entity['weapon']): number {
+    if (!weapon) {
+      return DEFAULT_WEAPON_ATTACK_RADIUS
+    }
+    // 使用武器长度计算攻击半径：玩家半径 + 武器长度的一半 + 安全间隙
+    const minRadius =
+      DEFAULT_PLAYER_RADIUS + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
+    return Math.max(DEFAULT_WEAPON_ATTACK_RADIUS, minRadius)
   }
 }
