@@ -22,7 +22,6 @@ import {
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   PARRY_ENEMY_TOUGHNESS_DAMAGE,
   PARRY_SELF_TOUGHNESS_RECOVERY,
-  STAGGER_DURATION_MS,
   WEAPON_DROP_DURATION_MS,
 } from '../../constants'
 import type { MainModule, b2BodyId } from '../../types'
@@ -398,24 +397,11 @@ export class WeaponSystem extends System {
     // 韧性清空时触发崩塌
     if (newToughness <= 0) {
       // 触发攻击者武器回弹效果
+      // 具体的崩塌状态和武器掉落由 StatsSystem 统一处理
       if (attacker.weapon && attacker.transform) {
         this.tempPlayerPos.x = attacker.transform.x
         this.tempPlayerPos.y = attacker.transform.y
         this.startRebound(attacker, this.tempPlayerPos, Date.now())
-      }
-
-      attacker.stats.isStaggered = true
-      attacker.stats.staggerElapsedTime = 0
-      attacker.stats.staggerDuration = STAGGER_DURATION_MS
-
-      // 崩塌时打断攻击并启动武器掉落
-      if (attacker.weapon && attacker.transform) {
-        attacker.weapon.attackPhase = 'idle'
-        attacker.weapon.attackElapsedMs = 0
-        attacker.weapon.attackQueued = false
-        attacker.weapon.hitEntityIds.clear()
-
-        this.startWeaponDrop(attacker)
       }
     } else {
       // 普通弹反：仅免疫伤害，不打断攻击，不回弹
@@ -424,27 +410,6 @@ export class WeaponSystem extends System {
         attacker.weapon.hitEntityIds.add(defender.id)
       }
     }
-  }
-
-  private startWeaponDrop(entity: Entity): void {
-    if (!entity.weapon || !entity.transform) return
-
-    const weapon = entity.weapon
-    weapon.isDropping = true
-    weapon.isDropped = false
-    weapon.isRecovering = false
-    weapon.dropElapsedTime = 0
-
-    // 记录起始位置（当前武器位置）
-    weapon.dropStartTransform.x = weapon.visual.x
-    weapon.dropStartTransform.y = weapon.visual.y
-    weapon.dropStartTransform.rotation = weapon.visual.rotation
-
-    // 目标位置：角色脚下横放（位于角色中心正下方地面）
-    weapon.dropEndTransform.x = entity.transform.x
-    weapon.dropEndTransform.y =
-      entity.transform.y + DEFAULT_PLAYER_RADIUS - DEFAULT_WEAPON_HEIGHT / 2
-    weapon.dropEndTransform.rotation = 0
   }
 
   private startWeaponRecover(entity: Entity): void {

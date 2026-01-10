@@ -7,8 +7,10 @@ import {
   DEFAULT_HIT_SHAKE_INTENSITY,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
+  DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
   STAGGER_DAMAGE_MULTIPLIER,
+  STAGGER_DURATION_MS,
   STAGGER_HIT_STUN_DURATION_MS,
   STAGGER_KNOCKBACK_MULTIPLIER,
 } from '../../constants'
@@ -66,6 +68,11 @@ export class StatsSystem extends System {
         }
       }
 
+      // 检查韧性归零触发崩塌
+      if (!entity.stats.isStaggered && entity.stats.toughness <= 0) {
+        this.triggerStagger(entity)
+      }
+
       // 处理崩塌状态
       if (entity.stats.isStaggered) {
         entity.stats.staggerElapsedTime += deltaTime
@@ -106,6 +113,42 @@ export class StatsSystem extends System {
           entity.stats.toughness + recovery
         )
       }
+    }
+  }
+
+  triggerStagger(entity: Entity): void {
+    if (!entity.stats) return
+
+    entity.stats.isStaggered = true
+    entity.stats.staggerElapsedTime = 0
+    entity.stats.staggerDuration = STAGGER_DURATION_MS
+    entity.stats.staggerAnimationPhase = 'rotateBack'
+    entity.stats.staggerAnimationElapsed = 0
+
+    // 崩塌时打断攻击并启动武器掉落
+    if (entity.weapon && entity.transform) {
+      entity.weapon.attackPhase = 'idle'
+      entity.weapon.attackElapsedMs = 0
+      entity.weapon.attackQueued = false
+      entity.weapon.hitEntityIds.clear()
+
+      // 启动武器掉落 logic
+      const weapon = entity.weapon
+      weapon.isDropping = true
+      weapon.isDropped = false
+      weapon.isRecovering = false
+      weapon.dropElapsedTime = 0
+
+      // 记录起始位置（当前武器位置）
+      weapon.dropStartTransform.x = weapon.visual.x
+      weapon.dropStartTransform.y = weapon.visual.y
+      weapon.dropStartTransform.rotation = weapon.visual.rotation
+
+      // 目标位置：角色脚下横放（位于角色中心正下方地面）
+      weapon.dropEndTransform.x = entity.transform.x
+      weapon.dropEndTransform.y =
+        entity.transform.y + DEFAULT_PLAYER_RADIUS - DEFAULT_WEAPON_HEIGHT / 2
+      weapon.dropEndTransform.rotation = 0
     }
   }
 
@@ -190,14 +233,6 @@ export class StatsSystem extends System {
     // 翻滚期间无敌
     if (entity.movement?.isRolling) return
 
-    // 崩塌过渡动画期间（前1500ms）无敌
-    if (
-      entity.stats.isStaggered &&
-      entity.stats.staggerAnimationElapsed < 1500
-    ) {
-      return
-    }
-
     let finalHealthDamage = Math.max(0, healthDamage)
     let finalToughnessDamage = Math.max(0, toughnessDamage)
     let finalKnockback = knockback
@@ -248,6 +283,10 @@ export class StatsSystem extends System {
       0,
       entity.stats.toughness - finalToughnessDamage
     )
+
+    if (entity.stats.toughness <= 0 && !wasStaggered) {
+      this.triggerStagger(entity)
+    }
 
     if (hitSource && entity.transform) {
       const dirX = entity.transform.x - hitSource.x
