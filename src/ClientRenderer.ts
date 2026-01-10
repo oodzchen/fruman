@@ -162,6 +162,9 @@ export class ClientRenderer {
     if (flags & FLAGS.ROLLING) {
       const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
       this.ctx.rotate(rollAngle)
+    } else if (flags & FLAGS.STAGGERED) {
+      const staggerAngle = buf[offset + OFFSETS.ROLL_ANGLE]
+      this.ctx.rotate(staggerAngle)
     }
 
     this.ctx.fillStyle = this.getColorString(colorInt)

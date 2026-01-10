@@ -34,6 +34,7 @@ export const FLAGS = {
   DEAD: 2,
   VANISHED: 4,
   ROLLING: 8,
+  STAGGERED: 16,
 }
 
 export const MAX_ENTITIES = 2000

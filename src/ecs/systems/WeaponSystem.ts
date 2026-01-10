@@ -1,6 +1,7 @@
 import {
   COMBO_FINISHER_KNOCKBACK,
   DEFAULT_ATTACK_KNOCKBACK,
+  DEFAULT_PARRY_WINDOW_MS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_PAUSE_MS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
@@ -14,10 +15,15 @@ import {
   DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
   DEFAULT_WEAPON_FRONT_OFFSET_X,
   DEFAULT_WEAPON_FRONT_OFFSET_Y,
+  DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS,
   DEFAULT_WEAPON_PICKUP_DISTANCE,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+  PARRY_ENEMY_TOUGHNESS_DAMAGE,
+  PARRY_SELF_TOUGHNESS_RECOVERY,
+  STAGGER_DURATION_MS,
+  WEAPON_DROP_DURATION_MS,
 } from '../../constants'
 import type { MainModule, b2BodyId } from '../../types'
 import type { WeaponRelativeTransform, WeaponTransform } from '../Component'
@@ -52,6 +58,7 @@ export class WeaponSystem extends System {
     rotation: 0,
   }
   private tempPlayerPos = { x: 0, y: 0 }
+  private currentDeltaTime = 0
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -67,6 +74,7 @@ export class WeaponSystem extends System {
   }
 
   update(entities: Entity[], deltaTime: number): void {
+    this.currentDeltaTime = deltaTime
     const deltaMs = Math.max(0, deltaTime * 1000)
 
     for (const entity of entities) {
@@ -111,6 +119,72 @@ export class WeaponSystem extends System {
       return
     }
 
+    // 处理武器掉落动画
+    if (weapon.isDropping) {
+      weapon.dropElapsedTime += this.currentDeltaTime
+      const elapsedMs = weapon.dropElapsedTime * 1000
+      const progress = Math.min(1, elapsedMs / WEAPON_DROP_DURATION_MS)
+
+      // 使用缓动函数使动画更自然
+      const eased = 1 - Math.pow(1 - progress, 2)
+
+      weapon.visual.x =
+        weapon.dropStartTransform.x +
+        (weapon.dropEndTransform.x - weapon.dropStartTransform.x) * eased
+      weapon.visual.y =
+        weapon.dropStartTransform.y +
+        (weapon.dropEndTransform.y - weapon.dropStartTransform.y) * eased
+      weapon.visual.rotation =
+        weapon.dropStartTransform.rotation +
+        (weapon.dropEndTransform.rotation -
+          weapon.dropStartTransform.rotation) *
+          eased
+
+      if (progress >= 1) {
+        weapon.isDropping = false
+        weapon.isDropped = true
+      }
+      return
+    }
+
+    // 崩塌期间保持武器在地上
+    if (entity.stats?.isStaggered) {
+      return
+    }
+
+    // 崩塌解除后启动武器回收动画
+    if (weapon.isDropped && !weapon.isRecovering) {
+      this.startWeaponRecover(entity)
+    }
+
+    // 处理武器回收动画
+    if (weapon.isRecovering) {
+      weapon.dropElapsedTime += this.currentDeltaTime
+      const elapsedMs = weapon.dropElapsedTime * 1000
+      const progress = Math.min(1, elapsedMs / WEAPON_DROP_DURATION_MS)
+
+      // 使用缓动函数
+      const eased = 1 - Math.pow(1 - progress, 2)
+
+      weapon.visual.x =
+        weapon.dropStartTransform.x +
+        (weapon.dropEndTransform.x - weapon.dropStartTransform.x) * eased
+      weapon.visual.y =
+        weapon.dropStartTransform.y +
+        (weapon.dropEndTransform.y - weapon.dropStartTransform.y) * eased
+      weapon.visual.rotation =
+        weapon.dropStartTransform.rotation +
+        (weapon.dropEndTransform.rotation -
+          weapon.dropStartTransform.rotation) *
+          eased
+
+      if (progress >= 1) {
+        weapon.isRecovering = false
+        weapon.isDropped = false
+      }
+      return
+    }
+
     const now = Date.now()
     const attackRadius = weapon.attackRadius || this.getAttackRadius(weapon)
     const attackFacing = weapon.attackFacing
@@ -138,7 +212,7 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'idle') {
-      if (entity.input && entity.input.blockRequested) {
+      if (entity.input && (entity.input.blockRequested || weapon.isParrying)) {
         this.handleBlockPhase(entity, playerPos, inputFacing)
         return
       }
@@ -185,24 +259,266 @@ export class WeaponSystem extends System {
   ): void {
     if (!entity.weapon) return
     const weapon = entity.weapon
+
+    // 如果松开格挡键且未处于弹反动作中，结束格挡
+    if (entity.input && !entity.input.blockRequested && !weapon.isParrying) {
+      weapon.isBlocking = false
+      weapon.isParrying = false
+      weapon.parryElapsedTime = 0
+      return
+    }
+
     weapon.isBlocking = true
     weapon.isInCombat = true
     weapon.lastAttackTimestamp = Date.now()
 
-    // 设置格挡姿态：武器竖直在身前
+    // 格挡姿态目标位置
     const blockX = playerPos.x + facing * DEFAULT_WEAPON_FRONT_OFFSET_X
-    const blockY = playerPos.y // 稍微向下调整或保持居中
-    const blockRotation = -Math.PI / 2 // 竖直向上
+    const blockY = playerPos.y
+    const blockRotation = -Math.PI / 2
 
-    weapon.visual.x = blockX
-    weapon.visual.y = blockY
-    weapon.visual.rotation = blockRotation
+    // 首次进入格挡，开始弹反窗口
+    if (!weapon.isParrying && weapon.parryElapsedTime === 0) {
+      weapon.isParrying = true
+      weapon.parryElapsedTime = 0
+      weapon.parryHitWeaponIds.clear()
 
-    // 如果松开格挡键，且没有排队的攻击，则恢复idle
-    if (entity.input && !entity.input.blockRequested) {
-      weapon.isBlocking = false
-      // 不做额外处理，下一帧 handleIdlePhase 会接管
+      // 记录起始位置（当前武器位置）
+      weapon.parryStartTransform.x = weapon.visual.x
+      weapon.parryStartTransform.y = weapon.visual.y
+      weapon.parryStartTransform.rotation = weapon.visual.rotation
+
+      // 记录结束位置（格挡姿态）
+      weapon.parryEndTransform.x = blockX
+      weapon.parryEndTransform.y = blockY
+      weapon.parryEndTransform.rotation = blockRotation
     }
+
+    if (weapon.isParrying) {
+      weapon.parryElapsedTime += this.currentDeltaTime
+      const elapsedMs = weapon.parryElapsedTime * 1000
+      const progress = Math.min(1, elapsedMs / DEFAULT_PARRY_WINDOW_MS)
+
+      // 插值武器位置
+      weapon.visual.x =
+        weapon.parryStartTransform.x +
+        (weapon.parryEndTransform.x - weapon.parryStartTransform.x) * progress
+      weapon.visual.y =
+        weapon.parryStartTransform.y +
+        (weapon.parryEndTransform.y - weapon.parryStartTransform.y) * progress
+      weapon.visual.rotation =
+        weapon.parryStartTransform.rotation +
+        (weapon.parryEndTransform.rotation -
+          weapon.parryStartTransform.rotation) *
+          progress
+
+      // 弹反窗口内检测敌人武器碰撞
+      this.checkParryHits(entity)
+
+      // 弹反窗口结束
+      if (elapsedMs >= DEFAULT_PARRY_WINDOW_MS) {
+        weapon.isParrying = false
+      }
+    } else {
+      // 弹反窗口结束后，保持格挡姿态
+      weapon.visual.x = blockX
+      weapon.visual.y = blockY
+      weapon.visual.rotation = blockRotation
+    }
+  }
+
+  private checkParryHits(defender: Entity): void {
+    if (!defender.weapon || !defender.faction || !defender.stats) return
+
+    const weapon = defender.weapon
+    const weaponX = weapon.visual.x
+    const weaponY = weapon.visual.y
+    const weaponWidth = weapon.width
+    const weaponHeight = weapon.height
+    const weaponRotation = weapon.visual.rotation
+
+    for (const attacker of this.allEntities) {
+      if (attacker.id === defender.id) continue
+      if (!attacker.weapon || !attacker.faction || !attacker.stats) continue
+      if (attacker.stats.isDead) continue
+      if (!defender.faction.canAttack(attacker.faction)) continue
+
+      // 只检测正在攻击的敌人武器（swing 阶段）
+      if (attacker.weapon.attackPhase !== 'swing') continue
+
+      // 避免重复弹反同一个武器
+      if (weapon.parryHitWeaponIds.has(attacker.id)) continue
+
+      const attackerWeapon = attacker.weapon
+      const attackerX = attackerWeapon.visual.x
+      const attackerY = attackerWeapon.visual.y
+      const attackerWidth = attackerWeapon.width
+      const attackerHeight = attackerWeapon.height
+      const attackerRotation = attackerWeapon.visual.rotation
+
+      // 武器对武器 OBB 碰撞检测
+      if (
+        this.checkOBBvsOBB(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation,
+          attackerX,
+          attackerY,
+          attackerWidth,
+          attackerHeight,
+          attackerRotation
+        )
+      ) {
+        weapon.parryHitWeaponIds.add(attacker.id)
+        this.applyParryEffect(defender, attacker)
+      }
+    }
+  }
+
+  private applyParryEffect(defender: Entity, attacker: Entity): void {
+    if (!defender.stats || !attacker.stats) return
+
+    // 敌人韧性减少
+    const newToughness = attacker.stats.toughness - PARRY_ENEMY_TOUGHNESS_DAMAGE
+    attacker.stats.toughness = Math.max(0, newToughness)
+
+    // 我方韧性恢复
+    defender.stats.toughness = Math.min(
+      defender.stats.maxToughness,
+      defender.stats.toughness + PARRY_SELF_TOUGHNESS_RECOVERY
+    )
+
+    // 韧性清空时触发崩塌
+    if (newToughness <= 0) {
+      // 触发攻击者武器回弹效果
+      if (attacker.weapon && attacker.transform) {
+        this.tempPlayerPos.x = attacker.transform.x
+        this.tempPlayerPos.y = attacker.transform.y
+        this.startRebound(attacker, this.tempPlayerPos, Date.now())
+      }
+
+      attacker.stats.isStaggered = true
+      attacker.stats.staggerElapsedTime = 0
+      attacker.stats.staggerDuration = STAGGER_DURATION_MS
+
+      // 崩塌时打断攻击并启动武器掉落
+      if (attacker.weapon && attacker.transform) {
+        attacker.weapon.attackPhase = 'idle'
+        attacker.weapon.attackElapsedMs = 0
+        attacker.weapon.attackQueued = false
+        attacker.weapon.hitEntityIds.clear()
+
+        this.startWeaponDrop(attacker)
+      }
+    } else {
+      // 普通弹反：仅免疫伤害，不打断攻击，不回弹
+      if (attacker.weapon) {
+        // 将防御者加入已击中列表，从而避免产生伤害
+        attacker.weapon.hitEntityIds.add(defender.id)
+      }
+    }
+  }
+
+  private startWeaponDrop(entity: Entity): void {
+    if (!entity.weapon || !entity.transform) return
+
+    const weapon = entity.weapon
+    weapon.isDropping = true
+    weapon.isDropped = false
+    weapon.isRecovering = false
+    weapon.dropElapsedTime = 0
+
+    // 记录起始位置（当前武器位置）
+    weapon.dropStartTransform.x = weapon.visual.x
+    weapon.dropStartTransform.y = weapon.visual.y
+    weapon.dropStartTransform.rotation = weapon.visual.rotation
+
+    // 目标位置：角色脚下横放（位于角色中心正下方地面）
+    weapon.dropEndTransform.x = entity.transform.x
+    weapon.dropEndTransform.y =
+      entity.transform.y + DEFAULT_PLAYER_RADIUS - DEFAULT_WEAPON_HEIGHT / 2
+    weapon.dropEndTransform.rotation = 0
+  }
+
+  private startWeaponRecover(entity: Entity): void {
+    if (!entity.weapon || !entity.transform) return
+
+    const weapon = entity.weapon
+    weapon.isRecovering = true
+    weapon.dropElapsedTime = 0
+
+    // 起始位置：当前武器位置（地上）
+    weapon.dropStartTransform.x = weapon.visual.x
+    weapon.dropStartTransform.y = weapon.visual.y
+    weapon.dropStartTransform.rotation = weapon.visual.rotation
+
+    // 目标位置：回到角色身侧
+    const facing =
+      entity.input && entity.input.lastMoveDirection !== 0
+        ? entity.input.lastMoveDirection
+        : 1
+    this.getBackTransform(
+      { x: entity.transform.x, y: entity.transform.y },
+      facing,
+      weapon.dropEndTransform
+    )
+  }
+
+  private checkOBBvsOBB(
+    x1: number,
+    y1: number,
+    w1: number,
+    h1: number,
+    rot1: number,
+    x2: number,
+    y2: number,
+    w2: number,
+    h2: number,
+    rot2: number
+  ): boolean {
+    // 分离轴定理（SAT）检测两个 OBB 是否相交
+    const cos1 = Math.cos(rot1)
+    const sin1 = Math.sin(rot1)
+    const cos2 = Math.cos(rot2)
+    const sin2 = Math.sin(rot2)
+
+    // 两个OBB的轴
+    const axes = [
+      { x: cos1, y: sin1 },
+      { x: -sin1, y: cos1 },
+      { x: cos2, y: sin2 },
+      { x: -sin2, y: cos2 },
+    ]
+
+    // 两个OBB的半尺寸
+    const hw1 = w1 / 2
+    const hh1 = h1 / 2
+    const hw2 = w2 / 2
+    const hh2 = h2 / 2
+
+    // 中心点差值
+    const dx = x2 - x1
+    const dy = y2 - y1
+
+    for (const axis of axes) {
+      // 投影两个OBB到轴上
+      const proj1 =
+        Math.abs(hw1 * (cos1 * axis.x + sin1 * axis.y)) +
+        Math.abs(hh1 * (-sin1 * axis.x + cos1 * axis.y))
+      const proj2 =
+        Math.abs(hw2 * (cos2 * axis.x + sin2 * axis.y)) +
+        Math.abs(hh2 * (-sin2 * axis.x + cos2 * axis.y))
+      const projDist = Math.abs(dx * axis.x + dy * axis.y)
+
+      // 如果投影不重叠，则不相交
+      if (projDist > proj1 + proj2) {
+        return false
+      }
+    }
+
+    return true
   }
 
   private handleIdlePhase(
@@ -216,6 +532,8 @@ export class WeaponSystem extends System {
 
     const weapon = entity.weapon
     weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
 

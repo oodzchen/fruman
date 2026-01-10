@@ -58,6 +58,13 @@ export class MovementSystem extends System {
         continue
       }
 
+      // 崩塌期间无法移动
+      if (entity.stats?.isStaggered) {
+        entity.input.moveDirection = 0
+        entity.input.jumpRequested = false
+        continue
+      }
+
       this.updateContactState(entity)
       this.handleInput(entity)
     }

@@ -8,6 +8,9 @@ import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  STAGGER_DAMAGE_MULTIPLIER,
+  STAGGER_HIT_STUN_DURATION_MS,
+  STAGGER_KNOCKBACK_MULTIPLIER,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
 import { PhysicsComponent } from '../Component'
@@ -19,6 +22,7 @@ export class StatsSystem extends System {
   private box2d?: MainModule
   private worldId?: b2WorldId
   private tempVec?: InstanceType<MainModule['b2Vec2']>
+  private currentDeltaTime = 0
 
   constructor(box2d?: MainModule, worldId?: b2WorldId) {
     super()
@@ -32,6 +36,7 @@ export class StatsSystem extends System {
   }
 
   update(entities: Entity[], deltaTime: number): void {
+    this.currentDeltaTime = deltaTime
     const deltaSeconds = deltaTime > 0 ? deltaTime : 0
     const deltaMs = deltaSeconds * 1000
     for (const entity of entities) {
@@ -61,6 +66,39 @@ export class StatsSystem extends System {
         }
       }
 
+      // 处理崩塌状态
+      if (entity.stats.isStaggered) {
+        entity.stats.staggerElapsedTime += deltaTime
+        entity.stats.staggerAnimationElapsed += deltaMs
+        this.updateStaggerAnimation(entity)
+
+        const elapsedMs = entity.stats.staggerElapsedTime * 1000
+        if (elapsedMs >= entity.stats.staggerDuration) {
+          entity.stats.isStaggered = false
+          entity.stats.staggerElapsedTime = 0
+          entity.stats.staggerAnimationPhase = 'none'
+          entity.stats.staggerAnimationElapsed = 0
+          entity.stats.toughness = entity.stats.maxToughness
+
+          // 崩塌自动恢复时重置连击状态
+          if (entity.weapon) {
+            entity.weapon.comboCount = 0
+            entity.weapon.swingDirection = 'toFront'
+            entity.weapon.nextSwingDirection = 'toFront'
+            entity.weapon.attackPhase = 'idle'
+            entity.weapon.attackElapsedMs = 0
+            entity.weapon.attackQueued = false
+            entity.weapon.hitEntityIds.clear()
+          }
+
+          if (entity.enemyAI) {
+            entity.enemyAI.state = 'approach'
+            entity.enemyAI.comboSwingsDone = 0
+          }
+        }
+        continue
+      }
+
       if (entity.stats.toughness < entity.stats.maxToughness) {
         const recovery = entity.stats.toughnessRecoveryPerSecond * deltaSeconds
         entity.stats.toughness = Math.min(
@@ -68,6 +106,43 @@ export class StatsSystem extends System {
           entity.stats.toughness + recovery
         )
       }
+    }
+  }
+
+  private updateStaggerAnimation(entity: Entity): void {
+    if (!entity.stats || !entity.movement) return
+
+    const elapsed = entity.stats.staggerAnimationElapsed
+    const facing = entity.input?.lastMoveDirection || 1
+
+    // Phase 1: 向后旋转 (0 - 300ms)
+    // 目标角度: 向后倾斜30度 (PI/6)
+    // 如果面向右(1)，向后是逆时针(-)，即 -30度
+    // 如果面向左(-1)，向后是顺时针(+)，即 +30度
+    const backAngle = -facing * (Math.PI / 6)
+
+    // Phase 2: 向前俯趴 (300 - 500ms)
+    // 目标角度: 向前倒下90度 (PI/2)
+    // 如果面向右(1)，向前是顺时针(+)，即 +90度
+    // 如果面向左(-1)，向前是逆时针(-)，即 -90度
+    const proneAngle = facing * (Math.PI / 2)
+
+    if (elapsed < 1200) {
+      entity.stats.staggerAnimationPhase = 'rotateBack'
+      const t = elapsed / 1200
+      // 缓动
+      const easedT = 1 - Math.pow(1 - t, 2)
+      entity.movement.rollAngle = backAngle * easedT
+    } else if (elapsed < 1500) {
+      entity.stats.staggerAnimationPhase = 'prone'
+      const t = (elapsed - 1200) / 300
+      // 缓动
+      const easedT = t * t // 加速倒下
+      entity.movement.rollAngle = backAngle + (proneAngle - backAngle) * easedT
+    } else {
+      // 保持俯趴姿态
+      entity.stats.staggerAnimationPhase = 'prone'
+      entity.movement.rollAngle = proneAngle
     }
   }
 
@@ -115,8 +190,41 @@ export class StatsSystem extends System {
     // 翻滚期间无敌
     if (entity.movement?.isRolling) return
 
+    // 崩塌过渡动画期间（前1500ms）无敌
+    if (
+      entity.stats.isStaggered &&
+      entity.stats.staggerAnimationElapsed < 1500
+    ) {
+      return
+    }
+
     let finalHealthDamage = Math.max(0, healthDamage)
-    const finalToughnessDamage = Math.max(0, toughnessDamage)
+    let finalToughnessDamage = Math.max(0, toughnessDamage)
+    let finalKnockback = knockback
+
+    // 崩塌期间受击：伤害翻倍、击退加强、解除崩塌
+    const wasStaggered = entity.stats.isStaggered
+    if (wasStaggered) {
+      finalHealthDamage *= STAGGER_DAMAGE_MULTIPLIER
+      finalKnockback *= STAGGER_KNOCKBACK_MULTIPLIER
+      finalToughnessDamage = 0
+      entity.stats.isStaggered = false
+      entity.stats.staggerElapsedTime = 0
+      entity.stats.staggerAnimationPhase = 'none'
+      entity.stats.staggerAnimationElapsed = 0
+      entity.stats.toughness = entity.stats.maxToughness
+
+      // 崩塌受击解除时重置连击状态
+      if (entity.weapon) {
+        entity.weapon.comboCount = 0
+        entity.weapon.swingDirection = 'toFront'
+        entity.weapon.nextSwingDirection = 'toFront'
+        entity.weapon.attackPhase = 'idle'
+        entity.weapon.attackElapsedMs = 0
+        entity.weapon.attackQueued = false
+        entity.weapon.hitEntityIds.clear()
+      }
+    }
 
     // 格挡逻辑
     if (entity.weapon?.isBlocking && hitSource && entity.transform) {
@@ -153,11 +261,11 @@ export class StatsSystem extends System {
         entity.stats.hitShakeDirectionX = normalizedDirX
       }
 
-      if (knockback > 0 && entity.physics && this.box2d && this.tempVec) {
+      if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {
         const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = this.box2d
         const mass = b2Body_GetMass(entity.physics.bodyId)
 
-        const impulseX = normalizedDirX * knockback * 2 * mass
+        const impulseX = normalizedDirX * finalKnockback * 2 * mass
         this.tempVec.x = impulseX
         this.tempVec.y = 0
 
@@ -167,10 +275,13 @@ export class StatsSystem extends System {
           true
         )
 
-        // 设置击退硬直时间（例如200ms）
+        // 设置击退硬直时间
         if (entity.movement) {
-          entity.movement.knockbackEndTime = Date.now() + 200
-          entity.movement.knockbackDuration = 200
+          const knockbackDuration = wasStaggered
+            ? STAGGER_HIT_STUN_DURATION_MS
+            : 200
+          entity.movement.knockbackEndTime = Date.now() + knockbackDuration
+          entity.movement.knockbackDuration = knockbackDuration
           entity.movement.knockbackElapsedTime = 0
         }
 

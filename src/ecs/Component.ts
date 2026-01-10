@@ -135,6 +135,12 @@ export class StatsComponent extends Component {
   hitShakeIntensity = 0
   hitShakeDirectionX = 0
 
+  isStaggered = false
+  staggerElapsedTime = 0
+  staggerDuration = 1000
+  staggerAnimationPhase: 'none' | 'rotateBack' | 'prone' = 'none'
+  staggerAnimationElapsed = 0
+
   getName(): string {
     return 'Stats'
   }
@@ -190,6 +196,20 @@ export class WeaponComponent extends Component {
   reboundTargetTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   reboundTargetOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   hitEntityIds: Set<number> = new Set()
+
+  isParrying = false
+  parryElapsedTime = 0
+  parryWindowDuration = 200
+  parryStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  parryEndTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  parryHitWeaponIds: Set<number> = new Set()
+
+  isDropping = false
+  isDropped = false
+  isRecovering = false
+  dropElapsedTime = 0
+  dropStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  dropEndTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
 
   getName(): string {
     return 'Weapon'

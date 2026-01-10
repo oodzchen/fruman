@@ -288,6 +288,8 @@ function createObstacles() {
   }
 }
 
+const DEFALT_DEBUG_ENEMY_NUM = 1
+
 function createPlayerAndWeapon(groundY: number) {
   playerEntity = createPlayer(
     world,
@@ -299,7 +301,7 @@ function createPlayerAndWeapon(groundY: number) {
   )
 
   // Initialize 10 enemies
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < DEFALT_DEBUG_ENEMY_NUM; i++) {
     const x = -8 + i * 2 // Distribute enemies from x = -8 to x = 10
     const enemy = createEnemy(world, box2d, worldId, x, groundY - 0.6, groundY)
     if (i === 0) {
@@ -478,6 +480,7 @@ function sendState() {
     if (e.stats?.isDead) flags |= FLAGS.DEAD
     if (e.stats?.isVanished) flags |= FLAGS.VANISHED
     if (e.movement?.isRolling) flags |= FLAGS.ROLLING
+    if (e.stats?.isStaggered) flags |= FLAGS.STAGGERED
     stateBuffer[offset + OFFSETS.FLAGS] = flags
 
     stateBuffer[offset + OFFSETS.MOVE_DIR] = e.input
