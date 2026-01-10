@@ -5,6 +5,7 @@ import {
   DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_HIT_SHAKE_DURATION_MS,
   DEFAULT_HIT_SHAKE_INTENSITY,
+  DEFAULT_HIT_STUN_DURATION_MS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_HEIGHT,
@@ -95,6 +96,9 @@ export class StatsSystem extends System {
             entity.weapon.attackPhase = 'idle'
             entity.weapon.attackElapsedMs = 0
             entity.weapon.attackQueued = false
+            entity.weapon.isBlocking = false
+            entity.weapon.isParrying = false
+            entity.weapon.parryElapsedTime = 0
             entity.weapon.hitEntityIds.clear()
           }
 
@@ -130,6 +134,9 @@ export class StatsSystem extends System {
       entity.weapon.attackPhase = 'idle'
       entity.weapon.attackElapsedMs = 0
       entity.weapon.attackQueued = false
+      entity.weapon.isBlocking = false
+      entity.weapon.isParrying = false
+      entity.weapon.parryElapsedTime = 0
       entity.weapon.hitEntityIds.clear()
 
       // 启动武器掉落 logic
@@ -257,11 +264,15 @@ export class StatsSystem extends System {
         entity.weapon.attackPhase = 'idle'
         entity.weapon.attackElapsedMs = 0
         entity.weapon.attackQueued = false
+        entity.weapon.isBlocking = false
+        entity.weapon.isParrying = false
+        entity.weapon.parryElapsedTime = 0
         entity.weapon.hitEntityIds.clear()
       }
     }
 
     // 格挡逻辑
+    let isBlockingSuccessfully = false
     if (entity.weapon?.isBlocking && hitSource && entity.transform) {
       const dx = hitSource.x - entity.transform.x
       // 获取当前朝向
@@ -274,7 +285,9 @@ export class StatsSystem extends System {
       const isFrontalHit = (facing > 0 && dx > 0) || (facing < 0 && dx < 0)
 
       if (isFrontalHit) {
+        isBlockingSuccessfully = true
         finalHealthDamage = 0
+        finalKnockback = 0
       }
     }
 
@@ -314,22 +327,25 @@ export class StatsSystem extends System {
           true
         )
 
-        // 设置击退硬直时间
-        if (entity.movement) {
+        // 设置击退硬直时间（格挡成功除外）
+        if (entity.movement && !isBlockingSuccessfully) {
           const knockbackDuration = wasStaggered
             ? STAGGER_HIT_STUN_DURATION_MS
-            : 200
+            : DEFAULT_HIT_STUN_DURATION_MS
           entity.movement.knockbackEndTime = Date.now() + knockbackDuration
           entity.movement.knockbackDuration = knockbackDuration
           entity.movement.knockbackElapsedTime = 0
         }
 
-        // 受到击退时强制打断攻击动作并重置连击
-        if (entity.weapon) {
+        // 受到击退时强制打断攻击动作并重置连击（格挡成功除外）
+        if (entity.weapon && !isBlockingSuccessfully) {
           entity.weapon.attackPhase = 'idle'
           entity.weapon.attackElapsedMs = 0
           entity.weapon.attackQueued = false
           entity.weapon.isColliding = false
+          entity.weapon.isBlocking = false
+          entity.weapon.isParrying = false
+          entity.weapon.parryElapsedTime = 0
           entity.weapon.hitEntityIds.clear()
           entity.weapon.comboCount = 0
           entity.weapon.swingDirection = 'toFront'
@@ -365,6 +381,9 @@ export class StatsSystem extends System {
         entity.weapon.attackQueued = false
         entity.weapon.isInCombat = false
         entity.weapon.isColliding = false
+        entity.weapon.isBlocking = false
+        entity.weapon.isParrying = false
+        entity.weapon.parryElapsedTime = 0
         entity.weapon.hitEntityIds.clear()
       }
       this.stabilizeBody(entity)

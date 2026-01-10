@@ -58,8 +58,13 @@ export class MovementSystem extends System {
         continue
       }
 
-      // 崩塌期间无法移动
-      if (entity.stats?.isStaggered) {
+      // 更新硬直时间（必须在isStunned检查之前）
+      if (entity.movement.knockbackDuration > 0) {
+        entity.movement.knockbackElapsedTime += deltaTime
+      }
+
+      // 硬直期间无法移动
+      if (entity.isStunned()) {
         entity.input.moveDirection = 0
         entity.input.jumpRequested = false
         continue
@@ -130,10 +135,6 @@ export class MovementSystem extends System {
   private handleInput(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
-    if (entity.movement.knockbackDuration > 0) {
-      entity.movement.knockbackElapsedTime += this.currentDeltaTime
-    }
-
     this.handleRoll(entity)
 
     if (entity.movement.isRolling) {
@@ -182,6 +183,7 @@ export class MovementSystem extends System {
 
   private canRoll(entity: Entity): boolean {
     if (!entity.movement) return false
+    if (entity.isStunned()) return false
 
     // 不能在攻击动作中翻滚
     const isInAttackAction =
@@ -259,9 +261,8 @@ export class MovementSystem extends System {
   private handleMove(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
-    // 处于击退硬直状态时，不处理移动输入，保留物理惯性
-    const knockbackElapsedMs = entity.movement.knockbackElapsedTime * 1000
-    if (knockbackElapsedMs < entity.movement.knockbackDuration) return
+    // 硬直状态时不处理移动输入，保留物理惯性
+    if (entity.isStunned()) return
 
     const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity } = this.box2d
     const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
@@ -330,9 +331,8 @@ export class MovementSystem extends System {
   private handleJump(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
-    // 击退硬直期间无法跳跃
-    const knockbackElapsedMs = entity.movement.knockbackElapsedTime * 1000
-    if (knockbackElapsedMs < entity.movement.knockbackDuration) return
+    // 硬直期间无法跳跃
+    if (entity.isStunned()) return
 
     const isInAttackAction =
       entity.weapon &&

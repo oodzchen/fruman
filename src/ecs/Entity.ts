@@ -71,6 +71,22 @@ export class Entity {
     return (this.signature & requiredSignature) === requiredSignature
   }
 
+  isStunned(): boolean {
+    if (this.stats?.isStaggered) return true
+
+    if (this.movement && this.movement.knockbackDuration > 0) {
+      const knockbackElapsedMs = this.movement.knockbackElapsedTime * 1000
+      if (knockbackElapsedMs < this.movement.knockbackDuration) {
+        return true
+      } else {
+        this.movement.knockbackDuration = 0
+        this.movement.knockbackElapsedTime = 0
+      }
+    }
+
+    return false
+  }
+
   reset(): void {
     this.components.clear()
     this.signature = 0

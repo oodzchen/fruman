@@ -211,11 +211,41 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'idle') {
-      if (entity.input && (entity.input.blockRequested || weapon.isParrying)) {
-        this.handleBlockPhase(entity, playerPos, inputFacing)
+      if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
+        weapon.attackPhase = 'block'
+        weapon.parryElapsedTime = 0
+        weapon.isParrying = true
+        weapon.isBlocking = true
+        weapon.isInCombat = true
+        weapon.parryHitWeaponIds.clear()
+
+        // 初始化弹反起始和目标位置
+        const blockRotation = -Math.PI / 2
+        this.getOffsetFromTransform(
+          weapon.visual,
+          playerPos,
+          weapon.parryStartOffset
+        )
+        weapon.parryEndOffset.dx = inputFacing * DEFAULT_WEAPON_FRONT_OFFSET_X
+        weapon.parryEndOffset.dy = 0
+        weapon.parryEndOffset.rotation = blockRotation
+
+        weapon.parryStartTransform.x = weapon.visual.x
+        weapon.parryStartTransform.y = weapon.visual.y
+        weapon.parryStartTransform.rotation = weapon.visual.rotation
+
+        weapon.parryEndTransform.x =
+          playerPos.x + inputFacing * DEFAULT_WEAPON_FRONT_OFFSET_X
+        weapon.parryEndTransform.y = playerPos.y
+        weapon.parryEndTransform.rotation = blockRotation
         return
       }
       this.handleIdlePhase(entity, playerPos, attackRadius, attackFacing, now)
+      return
+    }
+
+    if (weapon.attackPhase === 'block') {
+      this.handleBlockPhase(entity, playerPos, inputFacing)
       return
     }
 
@@ -259,8 +289,18 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
     const weapon = entity.weapon
 
-    // 如果松开格挡键且未处于弹反动作中，结束格挡
-    if (entity.input && !entity.input.blockRequested && !weapon.isParrying) {
+    // 硬直期间退出格挡
+    if (entity.isStunned()) {
+      weapon.attackPhase = 'idle'
+      weapon.isBlocking = false
+      weapon.isParrying = false
+      weapon.parryElapsedTime = 0
+      return
+    }
+
+    // 弹反窗口结束后，松开格挡键才能退出
+    if (!weapon.isParrying && entity.input && !entity.input.blockRequested) {
+      weapon.attackPhase = 'idle'
       weapon.isBlocking = false
       weapon.isParrying = false
       weapon.parryElapsedTime = 0
@@ -271,39 +311,7 @@ export class WeaponSystem extends System {
     weapon.isInCombat = true
     weapon.lastAttackTimestamp = Date.now()
 
-    // 格挡姿态目标位置
-    const blockX = playerPos.x + facing * DEFAULT_WEAPON_FRONT_OFFSET_X
-    const blockY = playerPos.y
-    const blockRotation = -Math.PI / 2
-
-    // 首次进入格挡，开始弹反窗口
-    if (!weapon.isParrying && weapon.parryElapsedTime === 0) {
-      weapon.isParrying = true
-      weapon.parryElapsedTime = 0
-      weapon.parryHitWeaponIds.clear()
-
-      // 记录起始相对位置
-      this.getOffsetFromTransform(
-        weapon.visual,
-        playerPos,
-        weapon.parryStartOffset
-      )
-
-      // 记录结束相对位置（格挡姿态）
-      weapon.parryEndOffset.dx = facing * DEFAULT_WEAPON_FRONT_OFFSET_X
-      weapon.parryEndOffset.dy = 0
-      weapon.parryEndOffset.rotation = blockRotation
-
-      // 同时也更新一下绝对变换，虽然后续主要用 offset，但保持数据一致性也好
-      weapon.parryStartTransform.x = weapon.visual.x
-      weapon.parryStartTransform.y = weapon.visual.y
-      weapon.parryStartTransform.rotation = weapon.visual.rotation
-
-      weapon.parryEndTransform.x = blockX
-      weapon.parryEndTransform.y = blockY
-      weapon.parryEndTransform.rotation = blockRotation
-    }
-
+    // 弹反窗口期间（只在武器移动期间有效）
     if (weapon.isParrying) {
       weapon.parryElapsedTime += this.currentDeltaTime
       const elapsedMs = weapon.parryElapsedTime * 1000
@@ -324,6 +332,13 @@ export class WeaponSystem extends System {
       // 弹反窗口结束
       if (elapsedMs >= DEFAULT_PARRY_WINDOW_MS) {
         weapon.isParrying = false
+        // 如果弹反窗口结束时格挡键已松开，自动退出
+        if (entity.input && !entity.input.blockRequested) {
+          weapon.attackPhase = 'idle'
+          weapon.isBlocking = false
+          weapon.parryElapsedTime = 0
+          return
+        }
       }
     } else {
       // 弹反窗口结束后，保持格挡姿态（相对于角色）
@@ -905,12 +920,7 @@ export class WeaponSystem extends System {
     if (!entity.transform || !entity.input || !entity.weapon) return
     if (!entity.weapon.isEquipped) return
     if (entity.stats?.isDead) return
-
-    // 击退硬直期间无法攻击
-    if (entity.movement) {
-      const knockbackElapsedMs = entity.movement.knockbackElapsedTime * 1000
-      if (knockbackElapsedMs < entity.movement.knockbackDuration) return
-    }
+    if (entity.isStunned()) return
 
     const weapon = entity.weapon
     const now = Date.now()
@@ -1143,6 +1153,9 @@ export class WeaponSystem extends System {
     weapon.attackPhase = 'idle'
     weapon.attackElapsedMs = 0
     weapon.isColliding = false
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
     weapon.hitEntityIds.clear()
 
     if (!entity.transform) return

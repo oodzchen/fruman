@@ -169,6 +169,7 @@ export class WeaponComponent extends Component {
   isBlocking = false
   attackPhase:
     | 'idle'
+    | 'block'
     | 'windup'
     | 'swing'
     | 'rebound'
