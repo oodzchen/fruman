@@ -1,5 +1,5 @@
 // 初始跳跃力度（向上初速度）；可由控制面板调整
-export const DEFAULT_JUMP_FORCE = 22
+export const DEFAULT_JUMP_FORCE = 18
 
 // 全局重力加速度（米/秒²）
 export const DEFAULT_GRAVITY = 50
