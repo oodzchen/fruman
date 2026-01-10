@@ -4,28 +4,49 @@ interface BufferedInput {
   action: string
   timestamp: number
   bufferWindow: number
+  active: boolean
 }
 
+const MAX_BUFFERED_INPUTS = 8
+
 export class InputBuffer {
-  private bufferedInputs: BufferedInput[] = []
+  private bufferedInputs: BufferedInput[]
   private defaultBufferWindow = DEFAULT_JUMP_BUFFER_WINDOW
+
+  constructor() {
+    this.bufferedInputs = new Array(MAX_BUFFERED_INPUTS)
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      this.bufferedInputs[i] = {
+        action: '',
+        timestamp: 0,
+        bufferWindow: 0,
+        active: false,
+      }
+    }
+  }
 
   bufferAction(action: string, bufferWindow?: number) {
     const window = Math.max(0, bufferWindow ?? this.defaultBufferWindow)
+    const now = performance.now()
 
-    const existingIndex = this.bufferedInputs.findIndex(
-      (input) => input.action === action
-    )
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      const input = this.bufferedInputs[i]
+      if (input.active && input.action === action) {
+        input.timestamp = now
+        input.bufferWindow = window
+        return
+      }
+    }
 
-    if (existingIndex !== -1) {
-      this.bufferedInputs[existingIndex].timestamp = Date.now()
-      this.bufferedInputs[existingIndex].bufferWindow = window
-    } else {
-      this.bufferedInputs.push({
-        action,
-        timestamp: Date.now(),
-        bufferWindow: window,
-      })
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      const input = this.bufferedInputs[i]
+      if (!input.active) {
+        input.action = action
+        input.timestamp = now
+        input.bufferWindow = window
+        input.active = true
+        return
+      }
     }
   }
 
@@ -34,50 +55,58 @@ export class InputBuffer {
     canExecute: () => boolean,
     execute: () => void
   ): boolean {
-    const index = this.bufferedInputs.findIndex(
-      (input) => input.action === action
-    )
+    const now = performance.now()
 
-    if (index === -1) return false
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      const input = this.bufferedInputs[i]
+      if (!input.active || input.action !== action) continue
 
-    const input = this.bufferedInputs[index]
-    const elapsed = Date.now() - input.timestamp
-    const isZeroWindow = input.bufferWindow === 0
+      const elapsed = now - input.timestamp
+      const isZeroWindow = input.bufferWindow === 0
 
-    if (!isZeroWindow && elapsed >= input.bufferWindow) {
-      this.bufferedInputs.splice(index, 1)
+      if (!isZeroWindow && elapsed >= input.bufferWindow) {
+        input.active = false
+        return false
+      }
+
+      if (canExecute()) {
+        execute()
+        input.active = false
+        return true
+      }
+
+      if (isZeroWindow) {
+        input.active = false
+      }
+
       return false
-    }
-
-    if (canExecute()) {
-      execute()
-      this.bufferedInputs.splice(index, 1)
-      return true
-    }
-
-    // Zero-window inputs are never cached across frames.
-    if (isZeroWindow) {
-      this.bufferedInputs.splice(index, 1)
     }
 
     return false
   }
 
   clearAction(action: string) {
-    const index = this.bufferedInputs.findIndex(
-      (input) => input.action === action
-    )
-    if (index !== -1) {
-      this.bufferedInputs.splice(index, 1)
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      const input = this.bufferedInputs[i]
+      if (input.active && input.action === action) {
+        input.active = false
+        return
+      }
     }
   }
 
   update() {
-    const now = Date.now()
-    this.bufferedInputs = this.bufferedInputs.filter(
-      (input) =>
-        input.bufferWindow === 0 || now - input.timestamp < input.bufferWindow
-    )
+    const now = performance.now()
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      const input = this.bufferedInputs[i]
+      if (!input.active) continue
+      if (
+        input.bufferWindow !== 0 &&
+        now - input.timestamp >= input.bufferWindow
+      ) {
+        input.active = false
+      }
+    }
   }
 
   setDefaultBufferWindow(window: number) {
@@ -89,15 +118,16 @@ export class InputBuffer {
   }
 
   getDebugInfo(): string[] {
-    const now = Date.now()
-    return this.bufferedInputs
-      .filter((input) => input.bufferWindow > 0)
-      .map(
-        (input) =>
-          `${input.action} (${(
-            input.bufferWindow -
-            (now - input.timestamp)
-          ).toFixed(0)}ms)`
-      )
+    const result: string[] = []
+    const now = performance.now()
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      const input = this.bufferedInputs[i]
+      if (input.active && input.bufferWindow > 0) {
+        result.push(
+          `${input.action} (${(input.bufferWindow - (now - input.timestamp)).toFixed(0)}ms)`
+        )
+      }
+    }
+    return result
   }
 }

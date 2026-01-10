@@ -248,11 +248,26 @@ export type RayCastResult = {
   isHostile?: boolean
 }
 
+const DEFAULT_SENSOR_RAY_COUNT = 3
+
+const createRayCastResults = (count: number): RayCastResult[] => {
+  const results: RayCastResult[] = []
+  for (let i = 0; i < count; i++) {
+    results.push({
+      start: { x: 0, y: 0 },
+      end: { x: 0, y: 0 },
+      hit: false,
+      hitPoint: { x: 0, y: 0 },
+    })
+  }
+  return results
+}
+
 export class SensorComponent extends Component {
   radius = 10
   fov = (90 * Math.PI) / 180 // +/- 45 degrees
-  rayCount = 3 // Fixed 3 rays
-  scanResults: RayCastResult[] = []
+  rayCount = DEFAULT_SENSOR_RAY_COUNT
+  scanResults: RayCastResult[] = createRayCastResults(DEFAULT_SENSOR_RAY_COUNT)
   lastScanTimestamp = 0
   scanIntervalMs = 100
   detectedTargetId: number | null = null

@@ -36,6 +36,12 @@ export class EntityManager {
     return this.entities
   }
 
+  getEntityById(id: number): Entity | undefined {
+    const index = this.entityIndexMap.get(id)
+    if (index === undefined) return undefined
+    return this.entities[index]
+  }
+
   update(): void {
     if (this.entitiesToRemove.length > 0) {
       for (const entity of this.entitiesToRemove) {

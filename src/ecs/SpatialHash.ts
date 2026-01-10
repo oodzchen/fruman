@@ -12,7 +12,7 @@ export class SpatialHash {
   private queryResultSet = new Set<Entity>()
   private keyCache = new Map<number, Map<number, string>>()
   private currentFrame = 0
-  private entityCellCache = new Map<number, string[]>()
+  private entityCellCache = new Map<number, string>()
 
   constructor(cellSize = 5) {
     this.cellSize = cellSize
@@ -32,22 +32,19 @@ export class SpatialHash {
       const y = entity.transform.y
       const key = this.getKey(x, y)
 
-      const prevKeys = this.entityCellCache.get(entity.id)
-      const currentKey = key
+      const prevKey = this.entityCellCache.get(entity.id)
 
-      if (prevKeys && prevKeys.length === 1 && prevKeys[0] === currentKey) {
-        const cellData = this.grid.get(currentKey)
+      if (prevKey === key) {
+        const cellData = this.grid.get(key)
         if (cellData && cellData.frameNumber === this.currentFrame) {
           continue
         }
       }
 
-      if (prevKeys) {
-        for (const oldKey of prevKeys) {
-          const cellData = this.grid.get(oldKey)
-          if (cellData) {
-            cellData.entities.delete(entity)
-          }
+      if (prevKey) {
+        const cellData = this.grid.get(prevKey)
+        if (cellData) {
+          cellData.entities.delete(entity)
         }
       }
 
@@ -63,8 +60,21 @@ export class SpatialHash {
       }
 
       cellData.entities.add(entity)
-      this.entityCellCache.set(entity.id, [key])
+      this.entityCellCache.set(entity.id, key)
     }
+  }
+
+  removeEntity(entity: Entity): void {
+    const key = this.entityCellCache.get(entity.id)
+    if (!key) return
+    const cellData = this.grid.get(key)
+    if (cellData) {
+      cellData.entities.delete(entity)
+      if (cellData.entities.size === 0) {
+        this.grid.delete(key)
+      }
+    }
+    this.entityCellCache.delete(entity.id)
   }
 
   query(x: number, y: number, radius: number): Entity[] {

@@ -1,5 +1,6 @@
 // import Box2DFactory from 'box2d3-wasm' // Not needed in main thread anymore
 import { GameClient } from './GameClient'
+
 // import type { MainModule } from './types'
 
 const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
@@ -114,7 +115,7 @@ async function initialize() {
   // const box2d: MainModule = await Box2DFactory() // Moved to worker
 
   const game = new GameClient(canvas, ctx)
-  
+
   const storedValues = loadStoredValues()
   const updateStoredValue = (id: string, value: string) => {
     storedValues[id] = value
@@ -325,7 +326,11 @@ async function initialize() {
   // But we need to update UI for zoom
   function uiLoop() {
     const currentZoom = game.getZoom().toFixed(1)
-    if (cameraZoomRange.value !== currentZoom && document.activeElement !== cameraZoomRange && document.activeElement !== cameraZoomNum) {
+    if (
+      cameraZoomRange.value !== currentZoom &&
+      document.activeElement !== cameraZoomRange &&
+      document.activeElement !== cameraZoomNum
+    ) {
       cameraZoomRange.value = currentZoom
       cameraZoomNum.value = currentZoom
     }

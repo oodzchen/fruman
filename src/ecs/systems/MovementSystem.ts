@@ -18,6 +18,7 @@ export class MovementSystem extends System {
   private box2d: MainModule
   private allEntities: Entity[] = []
   private spatialHash: SpatialHash | null = null
+  private entityLookup?: (id: number) => Entity | undefined
   private tempVec: InstanceType<MainModule['b2Vec2']>
   private tempVec2: InstanceType<MainModule['b2Vec2']>
 
@@ -39,6 +40,10 @@ export class MovementSystem extends System {
 
   setSpatialHash(spatialHash: SpatialHash): void {
     this.spatialHash = spatialHash
+  }
+
+  setEntityLookup(lookup: (id: number) => Entity | undefined): void {
+    this.entityLookup = lookup
   }
 
   update(entities: Entity[], _deltaTime: number): void {
@@ -235,8 +240,7 @@ export class MovementSystem extends System {
     // 处于击退硬直状态时，不处理移动输入，保留物理惯性
     if (Date.now() < entity.movement.knockbackEndTime) return
 
-    const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity, b2Vec2 } =
-      this.box2d
+    const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity } = this.box2d
     const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
 
     let direction = entity.input.moveDirection
@@ -255,9 +259,18 @@ export class MovementSystem extends System {
         entity.input.lastMoveDirection = entity.input.facingOverride
       } else if (entity.input.lockedTargetId !== null) {
         // 如果有锁定目标，始终面朝目标
-        const target = this.allEntities.find(
-          (e) => e.id === entity.input?.lockedTargetId
-        )
+        const lockedTargetId = entity.input.lockedTargetId
+        let target: Entity | undefined
+        if (this.entityLookup) {
+          target = this.entityLookup(lockedTargetId)
+        } else {
+          for (const candidate of this.allEntities) {
+            if (candidate.id === lockedTargetId) {
+              target = candidate
+              break
+            }
+          }
+        }
         if (target && target.transform && entity.transform) {
           const dx = target.transform.x - entity.transform.x
           entity.input.lastMoveDirection = dx >= 0 ? 1 : -1
@@ -272,6 +285,7 @@ export class MovementSystem extends System {
       Date.now() - entity.movement.wallJumpTime < wallJumpCooldown
 
     if (isInWallJumpCooldown) {
+      currentVel.delete()
       return
     }
 
@@ -287,6 +301,7 @@ export class MovementSystem extends System {
     this.tempVec.x = direction * entity.movement.moveSpeed
     this.tempVec.y = currentVel.y
     b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+    currentVel.delete()
   }
 
   private handleJump(entity: Entity): void {
@@ -321,7 +336,6 @@ export class MovementSystem extends System {
       b2Body_GetLinearVelocity,
       b2Body_ApplyForceToCenter,
       b2Body_GetMass,
-      b2Vec2,
     } = this.box2d
     const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
     const mass = b2Body_GetMass(entity.physics.bodyId)
@@ -348,6 +362,7 @@ export class MovementSystem extends System {
     ) {
       entity.movement.isJumping = false
     }
+    vel.delete()
   }
 
   private canJump(entity: Entity): boolean {
@@ -455,10 +470,10 @@ export class MovementSystem extends System {
 
       const dx = otherX - myX
       const dy = other.transform.y - entity.transform.y
-      const distance = Math.hypot(dx, dy)
       const touchDistance = myRadius + otherRadius + 0.1
-
-      if (distance > touchDistance) continue
+      const distanceSquared = dx * dx + dy * dy
+      const touchDistanceSquared = touchDistance * touchDistance
+      if (distanceSquared > touchDistanceSquared) continue
 
       const isInFront = (direction > 0 && dx > 0) || (direction < 0 && dx < 0)
       if (isInFront) {

@@ -29,6 +29,7 @@ export class PhysicsSystem extends System {
       const pos = b2Body_GetPosition(entity.physics.bodyId)
       entity.transform.x = pos.x
       entity.transform.y = pos.y
+      pos.delete()
     }
   }
 }

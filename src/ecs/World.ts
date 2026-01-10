@@ -66,8 +66,14 @@ export class World {
     return this.entityManager.getEntities()
   }
 
+  getEntityById(id: number): Entity | undefined {
+    return this.entityManager.getEntityById(id)
+  }
+
   clear(): void {
     this.entityManager.clear()
     this.systems = []
+    this.systemEntityCache.clear()
+    this.cacheNeedsRebuild = true
   }
 }

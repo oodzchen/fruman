@@ -1,6 +1,10 @@
 import { ClientRenderer } from './ClientRenderer'
-import type { MainToWorkerMessage, RenderEntity, WorkerToMainMessage } from './worker/protocol'
 import GameWorker from './worker/gameWorker?worker'
+import type {
+  MainToWorkerMessage,
+  WorkerInputMessage,
+  WorkerToMainMessage,
+} from './worker/protocol'
 
 export class GameClient {
   private worker: Worker
@@ -8,67 +12,115 @@ export class GameClient {
   private ctx: CanvasRenderingContext2D
   private renderer: ClientRenderer
   private pixelsPerMeter = 50
-  
-  // Game State mirror
-  private entities: RenderEntity[] = []
+
   private camera = { x: 0, y: 0 }
   private renderFps = 0
+  private fpsText = '0 FPS'
   private lastTime = 0
   private frameCount = 0
   private fpsUpdateTime = 0
-  
+
   // Input State
   private keys = new Set<string>()
+  private keysArray: string[] = []
   private mouseZoom = 1.0
+
+  // Reusable message object for input
+  private inputMessage: WorkerInputMessage = {
+    type: 'input',
+    keys: [],
+    mouseZoom: 1.0,
+  }
+
+  // Cached bound functions
+  private boundRenderLoop: (timestamp?: number) => void
+  private boundHandleWorkerMessage: (
+    e: MessageEvent<WorkerToMainMessage>
+  ) => void
 
   // Static Environment (Mirrored from constants/logic)
   private groundPattern: CanvasPattern | null = null
   private obstaclePattern: CanvasPattern | null = null
   private backgroundPattern: CanvasPattern | null = null
-  
+
+  private groundHeight = 0.5
+  private groundY = 0
+  private groundTopY = 0
+  private obstacleConfigs = [
+    { x: -9.5, width: 1.2, height: 2.8 },
+    { x: 9.5, width: 1.2, height: 2.8 },
+  ]
+
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas
     this.ctx = ctx
     this.renderer = new ClientRenderer(ctx, this.pixelsPerMeter)
-    
+
+    // Cache bound functions once
+    this.boundRenderLoop = this.renderLoop.bind(this)
+    this.boundHandleWorkerMessage = this.handleWorkerMessage.bind(this)
+
     // Initialize Patterns
     this.backgroundPattern = this.createBackgroundPattern()
     this.groundPattern = this.createGroundPattern()
     this.obstaclePattern = this.createObstaclePattern()
-    
+
     this.renderFps = 0
+    this.fpsText = `${this.renderFps} FPS`
+
+    const canvasHeightInMeters = this.canvas.height / this.pixelsPerMeter
+    this.groundY = canvasHeightInMeters - this.groundHeight
+    this.groundTopY = this.groundY - this.groundHeight
 
     // Initialize Worker
     this.worker = new GameWorker()
-    this.worker.onmessage = this.handleWorkerMessage.bind(this)
-    
+    this.worker.onmessage = this.boundHandleWorkerMessage
+
     // Send Init
     this.worker.postMessage({
-        type: 'init',
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-        pixelsPerMeter: this.pixelsPerMeter
+      type: 'init',
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      pixelsPerMeter: this.pixelsPerMeter,
     } as MainToWorkerMessage)
-    
+
     this.setupInput()
-    
+
     // Start Render Loop
-    requestAnimationFrame(this.renderLoop.bind(this))
+    requestAnimationFrame(this.boundRenderLoop)
   }
 
   private handleWorkerMessage(e: MessageEvent<WorkerToMainMessage>) {
-      const msg = e.data
-      if (msg.type === 'state') {
-          this.entities = msg.entities
-          this.camera = msg.camera
-      }
+    const msg = e.data
+    if (msg.type === 'state') {
+      // Pass raw buffer to renderer, no decoding here to save Main Thread CPU/GC
+      this.renderer.updateState(msg.entitiesBuffer, msg.entityCount)
+      this.camera.x = msg.camera.x
+      this.camera.y = msg.camera.y
+      this.releaseStateBuffer(msg.entitiesBuffer)
+    }
   }
 
+  private releaseStateBuffer(buffer: ArrayBuffer | SharedArrayBuffer) {
+    if (this.isSharedBuffer(buffer)) {
+      return
+    }
+    this.worker.postMessage({ type: 'buffer_release', buffer }, [buffer])
+  }
+
+  private isSharedBuffer(
+    buffer: ArrayBuffer | SharedArrayBuffer
+  ): buffer is SharedArrayBuffer {
+    return (
+      typeof SharedArrayBuffer !== 'undefined' &&
+      buffer instanceof SharedArrayBuffer
+    )
+  }
   private setupInput() {
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.key.toLowerCase())
       this.sendInput()
-      
+
       // Local Zoom control (immediate feedback)
       if (e.key.toLowerCase() === 'i') {
         this.mouseZoom = Math.max(0.1, this.mouseZoom + 0.2)
@@ -86,7 +138,7 @@ export class GameClient {
       this.keys.delete(e.key.toLowerCase())
       this.sendInput()
     })
-    
+
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault()
       const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1
@@ -96,63 +148,67 @@ export class GameClient {
   }
 
   private sendInput() {
-      this.worker.postMessage({
-          type: 'input',
-          keys: Array.from(this.keys),
-          mouseZoom: this.mouseZoom
-      } as MainToWorkerMessage)
+    // Reuse keysArray to avoid Array.from allocation
+    this.keysArray.length = 0
+    for (const k of this.keys) {
+      this.keysArray.push(k)
+    }
+    this.inputMessage.keys = this.keysArray
+    this.inputMessage.mouseZoom = this.mouseZoom
+    this.worker.postMessage(this.inputMessage)
   }
 
   private renderLoop(timestamp?: number) {
-      const now = timestamp ?? performance.now()
-      if (this.lastTime === 0) {
-          this.lastTime = now
-      }
-      const deltaTime = (now - this.lastTime) / 1000
+    const now = timestamp ?? performance.now()
+    if (this.lastTime === 0) {
       this.lastTime = now
+    }
+    const deltaTime = (now - this.lastTime) / 1000
+    this.lastTime = now
 
-      this.frameCount++
-      this.fpsUpdateTime += deltaTime
-      if (this.fpsUpdateTime >= 1.0) {
-          this.renderFps = Math.round(this.frameCount / this.fpsUpdateTime)
-          this.frameCount = 0
-          this.fpsUpdateTime = 0
-      }
+    this.frameCount++
+    this.fpsUpdateTime += deltaTime
+    if (this.fpsUpdateTime >= 1.0) {
+      this.renderFps = Math.round(this.frameCount / this.fpsUpdateTime)
+      this.fpsText = `${this.renderFps} FPS`
+      this.frameCount = 0
+      this.fpsUpdateTime = 0
+    }
 
-      this.render()
-      requestAnimationFrame(this.renderLoop.bind(this))
+    this.render()
+    requestAnimationFrame(this.boundRenderLoop)
   }
 
   private render() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-    
+
     // Draw Background
     if (this.backgroundPattern) {
-        this.ctx.save()
-        this.ctx.fillStyle = this.backgroundPattern
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
-        this.ctx.restore()
+      this.ctx.save()
+      this.ctx.fillStyle = this.backgroundPattern
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
+      this.ctx.restore()
     }
 
     this.ctx.save()
 
     const centerX = this.canvas.width / 2
     const bottomY = this.canvas.height
-    // Current zoom is handled by worker camera logic mostly, 
-    // BUT the worker sends camera position. 
+    // Current zoom is handled by worker camera logic mostly,
+    // BUT the worker sends camera position.
     // The zoom effect in RenderSystem/GameECS was:
     // ctx.scale(this.zoom, this.zoom)
     // Worker sends 'camera' which is the center point in meters.
     // The main thread 'zoom' variable tracks user input.
     // The worker *also* tracks zoom to adjust camera deadzone.
     // We should use the *worker's* calculated camera, but for the actual SCALE, we can use the local zoom or sync it.
-    // Better to use local zoom for smooth rendering if worker updates are slow, 
+    // Better to use local zoom for smooth rendering if worker updates are slow,
     // but worker sends state updates @ 60fps.
     // Let's use local mouseZoom for now or wait for worker to send back "current smoothed zoom".
     // Worker doesn't send "current smoothed zoom", only camera x/y.
     // Let's assume user input zoom is the target.
     // To match GameECS exactly, we should interpolate zoom here too.
-    
+
     // Simplification: Use this.mouseZoom as the scale.
     // Wait, GameECS interpolated zoom. Worker does that too.
     // We need the *interpolated* zoom from worker to match the camera position calculation?
@@ -162,9 +218,9 @@ export class GameClient {
     // For now, I'll rely on `mouseZoom` effectively being close enough or add `currentZoom` to protocol later.
     // Re-checking protocol: I didn't add zoom.
     // I will use `this.mouseZoom` but smoother.
-    
+
     const zoom = this.mouseZoom // TODO: Add smooth zoom or get from worker
-    
+
     this.ctx.translate(centerX, bottomY)
     this.ctx.scale(zoom, zoom)
     this.ctx.translate(-centerX, -bottomY)
@@ -173,16 +229,14 @@ export class GameClient {
       -this.camera.x * this.pixelsPerMeter,
       -this.camera.y * this.pixelsPerMeter
     )
-    
+
     // Draw Static Environment (Ground/Obstacles)
     this.drawGround()
     this.drawObstacles()
 
     // Draw Entities
-    // Find player to check for lock-on target
-    // We don't have direct "Player" reference easily, but we can assume ID=0 or check input component
-    const player = this.entities.find(e => e.input !== undefined)
-    this.renderer.render(this.entities, player?.input?.lockedTargetId)
+    // Renderer now handles data internally via binary buffer
+    this.renderer.render()
 
     this.ctx.restore()
 
@@ -192,38 +246,31 @@ export class GameClient {
     this.ctx.fillStyle = '#00ff00'
     this.ctx.strokeStyle = '#000000'
     this.ctx.lineWidth = 3
-    const fpsText = `${this.renderFps} FPS`
-    this.ctx.strokeText(fpsText, 10, 30)
-    this.ctx.fillText(fpsText, 10, 30)
+    this.ctx.strokeText(this.fpsText, 10, 30)
+    this.ctx.fillText(this.fpsText, 10, 30)
     this.ctx.restore()
   }
 
   // Copied from GameECS
   private drawGround() {
     // Static ground at y=height - 0.5m
-    const groundHeight = 0.5
-    const canvasHeightInMeters = this.canvas.height / this.pixelsPerMeter
-    const groundY = canvasHeightInMeters - groundHeight
-    
-    const topY = (groundY - groundHeight) * this.pixelsPerMeter // Wait, GameECS: pos.y is center. 
+    const topY = this.groundTopY * this.pixelsPerMeter // Wait, GameECS: pos.y is center.
     // In GameECS: createGround pos = groundY. groundBox is 0.5 height (half-height 0.25? No, MakeBox takes half-width/height).
     // b2MakeBox(50, 0.5) -> Total height 1.0.
     // So top is pos.y - 0.5.
-    
+
     // Let's just use the visual logic from GameECS
     // const pos = b2Body_GetPosition(this.groundBodyId)
     // topY = (pos.y - groundHeight) * ppm
     // height = groundHeight * 2 * ppm
-    
+
     // We assume the ground didn't move.
-    const pos = { x: 0, y: groundY } 
-    
-    const topY_px = (pos.y - 0.5) * this.pixelsPerMeter // 0.5 is the half-height used in GameECS
-    const height_px = 1.0 * this.pixelsPerMeter
+    const topY_px = topY // 0.5 is the half-height used in GameECS
+    const height_px = this.groundHeight * 2 * this.pixelsPerMeter
 
     this.ctx.fillStyle = this.groundPattern ?? '#654321'
     this.ctx.fillRect(
-      (pos.x - 50) * this.pixelsPerMeter,
+      -50 * this.pixelsPerMeter,
       topY_px,
       100 * this.pixelsPerMeter,
       height_px
@@ -231,40 +278,35 @@ export class GameClient {
   }
 
   private drawObstacles() {
-     // Static obstacles
-     // GameECS: { x: -9.5, width: 1.2, height: 2.8 }
-     const canvasHeightInMeters = this.canvas.height / this.pixelsPerMeter
-     const groundY = canvasHeightInMeters - 0.5
-     
-     const obstacleConfigs = [
-      { x: -9.5, width: 1.2, height: 2.8 },
-      { x: 9.5, width: 1.2, height: 2.8 },
-    ]
-    
-    obstacleConfigs.forEach(obs => {
-        // Body Pos: obs.x, groundY - obs.height
-        const posX = obs.x
-        const posY = groundY - obs.height
-        
-        this.ctx.fillStyle = this.obstaclePattern ?? '#d2691e'
-        this.ctx.fillRect(
-            (posX - obs.width) * this.pixelsPerMeter,
-            (posY - obs.height) * this.pixelsPerMeter,
-            obs.width * 2 * this.pixelsPerMeter,
-            obs.height * 2 * this.pixelsPerMeter
-        )
-        
-        this.ctx.strokeStyle = '#000'
-        this.ctx.lineWidth = 2
-        this.ctx.strokeRect(
-            (posX - obs.width) * this.pixelsPerMeter,
-            (posY - obs.height) * this.pixelsPerMeter,
-            obs.width * 2 * this.pixelsPerMeter,
-            obs.height * 2 * this.pixelsPerMeter
-        )
-    })
+    // Static obstacles
+    // GameECS: { x: -9.5, width: 1.2, height: 2.8 }
+    const groundY = this.groundY
+
+    for (let i = 0; i < this.obstacleConfigs.length; i++) {
+      const obs = this.obstacleConfigs[i]
+      // Body Pos: obs.x, groundY - obs.height
+      const posX = obs.x
+      const posY = groundY - obs.height
+
+      this.ctx.fillStyle = this.obstaclePattern ?? '#d2691e'
+      this.ctx.fillRect(
+        (posX - obs.width) * this.pixelsPerMeter,
+        (posY - obs.height) * this.pixelsPerMeter,
+        obs.width * 2 * this.pixelsPerMeter,
+        obs.height * 2 * this.pixelsPerMeter
+      )
+
+      this.ctx.strokeStyle = '#000'
+      this.ctx.lineWidth = 2
+      this.ctx.strokeRect(
+        (posX - obs.width) * this.pixelsPerMeter,
+        (posY - obs.height) * this.pixelsPerMeter,
+        obs.width * 2 * this.pixelsPerMeter,
+        obs.height * 2 * this.pixelsPerMeter
+      )
+    }
   }
-  
+
   // Patterns (Copied exactly)
   private createBackgroundPattern(): CanvasPattern | null {
     const patternSize = 80
@@ -280,7 +322,14 @@ export class GameClient {
     patternCtx.strokeStyle = '#394155'
     patternCtx.lineWidth = 1
 
-    const drawTriangle = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number) => {
+    const drawTriangle = (
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      x3: number,
+      y3: number
+    ) => {
       patternCtx.beginPath()
       patternCtx.moveTo(x1, y1)
       patternCtx.lineTo(x2, y2)
@@ -383,48 +432,79 @@ export class GameClient {
 
     return this.ctx.createPattern(patternCanvas, 'repeat')
   }
-  
+
   // Public Control API (Proxy to Worker)
-  stop() { this.worker.postMessage({ type: 'control', action: 'stop' }) }
-  start() { this.worker.postMessage({ type: 'control', action: 'start' }) }
-  restart() { this.worker.postMessage({ type: 'control', action: 'restart' }) }
-  
-  logParameters() { console.log("Control via Worker - Parameters not locally available") }
-  
-  // Parameter Setters
-  setGroundFriction(v: number) { this.updateParam('groundFriction', v) }
-  setObstacleFriction(v: number) { this.updateParam('obstacleFriction', v) }
-  setZoom(v: number) { this.mouseZoom = v; this.sendInput(); }
-  getZoom() { return this.mouseZoom }
-  
-  setJumpBufferWindow(v: number) { this.updateParam('jumpBufferWindow', v) }
-  
-  getPlayer() {
-      // Return a proxy object that mimics the old Player class method signatures
-      return {
-          setJumpForce: (v: number) => this.updateParam('jumpForce', v),
-          setMaxJumpDuration: (v: number) => this.updateParam('maxJumpDuration', v),
-          setJumpForceMultiplier: (v: number) => this.updateParam('jumpForceMultiplier', v),
-          setWallJumpPushAwayMultiplier: (v: number) => this.updateParam('wallJumpPushAway', v),
-          setWallJumpUpwardMultiplier: (v: number) => this.updateParam('wallJumpUpward', v),
-          setMaxWallJumps: (v: number) => this.updateParam('maxWallJumps', v),
-          setMoveSpeed: (v: number) => this.updateParam('moveSpeed', v),
-          setBodyFriction: (v: number) => this.updateParam('bodyFriction', v),
-          setBodyLinearDamping: (v: number) => this.updateParam('bodyLinearDamping', v),
-          setBaseWeight: (v: number) => this.updateParam('baseWeight', v),
-          setWeaponWeight: (v: number) => { /* Not implemented in worker sync yet */ },
-          applyHit: () => { /* Not easy to trigger arbitrary hit via param sync */ },
-          revive: () => { /* Not easy to trigger revive via param sync */ },
-          setAlive: (alive: boolean) => { /* Not implemented */ }
-      }
+  stop() {
+    this.worker.postMessage({ type: 'control', action: 'stop' })
   }
-  
+  start() {
+    this.worker.postMessage({ type: 'control', action: 'start' })
+  }
+  restart() {
+    this.worker.postMessage({ type: 'control', action: 'restart' })
+  }
+
+  logParameters() {
+    console.log('Control via Worker - Parameters not locally available')
+  }
+
+  // Parameter Setters
+  setGroundFriction(v: number) {
+    this.updateParam('groundFriction', v)
+  }
+  setObstacleFriction(v: number) {
+    this.updateParam('obstacleFriction', v)
+  }
+  setZoom(v: number) {
+    this.mouseZoom = v
+    this.sendInput()
+  }
+  getZoom() {
+    return this.mouseZoom
+  }
+
+  setJumpBufferWindow(v: number) {
+    this.updateParam('jumpBufferWindow', v)
+  }
+
+  getPlayer() {
+    // Return a proxy object that mimics the old Player class method signatures
+    return {
+      setJumpForce: (v: number) => this.updateParam('jumpForce', v),
+      setMaxJumpDuration: (v: number) => this.updateParam('maxJumpDuration', v),
+      setJumpForceMultiplier: (v: number) =>
+        this.updateParam('jumpForceMultiplier', v),
+      setWallJumpPushAwayMultiplier: (v: number) =>
+        this.updateParam('wallJumpPushAway', v),
+      setWallJumpUpwardMultiplier: (v: number) =>
+        this.updateParam('wallJumpUpward', v),
+      setMaxWallJumps: (v: number) => this.updateParam('maxWallJumps', v),
+      setMoveSpeed: (v: number) => this.updateParam('moveSpeed', v),
+      setBodyFriction: (v: number) => this.updateParam('bodyFriction', v),
+      setBodyLinearDamping: (v: number) =>
+        this.updateParam('bodyLinearDamping', v),
+      setBaseWeight: (v: number) => this.updateParam('baseWeight', v),
+      setWeaponWeight: (v: number) => {
+        /* Not implemented in worker sync yet */
+      },
+      applyHit: () => {
+        /* Not easy to trigger arbitrary hit via param sync */
+      },
+      revive: () => {
+        /* Not easy to trigger revive via param sync */
+      },
+      setAlive: (alive: boolean) => {
+        /* Not implemented */
+      },
+    }
+  }
+
   private updateParam(id: string, value: number) {
-      this.worker.postMessage({
-          type: 'control',
-          action: 'update_param',
-          paramId: id,
-          value: value
-      })
+    this.worker.postMessage({
+      type: 'control',
+      action: 'update_param',
+      paramId: id,
+      value: value,
+    })
   }
 }

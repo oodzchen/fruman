@@ -1,4 +1,8 @@
-import type { StatsComponent, WeaponComponent, RenderComponent, TransformComponent, MovementComponent, InputComponent } from '../ecs/Component'
+import type {
+  RenderComponent,
+  TransformComponent,
+  WeaponComponent,
+} from '../ecs/Component'
 
 export type RenderEntity = {
   id: number
@@ -49,6 +53,11 @@ export type WorkerInputMessage = {
   mouseZoom: number // Target zoom
 }
 
+export type WorkerBufferReleaseMessage = {
+  type: 'buffer_release'
+  buffer: ArrayBuffer
+}
+
 export type WorkerControlMessage = {
   type: 'control'
   action: 'stop' | 'start' | 'restart' | 'update_param'
@@ -56,11 +65,16 @@ export type WorkerControlMessage = {
   value?: number
 }
 
-export type MainToWorkerMessage = WorkerInitMessage | WorkerInputMessage | WorkerControlMessage
+export type MainToWorkerMessage =
+  | WorkerInitMessage
+  | WorkerInputMessage
+  | WorkerBufferReleaseMessage
+  | WorkerControlMessage
 
 export type WorkerStateMessage = {
   type: 'state'
-  entities: RenderEntity[]
+  entitiesBuffer: ArrayBuffer | SharedArrayBuffer
+  entityCount: number
   camera: { x: number; y: number }
 }
 

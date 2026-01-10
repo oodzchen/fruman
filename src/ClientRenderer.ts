@@ -1,4 +1,9 @@
-import type { RenderEntity } from './worker/protocol'
+import {
+  ENTITY_STRIDE,
+  FLAGS,
+  MAX_ENTITIES,
+  OFFSETS,
+} from './worker/BinaryProtocol'
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
@@ -8,61 +13,118 @@ export class ClientRenderer {
   private tempOffset = { x: 0, y: 0 }
   private tempScale = { x: 1, y: 1 }
 
-  constructor(
-    ctx: CanvasRenderingContext2D,
-    pixelsPerMeter: number
-  ) {
+  // Pre-allocated buffer to avoid creating new Float32Array each frame
+  private stateBuffer = new Float32Array(MAX_ENTITIES * ENTITY_STRIDE)
+  private entityCount = 0
+  private incomingBuffer: ArrayBuffer | SharedArrayBuffer | null = null
+  private incomingView: Float32Array | null = null
+
+  // Cache for int -> hex color
+  private colorCache = new Map<number, string>()
+
+  constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
     this.pixelsPerMeter = pixelsPerMeter
     this.camera = { x: 0, y: 0 }
   }
 
-  setCamera(x: number, y: number) {
-      this.camera.x = x
-      this.camera.y = y
+  updateState(buffer: ArrayBuffer | SharedArrayBuffer, count: number) {
+    if (this.incomingBuffer !== buffer) {
+      this.incomingBuffer = buffer
+      this.incomingView = new Float32Array(buffer)
+    }
+    const incoming = this.incomingView
+    if (!incoming) return
+    const copyLength = count * ENTITY_STRIDE
+    for (let i = 0; i < copyLength; i++) {
+      this.stateBuffer[i] = incoming[i]
+    }
+    this.entityCount = count
   }
 
-  render(entities: RenderEntity[], playerLockedTargetId?: number | null) {
-    for (const entity of entities) {
-      if (entity.stats?.isVanished) continue
-      if (!entity.render.visible) continue
+  setCamera(x: number, y: number) {
+    this.camera.x = x
+    this.camera.y = y
+  }
 
-      const facing = entity.input && entity.input.lastMoveDirection !== 0
-          ? entity.input.lastMoveDirection
-          : 1
-      
+  private getColorString(colorInt: number): string {
+    if (this.colorCache.has(colorInt)) return this.colorCache.get(colorInt)!
+    let hex = colorInt.toString(16)
+    while (hex.length < 6) hex = '0' + hex
+    const str = '#' + hex
+    this.colorCache.set(colorInt, str)
+    return str
+  }
+
+  render() {
+    if (this.entityCount === 0) return
+    const buf = this.stateBuffer
+
+    // First pass: Find Player (ID=0 heuristic)
+    let playerLockedTargetId = -1
+    for (let i = 0; i < this.entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      const id = buf[offset + OFFSETS.ID]
+      if (id === 0) {
+        playerLockedTargetId = buf[offset + OFFSETS.LOCKED_TARGET_ID]
+        break
+      }
+    }
+
+    // Render Entities
+    for (let i = 0; i < this.entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      const flags = buf[offset + OFFSETS.FLAGS]
+
+      if (flags & FLAGS.VANISHED) continue
+      if (!(flags & FLAGS.VISIBLE)) continue
+
+      const facing = buf[offset + OFFSETS.MOVE_DIR] // 1 or -1
+      const hasWeapon = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
+
       // Draw weapon behind
-      if (facing < 0 && entity.weapon) {
-          this.renderWeapon(entity)
+      if (facing < 0 && hasWeapon) {
+        this.renderWeapon(buf, offset, flags)
       }
 
-      this.renderEntity(entity)
+      this.renderEntity(buf, offset, flags)
 
       // Draw weapon in front
-      if (facing >= 0 && entity.weapon) {
-          this.renderWeapon(entity)
+      if (facing >= 0 && hasWeapon) {
+        this.renderWeapon(buf, offset, flags)
       }
     }
-    
+
     // Draw LockOn Reticle
-    if (playerLockedTargetId) {
-        const target = entities.find(e => e.id === playerLockedTargetId)
-        if (target && !target.stats?.isVanished) {
-            this.drawLockOnReticle(target)
+    if (playerLockedTargetId !== -1) {
+      // Find target
+      for (let i = 0; i < this.entityCount; i++) {
+        const offset = i * ENTITY_STRIDE
+        if (buf[offset + OFFSETS.ID] === playerLockedTargetId) {
+          const flags = buf[offset + OFFSETS.FLAGS]
+          if (!(flags & FLAGS.VANISHED)) {
+            this.drawLockOnReticle(buf, offset)
+          }
+          break
         }
+      }
     }
   }
 
-  private drawLockOnReticle(target: RenderEntity): void {
-    const pos = target.transform
-    const shakeOffset = this.getHitShakeOffset(target)
-    const centerX = (pos.x + shakeOffset.x) * this.pixelsPerMeter
-    const centerY = (pos.y + shakeOffset.y) * this.pixelsPerMeter
+  private drawLockOnReticle(buf: Float32Array, offset: number): void {
+    const x = buf[offset + OFFSETS.X]
+    const y = buf[offset + OFFSETS.Y]
+
+    // Shake
+    const shakeOffset = this.getHitShakeOffset(buf, offset)
+
+    const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
+    const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
 
     this.ctx.save()
     this.ctx.translate(centerX, centerY)
     this.ctx.strokeStyle = '#FFFFFF'
-    this.ctx.lineWidth = 1 
+    this.ctx.lineWidth = 1
     const size = 7.5
 
     this.ctx.beginPath()
@@ -74,37 +136,41 @@ export class ClientRenderer {
 
     this.ctx.fillStyle = '#FFFFFF'
     this.ctx.beginPath()
-    this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2) 
+    this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2)
     this.ctx.fill()
     this.ctx.restore()
   }
 
-  private renderEntity(entity: RenderEntity): void {
-    const pos = entity.transform
-    const render = entity.render
+  private renderEntity(buf: Float32Array, offset: number, flags: number): void {
+    const x = buf[offset + OFFSETS.X]
+    const y = buf[offset + OFFSETS.Y]
+    const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    const colorInt = buf[offset + OFFSETS.COLOR]
+    const borderColorInt = buf[offset + OFFSETS.BORDER_COLOR]
 
-    const shakeOffset = this.getHitShakeOffset(entity)
-    const centerX = (pos.x + shakeOffset.x) * this.pixelsPerMeter
-    const centerY = (pos.y + shakeOffset.y) * this.pixelsPerMeter
-    const radius = render.radius * this.pixelsPerMeter
-    const deathScale = this.getDeathScale(entity)
-    const alpha = this.getDeathAlpha(entity)
+    const shakeOffset = this.getHitShakeOffset(buf, offset)
+    const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
+    const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
+
+    const deathScale = this.getDeathScale(buf, offset, flags)
+    const alpha = this.getDeathAlpha(buf, offset, flags)
 
     this.ctx.save()
     this.ctx.translate(centerX, centerY)
     this.ctx.scale(deathScale.x, deathScale.y)
     this.ctx.globalAlpha *= alpha
 
-    if (entity.movement && entity.movement.isRolling) {
-      this.ctx.rotate(entity.movement.rollAngle)
+    if (flags & FLAGS.ROLLING) {
+      const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
+      this.ctx.rotate(rollAngle)
     }
 
-    this.ctx.fillStyle = render.color
+    this.ctx.fillStyle = this.getColorString(colorInt)
     this.ctx.beginPath()
     this.ctx.arc(0, 0, radius, 0, 2 * Math.PI)
     this.ctx.fill()
 
-    this.ctx.strokeStyle = render.borderColor
+    this.ctx.strokeStyle = this.getColorString(borderColorInt)
     this.ctx.lineWidth = 3
     this.ctx.stroke()
 
@@ -113,8 +179,7 @@ export class ClientRenderer {
     const eyeOffsetX = 0.25 * this.pixelsPerMeter
     const eyeOffsetY = -0.25 * this.pixelsPerMeter
 
-    const direction =
-      entity.input && entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    const direction = buf[offset + OFFSETS.MOVE_DIR]
     const eyeX = direction < 0 ? -eyeOffsetX : eyeOffsetX
     const eyeY = eyeOffsetY
 
@@ -125,30 +190,37 @@ export class ClientRenderer {
 
     this.ctx.restore()
 
-    if (entity.stats) {
-      this.drawStatusBars(entity.stats, centerX, centerY, render.radius)
+    // Status Bars
+    const maxHealth = buf[offset + OFFSETS.STATS_HEALTH_MAX]
+    if (maxHealth > 0) {
+      this.drawStatusBars(
+        buf,
+        offset,
+        centerX,
+        centerY,
+        buf[offset + OFFSETS.RADIUS]
+      )
     }
   }
 
-  private renderWeapon(entity: RenderEntity): void {
-    if (!entity.weapon) return
-    if (entity.stats?.isDead || entity.stats?.isVanished) return
+  private renderWeapon(buf: Float32Array, offset: number, flags: number): void {
+    if (flags & FLAGS.DEAD) return
+    if (flags & FLAGS.VANISHED) return
 
-    const weapon = entity.weapon
-    const widthPx = weapon.width * this.pixelsPerMeter
-    const heightPx = weapon.height * this.pixelsPerMeter
-    const radiusPx = weapon.cornerRadius * this.pixelsPerMeter
+    const wx = buf[offset + OFFSETS.WEAPON_X]
+    const wy = buf[offset + OFFSETS.WEAPON_Y]
+    const wRot = buf[offset + OFFSETS.WEAPON_ROT]
+    const wWidth = buf[offset + OFFSETS.WEAPON_W] * this.pixelsPerMeter
+    const wHeight = buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter
+    const wRad = buf[offset + OFFSETS.WEAPON_R] * this.pixelsPerMeter
 
     this.ctx.save()
-    this.ctx.translate(
-      weapon.visual.x * this.pixelsPerMeter,
-      weapon.visual.y * this.pixelsPerMeter
-    )
-    this.ctx.rotate(weapon.visual.rotation)
+    this.ctx.translate(wx * this.pixelsPerMeter, wy * this.pixelsPerMeter)
+    this.ctx.rotate(wRot)
     this.ctx.fillStyle = '#c7b58f'
     this.ctx.strokeStyle = '#5a4b2a'
     this.ctx.lineWidth = 2
-    this.drawRoundedRect(widthPx, heightPx, radiusPx)
+    this.drawRoundedRect(wWidth, wHeight, wRad)
     this.ctx.fill()
     this.ctx.stroke()
     this.ctx.restore()
@@ -194,21 +266,27 @@ export class ClientRenderer {
   }
 
   private drawStatusBars(
-    stats: NonNullable<RenderEntity['stats']>,
+    buf: Float32Array,
+    offset: number,
     centerX: number,
     centerY: number,
-    radius: number
+    radiusMeters: number
   ): void {
-    const barWidth = radius * 2.2 * this.pixelsPerMeter
+    const health = buf[offset + OFFSETS.STATS_HEALTH]
+    const maxHealth = buf[offset + OFFSETS.STATS_HEALTH_MAX]
+    const toughness = buf[offset + OFFSETS.STATS_TOUGHNESS]
+    const maxToughness = buf[offset + OFFSETS.STATS_TOUGHNESS_MAX]
+
+    const barWidth = radiusMeters * 2.2 * this.pixelsPerMeter
     const barHeight = 6
     const spacing = 2
     const startX = centerX - barWidth / 2
     const barTopOffset = 18
-    const baseY = centerY - radius * this.pixelsPerMeter - barTopOffset
+    const baseY = centerY - radiusMeters * this.pixelsPerMeter - barTopOffset
     const healthY = baseY
     const toughnessY = baseY + barHeight + spacing
 
-    const healthRatio = stats.maxHealth > 0 ? stats.health / stats.maxHealth : 0
+    const healthRatio = maxHealth > 0 ? health / maxHealth : 0
     this.drawBar(
       startX,
       healthY,
@@ -219,8 +297,7 @@ export class ClientRenderer {
       '#ff4d4f'
     )
 
-    const toughnessRatio =
-      stats.maxToughness > 0 ? stats.toughness / stats.maxToughness : 0
+    const toughnessRatio = maxToughness > 0 ? toughness / maxToughness : 0
     this.drawBar(
       startX,
       toughnessY,
@@ -254,15 +331,20 @@ export class ClientRenderer {
     this.ctx.strokeRect(x, y, width, height)
   }
 
-  private getDeathScale(entity: RenderEntity): { x: number; y: number } {
-    if (!entity.stats || !entity.stats.isDead) {
+  private getDeathScale(
+    buf: Float32Array,
+    offset: number,
+    flags: number
+  ): { x: number; y: number } {
+    if (!(flags & FLAGS.DEAD)) {
       this.tempScale.x = 1
       this.tempScale.y = 1
       return this.tempScale
     }
-    const elapsed = entity.stats.deathElapsedSec
-    const flash = entity.stats.deathFlashDurationSec
-    const flatten = entity.stats.deathFlattenDurationSec
+    const elapsed = buf[offset + OFFSETS.STATS_DEATH_ELAPSED]
+    const flash = 0.3
+    const flatten = 0.7
+
     if (elapsed <= flash) {
       this.tempScale.x = 1
       this.tempScale.y = 1
@@ -276,11 +358,15 @@ export class ClientRenderer {
     return this.tempScale
   }
 
-  private getDeathAlpha(entity: RenderEntity): number {
-    if (!entity.stats || !entity.stats.isDead) return 1
-    const elapsed = entity.stats.deathElapsedSec
-    const flash = entity.stats.deathFlashDurationSec
-    const flatten = entity.stats.deathFlattenDurationSec
+  private getDeathAlpha(
+    buf: Float32Array,
+    offset: number,
+    flags: number
+  ): number {
+    if (!(flags & FLAGS.DEAD)) return 1
+    const elapsed = buf[offset + OFFSETS.STATS_DEATH_ELAPSED]
+    const flash = 0.3
+    const flatten = 0.7
     if (elapsed <= flash) {
       return 0.5 + 0.5 * Math.sin(elapsed * 20)
     }
@@ -288,21 +374,27 @@ export class ClientRenderer {
     return 1 - progress
   }
 
-  private getHitShakeOffset(entity: RenderEntity): { x: number; y: number } {
-    if (!entity.stats || entity.stats.hitShakeDurationMs === 0) {
+  private getHitShakeOffset(
+    buf: Float32Array,
+    offset: number
+  ): { x: number; y: number } {
+    const duration = buf[offset + OFFSETS.STATS_SHAKE_DURATION]
+    if (duration === 0) {
       this.tempOffset.x = 0
       this.tempOffset.y = 0
       return this.tempOffset
     }
 
-    const progress =
-      entity.stats.hitShakeElapsedMs / entity.stats.hitShakeDurationMs
+    const elapsed = buf[offset + OFFSETS.STATS_SHAKE_ELAPSED]
+    const intensity = buf[offset + OFFSETS.STATS_SHAKE_INTENSITY]
+    const dirX = buf[offset + OFFSETS.STATS_SHAKE_DIR_X]
+
+    const progress = elapsed / duration
     const decay = 1 - progress
     const frequency = 30
     const shake = Math.sin(progress * frequency) * decay
 
-    const offsetX =
-      shake * entity.stats.hitShakeIntensity * entity.stats.hitShakeDirectionX
+    const offsetX = shake * intensity * dirX
 
     this.tempOffset.x = offsetX
     this.tempOffset.y = 0

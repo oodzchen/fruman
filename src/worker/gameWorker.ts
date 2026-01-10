@@ -1,4 +1,5 @@
 import Box2DFactory from 'box2d3-wasm'
+
 import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
@@ -18,10 +19,11 @@ import { StatsSystem } from '../ecs/systems/StatsSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
 import type { MainModule, b2BodyId, b2ShapeId } from '../types'
-import type { MainToWorkerMessage, RenderEntity, WorkerToMainMessage } from './protocol'
+import { ENTITY_STRIDE, FLAGS, MAX_ENTITIES, OFFSETS } from './BinaryProtocol'
+import type { MainToWorkerMessage, WorkerToMainMessage } from './protocol'
 
 // Worker global scope
-const ctx: Worker = self as any
+const ctx: Worker = self as unknown as Worker
 
 let box2d: MainModule
 let worldId: ReturnType<MainModule['b2CreateWorld']>
@@ -37,17 +39,46 @@ let weaponSystem: WeaponSystem
 let enemyAISystem: EnemyAISystem
 let targetingSystem: TargetingSystem
 
-let groundBodyId: b2BodyId
 let groundShapeId: b2ShapeId
-let obstacles: { bodyId: b2BodyId; shapeId: b2ShapeId; width: number; height: number }[] = []
+let obstacles: {
+  bodyId: b2BodyId
+  shapeId: b2ShapeId
+  width: number
+  height: number
+}[] = []
 
 let isPaused = false
-let loopInterval: any
+let loopInterval: ReturnType<typeof setInterval>
 const TARGET_FPS = 60
 const TIME_STEP = 1 / TARGET_FPS
 
+const STATE_BUFFER_FLOATS = MAX_ENTITIES * ENTITY_STRIDE
+const STATE_BUFFER_BYTES = STATE_BUFFER_FLOATS * Float32Array.BYTES_PER_ELEMENT
+const supportsSharedArrayBuffer =
+  typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated
+
+let sharedStateBuffer: SharedArrayBuffer | null = null
+let stateBuffer: Float32Array<ArrayBufferLike> = new Float32Array(
+  STATE_BUFFER_FLOATS
+)
+const reusableStateBuffers: ArrayBuffer[] = []
+
+// Helper for color parsing (simple cache)
+const colorCache = new Map<string, number>()
+function parseColor(color: string): number {
+  if (colorCache.has(color)) return colorCache.get(color)!
+  if (color.startsWith('#')) {
+    const hex = color.slice(1)
+    const val = parseInt(hex, 16)
+    colorCache.set(color, val)
+    return val
+  }
+  return 0
+}
+
 // Game State needed for logic
 let keys = new Set<string>()
+const currentKeys = new Set<string>()
 let canvasHeight = 0
 let pixelsPerMeter = 50
 let groundFriction = DEFAULT_GROUND_FRICTION
@@ -58,15 +89,29 @@ let groundTopY = 0
 const pendingParams: Record<string, number> = {}
 
 // Camera tracking logic (moved from Main to here to send correct camera pos)
-let camera = { x: 0, y: 0 }
+const camera = { x: 0, y: 0 }
 let zoom = 1.0
 let targetZoom = 1.0
 let canvasWidth = 0
+
+// Reusable message object for sendState
+const stateMessage: WorkerToMainMessage = {
+  type: 'state',
+  entitiesBuffer: null as unknown as ArrayBuffer | SharedArrayBuffer,
+  entityCount: 0,
+  camera: { x: 0, y: 0 },
+}
+
+// Loop Logic
+let lastTime = performance.now()
+let accumulator = 0
 
 async function init(width: number, height: number, ppm: number) {
   canvasWidth = width
   canvasHeight = height
   pixelsPerMeter = ppm
+
+  initStateBuffers()
 
   box2d = await Box2DFactory()
   const { b2DefaultWorldDef, b2CreateWorld, b2Vec2 } = box2d
@@ -80,11 +125,10 @@ async function init(width: number, height: number, ppm: number) {
   spatialHash = new SpatialHash(5)
 
   registerComponents()
-  
-  // Setup Environment
-  groundBodyId = createGround()
-  createObstacles()
 
+  // Setup Environment
+  createGround()
+  createObstacles()
   const groundHeight = 0.5
   const groundY = canvasHeight / pixelsPerMeter - groundHeight
   groundTopY = groundY - groundHeight
@@ -94,12 +138,39 @@ async function init(width: number, height: number, ppm: number) {
 
   // Apply pending parameters
   Object.entries(pendingParams).forEach(([id, value]) => {
-      updateParam(id, value)
+    updateParam(id, value)
   })
 
   // Start Loop
+  lastTime = performance.now()
+  accumulator = 0
   clearInterval(loopInterval)
   loopInterval = setInterval(update, 1000 / TARGET_FPS)
+}
+
+function initStateBuffers(): void {
+  if (supportsSharedArrayBuffer) {
+    sharedStateBuffer = new SharedArrayBuffer(STATE_BUFFER_BYTES)
+    stateBuffer = new Float32Array(sharedStateBuffer)
+    reusableStateBuffers.length = 0
+    return
+  }
+
+  sharedStateBuffer = null
+  reusableStateBuffers.length = 0
+  for (let i = 0; i < 2; i++) {
+    reusableStateBuffers.push(new ArrayBuffer(STATE_BUFFER_BYTES))
+  }
+  const initialBuffer = reusableStateBuffers.pop()
+  if (initialBuffer) {
+    stateBuffer = new Float32Array(initialBuffer)
+  }
+}
+
+function releaseStateBuffer(buffer: ArrayBuffer): void {
+  if (sharedStateBuffer) return
+  if (buffer.byteLength !== STATE_BUFFER_BYTES) return
+  reusableStateBuffers.push(buffer)
 }
 
 function registerComponents() {
@@ -123,401 +194,474 @@ function initializeSystems() {
   enemyAISystem.setWeaponSystem(weaponSystem)
   targetingSystem = new TargetingSystem(box2d, worldId)
 
+  const entityLookup = world.getEntityById.bind(world)
+  movementSystem.setEntityLookup(entityLookup)
+  targetingSystem.setEntityLookup(entityLookup)
+
   world.addSystem(statsSystem)
   world.addSystem(enemyAISystem)
   world.addSystem(movementSystem)
   world.addSystem(physicsSystem)
   world.addSystem(weaponSystem)
   world.addSystem(targetingSystem)
-  
+
   weaponSystem.setObstacles(obstacles)
 }
 
 function createGround(): b2BodyId {
-    const {
-      b2DefaultBodyDef,
-      b2CreateBody,
-      b2MakeBox,
-      b2DefaultShapeDef,
-      b2CreatePolygonShape,
-    } = box2d
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2MakeBox,
+    b2DefaultShapeDef,
+    b2CreatePolygonShape,
+  } = box2d
 
-    const groundHeight = 0.5
-    const canvasHeightInMeters = canvasHeight / pixelsPerMeter
-    const groundY = canvasHeightInMeters - groundHeight
+  const groundHeight = 0.5
+  const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+  const groundY = canvasHeightInMeters - groundHeight
 
-    const groundDef = b2DefaultBodyDef()
-    groundDef.position.Set(0, groundY)
-    const bodyId = b2CreateBody(worldId, groundDef)
+  const groundDef = b2DefaultBodyDef()
+  groundDef.position.Set(0, groundY)
+  const bodyId = b2CreateBody(worldId, groundDef)
 
-    const groundBox = b2MakeBox(50, groundHeight)
-    const shapeDef = b2DefaultShapeDef()
-    shapeDef.material.friction = groundFriction
-    shapeDef.material.restitution = 0
-    shapeDef.filter.categoryBits = CATEGORY_GROUND
-    groundShapeId = b2CreatePolygonShape(bodyId, shapeDef, groundBox)
+  const groundBox = b2MakeBox(50, groundHeight)
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.material.friction = groundFriction
+  shapeDef.material.restitution = 0
+  shapeDef.filter.categoryBits = CATEGORY_GROUND
+  groundShapeId = b2CreatePolygonShape(bodyId, shapeDef, groundBox)
 
-    groundDef.delete()
-    groundBox.delete()
-    shapeDef.delete()
+  groundDef.delete()
+  groundBox.delete()
+  shapeDef.delete()
 
-    return bodyId
+  return bodyId
 }
 
 function createObstacles() {
-    const {
-      b2DefaultBodyDef,
-      b2CreateBody,
-      b2MakeBox,
-      b2DefaultShapeDef,
-      b2CreatePolygonShape,
-    } = box2d
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2MakeBox,
+    b2DefaultShapeDef,
+    b2CreatePolygonShape,
+  } = box2d
 
-    const canvasHeightInMeters = canvasHeight / pixelsPerMeter
-    const groundY = canvasHeightInMeters - 0.5
-    obstacles = []
+  const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+  const groundY = canvasHeightInMeters - 0.5
+  obstacles = []
 
-    const obstacleConfigs = [
-      { x: -9.5, width: 1.2, height: 2.8 },
-      { x: 9.5, width: 1.2, height: 2.8 },
-    ]
+  const obstacleConfigs = [
+    { x: -9.5, width: 1.2, height: 2.8 },
+    { x: 9.5, width: 1.2, height: 2.8 },
+  ]
 
-    obstacleConfigs.forEach((obs) => {
-      const bodyDef = b2DefaultBodyDef()
-      bodyDef.position.Set(obs.x, groundY - obs.height)
-      const bodyId = b2CreateBody(worldId, bodyDef)
+  obstacleConfigs.forEach((obs) => {
+    const bodyDef = b2DefaultBodyDef()
+    bodyDef.position.Set(obs.x, groundY - obs.height)
+    const bodyId = b2CreateBody(worldId, bodyDef)
 
-      const box = b2MakeBox(obs.width, obs.height)
-      const shapeDef = b2DefaultShapeDef()
-      shapeDef.material.friction = obstacleFriction
-      shapeDef.material.restitution = 0
-      shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
-      const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
+    const box = b2MakeBox(obs.width, obs.height)
+    const shapeDef = b2DefaultShapeDef()
+    shapeDef.material.friction = obstacleFriction
+    shapeDef.material.restitution = 0
+    shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+    const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
 
-      obstacles.push({
-        bodyId,
-        shapeId,
-        width: obs.width,
-        height: obs.height,
-      })
-
-      bodyDef.delete()
-      box.delete()
-      shapeDef.delete()
+    obstacles.push({
+      bodyId,
+      shapeId,
+      width: obs.width,
+      height: obs.height,
     })
-    
-    // Update weapon system obstacles
-    if (weaponSystem) {
-        weaponSystem.setObstacles(obstacles)
-    }
+
+    bodyDef.delete()
+    box.delete()
+    shapeDef.delete()
+  })
+
+  // Update weapon system obstacles
+  if (weaponSystem) {
+    weaponSystem.setObstacles(obstacles)
+  }
 }
 
 function createPlayerAndWeapon(groundY: number) {
-    playerEntity = createPlayer(
-      world,
-      box2d,
-      worldId,
-      -12,
-      groundY - 0.6,
-      groundY
-    )
-    enemyEntity = createEnemy(
-      world,
-      box2d,
-      worldId,
-      -7,
-      groundY - 0.6,
-      groundY
-    )
-    createEnemy(
-        world,
-        box2d,
-        worldId,
-        8,
-        groundY - 0.6,
-        groundY
-    )
+  playerEntity = createPlayer(
+    world,
+    box2d,
+    worldId,
+    -12,
+    groundY - 0.6,
+    groundY
+  )
+  enemyEntity = createEnemy(world, box2d, worldId, -7, groundY - 0.6, groundY)
+  createEnemy(world, box2d, worldId, 8, groundY - 0.6, groundY)
 
-    enemyAISystem.setPlayer(playerEntity)
-    targetingSystem.setPlayer(playerEntity)
+  enemyAISystem.setPlayer(playerEntity)
+  targetingSystem.setPlayer(playerEntity)
 }
 
 function handleInput(activeKeys: string[], mouseZoomTarget: number) {
-    // Diff keys to detect press events if needed, but since we run on tick, checking existence is usually enough
-    // EXCEPT for events that should trigger once like 'jump' or 'attack' start.
-    // The main thread sends "current active keys".
-    // Logic needs to know "just pressed".
-    // Simple approach: Store previous keys.
-    
-    const currentKeys = new Set(activeKeys)
-    
-    // Check specific actions
-    const isPlayerDead = playerEntity.stats?.isDead ?? false
-    
-    if (playerEntity.input) {
-        let moveDirection = 0
-        if (currentKeys.has('a') || currentKeys.has('arrowleft')) moveDirection -= 1
-        if (currentKeys.has('d') || currentKeys.has('arrowright')) moveDirection += 1
-        
-        playerEntity.input.moveDirection = isPlayerDead ? 0 : moveDirection
-        
-        // Jump
-        if (currentKeys.has(' ') && !keys.has(' ') && !isPlayerDead) {
-             playerEntity.input.inputBuffer.bufferAction('jump')
-             playerEntity.input.jumpRequested = true
-        } else if (!currentKeys.has(' ')) {
-             playerEntity.input.jumpRequested = false
-        }
-        
-        // Attack
-        if (currentKeys.has('j') && !keys.has('j') && !isPlayerDead) {
-             weaponSystem.startAttack(playerEntity)
-        }
-        
-        // Block
-        if (currentKeys.has('k') && !isPlayerDead) {
-            playerEntity.input.blockRequested = true
-        } else {
-            playerEntity.input.blockRequested = false
-        }
-        
-        // Lock On
-        if (currentKeys.has('h') && !keys.has('h') && !isPlayerDead) {
-             const dir = playerEntity.input.moveDirection
-             const isLocked = playerEntity.input.lockedTargetId !== null
-             if (dir !== 0 && isLocked) {
-                 playerEntity.input.lockSwitchIntent = dir
-             } else {
-                 playerEntity.input.lockToggleRequested = true
-             }
-        }
-        
-        // Roll
-        if (currentKeys.has('l') && !keys.has('l') && !isPlayerDead) { // Using 'l' (lowercase L) for roll based on original code 'keypress'
-             playerEntity.input.inputBuffer.bufferAction('roll')
-        }
+  currentKeys.clear()
+  for (let i = 0; i < activeKeys.length; i++) {
+    currentKeys.add(activeKeys[i])
+  }
+
+  // Check specific actions
+  const isPlayerDead = playerEntity.stats?.isDead ?? false
+
+  if (playerEntity.input) {
+    let moveDirection = 0
+    if (currentKeys.has('a') || currentKeys.has('arrowleft')) moveDirection -= 1
+    if (currentKeys.has('d') || currentKeys.has('arrowright'))
+      moveDirection += 1
+
+    playerEntity.input.moveDirection = isPlayerDead ? 0 : moveDirection
+
+    // Jump
+    if (currentKeys.has(' ') && !keys.has(' ') && !isPlayerDead) {
+      playerEntity.input.inputBuffer.bufferAction('jump')
+      playerEntity.input.jumpRequested = true
+    } else if (!currentKeys.has(' ')) {
+      playerEntity.input.jumpRequested = false
     }
-    
-    keys = currentKeys
-    targetZoom = mouseZoomTarget
+
+    // Attack
+    if (currentKeys.has('j') && !keys.has('j') && !isPlayerDead) {
+      weaponSystem.startAttack(playerEntity)
+    }
+
+    // Block
+    if (currentKeys.has('k') && !isPlayerDead) {
+      playerEntity.input.blockRequested = true
+    } else {
+      playerEntity.input.blockRequested = false
+    }
+
+    // Lock On
+    if (currentKeys.has('h') && !keys.has('h') && !isPlayerDead) {
+      const dir = playerEntity.input.moveDirection
+      const isLocked = playerEntity.input.lockedTargetId !== null
+      if (dir !== 0 && isLocked) {
+        playerEntity.input.lockSwitchIntent = dir
+      } else {
+        playerEntity.input.lockToggleRequested = true
+      }
+    }
+
+    // Roll
+    if (currentKeys.has('l') && !keys.has('l') && !isPlayerDead) {
+      // Using 'l' (lowercase L) for roll based on original code 'keypress'
+      playerEntity.input.inputBuffer.bufferAction('roll')
+    }
+  }
+
+  // Swap keys: copy currentKeys to keys for next frame comparison
+  keys.clear()
+  for (const k of currentKeys) {
+    keys.add(k)
+  }
+  targetZoom = mouseZoomTarget
+}
+
+function fixedUpdate() {
+  // Update Zoom logic (smooth transition)
+  const zoomDiff = targetZoom - zoom
+  if (Math.abs(zoomDiff) > 0.001) {
+    zoom += zoomDiff * 0.15
+  } else {
+    zoom = targetZoom
+  }
+
+  weaponSystem.tryPickUpWeapon(playerEntity)
+
+  const entities = world.getEntities()
+  spatialHash.update(entities)
+
+  weaponSystem.setEntities(entities)
+  weaponSystem.setSpatialHash(spatialHash)
+  movementSystem.setEntities(entities)
+  movementSystem.setSpatialHash(spatialHash)
+
+  world.update(TIME_STEP)
+
+  cleanupDestroyedEntities()
+
+  updateCamera(playerEntity.transform ? playerEntity.transform.x : 0)
 }
 
 function update() {
-    if (isPaused || !world) return
+  if (isPaused || !world) return
 
-    // Update Zoom logic (smooth transition)
-    const zoomDiff = targetZoom - zoom
-    if (Math.abs(zoomDiff) > 0.001) {
-      zoom += zoomDiff * 0.15
-    } else {
-      zoom = targetZoom
-    }
+  const now = performance.now()
+  let frameTime = (now - lastTime) / 1000
+  lastTime = now
 
-    weaponSystem.tryPickUpWeapon(playerEntity)
+  // Spiral of death protection: Cap frame time
+  if (frameTime > 0.25) frameTime = 0.25
 
-    const entities = world.getEntities()
-    spatialHash.update(entities)
-    
-    weaponSystem.setEntities(entities)
-    weaponSystem.setSpatialHash(spatialHash)
-    movementSystem.setEntities(entities)
-    movementSystem.setSpatialHash(spatialHash)
-    
-    world.update(TIME_STEP)
-    
-    cleanupDestroyedEntities()
-    
-    updateCamera(playerEntity.transform ? playerEntity.transform.x : 0)
+  accumulator += frameTime
 
-    sendState()
+  while (accumulator >= TIME_STEP) {
+    fixedUpdate()
+    accumulator -= TIME_STEP
+  }
+
+  sendState()
 }
 
 function updateCamera(playerX: number) {
-    const centerX = canvasWidth / 2
-    const playerScreenX =
-      centerX +
-      ((playerX - camera.x) * pixelsPerMeter - centerX) * zoom
+  const centerX = canvasWidth / 2
+  const playerScreenX =
+    centerX + ((playerX - camera.x) * pixelsPerMeter - centerX) * zoom
 
-    const deadZoneLeft = canvasWidth / 8
-    const deadZoneRight = (7 * canvasWidth) / 8
+  const deadZoneLeft = canvasWidth / 8
+  const deadZoneRight = (7 * canvasWidth) / 8
 
-    if (playerScreenX < deadZoneLeft) {
-      const targetCameraX =
-        playerX -
-        ((deadZoneLeft - centerX) / zoom + centerX) / pixelsPerMeter
-      camera.x = targetCameraX
-    } else if (playerScreenX > deadZoneRight) {
-      const targetCameraX =
-        playerX -
-        ((deadZoneRight - centerX) / zoom + centerX) / pixelsPerMeter
-      camera.x = targetCameraX
-    }
+  if (playerScreenX < deadZoneLeft) {
+    const targetCameraX =
+      playerX - ((deadZoneLeft - centerX) / zoom + centerX) / pixelsPerMeter
+    camera.x = targetCameraX
+  } else if (playerScreenX > deadZoneRight) {
+    const targetCameraX =
+      playerX - ((deadZoneRight - centerX) / zoom + centerX) / pixelsPerMeter
+    camera.x = targetCameraX
+  }
 
-    const canvasHeightInMeters = canvasHeight / pixelsPerMeter
-    camera.y = canvasHeightInMeters - canvasHeightInMeters
+  const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+  camera.y = canvasHeightInMeters - canvasHeightInMeters
 }
 
 function cleanupDestroyedEntities() {
-    const entities = world.getEntities()
-    for (const entity of entities) {
-      const isPlayer = entity.id === playerEntity.id
-      if (entity.stats?.isDead && entity.weapon) {
-        entity.weapon.hitEntityIds.clear()
-        entity.removeComponent('Weapon')
-      }
-      if (entity.stats?.isVanished && !isPlayer) {
-        if (enemyEntity && enemyEntity.id === entity.id) {
-          enemyEntity = null
-        }
-        world.destroyEntity(entity)
-      }
+  const entities = world.getEntities()
+  for (const entity of entities) {
+    const isPlayer = entity.id === playerEntity.id
+    if (entity.stats?.isDead && entity.weapon) {
+      entity.weapon.hitEntityIds.clear()
+      entity.removeComponent('Weapon')
     }
+    if (entity.stats?.isVanished && !isPlayer) {
+      if (enemyEntity && enemyEntity.id === entity.id) {
+        enemyEntity = null
+      }
+      spatialHash.removeEntity(entity)
+      world.destroyEntity(entity)
+    }
+  }
 }
 
 function sendState() {
-    const entities = world.getEntities()
-    const renderEntities: RenderEntity[] = entities.map(e => {
-        return {
-            id: e.id,
-            transform: e.transform!, // Most entities have transform, if not, filter?
-            render: e.render!,       // RenderSystem filters this anyway
-            weapon: e.weapon ? {
-                visual: e.weapon.visual,
-                width: e.weapon.width,
-                height: e.weapon.height,
-                cornerRadius: e.weapon.cornerRadius,
-                isEquipped: e.weapon.isEquipped
-            } : undefined,
-            stats: e.stats ? {
-                health: e.stats.health,
-                maxHealth: e.stats.maxHealth,
-                maxToughness: e.stats.maxToughness,
-                toughness: e.stats.toughness,
-                isDead: e.stats.isDead,
-                isVanished: e.stats.isVanished,
-                deathElapsedSec: e.stats.deathElapsedSec,
-                deathFlashDurationSec: e.stats.deathFlashDurationSec,
-                deathFlattenDurationSec: e.stats.deathFlattenDurationSec,
-                hitShakeDurationMs: e.stats.hitShakeDurationMs,
-                hitShakeElapsedMs: e.stats.hitShakeElapsedMs,
-                hitShakeIntensity: e.stats.hitShakeIntensity,
-                hitShakeDirectionX: e.stats.hitShakeDirectionX
-            } : undefined,
-            input: e.input ? {
-                lastMoveDirection: e.input.lastMoveDirection,
-                lockedTargetId: e.input.lockedTargetId
-            } : undefined,
-            movement: e.movement ? {
-                isRolling: e.movement.isRolling,
-                rollAngle: e.movement.rollAngle
-            } : undefined
-        }
-    }).filter(e => e.transform && e.render) // Only send what can be rendered
+  if (!sharedStateBuffer && reusableStateBuffers.length === 0) {
+    return
+  }
 
-    const msg: WorkerToMainMessage = {
-        type: 'state',
-        entities: renderEntities,
-        camera: { x: camera.x, y: camera.y }
+  const entities = world.getEntities()
+  let count = 0
+
+  for (const e of entities) {
+    if (count >= MAX_ENTITIES) break
+    if (!e.transform || !e.render) continue
+
+    const offset = count * ENTITY_STRIDE
+
+    stateBuffer[offset + OFFSETS.ID] = e.id
+    stateBuffer[offset + OFFSETS.X] = e.transform.x
+    stateBuffer[offset + OFFSETS.Y] = e.transform.y
+    stateBuffer[offset + OFFSETS.RADIUS] = e.render.radius
+    stateBuffer[offset + OFFSETS.COLOR] = parseColor(e.render.color)
+    stateBuffer[offset + OFFSETS.BORDER_COLOR] = parseColor(
+      e.render.borderColor
+    )
+
+    let flags = 0
+    if (e.render.visible) flags |= FLAGS.VISIBLE
+    if (e.stats?.isDead) flags |= FLAGS.DEAD
+    if (e.stats?.isVanished) flags |= FLAGS.VANISHED
+    if (e.movement?.isRolling) flags |= FLAGS.ROLLING
+    stateBuffer[offset + OFFSETS.FLAGS] = flags
+
+    stateBuffer[offset + OFFSETS.MOVE_DIR] = e.input
+      ? e.input.lastMoveDirection
+      : 1
+    stateBuffer[offset + OFFSETS.ROLL_ANGLE] = e.movement
+      ? e.movement.rollAngle
+      : 0
+    stateBuffer[offset + OFFSETS.LOCKED_TARGET_ID] =
+      e.input?.lockedTargetId ?? -1
+
+    if (e.stats) {
+      stateBuffer[offset + OFFSETS.STATS_HEALTH_MAX] = e.stats.maxHealth
+      stateBuffer[offset + OFFSETS.STATS_HEALTH] = e.stats.health
+      stateBuffer[offset + OFFSETS.STATS_TOUGHNESS_MAX] = e.stats.maxToughness
+      stateBuffer[offset + OFFSETS.STATS_TOUGHNESS] = e.stats.toughness
+      stateBuffer[offset + OFFSETS.STATS_DEATH_ELAPSED] =
+        e.stats.deathElapsedSec
+      stateBuffer[offset + OFFSETS.STATS_SHAKE_DURATION] =
+        e.stats.hitShakeDurationMs
+      stateBuffer[offset + OFFSETS.STATS_SHAKE_ELAPSED] =
+        e.stats.hitShakeElapsedMs
+      stateBuffer[offset + OFFSETS.STATS_SHAKE_INTENSITY] =
+        e.stats.hitShakeIntensity
+      stateBuffer[offset + OFFSETS.STATS_SHAKE_DIR_X] =
+        e.stats.hitShakeDirectionX
+    } else {
+      stateBuffer[offset + OFFSETS.STATS_HEALTH_MAX] = 0
     }
-    
-    ctx.postMessage(msg)
+
+    if (e.weapon) {
+      stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 1
+      stateBuffer[offset + OFFSETS.WEAPON_X] = e.weapon.visual.x
+      stateBuffer[offset + OFFSETS.WEAPON_Y] = e.weapon.visual.y
+      stateBuffer[offset + OFFSETS.WEAPON_ROT] = e.weapon.visual.rotation
+      stateBuffer[offset + OFFSETS.WEAPON_W] = e.weapon.width
+      stateBuffer[offset + OFFSETS.WEAPON_H] = e.weapon.height
+      stateBuffer[offset + OFFSETS.WEAPON_R] = e.weapon.cornerRadius
+    } else {
+      stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 0
+    }
+
+    count++
+  }
+
+  stateMessage.entitiesBuffer = stateBuffer.buffer
+  stateMessage.entityCount = count
+  stateMessage.camera.x = camera.x
+  stateMessage.camera.y = camera.y
+  if (sharedStateBuffer) {
+    ctx.postMessage(stateMessage)
+    return
+  }
+
+  const buffer = stateBuffer.buffer as ArrayBuffer
+  ctx.postMessage(stateMessage, [buffer])
+
+  const nextBuffer = reusableStateBuffers.pop()
+  if (nextBuffer) {
+    stateBuffer = new Float32Array(nextBuffer)
+  }
 }
 
 function restart() {
-    if (!world) return
-    const groundHeight = 0.5
-    const groundY = canvasHeight / pixelsPerMeter - groundHeight
-    groundTopY = groundY - groundHeight
+  if (!world) return
+  const groundHeight = 0.5
+  const groundY = canvasHeight / pixelsPerMeter - groundHeight
+  groundTopY = groundY - groundHeight
 
-    world.clear()
-    initializeSystems()
-    createPlayerAndWeapon(groundTopY)
-    enemyAISystem.setPlayer(playerEntity)
-    targetingSystem.setPlayer(playerEntity)
-    
-    isPaused = false
+  world.clear()
+  initializeSystems()
+  createPlayerAndWeapon(groundTopY)
+  enemyAISystem.setPlayer(playerEntity)
+  targetingSystem.setPlayer(playerEntity)
+
+  isPaused = false
+  lastTime = performance.now()
+  accumulator = 0
 }
 
 // Message Handler
 ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
-    const msg = e.data
-    switch (msg.type) {
-        case 'init':
-            init(msg.canvasWidth, msg.canvasHeight, msg.pixelsPerMeter)
-            break
-        case 'input':
-            if (world && playerEntity) {
-                handleInput(msg.keys, msg.mouseZoom)
-            }
-            break
-        case 'control':
-            if (msg.action === 'stop') isPaused = true
-            if (msg.action === 'start') isPaused = false
-            if (msg.action === 'restart') restart()
-            if (msg.action === 'update_param') {
-                updateParam(msg.paramId, msg.value)
-            }
-            break
-    }
+  const msg = e.data
+  switch (msg.type) {
+    case 'init':
+      init(msg.canvasWidth, msg.canvasHeight, msg.pixelsPerMeter)
+      break
+    case 'input':
+      if (world && playerEntity) {
+        handleInput(msg.keys, msg.mouseZoom)
+      }
+      break
+    case 'buffer_release':
+      releaseStateBuffer(msg.buffer)
+      break
+    case 'control':
+      if (msg.action === 'stop') isPaused = true
+      if (msg.action === 'start') {
+        isPaused = false
+        lastTime = performance.now()
+      }
+      if (msg.action === 'restart') restart()
+      if (msg.action === 'update_param') {
+        updateParam(msg.paramId, msg.value)
+      }
+      break
+  }
 }
 
 function updateParam(id?: string, value?: number) {
-    if (!id || value === undefined) return
+  if (!id || value === undefined) return
 
-    if (!playerEntity) {
-        pendingParams[id] = value
-        return
+  if (!playerEntity) {
+    pendingParams[id] = value
+    return
+  }
+
+  // Map params similarly to main.ts
+  // 'jumpForce' -> player.movement.jumpForce
+  // etc.
+  // Ideally we should have a map or switch
+
+  if (playerEntity.movement) {
+    switch (id) {
+      case 'jumpForce':
+        playerEntity.movement.jumpForce = value
+        break
+      case 'maxJumpDuration':
+        playerEntity.movement.maxJumpDuration = value
+        break
+      case 'jumpForceMultiplier':
+        playerEntity.movement.jumpForceMultiplier = value
+        break
+      case 'wallJumpPushAway':
+        playerEntity.movement.wallJumpPushAwayMultiplier = value
+        break
+      case 'wallJumpUpward':
+        playerEntity.movement.wallJumpUpwardMultiplier = value
+        break
+      case 'maxWallJumps':
+        playerEntity.movement.maxWallJumps = Math.floor(value)
+        break
+      case 'moveSpeed':
+        playerEntity.movement.moveSpeed = value
+        break
+      case 'baseWeight':
+        playerEntity.movement.baseWeight = Math.max(1, value)
+        break
     }
-    
-    // Map params similarly to main.ts
-    // 'jumpForce' -> player.movement.jumpForce
-    // etc.
-    // Ideally we should have a map or switch
-    
-    if (playerEntity.movement) {
-        switch(id) {
-            case 'jumpForce': playerEntity.movement.jumpForce = value; break;
-            case 'maxJumpDuration': playerEntity.movement.maxJumpDuration = value; break;
-            case 'jumpForceMultiplier': playerEntity.movement.jumpForceMultiplier = value; break;
-            case 'wallJumpPushAway': playerEntity.movement.wallJumpPushAwayMultiplier = value; break;
-            case 'wallJumpUpward': playerEntity.movement.wallJumpUpwardMultiplier = value; break;
-            case 'maxWallJumps': playerEntity.movement.maxWallJumps = Math.floor(value); break;
-            case 'moveSpeed': playerEntity.movement.moveSpeed = value; break;
-            case 'baseWeight': playerEntity.movement.baseWeight = Math.max(1, value); break;
-        }
-        // Handle carryWeight sync if needed? done in update usually
+    // Handle carryWeight sync if needed? done in update usually
+  }
+
+  if (playerEntity.physics) {
+    if (id === 'bodyFriction') {
+      const { b2Shape_SetFriction } = box2d
+      b2Shape_SetFriction(playerEntity.physics.shapeId, value)
     }
-    
-    if (playerEntity.physics) {
-         if (id === 'bodyFriction') {
-            const { b2Shape_SetFriction } = box2d
-            b2Shape_SetFriction(playerEntity.physics.shapeId, value)
-         }
-         if (id === 'bodyLinearDamping') {
-             const { b2Body_SetLinearDamping } = box2d
-             b2Body_SetLinearDamping(playerEntity.physics.bodyId, value)
-         }
+    if (id === 'bodyLinearDamping') {
+      const { b2Body_SetLinearDamping } = box2d
+      b2Body_SetLinearDamping(playerEntity.physics.bodyId, value)
     }
-    
-    if (id === 'groundFriction') {
-        groundFriction = value
-        if (groundShapeId) {
-             const { b2Shape_SetFriction } = box2d
-             b2Shape_SetFriction(groundShapeId, value)
-        }
+  }
+
+  if (id === 'groundFriction') {
+    groundFriction = value
+    if (groundShapeId) {
+      const { b2Shape_SetFriction } = box2d
+      b2Shape_SetFriction(groundShapeId, value)
     }
-    
-    if (id === 'obstacleFriction') {
-        obstacleFriction = value
-        const { b2Shape_SetFriction } = box2d
-        obstacles.forEach(obs => {
-             b2Shape_SetFriction(obs.shapeId, value)
-        })
+  }
+
+  if (id === 'obstacleFriction') {
+    obstacleFriction = value
+    const { b2Shape_SetFriction } = box2d
+    obstacles.forEach((obs) => {
+      b2Shape_SetFriction(obs.shapeId, value)
+    })
+  }
+
+  if (id === 'jumpBufferWindow') {
+    if (playerEntity.input) {
+      playerEntity.input.inputBuffer.setDefaultBufferWindow(value)
     }
-    
-    if (id === 'jumpBufferWindow') {
-        if (playerEntity.input) {
-            playerEntity.input.inputBuffer.setDefaultBufferWindow(value)
-        }
-    }
+  }
 }

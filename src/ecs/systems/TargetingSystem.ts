@@ -6,10 +6,20 @@ import {
   ENEMY_DETECTION_RANGE,
 } from '../../constants'
 import type { MainModule, b2ShapeId, b2WorldId } from '../../types'
-import { Faction, SensorComponent } from '../Component'
+import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
+
+const RAY_ANGLE_OFFSETS = [-Math.PI / 4, 0, Math.PI / 4]
+
+type ShapeIdKeySource = {
+  index?: number
+  index1?: number
+  world0?: number
+  revision?: number
+  generation?: number
+}
 
 export class TargetingSystem extends System {
   private box2d: MainModule
@@ -19,6 +29,10 @@ export class TargetingSystem extends System {
   private shapeMapDirty = true
   private lastShapeMapRebuild = 0
   private shapeMapRebuildInterval = 1000
+  private rayStart: InstanceType<MainModule['b2Vec2']>
+  private rayTranslation: InstanceType<MainModule['b2Vec2']>
+  private rayFilter: ReturnType<MainModule['b2DefaultQueryFilter']>
+  private entityLookup?: (id: number) => Entity | undefined
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
@@ -28,6 +42,10 @@ export class TargetingSystem extends System {
     const sensorType = componentRegistry.getComponentType('Sensor')
     const inputType = componentRegistry.getComponentType('Input')
     this.setRequiredComponents([transformType, sensorType, inputType])
+
+    this.rayStart = new box2d.b2Vec2(0, 0)
+    this.rayTranslation = new box2d.b2Vec2(0, 0)
+    this.rayFilter = box2d.b2DefaultQueryFilter()
   }
 
   markShapeMapDirty(): void {
@@ -36,6 +54,10 @@ export class TargetingSystem extends System {
 
   setPlayer(player: Entity): void {
     this.player = player
+  }
+
+  setEntityLookup(lookup: (id: number) => Entity | undefined): void {
+    this.entityLookup = lookup
   }
 
   update(entities: Entity[], _deltaTime: number): void {
@@ -97,7 +119,7 @@ export class TargetingSystem extends System {
     // Maintaining old logic for switching as it might need to search outside current narrow ray hits?
     // Or restrict to visible? Let's restrict to visible for consistency.
     if (input.lockSwitchIntent !== 0 && input.lockedTargetId !== null) {
-      const currentTarget = entities.find((e) => e.id === input.lockedTargetId)
+      const currentTarget = this.getEntityById(input.lockedTargetId, entities)
       if (currentTarget && currentTarget.transform) {
         const switchDir = input.lockSwitchIntent
         let bestId: number | null = null
@@ -136,7 +158,7 @@ export class TargetingSystem extends System {
 
     // Validate Lock
     if (input.lockedTargetId !== null) {
-      const target = entities.find((e) => e.id === input.lockedTargetId)
+      const target = this.getEntityById(input.lockedTargetId, entities)
       if (!target || target.stats?.isDead || target.stats?.isVanished) {
         input.lockedTargetId = null
       } else {
@@ -162,15 +184,13 @@ export class TargetingSystem extends System {
     }
   }
 
-  private getShapeKey(shapeId: any): string {
+  private getShapeKey(shapeId: b2ShapeId | number): string {
     if (typeof shapeId === 'object' && shapeId !== null) {
       // Box2D v3 uses index1, world0, generation
-
-      const index = shapeId.index ?? shapeId.index1 ?? 0
-
-      const world0 = shapeId.world0 ?? 0
-
-      const revision = shapeId.revision ?? shapeId.generation ?? 0
+      const shape = shapeId as ShapeIdKeySource
+      const index = shape.index ?? shape.index1 ?? 0
+      const world0 = shape.world0 ?? 0
+      const revision = shape.revision ?? shape.generation ?? 0
 
       return `${index}_${world0}_${revision}`
     }
@@ -208,16 +228,14 @@ export class TargetingSystem extends System {
     const startY = y + eyeOffsetY
 
     // Fixed angles: Up-Forward (-45deg), Forward (0), Down-Forward (+45deg)
-    const angles = [baseAngle - Math.PI / 4, baseAngle, baseAngle + Math.PI / 4]
-
-    entity.sensor.scanResults = []
+    const scanResults = entity.sensor.scanResults
     let detectedHostileId: number | null = null
 
-    const { b2Vec2, b2World_CastRayClosest, b2DefaultQueryFilter } = this.box2d
-
-    const startVec = new b2Vec2(startX, startY)
-    const translationVec = new b2Vec2(0, 0)
-    const filter = b2DefaultQueryFilter()
+    const { b2World_CastRayClosest } = this.box2d
+    const startVec = this.rayStart
+    const translationVec = this.rayTranslation
+    const filter = this.rayFilter
+    startVec.Set(startX, startY)
 
     // Determine mask based on faction to avoid hitting self
     let mask =
@@ -229,7 +247,8 @@ export class TargetingSystem extends System {
     }
     filter.maskBits = mask
 
-    for (const rayAngle of angles) {
+    for (let i = 0; i < RAY_ANGLE_OFFSETS.length; i++) {
+      const rayAngle = baseAngle + RAY_ANGLE_OFFSETS[i]
       const dx = Math.cos(rayAngle) * radius
       const dy = Math.sin(rayAngle) * radius
       const endX = startX + dx
@@ -245,12 +264,9 @@ export class TargetingSystem extends System {
 
       const hit = output.hit
       let hitEntityId: number | undefined
-      let hitPoint: { x: number; y: number } | undefined
       let isHostile = false
 
       if (hit) {
-        hitPoint = { x: output.point.x, y: output.point.y }
-
         const shapeKey = this.getShapeKey(output.shapeId)
         const hitEntity = this.shapeMap.get(shapeKey)
 
@@ -271,19 +287,22 @@ export class TargetingSystem extends System {
         }
       }
 
-      entity.sensor.scanResults.push({
-        start: { x: startX, y: startY },
-        end: { x: endX, y: endY },
-        hit,
-        hitPoint,
-        hitEntityId,
-        isHostile,
-      })
+      const result = scanResults[i]
+      result.start.x = startX
+      result.start.y = startY
+      result.end.x = endX
+      result.end.y = endY
+      result.hit = hit
+      result.hitEntityId = hitEntityId
+      result.isHostile = isHostile
+      if (hit) {
+        const hitPoint = result.hitPoint
+        if (hitPoint) {
+          hitPoint.x = output.point.x
+          hitPoint.y = output.point.y
+        }
+      }
     }
-
-    translationVec.delete()
-    startVec.delete()
-    filter.delete()
 
     if (detectedHostileId !== null) {
       entity.sensor.detectedTargetId = detectedHostileId
@@ -298,5 +317,15 @@ export class TargetingSystem extends System {
 
   private processScanResults(_entity: Entity): void {
     // Logic moved to updateSensor to avoid double loops
+  }
+
+  private getEntityById(id: number, entities: Entity[]): Entity | undefined {
+    if (this.entityLookup) {
+      return this.entityLookup(id)
+    }
+    for (const entity of entities) {
+      if (entity.id === id) return entity
+    }
+    return undefined
   }
 }
