@@ -213,6 +213,8 @@ export class WeaponComponent extends Component {
   dropElapsedTime = 0
   dropStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   dropEndTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  dropStartOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
+  dropEndOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
 
   getName(): string {
     return 'Weapon'

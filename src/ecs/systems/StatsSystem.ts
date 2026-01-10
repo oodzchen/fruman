@@ -146,16 +146,18 @@ export class StatsSystem extends System {
       weapon.isRecovering = false
       weapon.dropElapsedTime = 0
 
-      // 记录起始位置（当前武器位置）
-      weapon.dropStartTransform.x = weapon.visual.x
-      weapon.dropStartTransform.y = weapon.visual.y
-      weapon.dropStartTransform.rotation = weapon.visual.rotation
+      // 计算起始相对偏移（当前武器位置相对于玩家）
+      const dx = weapon.visual.x - entity.transform.x
+      const dy = weapon.visual.y - entity.transform.y
+      weapon.dropStartOffset.dx = dx
+      weapon.dropStartOffset.dy = dy
+      weapon.dropStartOffset.rotation = weapon.visual.rotation
 
-      // 目标位置：角色脚下横放（位于角色中心正下方地面）
-      weapon.dropEndTransform.x = entity.transform.x
-      weapon.dropEndTransform.y =
-        entity.transform.y + DEFAULT_PLAYER_RADIUS - DEFAULT_WEAPON_HEIGHT / 2
-      weapon.dropEndTransform.rotation = 0
+      // 目标相对偏移：角色脚下横放（位于角色中心正下方地面）
+      weapon.dropEndOffset.dx = 0
+      weapon.dropEndOffset.dy =
+        DEFAULT_PLAYER_RADIUS - DEFAULT_WEAPON_HEIGHT / 2
+      weapon.dropEndOffset.rotation = 0
     }
   }
 

@@ -118,7 +118,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    // 处理武器掉落动画
+    // 处理武器掉落动画（使用相对偏移量，跟随玩家移动）
     if (weapon.isDropping) {
       weapon.dropElapsedTime += this.currentDeltaTime
       const elapsedMs = weapon.dropElapsedTime * 1000
@@ -127,17 +127,16 @@ export class WeaponSystem extends System {
       // 使用缓动函数使动画更自然
       const eased = 1 - Math.pow(1 - progress, 2)
 
-      weapon.visual.x =
-        weapon.dropStartTransform.x +
-        (weapon.dropEndTransform.x - weapon.dropStartTransform.x) * eased
-      weapon.visual.y =
-        weapon.dropStartTransform.y +
-        (weapon.dropEndTransform.y - weapon.dropStartTransform.y) * eased
-      weapon.visual.rotation =
-        weapon.dropStartTransform.rotation +
-        (weapon.dropEndTransform.rotation -
-          weapon.dropStartTransform.rotation) *
-          eased
+      // 插值相对偏移量
+      this.lerpRelativeTransform(
+        weapon.dropStartOffset,
+        weapon.dropEndOffset,
+        eased,
+        this.tempRelativeTransform
+      )
+
+      // 应用到当前玩家位置
+      this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
       if (progress >= 1) {
         weapon.isDropping = false
@@ -146,8 +145,12 @@ export class WeaponSystem extends System {
       return
     }
 
-    // 崩塌期间保持武器在地上
+    // 崩塌期间保持武器在地上（跟随玩家位置）
     if (entity.stats?.isStaggered) {
+      if (weapon.isDropped) {
+        // 武器掉落完成，保持在玩家脚下
+        this.applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+      }
       return
     }
 
@@ -156,7 +159,7 @@ export class WeaponSystem extends System {
       this.startWeaponRecover(entity)
     }
 
-    // 处理武器回收动画
+    // 处理武器回收动画（使用相对偏移量，跟随玩家移动）
     if (weapon.isRecovering) {
       weapon.dropElapsedTime += this.currentDeltaTime
       const elapsedMs = weapon.dropElapsedTime * 1000
@@ -165,17 +168,16 @@ export class WeaponSystem extends System {
       // 使用缓动函数
       const eased = 1 - Math.pow(1 - progress, 2)
 
-      weapon.visual.x =
-        weapon.dropStartTransform.x +
-        (weapon.dropEndTransform.x - weapon.dropStartTransform.x) * eased
-      weapon.visual.y =
-        weapon.dropStartTransform.y +
-        (weapon.dropEndTransform.y - weapon.dropStartTransform.y) * eased
-      weapon.visual.rotation =
-        weapon.dropStartTransform.rotation +
-        (weapon.dropEndTransform.rotation -
-          weapon.dropStartTransform.rotation) *
-          eased
+      // 插值相对偏移量
+      this.lerpRelativeTransform(
+        weapon.dropStartOffset,
+        weapon.dropEndOffset,
+        eased,
+        this.tempRelativeTransform
+      )
+
+      // 应用到当前玩家位置
+      this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
       if (progress >= 1) {
         weapon.isRecovering = false
@@ -434,21 +436,21 @@ export class WeaponSystem extends System {
     weapon.isRecovering = true
     weapon.dropElapsedTime = 0
 
-    // 起始位置：当前武器位置（地上）
-    weapon.dropStartTransform.x = weapon.visual.x
-    weapon.dropStartTransform.y = weapon.visual.y
-    weapon.dropStartTransform.rotation = weapon.visual.rotation
+    // 计算起始相对偏移（当前武器位置相对于玩家）
+    this.getOffsetFromTransform(
+      weapon.visual,
+      { x: entity.transform.x, y: entity.transform.y },
+      weapon.dropStartOffset
+    )
 
-    // 目标位置：回到角色身侧
+    // 计算目标相对偏移（回到角色身侧）
     const facing =
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
         : 1
-    this.getBackTransform(
-      { x: entity.transform.x, y: entity.transform.y },
-      facing,
-      weapon.dropEndTransform
-    )
+    weapon.dropEndOffset.dx = -facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X
+    weapon.dropEndOffset.dy = DEFAULT_WEAPON_FOLLOW_OFFSET_Y
+    weapon.dropEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
   private checkOBBvsOBB(
