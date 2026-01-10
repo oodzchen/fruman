@@ -170,6 +170,8 @@ export class StatsSystem extends System {
         // 设置击退硬直时间（例如200ms）
         if (entity.movement) {
           entity.movement.knockbackEndTime = Date.now() + 200
+          entity.movement.knockbackDuration = 200
+          entity.movement.knockbackElapsedTime = 0
         }
 
         // 受到击退时强制打断攻击动作并重置连击

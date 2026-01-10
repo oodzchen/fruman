@@ -59,9 +59,11 @@ export class MovementComponent extends Component {
   wallDirection = 0
   wallJumpCount = 0
   wallJumpTime = 0
+  wallJumpElapsedTime = 0
 
   isJumping = false
   jumpStartTime = 0
+  jumpElapsedTime = 0
 
   lastContactUpdate = 0
   contactUpdateIntervalMs = 16
@@ -72,10 +74,15 @@ export class MovementComponent extends Component {
   isRolling = false
   rollStartTime = 0
   rollDuration = 0
+  rollElapsedTime = 0
   rollDirection = 0
   rollAngle = 0
   rollCooldownEndTime = 0
+  rollCooldownElapsedTime = 0
+
   knockbackEndTime = 0
+  knockbackDuration = 0
+  knockbackElapsedTime = 0
 
   getName(): string {
     return 'Movement'

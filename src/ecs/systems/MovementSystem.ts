@@ -22,6 +22,7 @@ export class MovementSystem extends System {
   private entityLookup?: (id: number) => Entity | undefined
   private tempVec: InstanceType<MainModule['b2Vec2']>
   private tempVec2: InstanceType<MainModule['b2Vec2']>
+  private currentDeltaTime = 0
 
   constructor(box2d: MainModule) {
     super()
@@ -47,7 +48,8 @@ export class MovementSystem extends System {
     this.entityLookup = lookup
   }
 
-  update(entities: Entity[], _deltaTime: number): void {
+  update(entities: Entity[], deltaTime: number): void {
+    this.currentDeltaTime = deltaTime
     for (const entity of entities) {
       if (!entity.physics || !entity.movement || !entity.input) continue
       if (entity.stats?.isDead) {
@@ -121,6 +123,10 @@ export class MovementSystem extends System {
   private handleInput(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
+    if (entity.movement.knockbackDuration > 0) {
+      entity.movement.knockbackElapsedTime += this.currentDeltaTime
+    }
+
     this.handleRoll(entity)
 
     if (entity.movement.isRolling) {
@@ -134,17 +140,16 @@ export class MovementSystem extends System {
   private handleRoll(entity: Entity): void {
     if (!entity.movement || !entity.input || !entity.physics) return
 
-    const now = Date.now()
-
     if (entity.movement.isRolling) {
-      const elapsed = now - entity.movement.rollStartTime
-      if (elapsed >= entity.movement.rollDuration) {
+      entity.movement.rollElapsedTime += this.currentDeltaTime
+      const elapsedMs = entity.movement.rollElapsedTime * 1000
+      if (elapsedMs >= entity.movement.rollDuration) {
         this.endRoll(entity)
       } else {
         this.updateRollPhysics(entity)
         const progress = Math.min(
           1,
-          Math.max(0, elapsed / entity.movement.rollDuration)
+          Math.max(0, elapsedMs / entity.movement.rollDuration)
         )
         entity.movement.rollAngle =
           progress * 2 * Math.PI * entity.movement.rollDirection
@@ -152,7 +157,9 @@ export class MovementSystem extends System {
       return
     }
 
-    if (now < entity.movement.rollCooldownEndTime) return
+    entity.movement.rollCooldownElapsedTime += this.currentDeltaTime
+    const cooldownMs = entity.movement.rollCooldownElapsedTime * 1000
+    if (cooldownMs < DEFAULT_ROLL_COOLDOWN) return
 
     if (
       entity.input.inputBuffer.hasActiveAction('roll') &&
@@ -189,6 +196,7 @@ export class MovementSystem extends System {
 
     entity.movement.isRolling = true
     entity.movement.rollStartTime = Date.now()
+    entity.movement.rollElapsedTime = 0
     entity.movement.rollDuration = DEFAULT_ROLL_DURATION
 
     // 优先使用当前按下的移动方向，如果没有按键则使用朝向
@@ -232,6 +240,7 @@ export class MovementSystem extends System {
     if (!entity.movement || !entity.physics) return
     entity.movement.isRolling = false
     entity.movement.rollCooldownEndTime = Date.now() + DEFAULT_ROLL_COOLDOWN
+    entity.movement.rollCooldownElapsedTime = 0
 
     // 恢复碰撞掩码
     const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
@@ -244,7 +253,8 @@ export class MovementSystem extends System {
     if (!entity.physics || !entity.movement || !entity.input) return
 
     // 处于击退硬直状态时，不处理移动输入，保留物理惯性
-    if (Date.now() < entity.movement.knockbackEndTime) return
+    const knockbackElapsedMs = entity.movement.knockbackElapsedTime * 1000
+    if (knockbackElapsedMs < entity.movement.knockbackDuration) return
 
     const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity } = this.box2d
     const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
@@ -286,11 +296,11 @@ export class MovementSystem extends System {
       }
     }
 
-    const wallJumpCooldown = 150
-    const isInWallJumpCooldown =
-      Date.now() - entity.movement.wallJumpTime < wallJumpCooldown
+    const wallJumpCooldownMs = 150
+    entity.movement.wallJumpElapsedTime += this.currentDeltaTime
+    const wallJumpElapsedMs = entity.movement.wallJumpElapsedTime * 1000
 
-    if (isInWallJumpCooldown) {
+    if (wallJumpElapsedMs < wallJumpCooldownMs) {
       currentVel.delete()
       return
     }
@@ -314,7 +324,8 @@ export class MovementSystem extends System {
     if (!entity.physics || !entity.movement || !entity.input) return
 
     // 击退硬直期间无法跳跃
-    if (Date.now() < entity.movement.knockbackEndTime) return
+    const knockbackElapsedMs = entity.movement.knockbackElapsedTime * 1000
+    if (knockbackElapsedMs < entity.movement.knockbackDuration) return
 
     const isInAttackAction =
       entity.weapon &&
@@ -343,6 +354,8 @@ export class MovementSystem extends System {
 
     if (!entity.movement.isJumping) return
 
+    entity.movement.jumpElapsedTime += this.currentDeltaTime
+
     const {
       b2Body_GetLinearVelocity,
       b2Body_ApplyForceToCenter,
@@ -350,13 +363,13 @@ export class MovementSystem extends System {
     } = this.box2d
     const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
     const mass = b2Body_GetMass(entity.physics.bodyId)
-    const jumpDuration = Date.now() - entity.movement.jumpStartTime
+    const jumpDurationMs = entity.movement.jumpElapsedTime * 1000
     const weightFactor = this.getWeightFactor(entity)
     const jumpScale = 1 / weightFactor
 
     if (
       vel.y < 0 &&
-      jumpDuration < entity.movement.maxJumpDuration &&
+      jumpDurationMs < entity.movement.maxJumpDuration &&
       entity.input.jumpRequested
     ) {
       this.tempVec.x = 0
@@ -367,7 +380,7 @@ export class MovementSystem extends System {
         jumpScale
       b2Body_ApplyForceToCenter(entity.physics.bodyId, this.tempVec, true)
     } else if (
-      jumpDuration >= entity.movement.maxJumpDuration ||
+      jumpDurationMs >= entity.movement.maxJumpDuration ||
       vel.y >= 0 ||
       !entity.input.jumpRequested
     ) {
@@ -404,6 +417,7 @@ export class MovementSystem extends System {
 
     entity.movement.isJumping = true
     entity.movement.jumpStartTime = Date.now()
+    entity.movement.jumpElapsedTime = 0
 
     const canWallJump =
       entity.movement.isTouchingWall &&
@@ -426,6 +440,7 @@ export class MovementSystem extends System {
       b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
 
       entity.movement.wallJumpTime = Date.now()
+      entity.movement.wallJumpElapsedTime = 0
       entity.movement.wallJumpCount++
     } else if (entity.movement.isGrounded) {
       entity.movement.wallJumpCount = 0

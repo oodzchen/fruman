@@ -571,7 +571,10 @@ export class WeaponSystem extends System {
     if (entity.stats?.isDead) return
 
     // 击退硬直期间无法攻击
-    if (entity.movement && Date.now() < entity.movement.knockbackEndTime) return
+    if (entity.movement) {
+      const knockbackElapsedMs = entity.movement.knockbackElapsedTime * 1000
+      if (knockbackElapsedMs < entity.movement.knockbackDuration) return
+    }
 
     const weapon = entity.weapon
     const now = Date.now()
