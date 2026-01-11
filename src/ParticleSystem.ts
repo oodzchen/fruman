@@ -2,6 +2,7 @@ const TWO_PI = Math.PI * 2
 
 const PARTICLE_TYPE_SPARK = 0
 const PARTICLE_TYPE_BLOOD = 1
+const PARTICLE_TYPE_DEATH = 2
 
 type Particle = {
   x: number
@@ -144,10 +145,19 @@ export class ParticleSystem {
     ctx.save()
     for (let i = 0; i < this.activeCount; i++) {
       const particle = this.active[i]
-      if (particle.type !== PARTICLE_TYPE_BLOOD) continue
+      if (
+        particle.type !== PARTICLE_TYPE_BLOOD &&
+        particle.type !== PARTICLE_TYPE_DEATH
+      )
+        continue
       const lifeRatio = particle.age / particle.life
       const alpha = 1 - lifeRatio
-      const radius = particle.size * (0.4 + alpha * 0.6)
+      let radius = particle.size * (0.4 + alpha * 0.6)
+      if (particle.type === PARTICLE_TYPE_DEATH) {
+        const shrink = 1 - lifeRatio
+        radius = particle.size * shrink
+      }
+      if (radius <= 0) continue
       ctx.globalAlpha = alpha
       ctx.fillStyle = this.getColorString(particle.color)
       ctx.beginPath()
@@ -210,6 +220,36 @@ export class ParticleSystem {
       particle.drag = 1.2
       particle.type = PARTICLE_TYPE_BLOOD
       particle.curve = 0
+      this.active[this.activeCount] = particle
+      this.activeCount += 1
+    }
+  }
+
+  spawnDeath(x: number, y: number, color: number, radius: number): void {
+    if (radius <= 0) return
+    const count = Math.min(160, Math.max(48, Math.floor(radius * 110 + 36)))
+    for (let i = 0; i < count; i++) {
+      const particle = this.acquire()
+      if (!particle) return
+      const angle = Math.random() * TWO_PI
+      const dist = Math.sqrt(Math.random()) * radius
+      const dirX = Math.cos(angle)
+      const dirY = Math.sin(angle)
+      const speed = 1.6 + Math.random() * 2.6
+      particle.x = x + dirX * dist
+      particle.y = y + dirY * dist
+      particle.prevX = particle.x
+      particle.prevY = particle.y
+      particle.vx = dirX * speed + (Math.random() - 0.5) * 0.6
+      particle.vy = dirY * speed + (Math.random() - 0.5) * 0.6
+      particle.age = 0
+      particle.life = 0.8 + Math.random() * 0.6
+      particle.size = radius * (0.08 + Math.random() * 0.06)
+      particle.color = color
+      particle.gravity = 14
+      particle.drag = 2.6
+      particle.type = PARTICLE_TYPE_DEATH
+      particle.curve = (Math.random() * 2 - 1) * 0.8
       this.active[this.activeCount] = particle
       this.activeCount += 1
     }

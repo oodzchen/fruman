@@ -74,10 +74,13 @@ export class ClientRenderer {
       const x = view[base + EFFECT_OFFSETS.X]
       const y = view[base + EFFECT_OFFSETS.Y]
       const color = view[base + EFFECT_OFFSETS.COLOR] | 0
+      const radius = view[base + EFFECT_OFFSETS.RADIUS]
       if (type === EFFECT_TYPES.SPARK) {
         this.particleSystem.spawnSpark(x, y, color)
       } else if (type === EFFECT_TYPES.BLOOD) {
         this.particleSystem.spawnBlood(x, y, color)
+      } else if (type === EFFECT_TYPES.DEATH) {
+        this.particleSystem.spawnDeath(x, y, color, radius)
       }
     }
   }
@@ -429,46 +432,22 @@ export class ClientRenderer {
   }
 
   private getDeathScale(
-    buf: Float32Array,
-    offset: number,
-    flags: number
+    _buf: Float32Array,
+    _offset: number,
+    _flags: number
   ): { x: number; y: number } {
-    if (!(flags & FLAGS.DEAD)) {
-      this.tempScale.x = 1
-      this.tempScale.y = 1
-      return this.tempScale
-    }
-    const elapsed = buf[offset + OFFSETS.STATS_DEATH_ELAPSED]
-    const flash = 0.3
-    const flatten = 0.7
-
-    if (elapsed <= flash) {
-      this.tempScale.x = 1
-      this.tempScale.y = 1
-      return this.tempScale
-    }
-    const progress = Math.min(1, Math.max(0, (elapsed - flash) / flatten))
-    const scaleY = Math.max(0.05, 1 - progress)
-    const scaleX = 1 + progress * 0.3
-    this.tempScale.x = scaleX
-    this.tempScale.y = scaleY
+    this.tempScale.x = 1
+    this.tempScale.y = 1
     return this.tempScale
   }
 
   private getDeathAlpha(
-    buf: Float32Array,
-    offset: number,
+    _buf: Float32Array,
+    _offset: number,
     flags: number
   ): number {
     if (!(flags & FLAGS.DEAD)) return 1
-    const elapsed = buf[offset + OFFSETS.STATS_DEATH_ELAPSED]
-    const flash = 0.3
-    const flatten = 0.7
-    if (elapsed <= flash) {
-      return 0.5 + 0.5 * Math.sin(elapsed * 20)
-    }
-    const progress = Math.min(1, Math.max(0, (elapsed - flash) / flatten))
-    return 1 - progress
+    return 0
   }
 
   private getHitShakeOffset(

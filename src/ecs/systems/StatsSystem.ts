@@ -26,6 +26,7 @@ import { System } from '../System'
 export type EffectsEmitter = {
   emitSpark: (x: number, y: number) => void
   emitBlood: (x: number, y: number, color: number) => void
+  emitDeath: (x: number, y: number, color: number, radius: number) => void
 }
 
 export class StatsSystem extends System {
@@ -191,6 +192,11 @@ export class StatsSystem extends System {
   emitSpark(x: number, y: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.emitSpark(x, y)
+  }
+
+  emitDeath(x: number, y: number, color: number, radius: number): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.emitDeath(x, y, color, radius)
   }
 
   applyParryDamage(
@@ -482,6 +488,16 @@ export class StatsSystem extends System {
       entity.stats.deathElapsedSec = 0
       entity.stats.deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
       entity.stats.deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
+      if (entity.render && entity.transform && this.effectsEmitter) {
+        const colorInt = this.parseColor(entity.render.color)
+        const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
+        this.effectsEmitter.emitDeath(
+          entity.transform.x,
+          entity.transform.y,
+          colorInt,
+          radius
+        )
+      }
       if (entity.render) {
         entity.render.visible = true
       }

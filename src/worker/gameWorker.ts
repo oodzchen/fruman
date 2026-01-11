@@ -85,22 +85,32 @@ function parseColor(color: string): number {
   return 0
 }
 
-function queueEffect(type: number, x: number, y: number, color: number): void {
+function queueEffect(
+  type: number,
+  x: number,
+  y: number,
+  color: number,
+  radius: number
+): void {
   if (effectsCount >= MAX_EFFECTS) return
   const base = EFFECTS_BASE_OFFSET + effectsCount * EFFECT_STRIDE
   stateBuffer[base + EFFECT_OFFSETS.TYPE] = type
   stateBuffer[base + EFFECT_OFFSETS.X] = x
   stateBuffer[base + EFFECT_OFFSETS.Y] = y
   stateBuffer[base + EFFECT_OFFSETS.COLOR] = color
+  stateBuffer[base + EFFECT_OFFSETS.RADIUS] = radius
   effectsCount += 1
 }
 
 const effectsEmitter: EffectsEmitter = {
   emitSpark: (x, y) => {
-    queueEffect(EFFECT_TYPES.SPARK, x, y, SPARK_COLOR_INT)
+    queueEffect(EFFECT_TYPES.SPARK, x, y, SPARK_COLOR_INT, 0)
   },
   emitBlood: (x, y, color) => {
-    queueEffect(EFFECT_TYPES.BLOOD, x, y, color)
+    queueEffect(EFFECT_TYPES.BLOOD, x, y, color, 0)
+  },
+  emitDeath: (x, y, color, radius) => {
+    queueEffect(EFFECT_TYPES.DEATH, x, y, color, radius)
   },
 }
 
