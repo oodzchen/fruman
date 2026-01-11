@@ -138,6 +138,8 @@ export class StatsComponent extends Component {
 
   isInCombat = false
   lastCombatTimestamp = 0
+  combatExitTimer = 0
+  combatExitTimeout = 5000
 
   isStaggered = false
   staggerElapsedTime = 0

@@ -93,14 +93,11 @@ export class EnemyAISystem extends System {
         entity.sensor && entity.sensor.detectedTargetId === this.player.id
       ai.hasLineOfSight = !!hasLineOfSight
 
+      // 战斗状态管理由StatsSystem负责，这里只记录是否有视线
       if (hasLineOfSight) {
         ai.targetLostTimer = 0
-      } else if (entity.stats?.isInCombat) {
+      } else {
         ai.targetLostTimer += deltaTime * 1000
-        if (ai.targetLostTimer > ai.combatResetTime) {
-          entity.stats.isInCombat = false
-          ai.targetLostTimer = 0
-        }
       }
 
       const lostInterest = !hasLineOfSight && !entity.stats?.isInCombat

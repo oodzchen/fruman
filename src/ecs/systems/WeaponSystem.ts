@@ -9,7 +9,6 @@ import {
   DEFAULT_WEAPON_ATTACK_SWING_MS,
   DEFAULT_WEAPON_ATTACK_WINDUP_MS,
   DEFAULT_WEAPON_CENTER_OFFSET_X,
-  DEFAULT_WEAPON_COMBAT_TIMEOUT_MS,
   DEFAULT_WEAPON_FINAL_WINDUP_MS,
   DEFAULT_WEAPON_FOLLOW_OFFSET_X,
   DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
@@ -201,17 +200,6 @@ export class WeaponSystem extends System {
       weapon.swingStartTransform
     )
     this.applyOffset(weapon.swingEndOffset, playerPos, weapon.swingEndTransform)
-
-    const hasTimedOut =
-      entity.stats?.isInCombat &&
-      now - (entity.stats?.lastCombatTimestamp ?? 0) >
-        DEFAULT_WEAPON_COMBAT_TIMEOUT_MS
-    if (hasTimedOut && entity.stats) {
-      entity.stats.isInCombat = false
-      weapon.comboCount = 0
-      weapon.attackQueued = false
-      weapon.nextSwingDirection = 'toFront'
-    }
 
     if (weapon.attackPhase === 'idle') {
       if (entity.input && entity.input.blockRequested && !entity.isStunned()) {

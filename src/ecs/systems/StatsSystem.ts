@@ -117,7 +117,38 @@ export class StatsSystem extends System {
           entity.stats.toughness + recovery
         )
       }
+
+      // 战斗状态管理
+      if (entity.stats.isInCombat) {
+        const hasTarget = this.hasActiveTarget(entity)
+        if (hasTarget) {
+          entity.stats.combatExitTimer = 0
+        } else {
+          entity.stats.combatExitTimer += deltaMs
+          if (entity.stats.combatExitTimer >= entity.stats.combatExitTimeout) {
+            entity.stats.isInCombat = false
+            entity.stats.combatExitTimer = 0
+            if (entity.weapon) {
+              entity.weapon.comboCount = 0
+              entity.weapon.attackQueued = false
+              entity.weapon.nextSwingDirection = 'toFront'
+            }
+          }
+        }
+      }
     }
+  }
+
+  private hasActiveTarget(entity: Entity): boolean {
+    // 玩家：检查是否有锁定目标
+    if (entity.input?.lockedTargetId !== null) {
+      return true
+    }
+    // 敌人：检查是否检测到目标
+    if (entity.sensor?.detectedTargetId !== null) {
+      return true
+    }
+    return false
   }
 
   triggerStagger(entity: Entity): void {

@@ -112,11 +112,14 @@ export class TargetingSystem extends System {
       if (input.lockedTargetId !== null) {
         input.lockedTargetId = null
       } else {
-        // Lock onto the closest detected target from sensor
-        // If sensor detected someone, use it.
-        // Note: sensor.detectedTargetId is the closest hostile already.
-        if (player.sensor && player.sensor.detectedTargetId !== null) {
-          input.lockedTargetId = player.sensor.detectedTargetId
+        // 主动搜索可视范围内最近的敌人，必须有视线
+        const nearestEnemy = this.findNearestVisibleEnemy(
+          player,
+          entities,
+          ENEMY_DETECTION_RANGE * 2.0
+        )
+        if (nearestEnemy) {
+          input.lockedTargetId = nearestEnemy.id
           input.lockLostTimer = 0
         }
       }
@@ -244,6 +247,44 @@ export class TargetingSystem extends System {
     // If we hit something (obstacle/ground), LoS is blocked.
     // RayCastClosest returns hit fraction. If hit is true, it hit something in the mask.
     return !output.hit
+  }
+
+  private findNearestVisibleEnemy(
+    player: Entity,
+    entities: Entity[],
+    maxRange: number
+  ): Entity | null {
+    if (!player.transform || !player.faction) return null
+
+    let nearestEnemy: Entity | null = null
+    let minDistSq = maxRange * maxRange
+
+    for (const entity of entities) {
+      if (entity.id === player.id) continue
+      if (
+        !entity.faction ||
+        !player.faction.canAttack(entity.faction) ||
+        entity.stats?.isDead ||
+        entity.stats?.isVanished
+      )
+        continue
+
+      if (!entity.transform) continue
+
+      const dx = entity.transform.x - player.transform.x
+      const dy = entity.transform.y - player.transform.y
+      const distSq = dx * dx + dy * dy
+
+      if (distSq >= minDistSq) continue
+
+      // 必须有视线才能锁定
+      if (!this.hasLineOfSight(player, entity)) continue
+
+      minDistSq = distSq
+      nearestEnemy = entity
+    }
+
+    return nearestEnemy
   }
 
   private rebuildShapeMap(entities: Entity[]): void {
@@ -387,6 +428,9 @@ export class TargetingSystem extends System {
         entity.stats.isInCombat = true
         entity.stats.lastCombatTimestamp = Date.now()
       }
+    } else {
+      // 没有检测到敌人时清除detectedTargetId
+      entity.sensor.detectedTargetId = null
     }
   }
 
