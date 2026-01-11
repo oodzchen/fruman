@@ -1,3 +1,4 @@
+import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
 import GameWorker from './worker/gameWorker?worker'
 import type {
@@ -11,6 +12,7 @@ export class GameClient {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private renderer: ClientRenderer
+  private audioManager: AudioManager
   private pixelsPerMeter = 50
 
   private camera = { x: 0, y: 0 }
@@ -55,6 +57,8 @@ export class GameClient {
     this.canvas = canvas
     this.ctx = ctx
     this.renderer = new ClientRenderer(ctx, this.pixelsPerMeter)
+    this.audioManager = new AudioManager()
+    this.renderer.setAudioManager(this.audioManager)
 
     // Cache bound functions once
     this.boundRenderLoop = this.renderLoop.bind(this)
@@ -85,6 +89,10 @@ export class GameClient {
     } as MainToWorkerMessage)
 
     this.setupInput()
+
+    this.audioManager.init().catch((error) => {
+      console.error('Failed to initialize audio:', error)
+    })
 
     // Start Render Loop
     requestAnimationFrame(this.boundRenderLoop)

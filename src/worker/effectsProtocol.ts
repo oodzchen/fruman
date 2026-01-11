@@ -13,6 +13,15 @@ export const EFFECT_TYPES = {
   SPARK: 0,
   BLOOD: 1,
   DEATH: 2,
+  SOUND: 3,
+} as const
+
+export const SOUND_IDS = {
+  SWORD_SWING_NORMAL: 0,
+  SWORD_SWING_FINAL: 1,
+  SWORD_PARRY: 2,
+  BODY_HIT: 3,
+  SWORD_HIT_OBSTACLE: 4,
 } as const
 
 export const MAX_EFFECTS = 256

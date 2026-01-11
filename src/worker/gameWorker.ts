@@ -112,6 +112,9 @@ const effectsEmitter: EffectsEmitter = {
   emitDeath: (x, y, color, radius) => {
     queueEffect(EFFECT_TYPES.DEATH, x, y, color, radius)
   },
+  playSound: (soundId, playbackRate = 1.0) => {
+    queueEffect(EFFECT_TYPES.SOUND, 0, 0, soundId, playbackRate)
+  },
 }
 
 // Game State needed for logic

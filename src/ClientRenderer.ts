@@ -1,3 +1,4 @@
+import type { AudioManager } from './AudioManager'
 import { ParticleSystem } from './ParticleSystem'
 import {
   ENTITY_STRIDE,
@@ -33,12 +34,17 @@ export class ClientRenderer {
   private particleSystem: ParticleSystem
   private effectsBuffer: ArrayBuffer | SharedArrayBuffer | null = null
   private effectsView: Float32Array | null = null
+  private audioManager: AudioManager | null = null
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
     this.pixelsPerMeter = pixelsPerMeter
     this.camera = { x: 0, y: 0 }
     this.particleSystem = new ParticleSystem(MAX_PARTICLES)
+  }
+
+  setAudioManager(audioManager: AudioManager): void {
+    this.audioManager = audioManager
   }
 
   updateState(buffer: ArrayBuffer | SharedArrayBuffer, count: number) {
@@ -81,6 +87,10 @@ export class ClientRenderer {
         this.particleSystem.spawnBlood(x, y, color)
       } else if (type === EFFECT_TYPES.DEATH) {
         this.particleSystem.spawnDeath(x, y, color, radius)
+      } else if (type === EFFECT_TYPES.SOUND) {
+        const soundId = color
+        const playbackRate = radius || 1.0
+        this.audioManager?.play(soundId, 1.0, playbackRate)
       }
     }
   }

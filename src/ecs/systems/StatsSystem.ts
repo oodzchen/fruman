@@ -18,6 +18,7 @@ import {
   STAGGER_KNOCKBACK_MULTIPLIER,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
+import { SOUND_IDS } from '../../worker/effectsProtocol'
 import { PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -27,6 +28,7 @@ export type EffectsEmitter = {
   emitSpark: (x: number, y: number) => void
   emitBlood: (x: number, y: number, color: number) => void
   emitDeath: (x: number, y: number, color: number, radius: number) => void
+  playSound: (soundId: number, playbackRate?: number) => void
 }
 
 export class StatsSystem extends System {
@@ -199,6 +201,11 @@ export class StatsSystem extends System {
     this.effectsEmitter.emitDeath(x, y, color, radius)
   }
 
+  playSound(soundId: number, playbackRate?: number): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.playSound(soundId, playbackRate)
+  }
+
   applyParryDamage(
     defender: Entity,
     attacker: Entity
@@ -229,6 +236,8 @@ export class StatsSystem extends System {
 
   triggerStagger(entity: Entity): void {
     if (!entity.stats) return
+
+    this.playSound(SOUND_IDS.BODY_HIT, 0.3)
 
     entity.stats.isStaggered = true
     entity.stats.staggerElapsedTime = 0
@@ -432,6 +441,7 @@ export class StatsSystem extends System {
           const colorInt = this.parseColor(entity.render.color)
           this.effectsEmitter.emitBlood(hitX, hitY, colorInt)
         }
+        this.playSound(SOUND_IDS.BODY_HIT)
       }
 
       if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {

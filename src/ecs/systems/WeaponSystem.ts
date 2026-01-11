@@ -24,6 +24,7 @@ import {
   WEAPON_DROP_DURATION_MS,
 } from '../../constants'
 import type { MainModule, b2BodyId } from '../../types'
+import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { WeaponRelativeTransform, WeaponTransform } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -390,6 +391,7 @@ export class WeaponSystem extends System {
         const sparkX = (weaponX + attackerX) * 0.5
         const sparkY = (weaponY + attackerY) * 0.5
         this.statsSystem?.emitSpark(sparkX, sparkY)
+        this.statsSystem?.playSound(SOUND_IDS.SWORD_PARRY)
         this.applyParryEffect(defender, attacker)
       }
     }
@@ -598,6 +600,7 @@ export class WeaponSystem extends System {
     )
 
     if (t >= 1) {
+      this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
       // We don't need to copyTransform(attackStartTransform, swingStartTransform) anymore for logic,
@@ -636,6 +639,7 @@ export class WeaponSystem extends System {
     )
 
     if (t >= 1) {
+      this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_FINAL)
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
       this.copyTransform(
@@ -668,6 +672,7 @@ export class WeaponSystem extends System {
 
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
+      this.statsSystem?.playSound(SOUND_IDS.SWORD_HIT_OBSTACLE)
       this.applyPushback(entity, weapon)
       this.startRebound(entity, playerPos, now)
       return
@@ -818,6 +823,7 @@ export class WeaponSystem extends System {
         weapon.swingEndOffset
       )
 
+      this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
 
