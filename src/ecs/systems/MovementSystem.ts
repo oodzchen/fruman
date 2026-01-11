@@ -467,7 +467,10 @@ export class MovementSystem extends System {
       entity.movement.baseWeight > 0
         ? entity.movement.baseWeight
         : DEFAULT_PLAYER_WEIGHT
-    const carryWeight = Math.max(0, entity.movement.carryWeight)
+
+    // 自动从装备的武器读取重量
+    const carryWeight = entity.weapon?.isEquipped ? entity.weapon.weight : 0
+
     const effectiveWeight = baseWeight + carryWeight
     const referenceWeight =
       PLAYER_WEIGHT_REFERENCE > 0

@@ -207,9 +207,8 @@ export class WeaponSystem extends System {
         weapon.parryElapsedTime = 0
         weapon.isParrying = true
         weapon.isBlocking = true
-        if (entity.stats) {
-          entity.stats.isInCombat = true
-          entity.stats.lastCombatTimestamp = now
+        if (this.statsSystem) {
+          this.statsSystem.enterCombat(entity)
         }
         weapon.parryHitWeaponIds.clear()
 
@@ -302,9 +301,8 @@ export class WeaponSystem extends System {
     }
 
     weapon.isBlocking = true
-    if (entity.stats) {
-      entity.stats.isInCombat = true
-      entity.stats.lastCombatTimestamp = Date.now()
+    if (this.statsSystem) {
+      this.statsSystem.enterCombat(entity)
     }
     weapon.lastAttackTimestamp = Date.now()
 
@@ -394,20 +392,11 @@ export class WeaponSystem extends System {
   }
 
   private applyParryEffect(defender: Entity, attacker: Entity): void {
-    if (!defender.stats || !attacker.stats) return
+    if (!this.statsSystem) return
 
-    // 敌人韧性减少
-    const newToughness = attacker.stats.toughness - PARRY_ENEMY_TOUGHNESS_DAMAGE
-    attacker.stats.toughness = Math.max(0, newToughness)
+    const result = this.statsSystem.applyParryDamage(defender, attacker)
 
-    // 我方韧性恢复
-    defender.stats.toughness = Math.min(
-      defender.stats.maxToughness,
-      defender.stats.toughness + PARRY_SELF_TOUGHNESS_RECOVERY
-    )
-
-    // 韧性清空时触发崩塌
-    if (newToughness <= 0) {
+    if (result.attackerStaggered) {
       // 触发攻击者武器回弹效果
       // 具体的崩塌状态和武器掉落由 StatsSystem 统一处理
       if (attacker.weapon && attacker.transform) {
@@ -557,9 +546,8 @@ export class WeaponSystem extends System {
         weapon.swingEndOffset
       )
 
-      if (entity.stats) {
-        entity.stats.isInCombat = true
-        entity.stats.lastCombatTimestamp = now
+      if (this.statsSystem) {
+        this.statsSystem.enterCombat(entity)
       }
       weapon.attackPhase = 'windup'
       weapon.attackElapsedMs = 0
@@ -911,9 +899,7 @@ export class WeaponSystem extends System {
     entity.weapon.isEquipped = true
     entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-    if (entity.movement) {
-      entity.movement.carryWeight = entity.weapon.weight
-    }
+    // 武器重量由MovementSystem自动读取
   }
 
   startAttack(entity: Entity): void {
@@ -964,9 +950,8 @@ export class WeaponSystem extends System {
       weapon.swingDirection = weapon.nextSwingDirection
       weapon.nextSwingDirection =
         weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
-      if (entity.stats) {
-        entity.stats.isInCombat = true
-        entity.stats.lastCombatTimestamp = now
+      if (this.statsSystem) {
+        this.statsSystem.enterCombat(entity)
       }
       weapon.attackPhase = 'windup'
       weapon.attackElapsedMs = 0
@@ -1152,8 +1137,8 @@ export class WeaponSystem extends System {
 
     const weapon = entity.weapon
     weapon.attackQueued = false
-    if (entity.stats) {
-      entity.stats.isInCombat = false
+    if (this.statsSystem) {
+      this.statsSystem.exitCombat(entity)
     }
     weapon.attackPhase = 'idle'
     weapon.attackElapsedMs = 0
@@ -1296,15 +1281,16 @@ export class WeaponSystem extends System {
   }
 
   private applyPushback(entity: Entity, weapon: Entity['weapon']): void {
-    if (!entity.physics || !this.box2d || !weapon || !this.tempVec) return
+    if (!this.statsSystem || !weapon) return
 
-    const { b2Body_ApplyLinearImpulseToCenter } = this.box2d
     const dirX = Math.cos(weapon.visual.rotation)
     const dirY = Math.sin(weapon.visual.rotation)
     const impulseStrength = 0.2
-    this.tempVec.x = -dirX * impulseStrength
-    this.tempVec.y = -dirY * impulseStrength
-    b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, this.tempVec, true)
+    this.statsSystem.applyImpulse(
+      entity,
+      -dirX * impulseStrength,
+      -dirY * impulseStrength
+    )
   }
 
   private checkEntityHits(attacker: Entity, weapon: Entity['weapon']): void {

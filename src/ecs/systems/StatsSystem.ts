@@ -10,6 +10,8 @@ import {
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  PARRY_ENEMY_TOUGHNESS_DAMAGE,
+  PARRY_SELF_TOUGHNESS_RECOVERY,
   STAGGER_DAMAGE_MULTIPLIER,
   STAGGER_DURATION_MS,
   STAGGER_HIT_STUN_DURATION_MS,
@@ -149,6 +151,47 @@ export class StatsSystem extends System {
       return true
     }
     return false
+  }
+
+  enterCombat(entity: Entity): void {
+    if (!entity.stats) return
+    entity.stats.isInCombat = true
+    entity.stats.lastCombatTimestamp = Date.now()
+    entity.stats.combatExitTimer = 0
+  }
+
+  exitCombat(entity: Entity): void {
+    if (!entity.stats) return
+    entity.stats.isInCombat = false
+    entity.stats.combatExitTimer = 0
+  }
+
+  applyParryDamage(
+    defender: Entity,
+    attacker: Entity
+  ): { attackerStaggered: boolean } {
+    if (!defender.stats || !attacker.stats) {
+      return { attackerStaggered: false }
+    }
+
+    const newToughness = attacker.stats.toughness - PARRY_ENEMY_TOUGHNESS_DAMAGE
+    attacker.stats.toughness = Math.max(0, newToughness)
+
+    defender.stats.toughness = Math.min(
+      defender.stats.maxToughness,
+      defender.stats.toughness + PARRY_SELF_TOUGHNESS_RECOVERY
+    )
+
+    return { attackerStaggered: newToughness <= 0 }
+  }
+
+  applyImpulse(entity: Entity, impulseX: number, impulseY: number): void {
+    if (!entity.physics || !this.box2d || !this.tempVec) return
+
+    const { b2Body_ApplyLinearImpulseToCenter } = this.box2d
+    this.tempVec.x = impulseX
+    this.tempVec.y = impulseY
+    b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, this.tempVec, true)
   }
 
   triggerStagger(entity: Entity): void {

@@ -257,10 +257,7 @@ export function createEnemy(
     enemy.weapon.attackFacing = facing
     enemy.weapon.attackPhase = 'idle'
     enemy.weapon.attackQueued = false
-
-    if (enemy.movement) {
-      enemy.movement.carryWeight = enemy.weapon.weight
-    }
+    // 武器重量由MovementSystem自动读取
   }
 
   return enemy
