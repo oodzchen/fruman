@@ -109,7 +109,7 @@ export class InputComponent extends Component {
 
 export class RenderComponent extends Component {
   radius = 0.5
-  color = '#4CAF50'
+  color = '#F58025'
   borderColor = '#FFD700'
   visible = true
 

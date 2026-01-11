@@ -224,7 +224,7 @@ export function createEnemy(
   }
 
   if (enemy.render) {
-    enemy.render.color = '#55585c'
+    enemy.render.color = '#889357'
   }
 
   if (enemy.movement) {

@@ -246,9 +246,14 @@ export class GameClient {
     this.ctx.fillStyle = '#00ff00'
     this.ctx.strokeStyle = '#000000'
     this.ctx.lineWidth = 3
-    this.ctx.strokeText(this.fpsText, 10, 30)
-    this.ctx.fillText(this.fpsText, 10, 30)
+    this.ctx.textAlign = 'right'
+    const fpsX = this.canvas.width - 10
+    this.ctx.strokeText(this.fpsText, fpsX, 30)
+    this.ctx.fillText(this.fpsText, fpsX, 30)
     this.ctx.restore()
+
+    // Draw Player UI (Health/Toughness)
+    this.renderer.renderPlayerUI()
   }
 
   // Copied from GameECS

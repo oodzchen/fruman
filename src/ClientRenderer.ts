@@ -86,7 +86,7 @@ export class ClientRenderer {
         this.renderWeapon(buf, offset, flags)
       }
 
-      this.renderEntity(buf, offset, flags)
+      this.renderEntity(buf, offset, flags, playerLockedTargetId)
 
       // Draw weapon in front
       if (facing >= 0 && hasWeapon) {
@@ -140,12 +140,17 @@ export class ClientRenderer {
     this.ctx.restore()
   }
 
-  private renderEntity(buf: Float32Array, offset: number, flags: number): void {
+  private renderEntity(
+    buf: Float32Array,
+    offset: number,
+    flags: number,
+    playerLockedTargetId: number
+  ): void {
     const x = buf[offset + OFFSETS.X]
     const y = buf[offset + OFFSETS.Y]
     const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
     const colorInt = buf[offset + OFFSETS.COLOR]
-    const borderColorInt = buf[offset + OFFSETS.BORDER_COLOR]
+    // const borderColorInt = buf[offset + OFFSETS.BORDER_COLOR]
 
     const shakeOffset = this.getHitShakeOffset(buf, offset)
     const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
@@ -172,7 +177,7 @@ export class ClientRenderer {
     this.ctx.arc(0, 0, radius, 0, 2 * Math.PI)
     this.ctx.fill()
 
-    this.ctx.strokeStyle = this.getColorString(borderColorInt)
+    this.ctx.strokeStyle = this.getColorString(colorInt)
     this.ctx.lineWidth = 3
     this.ctx.stroke()
 
@@ -194,7 +199,11 @@ export class ClientRenderer {
 
     // Status Bars
     const maxHealth = buf[offset + OFFSETS.STATS_HEALTH_MAX]
-    if (maxHealth > 0) {
+    const isPlayer = !!(flags & FLAGS.IS_PLAYER)
+    const isInCombat = !!(flags & FLAGS.IN_COMBAT)
+    const isLocked = buf[offset + OFFSETS.ID] === playerLockedTargetId
+
+    if (maxHealth > 0 && !isPlayer && (isInCombat || isLocked)) {
       this.drawStatusBars(
         buf,
         offset,
@@ -203,6 +212,65 @@ export class ClientRenderer {
         buf[offset + OFFSETS.RADIUS]
       )
     }
+  }
+
+  public renderPlayerUI(): void {
+    const buf = this.stateBuffer
+    let playerOffset = -1
+
+    for (let i = 0; i < this.entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      const flags = buf[offset + OFFSETS.FLAGS]
+      if (flags & FLAGS.IS_PLAYER) {
+        playerOffset = offset
+        break
+      }
+    }
+
+    if (playerOffset === -1) return
+
+    const health = buf[playerOffset + OFFSETS.STATS_HEALTH]
+    const maxHealth = buf[playerOffset + OFFSETS.STATS_HEALTH_MAX]
+    const toughness = buf[playerOffset + OFFSETS.STATS_TOUGHNESS]
+    const maxToughness = buf[playerOffset + OFFSETS.STATS_TOUGHNESS_MAX]
+
+    if (maxHealth <= 0) return
+
+    // UI Configuration
+    const startX = 20
+    const startY = 20
+    const barHeight = 14
+    const spacing = 6
+
+    // Scale: 4 pixels per 1 unit of stats (increased by 1/3 from 3)
+    const pixelsPerUnit = 4
+
+    const healthWidth = maxHealth * pixelsPerUnit
+    const toughnessWidth = maxToughness * pixelsPerUnit
+
+    // Health Bar
+    const healthRatio = health / maxHealth
+    this.drawBar(
+      startX,
+      startY,
+      healthWidth,
+      barHeight,
+      healthRatio,
+      '#5a1b1b',
+      '#ff4d4f'
+    )
+
+    // Toughness Bar
+    const toughnessRatio = maxToughness > 0 ? toughness / maxToughness : 0
+    this.drawBar(
+      startX,
+      startY + barHeight + spacing,
+      toughnessWidth,
+      barHeight,
+      toughnessRatio,
+      '#665511',
+      '#ffd666'
+    )
   }
 
   private renderWeapon(buf: Float32Array, offset: number, flags: number): void {
@@ -214,59 +282,38 @@ export class ClientRenderer {
     const wRot = buf[offset + OFFSETS.WEAPON_ROT]
     const wWidth = buf[offset + OFFSETS.WEAPON_W] * this.pixelsPerMeter
     const wHeight = buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter
-    const wRad = buf[offset + OFFSETS.WEAPON_R] * this.pixelsPerMeter
 
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
+    const bodyColor = '#b4bdc7'
 
     this.ctx.save()
     this.ctx.translate(wx * this.pixelsPerMeter, wy * this.pixelsPerMeter)
     this.ctx.rotate(wRot)
-    this.ctx.fillStyle = '#c7b58f'
-    this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : '#5a4b2a'
+
+    this.ctx.beginPath()
+    const halfLen = wWidth / 2
+    const halfThick = wHeight / 2
+
+    // Draw custom shape: Flat base (left), Round tip (right)
+    // Top-Left
+    this.ctx.moveTo(-halfLen, -halfThick)
+    // Top-Right (start of arc)
+    this.ctx.lineTo(halfLen - halfThick, -halfThick)
+    // Tip Arc (Semicircle at +X end)
+    this.ctx.arc(halfLen - halfThick, 0, halfThick, -Math.PI / 2, Math.PI / 2)
+    // Bottom-Right (end of arc) is implied
+    // Bottom-Left
+    this.ctx.lineTo(-halfLen, halfThick)
+    // Close
+    this.ctx.closePath()
+
+    this.ctx.fillStyle = bodyColor
+    // Border matches body unless attacking
+    this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
     this.ctx.lineWidth = 2
-    this.drawRoundedRect(wWidth, wHeight, wRad)
     this.ctx.fill()
     this.ctx.stroke()
     this.ctx.restore()
-  }
-
-  private drawRoundedRect(
-    widthPx: number,
-    heightPx: number,
-    radiusPx: number
-  ): void {
-    const r = Math.min(radiusPx, widthPx / 2, heightPx / 2)
-    this.ctx.beginPath()
-    this.ctx.moveTo(-widthPx / 2 + r, -heightPx / 2)
-    this.ctx.lineTo(widthPx / 2 - r, -heightPx / 2)
-    this.ctx.quadraticCurveTo(
-      widthPx / 2,
-      -heightPx / 2,
-      widthPx / 2,
-      -heightPx / 2 + r
-    )
-    this.ctx.lineTo(widthPx / 2, heightPx / 2 - r)
-    this.ctx.quadraticCurveTo(
-      widthPx / 2,
-      heightPx / 2,
-      widthPx / 2 - r,
-      heightPx / 2
-    )
-    this.ctx.lineTo(-widthPx / 2 + r, heightPx / 2)
-    this.ctx.quadraticCurveTo(
-      -widthPx / 2,
-      heightPx / 2,
-      -widthPx / 2,
-      heightPx / 2 - r
-    )
-    this.ctx.lineTo(-widthPx / 2, -heightPx / 2 + r)
-    this.ctx.quadraticCurveTo(
-      -widthPx / 2,
-      -heightPx / 2,
-      -widthPx / 2 + r,
-      -heightPx / 2
-    )
-    this.ctx.closePath()
   }
 
   private drawStatusBars(
