@@ -122,10 +122,10 @@ export class StatsSystem extends System {
 
       // 战斗状态管理
       if (entity.stats.isInCombat) {
-        const hasTarget = this.hasActiveTarget(entity)
-        if (hasTarget) {
-          entity.stats.combatExitTimer = 0
-        } else {
+        const isPlayer = entity.faction?.faction === 'player'
+
+        if (isPlayer) {
+          // 玩家：基于deltaTime累积计时，每次战斗动作重置
           entity.stats.combatExitTimer += deltaMs
           if (entity.stats.combatExitTimer >= entity.stats.combatExitTimeout) {
             entity.stats.isInCombat = false
@@ -136,27 +136,33 @@ export class StatsSystem extends System {
               entity.weapon.nextSwingDirection = 'toFront'
             }
           }
+        } else {
+          // 敌人：基于检测目标
+          const hasTarget = entity.sensor?.detectedTargetId !== null
+          if (hasTarget) {
+            entity.stats.combatExitTimer = 0
+          } else {
+            entity.stats.combatExitTimer += deltaMs
+            if (
+              entity.stats.combatExitTimer >= entity.stats.combatExitTimeout
+            ) {
+              entity.stats.isInCombat = false
+              entity.stats.combatExitTimer = 0
+              if (entity.weapon) {
+                entity.weapon.comboCount = 0
+                entity.weapon.attackQueued = false
+                entity.weapon.nextSwingDirection = 'toFront'
+              }
+            }
+          }
         }
       }
     }
   }
 
-  private hasActiveTarget(entity: Entity): boolean {
-    // 玩家：检查是否有锁定目标
-    if (entity.input?.lockedTargetId !== null) {
-      return true
-    }
-    // 敌人：检查是否检测到目标
-    if (entity.sensor?.detectedTargetId !== null) {
-      return true
-    }
-    return false
-  }
-
   enterCombat(entity: Entity): void {
     if (!entity.stats) return
     entity.stats.isInCombat = true
-    entity.stats.lastCombatTimestamp = Date.now()
     entity.stats.combatExitTimer = 0
   }
 
@@ -314,8 +320,7 @@ export class StatsSystem extends System {
     if (entity.stats.isDead) return
 
     // Enter combat state on damage taken
-    entity.stats.isInCombat = true
-    entity.stats.lastCombatTimestamp = Date.now()
+    this.enterCombat(entity)
 
     // 翻滚期间无敌
     if (entity.movement?.isRolling) return

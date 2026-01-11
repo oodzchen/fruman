@@ -426,7 +426,7 @@ export class TargetingSystem extends System {
       // Auto-combat state for player/enemies upon detection
       if (entity.stats && !entity.stats.isInCombat) {
         entity.stats.isInCombat = true
-        entity.stats.lastCombatTimestamp = Date.now()
+        entity.stats.combatExitTimer = 0
       }
     } else {
       // 没有检测到敌人时清除detectedTargetId

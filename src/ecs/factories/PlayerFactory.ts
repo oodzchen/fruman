@@ -120,6 +120,7 @@ export function createPlayer(
   stats.health = DEFAULT_PLAYER_MAX_HEALTH
   stats.maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
   stats.toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+  stats.combatExitTimeout = 30000 // 玩家30秒无攻击后脱战
   entity.addComponent(stats)
 
   const render = new RenderComponent()
@@ -201,6 +202,12 @@ export function createEnemy(
   attackDesire: number = DEFAULT_ENEMY_ATTACK_DESIRE
 ): Entity {
   const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY)
+
+  // 重置敌人的脱战超时为10秒
+  if (enemy.stats) {
+    enemy.stats.combatExitTimeout = 10000
+  }
+
   const ai = new EnemyAIComponent()
   ai.attackDesire = attackDesire
   ai.patrolCenter = { x, y }
