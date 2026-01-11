@@ -11,7 +11,13 @@ import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 
-const RAY_ANGLE_OFFSETS = [-Math.PI / 4, 0, Math.PI / 4]
+const RAY_ANGLE_OFFSETS = [
+  (-80 * Math.PI) / 180,
+  (-40 * Math.PI) / 180,
+  0,
+  (40 * Math.PI) / 180,
+  (80 * Math.PI) / 180,
+]
 
 type ShapeIdKeySource = {
   index?: number
@@ -111,6 +117,7 @@ export class TargetingSystem extends System {
         // Note: sensor.detectedTargetId is the closest hostile already.
         if (player.sensor && player.sensor.detectedTargetId !== null) {
           input.lockedTargetId = player.sensor.detectedTargetId
+          input.lockLostTimer = 0
         }
       }
     }
@@ -141,6 +148,9 @@ export class TargetingSystem extends System {
 
           const dx = entity.transform!.x - currentTarget.transform.x
           if ((switchDir > 0 && dx > 0) || (switchDir < 0 && dx < 0)) {
+            // Only switch to visible targets
+            if (!this.hasLineOfSight(player, entity)) continue
+
             const dist = Math.abs(dx)
             if (dist < minDistance) {
               minDistance = dist
@@ -151,6 +161,7 @@ export class TargetingSystem extends System {
 
         if (bestId !== null) {
           input.lockedTargetId = bestId
+          input.lockLostTimer = 0
         }
       }
       input.lockSwitchIntent = 0
@@ -161,15 +172,78 @@ export class TargetingSystem extends System {
       const target = this.getEntityById(input.lockedTargetId, entities)
       if (!target || target.stats?.isDead || target.stats?.isVanished) {
         input.lockedTargetId = null
+        input.lockLostTimer = 0
       } else {
         // Distance check
         const dx = target.transform!.x - player.transform.x
         const dy = target.transform!.y - player.transform.y
         if (Math.hypot(dx, dy) > ENEMY_DETECTION_RANGE * 2.0) {
           input.lockedTargetId = null
+          input.lockLostTimer = 0
+        } else {
+          // Line of Sight check
+          if (this.hasLineOfSight(player, target)) {
+            input.lockLostTimer = 0
+          } else {
+            // Using 16ms approx for delta since update doesn't pass it here explicitly,
+            // but we can rely on update frequency.
+            // Better: TargetingSystem update has deltaTime.
+            // Let's assume ~16ms per frame or use a fixed step.
+            // Since we don't have exact delta here easily without passing it down,
+            // we will use a small constant assuming 60fps, or better, pass delta.
+            // Actually `update` has `_deltaTime`.
+            // I'll update the signature of `handlePlayerLock` to accept `deltaTime`.
+            input.lockLostTimer += 16 // Approx 1 frame
+            if (input.lockLostTimer > 3000) {
+              input.lockedTargetId = null
+              input.lockLostTimer = 0
+            }
+          }
         }
       }
     }
+  }
+
+  private hasLineOfSight(start: Entity, end: Entity): boolean {
+    if (!start.transform || !end.transform) return false
+    const { b2World_CastRayClosest } = this.box2d
+    const startVec = this.rayStart
+    const translationVec = this.rayTranslation
+    const filter = this.rayFilter
+
+    // Calculate Eye Position
+    let facingDir = 1
+    if (start.input) {
+      if (start.input.lastMoveDirection !== 0) {
+        facingDir = start.input.lastMoveDirection
+      }
+    } else if (start.weapon) {
+      facingDir = start.weapon.attackFacing
+    }
+
+    const eyeOffsetX = facingDir >= 0 ? 0.25 : -0.25
+    const eyeOffsetY = -0.25
+    const startX = start.transform.x + eyeOffsetX
+    const startY = start.transform.y + eyeOffsetY
+
+    startVec.Set(startX, startY)
+    const dx = end.transform.x - startX
+    const dy = end.transform.y - startY
+    translationVec.Set(dx, dy)
+
+    // Mask: Obstacles and Ground block view. Ignore Players/Enemies for LoS check for locking?
+    // Usually locking requires LoS blocked by environment.
+    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
+
+    const output = b2World_CastRayClosest(
+      this.worldId,
+      startVec,
+      translationVec,
+      filter
+    )
+    // If we hit something (obstacle/ground), LoS is blocked.
+    // RayCastClosest returns hit fraction. If hit is true, it hit something in the mask.
+    return !output.hit
   }
 
   private rebuildShapeMap(entities: Entity[]): void {
@@ -225,6 +299,7 @@ export class TargetingSystem extends System {
     // Fixed angles: Up-Forward (-45deg), Forward (0), Down-Forward (+45deg)
     const scanResults = entity.sensor.scanResults
     let detectedHostileId: number | null = null
+    let closestDistSq = Infinity
 
     const { b2World_CastRayClosest } = this.box2d
     const startVec = this.rayStart
@@ -277,7 +352,12 @@ export class TargetingSystem extends System {
             !hitEntity.stats?.isVanished
           ) {
             isHostile = true
-            detectedHostileId = hitEntityId
+            const distSq =
+              (output.point.x - startX) ** 2 + (output.point.y - startY) ** 2
+            if (distSq < closestDistSq) {
+              closestDistSq = distSq
+              detectedHostileId = hitEntityId
+            }
           }
         }
       }

@@ -93,10 +93,22 @@ export class EnemyAISystem extends System {
         entity.sensor && entity.sensor.detectedTargetId === this.player.id
       ai.hasLineOfSight = !!hasLineOfSight
 
+      if (hasLineOfSight) {
+        ai.targetLostTimer = 0
+      } else if (entity.stats?.isInCombat) {
+        ai.targetLostTimer += deltaTime * 1000
+        if (ai.targetLostTimer > ai.combatResetTime) {
+          entity.stats.isInCombat = false
+          ai.targetLostTimer = 0
+        }
+      }
+
+      const lostInterest = !hasLineOfSight && !entity.stats?.isInCombat
+
       if (
         ai.attackDesire <= 0 ||
         distance > ai.detectionRange ||
-        !hasLineOfSight
+        lostInterest
       ) {
         // 巡逻逻辑
         this.handlePatrol(entity, ai, now)

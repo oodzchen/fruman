@@ -97,6 +97,7 @@ export class InputComponent extends Component {
   lockedTargetId: number | null = null
   lockToggleRequested = false
   lockSwitchIntent = 0
+  lockLostTimer = 0
 
   lastMoveDirection = 0
   facingOverride: number | null = null
@@ -267,6 +268,8 @@ export class EnemyAIComponent extends Component {
   patrolRange = 5
   patrolCenter = { x: 0, y: 0 }
   hasLineOfSight = false
+  targetLostTimer = 0
+  combatResetTime = 5000
 
   getName(): string {
     return 'EnemyAI'
@@ -282,7 +285,7 @@ export type RayCastResult = {
   isHostile?: boolean
 }
 
-const DEFAULT_SENSOR_RAY_COUNT = 3
+const DEFAULT_SENSOR_RAY_COUNT = 5
 
 const createRayCastResults = (count: number): RayCastResult[] => {
   const results: RayCastResult[] = []
@@ -299,7 +302,7 @@ const createRayCastResults = (count: number): RayCastResult[] => {
 
 export class SensorComponent extends Component {
   radius = 10
-  fov = (90 * Math.PI) / 180 // +/- 45 degrees
+  fov = (160 * Math.PI) / 180 // +/- 80 degrees
   rayCount = DEFAULT_SENSOR_RAY_COUNT
   scanResults: RayCastResult[] = createRayCastResults(DEFAULT_SENSOR_RAY_COUNT)
   lastScanTimestamp = 0
