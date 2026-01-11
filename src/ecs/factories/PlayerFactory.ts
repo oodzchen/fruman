@@ -257,7 +257,6 @@ export function createEnemy(
     enemy.weapon.attackFacing = facing
     enemy.weapon.attackPhase = 'idle'
     enemy.weapon.attackQueued = false
-    enemy.weapon.isInCombat = false
 
     if (enemy.movement) {
       enemy.movement.carryWeight = enemy.weapon.weight
@@ -293,7 +292,6 @@ export function createWeapon(
   }
   weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
   weapon.isEquipped = false
-  weapon.isInCombat = false
   weapon.attackPhase = 'idle'
   weapon.attackElapsedMs = 0
   weapon.lastAttackTimestamp = 0

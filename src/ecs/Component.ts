@@ -135,6 +135,9 @@ export class StatsComponent extends Component {
   hitShakeIntensity = 0
   hitShakeDirectionX = 0
 
+  isInCombat = false
+  lastCombatTimestamp = 0
+
   isStaggered = false
   staggerElapsedTime = 0
   staggerDuration = 1000
@@ -165,7 +168,6 @@ export class WeaponComponent extends Component {
   position = { x: 0, y: 0 }
   rotation = 0
   isEquipped = false
-  isInCombat = false
   isBlocking = false
   attackPhase:
     | 'idle'

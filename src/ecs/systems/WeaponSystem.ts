@@ -203,10 +203,11 @@ export class WeaponSystem extends System {
     this.applyOffset(weapon.swingEndOffset, playerPos, weapon.swingEndTransform)
 
     const hasTimedOut =
-      weapon.isInCombat &&
-      now - weapon.lastAttackTimestamp > DEFAULT_WEAPON_COMBAT_TIMEOUT_MS
-    if (hasTimedOut) {
-      weapon.isInCombat = false
+      entity.stats?.isInCombat &&
+      now - (entity.stats?.lastCombatTimestamp ?? 0) >
+        DEFAULT_WEAPON_COMBAT_TIMEOUT_MS
+    if (hasTimedOut && entity.stats) {
+      entity.stats.isInCombat = false
       weapon.comboCount = 0
       weapon.attackQueued = false
       weapon.nextSwingDirection = 'toFront'
@@ -218,7 +219,10 @@ export class WeaponSystem extends System {
         weapon.parryElapsedTime = 0
         weapon.isParrying = true
         weapon.isBlocking = true
-        weapon.isInCombat = true
+        if (entity.stats) {
+          entity.stats.isInCombat = true
+          entity.stats.lastCombatTimestamp = now
+        }
         weapon.parryHitWeaponIds.clear()
 
         // 初始化弹反起始和目标位置
@@ -310,7 +314,10 @@ export class WeaponSystem extends System {
     }
 
     weapon.isBlocking = true
-    weapon.isInCombat = true
+    if (entity.stats) {
+      entity.stats.isInCombat = true
+      entity.stats.lastCombatTimestamp = Date.now()
+    }
     weapon.lastAttackTimestamp = Date.now()
 
     // 弹反窗口期间（只在武器移动期间有效）
@@ -524,7 +531,7 @@ export class WeaponSystem extends System {
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
 
-    if (weapon.isInCombat) {
+    if (entity.stats?.isInCombat) {
       this.getFrontTransform(playerPos, facing, weapon.visual)
     } else {
       this.getBackTransform(playerPos, facing, weapon.visual)
@@ -562,7 +569,10 @@ export class WeaponSystem extends System {
         weapon.swingEndOffset
       )
 
-      weapon.isInCombat = true
+      if (entity.stats) {
+        entity.stats.isInCombat = true
+        entity.stats.lastCombatTimestamp = now
+      }
       weapon.attackPhase = 'windup'
       weapon.attackElapsedMs = 0
       weapon.lastAttackTimestamp = now
@@ -966,7 +976,10 @@ export class WeaponSystem extends System {
       weapon.swingDirection = weapon.nextSwingDirection
       weapon.nextSwingDirection =
         weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
-      weapon.isInCombat = true
+      if (entity.stats) {
+        entity.stats.isInCombat = true
+        entity.stats.lastCombatTimestamp = now
+      }
       weapon.attackPhase = 'windup'
       weapon.attackElapsedMs = 0
       weapon.lastAttackTimestamp = now
@@ -1151,7 +1164,9 @@ export class WeaponSystem extends System {
 
     const weapon = entity.weapon
     weapon.attackQueued = false
-    weapon.isInCombat = false
+    if (entity.stats) {
+      entity.stats.isInCombat = false
+    }
     weapon.attackPhase = 'idle'
     weapon.attackElapsedMs = 0
     weapon.isColliding = false

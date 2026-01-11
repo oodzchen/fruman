@@ -303,9 +303,9 @@ export class TargetingSystem extends System {
       entity.sensor.detectedTargetId = detectedHostileId
 
       // Auto-combat state for player/enemies upon detection
-      if (entity.weapon && !entity.weapon.isInCombat) {
-        entity.weapon.isInCombat = true
-        entity.weapon.lastAttackTimestamp = Date.now()
+      if (entity.stats && !entity.stats.isInCombat) {
+        entity.stats.isInCombat = true
+        entity.stats.lastCombatTimestamp = Date.now()
       }
     }
   }

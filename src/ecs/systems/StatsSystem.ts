@@ -239,6 +239,10 @@ export class StatsSystem extends System {
     if (!entity.stats) return
     if (entity.stats.isDead) return
 
+    // Enter combat state on damage taken
+    entity.stats.isInCombat = true
+    entity.stats.lastCombatTimestamp = Date.now()
+
     // 翻滚期间无敌
     if (entity.movement?.isRolling) return
 
@@ -381,7 +385,6 @@ export class StatsSystem extends System {
         entity.weapon.attackPhase = 'idle'
         entity.weapon.attackElapsedMs = 0
         entity.weapon.attackQueued = false
-        entity.weapon.isInCombat = false
         entity.weapon.isColliding = false
         entity.weapon.isBlocking = false
         entity.weapon.isParrying = false
