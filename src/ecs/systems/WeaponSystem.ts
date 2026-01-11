@@ -56,6 +56,7 @@ export class WeaponSystem extends System {
     rotation: 0,
   }
   private tempPlayerPos = { x: 0, y: 0 }
+  private tempHitSource = { x: 0, y: 0 }
   private currentDeltaTime = 0
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
@@ -386,6 +387,9 @@ export class WeaponSystem extends System {
         )
       ) {
         weapon.parryHitWeaponIds.add(attacker.id)
+        const sparkX = (weaponX + attackerX) * 0.5
+        const sparkY = (weaponY + attackerY) * 0.5
+        this.statsSystem?.emitSpark(sparkX, sparkY)
         this.applyParryEffect(defender, attacker)
       }
     }
@@ -1345,10 +1349,9 @@ export class WeaponSystem extends System {
           targetRadius
         )
       ) {
-        this.statsSystem.applyWeaponHit(target, weapon, {
-          x: weaponX,
-          y: weaponY,
-        })
+        this.tempHitSource.x = weaponX
+        this.tempHitSource.y = weaponY
+        this.statsSystem.applyWeaponHit(target, weapon, this.tempHitSource)
         weapon.isColliding = true
         weapon.hitEntityIds.add(target.id)
       }

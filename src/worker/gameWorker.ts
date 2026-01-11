@@ -15,11 +15,19 @@ import { createEnemy, createPlayer } from '../ecs/factories/PlayerFactory'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
-import { StatsSystem } from '../ecs/systems/StatsSystem'
+import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
 import type { MainModule, b2BodyId, b2ShapeId } from '../types'
 import { ENTITY_STRIDE, FLAGS, MAX_ENTITIES, OFFSETS } from './binaryProtocol'
+import {
+  EFFECTS_BASE_OFFSET,
+  EFFECT_OFFSETS,
+  EFFECT_STRIDE,
+  EFFECT_TYPES,
+  MAX_EFFECTS,
+  STATE_BUFFER_FLOATS,
+} from './effectsProtocol'
 import type { MainToWorkerMessage, WorkerToMainMessage } from './protocol'
 
 // Worker global scope
@@ -52,7 +60,6 @@ let loopInterval: ReturnType<typeof setInterval>
 const TARGET_FPS = 60
 const TIME_STEP = 1 / TARGET_FPS
 
-const STATE_BUFFER_FLOATS = MAX_ENTITIES * ENTITY_STRIDE
 const STATE_BUFFER_BYTES = STATE_BUFFER_FLOATS * Float32Array.BYTES_PER_ELEMENT
 const supportsSharedArrayBuffer =
   typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated
@@ -62,6 +69,8 @@ let stateBuffer: Float32Array<ArrayBufferLike> = new Float32Array(
   STATE_BUFFER_FLOATS
 )
 const stateBufferViews: Float32Array[] = []
+let effectsCount = 0
+const SPARK_COLOR_INT = 0xfff4a8
 
 // Helper for color parsing (simple cache)
 const colorCache = new Map<string, number>()
@@ -74,6 +83,25 @@ function parseColor(color: string): number {
     return val
   }
   return 0
+}
+
+function queueEffect(type: number, x: number, y: number, color: number): void {
+  if (effectsCount >= MAX_EFFECTS) return
+  const base = EFFECTS_BASE_OFFSET + effectsCount * EFFECT_STRIDE
+  stateBuffer[base + EFFECT_OFFSETS.TYPE] = type
+  stateBuffer[base + EFFECT_OFFSETS.X] = x
+  stateBuffer[base + EFFECT_OFFSETS.Y] = y
+  stateBuffer[base + EFFECT_OFFSETS.COLOR] = color
+  effectsCount += 1
+}
+
+const effectsEmitter: EffectsEmitter = {
+  emitSpark: (x, y) => {
+    queueEffect(EFFECT_TYPES.SPARK, x, y, SPARK_COLOR_INT)
+  },
+  emitBlood: (x, y, color) => {
+    queueEffect(EFFECT_TYPES.BLOOD, x, y, color)
+  },
 }
 
 // Game State needed for logic
@@ -99,6 +127,7 @@ const stateMessage: WorkerToMainMessage = {
   type: 'state',
   entitiesBuffer: null as unknown as ArrayBuffer | SharedArrayBuffer,
   entityCount: 0,
+  effectsCount: 0,
   camera: { x: 0, y: 0 },
 }
 
@@ -149,6 +178,7 @@ async function init(width: number, height: number, ppm: number) {
 }
 
 function initStateBuffers(): void {
+  effectsCount = 0
   if (supportsSharedArrayBuffer) {
     sharedStateBuffer = new SharedArrayBuffer(STATE_BUFFER_BYTES)
     stateBuffer = new Float32Array(sharedStateBuffer)
@@ -188,6 +218,8 @@ function registerComponents() {
 
 function initializeSystems() {
   statsSystem = new StatsSystem(box2d, worldId)
+  statsSystem.setEffectsEmitter(effectsEmitter)
+  statsSystem.setBloodEffectsEnabled(false)
   enemyAISystem = new EnemyAISystem(box2d, worldId)
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
@@ -537,15 +569,18 @@ function sendState() {
 
   stateMessage.entitiesBuffer = stateBuffer.buffer
   stateMessage.entityCount = count
+  stateMessage.effectsCount = effectsCount
   stateMessage.camera.x = camera.x
   stateMessage.camera.y = camera.y
   if (sharedStateBuffer) {
     ctx.postMessage(stateMessage)
+    effectsCount = 0
     return
   }
 
   const buffer = stateBuffer.buffer as ArrayBuffer
   ctx.postMessage(stateMessage, [buffer])
+  effectsCount = 0
 
   const nextView = stateBufferViews.pop()
   if (nextView) {

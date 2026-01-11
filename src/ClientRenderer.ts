@@ -1,9 +1,18 @@
+import { ParticleSystem } from './ParticleSystem'
 import {
   ENTITY_STRIDE,
   FLAGS,
   MAX_ENTITIES,
   OFFSETS,
 } from './worker/binaryProtocol'
+import {
+  EFFECTS_BASE_OFFSET,
+  EFFECT_OFFSETS,
+  EFFECT_STRIDE,
+  EFFECT_TYPES,
+} from './worker/effectsProtocol'
+
+const MAX_PARTICLES = 600
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
@@ -21,11 +30,15 @@ export class ClientRenderer {
 
   // Cache for int -> hex color
   private colorCache = new Map<number, string>()
+  private particleSystem: ParticleSystem
+  private effectsBuffer: ArrayBuffer | SharedArrayBuffer | null = null
+  private effectsView: Float32Array | null = null
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
     this.pixelsPerMeter = pixelsPerMeter
     this.camera = { x: 0, y: 0 }
+    this.particleSystem = new ParticleSystem(MAX_PARTICLES)
   }
 
   updateState(buffer: ArrayBuffer | SharedArrayBuffer, count: number) {
@@ -42,6 +55,33 @@ export class ClientRenderer {
     this.entityCount = count
   }
 
+  update(deltaTime: number): void {
+    this.particleSystem.update(deltaTime)
+  }
+
+  applyEffects(buffer: ArrayBuffer | SharedArrayBuffer, count: number): void {
+    if (count <= 0) return
+    if (this.effectsBuffer !== buffer) {
+      this.effectsBuffer = buffer
+      this.effectsView = new Float32Array(buffer)
+    }
+    const view = this.effectsView
+    if (!view) return
+
+    for (let i = 0; i < count; i++) {
+      const base = EFFECTS_BASE_OFFSET + i * EFFECT_STRIDE
+      const type = view[base + EFFECT_OFFSETS.TYPE] | 0
+      const x = view[base + EFFECT_OFFSETS.X]
+      const y = view[base + EFFECT_OFFSETS.Y]
+      const color = view[base + EFFECT_OFFSETS.COLOR] | 0
+      if (type === EFFECT_TYPES.SPARK) {
+        this.particleSystem.spawnSpark(x, y, color)
+      } else if (type === EFFECT_TYPES.BLOOD) {
+        this.particleSystem.spawnBlood(x, y, color)
+      }
+    }
+  }
+
   setCamera(x: number, y: number) {
     this.camera.x = x
     this.camera.y = y
@@ -56,7 +96,8 @@ export class ClientRenderer {
   }
 
   render() {
-    if (this.entityCount === 0) return
+    if (this.entityCount === 0 && !this.particleSystem.hasActiveParticles())
+      return
     const buf = this.stateBuffer
 
     // First pass: Find Player (Check for IS_PLAYER flag)
@@ -93,6 +134,8 @@ export class ClientRenderer {
         this.renderWeapon(buf, offset, flags)
       }
     }
+
+    this.particleSystem.render(this.ctx, this.pixelsPerMeter)
 
     // Draw LockOn Reticle
     if (playerLockedTargetId !== -1) {

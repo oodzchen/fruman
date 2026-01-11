@@ -23,11 +23,19 @@ import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 
+export type EffectsEmitter = {
+  emitSpark: (x: number, y: number) => void
+  emitBlood: (x: number, y: number, color: number) => void
+}
+
 export class StatsSystem extends System {
   private box2d?: MainModule
   private worldId?: b2WorldId
   private tempVec?: InstanceType<MainModule['b2Vec2']>
   private currentDeltaTime = 0
+  private effectsEmitter?: EffectsEmitter
+  private bloodEffectsEnabled = false
+  private colorCache = new Map<string, number>()
 
   constructor(box2d?: MainModule, worldId?: b2WorldId) {
     super()
@@ -170,6 +178,19 @@ export class StatsSystem extends System {
     if (!entity.stats) return
     entity.stats.isInCombat = false
     entity.stats.combatExitTimer = 0
+  }
+
+  setEffectsEmitter(emitter: EffectsEmitter | null): void {
+    this.effectsEmitter = emitter ?? undefined
+  }
+
+  setBloodEffectsEnabled(enabled: boolean): void {
+    this.bloodEffectsEnabled = enabled
+  }
+
+  emitSpark(x: number, y: number): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.emitSpark(x, y)
   }
 
   applyParryDamage(
@@ -388,7 +409,8 @@ export class StatsSystem extends System {
 
     if (hitSource && entity.transform) {
       const dirX = entity.transform.x - hitSource.x
-      const distance = Math.hypot(dirX, entity.transform.y - hitSource.y)
+      const dirY = entity.transform.y - hitSource.y
+      const distance = Math.hypot(dirX, dirY)
       const normalizedDirX = distance > 0 ? dirX / distance : 1
 
       if (finalHealthDamage > 0) {
@@ -396,6 +418,14 @@ export class StatsSystem extends System {
         entity.stats.hitShakeDurationMs = DEFAULT_HIT_SHAKE_DURATION_MS
         entity.stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
         entity.stats.hitShakeDirectionX = normalizedDirX
+        if (this.bloodEffectsEnabled && entity.render && this.effectsEmitter) {
+          const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
+          const invDistance = distance > 0 ? 1 / distance : 0
+          const hitX = entity.transform.x - dirX * invDistance * radius
+          const hitY = entity.transform.y - dirY * invDistance * radius
+          const colorInt = this.parseColor(entity.render.color)
+          this.effectsEmitter.emitBlood(hitX, hitY, colorInt)
+        }
       }
 
       if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {
@@ -551,5 +581,17 @@ export class StatsSystem extends System {
     physics.bodyId = bodyId
     physics.shapeId = shapeId
     entity.addComponent(physics)
+  }
+
+  private parseColor(color: string): number {
+    const cached = this.colorCache.get(color)
+    if (cached !== undefined) return cached
+    if (color.startsWith('#')) {
+      const hex = color.slice(1)
+      const value = parseInt(hex, 16)
+      this.colorCache.set(color, value)
+      return value
+    }
+    return 0
   }
 }

@@ -75,6 +75,7 @@ export type WorkerStateMessage = {
   type: 'state'
   entitiesBuffer: ArrayBuffer | SharedArrayBuffer
   entityCount: number
+  effectsCount: number
   camera: { x: number; y: number }
 }
 

@@ -95,6 +95,7 @@ export class GameClient {
     if (msg.type === 'state') {
       // Pass raw buffer to renderer, no decoding here to save Main Thread CPU/GC
       this.renderer.updateState(msg.entitiesBuffer, msg.entityCount)
+      this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
       this.releaseStateBuffer(msg.entitiesBuffer)
@@ -175,6 +176,7 @@ export class GameClient {
       this.fpsUpdateTime = 0
     }
 
+    this.renderer.update(deltaTime)
     this.render()
     requestAnimationFrame(this.boundRenderLoop)
   }
