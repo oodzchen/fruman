@@ -229,6 +229,9 @@ export class ClientRenderer {
 
     if (playerOffset === -1) return
 
+    const flags = buf[playerOffset + OFFSETS.FLAGS]
+    if (!(flags & FLAGS.IN_COMBAT)) return
+
     const health = buf[playerOffset + OFFSETS.STATS_HEALTH]
     const maxHealth = buf[playerOffset + OFFSETS.STATS_HEALTH_MAX]
     const toughness = buf[playerOffset + OFFSETS.STATS_TOUGHNESS]
@@ -237,10 +240,10 @@ export class ClientRenderer {
     if (maxHealth <= 0) return
 
     // UI Configuration
-    const startX = 20
-    const startY = 20
-    const barHeight = 14
+    const startX = 16
+    const barHeight = 12
     const spacing = 6
+    const startY = this.ctx.canvas.height - (barHeight * 2 + spacing) - 14
 
     // Scale: 4 pixels per 1 unit of stats (increased by 1/3 from 3)
     const pixelsPerUnit = 4
