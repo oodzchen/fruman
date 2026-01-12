@@ -14,6 +14,7 @@ export interface EnemyTemplate {
   radius: number
   attackDesire: number
   color: string
+  parryProficiency: number
 }
 
 export type EnemyType = 'default' | 'fast' | 'large'

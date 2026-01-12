@@ -258,6 +258,7 @@ export class FactionComponent extends Component {
 
 export class EnemyAIComponent extends Component {
   attackDesire = DEFAULT_ENEMY_ATTACK_DESIRE
+  parryProficiency = 0
   detectionRange = ENEMY_DETECTION_RANGE
   decisionCooldownMs = ENEMY_DECISION_COOLDOWN_MS
   paceSwitchIntervalMs = ENEMY_PACE_SWITCH_INTERVAL_MS
@@ -277,6 +278,8 @@ export class EnemyAIComponent extends Component {
   patrolCenter = { x: 0, y: 0 }
   hasLineOfSight = false
   targetLostTimer = 0
+  playerSwingActive = false
+  parryAttemptedThisSwing = false
   combatResetTime = 5000
   lastPosition = { x: 0, y: 0 }
   stuckTimer = 0

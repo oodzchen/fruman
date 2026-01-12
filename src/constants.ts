@@ -154,18 +154,21 @@ export const ENEMY_TEMPLATES = {
     radius: DEFAULT_PLAYER_RADIUS,
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#889357',
+    parryProficiency: 100,
   },
   fast: {
     moveSpeed: 6,
     radius: DEFAULT_PLAYER_RADIUS / 2,
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#ff6b6b',
+    parryProficiency: 100,
   },
   large: {
     moveSpeed: 2,
     radius: DEFAULT_PLAYER_RADIUS * 2,
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#4ecdc4',
+    parryProficiency: 0,
   },
 } as const
 

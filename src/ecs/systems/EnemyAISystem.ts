@@ -61,6 +61,7 @@ export class EnemyAISystem extends System {
       if (entity.stats?.isDead) {
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
+        entity.input.blockRequested = false
         if (entity.weapon) {
           entity.weapon.attackQueued = false
         }
@@ -69,14 +70,11 @@ export class EnemyAISystem extends System {
 
       // 如果处于击退硬直中，暂停AI控制，让物理引擎接管运动
       if (entity.movement && entity.movement.knockbackEndTime > now) {
+        entity.input.blockRequested = false
         continue
       }
 
       const ai = entity.enemyAI
-      if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
-        continue
-      }
-      ai.lastDecisionTimestamp = now
 
       const dx = this.player.transform.x - entity.transform.x
       const dy = this.player.transform.y - entity.transform.y
@@ -88,12 +86,29 @@ export class EnemyAISystem extends System {
       const playerRadius = this.player.render?.radius ?? DEFAULT_PLAYER_RADIUS
       const weaponRange = weaponAttackRadius + playerRadius
 
-      const facing = dx >= 0 ? 1 : -1
-      entity.input.facingOverride = facing
-
       // 使用传感器结果判断视线
       const hasLineOfSight =
         entity.sensor && entity.sensor.detectedTargetId === this.player.id
+      const isPlayerSwinging = this.player.weapon
+        ? this.player.weapon.attackPhase === 'swing'
+        : false
+      this.updateParryState(
+        entity,
+        ai,
+        isPlayerSwinging,
+        distance,
+        weaponRange,
+        !!hasLineOfSight
+      )
+
+      if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
+        continue
+      }
+      ai.lastDecisionTimestamp = now
+
+      const facing = dx >= 0 ? 1 : -1
+      entity.input.facingOverride = facing
+
       ai.hasLineOfSight = !!hasLineOfSight
 
       // 战斗状态管理由StatsSystem负责，这里只记录是否有视线
@@ -328,6 +343,58 @@ export class EnemyAISystem extends System {
     }
   }
 
+  private updateParryState(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    isPlayerSwinging: boolean,
+    distance: number,
+    weaponRange: number,
+    hasLineOfSight: boolean
+  ): void {
+    if (!entity.input || !entity.weapon) return
+
+    if (
+      !entity.weapon.isEquipped ||
+      entity.stats?.isDead ||
+      entity.stats?.isStaggered
+    ) {
+      entity.input.blockRequested = false
+      ai.playerSwingActive = false
+      ai.parryAttemptedThisSwing = false
+      return
+    }
+
+    entity.input.blockRequested = false
+
+    if (!isPlayerSwinging) {
+      ai.playerSwingActive = false
+      ai.parryAttemptedThisSwing = false
+      return
+    }
+
+    if (!ai.playerSwingActive) {
+      ai.playerSwingActive = true
+      ai.parryAttemptedThisSwing = false
+    }
+
+    if (!hasLineOfSight) return
+
+    if (distance > weaponRange + ENEMY_ATTACK_RANGE_BUFFER) return
+
+    if (ai.parryAttemptedThisSwing) return
+
+    ai.parryAttemptedThisSwing = true
+    if (this.shouldParry(ai.parryProficiency)) {
+      entity.input.blockRequested = true
+    }
+  }
+
+  private shouldParry(proficiency: number): boolean {
+    if (proficiency <= 0) return false
+    if (proficiency >= 100) return true
+    return Math.random() * 100 < proficiency
+  }
+
   private tryTriggerObstacleJump(
     entity: Entity,
     ai: EnemyAIComponent,
@@ -550,6 +617,7 @@ export class EnemyAISystem extends System {
       if (!entity.input || entity.faction?.faction !== Faction.Enemy) continue
       entity.input.moveDirection = 0
       entity.input.facingOverride = null
+      entity.input.blockRequested = false
       if (entity.weapon) {
         entity.weapon.attackQueued = false
       }
