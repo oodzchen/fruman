@@ -334,32 +334,84 @@ export class EnemyAISystem extends System {
   ): void {
     if (!entity.input || !entity.transform) return
 
-    // 简单巡逻：如果在巡逻范围外，向中心移动；如果在范围内，随机停顿或移动
-    const dx = entity.transform.x - ai.patrolCenter.x
-    const dist = Math.abs(dx)
+    // 如果没有设置巡逻点，使用默认的原地待机逻辑
+    if (!ai.patrolWaypoints || ai.patrolWaypoints.length === 0) {
+      entity.input.moveDirection = 0
+      return
+    }
 
-    if (dist > ai.patrolRange) {
-      // 超出范围，返回中心
-      entity.input.moveDirection = dx > 0 ? -1 : 1
-      entity.input.facingOverride = entity.input.moveDirection
-    } else {
-      // 在范围内，随机移动
-      // 使用简单的计时器来切换移动方向
-      const patrolPeriod = 3000 // 3秒周期
-      const phase = now % patrolPeriod
-      if (phase < 1000) {
-        entity.input.moveDirection = 1
-        entity.input.facingOverride = 1
-      } else if (phase < 2000) {
-        entity.input.moveDirection = -1
-        entity.input.facingOverride = -1
-      } else {
+    // 确保索引有效
+    if (ai.currentWaypointIndex >= ai.patrolWaypoints.length) {
+      ai.currentWaypointIndex = 0
+    }
+
+    const target = ai.patrolWaypoints[ai.currentWaypointIndex]
+    const dx = target.x - entity.transform.x
+    const dist = Math.abs(dx)
+    const arrivalThreshold = 0.5
+
+    if (ai.patrolState === 'moving') {
+      // 避免初始帧导致的大数值差异
+      if (ai.lastPositionUpdateTime === 0) {
+        ai.lastPositionUpdateTime = now
+        ai.lastPosition.x = entity.transform.x
+        ai.lastPosition.y = entity.transform.y
+      }
+
+      // 卡死检测：如果长时间未明显移动，视为到达（或无法到达）
+      if (now - ai.lastPositionUpdateTime > 500) {
+        const moveDist = Math.hypot(
+          entity.transform.x - ai.lastPosition.x,
+          entity.transform.y - ai.lastPosition.y
+        )
+        // 500ms内移动小于0.2米认为受阻
+        if (moveDist < 0.2) {
+          ai.patrolStuckTimer += now - ai.lastPositionUpdateTime
+        } else {
+          ai.patrolStuckTimer = 0
+        }
+        ai.lastPosition.x = entity.transform.x
+        ai.lastPosition.y = entity.transform.y
+        ai.lastPositionUpdateTime = now
+      }
+
+      // 如果到达目标 OR 卡住超过2秒
+      if (dist <= arrivalThreshold || ai.patrolStuckTimer > 2000) {
+        // 到达目标点，开始等待
+        // console.log(`[Patrol] Arrived/Stuck at waypoint ${ai.currentWaypointIndex}, waiting...`)
+        ai.patrolState = 'waiting'
+        // 随机等待 2000-3000ms
+        ai.patrolResumeTimestamp = now + 2000 + Math.random() * 1000
+        ai.patrolStuckTimer = 0
         entity.input.moveDirection = 0
+        // 等待时清除 facingOverride，保持之前的朝向（避免因为update中设置了朝向玩家而突然掉头）
         entity.input.facingOverride = null
+      } else {
+        // 向目标移动
+        entity.input.moveDirection = dx > 0 ? 1 : -1
+        entity.input.facingOverride = entity.input.moveDirection
+      }
+    } else if (ai.patrolState === 'waiting') {
+      entity.input.moveDirection = 0
+      // 同样在等待期间保持朝向
+      entity.input.facingOverride = null
+
+      if (now >= ai.patrolResumeTimestamp) {
+        // 等待结束，前往下一个点
+        // console.log(`[Patrol] Wait finished, moving to next waypoint`)
+        ai.patrolState = 'moving'
+        ai.currentWaypointIndex =
+          (ai.currentWaypointIndex + 1) % ai.patrolWaypoints.length
+
+        // 重置卡死检测状态，防止立即误判为卡死
+        ai.patrolStuckTimer = 0
+        ai.lastPositionUpdateTime = now
+        ai.lastPosition.x = entity.transform.x
+        ai.lastPosition.y = entity.transform.y
       }
     }
 
-    // 重置战斗状态
+    // 重置战斗/追击相关的临时状态
     ai.state = 'approach'
     ai.comboSwingsDone = 0
     ai.obstacleJumpStage = 0

@@ -286,6 +286,13 @@ export class EnemyAIComponent extends Component {
   jumpStartTimestamp = 0
   jumpStartPosition = { x: 0, y: 0 }
 
+  // Patrol properties
+  patrolWaypoints: { x: number; y: number }[] = []
+  currentWaypointIndex = 0
+  patrolResumeTimestamp = 0
+  patrolState: 'moving' | 'waiting' = 'moving'
+  patrolStuckTimer = 0
+
   getName(): string {
     return 'EnemyAI'
   }
