@@ -187,7 +187,8 @@ export class WeaponComponent extends Component {
     | 'resetHead'
     | 'headHold'
     | 'recover'
-    | 'finalWindup' = 'idle'
+    | 'finalWindup'
+    | 'blockReturn' = 'idle'
   attackElapsedMs = 0
   lastAttackTimestamp = 0
   attackStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }

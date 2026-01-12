@@ -206,34 +206,7 @@ export class WeaponSystem extends System {
 
     if (weapon.attackPhase === 'idle') {
       if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
-        weapon.attackPhase = 'block'
-        weapon.parryElapsedTime = 0
-        weapon.isParrying = true
-        weapon.isBlocking = true
-        if (this.statsSystem) {
-          this.statsSystem.enterCombat(entity)
-        }
-        weapon.parryHitWeaponIds.clear()
-
-        // 初始化弹反起始和目标位置
-        const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-        const blockRotation = -Math.PI / 2
-        this.getOffsetFromTransform(
-          weapon.visual,
-          playerPos,
-          weapon.parryStartOffset
-        )
-        weapon.parryEndOffset.dx = inputFacing * (radius + 0.2)
-        weapon.parryEndOffset.dy = 0
-        weapon.parryEndOffset.rotation = blockRotation
-
-        weapon.parryStartTransform.x = weapon.visual.x
-        weapon.parryStartTransform.y = weapon.visual.y
-        weapon.parryStartTransform.rotation = weapon.visual.rotation
-
-        weapon.parryEndTransform.x = playerPos.x + inputFacing * (radius + 0.2)
-        weapon.parryEndTransform.y = playerPos.y
-        weapon.parryEndTransform.rotation = blockRotation
+        this.startBlock(entity, playerPos, inputFacing)
         return
       }
 
@@ -252,6 +225,11 @@ export class WeaponSystem extends System {
 
     if (weapon.attackPhase === 'block') {
       this.handleBlockPhase(entity, playerPos, inputFacing)
+      return
+    }
+
+    if (weapon.attackPhase === 'blockReturn') {
+      this.handleBlockReturnPhase(entity, playerPos, inputFacing)
       return
     }
 
@@ -287,6 +265,44 @@ export class WeaponSystem extends System {
     }
   }
 
+  private startBlock(
+    entity: Entity,
+    playerPos: { x: number; y: number },
+    facing: number
+  ): void {
+    if (!entity.weapon) return
+    const weapon = entity.weapon
+
+    weapon.attackPhase = 'block'
+    weapon.parryElapsedTime = 0
+    weapon.isParrying = true
+    weapon.isBlocking = true
+    if (this.statsSystem) {
+      this.statsSystem.enterCombat(entity)
+    }
+    weapon.parryHitWeaponIds.clear()
+
+    // 初始化弹反起始和目标位置
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const blockRotation = -Math.PI / 2
+    this.getOffsetFromTransform(
+      weapon.visual,
+      playerPos,
+      weapon.parryStartOffset
+    )
+    weapon.parryEndOffset.dx = facing * (radius + 0.2)
+    weapon.parryEndOffset.dy = 0
+    weapon.parryEndOffset.rotation = blockRotation
+
+    weapon.parryStartTransform.x = weapon.visual.x
+    weapon.parryStartTransform.y = weapon.visual.y
+    weapon.parryStartTransform.rotation = weapon.visual.rotation
+
+    weapon.parryEndTransform.x = playerPos.x + facing * (radius + 0.2)
+    weapon.parryEndTransform.y = playerPos.y
+    weapon.parryEndTransform.rotation = blockRotation
+  }
+
   private handleBlockPhase(
     entity: Entity,
     playerPos: { x: number; y: number },
@@ -306,10 +322,7 @@ export class WeaponSystem extends System {
 
     // 弹反窗口结束后，松开格挡键才能退出
     if (!weapon.isParrying && entity.input && !entity.input.blockRequested) {
-      weapon.attackPhase = 'idle'
-      weapon.isBlocking = false
-      weapon.isParrying = false
-      weapon.parryElapsedTime = 0
+      this.startBlockReturn(entity, weapon, playerPos)
       return
     }
 
@@ -342,15 +355,86 @@ export class WeaponSystem extends System {
         weapon.isParrying = false
         // 如果弹反窗口结束时格挡键已松开，自动退出
         if (entity.input && !entity.input.blockRequested) {
-          weapon.attackPhase = 'idle'
-          weapon.isBlocking = false
-          weapon.parryElapsedTime = 0
+          this.startBlockReturn(entity, weapon, playerPos)
           return
         }
       }
     } else {
       // 弹反窗口结束后，保持格挡姿态（相对于角色）
       this.applyOffset(weapon.parryEndOffset, playerPos, weapon.visual)
+    }
+  }
+
+  private startBlockReturn(
+    entity: Entity,
+    weapon: Entity['weapon'],
+    playerPos: { x: number; y: number }
+  ): void {
+    if (!weapon) return
+    weapon.attackPhase = 'blockReturn'
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0 // 使用 parryElapsedTime 作为计时器
+
+    // 记录当前位置作为回归动画的起点 (存入 parryEndOffset)
+    this.getOffsetFromTransform(
+      weapon.visual,
+      playerPos,
+      weapon.parryEndOffset
+    )
+
+    // 计算 idle 状态的目标位置 (存入 parryStartOffset)
+    // 注意：我们需要根据当前朝向计算 idle 位置
+    const facing =
+      entity.input && entity.input.lastMoveDirection !== 0
+        ? entity.input.lastMoveDirection
+        : weapon.attackFacing
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    
+    // 复用 getFrontTransform 计算目标 offset (战斗姿态)
+    this.getFrontTransform(playerPos, facing, this.tempTransform, radius)
+    this.getOffsetFromTransform(
+      this.tempTransform,
+      playerPos,
+      weapon.parryStartOffset
+    )
+  }
+
+  private handleBlockReturnPhase(
+    entity: Entity,
+    playerPos: { x: number; y: number },
+    facing: number
+  ): void {
+    if (!entity.weapon) return
+    const weapon = entity.weapon
+
+    // 在撤回阶段如果再次按下格挡，立即打断并进入格挡状态
+    if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
+      this.startBlock(entity, playerPos, facing)
+      return
+    }
+
+    weapon.parryElapsedTime += this.currentDeltaTime
+    const elapsedMs = weapon.parryElapsedTime * 1000
+    // 动画时间比发起格挡快一倍 (200ms -> 100ms)
+    const duration = DEFAULT_PARRY_WINDOW_MS / 2
+    const progress = Math.min(1, elapsedMs / duration)
+
+    // 插值相对位置并应用 (从 parryEndOffset 回到 parryStartOffset)
+    this.lerpRelativeTransform(
+      weapon.parryEndOffset, // Start (recorded current)
+      weapon.parryStartOffset, // End (idle)
+      progress,
+      this.tempRelativeTransform
+    )
+    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+
+    // 在撤回过程中仍然检测弹反碰撞（根据需求）
+    this.checkParryHits(entity)
+
+    if (progress >= 1) {
+      weapon.attackPhase = 'idle'
+      weapon.parryElapsedTime = 0
     }
   }
 
