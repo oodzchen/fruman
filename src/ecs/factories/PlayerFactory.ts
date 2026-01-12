@@ -223,11 +223,17 @@ export function createEnemy(
   ai.attackDesire = template.attackDesire
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
-  // 默认巡逻路线：以出生点为中心，左右各5米的范围
-  ai.patrolWaypoints = [
-    { x: x - 5, y: y },
-    { x: x + 5, y: y },
-  ]
+
+  // 如果是大体型敌人，设置为站岗模式（无巡逻点）
+  if (enemyType === 'large') {
+    ai.patrolWaypoints = []
+  } else {
+    // 默认巡逻路线：以出生点为中心，左右各5米的范围
+    ai.patrolWaypoints = [
+      { x: x - 5, y: y },
+      { x: x + 5, y: y },
+    ]
+  }
   enemy.addComponent(ai)
 
   if (enemy.sensor) {
