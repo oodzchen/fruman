@@ -220,7 +220,11 @@ export class MovementSystem extends System {
 
   private canRoll(entity: Entity): boolean {
     if (!entity.movement) return false
-    if (entity.isStunned()) return false
+
+    // 如果处于硬直状态，仅在趴下（prone）阶段允许翻滚
+    if (entity.isStunned()) {
+      return entity.stats?.staggerAnimationPhase === 'prone'
+    }
 
     // 不能在攻击动作中翻滚
     const isInAttackAction =
@@ -239,6 +243,21 @@ export class MovementSystem extends System {
 
   private startRoll(entity: Entity): void {
     if (!entity.movement || !entity.input || !entity.physics) return
+
+    // 如果是从崩塌（stagger）状态翻滚，解除崩塌
+    if (entity.stats?.isStaggered) {
+      entity.stats.isStaggered = false
+      entity.stats.staggerElapsedTime = 0
+      entity.stats.staggerAnimationPhase = 'none'
+      entity.stats.staggerAnimationElapsed = 0
+      entity.stats.toughness = entity.stats.maxToughness
+
+      // 如果是敌人，重置其AI状态
+      if (entity.enemyAI) {
+        entity.enemyAI.state = 'approach'
+        entity.enemyAI.comboSwingsDone = 0
+      }
+    }
 
     entity.movement.isRolling = true
     entity.movement.rollStartTime = Date.now()
