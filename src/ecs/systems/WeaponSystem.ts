@@ -233,6 +233,11 @@ export class WeaponSystem extends System {
       return
     }
 
+    if (weapon.attackPhase === 'windup' && entity.movement?.isRolling) {
+      this.resetWeaponToCombatIdle(entity, playerPos, inputFacing)
+      return
+    }
+
     weapon.attackElapsedMs += deltaMs
 
     if (weapon.attackPhase === 'windup') {
@@ -384,11 +389,7 @@ export class WeaponSystem extends System {
     weapon.parryElapsedTime = 0 // 使用 parryElapsedTime 作为计时器
 
     // 记录当前位置作为回归动画的起点 (存入 parryEndOffset)
-    this.getOffsetFromTransform(
-      weapon.visual,
-      playerPos,
-      weapon.parryEndOffset
-    )
+    this.getOffsetFromTransform(weapon.visual, playerPos, weapon.parryEndOffset)
 
     // 计算 idle 状态的目标位置 (存入 parryStartOffset)
     // 注意：我们需要根据当前朝向计算 idle 位置
@@ -397,7 +398,7 @@ export class WeaponSystem extends System {
         ? entity.input.lastMoveDirection
         : weapon.attackFacing
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    
+
     // 复用 getFrontTransform 计算目标 offset (战斗姿态)
     this.getFrontTransform(playerPos, facing, this.tempTransform, radius)
     this.getOffsetFromTransform(
@@ -703,6 +704,15 @@ export class WeaponSystem extends System {
       weapon.visual
     )
 
+    if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
+      const facing =
+        entity.input.lastMoveDirection !== 0
+          ? entity.input.lastMoveDirection
+          : weapon.attackFacing
+      this.interruptWindupToBlock(entity, this.tempPlayerPos, facing)
+      return
+    }
+
     if (t >= 1) {
       this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
       weapon.attackPhase = 'swing'
@@ -998,6 +1008,47 @@ export class WeaponSystem extends System {
       weapon.nextSwingDirection = 'toFront'
       weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
     }
+  }
+
+  private resetAttackStateForInterrupt(weapon: Entity['weapon']): void {
+    if (!weapon) return
+    weapon.attackElapsedMs = 0
+    weapon.attackQueued = false
+    weapon.comboCount = 0
+    weapon.swingDirection = 'toFront'
+    weapon.nextSwingDirection = 'toFront'
+    weapon.reboundLockedPause = false
+    weapon.hitEntityIds.clear()
+  }
+
+  private resetWeaponToCombatIdle(
+    entity: Entity,
+    playerPos: { x: number; y: number },
+    facing: number
+  ): void {
+    if (!entity.weapon) return
+    const weapon = entity.weapon
+    this.resetAttackStateForInterrupt(weapon)
+    weapon.attackPhase = 'idle'
+    weapon.attackFacing = facing
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
+    weapon.parryHitWeaponIds.clear()
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    this.getFrontTransform(playerPos, facing, weapon.visual, radius)
+  }
+
+  private interruptWindupToBlock(
+    entity: Entity,
+    playerPos: { x: number; y: number },
+    facing: number
+  ): void {
+    if (!entity.weapon) return
+    const weapon = entity.weapon
+    this.resetAttackStateForInterrupt(weapon)
+    weapon.attackFacing = facing
+    this.startBlock(entity, playerPos, facing)
   }
 
   tryPickUpWeapon(entity: Entity): void {

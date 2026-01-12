@@ -230,8 +230,7 @@ export class MovementSystem extends System {
     const isInAttackAction =
       entity.weapon &&
       entity.weapon.isEquipped &&
-      (entity.weapon.attackPhase === 'windup' ||
-        entity.weapon.attackPhase === 'finalWindup' ||
+      (entity.weapon.attackPhase === 'finalWindup' ||
         entity.weapon.attackPhase === 'swing' ||
         entity.weapon.attackPhase === 'pause' ||
         entity.weapon.attackPhase === 'recover')
