@@ -332,6 +332,13 @@ export class WeaponSystem extends System {
     }
     weapon.lastAttackTimestamp = Date.now()
 
+    // 每一帧都根据当前朝向更新目标位置，确保武器跟随转向
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const blockRotation = -Math.PI / 2
+    weapon.parryEndOffset.dx = facing * (radius + 0.2)
+    weapon.parryEndOffset.dy = 0
+    weapon.parryEndOffset.rotation = blockRotation
+
     // 弹反窗口期间（只在武器移动期间有效）
     if (weapon.isParrying) {
       weapon.parryElapsedTime += this.currentDeltaTime

@@ -33,6 +33,10 @@ export class AudioManager {
         SOUND_IDS.SWORD_HIT_OBSTACLE,
         'audios/Weapon Sword Hit Wood 02.wav'
       ),
+      this.loadSound(
+        SOUND_IDS.SWORD_BLOCK,
+        'audios/Weapon Broad Sword Hit Metal Deflect 01.wav'
+      ),
     ])
   }
 

@@ -409,6 +409,7 @@ export class StatsSystem extends System {
         isBlockingSuccessfully = true
         finalHealthDamage = 0
         finalKnockback = 0
+        this.playSound(SOUND_IDS.SWORD_BLOCK)
       }
     }
 
