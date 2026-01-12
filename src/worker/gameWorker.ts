@@ -303,6 +303,7 @@ function createObstacles() {
   const obstacleConfigs = [
     { x: -9.5, width: 1.2, height: 2.8 },
     { x: 9.5, width: 1.2, height: 2.8 },
+    { x: 19.5, width: 1.2, height: 1.0 },
   ]
 
   obstacleConfigs.forEach((obs) => {
@@ -345,18 +346,24 @@ function createPlayerAndWeapon(groundY: number) {
     groundY
   )
 
-  // Initialize enemies with different templates
+  // Obstacles are at -9.5, 9.5, 19.5
+
+  // Default enemy in the middle area
   enemyEntity = createEnemy(
     world,
     box2d,
     worldId,
-    -8,
+    0,
     groundY - 0.6,
     groundY,
-    'fast'
+    'default'
   )
 
-  createEnemy(world, box2d, worldId, -4, groundY - 0.6, groundY, 'large')
+  // Large enemy between 2nd and 3rd obstacle
+  createEnemy(world, box2d, worldId, 14.5, groundY - 0.6, groundY, 'large')
+
+  // Fast (Small) enemy after the last obstacle
+  createEnemy(world, box2d, worldId, 24, groundY - 0.6, groundY, 'fast')
 
   enemyAISystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)

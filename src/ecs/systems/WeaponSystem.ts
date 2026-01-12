@@ -1000,9 +1000,7 @@ export class WeaponSystem extends System {
       return DEFAULT_WEAPON_ATTACK_RADIUS
     }
     const entityRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    const minRadius =
-      entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
-    return Math.max(DEFAULT_WEAPON_ATTACK_RADIUS, minRadius)
+    return entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
   }
 
   private clamp01(value: number): number {

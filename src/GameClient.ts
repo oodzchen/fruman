@@ -54,6 +54,7 @@ export class GameClient {
   private obstacleConfigs = [
     { x: -9.5, width: 1.2, height: 2.8 },
     { x: 9.5, width: 1.2, height: 2.8 },
+    { x: 19.5, width: 1.2, height: 1.0 },
   ]
 
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {

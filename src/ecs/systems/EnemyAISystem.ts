@@ -2,6 +2,7 @@ import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   DEFAULT_PLAYER_RADIUS,
+  DEFAULT_SPRINT_SPEED,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   ENEMY_ATTACK_RANGE_BUFFER,
@@ -58,6 +59,7 @@ export class EnemyAISystem extends System {
       if (entity.faction?.faction !== Faction.Enemy) continue
       if (entity.stats?.isDead) {
         entity.input.moveDirection = 0
+        entity.input.sprintRequested = false
         if (entity.weapon) {
           entity.weapon.attackQueued = false
         }
@@ -112,12 +114,25 @@ export class EnemyAISystem extends System {
         if (entity.weapon) {
           entity.weapon.attackQueued = false
         }
+        if (entity.input) {
+          entity.input.sprintRequested = false
+        }
         continue
       }
 
       if (ai.state === 'approach') {
         if (distance > weaponRange) {
           entity.input.moveDirection = facing
+          if (entity.movement && hasLineOfSight) {
+            // 如果基础速度小于奔跑速度（人类奔跑速度），则尝试奔跑
+            if (entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED) {
+              entity.input.sprintRequested = true
+            } else {
+              entity.input.sprintRequested = false
+            }
+          } else {
+            entity.input.sprintRequested = false
+          }
         } else {
           ai.state = 'combo'
           ai.comboSwingsDone = 0
@@ -130,6 +145,7 @@ export class EnemyAISystem extends System {
             entity.weapon.swingDirection = 'toFront'
           }
           entity.input.moveDirection = 0
+          entity.input.sprintRequested = false
           this.queueAttack(entity, facing, ai)
         }
         continue
@@ -138,6 +154,7 @@ export class EnemyAISystem extends System {
       if (ai.state === 'combo') {
         ai.lastFacing = facing
         entity.input.moveDirection = 0
+        entity.input.sprintRequested = false
         this.queueAttack(entity, facing, ai)
         const weapon = entity.weapon
         const comboFinished =
@@ -155,6 +172,7 @@ export class EnemyAISystem extends System {
       }
 
       if (ai.state === 'retreat') {
+        entity.input.sprintRequested = false
         const targetDistance = weaponRange + ENEMY_RETREAT_EXTRA_DISTANCE
         // 如果在撤退时玩家紧追（处于攻击范围内），不再撤退而是直接迎击
         const tooCloseThreshold = weaponRange
@@ -253,6 +271,9 @@ export class EnemyAISystem extends System {
       if (entity.weapon) {
         entity.weapon.attackQueued = false
       }
+      if (entity.input) {
+        entity.input.sprintRequested = false
+      }
     }
   }
 
@@ -263,8 +284,6 @@ export class EnemyAISystem extends System {
     }
     const entityRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     // 使用武器长度计算攻击半径：玩家半径 + 武器长度的一半 + 安全间隙
-    const minRadius =
-      entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
-    return Math.max(DEFAULT_WEAPON_ATTACK_RADIUS, minRadius)
+    return entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
   }
 }
