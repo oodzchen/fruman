@@ -270,9 +270,9 @@ export class StatsSystem extends System {
       weapon.dropStartOffset.rotation = weapon.visual.rotation
 
       // 目标相对偏移：角色脚下横放（位于角色中心正下方地面）
+      const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
       weapon.dropEndOffset.dx = 0
-      weapon.dropEndOffset.dy =
-        DEFAULT_PLAYER_RADIUS - DEFAULT_WEAPON_HEIGHT / 2
+      weapon.dropEndOffset.dy = radius - DEFAULT_WEAPON_HEIGHT / 2
       weapon.dropEndOffset.rotation = 0
     }
   }
@@ -593,7 +593,7 @@ export class StatsSystem extends System {
     const shape = new b2Capsule()
     shape.center1.Set(0, 0)
     shape.center2.Set(0, 0)
-    shape.radius = DEFAULT_PLAYER_RADIUS
+    shape.radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const fixtureDef = b2DefaultShapeDef()
     fixtureDef.density = 1.0
     fixtureDef.material.friction = DEFAULT_BODY_FRICTION

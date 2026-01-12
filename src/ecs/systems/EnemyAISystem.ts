@@ -80,7 +80,7 @@ export class EnemyAISystem extends System {
       const distance = Math.hypot(dx, dy)
 
       // 计算武器的有效攻击半径（与 WeaponSystem.getAttackRadius 相同逻辑）
-      const weaponAttackRadius = this.getWeaponAttackRadius(entity.weapon)
+      const weaponAttackRadius = this.getWeaponAttackRadius(entity)
       // 考虑目标（玩家）的半径，得到实际可攻击的距离
       const playerRadius = this.player.render?.radius ?? DEFAULT_PLAYER_RADIUS
       const weaponRange = weaponAttackRadius + playerRadius
@@ -256,13 +256,15 @@ export class EnemyAISystem extends System {
     }
   }
 
-  private getWeaponAttackRadius(weapon: Entity['weapon']): number {
+  private getWeaponAttackRadius(entity: Entity): number {
+    const weapon = entity.weapon
     if (!weapon) {
       return DEFAULT_WEAPON_ATTACK_RADIUS
     }
+    const entityRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     // 使用武器长度计算攻击半径：玩家半径 + 武器长度的一半 + 安全间隙
     const minRadius =
-      DEFAULT_PLAYER_RADIUS + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
+      entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
     return Math.max(DEFAULT_WEAPON_ATTACK_RADIUS, minRadius)
   }
 }

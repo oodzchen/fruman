@@ -239,8 +239,8 @@ export class ClientRenderer {
 
     // Eyes
     const eyeRadius = 0.08 * this.pixelsPerMeter
-    const eyeOffsetX = 0.25 * this.pixelsPerMeter
-    const eyeOffsetY = -0.25 * this.pixelsPerMeter
+    const eyeOffsetX = radius * 0.5
+    const eyeOffsetY = -radius * 0.5
 
     const direction = buf[offset + OFFSETS.MOVE_DIR]
     const eyeX = direction < 0 ? -eyeOffsetX : eyeOffsetX
@@ -387,7 +387,7 @@ export class ClientRenderer {
     const toughness = buf[offset + OFFSETS.STATS_TOUGHNESS]
     const maxToughness = buf[offset + OFFSETS.STATS_TOUGHNESS_MAX]
 
-    const barWidth = radiusMeters * 2.2 * this.pixelsPerMeter
+    const barWidth = 1.1 * this.pixelsPerMeter
     const barHeight = 6
     const spacing = 2
     const startX = centerX - barWidth / 2

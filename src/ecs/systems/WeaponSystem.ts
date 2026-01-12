@@ -19,6 +19,7 @@ import {
   DEFAULT_WEAPON_PICKUP_DISTANCE,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+  DEFAULT_WEAPON_WIDTH,
   PARRY_ENEMY_TOUGHNESS_DAMAGE,
   PARRY_SELF_TOUGHNESS_RECOVERY,
   WEAPON_DROP_DURATION_MS,
@@ -188,7 +189,7 @@ export class WeaponSystem extends System {
     }
 
     const now = Date.now()
-    const attackRadius = weapon.attackRadius || this.getAttackRadius(weapon)
+    const attackRadius = weapon.attackRadius || this.getAttackRadius(entity)
     const attackFacing = weapon.attackFacing
 
     this.applyOffset(
@@ -215,13 +216,14 @@ export class WeaponSystem extends System {
         weapon.parryHitWeaponIds.clear()
 
         // 初始化弹反起始和目标位置
+        const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
         const blockRotation = -Math.PI / 2
         this.getOffsetFromTransform(
           weapon.visual,
           playerPos,
           weapon.parryStartOffset
         )
-        weapon.parryEndOffset.dx = inputFacing * DEFAULT_WEAPON_FRONT_OFFSET_X
+        weapon.parryEndOffset.dx = inputFacing * (radius + 0.2)
         weapon.parryEndOffset.dy = 0
         weapon.parryEndOffset.rotation = blockRotation
 
@@ -229,8 +231,7 @@ export class WeaponSystem extends System {
         weapon.parryStartTransform.y = weapon.visual.y
         weapon.parryStartTransform.rotation = weapon.visual.rotation
 
-        weapon.parryEndTransform.x =
-          playerPos.x + inputFacing * DEFAULT_WEAPON_FRONT_OFFSET_X
+        weapon.parryEndTransform.x = playerPos.x + inputFacing * (radius + 0.2)
         weapon.parryEndTransform.y = playerPos.y
         weapon.parryEndTransform.rotation = blockRotation
         return
@@ -438,8 +439,9 @@ export class WeaponSystem extends System {
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
         : 1
-    weapon.dropEndOffset.dx = -facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X
-    weapon.dropEndOffset.dy = DEFAULT_WEAPON_FOLLOW_OFFSET_Y
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    weapon.dropEndOffset.dx = -facing * (radius + 0.2)
+    weapon.dropEndOffset.dy = radius * -0.2
     weapon.dropEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
@@ -513,11 +515,12 @@ export class WeaponSystem extends System {
     weapon.parryElapsedTime = 0
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
 
     if (entity.stats?.isInCombat) {
-      this.getFrontTransform(playerPos, facing, weapon.visual)
+      this.getFrontTransform(playerPos, facing, weapon.visual, radius)
     } else {
-      this.getBackTransform(playerPos, facing, weapon.visual)
+      this.getBackTransform(playerPos, facing, weapon.visual, radius)
     }
 
     if (weapon.attackQueued && weapon.comboCount < 5) {
@@ -866,12 +869,13 @@ export class WeaponSystem extends System {
     )
 
     // Calculate target offset (Idle Front)
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const targetOffset = this.tempRelativeTransform // Reuse temp as target container temporarily?
     // Actually, lerpRelativeTransform writes to 'out'. I need 'to' argument.
     // I can construct a literal object or use another component field.
     // Let's use weapon.swingEndOffset as a temporary holder since it's not used in recover.
-    weapon.swingEndOffset.dx = facing * DEFAULT_WEAPON_CENTER_OFFSET_X
-    weapon.swingEndOffset.dy = DEFAULT_WEAPON_FRONT_OFFSET_Y
+    weapon.swingEndOffset.dx = facing * 0
+    weapon.swingEndOffset.dy = radius * -0.2
     weapon.swingEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 
     this.lerpRelativeTransform(
@@ -925,7 +929,7 @@ export class WeaponSystem extends System {
     const playerPos = this.tempPlayerPos
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
-    const attackRadius = this.getAttackRadius(weapon)
+    const attackRadius = this.getAttackRadius(entity)
     weapon.attackRadius = attackRadius
     weapon.attackFacing = facing
 
@@ -990,12 +994,14 @@ export class WeaponSystem extends System {
     }
   }
 
-  private getAttackRadius(weapon: Entity['weapon']): number {
+  private getAttackRadius(entity: Entity): number {
+    const weapon = entity.weapon
     if (!weapon) {
       return DEFAULT_WEAPON_ATTACK_RADIUS
     }
+    const entityRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const minRadius =
-      DEFAULT_PLAYER_RADIUS + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
+      entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
     return Math.max(DEFAULT_WEAPON_ATTACK_RADIUS, minRadius)
   }
 
@@ -1053,10 +1059,11 @@ export class WeaponSystem extends System {
     weapon: Entity['weapon'],
     playerPos: { x: number; y: number },
     facing: number,
-    minimumElapsedMs: number
+    minimumElapsedMs: number,
+    radius: number
   ): void {
     if (!weapon) return
-    this.getFrontTransform(playerPos, facing, weapon.visual)
+    this.getFrontTransform(playerPos, facing, weapon.visual, radius)
     this.getOffsetFromTransform(
       weapon.visual,
       playerPos,
@@ -1079,20 +1086,22 @@ export class WeaponSystem extends System {
   private getBackTransform(
     playerPos: { x: number; y: number },
     facing: number,
-    out: WeaponTransform
+    out: WeaponTransform,
+    radius: number
   ): void {
-    out.x = playerPos.x - facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X
-    out.y = playerPos.y + DEFAULT_WEAPON_FOLLOW_OFFSET_Y
+    out.x = playerPos.x - facing * (radius + 0.2)
+    out.y = playerPos.y
     out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
   private getFrontTransform(
     playerPos: { x: number; y: number },
     facing: number,
-    out: WeaponTransform
+    out: WeaponTransform,
+    radius: number
   ): void {
-    out.x = playerPos.x + facing * DEFAULT_WEAPON_CENTER_OFFSET_X
-    out.y = playerPos.y + DEFAULT_WEAPON_FRONT_OFFSET_Y
+    out.x = playerPos.x + facing * 0
+    out.y = playerPos.y - DEFAULT_WEAPON_WIDTH / 2
     out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
@@ -1139,7 +1148,8 @@ export class WeaponSystem extends System {
     weapon.nextSwingDirection = 'toFront'
     weapon.hitEntityIds.clear()
 
-    this.getFrontTransform(playerPos, newFacing, weapon.visual)
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    this.getFrontTransform(playerPos, newFacing, weapon.visual, radius)
   }
 
   private resetWeaponState(entity: Entity): void {
@@ -1171,9 +1181,10 @@ export class WeaponSystem extends System {
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
         : 1
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     this.tempPlayerPos.x = entity.transform.x
     this.tempPlayerPos.y = entity.transform.y
-    this.getBackTransform(this.tempPlayerPos, facing, weapon.visual)
+    this.getBackTransform(this.tempPlayerPos, facing, weapon.visual, radius)
   }
 
   private checkOBBvsAABB(
@@ -1318,7 +1329,7 @@ export class WeaponSystem extends System {
     const attackRadius =
       weapon.attackRadius !== 0
         ? weapon.attackRadius
-        : this.getAttackRadius(weapon)
+        : this.getAttackRadius(attacker)
 
     const nearbyEntities = this.spatialHash
       ? this.spatialHash.query(weaponX, weaponY, attackRadius + 2)
@@ -1374,7 +1385,7 @@ export class WeaponSystem extends System {
     const radius =
       weapon.attackRadius !== 0
         ? weapon.attackRadius
-        : this.getAttackRadius(weapon)
+        : this.getAttackRadius(entity)
 
     // reboundTargetOffset is WeaponRelativeTransform
     this.getOffsetFromTransform(

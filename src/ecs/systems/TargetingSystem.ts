@@ -224,8 +224,9 @@ export class TargetingSystem extends System {
       facingDir = start.weapon.attackFacing
     }
 
-    const eyeOffsetX = facingDir >= 0 ? 0.25 : -0.25
-    const eyeOffsetY = -0.25
+    const radius = start.render?.radius || 0.5
+    const eyeOffsetX = facingDir >= 0 ? radius * 0.5 : -radius * 0.5
+    const eyeOffsetY = -radius * 0.5
     const startX = start.transform.x + eyeOffsetX
     const startY = start.transform.y + eyeOffsetY
 
@@ -332,8 +333,9 @@ export class TargetingSystem extends System {
     const baseAngle = facingDir >= 0 ? 0 : Math.PI
 
     // Ray starts from eye position (offset from entity center)
-    const eyeOffsetX = facingDir >= 0 ? 0.25 : -0.25
-    const eyeOffsetY = -0.25
+    const entityRadius = entity.render?.radius || 0.5
+    const eyeOffsetX = facingDir >= 0 ? entityRadius * 0.5 : -entityRadius * 0.5
+    const eyeOffsetY = -entityRadius * 0.5
     const startX = x + eyeOffsetX
     const startY = y + eyeOffsetY
 

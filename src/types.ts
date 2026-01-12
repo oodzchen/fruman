@@ -8,3 +8,12 @@ export type b2BodyId = ReturnType<MainModule['b2CreateBody']>
 export type b2JointId = ReturnType<MainModule['b2CreateRevoluteJoint']>
 export type b2ShapeId = ReturnType<MainModule['b2CreatePolygonShape']>
 export type b2Vec2 = InstanceType<MainModule['b2Vec2']>
+
+export interface EnemyTemplate {
+  moveSpeed: number
+  radius: number
+  attackDesire: number
+  color: string
+}
+
+export type EnemyType = 'default' | 'fast' | 'large'

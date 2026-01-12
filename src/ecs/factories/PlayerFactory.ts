@@ -29,10 +29,11 @@ import {
   DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
   ENEMY_DETECTION_RANGE,
+  ENEMY_TEMPLATES,
   MASK_ENEMY,
   MASK_PLAYER,
 } from '../../constants'
-import type { MainModule, b2WorldId } from '../../types'
+import type { EnemyType, MainModule, b2WorldId } from '../../types'
 import {
   EnemyAIComponent,
   Faction,
@@ -55,7 +56,8 @@ export function createPlayer(
   worldId: b2WorldId,
   x: number,
   y: number,
-  groundTopY: number
+  groundTopY: number,
+  radius: number = DEFAULT_PLAYER_RADIUS
 ): Entity {
   const entity = world.createEntity()
 
@@ -84,7 +86,7 @@ export function createPlayer(
   const shape = new b2Capsule()
   shape.center1.Set(0, 0)
   shape.center2.Set(0, 0)
-  shape.radius = DEFAULT_PLAYER_RADIUS
+  shape.radius = radius
   const fixtureDef = b2DefaultShapeDef()
   fixtureDef.density = 1.0
   fixtureDef.material.friction = DEFAULT_BODY_FRICTION
@@ -124,7 +126,7 @@ export function createPlayer(
   entity.addComponent(stats)
 
   const render = new RenderComponent()
-  render.radius = DEFAULT_PLAYER_RADIUS
+  render.radius = radius
   entity.addComponent(render)
 
   const faction = new FactionComponent()
@@ -199,9 +201,18 @@ export function createEnemy(
   x: number,
   y: number,
   groundTopY: number,
-  attackDesire: number = DEFAULT_ENEMY_ATTACK_DESIRE
+  enemyType: EnemyType = 'default'
 ): Entity {
-  const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY)
+  const template = ENEMY_TEMPLATES[enemyType]
+  const enemy = createPlayer(
+    world,
+    box2d,
+    worldId,
+    x,
+    y,
+    groundTopY,
+    template.radius
+  )
 
   // 重置敌人的脱战超时为10秒
   if (enemy.stats) {
@@ -209,7 +220,7 @@ export function createEnemy(
   }
 
   const ai = new EnemyAIComponent()
-  ai.attackDesire = attackDesire
+  ai.attackDesire = template.attackDesire
   ai.patrolCenter = { x, y }
   enemy.addComponent(ai)
 
@@ -231,17 +242,17 @@ export function createEnemy(
   }
 
   if (enemy.render) {
-    enemy.render.color = '#889357'
+    enemy.render.color = template.color
   }
 
   if (enemy.movement) {
-    enemy.movement.moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
+    enemy.movement.moveSpeed = template.moveSpeed
   }
 
   if (enemy.weapon && enemy.transform) {
     const facing = 1
-    const followX = enemy.transform.x - facing * DEFAULT_WEAPON_FOLLOW_OFFSET_X
-    const followY = enemy.transform.y + DEFAULT_WEAPON_FOLLOW_OFFSET_Y
+    const followX = enemy.transform.x - facing * (template.radius + 0.2)
+    const followY = enemy.transform.y + template.radius * -0.2
     const equippedTransform = {
       x: followX,
       y: followY,

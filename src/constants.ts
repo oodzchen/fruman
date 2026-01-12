@@ -146,6 +146,28 @@ export const ENEMY_DECISION_COOLDOWN_MS = 90
 export const ENEMY_PACE_PAUSE_MS = 700
 export const ENEMY_RETREAT_EXTRA_DISTANCE = 1
 
+// 敌人模板配置
+export const ENEMY_TEMPLATES = {
+  default: {
+    moveSpeed: DEFAULT_ENEMY_MOVE_SPEED,
+    radius: DEFAULT_PLAYER_RADIUS,
+    attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
+    color: '#889357',
+  },
+  fast: {
+    moveSpeed: 6,
+    radius: DEFAULT_PLAYER_RADIUS / 2,
+    attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
+    color: '#ff6b6b',
+  },
+  large: {
+    moveSpeed: 2,
+    radius: DEFAULT_PLAYER_RADIUS * 2,
+    attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
+    color: '#4ecdc4',
+  },
+} as const
+
 // 受击振动效果
 export const DEFAULT_HIT_SHAKE_DURATION_MS = 150
 export const DEFAULT_HIT_SHAKE_INTENSITY = 0.3
