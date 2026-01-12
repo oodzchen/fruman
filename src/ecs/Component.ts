@@ -282,6 +282,9 @@ export class EnemyAIComponent extends Component {
   stuckThreshold = 500
   lastPositionUpdateTime = 0
   positionCheckInterval = 300
+  obstacleJumpStage = 0 // 0: None, 1: First Jump, 2: Wall Jump, 3: Recovery
+  jumpStartTimestamp = 0
+  jumpStartPosition = { x: 0, y: 0 }
 
   getName(): string {
     return 'EnemyAI'

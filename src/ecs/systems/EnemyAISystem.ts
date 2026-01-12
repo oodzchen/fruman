@@ -129,6 +129,13 @@ export class EnemyAISystem extends System {
       }
 
       if (ai.state === 'approach') {
+        // 如果正在进行跨越障碍跳跃序列，优先处理
+        if (ai.obstacleJumpStage > 0) {
+          entity.input.moveDirection = facing // 保持向前移动
+          this.handleObstacleJump(entity, ai, now, facing)
+          continue
+        }
+
         if (distance > weaponRange) {
           entity.input.moveDirection = facing
           if (entity.movement && hasLineOfSight) {
@@ -154,21 +161,31 @@ export class EnemyAISystem extends System {
             if (!positionChanged && isChasing) {
               ai.stuckTimer += ai.positionCheckInterval
               if (ai.stuckTimer >= ai.stuckThreshold) {
-                // 被阻挡太久，切换到踱步状态
-                // console.log(
-                //   `[Approach->Pacing] Switching to pacing. ` +
-                //     `locked:${entity.input.lockedTargetId} ` +
-                //     `currentSpeed:${entity.movement?.moveSpeed} ` +
-                //     `newSpeed:${ENEMY_PACE_SPEED}`
-                // )
-                ai.state = 'pacing'
-                ai.paceDirection = -1 // 初始方向为后退
-                ai.lastPaceSwitchTimestamp = now
-                ai.nextPaceResumeTimestamp = 0
-                ai.stuckTimer = 0
-                // 降低移动速度
-                if (entity.movement) {
-                  entity.movement.moveSpeed = ENEMY_PACE_SPEED
+                // 尝试跨越障碍序列
+                const isTouchingWall =
+                  entity.movement && entity.movement.isTouchingWall
+
+                // 只有接触墙壁时才启动序列（Stage 0 -> 1）
+                if (isTouchingWall && ai.obstacleJumpStage === 0) {
+                  // console.log('[Approach] Stuck at wall, starting jump sequence')
+                  entity.input.jumpRequested = true
+                  entity.input.inputBuffer.bufferAction('jump')
+                  ai.obstacleJumpStage = 1
+                  ai.jumpStartTimestamp = now
+                  ai.jumpStartPosition.x = entity.transform.x
+                  ai.jumpStartPosition.y = entity.transform.y
+                  ai.stuckTimer = 0
+                } else {
+                  // 无法跳跃或已在序列中（不应发生），切换到踱步
+                  ai.state = 'pacing'
+                  ai.paceDirection = -1 // 初始方向为后退
+                  ai.lastPaceSwitchTimestamp = now
+                  ai.nextPaceResumeTimestamp = 0
+                  ai.stuckTimer = 0
+                  ai.obstacleJumpStage = 0
+                  if (entity.movement) {
+                    entity.movement.moveSpeed = ENEMY_PACE_SPEED
+                  }
                 }
               }
             } else {
@@ -265,6 +282,7 @@ export class EnemyAISystem extends System {
           }
           ai.state = 'approach'
           ai.stuckTimer = 0
+          ai.obstacleJumpStage = 0
           continue
         }
 
@@ -344,6 +362,63 @@ export class EnemyAISystem extends System {
     // 重置战斗状态
     ai.state = 'approach'
     ai.comboSwingsDone = 0
+    ai.obstacleJumpStage = 0
+  }
+
+  private handleObstacleJump(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    now: number,
+    facing: number
+  ): void {
+    if (!entity.movement || !entity.input || !entity.transform) return
+
+    // Stage 1: 等待第一次跳跃到达高点（或经过一段时间）
+    if (ai.obstacleJumpStage === 1) {
+      const timeSinceJump = now - ai.jumpStartTimestamp
+      // 约300ms后触发二段跳（蹬墙跳）
+      // 这里的间隔是为了让角色跳起一定高度后再蹬墙
+      if (timeSinceJump >= 300) {
+        // console.log('[ObstacleJump] Triggering second jump (Wall Jump)')
+        entity.input.jumpRequested = true
+        entity.input.inputBuffer.bufferAction('jump')
+        ai.obstacleJumpStage = 2
+        ai.jumpStartTimestamp = now // 重置计时器用于检测落地
+      }
+      return
+    }
+
+    // Stage 2: 蹬墙跳后等待落地并检测是否跨越成功
+    if (ai.obstacleJumpStage === 2) {
+      const timeSinceSecondJump = now - ai.jumpStartTimestamp
+      // 给一点时间让角色离地，避免刚跳就被判定为grounded
+      if (timeSinceSecondJump < 500) return
+
+      if (entity.movement.isGrounded) {
+        // 落地了，检查位移
+        const dx = Math.abs(entity.transform.x - ai.jumpStartPosition.x)
+        const dy = Math.abs(entity.transform.y - ai.jumpStartPosition.y)
+        const distanceMoved = Math.hypot(dx, dy)
+
+        // 如果位移显著（例如大于2米），认为成功跨越
+        if (distanceMoved > 2.0) {
+          // console.log('[ObstacleJump] Success, resuming approach')
+          ai.obstacleJumpStage = 0
+        } else {
+          // console.log('[ObstacleJump] Failed (still near start), switching to pacing')
+          // 失败，切换到踱步
+          ai.state = 'pacing'
+          ai.paceDirection = -1
+          ai.lastPaceSwitchTimestamp = now
+          ai.nextPaceResumeTimestamp = 0
+          ai.stuckTimer = 0
+          ai.obstacleJumpStage = 0
+          if (entity.movement) {
+            entity.movement.moveSpeed = ENEMY_PACE_SPEED
+          }
+        }
+      }
+    }
   }
 
   private queueAttack(
