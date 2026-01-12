@@ -50,6 +50,7 @@ export type WorkerInitMessage = {
 export type WorkerInputMessage = {
   type: 'input'
   keys: string[] // Active keys
+  mouseButtons: number[] // Active mouse buttons (0=Left, 2=Right)
   mouseZoom: number // Target zoom
 }
 

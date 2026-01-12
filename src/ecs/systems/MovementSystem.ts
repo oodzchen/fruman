@@ -4,9 +4,11 @@ import {
   DEFAULT_ROLL_COOLDOWN,
   DEFAULT_ROLL_DURATION,
   DEFAULT_ROLL_SPEED,
+  DEFAULT_SPRINT_SPEED,
   MASK_PLAYER,
   MASK_PLAYER_ROLLING,
   PLAYER_WEIGHT_REFERENCE,
+  SPRINT_HOLD_THRESHOLD_MS,
 } from '../../constants'
 import type { MainModule } from '../../types'
 import { Faction } from '../Component'
@@ -135,7 +137,7 @@ export class MovementSystem extends System {
   private handleInput(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
-    this.handleRoll(entity)
+    this.handleSprintAndRoll(entity)
 
     if (entity.movement.isRolling) {
       return
@@ -145,9 +147,10 @@ export class MovementSystem extends System {
     this.handleJump(entity)
   }
 
-  private handleRoll(entity: Entity): void {
+  private handleSprintAndRoll(entity: Entity): void {
     if (!entity.movement || !entity.input || !entity.physics) return
 
+    // 1. 处理正在进行的翻滚
     if (entity.movement.isRolling) {
       entity.movement.rollElapsedTime += this.currentDeltaTime
       const elapsedMs = entity.movement.rollElapsedTime * 1000
@@ -166,19 +169,54 @@ export class MovementSystem extends System {
     }
 
     entity.movement.rollCooldownElapsedTime += this.currentDeltaTime
-    const cooldownMs = entity.movement.rollCooldownElapsedTime * 1000
-    if (cooldownMs < DEFAULT_ROLL_COOLDOWN) return
 
-    if (
-      entity.input.inputBuffer.hasActiveAction('roll') &&
-      this.canRoll(entity)
-    ) {
-      entity.input.inputBuffer.tryExecute(
-        'roll',
-        () => true,
-        () => this.startRoll(entity)
-      )
+    // 2. 处理奔跑和翻滚触发逻辑 (L键长按=奔跑, 短按松开=翻滚)
+    const isLKeyDown = entity.input.sprintRequested
+    const wasLKeyDown = entity.movement.lKeyIsDown
+
+    if (isLKeyDown) {
+      if (!wasLKeyDown) {
+        // 刚按下
+        entity.movement.lKeyHoldTime = 0
+      }
+      entity.movement.lKeyHoldTime += this.currentDeltaTime
+
+      // 超过阈值进入奔跑状态
+      const holdTimeMs = entity.movement.lKeyHoldTime * 1000
+      if (holdTimeMs > SPRINT_HOLD_THRESHOLD_MS) {
+        // 只有在移动且按下L键时才算Sprint
+        if (entity.input.moveDirection !== 0) {
+          entity.movement.isSprinting = true
+        } else {
+          // 原地按住L不算奔跑移动，但算奔跑状态(准备)
+          entity.movement.isSprinting = true
+        }
+      }
+    } else {
+      // 按键未按下或刚松开
+      if (wasLKeyDown) {
+        // 刚松开
+        entity.movement.isSprinting = false // 立即停止奔跑
+
+        // 检查是否满足翻滚条件 (短按 + CD就好 + 能翻滚)
+        const holdTimeMs = entity.movement.lKeyHoldTime * 1000
+        const cooldownMs = entity.movement.rollCooldownElapsedTime * 1000
+
+        if (
+          holdTimeMs <= SPRINT_HOLD_THRESHOLD_MS &&
+          cooldownMs >= DEFAULT_ROLL_COOLDOWN &&
+          this.canRoll(entity)
+        ) {
+          this.startRoll(entity)
+        }
+      } else {
+        // 持续未按下
+        entity.movement.isSprinting = false
+        entity.movement.lKeyHoldTime = 0
+      }
     }
+
+    entity.movement.lKeyIsDown = isLKeyDown
   }
 
   private canRoll(entity: Entity): boolean {
@@ -322,7 +360,11 @@ export class MovementSystem extends System {
       direction = 0
     }
 
-    this.tempVec.x = direction * entity.movement.moveSpeed
+    const moveSpeed = entity.movement.isSprinting
+      ? DEFAULT_SPRINT_SPEED
+      : entity.movement.moveSpeed
+
+    this.tempVec.x = direction * moveSpeed
     this.tempVec.y = currentVel.y
     b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
     currentVel.delete()

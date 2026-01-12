@@ -120,6 +120,8 @@ const effectsEmitter: EffectsEmitter = {
 // Game State needed for logic
 let prevKeys = new Set<string>()
 let currKeys = new Set<string>()
+let prevMouseButtons = new Set<number>()
+let currMouseButtons = new Set<number>()
 let canvasHeight = 0
 let pixelsPerMeter = 50
 let groundFriction = DEFAULT_GROUND_FRICTION
@@ -358,13 +360,25 @@ function createPlayerAndWeapon(groundY: number) {
   targetingSystem.setPlayer(playerEntity)
 }
 
-function handleInput(activeKeys: string[], mouseZoomTarget: number) {
+function handleInput(
+  activeKeys: string[],
+  activeMouseButtons: number[],
+  mouseZoomTarget: number
+) {
   const temp = prevKeys
   prevKeys = currKeys
   currKeys = temp
   currKeys.clear()
   for (let i = 0; i < activeKeys.length; i++) {
     currKeys.add(activeKeys[i])
+  }
+
+  const tempMouse = prevMouseButtons
+  prevMouseButtons = currMouseButtons
+  currMouseButtons = tempMouse
+  currMouseButtons.clear()
+  for (let i = 0; i < activeMouseButtons.length; i++) {
+    currMouseButtons.add(activeMouseButtons[i])
   }
 
   const isPlayerDead = playerEntity.stats?.isDead ?? false
@@ -383,17 +397,29 @@ function handleInput(activeKeys: string[], mouseZoomTarget: number) {
       playerEntity.input.jumpRequested = false
     }
 
-    if (currKeys.has('j') && !prevKeys.has('j') && !isPlayerDead) {
+    // Left click or J for attack
+    const attackJustPressed =
+      (currKeys.has('j') && !prevKeys.has('j')) ||
+      (currMouseButtons.has(0) && !prevMouseButtons.has(0))
+
+    if (attackJustPressed && !isPlayerDead) {
       weaponSystem.startAttack(playerEntity)
     }
 
-    if (currKeys.has('k') && !isPlayerDead) {
+    // Right click or K for block
+    const blockPressed = currKeys.has('k') || currMouseButtons.has(2)
+    if (blockPressed && !isPlayerDead) {
       playerEntity.input.blockRequested = true
     } else {
       playerEntity.input.blockRequested = false
     }
 
-    if (currKeys.has('h') && !prevKeys.has('h') && !isPlayerDead) {
+    // Middle click or H for lock toggle
+    const lockToggleJustPressed =
+      (currKeys.has('h') && !prevKeys.has('h')) ||
+      (currMouseButtons.has(1) && !prevMouseButtons.has(1))
+
+    if (lockToggleJustPressed && !isPlayerDead) {
       const dir = playerEntity.input.moveDirection
       const isLocked = playerEntity.input.lockedTargetId !== null
       if (dir !== 0 && isLocked) {
@@ -403,8 +429,14 @@ function handleInput(activeKeys: string[], mouseZoomTarget: number) {
       }
     }
 
-    if (currKeys.has('l') && !prevKeys.has('l') && !isPlayerDead) {
+    if (currKeys.has('shift') && !prevKeys.has('shift') && !isPlayerDead) {
       playerEntity.input.inputBuffer.bufferAction('roll')
+    }
+
+    if (currKeys.has('shift') && !isPlayerDead) {
+      playerEntity.input.sprintRequested = true
+    } else {
+      playerEntity.input.sprintRequested = false
     }
   }
 
@@ -626,8 +658,8 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       init(msg.canvasWidth, msg.canvasHeight, msg.pixelsPerMeter)
       break
     case 'input':
-      if (world && playerEntity) {
-        handleInput(msg.keys, msg.mouseZoom)
+      if (world && playerEntity && 'mouseButtons' in msg) {
+        handleInput(msg.keys, msg.mouseButtons, msg.mouseZoom)
       }
       break
     case 'buffer_release':

@@ -71,6 +71,10 @@ export class MovementComponent extends Component {
   baseWeight = 0
   carryWeight = 0
 
+  isSprinting = false
+  lKeyHoldTime = 0
+  lKeyIsDown = false
+
   isRolling = false
   rollStartTime = 0
   rollDuration = 0
@@ -92,6 +96,7 @@ export class MovementComponent extends Component {
 export class InputComponent extends Component {
   moveDirection = 0
   jumpRequested = false
+  sprintRequested = false
   attackRequested = false
   blockRequested = false
   lockedTargetId: number | null = null

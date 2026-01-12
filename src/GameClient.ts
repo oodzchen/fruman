@@ -24,13 +24,16 @@ export class GameClient {
 
   // Input State
   private keys = new Set<string>()
+  private mouseButtons = new Set<number>()
   private keysArray: string[] = []
+  private mouseButtonsArray: number[] = []
   private mouseZoom = 1.0
 
   // Reusable message object for input
   private inputMessage: WorkerInputMessage = {
     type: 'input',
     keys: [],
+    mouseButtons: [],
     mouseZoom: 1.0,
   }
 
@@ -148,6 +151,21 @@ export class GameClient {
       this.sendInput()
     })
 
+    window.addEventListener('mousedown', (e) => {
+      this.mouseButtons.add(e.button)
+      this.sendInput()
+    })
+
+    window.addEventListener('mouseup', (e) => {
+      this.mouseButtons.delete(e.button)
+      this.sendInput()
+    })
+
+    // Prevent context menu on right click to allow for blocking
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+    })
+
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault()
       const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1
@@ -157,12 +175,19 @@ export class GameClient {
   }
 
   private sendInput() {
-    // Reuse keysArray to avoid Array.from allocation
+    // Reuse arrays to avoid allocation
     this.keysArray.length = 0
     for (const k of this.keys) {
       this.keysArray.push(k)
     }
+
+    this.mouseButtonsArray.length = 0
+    for (const b of this.mouseButtons) {
+      this.mouseButtonsArray.push(b)
+    }
+
     this.inputMessage.keys = this.keysArray
+    this.inputMessage.mouseButtons = this.mouseButtonsArray
     this.inputMessage.mouseZoom = this.mouseZoom
     this.worker.postMessage(this.inputMessage)
   }

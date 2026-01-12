@@ -66,6 +66,8 @@ export const DEFAULT_MAX_WALL_JUMPS = 1
 
 // 角色左右移动速度
 export const DEFAULT_MOVE_SPEED = 4
+export const DEFAULT_SPRINT_SPEED = 6
+export const SPRINT_HOLD_THRESHOLD_MS = 200
 
 // 角色与其他物体接触时的摩擦力
 export const DEFAULT_BODY_FRICTION = 0.8
