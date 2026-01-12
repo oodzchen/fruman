@@ -105,10 +105,22 @@ export class EnemyAISystem extends System {
 
       const lostInterest = !hasLineOfSight && !entity.stats?.isInCombat
 
+      // 计算当前位置距离巡逻中心的距离
+      const distFromPatrolCenter = Math.hypot(
+        entity.transform.x - ai.patrolCenter.x,
+        entity.transform.y - ai.patrolCenter.y
+      )
+      // 如果超出了从巡逻区域边缘（patrolRange）开始计算的可视距离（detectionRange），
+      // 且当前没有看到玩家，则不再追击
+      const isTooFarFromPatrol =
+        distFromPatrolCenter > ai.patrolRange + ai.detectionRange
+      const shouldRetreatDueToDistance = isTooFarFromPatrol && !hasLineOfSight
+
       if (
         ai.attackDesire <= 0 ||
         distance > ai.detectionRange ||
-        lostInterest
+        lostInterest ||
+        shouldRetreatDueToDistance
       ) {
         // 巡逻逻辑
         this.handlePatrol(entity, ai, now)
