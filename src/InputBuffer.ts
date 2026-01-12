@@ -110,6 +110,12 @@ export class InputBuffer {
     }
   }
 
+  clearAll() {
+    for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {
+      this.bufferedInputs[i].active = false
+    }
+  }
+
   update() {
     const now = performance.now()
     for (let i = 0; i < MAX_BUFFERED_INPUTS; i++) {

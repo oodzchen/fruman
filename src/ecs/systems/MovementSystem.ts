@@ -69,7 +69,6 @@ export class MovementSystem extends System {
       if (entity.isStunned()) {
         entity.input.moveDirection = 0
         entity.input.jumpRequested = false
-        continue
       }
 
       this.updateContactState(entity)
@@ -373,9 +372,6 @@ export class MovementSystem extends System {
   private handleJump(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
-    // 硬直期间无法跳跃
-    if (entity.isStunned()) return
-
     const isInAttackAction =
       entity.weapon &&
       entity.weapon.isEquipped &&
@@ -440,6 +436,7 @@ export class MovementSystem extends System {
 
   private canJump(entity: Entity): boolean {
     if (!entity.movement) return false
+    if (entity.isStunned()) return false
 
     if (entity.movement.isJumping) return false
 

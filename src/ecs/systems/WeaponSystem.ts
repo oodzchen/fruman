@@ -236,6 +236,16 @@ export class WeaponSystem extends System {
         weapon.parryEndTransform.rotation = blockRotation
         return
       }
+
+      // 检查是否有缓冲的攻击指令
+      if (entity.input && !entity.isStunned()) {
+        entity.input.inputBuffer.tryExecute(
+          'attack',
+          () => !entity.isStunned(),
+          () => this.startAttack(entity)
+        )
+      }
+
       this.handleIdlePhase(entity, playerPos, attackRadius, attackFacing, now)
       return
     }
@@ -920,7 +930,11 @@ export class WeaponSystem extends System {
     if (!entity.transform || !entity.input || !entity.weapon) return
     if (!entity.weapon.isEquipped) return
     if (entity.stats?.isDead) return
-    if (entity.isStunned()) return
+    if (entity.isStunned()) {
+      entity.input.inputBuffer.clearAll()
+      entity.input.inputBuffer.bufferAction('attack')
+      return
+    }
 
     const weapon = entity.weapon
     const now = Date.now()

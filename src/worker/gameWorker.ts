@@ -405,6 +405,9 @@ function handleInput(
     playerEntity.input.moveDirection = isPlayerDead ? 0 : moveDirection
 
     if (currKeys.has(' ') && !prevKeys.has(' ') && !isPlayerDead) {
+      if (playerEntity.isStunned()) {
+        playerEntity.input.inputBuffer.clearAll()
+      }
       playerEntity.input.inputBuffer.bufferAction('jump')
       playerEntity.input.jumpRequested = true
     } else if (!currKeys.has(' ')) {
@@ -444,6 +447,9 @@ function handleInput(
     }
 
     if (currKeys.has('shift') && !prevKeys.has('shift') && !isPlayerDead) {
+      if (playerEntity.isStunned()) {
+        playerEntity.input.inputBuffer.clearAll()
+      }
       playerEntity.input.inputBuffer.bufferAction('roll')
     }
 
