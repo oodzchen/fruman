@@ -12,26 +12,36 @@ export class AudioManager {
   }
 
   async init(): Promise<void> {
-    await this.loadSound(
-      SOUND_IDS.SWORD_SWING_NORMAL,
-      'audios/Weapon Sword Whip 01.wav'
-    )
-    await this.loadSound(
-      SOUND_IDS.SWORD_SWING_FINAL,
-      'audios/Weapon Sword Whip 02.wav'
-    )
-    await this.loadSound(
-      SOUND_IDS.SWORD_PARRY,
-      'audios/Weapon Sword Hits Sword 04.wav'
-    )
-    await this.loadSound(
-      SOUND_IDS.BODY_HIT,
-      'audios/Weapon Staff Hit Body Fast 02.wav'
-    )
-    await this.loadSound(
-      SOUND_IDS.SWORD_HIT_OBSTACLE,
-      'audios/Weapon Sword Hit Wood 02.wav'
-    )
+    await Promise.all([
+      this.loadSound(
+        SOUND_IDS.SWORD_SWING_NORMAL,
+        'audios/Weapon Sword Whip 01.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.SWORD_SWING_FINAL,
+        'audios/Weapon Sword Whip 02.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.SWORD_PARRY,
+        'audios/Weapon Sword Hits Sword 04.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.BODY_HIT,
+        'audios/Weapon Staff Hit Body Fast 02.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.SWORD_HIT_OBSTACLE,
+        'audios/Weapon Sword Hit Wood 02.wav'
+      ),
+    ])
+  }
+
+  resumeContext(): void {
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch((e) => {
+        console.warn('AudioContext resume failed:', e)
+      })
+    }
   }
 
   private async loadSound(id: number, path: string): Promise<void> {

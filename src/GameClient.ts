@@ -92,6 +92,7 @@ export class GameClient {
     } as MainToWorkerMessage)
 
     this.setupInput()
+    this.setupAudioResume()
 
     this.audioManager.init().catch((error) => {
       console.error('Failed to initialize audio:', error)
@@ -99,6 +100,16 @@ export class GameClient {
 
     // Start Render Loop
     requestAnimationFrame(this.boundRenderLoop)
+  }
+
+  private setupAudioResume() {
+    const resume = () => {
+      this.audioManager.resumeContext()
+      window.removeEventListener('keydown', resume)
+      window.removeEventListener('mousedown', resume)
+    }
+    window.addEventListener('keydown', resume)
+    window.addEventListener('mousedown', resume)
   }
 
   private handleWorkerMessage(e: MessageEvent<WorkerToMainMessage>) {
