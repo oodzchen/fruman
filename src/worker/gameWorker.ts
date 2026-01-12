@@ -28,7 +28,12 @@ import {
   MAX_EFFECTS,
   STATE_BUFFER_FLOATS,
 } from './effectsProtocol'
-import type { MainToWorkerMessage, WorkerToMainMessage } from './protocol'
+import type {
+  MainToWorkerMessage,
+  SensorDebugData,
+  WorkerStateMessage,
+  WorkerToMainMessage,
+} from './protocol'
 
 // Worker global scope
 const ctx: Worker = self as unknown as Worker
@@ -138,7 +143,7 @@ let targetZoom = 1.0
 let canvasWidth = 0
 
 // Reusable message object for sendState
-const stateMessage: WorkerToMainMessage = {
+const stateMessage: WorkerStateMessage = {
   type: 'state',
   entitiesBuffer: null as unknown as ArrayBuffer | SharedArrayBuffer,
   entityCount: 0,
@@ -496,6 +501,7 @@ function update() {
   }
 
   sendState()
+  // _sendDebugData() // 调试用：启用此行可在游戏中绘制sensor射线
 }
 
 function updateCamera(playerX: number) {
@@ -640,6 +646,66 @@ function sendState() {
   if (nextView) {
     stateBuffer = nextView
   }
+}
+
+function _sendDebugData() {
+  if (!world) return
+
+  const sensorDebugData: SensorDebugData[] = []
+  const entities = world.getEntities()
+
+  for (const entity of entities) {
+    if (!entity.sensor || !entity.transform) continue
+    if (entity.stats?.isDead || entity.stats?.isVanished) continue
+
+    const { radius, scanResults } = entity.sensor
+    const { x, y } = entity.transform
+
+    let facing = 1
+    if (entity.input) {
+      if (
+        entity.input.facingOverride !== null &&
+        entity.input.facingOverride !== 0
+      ) {
+        facing = entity.input.facingOverride
+      } else if (entity.input.lastMoveDirection !== 0) {
+        facing = entity.input.lastMoveDirection
+      }
+    }
+
+    const rays = scanResults.map(
+      (result: {
+        start: { x: number; y: number }
+        end: { x: number; y: number }
+        hit: boolean
+        hitPoint?: { x: number; y: number }
+        isHostile?: boolean
+      }) => ({
+        startX: result.start.x,
+        startY: result.start.y,
+        endX: result.end.x,
+        endY: result.end.y,
+        hit: result.hit,
+        hitX: result.hitPoint?.x,
+        hitY: result.hitPoint?.y,
+        isHostile: result.isHostile || false,
+      })
+    )
+
+    sensorDebugData.push({
+      entityId: entity.id,
+      x,
+      y,
+      radius,
+      facing,
+      rays,
+    })
+  }
+
+  ctx.postMessage({
+    type: 'debug',
+    sensors: sensorDebugData,
+  } as WorkerToMainMessage)
 }
 
 function restart() {

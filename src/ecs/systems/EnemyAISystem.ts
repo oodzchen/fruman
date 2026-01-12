@@ -6,6 +6,7 @@ import {
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   ENEMY_ATTACK_RANGE_BUFFER,
+  ENEMY_PACE_SPEED,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
@@ -116,8 +117,15 @@ export class EnemyAISystem extends System {
         }
         if (entity.input) {
           entity.input.sprintRequested = false
+          entity.input.lockedTargetId = null
         }
         continue
+      }
+
+      // 敌人锁定玩家（进入战斗状态）
+      if (entity.input && entity.input.lockedTargetId !== this.player.id) {
+        entity.input.lockedTargetId = this.player.id
+        entity.input.lockLostTimer = 0
       }
 
       if (ai.state === 'approach') {
@@ -133,6 +141,44 @@ export class EnemyAISystem extends System {
           } else {
             entity.input.sprintRequested = false
           }
+
+          // 检测是否被阻挡（每300ms检查一次位置变化）
+          if (now - ai.lastPositionUpdateTime >= ai.positionCheckInterval) {
+            const deltaX = Math.abs(entity.transform.x - ai.lastPosition.x)
+            const deltaY = Math.abs(entity.transform.y - ai.lastPosition.y)
+            // 300ms内移动距离小于0.3认为被阻挡（正常速度3m/s应该移动0.9m）
+            const positionChanged = deltaX > 0.3 || deltaY > 0.3
+
+            // 在追击状态下（战斗中）检测阻挡，即使视线被遮挡
+            const isChasing = entity.stats?.isInCombat || hasLineOfSight
+            if (!positionChanged && isChasing) {
+              ai.stuckTimer += ai.positionCheckInterval
+              if (ai.stuckTimer >= ai.stuckThreshold) {
+                // 被阻挡太久，切换到踱步状态
+                // console.log(
+                //   `[Approach->Pacing] Switching to pacing. ` +
+                //     `locked:${entity.input.lockedTargetId} ` +
+                //     `currentSpeed:${entity.movement?.moveSpeed} ` +
+                //     `newSpeed:${ENEMY_PACE_SPEED}`
+                // )
+                ai.state = 'pacing'
+                ai.paceDirection = -1 // 初始方向为后退
+                ai.lastPaceSwitchTimestamp = now
+                ai.nextPaceResumeTimestamp = 0
+                ai.stuckTimer = 0
+                // 降低移动速度
+                if (entity.movement) {
+                  entity.movement.moveSpeed = ENEMY_PACE_SPEED
+                }
+              }
+            } else {
+              ai.stuckTimer = 0
+            }
+
+            ai.lastPosition.x = entity.transform.x
+            ai.lastPosition.y = entity.transform.y
+            ai.lastPositionUpdateTime = now
+          }
         } else {
           ai.state = 'combo'
           ai.comboSwingsDone = 0
@@ -146,6 +192,7 @@ export class EnemyAISystem extends System {
           }
           entity.input.moveDirection = 0
           entity.input.sprintRequested = false
+          ai.stuckTimer = 0
           this.queueAttack(entity, facing, ai)
         }
         continue
@@ -189,6 +236,75 @@ export class EnemyAISystem extends System {
           ai.comboSwingsDone = 0
           entity.input.moveDirection = 0
         }
+        continue
+      }
+
+      if (ai.state === 'pacing') {
+        entity.input.sprintRequested = false
+
+        // 调试日志
+        // if (Math.random() < 0.05) {
+        //   console.log(
+        //     `[Pacing] locked:${entity.input.lockedTargetId} ` +
+        //       `facing:${facing} ` +
+        //       `moveDir:${entity.input.moveDirection} ` +
+        //       `paceDir:${ai.paceDirection} ` +
+        //       `speed:${entity.movement?.moveSpeed} ` +
+        //       `pos:(${entity.transform.x.toFixed(2)},${entity.transform.y.toFixed(2)}) ` +
+        //       `isPaused:${now < ai.nextPaceResumeTimestamp} ` +
+        //       `timeSinceSwitch:${now - ai.lastPaceSwitchTimestamp}ms`
+        //   )
+        // }
+
+        // 如果恢复视线，回到追击状态
+        if (hasLineOfSight) {
+          // console.log('[Pacing] Line of sight restored, returning to approach')
+          // 恢复正常移动速度
+          if (entity.movement) {
+            entity.movement.moveSpeed = ai.moveSpeed
+          }
+          ai.state = 'approach'
+          ai.stuckTimer = 0
+          continue
+        }
+
+        // 如果完全丢失锁定，回到巡逻
+        if (entity.input.lockedTargetId === null) {
+          // console.log('[Pacing] Lost lock, returning to patrol')
+          // 恢复正常移动速度
+          if (entity.movement) {
+            entity.movement.moveSpeed = ai.moveSpeed
+          }
+          this.handlePatrol(entity, ai, now)
+          if (entity.weapon) {
+            entity.weapon.attackQueued = false
+          }
+          continue
+        }
+
+        // 如果在暂停期间，保持不动
+        if (now < ai.nextPaceResumeTimestamp) {
+          entity.input.moveDirection = 0
+          continue
+        }
+
+        // 检查是否需要切换方向或进入暂停
+        if (now - ai.lastPaceSwitchTimestamp >= ai.paceSwitchIntervalMs) {
+          // 切换踱步方向：前进和后退交替
+          ai.paceDirection = (ai.paceDirection === 1 ? -1 : 1) as -1 | 1
+          ai.lastPaceSwitchTimestamp = now
+          ai.nextPaceResumeTimestamp = now + ai.pacePauseMs
+          entity.input.moveDirection = 0
+          // console.log(
+          //   `[Pacing] Switching direction to ${ai.paceDirection}, pausing for ${ai.pacePauseMs}ms`
+          // )
+          continue
+        }
+
+        // 前后踱步：朝向玩家方向移动或远离
+        // paceDirection=1 表示靠近玩家，-1 表示远离玩家
+        const computedMoveDir = (facing * ai.paceDirection) as -1 | 1
+        entity.input.moveDirection = computedMoveDir
       }
     }
   }

@@ -222,6 +222,7 @@ export function createEnemy(
   const ai = new EnemyAIComponent()
   ai.attackDesire = template.attackDesire
   ai.patrolCenter = { x, y }
+  ai.lastPosition = { x, y }
   enemy.addComponent(ai)
 
   if (enemy.sensor) {

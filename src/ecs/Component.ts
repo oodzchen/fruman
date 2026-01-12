@@ -266,7 +266,7 @@ export class EnemyAIComponent extends Component {
   lastPaceSwitchTimestamp = 0
   nextPaceResumeTimestamp = 0
   moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
-  state: 'approach' | 'combo' | 'retreat' = 'approach'
+  state: 'approach' | 'combo' | 'retreat' | 'pacing' = 'approach'
   comboSwingsDone = 0
   comboSwingTarget = 5
   lastFacing: -1 | 1 = 1
@@ -277,6 +277,11 @@ export class EnemyAIComponent extends Component {
   hasLineOfSight = false
   targetLostTimer = 0
   combatResetTime = 5000
+  lastPosition = { x: 0, y: 0 }
+  stuckTimer = 0
+  stuckThreshold = 500
+  lastPositionUpdateTime = 0
+  positionCheckInterval = 300
 
   getName(): string {
     return 'EnemyAI'
@@ -292,7 +297,7 @@ export type RayCastResult = {
   isHostile?: boolean
 }
 
-const DEFAULT_SENSOR_RAY_COUNT = 5
+const DEFAULT_SENSOR_RAY_COUNT = 9
 
 const createRayCastResults = (count: number): RayCastResult[] => {
   const results: RayCastResult[] = []

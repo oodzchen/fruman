@@ -80,4 +80,27 @@ export type WorkerStateMessage = {
   camera: { x: number; y: number }
 }
 
-export type WorkerToMainMessage = WorkerStateMessage
+export type SensorDebugData = {
+  entityId: number
+  x: number
+  y: number
+  radius: number
+  facing: number
+  rays: Array<{
+    startX: number
+    startY: number
+    endX: number
+    endY: number
+    hit: boolean
+    hitX?: number
+    hitY?: number
+    isHostile: boolean
+  }>
+}
+
+export type WorkerDebugMessage = {
+  type: 'debug'
+  sensors: SensorDebugData[]
+}
+
+export type WorkerToMainMessage = WorkerStateMessage | WorkerDebugMessage

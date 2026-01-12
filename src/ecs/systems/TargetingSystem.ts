@@ -13,9 +13,13 @@ import { System } from '../System'
 
 const RAY_ANGLE_OFFSETS = [
   (-80 * Math.PI) / 180,
+  (-60 * Math.PI) / 180,
   (-40 * Math.PI) / 180,
+  (-20 * Math.PI) / 180,
   0,
+  (20 * Math.PI) / 180,
   (40 * Math.PI) / 180,
+  (60 * Math.PI) / 180,
   (80 * Math.PI) / 180,
 ]
 
