@@ -174,18 +174,7 @@ export class EnemyAISystem extends System {
               ai.stuckTimer += ai.positionCheckInterval
               if (ai.stuckTimer >= ai.stuckThreshold) {
                 // 尝试跨越障碍序列
-                const isTouchingWall =
-                  entity.movement && entity.movement.isTouchingWall
-
-                // 只有接触墙壁时才启动序列（Stage 0 -> 1）
-                if (isTouchingWall && ai.obstacleJumpStage === 0) {
-                  // console.log('[Approach] Stuck at wall, starting jump sequence')
-                  entity.input.jumpRequested = true
-                  entity.input.inputBuffer.bufferAction('jump')
-                  ai.obstacleJumpStage = 1
-                  ai.jumpStartTimestamp = now
-                  ai.jumpStartPosition.x = entity.transform.x
-                  ai.jumpStartPosition.y = entity.transform.y
+                if (this.tryTriggerObstacleJump(entity, ai, now)) {
                   ai.stuckTimer = 0
                 } else {
                   // 无法跳跃或已在序列中（不应发生），切换到踱步
@@ -339,6 +328,29 @@ export class EnemyAISystem extends System {
     }
   }
 
+  private tryTriggerObstacleJump(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    now: number
+  ): boolean {
+    if (
+      entity.movement &&
+      entity.movement.isTouchingWall &&
+      ai.obstacleJumpStage === 0
+    ) {
+      if (!entity.input) return false
+      // console.log('[Obstacle] Stuck at wall, starting jump sequence')
+      entity.input.jumpRequested = true
+      entity.input.inputBuffer.bufferAction('jump')
+      ai.obstacleJumpStage = 1
+      ai.jumpStartTimestamp = now
+      ai.jumpStartPosition.x = entity.transform?.x ?? 0
+      ai.jumpStartPosition.y = entity.transform?.y ?? 0
+      return true
+    }
+    return false
+  }
+
   private handlePatrol(
     entity: Entity,
     ai: EnemyAIComponent,
@@ -359,8 +371,16 @@ export class EnemyAISystem extends System {
 
     const target = ai.patrolWaypoints[ai.currentWaypointIndex]
     const dx = target.x - entity.transform.x
+    const facing = dx > 0 ? 1 : -1
     const dist = Math.abs(dx)
     const arrivalThreshold = 0.5
+
+    // 优先处理跨越障碍跳跃序列
+    if (ai.obstacleJumpStage > 0) {
+      entity.input.moveDirection = facing
+      this.handleObstacleJump(entity, ai, now, facing)
+      return
+    }
 
     if (ai.patrolState === 'moving') {
       // 避免初始帧导致的大数值差异
@@ -387,7 +407,15 @@ export class EnemyAISystem extends System {
         ai.lastPositionUpdateTime = now
       }
 
-      // 如果到达目标 OR 卡住超过2秒
+      // 尝试跳跃跨越障碍（当卡住且接触墙壁时）
+      if (ai.patrolStuckTimer > 500) {
+        if (this.tryTriggerObstacleJump(entity, ai, now)) {
+          ai.patrolStuckTimer = 0
+          return
+        }
+      }
+
+      // 如果到达目标 OR 卡住超过2秒（且未能通过跳跃解决）
       if (dist <= arrivalThreshold || ai.patrolStuckTimer > 2000) {
         // 到达目标点，开始等待
         // console.log(`[Patrol] Arrived/Stuck at waypoint ${ai.currentWaypointIndex}, waiting...`)
@@ -400,7 +428,7 @@ export class EnemyAISystem extends System {
         entity.input.facingOverride = null
       } else {
         // 向目标移动
-        entity.input.moveDirection = dx > 0 ? 1 : -1
+        entity.input.moveDirection = facing
         entity.input.facingOverride = entity.input.moveDirection
       }
     } else if (ai.patrolState === 'waiting') {
@@ -426,7 +454,6 @@ export class EnemyAISystem extends System {
     // 重置战斗/追击相关的临时状态
     ai.state = 'approach'
     ai.comboSwingsDone = 0
-    ai.obstacleJumpStage = 0
   }
 
   private handleObstacleJump(
