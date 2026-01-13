@@ -167,6 +167,9 @@ export type WeaponRelativeTransform = {
 export class WeaponComponent extends Component {
   width = 0
   height = 0
+  baseWidth = 0
+  blockWidthStart = 0
+  blockWidthTarget = 0
   cornerRadius = 0
   weight = 0
   attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE

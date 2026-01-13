@@ -137,6 +137,9 @@ export function createPlayer(
   const weapon = new WeaponComponent()
   weapon.width = DEFAULT_WEAPON_WIDTH
   weapon.height = DEFAULT_WEAPON_HEIGHT
+  weapon.baseWidth = weapon.width
+  weapon.blockWidthStart = weapon.width
+  weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weight = DEFAULT_WEAPON_WEIGHT
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
@@ -311,6 +314,9 @@ export function createWeapon(
   const weapon = new WeaponComponent()
   weapon.width = DEFAULT_WEAPON_WIDTH
   weapon.height = DEFAULT_WEAPON_HEIGHT
+  weapon.baseWidth = weapon.width
+  weapon.blockWidthStart = weapon.width
+  weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weight = DEFAULT_WEAPON_WEIGHT
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
