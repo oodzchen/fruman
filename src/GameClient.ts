@@ -306,7 +306,7 @@ export class GameClient {
     this.ctx.fillText(this.fpsText, fpsX, 30)
     this.ctx.restore()
 
-    // Draw Player UI (Health/Toughness)
+    // Draw Player UI (Health/Posture)
     this.renderer.renderPlayerUI()
   }
 

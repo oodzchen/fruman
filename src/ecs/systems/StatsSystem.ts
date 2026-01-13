@@ -1,7 +1,7 @@
 import {
   DEBUG_LOCK_DEFAULT_ENEMY_HEALTH,
   DEBUG_LOCK_PLAYER_HEALTH,
-  DEBUG_LOCK_PLAYER_TOUGHNESS,
+  DEBUG_LOCK_PLAYER_POSTURE,
   DEBUG_PLAYER_IMMORTALITY,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
@@ -13,10 +13,10 @@ import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_HEIGHT,
-  DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  DEFAULT_WEAPON_POSTURE_DAMAGE,
   ENEMY_PROBE_CHASE_DURATION_MS,
-  PARRY_ENEMY_TOUGHNESS_DAMAGE,
-  PARRY_SELF_TOUGHNESS_RECOVERY,
+  PARRY_ENEMY_POSTURE_DAMAGE,
+  PARRY_SELF_POSTURE_RECOVERY,
   STAGGER_DAMAGE_MULTIPLIER,
   STAGGER_DURATION_MS,
   STAGGER_HIT_STUN_DURATION_MS,
@@ -87,8 +87,8 @@ export class StatsSystem extends System {
         }
       }
 
-      // 检查韧性归零触发崩塌
-      if (!entity.stats.isStaggered && entity.stats.toughness <= 0) {
+      // 检查架势归零触发崩塌
+      if (!entity.stats.isStaggered && entity.stats.posture <= 0) {
         this.triggerStagger(entity)
       }
 
@@ -104,7 +104,7 @@ export class StatsSystem extends System {
           entity.stats.staggerElapsedTime = 0
           entity.stats.staggerAnimationPhase = 'none'
           entity.stats.staggerAnimationElapsed = 0
-          entity.stats.toughness = entity.stats.maxToughness
+          entity.stats.posture = entity.stats.maxPosture
 
           // 崩塌自动恢复时重置连击状态
           if (entity.weapon) {
@@ -138,11 +138,11 @@ export class StatsSystem extends System {
         continue
       }
 
-      if (entity.stats.toughness < entity.stats.maxToughness) {
-        const recovery = entity.stats.toughnessRecoveryPerSecond * deltaSeconds
-        entity.stats.toughness = Math.min(
-          entity.stats.maxToughness,
-          entity.stats.toughness + recovery
+      if (entity.stats.posture < entity.stats.maxPosture) {
+        const recovery = entity.stats.postureRecoveryPerSecond * deltaSeconds
+        entity.stats.posture = Math.min(
+          entity.stats.maxPosture,
+          entity.stats.posture + recovery
         )
       }
 
@@ -229,15 +229,15 @@ export class StatsSystem extends System {
       return { attackerStaggered: false }
     }
 
-    const newToughness = attacker.stats.toughness - PARRY_ENEMY_TOUGHNESS_DAMAGE
-    attacker.stats.toughness = Math.max(0, newToughness)
+    const newPosture = attacker.stats.posture - PARRY_ENEMY_POSTURE_DAMAGE
+    attacker.stats.posture = Math.max(0, newPosture)
 
-    defender.stats.toughness = Math.min(
-      defender.stats.maxToughness,
-      defender.stats.toughness + PARRY_SELF_TOUGHNESS_RECOVERY
+    defender.stats.posture = Math.min(
+      defender.stats.maxPosture,
+      defender.stats.posture + PARRY_SELF_POSTURE_RECOVERY
     )
 
-    return { attackerStaggered: newToughness <= 0 }
+    return { attackerStaggered: newPosture <= 0 }
   }
 
   applyImpulse(entity: Entity, impulseX: number, impulseY: number): void {
@@ -337,7 +337,7 @@ export class StatsSystem extends System {
     entity: Entity,
     weapon?: {
       attackDamage: number
-      toughnessDamage: number
+      postureDamage: number
       knockback?: number
     },
     hitSource?: { x: number; y: number }
@@ -346,15 +346,15 @@ export class StatsSystem extends System {
       0,
       weapon?.attackDamage ?? DEFAULT_WEAPON_ATTACK_DAMAGE
     )
-    const toughnessDamage = Math.max(
+    const postureDamage = Math.max(
       0,
-      weapon?.toughnessDamage ?? DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+      weapon?.postureDamage ?? DEFAULT_WEAPON_POSTURE_DAMAGE
     )
     const knockback = Math.max(0, weapon?.knockback ?? 0)
     this.applyDamage(
       entity,
       attackDamage,
-      toughnessDamage,
+      postureDamage,
       knockback,
       hitSource
     )
@@ -363,7 +363,7 @@ export class StatsSystem extends System {
   private applyDamage(
     entity: Entity,
     healthDamage: number,
-    toughnessDamage: number,
+    postureDamage: number,
     knockback: number,
     hitSource?: { x: number; y: number }
   ): void {
@@ -377,7 +377,7 @@ export class StatsSystem extends System {
     if (entity.movement?.isRolling) return
 
     let finalHealthDamage = Math.max(0, healthDamage)
-    let finalToughnessDamage = Math.max(0, toughnessDamage)
+    let finalPostureDamage = Math.max(0, postureDamage)
     let finalKnockback = knockback
 
     // 崩塌期间受击：伤害翻倍、击退加强、解除崩塌
@@ -385,12 +385,12 @@ export class StatsSystem extends System {
     if (wasStaggered) {
       finalHealthDamage *= STAGGER_DAMAGE_MULTIPLIER
       finalKnockback *= STAGGER_KNOCKBACK_MULTIPLIER
-      finalToughnessDamage = 0
+      finalPostureDamage = 0
       entity.stats.isStaggered = false
       entity.stats.staggerElapsedTime = 0
       entity.stats.staggerAnimationPhase = 'none'
       entity.stats.staggerAnimationElapsed = 0
-      entity.stats.toughness = entity.stats.maxToughness
+      entity.stats.posture = entity.stats.maxPosture
 
       // 崩塌受击解除时重置连击状态
       if (entity.weapon) {
@@ -452,8 +452,8 @@ export class StatsSystem extends System {
       if (DEBUG_LOCK_PLAYER_HEALTH) {
         finalHealthDamage = 0
       }
-      if (DEBUG_LOCK_PLAYER_TOUGHNESS) {
-        finalToughnessDamage = 0
+      if (DEBUG_LOCK_PLAYER_POSTURE) {
+        finalPostureDamage = 0
       }
     }
     if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
@@ -461,12 +461,12 @@ export class StatsSystem extends System {
     }
 
     entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)
-    entity.stats.toughness = Math.max(
+    entity.stats.posture = Math.max(
       0,
-      entity.stats.toughness - finalToughnessDamage
+      entity.stats.posture - finalPostureDamage
     )
 
-    if (entity.stats.toughness <= 0 && !wasStaggered) {
+    if (entity.stats.posture <= 0 && !wasStaggered) {
       this.triggerStagger(entity)
     }
 
@@ -553,7 +553,7 @@ export class StatsSystem extends System {
     if (entity.stats.health === 0) {
       if (isPlayer && DEBUG_PLAYER_IMMORTALITY) {
         entity.stats.health = entity.stats.maxHealth
-        entity.stats.toughness = entity.stats.maxToughness
+        entity.stats.posture = entity.stats.maxPosture
         // console.log('Player avoided death due to immortality debug flag')
         return
       }
@@ -599,7 +599,7 @@ export class StatsSystem extends System {
     if (!entity.stats) return
 
     entity.stats.health = entity.stats.maxHealth
-    entity.stats.toughness = entity.stats.maxToughness
+    entity.stats.posture = entity.stats.maxPosture
     entity.stats.isDead = false
     entity.stats.isVanished = false
     entity.stats.deathElapsedSec = 0

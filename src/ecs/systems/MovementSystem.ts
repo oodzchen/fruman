@@ -249,7 +249,7 @@ export class MovementSystem extends System {
       entity.stats.staggerElapsedTime = 0
       entity.stats.staggerAnimationPhase = 'none'
       entity.stats.staggerAnimationElapsed = 0
-      entity.stats.toughness = entity.stats.maxToughness
+      entity.stats.posture = entity.stats.maxPosture
 
       // 如果是敌人，重置其AI状态
       if (entity.enemyAI) {

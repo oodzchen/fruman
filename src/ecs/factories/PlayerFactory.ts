@@ -12,7 +12,7 @@ import {
   DEFAULT_MAX_WALL_JUMPS,
   DEFAULT_MOVE_SPEED,
   DEFAULT_PLAYER_MAX_HEALTH,
-  DEFAULT_PLAYER_MAX_TOUGHNESS,
+  DEFAULT_PLAYER_MAX_POSTURE,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
   DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
@@ -24,7 +24,7 @@ import {
   DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
-  DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  DEFAULT_WEAPON_POSTURE_DAMAGE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
@@ -120,8 +120,8 @@ export function createPlayer(
   const stats = new StatsComponent()
   stats.maxHealth = DEFAULT_PLAYER_MAX_HEALTH
   stats.health = DEFAULT_PLAYER_MAX_HEALTH
-  stats.maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
-  stats.toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+  stats.maxPosture = DEFAULT_PLAYER_MAX_POSTURE
+  stats.posture = DEFAULT_PLAYER_MAX_POSTURE
   stats.combatExitTimeout = 30000 // 玩家30秒无攻击后脱战
   entity.addComponent(stats)
 
@@ -144,7 +144,7 @@ export function createPlayer(
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weight = DEFAULT_WEAPON_WEIGHT
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
-  weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+  weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   const weaponX = 6
   const weaponY = groundTopY - DEFAULT_WEAPON_HEIGHT / 2
   weapon.position = {
@@ -314,7 +314,7 @@ export function createWeapon(
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weight = DEFAULT_WEAPON_WEIGHT
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
-  weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+  weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   weapon.position = {
     x: x,
     y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,

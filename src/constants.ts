@@ -25,26 +25,26 @@ export const DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER = 0.8
 // 角色基础重量（可理解为 kg，影响跳跃与下落）
 export const DEFAULT_PLAYER_WEIGHT = 80
 
-// 角色生命与韧性
+// 角色生命与架势
 export const DEFAULT_PLAYER_MAX_HEALTH = 20
-export const DEFAULT_PLAYER_MAX_TOUGHNESS = 20
-export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 3
+export const DEFAULT_PLAYER_MAX_POSTURE = 20
+export const DEFAULT_PLAYER_POSTURE_RECOVERY_PER_SEC = 3
 
-// 调试开关：玩家锁血/锁韧性
+// 调试开关：玩家锁血/锁架势
 export const DEBUG_LOCK_PLAYER_HEALTH = false
-export const DEBUG_LOCK_PLAYER_TOUGHNESS = false
+export const DEBUG_LOCK_PLAYER_POSTURE = false
 export const DEBUG_PLAYER_IMMORTALITY = true
 export const DEBUG_LOCK_DEFAULT_ENEMY_HEALTH = true
 export const DEBUG_ANIMATION_SLOWDOWN = 1
 
-// 武器默认伤害与削韧
+// 武器默认伤害与削架势
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
-export const DEFAULT_WEAPON_TOUGHNESS_DAMAGE = 6
+export const DEFAULT_WEAPON_POSTURE_DAMAGE = 6
 
 // 弹反机制
 export const DEFAULT_PARRY_WINDOW_MS = 200
-export const PARRY_ENEMY_TOUGHNESS_DAMAGE = 10
-export const PARRY_SELF_TOUGHNESS_RECOVERY = 5
+export const PARRY_ENEMY_POSTURE_DAMAGE = 10
+export const PARRY_SELF_POSTURE_RECOVERY = 5
 export const PARRY_COUNTER_WINDOW_MS = 500
 
 // 崩塌机制

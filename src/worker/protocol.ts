@@ -18,8 +18,8 @@ export type RenderEntity = {
   stats?: {
     health: number
     maxHealth: number
-    maxToughness: number
-    toughness: number
+    maxPosture: number
+    posture: number
     isDead: boolean
     isVanished: boolean
     deathElapsedSec: number

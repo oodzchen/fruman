@@ -290,8 +290,8 @@ export class ClientRenderer {
 
     const health = buf[playerOffset + OFFSETS.STATS_HEALTH]
     const maxHealth = buf[playerOffset + OFFSETS.STATS_HEALTH_MAX]
-    const toughness = buf[playerOffset + OFFSETS.STATS_TOUGHNESS]
-    const maxToughness = buf[playerOffset + OFFSETS.STATS_TOUGHNESS_MAX]
+    const posture = buf[playerOffset + OFFSETS.STATS_POSTURE]
+    const maxPosture = buf[playerOffset + OFFSETS.STATS_POSTURE_MAX]
 
     if (maxHealth <= 0) return
 
@@ -305,7 +305,7 @@ export class ClientRenderer {
     const pixelsPerUnit = 4
 
     const healthWidth = maxHealth * pixelsPerUnit
-    const toughnessWidth = maxToughness * pixelsPerUnit
+    const postureWidth = maxPosture * pixelsPerUnit
 
     // Health Bar
     const healthRatio = health / maxHealth
@@ -319,14 +319,14 @@ export class ClientRenderer {
       '#ff4d4f'
     )
 
-    // Toughness Bar
-    const toughnessRatio = maxToughness > 0 ? toughness / maxToughness : 0
+    // Posture Bar
+    const postureRatio = maxPosture > 0 ? posture / maxPosture : 0
     this.drawBar(
       startX,
       startY + barHeight + spacing,
-      toughnessWidth,
+      postureWidth,
       barHeight,
-      toughnessRatio,
+      postureRatio,
       '#665511',
       '#ffd666'
     )
@@ -384,8 +384,8 @@ export class ClientRenderer {
   ): void {
     const health = buf[offset + OFFSETS.STATS_HEALTH]
     const maxHealth = buf[offset + OFFSETS.STATS_HEALTH_MAX]
-    const toughness = buf[offset + OFFSETS.STATS_TOUGHNESS]
-    const maxToughness = buf[offset + OFFSETS.STATS_TOUGHNESS_MAX]
+    const posture = buf[offset + OFFSETS.STATS_POSTURE]
+    const maxPosture = buf[offset + OFFSETS.STATS_POSTURE_MAX]
 
     const barWidth = 1.1 * this.pixelsPerMeter
     const barHeight = 6
@@ -394,7 +394,7 @@ export class ClientRenderer {
     const barTopOffset = 18
     const baseY = centerY - radiusMeters * this.pixelsPerMeter - barTopOffset
     const healthY = baseY
-    const toughnessY = baseY + barHeight + spacing
+    const postureY = baseY + barHeight + spacing
 
     const healthRatio = maxHealth > 0 ? health / maxHealth : 0
     this.drawBar(
@@ -407,13 +407,13 @@ export class ClientRenderer {
       '#ff4d4f'
     )
 
-    const toughnessRatio = maxToughness > 0 ? toughness / maxToughness : 0
+    const postureRatio = maxPosture > 0 ? posture / maxPosture : 0
     this.drawBar(
       startX,
-      toughnessY,
+      postureY,
       barWidth,
       barHeight,
-      toughnessRatio,
+      postureRatio,
       '#665511',
       '#ffd666'
     )

@@ -602,8 +602,8 @@ function sendState() {
     if (e.stats) {
       stateBuffer[offset + OFFSETS.STATS_HEALTH_MAX] = e.stats.maxHealth
       stateBuffer[offset + OFFSETS.STATS_HEALTH] = e.stats.health
-      stateBuffer[offset + OFFSETS.STATS_TOUGHNESS_MAX] = e.stats.maxToughness
-      stateBuffer[offset + OFFSETS.STATS_TOUGHNESS] = e.stats.toughness
+      stateBuffer[offset + OFFSETS.STATS_POSTURE_MAX] = e.stats.maxPosture
+      stateBuffer[offset + OFFSETS.STATS_POSTURE] = e.stats.posture
       stateBuffer[offset + OFFSETS.STATS_DEATH_ELAPSED] =
         e.stats.deathElapsedSec
       stateBuffer[offset + OFFSETS.STATS_SHAKE_DURATION] =

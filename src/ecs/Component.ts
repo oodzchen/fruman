@@ -5,10 +5,10 @@ import {
   DEFAULT_ENEMY_ATTACK_DESIRE,
   DEFAULT_ENEMY_MOVE_SPEED,
   DEFAULT_PLAYER_MAX_HEALTH,
-  DEFAULT_PLAYER_MAX_TOUGHNESS,
-  DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC,
+  DEFAULT_PLAYER_MAX_POSTURE,
+  DEFAULT_PLAYER_POSTURE_RECOVERY_PER_SEC,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
-  DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  DEFAULT_WEAPON_POSTURE_DAMAGE,
   ENEMY_DECISION_COOLDOWN_MS,
   ENEMY_DETECTION_RANGE,
   ENEMY_PACE_PAUSE_MS,
@@ -127,9 +127,9 @@ export class RenderComponent extends Component {
 export class StatsComponent extends Component {
   maxHealth = DEFAULT_PLAYER_MAX_HEALTH
   health = DEFAULT_PLAYER_MAX_HEALTH
-  maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
-  toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
-  toughnessRecoveryPerSecond = DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC
+  maxPosture = DEFAULT_PLAYER_MAX_POSTURE
+  posture = DEFAULT_PLAYER_MAX_POSTURE
+  postureRecoveryPerSecond = DEFAULT_PLAYER_POSTURE_RECOVERY_PER_SEC
   isDead = false
   isVanished = false
   deathElapsedSec = 0
@@ -170,7 +170,7 @@ export class WeaponComponent extends Component {
   cornerRadius = 0
   weight = 0
   attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
-  toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+  postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   knockback = 0
   isColliding = false
   position = { x: 0, y: 0 }
