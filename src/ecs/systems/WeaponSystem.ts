@@ -1,6 +1,7 @@
 import {
   COMBO_FINISHER_KNOCKBACK,
   DEFAULT_ATTACK_KNOCKBACK,
+  DEFAULT_FRAME_RATE,
   DEFAULT_PARRY_WINDOW_MS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_PAUSE_MS,
@@ -36,6 +37,9 @@ import type { StatsSystem } from './StatsSystem'
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
 const FRONT_SWING_TILT_RAD = Math.PI / 16
 const REBOUND_PAUSE_MS = 150
+const PARRY_WINDOW_FRAMES =
+  (DEFAULT_PARRY_WINDOW_MS * DEFAULT_FRAME_RATE) / 1000
+const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
 
 type ObstacleCollider = {
   bodyId: b2BodyId
@@ -346,9 +350,11 @@ export class WeaponSystem extends System {
 
     // 弹反窗口期间（只在武器移动期间有效）
     if (weapon.isParrying) {
-      weapon.parryElapsedTime += this.currentDeltaTime
-      const elapsedMs = weapon.parryElapsedTime * 1000
-      const progress = Math.min(1, elapsedMs / DEFAULT_PARRY_WINDOW_MS)
+      weapon.parryElapsedTime += this.currentDeltaTime * DEFAULT_FRAME_RATE
+      const progress = Math.min(
+        1,
+        weapon.parryElapsedTime / PARRY_WINDOW_FRAMES
+      )
 
       // 插值相对位置并应用
       this.lerpRelativeTransform(
@@ -359,11 +365,13 @@ export class WeaponSystem extends System {
       )
       this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
-      // 弹反窗口内检测敌人武器碰撞
-      this.checkParryHits(entity)
+      // 弹反窗口内检测敌人武器碰撞（仅后半段有效帧）
+      if (weapon.parryElapsedTime >= PARRY_ACTIVE_START_FRAME) {
+        this.checkParryHits(entity)
+      }
 
       // 弹反窗口结束
-      if (elapsedMs >= DEFAULT_PARRY_WINDOW_MS) {
+      if (weapon.parryElapsedTime >= PARRY_WINDOW_FRAMES) {
         weapon.isParrying = false
         // 如果弹反窗口结束时格挡键已松开，自动退出
         if (entity.input && !entity.input.blockRequested) {
@@ -386,7 +394,7 @@ export class WeaponSystem extends System {
     weapon.attackPhase = 'blockReturn'
     weapon.isBlocking = false
     weapon.isParrying = false
-    weapon.parryElapsedTime = 0 // 使用 parryElapsedTime 作为计时器
+    weapon.parryElapsedTime = 0 // 使用 parryElapsedTime 作为计时器（帧）
 
     // 记录当前位置作为回归动画的起点 (存入 parryEndOffset)
     this.getOffsetFromTransform(weapon.visual, playerPos, weapon.parryEndOffset)
@@ -422,11 +430,10 @@ export class WeaponSystem extends System {
       return
     }
 
-    weapon.parryElapsedTime += this.currentDeltaTime
-    const elapsedMs = weapon.parryElapsedTime * 1000
+    weapon.parryElapsedTime += this.currentDeltaTime * DEFAULT_FRAME_RATE
     // 动画时间比发起格挡快一倍 (200ms -> 100ms)
-    const duration = DEFAULT_PARRY_WINDOW_MS / 2
-    const progress = Math.min(1, elapsedMs / duration)
+    const durationFrames = PARRY_WINDOW_FRAMES / 2
+    const progress = Math.min(1, weapon.parryElapsedTime / durationFrames)
 
     // 插值相对位置并应用 (从 parryEndOffset 回到 parryStartOffset)
     this.lerpRelativeTransform(
@@ -437,8 +444,10 @@ export class WeaponSystem extends System {
     )
     this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
-    // 在撤回过程中仍然检测弹反碰撞（根据需求）
-    this.checkParryHits(entity)
+    // 在撤回过程中仍然检测弹反碰撞（仅后半段有效帧）
+    if (weapon.parryElapsedTime >= durationFrames * 0.5) {
+      this.checkParryHits(entity)
+    }
 
     if (progress >= 1) {
       weapon.attackPhase = 'idle'

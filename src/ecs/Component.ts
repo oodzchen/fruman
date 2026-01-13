@@ -210,7 +210,7 @@ export class WeaponComponent extends Component {
   hitEntityIds: Set<number> = new Set()
 
   isParrying = false
-  parryElapsedTime = 0
+  parryElapsedTime = 0 // 帧数
   parryWindowDuration = 200
   parryStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   parryEndTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
@@ -268,7 +268,7 @@ export class EnemyAIComponent extends Component {
   lastPaceSwitchTimestamp = 0
   nextPaceResumeTimestamp = 0
   moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
-  state: 'approach' | 'combo' | 'retreat' | 'pacing' = 'approach'
+  state: 'approach' | 'combo' | 'retreat' | 'pacing' | 'probe' = 'approach'
   comboSwingsDone = 0
   comboSwingTarget = 5
   lastFacing: -1 | 1 = 1
@@ -280,6 +280,13 @@ export class EnemyAIComponent extends Component {
   targetLostTimer = 0
   playerSwingActive = false
   parryAttemptedThisSwing = false
+  probeSwitchTimerMs = 0
+  probePaceTimerMs = 0
+  probePaceDirection: -1 | 1 = 1
+  probePaceMovedDistance = 0
+  probeLastPositionX = 0
+  probeLastPositionY = 0
+  probeHasTriggered = false
   combatResetTime = 5000
   lastPosition = { x: 0, y: 0 }
   stuckTimer = 0

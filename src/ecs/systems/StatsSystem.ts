@@ -10,6 +10,7 @@ import {
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  ENEMY_PROBE_CHASE_DURATION_MS,
   PARRY_ENEMY_TOUGHNESS_DAMAGE,
   PARRY_SELF_TOUGHNESS_RECOVERY,
   STAGGER_DAMAGE_MULTIPLIER,
@@ -118,6 +119,16 @@ export class StatsSystem extends System {
           if (entity.enemyAI) {
             entity.enemyAI.state = 'approach'
             entity.enemyAI.comboSwingsDone = 0
+            entity.enemyAI.probeSwitchTimerMs = 0
+            entity.enemyAI.probePaceTimerMs = 0
+            entity.enemyAI.probePaceDirection = 1
+            entity.enemyAI.probePaceMovedDistance = 0
+            entity.enemyAI.probeLastPositionX = 0
+            entity.enemyAI.probeLastPositionY = 0
+            entity.enemyAI.probeHasTriggered = false
+            if (entity.movement) {
+              entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+            }
           }
         }
         continue
@@ -413,6 +424,21 @@ export class StatsSystem extends System {
       }
     }
 
+    if (entity.enemyAI && entity.enemyAI.state === 'probe') {
+      entity.enemyAI.state = 'approach'
+      entity.enemyAI.comboSwingsDone = 0
+      entity.enemyAI.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
+      entity.enemyAI.probePaceTimerMs = 0
+      entity.enemyAI.probePaceDirection = 1
+      entity.enemyAI.probePaceMovedDistance = 0
+      entity.enemyAI.probeLastPositionX = 0
+      entity.enemyAI.probeLastPositionY = 0
+      entity.enemyAI.probeHasTriggered = true
+      if (entity.movement) {
+        entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+      }
+    }
+
     entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)
     entity.stats.toughness = Math.max(
       0,
@@ -489,6 +515,16 @@ export class StatsSystem extends System {
         if (entity.enemyAI) {
           entity.enemyAI.state = 'approach'
           entity.enemyAI.comboSwingsDone = 0
+          entity.enemyAI.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
+          entity.enemyAI.probePaceTimerMs = 0
+          entity.enemyAI.probePaceDirection = 1
+          entity.enemyAI.probePaceMovedDistance = 0
+          entity.enemyAI.probeLastPositionX = 0
+          entity.enemyAI.probeLastPositionY = 0
+          entity.enemyAI.probeHasTriggered = true
+          if (entity.movement) {
+            entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+          }
         }
       }
     }

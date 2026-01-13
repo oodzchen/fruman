@@ -5,8 +5,15 @@ import {
   DEFAULT_SPRINT_SPEED,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
-  ENEMY_ATTACK_RANGE_BUFFER,
   ENEMY_PACE_SPEED,
+  ENEMY_PROBE_CHASE_DURATION_MS,
+  ENEMY_PROBE_DISTANCE_MULTIPLIER,
+  ENEMY_PROBE_DURATION_MAX_MS,
+  ENEMY_PROBE_DURATION_MIN_MS,
+  ENEMY_PROBE_PACE_MIN_DISTANCE,
+  ENEMY_PROBE_PACE_SWITCH_INTERVAL_MS,
+  ENEMY_PROBE_RANGE_BUFFER_RATIO,
+  ENEMY_PROBE_SPEED_MULTIPLIER,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
@@ -55,6 +62,7 @@ export class EnemyAISystem extends System {
     }
 
     const now = Date.now()
+    const deltaMs = deltaTime > 0 ? deltaTime * 1000 : 0
     for (const entity of entities) {
       if (!entity.transform || !entity.input || !entity.enemyAI) continue
       if (entity.faction?.faction !== Faction.Enemy) continue
@@ -100,6 +108,15 @@ export class EnemyAISystem extends System {
         weaponRange,
         !!hasLineOfSight
       )
+      const isEngaged = !!hasLineOfSight || !!entity.stats?.isInCombat
+      this.updateProbeCycle(
+        entity,
+        ai,
+        deltaMs,
+        isEngaged,
+        distance,
+        weaponRange
+      )
 
       if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
         continue
@@ -115,7 +132,7 @@ export class EnemyAISystem extends System {
       if (hasLineOfSight) {
         ai.targetLostTimer = 0
       } else {
-        ai.targetLostTimer += deltaTime * 1000
+        ai.targetLostTimer += deltaMs
       }
 
       const lostInterest = !hasLineOfSight && !entity.stats?.isInCombat
@@ -153,6 +170,18 @@ export class EnemyAISystem extends System {
       if (entity.input && entity.input.lockedTargetId !== this.player.id) {
         entity.input.lockedTargetId = this.player.id
         entity.input.lockLostTimer = 0
+      }
+
+      if (ai.state === 'probe') {
+        this.handleProbeState(
+          entity,
+          ai,
+          distance,
+          weaponRange,
+          facing,
+          deltaMs
+        )
+        continue
       }
 
       if (ai.state === 'approach') {
@@ -379,7 +408,7 @@ export class EnemyAISystem extends System {
 
     if (!hasLineOfSight) return
 
-    if (distance > weaponRange + ENEMY_ATTACK_RANGE_BUFFER) return
+    if (distance > weaponRange * 2) return
 
     if (ai.parryAttemptedThisSwing) return
 
@@ -425,9 +454,22 @@ export class EnemyAISystem extends System {
   ): void {
     if (!entity.input || !entity.transform) return
 
+    ai.probeSwitchTimerMs = 0
+    ai.probePaceTimerMs = 0
+    ai.probePaceDirection = 1
+    ai.probePaceMovedDistance = 0
+    ai.probeLastPositionX = 0
+    ai.probeLastPositionY = 0
+    ai.probeHasTriggered = false
+    if (entity.movement) {
+      entity.movement.moveSpeed = ai.moveSpeed
+    }
+
     // 如果没有设置巡逻点，使用默认的原地待机逻辑
     if (!ai.patrolWaypoints || ai.patrolWaypoints.length === 0) {
       entity.input.moveDirection = 0
+      ai.state = 'approach'
+      ai.comboSwingsDone = 0
       return
     }
 
@@ -521,6 +563,171 @@ export class EnemyAISystem extends System {
     // 重置战斗/追击相关的临时状态
     ai.state = 'approach'
     ai.comboSwingsDone = 0
+  }
+
+  private updateProbeCycle(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    deltaMs: number,
+    isEngaged: boolean,
+    distance: number,
+    weaponRange: number
+  ): void {
+    if (ai.parryProficiency < 50 || !isEngaged) {
+      if (ai.state === 'probe') {
+        ai.state = 'approach'
+        if (entity.movement) {
+          entity.movement.moveSpeed = ai.moveSpeed
+        }
+      }
+      ai.probeSwitchTimerMs = 0
+      ai.probePaceTimerMs = 0
+      ai.probePaceDirection = 1
+      ai.probePaceMovedDistance = 0
+      ai.probeLastPositionX = 0
+      ai.probeLastPositionY = 0
+      ai.probeHasTriggered = false
+      return
+    }
+
+    if (ai.state !== 'approach' && ai.state !== 'probe') {
+      ai.probeSwitchTimerMs = 0
+      ai.probePaceTimerMs = 0
+      ai.probePaceMovedDistance = 0
+      ai.probeLastPositionX = 0
+      ai.probeLastPositionY = 0
+      return
+    }
+
+    if (ai.state === 'approach' && !ai.probeHasTriggered) {
+      const probeTargetDistance = weaponRange * ENEMY_PROBE_DISTANCE_MULTIPLIER
+      const probeBuffer = weaponRange * ENEMY_PROBE_RANGE_BUFFER_RATIO
+      const maxDistance = probeTargetDistance + probeBuffer
+      if (distance <= maxDistance) {
+        this.startProbeState(entity, ai)
+        return
+      }
+    }
+
+    if (ai.state === 'probe') {
+      if (ai.probeSwitchTimerMs <= 0) {
+        this.startProbeState(entity, ai)
+        return
+      }
+
+      ai.probeSwitchTimerMs -= deltaMs
+      if (ai.probeSwitchTimerMs > 0) {
+        return
+      }
+
+      ai.state = 'approach'
+      ai.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
+      ai.probePaceTimerMs = 0
+      ai.probePaceDirection = 1
+      ai.probePaceMovedDistance = 0
+      if (entity.movement) {
+        entity.movement.moveSpeed = ai.moveSpeed
+      }
+      return
+    }
+
+    if (ai.probeSwitchTimerMs <= 0) {
+      ai.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
+      if (entity.movement && entity.movement.moveSpeed !== ai.moveSpeed) {
+        entity.movement.moveSpeed = ai.moveSpeed
+      }
+      return
+    }
+
+    ai.probeSwitchTimerMs -= deltaMs
+    if (ai.probeSwitchTimerMs > 0) {
+      return
+    }
+
+    this.startProbeState(entity, ai)
+  }
+
+  private startProbeState(entity: Entity, ai: EnemyAIComponent): void {
+    ai.state = 'probe'
+    ai.probeHasTriggered = true
+    ai.probeSwitchTimerMs = this.getProbeDurationMs()
+    ai.probePaceTimerMs = 0
+    ai.probePaceDirection = 1
+    ai.probePaceMovedDistance = 0
+    if (entity.transform) {
+      ai.probeLastPositionX = entity.transform.x
+      ai.probeLastPositionY = entity.transform.y
+    }
+    if (entity.movement) {
+      entity.movement.moveSpeed = ai.moveSpeed * ENEMY_PROBE_SPEED_MULTIPLIER
+    }
+    if (entity.weapon) {
+      entity.weapon.attackQueued = false
+    }
+  }
+
+  private handleProbeState(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    distance: number,
+    weaponRange: number,
+    facing: number,
+    deltaMs: number
+  ): void {
+    if (!entity.input) return
+
+    if (entity.weapon) {
+      entity.weapon.attackQueued = false
+    }
+    entity.input.sprintRequested = false
+
+    if (entity.transform) {
+      const deltaX = entity.transform.x - ai.probeLastPositionX
+      const deltaY = entity.transform.y - ai.probeLastPositionY
+      ai.probePaceMovedDistance += Math.abs(deltaX) + Math.abs(deltaY)
+      ai.probeLastPositionX = entity.transform.x
+      ai.probeLastPositionY = entity.transform.y
+    }
+
+    if (entity.movement) {
+      entity.movement.moveSpeed = ai.moveSpeed * ENEMY_PROBE_SPEED_MULTIPLIER
+    }
+
+    const probeTargetDistance = weaponRange * ENEMY_PROBE_DISTANCE_MULTIPLIER
+    const probeBuffer = weaponRange * ENEMY_PROBE_RANGE_BUFFER_RATIO
+    const minDistance = probeTargetDistance - probeBuffer
+    const maxDistance = probeTargetDistance + probeBuffer
+
+    if (distance < minDistance) {
+      entity.input.moveDirection = (facing * -1) as -1 | 1
+      ai.probePaceTimerMs = 0
+      ai.probePaceMovedDistance = 0
+      return
+    }
+
+    if (distance > maxDistance) {
+      entity.input.moveDirection = facing as -1 | 1
+      ai.probePaceTimerMs = 0
+      ai.probePaceMovedDistance = 0
+      return
+    }
+
+    ai.probePaceTimerMs += deltaMs
+    if (
+      ai.probePaceTimerMs >= ENEMY_PROBE_PACE_SWITCH_INTERVAL_MS &&
+      ai.probePaceMovedDistance >= ENEMY_PROBE_PACE_MIN_DISTANCE
+    ) {
+      ai.probePaceTimerMs = 0
+      ai.probePaceMovedDistance = 0
+      ai.probePaceDirection = (ai.probePaceDirection === 1 ? -1 : 1) as -1 | 1
+    }
+
+    entity.input.moveDirection = (facing * ai.probePaceDirection) as -1 | 1
+  }
+
+  private getProbeDurationMs(): number {
+    const range = ENEMY_PROBE_DURATION_MAX_MS - ENEMY_PROBE_DURATION_MIN_MS
+    return ENEMY_PROBE_DURATION_MIN_MS + Math.random() * range
   }
 
   private handleObstacleJump(
@@ -618,6 +825,19 @@ export class EnemyAISystem extends System {
       entity.input.moveDirection = 0
       entity.input.facingOverride = null
       entity.input.blockRequested = false
+      if (entity.enemyAI) {
+        entity.enemyAI.state = 'approach'
+        entity.enemyAI.probeSwitchTimerMs = 0
+        entity.enemyAI.probePaceTimerMs = 0
+        entity.enemyAI.probePaceDirection = 1
+        entity.enemyAI.probePaceMovedDistance = 0
+        entity.enemyAI.probeLastPositionX = 0
+        entity.enemyAI.probeLastPositionY = 0
+        entity.enemyAI.probeHasTriggered = false
+      }
+      if (entity.movement && entity.enemyAI) {
+        entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+      }
       if (entity.weapon) {
         entity.weapon.attackQueued = false
       }

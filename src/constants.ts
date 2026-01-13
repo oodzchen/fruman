@@ -4,6 +4,9 @@ export const DEFAULT_JUMP_FORCE = 18
 // 全局重力加速度（米/秒²）
 export const DEFAULT_GRAVITY = 50
 
+// 默认逻辑帧率（每秒帧数）
+export const DEFAULT_FRAME_RATE = 60
+
 // 初始跳跃预输入时间（毫秒）；运行时可被控制面板的设置覆盖
 export const DEFAULT_JUMP_BUFFER_WINDOW = 500
 
@@ -146,6 +149,14 @@ export const ENEMY_DECISION_COOLDOWN_MS = 90
 export const ENEMY_PACE_PAUSE_MS = 1200
 export const ENEMY_PACE_SPEED = 1.5
 export const ENEMY_RETREAT_EXTRA_DISTANCE = 1
+export const ENEMY_PROBE_DISTANCE_MULTIPLIER = 3
+export const ENEMY_PROBE_SPEED_MULTIPLIER = 0.5
+export const ENEMY_PROBE_CHASE_DURATION_MS = 4000
+export const ENEMY_PROBE_DURATION_MIN_MS = 5000
+export const ENEMY_PROBE_DURATION_MAX_MS = 10000
+export const ENEMY_PROBE_PACE_SWITCH_INTERVAL_MS = 700
+export const ENEMY_PROBE_RANGE_BUFFER_RATIO = 0.2
+export const ENEMY_PROBE_PACE_MIN_DISTANCE = 0.4
 
 // 敌人模板配置
 export const ENEMY_TEMPLATES = {
@@ -154,7 +165,7 @@ export const ENEMY_TEMPLATES = {
     radius: DEFAULT_PLAYER_RADIUS,
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#889357',
-    parryProficiency: 100,
+    parryProficiency: 0,
   },
   fast: {
     moveSpeed: 6,

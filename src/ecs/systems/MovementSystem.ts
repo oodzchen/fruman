@@ -255,6 +255,16 @@ export class MovementSystem extends System {
       if (entity.enemyAI) {
         entity.enemyAI.state = 'approach'
         entity.enemyAI.comboSwingsDone = 0
+        entity.enemyAI.probeSwitchTimerMs = 0
+        entity.enemyAI.probePaceTimerMs = 0
+        entity.enemyAI.probePaceDirection = 1
+        entity.enemyAI.probePaceMovedDistance = 0
+        entity.enemyAI.probeLastPositionX = 0
+        entity.enemyAI.probeLastPositionY = 0
+        entity.enemyAI.probeHasTriggered = false
+        if (entity.movement) {
+          entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+        }
       }
     }
 
