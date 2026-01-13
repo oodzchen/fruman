@@ -264,6 +264,22 @@ export class EnemyAISystem extends System {
         ai.lastFacing = facing
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
+
+        // For skilled enemies, check distance between attacks
+        if (
+          ai.parryProficiency >= 50 &&
+          entity.weapon &&
+          (entity.weapon.attackPhase === 'idle' ||
+            entity.weapon.attackPhase === 'pause' ||
+            entity.weapon.attackPhase === 'rebound')
+        ) {
+          if (distance > weaponRange) {
+            ai.state = 'approach'
+            ai.comboSwingsDone = 0
+            continue
+          }
+        }
+
         this.queueAttack(entity, facing, ai)
         const weapon = entity.weapon
         const comboFinished =

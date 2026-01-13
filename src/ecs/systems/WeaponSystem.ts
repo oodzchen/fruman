@@ -1,5 +1,6 @@
 import {
   COMBO_FINISHER_KNOCKBACK,
+  DEBUG_ANIMATION_SLOWDOWN,
   DEFAULT_ATTACK_KNOCKBACK,
   DEFAULT_FRAME_RATE,
   DEFAULT_PARRY_WINDOW_MS,
@@ -80,8 +81,10 @@ export class WeaponSystem extends System {
   }
 
   update(entities: Entity[], deltaTime: number): void {
-    this.currentDeltaTime = deltaTime
-    const deltaMs = Math.max(0, deltaTime * 1000)
+    // Apply debug slowdown to weapon animations
+    const scaledDeltaTime = deltaTime / DEBUG_ANIMATION_SLOWDOWN
+    this.currentDeltaTime = scaledDeltaTime
+    const deltaMs = Math.max(0, scaledDeltaTime * 1000)
 
     for (const entity of entities) {
       if (!entity.transform || !entity.weapon) continue

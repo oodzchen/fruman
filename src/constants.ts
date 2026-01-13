@@ -34,6 +34,7 @@ export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 3
 export const DEBUG_LOCK_PLAYER_HEALTH = true
 export const DEBUG_LOCK_PLAYER_TOUGHNESS = true
 export const DEBUG_LOCK_DEFAULT_ENEMY_HEALTH = true
+export const DEBUG_ANIMATION_SLOWDOWN = 3
 
 // 武器默认伤害与削韧
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
@@ -171,7 +172,7 @@ export const ENEMY_TEMPLATES = {
     radius: DEFAULT_PLAYER_RADIUS,
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#889357',
-    parryProficiency: 0,
+    parryProficiency: 100,
   },
   fast: {
     moveSpeed: 6,
