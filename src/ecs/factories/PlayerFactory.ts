@@ -3,8 +3,6 @@ import {
   CATEGORY_PLAYER,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
-  DEFAULT_ENEMY_ATTACK_DESIRE,
-  DEFAULT_ENEMY_MOVE_SPEED,
   DEFAULT_JUMP_BUFFER_WINDOW,
   DEFAULT_JUMP_FORCE,
   DEFAULT_JUMP_FORCE_MULTIPLIER,
@@ -20,8 +18,6 @@ import {
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_CORNER_RADIUS,
-  DEFAULT_WEAPON_FOLLOW_OFFSET_X,
-  DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_POSTURE_DAMAGE,
@@ -217,6 +213,10 @@ export function createEnemy(
   // 重置敌人的脱战超时为10秒
   if (enemy.stats) {
     enemy.stats.combatExitTimeout = 10000
+    enemy.stats.maxHealth = template.maxHealth
+    enemy.stats.health = template.maxHealth
+    enemy.stats.maxPosture = template.maxPosture
+    enemy.stats.posture = template.maxPosture
   }
 
   const ai = new EnemyAIComponent()

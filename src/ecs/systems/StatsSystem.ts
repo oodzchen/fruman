@@ -351,13 +351,7 @@ export class StatsSystem extends System {
       weapon?.postureDamage ?? DEFAULT_WEAPON_POSTURE_DAMAGE
     )
     const knockback = Math.max(0, weapon?.knockback ?? 0)
-    this.applyDamage(
-      entity,
-      attackDamage,
-      postureDamage,
-      knockback,
-      hitSource
-    )
+    this.applyDamage(entity, attackDamage, postureDamage, knockback, hitSource)
   }
 
   private applyDamage(

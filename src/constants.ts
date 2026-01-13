@@ -174,6 +174,8 @@ export const ENEMY_TEMPLATES = {
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#889357',
     parryProficiency: 100,
+    maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
+    maxPosture: DEFAULT_PLAYER_MAX_POSTURE,
   },
   fast: {
     moveSpeed: 6,
@@ -181,6 +183,8 @@ export const ENEMY_TEMPLATES = {
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#ff6b6b',
     parryProficiency: 100,
+    maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
+    maxPosture: DEFAULT_PLAYER_MAX_POSTURE,
   },
   large: {
     moveSpeed: 2,
@@ -188,6 +192,8 @@ export const ENEMY_TEMPLATES = {
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#4ecdc4',
     parryProficiency: 0,
+    maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
+    maxPosture: DEFAULT_PLAYER_MAX_POSTURE * 2,
   },
 } as const
 
