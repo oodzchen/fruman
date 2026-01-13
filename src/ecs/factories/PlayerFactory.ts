@@ -222,6 +222,7 @@ export function createEnemy(
   const ai = new EnemyAIComponent()
   ai.attackDesire = template.attackDesire
   ai.parryProficiency = template.parryProficiency
+  ai.enemyType = enemyType
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
 

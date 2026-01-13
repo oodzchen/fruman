@@ -21,6 +21,7 @@ import {
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WIDTH,
+  PARRY_COUNTER_WINDOW_MS,
   PARRY_ENEMY_TOUGHNESS_DAMAGE,
   PARRY_SELF_TOUGHNESS_RECOVERY,
   WEAPON_DROP_DURATION_MS,
@@ -105,6 +106,12 @@ export class WeaponSystem extends System {
     if (!entity.transform || !entity.weapon) return
 
     const weapon = entity.weapon
+    if (weapon.parryCounterTimerMs > 0) {
+      weapon.parryCounterTimerMs = Math.max(
+        0,
+        weapon.parryCounterTimerMs - deltaMs
+      )
+    }
     this.tempPlayerPos.x = entity.transform.x
     this.tempPlayerPos.y = entity.transform.y
     const playerPos = this.tempPlayerPos
@@ -512,6 +519,10 @@ export class WeaponSystem extends System {
   private applyParryEffect(defender: Entity, attacker: Entity): void {
     if (!this.statsSystem) return
 
+    if (defender.weapon) {
+      defender.weapon.parryCounterTimerMs = PARRY_COUNTER_WINDOW_MS
+      defender.weapon.parryCounterActive = false
+    }
     const result = this.statsSystem.applyParryDamage(defender, attacker)
 
     if (result.attackerStaggered) {
@@ -694,7 +705,12 @@ export class WeaponSystem extends System {
     if (!weapon || !entity.transform) return
 
     const isGrounded = entity.movement?.isGrounded ?? true
-    const windupDuration = isGrounded ? DEFAULT_WEAPON_ATTACK_WINDUP_MS : 250
+    const baseWindupDuration = isGrounded
+      ? DEFAULT_WEAPON_ATTACK_WINDUP_MS
+      : 250
+    const windupDuration = weapon.parryCounterActive
+      ? baseWindupDuration / 3
+      : baseWindupDuration
 
     const t = this.clamp01(weapon.attackElapsedMs / windupDuration)
 
@@ -723,6 +739,7 @@ export class WeaponSystem extends System {
     }
 
     if (t >= 1) {
+      weapon.parryCounterActive = false
       this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
@@ -742,9 +759,10 @@ export class WeaponSystem extends System {
   ): void {
     if (!weapon || !entity.transform) return
 
-    const t = this.clamp01(
-      weapon.attackElapsedMs / DEFAULT_WEAPON_FINAL_WINDUP_MS
-    )
+    const finalWindupDuration = weapon.parryCounterActive
+      ? DEFAULT_WEAPON_FINAL_WINDUP_MS / 3
+      : DEFAULT_WEAPON_FINAL_WINDUP_MS
+    const t = this.clamp01(weapon.attackElapsedMs / finalWindupDuration)
 
     this.lerpRelativeTransform(
       weapon.attackStartOffset,
@@ -762,6 +780,7 @@ export class WeaponSystem extends System {
     )
 
     if (t >= 1) {
+      weapon.parryCounterActive = false
       this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_FINAL)
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
@@ -1027,6 +1046,7 @@ export class WeaponSystem extends System {
     weapon.swingDirection = 'toFront'
     weapon.nextSwingDirection = 'toFront'
     weapon.reboundLockedPause = false
+    weapon.parryCounterActive = false
     weapon.hitEntityIds.clear()
   }
 
@@ -1099,6 +1119,11 @@ export class WeaponSystem extends System {
     weapon.attackFacing = facing
 
     if (weapon.comboCount >= 5) return
+
+    if (weapon.parryCounterTimerMs > 0) {
+      weapon.parryCounterActive = true
+      weapon.parryCounterTimerMs = 0
+    }
 
     if (weapon.attackPhase === 'idle') {
       this.getSwingTransforms(

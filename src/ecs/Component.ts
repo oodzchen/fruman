@@ -15,7 +15,7 @@ import {
   ENEMY_PACE_SWITCH_INTERVAL_MS,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../constants'
-import type { b2BodyId, b2ShapeId } from '../types'
+import type { EnemyType, b2BodyId, b2ShapeId } from '../types'
 import { componentRegistry } from './ComponentRegistry'
 
 export abstract class Component {
@@ -217,6 +217,8 @@ export class WeaponComponent extends Component {
   parryStartOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   parryEndOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   parryHitWeaponIds: Set<number> = new Set()
+  parryCounterTimerMs = 0
+  parryCounterActive = false
 
   isDropping = false
   isDropped = false
@@ -303,6 +305,7 @@ export class EnemyAIComponent extends Component {
   patrolResumeTimestamp = 0
   patrolState: 'moving' | 'waiting' = 'moving'
   patrolStuckTimer = 0
+  enemyType: EnemyType = 'default'
 
   getName(): string {
     return 'EnemyAI'

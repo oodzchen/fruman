@@ -1,4 +1,7 @@
 import {
+  DEBUG_LOCK_DEFAULT_ENEMY_HEALTH,
+  DEBUG_LOCK_PLAYER_HEALTH,
+  DEBUG_LOCK_PLAYER_TOUGHNESS,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_DEATH_FLASH_DURATION,
@@ -20,7 +23,7 @@ import {
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
-import { PhysicsComponent } from '../Component'
+import { Faction, PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -439,6 +442,23 @@ export class StatsSystem extends System {
       }
     }
 
+    const shouldTriggerHitEffects = finalHealthDamage > 0
+    const isPlayer = entity.faction?.faction === Faction.Player
+    const isDefaultEnemy =
+      entity.faction?.faction === Faction.Enemy &&
+      entity.enemyAI?.enemyType === 'default'
+    if (isPlayer) {
+      if (DEBUG_LOCK_PLAYER_HEALTH) {
+        finalHealthDamage = 0
+      }
+      if (DEBUG_LOCK_PLAYER_TOUGHNESS) {
+        finalToughnessDamage = 0
+      }
+    }
+    if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
+      finalHealthDamage = 0
+    }
+
     entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)
     entity.stats.toughness = Math.max(
       0,
@@ -455,7 +475,7 @@ export class StatsSystem extends System {
       const distance = Math.hypot(dirX, dirY)
       const normalizedDirX = distance > 0 ? dirX / distance : 1
 
-      if (finalHealthDamage > 0) {
+      if (shouldTriggerHitEffects) {
         entity.stats.hitShakeElapsedMs = 0
         entity.stats.hitShakeDurationMs = DEFAULT_HIT_SHAKE_DURATION_MS
         entity.stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
