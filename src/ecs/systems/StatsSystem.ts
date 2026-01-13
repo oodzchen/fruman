@@ -2,6 +2,7 @@ import {
   DEBUG_LOCK_DEFAULT_ENEMY_HEALTH,
   DEBUG_LOCK_PLAYER_HEALTH,
   DEBUG_LOCK_PLAYER_TOUGHNESS,
+  DEBUG_PLAYER_IMMORTALITY,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_DEATH_FLASH_DURATION,
@@ -550,6 +551,13 @@ export class StatsSystem extends System {
     }
 
     if (entity.stats.health === 0) {
+      if (isPlayer && DEBUG_PLAYER_IMMORTALITY) {
+        entity.stats.health = entity.stats.maxHealth
+        entity.stats.toughness = entity.stats.maxToughness
+        // console.log('Player avoided death due to immortality debug flag')
+        return
+      }
+
       entity.stats.isDead = true
       entity.stats.isVanished = false
       entity.stats.deathElapsedSec = 0

@@ -31,10 +31,11 @@ export const DEFAULT_PLAYER_MAX_TOUGHNESS = 20
 export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 3
 
 // 调试开关：玩家锁血/锁韧性
-export const DEBUG_LOCK_PLAYER_HEALTH = true
-export const DEBUG_LOCK_PLAYER_TOUGHNESS = true
+export const DEBUG_LOCK_PLAYER_HEALTH = false
+export const DEBUG_LOCK_PLAYER_TOUGHNESS = false
+export const DEBUG_PLAYER_IMMORTALITY = true
 export const DEBUG_LOCK_DEFAULT_ENEMY_HEALTH = true
-export const DEBUG_ANIMATION_SLOWDOWN = 3
+export const DEBUG_ANIMATION_SLOWDOWN = 1
 
 // 武器默认伤害与削韧
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2

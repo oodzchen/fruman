@@ -434,11 +434,7 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
     const weapon = entity.weapon
 
-    // 在撤回阶段如果再次按下格挡，立即打断并进入格挡状态
-    if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
-      this.startBlock(entity, playerPos, facing)
-      return
-    }
+    // Remove interrupt check: allow full return animation
 
     weapon.parryElapsedTime += this.currentDeltaTime * DEFAULT_FRAME_RATE
     // 动画时间比发起格挡快一倍 (200ms -> 100ms)
@@ -454,10 +450,7 @@ export class WeaponSystem extends System {
     )
     this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
-    // 在撤回过程中仍然检测弹反碰撞（仅后半段有效帧）
-    if (weapon.parryElapsedTime >= durationFrames * 0.5) {
-      this.checkParryHits(entity)
-    }
+    // 在撤回过程中不再检测弹反碰撞，确保无弹反/防御效果
 
     if (progress >= 1) {
       weapon.attackPhase = 'idle'
