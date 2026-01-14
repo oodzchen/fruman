@@ -109,6 +109,8 @@ export function createPlayer(
   movement.maxWallJumps = DEFAULT_MAX_WALL_JUMPS
   movement.baseWeight = DEFAULT_PLAYER_WEIGHT
   movement.carryWeight = 0
+  movement.bodyFriction = DEFAULT_BODY_FRICTION
+  movement.currentFriction = DEFAULT_BODY_FRICTION
   entity.addComponent(movement)
 
   const input = new InputComponent()

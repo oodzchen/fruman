@@ -1,5 +1,6 @@
 import { InputBuffer } from '../InputBuffer'
 import {
+  DEFAULT_BODY_FRICTION,
   DEFAULT_DEATH_FLASH_DURATION,
   DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_ENEMY_ATTACK_DESIRE,
@@ -73,6 +74,8 @@ export class MovementComponent extends Component {
 
   baseWeight = 0
   carryWeight = 0
+  bodyFriction = DEFAULT_BODY_FRICTION
+  currentFriction = DEFAULT_BODY_FRICTION
 
   isSprinting = false
   lKeyHoldTime = 0

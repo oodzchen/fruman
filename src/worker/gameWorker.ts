@@ -807,6 +807,12 @@ function updateParam(id?: string, value?: number) {
     if (id === 'bodyFriction') {
       const { b2Shape_SetFriction } = box2d
       b2Shape_SetFriction(playerEntity.physics.shapeId, value)
+      if (playerEntity.movement) {
+        playerEntity.movement.bodyFriction = value
+        if (playerEntity.movement.isGrounded) {
+          playerEntity.movement.currentFriction = value
+        }
+      }
     }
     if (id === 'bodyLinearDamping') {
       const { b2Body_SetLinearDamping } = box2d

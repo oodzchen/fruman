@@ -88,6 +88,8 @@ export const SPRINT_HOLD_THRESHOLD_MS = 200
 
 // 角色与其他物体接触时的摩擦力
 export const DEFAULT_BODY_FRICTION = 0.8
+// 贴墙滑落时的摩擦力（避免挂墙）
+export const DEFAULT_WALL_SLIDE_FRICTION = 0
 
 // 角色线性阻尼系数
 export const DEFAULT_BODY_LINEAR_DAMPING = 0
@@ -212,7 +214,7 @@ export const DEFAULT_HIT_SHAKE_INTENSITY = 0.3
 
 // 翻滚参数
 export const DEFAULT_ROLL_DURATION = 500
-export const DEFAULT_ROLL_SPEED = 8
+export const DEFAULT_ROLL_SPEED = 6
 export const DEFAULT_ROLL_COOLDOWN = 0
 
 // 碰撞分类

@@ -5,6 +5,7 @@ import {
   DEFAULT_ROLL_DURATION,
   DEFAULT_ROLL_SPEED,
   DEFAULT_SPRINT_SPEED,
+  DEFAULT_WALL_SLIDE_FRICTION,
   MASK_PLAYER,
   MASK_PLAYER_ROLLING,
   PLAYER_WEIGHT_REFERENCE,
@@ -133,6 +134,26 @@ export class MovementSystem extends System {
     } else {
       entity.movement.wallDirection = 0
     }
+
+    this.updateBodyFriction(entity, grounded, touchingWall)
+  }
+
+  private updateBodyFriction(
+    entity: Entity,
+    grounded: boolean,
+    touchingWall: boolean
+  ): void {
+    if (!entity.physics || !entity.movement) return
+
+    const shouldSlide = touchingWall && !grounded
+    const targetFriction = shouldSlide
+      ? DEFAULT_WALL_SLIDE_FRICTION
+      : entity.movement.bodyFriction
+    if (entity.movement.currentFriction === targetFriction) return
+
+    const { b2Shape_SetFriction } = this.box2d
+    b2Shape_SetFriction(entity.physics.shapeId, targetFriction)
+    entity.movement.currentFriction = targetFriction
   }
 
   private updateHitStunAnimation(entity: Entity): void {
