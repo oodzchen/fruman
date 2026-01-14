@@ -450,9 +450,9 @@ export class StatsSystem extends System {
         finalPostureDamage = 0
       }
     }
-    if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
-      finalHealthDamage = 0
-    }
+    // if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
+    //   finalHealthDamage = 0
+    // }
 
     entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)
     entity.stats.posture = Math.max(
@@ -549,6 +549,12 @@ export class StatsSystem extends System {
         entity.stats.health = entity.stats.maxHealth
         entity.stats.posture = entity.stats.maxPosture
         // console.log('Player avoided death due to immortality debug flag')
+        return
+      }
+
+      if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
+        entity.stats.health = entity.stats.maxHealth
+        entity.stats.posture = entity.stats.maxPosture
         return
       }
 
