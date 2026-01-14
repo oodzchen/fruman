@@ -220,12 +220,9 @@ export class ClientRenderer {
     this.ctx.scale(deathScale.x, deathScale.y)
     this.ctx.globalAlpha *= alpha
 
-    if (flags & FLAGS.ROLLING) {
-      const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
+    const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
+    if (rollAngle !== 0) {
       this.ctx.rotate(rollAngle)
-    } else if (flags & FLAGS.STAGGERED) {
-      const staggerAngle = buf[offset + OFFSETS.ROLL_ANGLE]
-      this.ctx.rotate(staggerAngle)
     }
 
     this.ctx.fillStyle = this.getColorString(colorInt)

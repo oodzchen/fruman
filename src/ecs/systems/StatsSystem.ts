@@ -14,6 +14,7 @@ import {
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_POSTURE_DAMAGE,
+  DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
   ENEMY_PROBE_CHASE_DURATION_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
@@ -144,6 +145,25 @@ export class StatsSystem extends System {
           entity.stats.maxPosture,
           entity.stats.posture + recovery
         )
+      }
+
+      if (
+        entity.stats.toughness < entity.stats.maxToughness &&
+        !entity.stats.isStaggered
+      ) {
+        const isInHitStun =
+          entity.movement &&
+          entity.movement.knockbackDuration > 0 &&
+          entity.movement.knockbackElapsedTime * 1000 <
+            entity.movement.knockbackDuration
+        if (!isInHitStun) {
+          const recovery =
+            entity.stats.toughnessRecoveryPerSecond * deltaSeconds
+          entity.stats.toughness = Math.min(
+            entity.stats.maxToughness,
+            entity.stats.toughness + recovery
+          )
+        }
       }
 
       // 战斗状态管理
@@ -338,6 +358,7 @@ export class StatsSystem extends System {
     weapon?: {
       attackDamage: number
       postureDamage: number
+      toughnessDamage: number
       knockback?: number
     },
     hitSource?: { x: number; y: number }
@@ -350,14 +371,26 @@ export class StatsSystem extends System {
       0,
       weapon?.postureDamage ?? DEFAULT_WEAPON_POSTURE_DAMAGE
     )
+    const toughnessDamage = Math.max(
+      0,
+      weapon?.toughnessDamage ?? DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+    )
     const knockback = Math.max(0, weapon?.knockback ?? 0)
-    this.applyDamage(entity, attackDamage, postureDamage, knockback, hitSource)
+    this.applyDamage(
+      entity,
+      attackDamage,
+      postureDamage,
+      toughnessDamage,
+      knockback,
+      hitSource
+    )
   }
 
   private applyDamage(
     entity: Entity,
     healthDamage: number,
     postureDamage: number,
+    toughnessDamage: number,
     knockback: number,
     hitSource?: { x: number; y: number }
   ): void {
@@ -372,6 +405,7 @@ export class StatsSystem extends System {
 
     let finalHealthDamage = Math.max(0, healthDamage)
     let finalPostureDamage = Math.max(0, postureDamage)
+    let finalToughnessDamage = Math.max(0, toughnessDamage)
     let finalKnockback = knockback
 
     // 崩塌期间受击：伤害翻倍、击退加强、解除崩塌
@@ -418,6 +452,7 @@ export class StatsSystem extends System {
         isBlockingSuccessfully = true
         finalHealthDamage = 0
         finalKnockback = 0
+        finalToughnessDamage = 0
         this.playSound(SOUND_IDS.SWORD_BLOCK)
       }
     }
@@ -437,7 +472,6 @@ export class StatsSystem extends System {
       }
     }
 
-    const shouldTriggerHitEffects = finalHealthDamage > 0
     const isPlayer = entity.faction?.faction === Faction.Player
     const isDefaultEnemy =
       entity.faction?.faction === Faction.Enemy &&
@@ -459,6 +493,20 @@ export class StatsSystem extends System {
       0,
       entity.stats.posture - finalPostureDamage
     )
+    const toughnessBefore = entity.stats.toughness
+    entity.stats.toughness = Math.max(
+      0,
+      entity.stats.toughness - finalToughnessDamage
+    )
+    const toughnessBroken = toughnessBefore > 0 && entity.stats.toughness <= 0
+    const isInHitStun = !!(
+      entity.movement &&
+      entity.movement.knockbackDuration > 0 &&
+      entity.movement.knockbackElapsedTime * 1000 <
+        entity.movement.knockbackDuration
+    )
+    const shouldTriggerHitEffects =
+      finalHealthDamage > 0 && !toughnessBroken && !isInHitStun
 
     if (entity.stats.posture <= 0 && !wasStaggered) {
       this.triggerStagger(entity)
@@ -469,6 +517,11 @@ export class StatsSystem extends System {
       const dirY = entity.transform.y - hitSource.y
       const distance = Math.hypot(dirX, dirY)
       const normalizedDirX = distance > 0 ? dirX / distance : 1
+
+      if (toughnessBroken) {
+        entity.stats.hitShakeElapsedMs = 0
+        entity.stats.hitShakeDurationMs = 0
+      }
 
       if (shouldTriggerHitEffects) {
         entity.stats.hitShakeElapsedMs = 0
@@ -484,24 +537,12 @@ export class StatsSystem extends System {
           this.effectsEmitter.emitBlood(hitX, hitY, colorInt)
         }
         this.playSound(SOUND_IDS.BODY_HIT)
+      } else if (toughnessBroken) {
+        this.playSound(SOUND_IDS.BODY_HIT)
       }
 
-      if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {
-        const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = this.box2d
-        const mass = b2Body_GetMass(entity.physics.bodyId)
-
-        const impulseX = normalizedDirX * finalKnockback * 2 * mass
-        this.tempVec.x = impulseX
-        this.tempVec.y = 0
-
-        b2Body_ApplyLinearImpulseToCenter(
-          entity.physics.bodyId,
-          this.tempVec,
-          true
-        )
-
-        // 设置击退硬直时间（格挡成功除外）
-        if (entity.movement && !isBlockingSuccessfully) {
+      if (toughnessBroken && !isBlockingSuccessfully) {
+        if (entity.movement) {
           const knockbackDuration = wasStaggered
             ? STAGGER_HIT_STUN_DURATION_MS
             : DEFAULT_HIT_STUN_DURATION_MS
@@ -510,8 +551,7 @@ export class StatsSystem extends System {
           entity.movement.knockbackElapsedTime = 0
         }
 
-        // 受到击退时强制打断攻击动作并重置连击（格挡成功除外）
-        if (entity.weapon && !isBlockingSuccessfully) {
+        if (entity.weapon) {
           entity.weapon.attackPhase = 'idle'
           entity.weapon.attackElapsedMs = 0
           entity.weapon.attackQueued = false
@@ -542,12 +582,30 @@ export class StatsSystem extends System {
           }
         }
       }
+
+      if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {
+        const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = this.box2d
+        const mass = b2Body_GetMass(entity.physics.bodyId)
+
+        const impulseX = normalizedDirX * finalKnockback * 2 * mass
+        this.tempVec.x = impulseX
+        this.tempVec.y = 0
+
+        b2Body_ApplyLinearImpulseToCenter(
+          entity.physics.bodyId,
+          this.tempVec,
+          true
+        )
+
+        // 仅对物理击退进行冲量处理
+      }
     }
 
     if (entity.stats.health === 0) {
       if (isPlayer && DEBUG_PLAYER_IMMORTALITY) {
         entity.stats.health = entity.stats.maxHealth
         entity.stats.posture = entity.stats.maxPosture
+        entity.stats.toughness = entity.stats.maxToughness
         // console.log('Player avoided death due to immortality debug flag')
         return
       }
@@ -555,6 +613,7 @@ export class StatsSystem extends System {
       if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
         entity.stats.health = entity.stats.maxHealth
         entity.stats.posture = entity.stats.maxPosture
+        entity.stats.toughness = entity.stats.maxToughness
         return
       }
 
@@ -600,6 +659,7 @@ export class StatsSystem extends System {
 
     entity.stats.health = entity.stats.maxHealth
     entity.stats.posture = entity.stats.maxPosture
+    entity.stats.toughness = entity.stats.maxToughness
     entity.stats.isDead = false
     entity.stats.isVanished = false
     entity.stats.deathElapsedSec = 0

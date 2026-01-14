@@ -81,6 +81,9 @@ export class Entity {
       } else {
         this.movement.knockbackDuration = 0
         this.movement.knockbackElapsedTime = 0
+        if (this.stats) {
+          this.stats.toughness = this.stats.maxToughness
+        }
       }
     }
 

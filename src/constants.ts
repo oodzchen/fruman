@@ -29,6 +29,11 @@ export const DEFAULT_PLAYER_WEIGHT = 80
 export const DEFAULT_PLAYER_MAX_HEALTH = 20
 export const DEFAULT_PLAYER_MAX_POSTURE = 20
 export const DEFAULT_PLAYER_POSTURE_RECOVERY_PER_SEC = 3
+export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 0.5
+// 角色韧性
+export const DEFAULT_PLAYER_MAX_TOUGHNESS = 6
+export const DEFAULT_SMALL_ENEMY_MAX_TOUGHNESS = 3
+export const DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS = 18
 
 // 调试开关：玩家锁血/锁架势
 export const DEBUG_LOCK_PLAYER_HEALTH = false
@@ -40,6 +45,7 @@ export const DEBUG_ANIMATION_SLOWDOWN = 1
 // 武器默认伤害与削架势
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
 export const DEFAULT_WEAPON_POSTURE_DAMAGE = 6
+export const DEFAULT_WEAPON_TOUGHNESS_DAMAGE = 3
 
 // 弹反机制
 export const DEFAULT_PARRY_WINDOW_MS = 200
@@ -55,7 +61,7 @@ export const STAGGER_HIT_STUN_DURATION_MS = 500
 export const WEAPON_DROP_DURATION_MS = 300
 
 // 受击硬直
-export const DEFAULT_HIT_STUN_DURATION_MS = 200
+export const DEFAULT_HIT_STUN_DURATION_MS = 1000
 
 // 攻击冲击力
 export const DEFAULT_ATTACK_KNOCKBACK = 1
@@ -176,15 +182,17 @@ export const ENEMY_TEMPLATES = {
     parryProficiency: 100,
     maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
     maxPosture: DEFAULT_PLAYER_MAX_POSTURE,
+    maxToughness: 3,
   },
   fast: {
     moveSpeed: 6,
     radius: DEFAULT_PLAYER_RADIUS / 2,
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#ff6b6b',
-    parryProficiency: 100,
+    parryProficiency: 0,
     maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
     maxPosture: DEFAULT_PLAYER_MAX_POSTURE,
+    maxToughness: DEFAULT_SMALL_ENEMY_MAX_TOUGHNESS,
   },
   large: {
     moveSpeed: 2,
@@ -194,6 +202,7 @@ export const ENEMY_TEMPLATES = {
     parryProficiency: 0,
     maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
     maxPosture: DEFAULT_PLAYER_MAX_POSTURE * 2,
+    maxToughness: DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS,
   },
 } as const
 

@@ -65,6 +65,8 @@ export class MovementSystem extends System {
         entity.movement.knockbackElapsedTime += deltaTime
       }
 
+      this.updateHitStunAnimation(entity)
+
       // 硬直期间无法移动
       if (entity.isStunned()) {
         entity.input.moveDirection = 0
@@ -131,6 +133,39 @@ export class MovementSystem extends System {
     } else {
       entity.movement.wallDirection = 0
     }
+  }
+
+  private updateHitStunAnimation(entity: Entity): void {
+    if (!entity.movement || !entity.stats) return
+    if (entity.stats.isStaggered || entity.movement.isRolling) return
+
+    const knockbackDuration = entity.movement.knockbackDuration
+    if (knockbackDuration <= 0) {
+      if (entity.movement.rollAngle !== 0) {
+        entity.movement.rollAngle = 0
+      }
+      return
+    }
+
+    const elapsedMs = entity.movement.knockbackElapsedTime * 1000
+    const progress = Math.min(1, Math.max(0, elapsedMs / knockbackDuration))
+    const facing =
+      entity.input?.lastMoveDirection !== 0
+        ? (entity.input?.lastMoveDirection ?? 1)
+        : 1
+    const backAngle = -facing * (Math.PI / 6)
+    const backPhase = 0.7
+
+    if (progress < backPhase) {
+      const t = progress / backPhase
+      const easedT = 1 - Math.pow(1 - t, 2)
+      entity.movement.rollAngle = backAngle * easedT
+      return
+    }
+
+    const t = (progress - backPhase) / (1 - backPhase)
+    const easedT = 1 - Math.pow(1 - t, 2)
+    entity.movement.rollAngle = backAngle * (1 - easedT)
   }
 
   private handleInput(entity: Entity): void {

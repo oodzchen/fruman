@@ -11,6 +11,7 @@ import {
   DEFAULT_MOVE_SPEED,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_POSTURE,
+  DEFAULT_PLAYER_MAX_TOUGHNESS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
   DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
@@ -21,6 +22,7 @@ import {
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_POSTURE_DAMAGE,
+  DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
@@ -118,6 +120,8 @@ export function createPlayer(
   stats.health = DEFAULT_PLAYER_MAX_HEALTH
   stats.maxPosture = DEFAULT_PLAYER_MAX_POSTURE
   stats.posture = DEFAULT_PLAYER_MAX_POSTURE
+  stats.maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+  stats.toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
   stats.combatExitTimeout = 30000 // 玩家30秒无攻击后脱战
   entity.addComponent(stats)
 
@@ -144,6 +148,7 @@ export function createPlayer(
   weapon.weight = DEFAULT_WEAPON_WEIGHT
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
+  weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
   const weaponX = 6
   const weaponY = groundTopY - DEFAULT_WEAPON_HEIGHT / 2
   weapon.position = {
@@ -220,6 +225,8 @@ export function createEnemy(
     enemy.stats.health = template.maxHealth
     enemy.stats.maxPosture = template.maxPosture
     enemy.stats.posture = template.maxPosture
+    enemy.stats.maxToughness = template.maxToughness
+    enemy.stats.toughness = template.maxToughness
   }
 
   const ai = new EnemyAIComponent()
@@ -321,6 +328,7 @@ export function createWeapon(
   weapon.weight = DEFAULT_WEAPON_WEIGHT
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
+  weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
   weapon.position = {
     x: x,
     y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
