@@ -48,6 +48,8 @@ type ObstacleCollider = {
   bodyId: b2BodyId
   width: number
   height: number
+  vertices?: { x: number; y: number }[]
+  radius?: number
 }
 
 export class WeaponSystem extends System {
@@ -1488,29 +1490,145 @@ export class WeaponSystem extends System {
 
     for (const obstacle of this.obstacles) {
       const pos = b2Body_GetPosition(obstacle.bodyId)
-      const halfW = obstacle.width
-      const halfH = obstacle.height
+      
+      if (obstacle.vertices) {
+        // Polygon (SAT)
+        if (
+          this.checkOBBvsPolygon(
+            wx,
+            wy,
+            wWidth,
+            wHeight,
+            wRotation,
+            pos.x,
+            pos.y,
+            obstacle.vertices
+          )
+        ) {
+          pos.delete()
+          return true
+        }
+      } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
+        // Circle
+        if (
+          this.checkOBBvsCircle(
+            wx,
+            wy,
+            wWidth,
+            wHeight,
+            wRotation,
+            pos.x,
+            pos.y,
+            obstacle.radius
+          )
+        ) {
+          pos.delete()
+          return true
+        }
+      } else {
+        // AABB (Box optimization)
+        const halfW = obstacle.width
+        const halfH = obstacle.height
 
-      if (
-        this.checkOBBvsAABB(
-          wx,
-          wy,
-          wWidth,
-          wHeight,
-          wRotation,
-          pos.x,
-          pos.y,
-          halfW,
-          halfH
-        )
-      ) {
-        pos.delete()
-        return true
+        if (
+          this.checkOBBvsAABB(
+            wx,
+            wy,
+            wWidth,
+            wHeight,
+            wRotation,
+            pos.x,
+            pos.y,
+            halfW,
+            halfH
+          )
+        ) {
+          pos.delete()
+          return true
+        }
       }
       pos.delete()
     }
 
     return false
+  }
+
+  private checkOBBvsPolygon(
+    wx: number,
+    wy: number,
+    ww: number,
+    wh: number,
+    wRot: number,
+    polyX: number,
+    polyY: number,
+    vertices: { x: number; y: number }[]
+  ): boolean {
+    // 1. Construct OBB vertices in world space
+    const cos = Math.cos(wRot)
+    const sin = Math.sin(wRot)
+    const hw = ww / 2
+    const hh = wh / 2
+    
+    // Local OBB corners: (-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)
+    // Rotated + Translated
+    const obbVerts = [
+      { x: wx + (cos * -hw - sin * -hh), y: wy + (sin * -hw + cos * -hh) },
+      { x: wx + (cos * hw - sin * -hh), y: wy + (sin * hw + cos * -hh) },
+      { x: wx + (cos * hw - sin * hh), y: wy + (sin * hw + cos * hh) },
+      { x: wx + (cos * -hw - sin * hh), y: wy + (sin * -hw + cos * hh) },
+    ]
+
+    // 2. Construct Polygon vertices in world space
+    const polyVerts = vertices.map((v) => ({
+      x: polyX + v.x,
+      y: polyY + v.y,
+    }))
+
+    // 3. Axes to test
+    // a) OBB axes (2 normals)
+    const axes = [
+      { x: cos, y: sin },
+      { x: -sin, y: cos },
+    ]
+
+    // b) Polygon axes (edge normals)
+    for (let i = 0; i < polyVerts.length; i++) {
+      const p1 = polyVerts[i]
+      const p2 = polyVerts[(i + 1) % polyVerts.length]
+      const edgeX = p2.x - p1.x
+      const edgeY = p2.y - p1.y
+      // Normal: (-y, x) normalized
+      const len = Math.hypot(edgeX, edgeY)
+      axes.push({ x: -edgeY / len, y: edgeX / len })
+    }
+
+    // 4. SAT Loop
+    for (const axis of axes) {
+      // Project OBB
+      let minOBB = Infinity
+      let maxOBB = -Infinity
+      for (const v of obbVerts) {
+        const proj = v.x * axis.x + v.y * axis.y
+        if (proj < minOBB) minOBB = proj
+        if (proj > maxOBB) maxOBB = proj
+      }
+
+      // Project Polygon
+      let minPoly = Infinity
+      let maxPoly = -Infinity
+      for (const v of polyVerts) {
+        const proj = v.x * axis.x + v.y * axis.y
+        if (proj < minPoly) minPoly = proj
+        if (proj > maxPoly) maxPoly = proj
+      }
+
+      // Check overlap
+      if (maxOBB < minPoly || maxPoly < minOBB) {
+        return false // Separating axis found
+      }
+    }
+
+    return true
   }
 
   private applyPushback(entity: Entity, weapon: Entity['weapon']): void {

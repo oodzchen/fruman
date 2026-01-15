@@ -54,9 +54,29 @@ export class GameClient {
   private groundY = 0
   private groundTopY = 0
   private obstacleConfigs = [
-    { x: -9.5, width: 1.2, height: 2.8 },
-    { x: 9.5, width: 1.2, height: 2.8 },
-    { x: 19.5, width: 1.2, height: 1.0 },
+    { type: 'box', x: -9.5, width: 1.2, height: 2.8 },
+    { type: 'box', x: 9.5, width: 1.2, height: 2.8 },
+    { type: 'box', x: 19.5, width: 1.2, height: 1.0 },
+    // Irregular Triangle Left
+    {
+      type: 'polygon',
+      x: -22,
+      vertices: [
+        { x: -2, y: 0 },
+        { x: 2, y: 0 },
+        { x: 0.5, y: -3 },
+      ],
+    },
+    // Irregular Triangle Right
+    {
+      type: 'polygon',
+      x: 22,
+      vertices: [
+        { x: -2, y: 0 },
+        { x: 2, y: 0 },
+        { x: -0.5, y: -4 },
+      ],
+    },
   ]
 
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
@@ -410,31 +430,54 @@ export class GameClient {
 
   private drawObstacles() {
     // Static obstacles
-    // GameECS: { x: -9.5, width: 1.2, height: 2.8 }
     const groundY = this.groundY
 
     for (let i = 0; i < this.obstacleConfigs.length; i++) {
-      const obs = this.obstacleConfigs[i]
-      // Body Pos: obs.x, groundY - obs.height
-      const posX = obs.x
-      const posY = groundY - obs.height
-
+      const obs = this.obstacleConfigs[i] as any
       this.ctx.fillStyle = this.obstaclePattern ?? '#d2691e'
-      this.ctx.fillRect(
-        (posX - obs.width) * this.pixelsPerMeter,
-        (posY - obs.height) * this.pixelsPerMeter,
-        obs.width * 2 * this.pixelsPerMeter,
-        obs.height * 2 * this.pixelsPerMeter
-      )
-
       this.ctx.strokeStyle = '#000'
       this.ctx.lineWidth = 2
-      this.ctx.strokeRect(
-        (posX - obs.width) * this.pixelsPerMeter,
-        (posY - obs.height) * this.pixelsPerMeter,
-        obs.width * 2 * this.pixelsPerMeter,
-        obs.height * 2 * this.pixelsPerMeter
-      )
+
+      if (obs.type === 'polygon') {
+        // Polygon rendering
+        // Body Pos: obs.x, groundY - 0.5 (surface)
+        // Vertices are relative
+        const bodyX = obs.x
+        const bodyY = groundY - 0.5
+
+        this.ctx.beginPath()
+        obs.vertices.forEach((v: { x: number; y: number }, index: number) => {
+          const vx = (bodyX + v.x) * this.pixelsPerMeter
+          const vy = (bodyY + v.y) * this.pixelsPerMeter
+          if (index === 0) {
+            this.ctx.moveTo(vx, vy)
+          } else {
+            this.ctx.lineTo(vx, vy)
+          }
+        })
+        this.ctx.closePath()
+        this.ctx.fill()
+        this.ctx.stroke()
+      } else {
+        // Box rendering (default)
+        // Body Pos: obs.x, groundY - obs.height
+        const posX = obs.x
+        const posY = groundY - obs.height
+
+        this.ctx.fillRect(
+          (posX - obs.width) * this.pixelsPerMeter,
+          (posY - obs.height) * this.pixelsPerMeter,
+          obs.width * 2 * this.pixelsPerMeter,
+          obs.height * 2 * this.pixelsPerMeter
+        )
+
+        this.ctx.strokeRect(
+          (posX - obs.width) * this.pixelsPerMeter,
+          (posY - obs.height) * this.pixelsPerMeter,
+          obs.width * 2 * this.pixelsPerMeter,
+          obs.height * 2 * this.pixelsPerMeter
+        )
+      }
     }
   }
 

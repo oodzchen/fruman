@@ -204,7 +204,7 @@ export const ENEMY_TEMPLATES = {
     parryProficiency: 0,
     maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
     maxPosture: DEFAULT_PLAYER_MAX_POSTURE * 2,
-    maxToughness: DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS,
+    maxToughness: DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS * 2,
   },
 } as const
 

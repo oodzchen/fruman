@@ -7,6 +7,8 @@ export type b2WorldId = ReturnType<MainModule['b2CreateWorld']>
 export type b2BodyId = ReturnType<MainModule['b2CreateBody']>
 export type b2JointId = ReturnType<MainModule['b2CreateRevoluteJoint']>
 export type b2ShapeId = ReturnType<MainModule['b2CreatePolygonShape']>
+export type b2Hull = ReturnType<MainModule['b2ComputeHull']>
+export type b2Polygon = ReturnType<MainModule['b2MakePolygon']>
 export type b2Vec2 = InstanceType<MainModule['b2Vec2']>
 
 export interface EnemyTemplate {

@@ -18,7 +18,13 @@ import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
 import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
-import type { MainModule, b2BodyId, b2ShapeId } from '../types'
+import type {
+  MainModule,
+  b2BodyId,
+  b2Hull,
+  b2Polygon,
+  b2ShapeId,
+} from '../types'
 import { ENTITY_STRIDE, FLAGS, MAX_ENTITIES, OFFSETS } from './binaryProtocol'
 import {
   EFFECTS_BASE_OFFSET,
@@ -55,9 +61,12 @@ let targetingSystem: TargetingSystem
 let groundShapeId: b2ShapeId
 let obstacles: {
   bodyId: b2BodyId
-  shapeId: b2ShapeId
+  mainShapeId: b2ShapeId
+  capBodyId: b2BodyId
+  capShapeId: b2ShapeId
   width: number
   height: number
+  vertices?: { x: number; y: number }[]
 }[] = []
 
 let isPaused = false
@@ -292,6 +301,21 @@ function createGround(): b2BodyId {
   return bodyId
 }
 
+interface BoxObstacleConfig {
+  type: 'box'
+  x: number
+  width: number
+  height: number
+}
+
+interface PolygonObstacleConfig {
+  type: 'polygon'
+  x: number
+  vertices: { x: number; y: number }[]
+}
+
+type ObstacleConfig = BoxObstacleConfig | PolygonObstacleConfig
+
 function createObstacles() {
   const {
     b2DefaultBodyDef,
@@ -299,40 +323,172 @@ function createObstacles() {
     b2MakeBox,
     b2DefaultShapeDef,
     b2CreatePolygonShape,
+    b2ComputeHull,
+    b2MakePolygon,
+    b2Vec2,
   } = box2d
 
   const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+  // groundY logic matches createGround: bottom of screen - 0.5 (ground center)
+  // Actually ground center is at (Bottom - 0.5).
   const groundY = canvasHeightInMeters - 0.5
   obstacles = []
 
-  const obstacleConfigs = [
-    { x: -9.5, width: 1.2, height: 2.8 },
-    { x: 9.5, width: 1.2, height: 2.8 },
-    { x: 19.5, width: 1.2, height: 1.0 },
+  const obstacleConfigs: ObstacleConfig[] = [
+    { type: 'box', x: -9.5, width: 1.2, height: 2.8 },
+    { type: 'box', x: 9.5, width: 1.2, height: 2.8 },
+    { type: 'box', x: 19.5, width: 1.2, height: 1.0 },
+    // Irregular Triangle Left
+    {
+      type: 'polygon',
+      x: -22,
+      vertices: [
+        { x: -2, y: 0 },
+        { x: 2, y: 0 },
+        { x: 0.5, y: -3 },
+      ],
+    },
+    // Irregular Triangle Right
+    {
+      type: 'polygon',
+      x: 22,
+      vertices: [
+        { x: -2, y: 0 },
+        { x: 2, y: 0 },
+        { x: -0.5, y: -4 },
+      ],
+    },
   ]
 
-  obstacleConfigs.forEach((obs) => {
-    const bodyDef = b2DefaultBodyDef()
-    bodyDef.position.Set(obs.x, groundY - obs.height)
-    const bodyId = b2CreateBody(worldId, bodyDef)
+  // Cap parameters
+  const CAP_TOTAL_HEIGHT = 0.1
+  const CAP_HALF_HEIGHT = CAP_TOTAL_HEIGHT / 2
 
-    const box = b2MakeBox(obs.width, obs.height)
-    const shapeDef = b2DefaultShapeDef()
-    shapeDef.material.friction = obstacleFriction
-    shapeDef.material.restitution = 0
-    shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
-    const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
+  obstacleConfigs.forEach((obs: ObstacleConfig) => {
+    if (obs.type === 'polygon') {
+      const bodyDef = b2DefaultBodyDef()
+      // Place at ground level (groundY - 0.5 is the top surface of the ground box)
+      bodyDef.position.Set(obs.x, groundY - 0.5)
+      const bodyId = b2CreateBody(worldId, bodyDef)
+
+      // Convert vertices to b2Vec2 array
+      // Note: b2ComputeHull typically expects a pointer or typed array in WASM.
+      // If we can't easily pass JS objects, we might need to alloc.
+      // Trying the most likely working method for box2d-wasm (passing array of {x,y} or b2Vec2 objects).
+      const points = obs.vertices.map((v) => new b2Vec2(v.x, v.y))
+      const hull: b2Hull = b2ComputeHull(points)
+      const polygon: b2Polygon = b2MakePolygon(hull, 0)
+
+      const shapeDef = b2DefaultShapeDef()
+      shapeDef.material.friction = obstacleFriction
+      shapeDef.material.restitution = 0
+      shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+      const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
+
+      // Clean up
+      points.forEach((p) => p.delete())
+      // hull and polygon are structs returned by value or pointer?
+      // In box2d-wasm, usually if created via `new`, we delete.
+      // b2ComputeHull returns a value struct in C++, so WASM likely returns a JS object wrapper.
+      // Attempting delete to be safe, if it exists.
+      
+      interface MaybeDisposable {
+        delete?: () => void
+      }
+
+      const disposableHull = hull as unknown as MaybeDisposable
+      if (disposableHull.delete) disposableHull.delete()
+
+      const disposablePolygon = polygon as unknown as MaybeDisposable
+      if (disposablePolygon.delete) disposablePolygon.delete()
+
+      // Calculate AABB for WeaponSystem
+      let minX = 0,
+        maxX = 0,
+        minY = 0,
+        maxY = 0
+      obs.vertices.forEach((v) => {
+        if (v.x < minX) minX = v.x
+        if (v.x > maxX) maxX = v.x
+        if (v.y < minY) minY = v.y
+        if (v.y > maxY) maxY = v.y
+      })
+
+      obstacles.push({
+        bodyId,
+        mainShapeId: shapeId,
+        capBodyId: bodyId, // Use same body for cap for now (simplified for polygons)
+        capShapeId: shapeId,
+        width: Math.max(Math.abs(minX), Math.abs(maxX)),
+        height: Math.abs(minY), // Height approx
+        vertices: obs.vertices,
+      })
+
+      bodyDef.delete()
+      shapeDef.delete()
+      return
+    }
+
+    // Box logic (existing)
+    const originalHalfH = obs.height
+    // Ensure obstacle is tall enough for the cap
+    if (originalHalfH * 2 <= CAP_TOTAL_HEIGHT) {
+      return
+    }
+
+    // Calculate split dimensions
+    const baseTotalHeight = originalHalfH * 2 - CAP_TOTAL_HEIGHT
+    const baseHalfHeight = baseTotalHeight / 2
+
+    // Calculate positions
+    const originalCenterY = groundY - originalHalfH
+    const topY = originalCenterY - originalHalfH
+    const bottomY = originalCenterY + originalHalfH
+
+    // New Cap Center: Top + CapHalf
+    const capY = topY + CAP_HALF_HEIGHT
+    // New Base Center: Bottom - BaseHalf
+    const baseY = bottomY - baseHalfHeight
+
+    // 1. Create Cap (Top Surface with Friction)
+    const capBodyDef = b2DefaultBodyDef()
+    capBodyDef.position.Set(obs.x, capY)
+    const capBodyId = b2CreateBody(worldId, capBodyDef)
+
+    const capBox = b2MakeBox(obs.width, CAP_HALF_HEIGHT)
+    const capShapeDef = b2DefaultShapeDef()
+    capShapeDef.material.friction = obstacleFriction
+    capShapeDef.material.restitution = 0
+    capShapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+    const capShapeId = b2CreatePolygonShape(capBodyId, capShapeDef, capBox)
+
+    // 2. Create Base (Sides with 0 Friction)
+    const baseBodyDef = b2DefaultBodyDef()
+    baseBodyDef.position.Set(obs.x, baseY)
+    const baseBodyId = b2CreateBody(worldId, baseBodyDef)
+
+    const baseBox = b2MakeBox(obs.width, baseHalfHeight)
+    const baseShapeDef = b2DefaultShapeDef()
+    baseShapeDef.material.friction = 0 // Vertical/Side friction 0
+    baseShapeDef.material.restitution = 0
+    baseShapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+    const mainShapeId = b2CreatePolygonShape(baseBodyId, baseShapeDef, baseBox)
 
     obstacles.push({
-      bodyId,
-      shapeId,
+      bodyId: baseBodyId,
+      mainShapeId,
+      capBodyId,
+      capShapeId,
       width: obs.width,
-      height: obs.height,
+      height: baseHalfHeight,
     })
 
-    bodyDef.delete()
-    box.delete()
-    shapeDef.delete()
+    capBodyDef.delete()
+    capBox.delete()
+    capShapeDef.delete()
+    baseBodyDef.delete()
+    baseBox.delete()
+    baseShapeDef.delete()
   })
 
   // Update weapon system obstacles
@@ -833,7 +989,9 @@ function updateParam(id?: string, value?: number) {
     obstacleFriction = value
     const { b2Shape_SetFriction } = box2d
     obstacles.forEach((obs) => {
-      b2Shape_SetFriction(obs.shapeId, value)
+      // Only update the Top Cap friction
+      b2Shape_SetFriction(obs.capShapeId, value)
+      // Base friction remains 0
     })
   }
 
