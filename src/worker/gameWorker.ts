@@ -587,6 +587,7 @@ function sendState() {
     if (isWeaponAttacking) flags |= FLAGS.WEAPON_ATTACKING
     if (e.id === playerEntity.id) flags |= FLAGS.IS_PLAYER
     if (e.stats?.isInCombat) flags |= FLAGS.IN_COMBAT
+    if (e.weapon?.isBlocking) flags |= FLAGS.WEAPON_BLOCKING
 
     stateBuffer[offset + OFFSETS.FLAGS] = flags
 

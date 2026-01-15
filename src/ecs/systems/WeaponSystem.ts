@@ -278,7 +278,7 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'rebound') {
-      this.handleReboundPhase(weapon, playerPos, now)
+      this.handleReboundPhase(entity, weapon, playerPos, now)
       return
     }
 
@@ -726,7 +726,7 @@ export class WeaponSystem extends System {
       ? DEFAULT_WEAPON_ATTACK_WINDUP_MS
       : 250
     const windupDuration = weapon.parryCounterActive
-      ? baseWindupDuration / 3
+      ? baseWindupDuration / 2
       : baseWindupDuration
 
     const t = this.clamp01(weapon.attackElapsedMs / windupDuration)
@@ -777,7 +777,7 @@ export class WeaponSystem extends System {
     if (!weapon || !entity.transform) return
 
     const finalWindupDuration = weapon.parryCounterActive
-      ? DEFAULT_WEAPON_FINAL_WINDUP_MS / 3
+      ? DEFAULT_WEAPON_FINAL_WINDUP_MS / 2
       : DEFAULT_WEAPON_FINAL_WINDUP_MS
     const t = this.clamp01(weapon.attackElapsedMs / finalWindupDuration)
 
@@ -866,6 +866,12 @@ export class WeaponSystem extends System {
         : attackFacing
     if (currentFacing !== weapon.attackFacing) {
       this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
+      return
+    }
+
+    // Allow interrupting pause/recovery with block
+    if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
+      this.interruptWindupToBlock(entity, playerPos, currentFacing)
       return
     }
 
@@ -1638,6 +1644,7 @@ export class WeaponSystem extends System {
   }
 
   private handleReboundPhase(
+    entity: Entity,
     weapon: Entity['weapon'],
     playerPos: { x: number; y: number },
     now: number

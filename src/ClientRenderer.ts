@@ -340,6 +340,7 @@ export class ClientRenderer {
     const wHeight = buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter
 
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
+    const isBlocking = !!(flags & FLAGS.WEAPON_BLOCKING)
     const bodyColor = '#b4bdc7'
 
     this.ctx.save()
@@ -365,7 +366,11 @@ export class ClientRenderer {
 
     this.ctx.fillStyle = bodyColor
     // Border matches body unless attacking
+    /* if (isBlocking) {
+      this.ctx.strokeStyle = '#FFFF00' // Yellow for blocking
+    } else { */
     this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
+    // }
     this.ctx.lineWidth = 2
     this.ctx.fill()
     this.ctx.stroke()
