@@ -242,6 +242,8 @@ export class WeaponComponent extends Component {
   dropStartOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   dropEndOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
 
+  pickupCooldownEndTime = 0 // 在此时间之前不可拾取（毫秒时间戳）
+
   getName(): string {
     return 'Weapon'
   }

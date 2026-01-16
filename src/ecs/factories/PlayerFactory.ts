@@ -30,8 +30,9 @@ import {
   ENEMY_TEMPLATES,
   MASK_ENEMY,
   MASK_PLAYER,
+  WEAPON_TEMPLATES,
 } from '../../constants'
-import type { EnemyType, MainModule, b2WorldId } from '../../types'
+import type { EnemyType, MainModule, WeaponType, b2WorldId } from '../../types'
 import {
   EnemyAIComponent,
   Faction,
@@ -311,7 +312,8 @@ export function createWeapon(
   world: World,
   x: number,
   y: number,
-  groundTopY: number
+  groundTopY: number,
+  weaponType: WeaponType = 'sword'
 ): Entity {
   const entity = world.createEntity()
 
@@ -320,20 +322,22 @@ export function createWeapon(
   transform.y = y
   entity.addComponent(transform)
 
+  const template = WEAPON_TEMPLATES[weaponType]
   const weapon = new WeaponComponent()
-  weapon.width = DEFAULT_WEAPON_WIDTH
-  weapon.height = DEFAULT_WEAPON_HEIGHT
+  weapon.width = template.width
+  weapon.height = template.height
   weapon.baseWidth = weapon.width
   weapon.blockWidthStart = weapon.width
   weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-  weapon.weight = DEFAULT_WEAPON_WEIGHT
-  weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
-  weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
-  weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+  weapon.weight = template.weight
+  weapon.attackDamage = template.attackDamage
+  weapon.postureDamage = template.postureDamage
+  weapon.toughnessDamage = template.toughnessDamage
+  const weaponY = groundTopY - weapon.height / 2
   weapon.position = {
     x: x,
-    y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+    y: weaponY,
   }
   weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
   weapon.isEquipped = false
@@ -342,12 +346,12 @@ export function createWeapon(
   weapon.lastAttackTimestamp = 0
   weapon.attackStartTransform = {
     x: x,
-    y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+    y: weaponY,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.visual = {
     x: x,
-    y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+    y: weaponY,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.attackQueued = false
@@ -372,12 +376,12 @@ export function createWeapon(
   }
   weapon.swingStartTransform = {
     x: x,
-    y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+    y: weaponY,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.swingEndTransform = {
     x: x,
-    y: groundTopY - DEFAULT_WEAPON_HEIGHT / 2,
+    y: weaponY,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS

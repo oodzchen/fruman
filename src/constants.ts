@@ -222,7 +222,45 @@ export const CATEGORY_GROUND = 0x0001
 export const CATEGORY_PLAYER = 0x0002
 export const CATEGORY_ENEMY = 0x0004
 export const CATEGORY_OBSTACLE = 0x0008
+export const CATEGORY_WEAPON = 0x0010
 
 export const MASK_PLAYER = 0xffff
 export const MASK_PLAYER_ROLLING = 0xffff & ~CATEGORY_ENEMY
 export const MASK_ENEMY = 0xffff
+export const MASK_WEAPON = CATEGORY_GROUND | CATEGORY_OBSTACLE
+
+// 武器模板配置
+export const WEAPON_TEMPLATES = {
+  sword: {
+    width: DEFAULT_WEAPON_WIDTH,
+    height: DEFAULT_WEAPON_HEIGHT,
+    weight: DEFAULT_WEAPON_WEIGHT,
+    attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE,
+    postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE,
+    toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  },
+  shortSword: {
+    width: DEFAULT_WEAPON_WIDTH * 0.7,
+    height: DEFAULT_WEAPON_HEIGHT * 0.8,
+    weight: DEFAULT_WEAPON_WEIGHT * 0.6,
+    attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 0.7,
+    postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 0.8,
+    toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE * 0.8,
+  },
+  longSword: {
+    width: DEFAULT_WEAPON_WIDTH * 1.4,
+    height: DEFAULT_WEAPON_HEIGHT * 1.1,
+    weight: DEFAULT_WEAPON_WEIGHT * 1.5,
+    attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 1.3,
+    postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 1.2,
+    toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE * 1.2,
+  },
+  hammer: {
+    width: DEFAULT_WEAPON_WIDTH * 0.8,
+    height: DEFAULT_WEAPON_HEIGHT * 1.5,
+    weight: DEFAULT_WEAPON_WEIGHT * 2,
+    attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 1.5,
+    postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 1.8,
+    toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE * 2,
+  },
+} as const

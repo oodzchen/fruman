@@ -1,4 +1,5 @@
 import {
+  CATEGORY_WEAPON,
   COMBO_FINISHER_KNOCKBACK,
   DEBUG_ANIMATION_SLOWDOWN,
   DEFAULT_ATTACK_KNOCKBACK,
@@ -16,12 +17,14 @@ import {
   DEFAULT_WEAPON_FOLLOW_OFFSET_Y,
   DEFAULT_WEAPON_FRONT_OFFSET_X,
   DEFAULT_WEAPON_FRONT_OFFSET_Y,
+  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS,
   DEFAULT_WEAPON_PICKUP_DISTANCE,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WIDTH,
+  MASK_WEAPON,
   PARRY_COUNTER_WINDOW_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
@@ -30,10 +33,16 @@ import {
 import type { MainModule, b2BodyId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { WeaponRelativeTransform, WeaponTransform } from '../Component'
+import {
+  PhysicsComponent,
+  TransformComponent,
+  WeaponComponent,
+} from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
+import type { World } from '../World'
 import type { StatsSystem } from './StatsSystem'
 
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
@@ -59,6 +68,9 @@ export class WeaponSystem extends System {
   private allEntities: Entity[] = []
   private spatialHash: SpatialHash | null = null
   private tempVec?: InstanceType<MainModule['b2Vec2']>
+  private world?: World
+  private worldId?: ReturnType<MainModule['b2CreateWorld']>
+  private groundTopY = 0
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempRelativeTransform: WeaponRelativeTransform = {
@@ -83,6 +95,16 @@ export class WeaponSystem extends System {
     this.setRequiredComponents([transformType, weaponType])
   }
 
+  setWorld(
+    world: World,
+    worldId: ReturnType<MainModule['b2CreateWorld']>,
+    groundTopY: number
+  ): void {
+    this.world = world
+    this.worldId = worldId
+    this.groundTopY = groundTopY
+  }
+
   update(entities: Entity[], deltaTime: number): void {
     // Apply debug slowdown to weapon animations
     const scaledDeltaTime = deltaTime / DEBUG_ANIMATION_SLOWDOWN
@@ -92,6 +114,18 @@ export class WeaponSystem extends System {
     for (const entity of entities) {
       if (!entity.transform || !entity.weapon) continue
       entity.weapon.isColliding = false
+
+      // 更新掉落中的武器（独立武器实体且有物理组件）
+      if (
+        !entity.stats &&
+        entity.physics &&
+        entity.weapon &&
+        entity.transform
+      ) {
+        this.updateDroppingWeapon(entity)
+        continue
+      }
+
       if (entity.stats?.isDead) {
         this.resetWeaponState(entity)
         continue
@@ -1105,21 +1139,255 @@ export class WeaponSystem extends System {
     this.startBlock(entity, playerPos, facing)
   }
 
+  private dropWeapon(
+    x: number,
+    y: number,
+    facing: number,
+    weaponData: {
+      width: number
+      height: number
+      baseWidth: number
+      cornerRadius: number
+      weight: number
+      attackDamage: number
+      postureDamage: number
+      toughnessDamage: number
+    }
+  ): void {
+    if (!this.world || !this.box2d || !this.worldId) return
+
+    const entity = this.world.createEntity()
+
+    const transform = new TransformComponent()
+    transform.x = x
+    transform.y = y
+    entity.addComponent(transform)
+
+    // 创建物理组件用于掉落动画
+    const physics = new PhysicsComponent()
+    const {
+      b2DefaultBodyDef,
+      b2CreateBody,
+      b2BodyType,
+      b2Circle,
+      b2DefaultShapeDef,
+      b2CreateCircleShape,
+      b2Vec2,
+    } = this.box2d
+
+    const bodyDef = b2DefaultBodyDef()
+    bodyDef.type = b2BodyType.b2_dynamicBody
+    bodyDef.position.Set(x, y)
+    bodyDef.linearDamping = 2.0 // 较高的阻尼，快速减速
+    bodyDef.motionLocks.angularZ = true // 锁定旋转
+    physics.bodyId = b2CreateBody(this.worldId, bodyDef)
+
+    // 使用圆形碰撞体，半径基于武器高度
+    const weaponRadius = weaponData.height * 0.5
+    const circle = new b2Circle()
+    circle.center.Set(0, 0)
+    circle.radius = weaponRadius
+    const shapeDef = b2DefaultShapeDef()
+    shapeDef.density = 0.5
+    shapeDef.material.friction = 0.3
+    shapeDef.material.restitution = 0.2 // 轻微弹跳
+    shapeDef.filter.categoryBits = CATEGORY_WEAPON
+    shapeDef.filter.maskBits = MASK_WEAPON
+    physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
+
+    // 施加初始速度：向玩家面朝的前方抛出，同时向上
+    const throwSpeedX = facing * 8.0 // 向前抛
+    const throwSpeedY = -6.0 // 向上抛
+    const throwVelocity = new b2Vec2(throwSpeedX, throwSpeedY)
+    this.box2d.b2Body_SetLinearVelocity(physics.bodyId, throwVelocity)
+
+    bodyDef.delete()
+    circle.delete()
+    shapeDef.delete()
+    throwVelocity.delete()
+
+    entity.addComponent(physics)
+
+    const weapon = new WeaponComponent()
+    weapon.width = weaponData.width
+    weapon.height = weaponData.height
+    weapon.baseWidth = weaponData.baseWidth
+    weapon.blockWidthStart = weaponData.width
+    weapon.blockWidthTarget = weaponData.width
+    weapon.cornerRadius = weaponData.cornerRadius
+    weapon.weight = weaponData.weight
+    weapon.attackDamage = weaponData.attackDamage
+    weapon.postureDamage = weaponData.postureDamage
+    weapon.toughnessDamage = weaponData.toughnessDamage
+
+    const weaponY = this.groundTopY - weapon.height / 2
+    weapon.position = { x, y: weaponY }
+    weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.isEquipped = false
+    weapon.attackPhase = 'idle'
+    weapon.visual = {
+      x,
+      y: weaponY,
+      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    }
+    weapon.attackStartTransform = {
+      x,
+      y: weaponY,
+      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    }
+    weapon.swingStartTransform = {
+      x,
+      y: weaponY,
+      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    }
+    weapon.swingEndTransform = {
+      x,
+      y: weaponY,
+      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    }
+    weapon.attackStartOffset = {
+      dx: 0,
+      dy: 0,
+      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+    }
+    weapon.swingStartOffset = {
+      dx: 0,
+      dy: 0,
+      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+    }
+    weapon.swingEndOffset = {
+      dx: 0,
+      dy: 0,
+      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
+    }
+    weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
+    weapon.pickupCooldownEndTime = performance.now() + 500 // 500ms 冷却时间
+
+    entity.addComponent(weapon)
+  }
+
+  private updateDroppingWeapon(entity: Entity): void {
+    if (!entity.physics || !entity.transform || !entity.weapon || !this.box2d)
+      return
+
+    const { b2Body_GetPosition, b2Body_GetLinearVelocity, b2DestroyBody } =
+      this.box2d
+
+    // 同步物理位置到 transform
+    const bodyPos = b2Body_GetPosition(entity.physics.bodyId)
+    entity.transform.x = bodyPos.x
+    entity.transform.y = bodyPos.y
+
+    // 更新武器视觉位置
+    entity.weapon.visual.x = bodyPos.x
+    entity.weapon.visual.y = bodyPos.y
+
+    // 检查速度是否接近 0（已落地）
+    const velocity = b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const speed = Math.hypot(velocity.x, velocity.y)
+
+    if (speed < 0.5) {
+      // 速度很小，认为已经落地
+      // 保留物理体最后的位置作为武器的最终位置
+      const finalX = bodyPos.x
+      const finalY = bodyPos.y
+
+      // 销毁物理体
+      b2DestroyBody(entity.physics.bodyId)
+      entity.removeComponent('Physics')
+
+      // 使用物理体最后的实际位置，而不是重新计算
+      entity.weapon.position.x = finalX
+      entity.weapon.position.y = finalY
+      entity.weapon.visual.x = finalX
+      entity.weapon.visual.y = finalY
+    }
+  }
+
   tryPickUpWeapon(entity: Entity): void {
     if (!entity.transform || !entity.weapon) return
-    if (entity.weapon.isEquipped) return
     if (entity.stats?.isDead) return
 
-    const dx = entity.transform.x - entity.weapon.position.x
-    const dy = entity.transform.y - entity.weapon.position.y
-    const distance = Math.hypot(dx, dy)
+    // 检查是否靠近独立的武器实体
+    for (const weaponEntity of this.allEntities) {
+      // 独立武器实体：有 weapon 组件但没有 stats 组件
+      if (!weaponEntity.weapon || weaponEntity.stats) continue
+      if (weaponEntity.weapon.isEquipped) continue
+      if (!weaponEntity.transform) continue
 
-    if (distance > DEFAULT_WEAPON_PICKUP_DISTANCE) return
+      const dx = entity.transform.x - weaponEntity.transform.x
+      const dy = entity.transform.y - weaponEntity.transform.y
+      const distance = Math.hypot(dx, dy)
 
-    entity.weapon.isEquipped = true
-    entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-    entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-    // 武器重量由MovementSystem自动读取
+      if (distance <= DEFAULT_WEAPON_PICKUP_DISTANCE) {
+        // 检查拾取冷却时间
+        if (weaponEntity.weapon.pickupCooldownEndTime > performance.now()) {
+          continue // 还在冷却期内，跳过
+        }
+
+        // 如果玩家武器未装备，直接装备并应用属性
+        if (!entity.weapon.isEquipped) {
+          entity.weapon.width = weaponEntity.weapon.width
+          entity.weapon.height = weaponEntity.weapon.height
+          entity.weapon.baseWidth = weaponEntity.weapon.baseWidth
+          entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
+          entity.weapon.weight = weaponEntity.weapon.weight
+          entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
+          entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
+          entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
+          entity.weapon.isEquipped = true
+          entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+          entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+
+          // 标记武器实体为已拾取（会在后续清理）
+          weaponEntity.weapon.isEquipped = true
+          return
+        }
+
+        // 如果玩家已有武器，先掉落旧武器再拾取新武器
+        if (entity.weapon.isEquipped) {
+          // 在玩家脚下掉落旧武器
+          const facing = entity.weapon.attackFacing
+          this.dropWeapon(entity.transform.x, entity.transform.y, facing, {
+            width: entity.weapon.width,
+            height: entity.weapon.height,
+            baseWidth: entity.weapon.baseWidth,
+            cornerRadius: entity.weapon.cornerRadius,
+            weight: entity.weapon.weight,
+            attackDamage: entity.weapon.attackDamage,
+            postureDamage: entity.weapon.postureDamage,
+            toughnessDamage: entity.weapon.toughnessDamage,
+          })
+
+          // 替换为新武器属性
+          entity.weapon.width = weaponEntity.weapon.width
+          entity.weapon.height = weaponEntity.weapon.height
+          entity.weapon.baseWidth = weaponEntity.weapon.baseWidth
+          entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
+          entity.weapon.weight = weaponEntity.weapon.weight
+          entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
+          entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
+          entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
+
+          // 标记武器实体为已拾取（会在后续清理）
+          weaponEntity.weapon.isEquipped = true
+          return
+        }
+      }
+    }
+
+    // 检查玩家自己的默认武器是否未装备（用于初始拾取场景）
+    if (!entity.weapon.isEquipped) {
+      const dx = entity.transform.x - entity.weapon.position.x
+      const dy = entity.transform.y - entity.weapon.position.y
+      const distance = Math.hypot(dx, dy)
+
+      if (distance <= DEFAULT_WEAPON_PICKUP_DISTANCE) {
+        entity.weapon.isEquipped = true
+        entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+        entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+      }
+    }
   }
 
   startAttack(entity: Entity): void {
@@ -1490,7 +1758,7 @@ export class WeaponSystem extends System {
 
     for (const obstacle of this.obstacles) {
       const pos = b2Body_GetPosition(obstacle.bodyId)
-      
+
       if (obstacle.vertices) {
         // Polygon (SAT)
         if (
@@ -1568,7 +1836,7 @@ export class WeaponSystem extends System {
     const sin = Math.sin(wRot)
     const hw = ww / 2
     const hh = wh / 2
-    
+
     // Local OBB corners: (-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)
     // Rotated + Translated
     const obbVerts = [

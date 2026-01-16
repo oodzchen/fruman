@@ -11,7 +11,11 @@ import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
 import { World } from '../ecs/World'
-import { createEnemy, createPlayer } from '../ecs/factories/PlayerFactory'
+import {
+  createEnemy,
+  createPlayer,
+  createWeapon,
+} from '../ecs/factories/PlayerFactory'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
@@ -268,6 +272,7 @@ function initializeSystems() {
   world.addSystem(targetingSystem)
 
   weaponSystem.setObstacles(obstacles)
+  weaponSystem.setWorld(world, worldId, groundTopY)
 }
 
 function createGround(): b2BodyId {
@@ -391,7 +396,7 @@ function createObstacles() {
       // In box2d-wasm, usually if created via `new`, we delete.
       // b2ComputeHull returns a value struct in C++, so WASM likely returns a JS object wrapper.
       // Attempting delete to be safe, if it exists.
-      
+
       interface MaybeDisposable {
         delete?: () => void
       }
@@ -506,6 +511,12 @@ function createPlayerAndWeapon(groundY: number) {
     groundY - 0.6,
     groundY
   )
+
+  // 在第一个障碍物右侧生成标准剑（x=-7，障碍物后1.9米）
+  createWeapon(world, -7, groundY - 0.6, groundY, 'sword')
+
+  // 在玩家左侧生成短剑（x=-14，向左走2米）
+  createWeapon(world, -14, groundY - 0.6, groundY, 'shortSword')
 
   // Obstacles are at -9.5, 9.5, 19.5
 
@@ -692,6 +703,16 @@ function cleanupDestroyedEntities() {
   const entities = world.getEntities()
   for (const entity of entities) {
     const isPlayer = entity.id === playerEntity.id
+
+    // 清理被拾取的独立武器实体
+    const isPickedUpWeapon =
+      entity.weapon && entity.weapon.isEquipped && !entity.stats
+    if (isPickedUpWeapon) {
+      spatialHash.removeEntity(entity)
+      world.destroyEntity(entity)
+      continue
+    }
+
     if (entity.stats?.isDead && entity.weapon) {
       entity.weapon.hitEntityIds.clear()
       entity.removeComponent('Weapon')
@@ -716,21 +737,27 @@ function sendState() {
 
   for (const e of entities) {
     if (count >= MAX_ENTITIES) break
-    if (!e.transform || !e.render) continue
+    if (!e.transform) continue
+
+    // 独立武器实体不需要 render 组件
+    const isStandaloneWeapon = e.weapon && !e.weapon.isEquipped && !e.stats
+    if (!isStandaloneWeapon && !e.render) continue
 
     const offset = count * ENTITY_STRIDE
 
     stateBuffer[offset + OFFSETS.ID] = e.id
     stateBuffer[offset + OFFSETS.X] = e.transform.x
     stateBuffer[offset + OFFSETS.Y] = e.transform.y
-    stateBuffer[offset + OFFSETS.RADIUS] = e.render.radius
-    stateBuffer[offset + OFFSETS.COLOR] = parseColor(e.render.color)
+    stateBuffer[offset + OFFSETS.RADIUS] = e.render?.radius ?? 0
+    stateBuffer[offset + OFFSETS.COLOR] = parseColor(
+      e.render?.color ?? '#000000'
+    )
     stateBuffer[offset + OFFSETS.BORDER_COLOR] = parseColor(
-      e.render.borderColor
+      e.render?.borderColor ?? '#000000'
     )
 
     let flags = 0
-    if (e.render.visible) flags |= FLAGS.VISIBLE
+    if (e.render?.visible ?? isStandaloneWeapon) flags |= FLAGS.VISIBLE
     if (e.stats?.isDead) flags |= FLAGS.DEAD
     if (e.stats?.isVanished) flags |= FLAGS.VANISHED
     if (e.movement?.isRolling) flags |= FLAGS.ROLLING

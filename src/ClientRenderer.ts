@@ -225,28 +225,31 @@ export class ClientRenderer {
       this.ctx.rotate(rollAngle)
     }
 
-    this.ctx.fillStyle = this.getColorString(colorInt)
-    this.ctx.beginPath()
-    this.ctx.arc(0, 0, radius, 0, 2 * Math.PI)
-    this.ctx.fill()
+    // 只有 radius > 0 时才渲染圆圈和眼睛
+    if (radius > 0) {
+      this.ctx.fillStyle = this.getColorString(colorInt)
+      this.ctx.beginPath()
+      this.ctx.arc(0, 0, radius, 0, 2 * Math.PI)
+      this.ctx.fill()
 
-    this.ctx.strokeStyle = this.getColorString(colorInt)
-    this.ctx.lineWidth = 3
-    this.ctx.stroke()
+      this.ctx.strokeStyle = this.getColorString(colorInt)
+      this.ctx.lineWidth = 3
+      this.ctx.stroke()
 
-    // Eyes
-    const eyeRadius = 0.08 * this.pixelsPerMeter
-    const eyeOffsetX = radius * 0.5
-    const eyeOffsetY = -radius * 0.5
+      // Eyes
+      const eyeRadius = 0.08 * this.pixelsPerMeter
+      const eyeOffsetX = radius * 0.5
+      const eyeOffsetY = -radius * 0.5
 
-    const direction = buf[offset + OFFSETS.MOVE_DIR]
-    const eyeX = direction < 0 ? -eyeOffsetX : eyeOffsetX
-    const eyeY = eyeOffsetY
+      const direction = buf[offset + OFFSETS.MOVE_DIR]
+      const eyeX = direction < 0 ? -eyeOffsetX : eyeOffsetX
+      const eyeY = eyeOffsetY
 
-    this.ctx.fillStyle = '#000000'
-    this.ctx.beginPath()
-    this.ctx.arc(eyeX, eyeY, eyeRadius, 0, 2 * Math.PI)
-    this.ctx.fill()
+      this.ctx.fillStyle = '#000000'
+      this.ctx.beginPath()
+      this.ctx.arc(eyeX, eyeY, eyeRadius, 0, 2 * Math.PI)
+      this.ctx.fill()
+    }
 
     this.ctx.restore()
 

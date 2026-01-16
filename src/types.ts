@@ -20,3 +20,14 @@ export interface EnemyTemplate {
 }
 
 export type EnemyType = 'default' | 'fast' | 'large'
+
+export interface WeaponTemplate {
+  width: number
+  height: number
+  weight: number
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
+}
+
+export type WeaponType = 'sword' | 'shortSword' | 'longSword' | 'hammer'
