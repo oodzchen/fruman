@@ -380,7 +380,7 @@ export class ClientRenderer {
       const arcDepth = wHeight * 4
       const lineWidth = Math.max(1, wHeight * 0.55)
       const drawRatio = Math.max(0, Math.min(1, bowDraw))
-      const pullOffset = bowDrawActive ? drawRatio * wWidth * 0.25 : 0
+      const pullOffset = drawRatio * wWidth * 0.25
       const stringWidth = Math.max(1, lineWidth * (1 - drawRatio * 0.5))
 
       this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
@@ -395,9 +395,7 @@ export class ClientRenderer {
       this.ctx.beginPath()
       this.ctx.lineWidth = stringWidth
       this.ctx.moveTo(-halfLen, 0)
-      if (bowDrawActive) {
-        this.ctx.lineTo(0, pullOffset)
-      }
+      this.ctx.lineTo(0, pullOffset)
       this.ctx.lineTo(halfLen, 0)
       this.ctx.stroke()
 

@@ -83,6 +83,20 @@ export class EnemyAISystem extends System {
       }
 
       const ai = entity.enemyAI
+      if (ai.enemyType === 'default') {
+        const dx = this.player.transform.x - entity.transform.x
+        const facingAway = dx >= 0 ? -1 : 1
+        entity.input.moveDirection = 0
+        entity.input.sprintRequested = false
+        entity.input.blockRequested = false
+        entity.input.attackRequested = false
+        entity.input.lockedTargetId = null
+        entity.input.facingOverride = facingAway
+        if (entity.weapon) {
+          entity.weapon.attackQueued = false
+        }
+        continue
+      }
 
       const dx = this.player.transform.x - entity.transform.x
       const dy = this.player.transform.y - entity.transform.y

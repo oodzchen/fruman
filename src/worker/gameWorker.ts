@@ -293,6 +293,7 @@ function initializeSystems() {
   const entityLookup = world.getEntityById.bind(world)
   movementSystem.setEntityLookup(entityLookup)
   targetingSystem.setEntityLookup(entityLookup)
+  weaponSystem.setEntityLookup(entityLookup)
 
   world.addSystem(statsSystem)
   world.addSystem(enemyAISystem)

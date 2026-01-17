@@ -266,10 +266,13 @@ export class WeaponComponent extends Component {
   bowDrawElapsedMs = 0
   bowDrawRatio = 0
   bowForceRatio = 0
+  bowReleaseRatio = 0
   bowReleasePending = false
   bowReleaseDelayMs = 0
   bowReleaseDelayTotalMs = 0
   bowRecoverElapsedMs = 0
+  bowAimAngle = 0
+  bowHasAim = false
 
   isDropping = false
   isDropped = false

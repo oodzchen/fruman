@@ -37,6 +37,7 @@ export class AudioManager {
         SOUND_IDS.SWORD_BLOCK,
         'audios/Weapon Broad Sword Hit Metal Deflect 01.wav'
       ),
+      this.loadSound(SOUND_IDS.BOW_SNAP, 'audios/Weapon Bow Snap 01.wav'),
     ])
   }
 

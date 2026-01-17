@@ -4,6 +4,7 @@ import {
   DEBUG_ANIMATION_SLOWDOWN,
   DEFAULT_ATTACK_KNOCKBACK,
   DEFAULT_FRAME_RATE,
+  DEFAULT_GRAVITY,
   DEFAULT_PARRY_WINDOW_MS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_PAUSE_MS,
@@ -62,9 +63,11 @@ const PARRY_WINDOW_FRAMES =
 const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
 const BOW_MAX_DRAW_MS = 900
 const BOW_MIN_WINDUP_MS = 200
+const BOW_MIN_FORCE_RATIO = 0.6
 const BOW_MIN_SPEED = 10
 const BOW_MAX_SPEED = 22
 const BOW_RECOVER_MS = 180
+const BOW_GRAVITY_SCALE = 0.5
 
 type ObstacleCollider = {
   bodyId: b2BodyId
@@ -92,6 +95,7 @@ export class WeaponSystem extends System {
   private statsSystem?: StatsSystem
   private allEntities: Entity[] = []
   private spatialHash: SpatialHash | null = null
+  private entityLookup?: (id: number) => Entity | undefined
   private tempVec?: InstanceType<MainModule['b2Vec2']>
   private world?: World
   private worldId?: ReturnType<MainModule['b2CreateWorld']>
@@ -177,6 +181,10 @@ export class WeaponSystem extends System {
 
   setSpatialHash(spatialHash: SpatialHash): void {
     this.spatialHash = spatialHash
+  }
+
+  setEntityLookup(entityLookup: (id: number) => Entity | undefined): void {
+    this.entityLookup = entityLookup
   }
 
   private updateWeapon(entity: Entity, deltaMs: number): void {
@@ -1389,19 +1397,41 @@ export class WeaponSystem extends System {
       weapon.bowDrawElapsedMs = 0
       weapon.bowDrawRatio = 0
       weapon.bowForceRatio = 0
+      weapon.bowReleaseRatio = 0
       weapon.bowReleasePending = false
       weapon.bowReleaseDelayMs = 0
       weapon.bowReleaseDelayTotalMs = 0
       weapon.bowRecoverElapsedMs = 0
+      weapon.bowAimAngle = 0
+      weapon.bowHasAim = false
       return
     }
 
     const holdingAttack = entity.input.attackRequested && !entity.isStunned()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const aimAngle = this.getBowAimAngleForTarget(
+      entity,
+      weapon,
+      playerPos,
+      radius
+    )
+    const hasAimLock = aimAngle !== null
     const inCombat =
-      entity.stats?.isInCombat || weapon.bowIsDrawing || holdingAttack
+      entity.stats?.isInCombat ||
+      weapon.bowIsDrawing ||
+      holdingAttack ||
+      hasAimLock
 
-    if (inCombat) {
+    if (hasAimLock && aimAngle !== null) {
+      weapon.bowAimAngle = aimAngle
+      weapon.bowHasAim = true
+      const offset = radius + 0.2
+      weapon.visual.x = playerPos.x + Math.cos(aimAngle) * offset
+      weapon.visual.y = playerPos.y + Math.sin(aimAngle) * offset
+      weapon.visual.rotation = aimAngle + Math.PI / 2
+      weapon.attackFacing = Math.cos(aimAngle) >= 0 ? 1 : -1
+    } else if (inCombat) {
+      weapon.bowHasAim = false
       this.getFrontTransform(
         playerPos,
         facing,
@@ -1411,6 +1441,7 @@ export class WeaponSystem extends System {
         weapon.width
       )
     } else {
+      weapon.bowHasAim = false
       this.getBackTransform(
         playerPos,
         facing,
@@ -1422,8 +1453,18 @@ export class WeaponSystem extends System {
 
     if (weapon.bowRecoverElapsedMs > 0) {
       weapon.bowRecoverElapsedMs += deltaMs
+      const recoverRatio = Math.min(
+        1,
+        weapon.bowRecoverElapsedMs / BOW_RECOVER_MS
+      )
+      weapon.bowDrawRatio = Math.max(
+        0,
+        weapon.bowReleaseRatio * (1 - recoverRatio)
+      )
       if (weapon.bowRecoverElapsedMs >= BOW_RECOVER_MS) {
         weapon.bowRecoverElapsedMs = 0
+        weapon.bowReleaseRatio = 0
+        weapon.bowDrawRatio = 0
       }
       return
     }
@@ -1433,6 +1474,7 @@ export class WeaponSystem extends System {
       weapon.bowDrawElapsedMs = 0
       weapon.bowDrawRatio = 0
       weapon.bowForceRatio = 0
+      weapon.bowReleaseRatio = 0
       weapon.bowReleasePending = false
       weapon.bowReleaseDelayMs = 0
       weapon.bowReleaseDelayTotalMs = 0
@@ -1453,14 +1495,18 @@ export class WeaponSystem extends System {
     if (weapon.bowReleasePending) {
       weapon.bowReleaseDelayMs = Math.max(0, weapon.bowReleaseDelayMs - deltaMs)
       weapon.bowDrawElapsedMs += deltaMs
-      weapon.bowDrawRatio = Math.min(
-        1,
-        weapon.bowDrawElapsedMs / BOW_MAX_DRAW_MS
+      const minForceRatio = Math.max(
+        BOW_MIN_FORCE_RATIO,
+        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
       )
+      weapon.bowDrawRatio = Math.max(
+        minForceRatio,
+        Math.min(1, weapon.bowDrawElapsedMs / BOW_MAX_DRAW_MS)
+      )
+      weapon.bowForceRatio = weapon.bowDrawRatio
 
       if (weapon.bowReleaseDelayMs <= 0) {
-        const minForceRatio = Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-        const drawRatio = Math.max(weapon.bowForceRatio, minForceRatio)
+        const drawRatio = weapon.bowForceRatio
         weapon.bowReleasePending = false
         weapon.bowReleaseDelayMs = 0
         weapon.bowReleaseDelayTotalMs = 0
@@ -1470,6 +1516,7 @@ export class WeaponSystem extends System {
         weapon.bowForceRatio = 0
 
         if (drawRatio > 0) {
+          weapon.bowReleaseRatio = drawRatio
           this.fireBowArrow(entity, weapon, facing, drawRatio)
           weapon.bowRecoverElapsedMs = 0.0001
         }
@@ -1479,7 +1526,10 @@ export class WeaponSystem extends System {
 
     if (weapon.bowIsDrawing) {
       const drawRatio = weapon.bowDrawRatio
-      const minForceRatio = Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+      const minForceRatio = Math.max(
+        BOW_MIN_FORCE_RATIO,
+        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+      )
       weapon.bowForceRatio = drawRatio
 
       if (weapon.bowDrawElapsedMs < BOW_MIN_WINDUP_MS) {
@@ -1495,6 +1545,7 @@ export class WeaponSystem extends System {
       weapon.bowForceRatio = 0
 
       if (drawRatio > 0) {
+        weapon.bowReleaseRatio = Math.max(drawRatio, minForceRatio)
         this.fireBowArrow(
           entity,
           weapon,
@@ -1538,15 +1589,29 @@ export class WeaponSystem extends System {
     bodyDef.linearDamping = 0.05
     bodyDef.motionLocks.angularZ = true
     bodyDef.isBullet = true
-    bodyDef.gravityScale = 0.5
+    bodyDef.gravityScale = BOW_GRAVITY_SCALE
     physics.bodyId = b2CreateBody(this.worldId, bodyDef)
 
     const arrowWeapon = new WeaponComponent()
     const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9
     const arrowThickness = DEFAULT_WEAPON_HEIGHT * 0.15
-    const arrowRotation = facing === 1 ? Math.PI / 2 : -Math.PI / 2
-    const arrowSpeed =
-      BOW_MIN_SPEED + (BOW_MAX_SPEED - BOW_MIN_SPEED) * drawRatio
+    const arrowSpeed = this.getBowLaunchSpeed(drawRatio)
+    const minForceRatio = Math.max(
+      BOW_MIN_FORCE_RATIO,
+      Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+    )
+    const forceDenom = 1 - minForceRatio
+    const forceRatio =
+      forceDenom > 0
+        ? Math.min(1, Math.max(0, (drawRatio - minForceRatio) / forceDenom))
+        : 1
+    const forceMultiplier = 1 + forceRatio
+    const aimAngle = weapon.bowHasAim
+      ? weapon.bowAimAngle
+      : facing === 1
+        ? 0
+        : Math.PI
+    const arrowRotation = aimAngle + Math.PI / 2
 
     const circle = new b2Circle()
     circle.center.Set(0, 0)
@@ -1559,7 +1624,11 @@ export class WeaponSystem extends System {
     shapeDef.filter.maskBits = MASK_WEAPON
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
 
-    const initialVelocity = new b2Vec2(arrowSpeed * facing * 1.5, 0)
+    const launchSpeed = arrowSpeed * 1.5
+    const initialVelocity = new b2Vec2(
+      Math.cos(aimAngle) * launchSpeed,
+      Math.sin(aimAngle) * launchSpeed
+    )
     this.box2d.b2Body_SetLinearVelocity(physics.bodyId, initialVelocity)
 
     bodyDef.delete()
@@ -1577,11 +1646,14 @@ export class WeaponSystem extends System {
     arrowWeapon.cornerRadius = 0
     arrowWeapon.weight = 0
     arrowWeapon.weaponType = 'arrow'
-    arrowWeapon.attackDamage = weapon.attackDamage * (0.6 + drawRatio * 0.6)
-    arrowWeapon.postureDamage = weapon.postureDamage * (0.6 + drawRatio * 0.6)
-    arrowWeapon.toughnessDamage =
-      weapon.toughnessDamage * (0.6 + drawRatio * 0.6)
-    arrowWeapon.knockback = weapon.knockback
+    const baseAttackDamage = weapon.attackDamage * forceMultiplier
+    const basePostureDamage = weapon.postureDamage * forceMultiplier
+    const baseToughnessDamage = weapon.toughnessDamage * forceMultiplier
+    const baseKnockback = weapon.knockback * forceMultiplier
+    arrowWeapon.attackDamage = baseAttackDamage
+    arrowWeapon.postureDamage = basePostureDamage
+    arrowWeapon.toughnessDamage = baseToughnessDamage
+    arrowWeapon.knockback = baseKnockback
     arrowWeapon.isEquipped = false
     arrowWeapon.attackPhase = 'idle'
     arrowWeapon.visual.x = arrowTransform.x
@@ -1592,12 +1664,91 @@ export class WeaponSystem extends System {
     const arrow = new ArrowComponent()
     arrow.ownerId = entity.id
     arrow.faction = entity.faction?.faction ?? Faction.Player
-    arrow.velocityX = arrowSpeed * facing * 1.5
-    arrow.velocityY = 0
+    arrow.velocityX = Math.cos(aimAngle) * launchSpeed
+    arrow.velocityY = Math.sin(aimAngle) * launchSpeed
     arrow.hitRadius = 0.12
     arrow.elapsedMs = 0
     arrow.lifetimeMs = 2500
     arrowEntity.addComponent(arrow)
+
+    this.statsSystem?.playSound(SOUND_IDS.BOW_SNAP)
+  }
+
+  private getBowLaunchSpeed(drawRatio: number): number {
+    const clamped = Math.max(0, Math.min(1, drawRatio))
+    return BOW_MIN_SPEED + (BOW_MAX_SPEED - BOW_MIN_SPEED) * clamped
+  }
+
+  private getBowAimAngleForTarget(
+    entity: Entity,
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number },
+    radius: number
+  ): number | null {
+    if (!this.entityLookup || !entity.input) return null
+    const targetId = entity.input.lockedTargetId
+    if (targetId === null) return null
+
+    const target = this.entityLookup(targetId)
+    if (!target?.transform || !target.stats || target.stats.isDead) return null
+
+    const minForceRatio = Math.max(
+      BOW_MIN_FORCE_RATIO,
+      Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+    )
+    const drawRatio = Math.max(weapon.bowDrawRatio, minForceRatio)
+    const speed = this.getBowLaunchSpeed(drawRatio) * 1.5
+    const offset = radius + 0.2
+
+    let aimAngle = this.getBowAimAngle(
+      playerPos.x,
+      playerPos.y,
+      target.transform.x,
+      target.transform.y,
+      speed
+    )
+
+    const originX = playerPos.x + Math.cos(aimAngle) * offset
+    const originY = playerPos.y + Math.sin(aimAngle) * offset
+    aimAngle = this.getBowAimAngle(
+      originX,
+      originY,
+      target.transform.x,
+      target.transform.y,
+      speed
+    )
+
+    return aimAngle
+  }
+
+  private getBowAimAngle(
+    originX: number,
+    originY: number,
+    targetX: number,
+    targetY: number,
+    speed: number
+  ): number {
+    const dx = targetX - originX
+    const dyUp = originY - targetY
+    const dxAbs = Math.abs(dx)
+    if (dxAbs < 0.001) {
+      return dyUp >= 0 ? -Math.PI / 2 : Math.PI / 2
+    }
+
+    const g = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE
+    const v2 = speed * speed
+    const disc = v2 * v2 - g * (g * dxAbs * dxAbs + 2 * dyUp * v2)
+    if (disc < 0) {
+      return -Math.atan2(dyUp, dx)
+    }
+
+    const sqrtDisc = Math.sqrt(disc)
+    const tan = (v2 - sqrtDisc) / (g * dxAbs)
+    let angle = Math.atan(tan)
+    if (dx < 0) {
+      angle = Math.PI - angle
+    }
+    return -angle
   }
 
   private getSlotForWeaponType(weaponType: WeaponVisualType): WeaponSlotId {
@@ -1696,10 +1847,13 @@ export class WeaponSystem extends System {
     weapon.bowDrawElapsedMs = 0
     weapon.bowDrawRatio = 0
     weapon.bowForceRatio = 0
+    weapon.bowReleaseRatio = 0
     weapon.bowReleasePending = false
     weapon.bowReleaseDelayMs = 0
     weapon.bowReleaseDelayTotalMs = 0
     weapon.bowRecoverElapsedMs = 0
+    weapon.bowAimAngle = 0
+    weapon.bowHasAim = false
   }
 
   tryPickUpWeapon(entity: Entity): void {
