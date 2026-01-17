@@ -587,9 +587,20 @@ export class WeaponSystem extends System {
         this.startRebound(attacker, this.tempPlayerPos, Date.now())
       }
     } else {
-      // 普通弹反：仅免疫伤害，不打断攻击，不回弹
+      // 普通弹反
+      if (
+        attacker.weapon &&
+        !attacker.weapon.isUnstoppable &&
+        attacker.transform
+      ) {
+        // 非霸体攻击：仅触发回弹，无硬直
+        this.tempPlayerPos.x = attacker.transform.x
+        this.tempPlayerPos.y = attacker.transform.y
+        this.startRebound(attacker, this.tempPlayerPos, Date.now())
+      }
+
+      // 将防御者加入已击中列表，从而避免产生伤害（无论是霸体还是回弹，都要避免当次伤害）
       if (attacker.weapon) {
-        // 将防御者加入已击中列表，从而避免产生伤害
         attacker.weapon.hitEntityIds.add(defender.id)
       }
     }

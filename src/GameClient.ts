@@ -166,7 +166,25 @@ export class GameClient {
   }
   private setupInput() {
     window.addEventListener('keydown', (e) => {
-      this.keys.add(e.key.toLowerCase())
+      const key = e.key.toLowerCase()
+      // Prevent browser default behavior for game keys (scrolling, tab switching, etc.)
+      if (
+        [
+          'arrowup',
+          'arrowdown',
+          'arrowleft',
+          'arrowright',
+          ' ',
+          'w',
+          'a',
+          's',
+          'd',
+        ].includes(key)
+      ) {
+        e.preventDefault()
+      }
+
+      this.keys.add(key)
       this.sendInput()
 
       // Local Zoom control (immediate feedback)

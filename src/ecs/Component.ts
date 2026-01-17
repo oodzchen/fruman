@@ -186,6 +186,7 @@ export class WeaponComponent extends Component {
   toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
   knockback = 0
   isColliding = false
+  isUnstoppable = false
   position = { x: 0, y: 0 }
   rotation = 0
   isEquipped = false

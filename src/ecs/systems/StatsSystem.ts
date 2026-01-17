@@ -140,7 +140,11 @@ export class StatsSystem extends System {
       }
 
       if (entity.stats.posture < entity.stats.maxPosture) {
-        const recovery = entity.stats.postureRecoveryPerSecond * deltaSeconds
+        let recoveryRate = entity.stats.postureRecoveryPerSecond
+        if (entity.weapon?.isBlocking) {
+          recoveryRate *= 2
+        }
+        const recovery = recoveryRate * deltaSeconds
         entity.stats.posture = Math.min(
           entity.stats.maxPosture,
           entity.stats.posture + recovery

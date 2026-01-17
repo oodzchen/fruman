@@ -225,53 +225,31 @@ export class MovementSystem extends System {
 
     entity.movement.rollCooldownElapsedTime += this.currentDeltaTime
 
-    // 2. 处理奔跑和翻滚触发逻辑 (L键长按=奔跑, 短按松开=翻滚)
-    const isLKeyDown = entity.input.sprintRequested
-    const wasLKeyDown = entity.movement.lKeyIsDown
-
-    if (isLKeyDown) {
-      if (!wasLKeyDown) {
-        // 刚按下
-        entity.movement.lKeyHoldTime = 0
-      }
-      entity.movement.lKeyHoldTime += this.currentDeltaTime
-
-      // 超过阈值进入奔跑状态
-      const holdTimeMs = entity.movement.lKeyHoldTime * 1000
-      if (holdTimeMs > SPRINT_HOLD_THRESHOLD_MS) {
-        // 只有在移动且按下L键时才算Sprint
-        if (entity.input.moveDirection !== 0) {
-          entity.movement.isSprinting = true
-        } else {
-          // 原地按住L不算奔跑移动，但算奔跑状态(准备)
-          entity.movement.isSprinting = true
-        }
-      }
-    } else {
-      // 按键未按下或刚松开
-      if (wasLKeyDown) {
-        // 刚松开
-        entity.movement.isSprinting = false // 立即停止奔跑
-
-        // 检查是否满足翻滚条件 (短按 + CD就好 + 能翻滚)
-        const holdTimeMs = entity.movement.lKeyHoldTime * 1000
-        const cooldownMs = entity.movement.rollCooldownElapsedTime * 1000
-
-        if (
-          holdTimeMs <= SPRINT_HOLD_THRESHOLD_MS &&
-          cooldownMs >= DEFAULT_ROLL_COOLDOWN &&
-          this.canRoll(entity)
-        ) {
-          this.startRoll(entity)
-        }
-      } else {
-        // 持续未按下
-        entity.movement.isSprinting = false
-        entity.movement.lKeyHoldTime = 0
-      }
+    // 2. 检查翻滚输入 (Ctrl键 -> InputBuffer 'roll')
+    const cooldownMs = entity.movement.rollCooldownElapsedTime * 1000
+    if (cooldownMs >= DEFAULT_ROLL_COOLDOWN && this.canRoll(entity)) {
+      entity.input.inputBuffer.tryExecute(
+        'roll',
+        () => true,
+        () => this.startRoll(entity)
+      )
     }
 
-    entity.movement.lKeyIsDown = isLKeyDown
+    // 3. 处理奔跑 (Shift键 -> sprintRequested)
+    // 取消了之前的按下阈值判断，现在Shift按下即视为奔跑请求
+    if (entity.input.sprintRequested) {
+      // 只有在移动且按下Shift键时才算Sprint
+      if (entity.input.moveDirection !== 0) {
+        entity.movement.isSprinting = true
+      } else {
+        // 原地按住Shift不算移动，但保持奔跑状态标记(准备)
+        entity.movement.isSprinting = true
+      }
+    } else {
+      entity.movement.isSprinting = false
+    }
+
+    entity.movement.lKeyIsDown = entity.input.sprintRequested
   }
 
   private canRoll(entity: Entity): boolean {

@@ -181,10 +181,10 @@ export const ENEMY_TEMPLATES = {
     radius: DEFAULT_PLAYER_RADIUS,
     attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
     color: '#889357',
-    parryProficiency: 40,
+    parryProficiency: 100,
     maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
     maxPosture: DEFAULT_PLAYER_MAX_POSTURE,
-    maxToughness: 3,
+    maxToughness: 6,
   },
   fast: {
     moveSpeed: 6,

@@ -598,9 +598,9 @@ function handleInput(
       playerEntity.input.blockRequested = false
     }
 
-    // Middle click or H for lock toggle
+    // Middle click or Q for lock toggle
     const lockToggleJustPressed =
-      (currKeys.has('h') && !prevKeys.has('h')) ||
+      (currKeys.has('q') && !prevKeys.has('q')) ||
       (currMouseButtons.has(1) && !prevMouseButtons.has(1))
 
     if (lockToggleJustPressed && !isPlayerDead) {
@@ -613,7 +613,7 @@ function handleInput(
       }
     }
 
-    if (currKeys.has('shift') && !prevKeys.has('shift') && !isPlayerDead) {
+    if (currKeys.has('control') && !prevKeys.has('control') && !isPlayerDead) {
       if (playerEntity.isStunned()) {
         playerEntity.input.inputBuffer.clearAll()
       }
