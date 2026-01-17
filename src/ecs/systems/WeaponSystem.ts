@@ -1344,8 +1344,16 @@ export class WeaponSystem extends System {
           return
         }
 
-        // 如果玩家已有武器，先掉落旧武器再拾取新武器
+        // 如果玩家已有武器，需要按 E 键（interact）才能替换
         if (entity.weapon.isEquipped) {
+          const interacted = entity.input?.inputBuffer.tryExecute(
+            'interact',
+            () => !entity.isStunned(),
+            () => {}
+          )
+
+          if (!interacted) continue
+
           // 在玩家脚下掉落旧武器
           const facing = entity.weapon.attackFacing
           this.dropWeapon(entity.transform.x, entity.transform.y, facing, {

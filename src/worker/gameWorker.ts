@@ -625,6 +625,10 @@ function handleInput(
     } else {
       playerEntity.input.sprintRequested = false
     }
+
+    if (currKeys.has('e') && !prevKeys.has('e') && !isPlayerDead) {
+      playerEntity.input.inputBuffer.bufferAction('interact')
+    }
   }
 
   targetZoom = mouseZoomTarget
