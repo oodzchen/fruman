@@ -263,4 +263,12 @@ export const WEAPON_TEMPLATES = {
     postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 1.8,
     toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE * 2,
   },
+  bow: {
+    width: DEFAULT_WEAPON_WIDTH * 1.1,
+    height: DEFAULT_WEAPON_HEIGHT * 0.35,
+    weight: DEFAULT_WEAPON_WEIGHT * 0.5,
+    attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 0.6,
+    postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 0.6,
+    toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE * 0.5,
+  },
 } as const

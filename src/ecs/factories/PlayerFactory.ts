@@ -45,6 +45,7 @@ import {
   StatsComponent,
   TransformComponent,
   WeaponComponent,
+  WeaponSlotsComponent,
 } from '../Component'
 import type { Entity } from '../Entity'
 import type { World } from '../World'
@@ -149,6 +150,7 @@ export function createPlayer(
   weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weight = DEFAULT_WEAPON_WEIGHT
+  weapon.weaponType = 'sword'
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
@@ -197,6 +199,10 @@ export function createPlayer(
   }
   weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
   entity.addComponent(weapon)
+
+  const weaponSlots = new WeaponSlotsComponent()
+  weaponSlots.activeSlot = 'main'
+  entity.addComponent(weaponSlots)
 
   return entity
 }
@@ -331,6 +337,7 @@ export function createWeapon(
   weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weight = template.weight
+  weapon.weaponType = weaponType
   weapon.attackDamage = template.attackDamage
   weapon.postureDamage = template.postureDamage
   weapon.toughnessDamage = template.toughnessDamage

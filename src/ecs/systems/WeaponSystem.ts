@@ -30,13 +30,21 @@ import {
   PARRY_SELF_POSTURE_RECOVERY,
   WEAPON_DROP_DURATION_MS,
 } from '../../constants'
-import type { MainModule, b2BodyId } from '../../types'
+import type { MainModule, WeaponVisualType, b2BodyId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
-import type { WeaponRelativeTransform, WeaponTransform } from '../Component'
+import type {
+  WeaponRelativeTransform,
+  WeaponSlotData,
+  WeaponSlotId,
+  WeaponTransform,
+} from '../Component'
 import {
+  ArrowComponent,
+  Faction,
   PhysicsComponent,
   TransformComponent,
   WeaponComponent,
+  WeaponSlotsComponent,
 } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -52,6 +60,11 @@ const REBOUND_PAUSE_MS = 150
 const PARRY_WINDOW_FRAMES =
   (DEFAULT_PARRY_WINDOW_MS * DEFAULT_FRAME_RATE) / 1000
 const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
+const BOW_MAX_DRAW_MS = 900
+const BOW_MIN_WINDUP_MS = 200
+const BOW_MIN_SPEED = 10
+const BOW_MAX_SPEED = 22
+const BOW_RECOVER_MS = 180
 
 type ObstacleCollider = {
   bodyId: b2BodyId
@@ -59,6 +72,18 @@ type ObstacleCollider = {
   height: number
   vertices?: { x: number; y: number }[]
   radius?: number
+}
+
+type WeaponDropData = {
+  weaponType: WeaponVisualType
+  width: number
+  height: number
+  baseWidth: number
+  cornerRadius: number
+  weight: number
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
 }
 
 export class WeaponSystem extends System {
@@ -77,6 +102,17 @@ export class WeaponSystem extends System {
     dx: 0,
     dy: 0,
     rotation: 0,
+  }
+  private tempWeaponDropData: WeaponDropData = {
+    weaponType: 'sword',
+    width: 0,
+    height: 0,
+    baseWidth: 0,
+    cornerRadius: 0,
+    weight: 0,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
   }
   private tempPlayerPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
@@ -113,6 +149,7 @@ export class WeaponSystem extends System {
 
     for (const entity of entities) {
       if (!entity.transform || !entity.weapon) continue
+      if (entity.arrow) continue
       entity.weapon.isColliding = false
 
       // 更新掉落中的武器（独立武器实体且有物理组件）
@@ -243,6 +280,11 @@ export class WeaponSystem extends System {
         weapon.isRecovering = false
         weapon.isDropped = false
       }
+      return
+    }
+
+    if (weapon.weaponType === 'bow' && entity.stats) {
+      this.updateBowWeapon(entity, weapon, playerPos, inputFacing, deltaMs)
       return
     }
 
@@ -471,7 +513,14 @@ export class WeaponSystem extends System {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
 
     // 复用 getFrontTransform 计算目标 offset (战斗姿态)
-    this.getFrontTransform(playerPos, facing, this.tempTransform, radius)
+    this.getFrontTransform(
+      playerPos,
+      facing,
+      this.tempTransform,
+      radius,
+      weapon.weaponType,
+      weapon.width
+    )
     this.getOffsetFromTransform(
       this.tempTransform,
       playerPos,
@@ -704,9 +753,22 @@ export class WeaponSystem extends System {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
 
     if (entity.stats?.isInCombat) {
-      this.getFrontTransform(playerPos, facing, weapon.visual, radius)
+      this.getFrontTransform(
+        playerPos,
+        facing,
+        weapon.visual,
+        radius,
+        weapon.weaponType,
+        weapon.width
+      )
     } else {
-      this.getBackTransform(playerPos, facing, weapon.visual, radius)
+      this.getBackTransform(
+        playerPos,
+        facing,
+        weapon.visual,
+        radius,
+        weapon.weaponType
+      )
     }
 
     if (weapon.attackQueued && weapon.comboCount < 5) {
@@ -1135,7 +1197,14 @@ export class WeaponSystem extends System {
     weapon.parryElapsedTime = 0
     weapon.parryHitWeaponIds.clear()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    this.getFrontTransform(playerPos, facing, weapon.visual, radius)
+    this.getFrontTransform(
+      playerPos,
+      facing,
+      weapon.visual,
+      radius,
+      weapon.weaponType,
+      weapon.width
+    )
   }
 
   private interruptWindupToBlock(
@@ -1154,16 +1223,7 @@ export class WeaponSystem extends System {
     x: number,
     y: number,
     facing: number,
-    weaponData: {
-      width: number
-      height: number
-      baseWidth: number
-      cornerRadius: number
-      weight: number
-      attackDamage: number
-      postureDamage: number
-      toughnessDamage: number
-    }
+    weaponData: WeaponDropData
   ): void {
     if (!this.world || !this.box2d || !this.worldId) return
 
@@ -1227,6 +1287,7 @@ export class WeaponSystem extends System {
     weapon.blockWidthTarget = weaponData.width
     weapon.cornerRadius = weaponData.cornerRadius
     weapon.weight = weaponData.weight
+    weapon.weaponType = weaponData.weaponType
     weapon.attackDamage = weaponData.attackDamage
     weapon.postureDamage = weaponData.postureDamage
     weapon.toughnessDamage = weaponData.toughnessDamage
@@ -1315,14 +1376,343 @@ export class WeaponSystem extends System {
     }
   }
 
+  private updateBowWeapon(
+    entity: Entity,
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number },
+    facing: number,
+    deltaMs: number
+  ): void {
+    weapon.attackFacing = facing
+    if (!entity.input) {
+      weapon.bowIsDrawing = false
+      weapon.bowDrawElapsedMs = 0
+      weapon.bowDrawRatio = 0
+      weapon.bowForceRatio = 0
+      weapon.bowReleasePending = false
+      weapon.bowReleaseDelayMs = 0
+      weapon.bowReleaseDelayTotalMs = 0
+      weapon.bowRecoverElapsedMs = 0
+      return
+    }
+
+    const holdingAttack = entity.input.attackRequested && !entity.isStunned()
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const inCombat =
+      entity.stats?.isInCombat || weapon.bowIsDrawing || holdingAttack
+
+    if (inCombat) {
+      this.getFrontTransform(
+        playerPos,
+        facing,
+        weapon.visual,
+        radius,
+        weapon.weaponType,
+        weapon.width
+      )
+    } else {
+      this.getBackTransform(
+        playerPos,
+        facing,
+        weapon.visual,
+        radius,
+        weapon.weaponType
+      )
+    }
+
+    if (weapon.bowRecoverElapsedMs > 0) {
+      weapon.bowRecoverElapsedMs += deltaMs
+      if (weapon.bowRecoverElapsedMs >= BOW_RECOVER_MS) {
+        weapon.bowRecoverElapsedMs = 0
+      }
+      return
+    }
+
+    if (holdingAttack && !weapon.bowIsDrawing) {
+      weapon.bowIsDrawing = true
+      weapon.bowDrawElapsedMs = 0
+      weapon.bowDrawRatio = 0
+      weapon.bowForceRatio = 0
+      weapon.bowReleasePending = false
+      weapon.bowReleaseDelayMs = 0
+      weapon.bowReleaseDelayTotalMs = 0
+      if (this.statsSystem) {
+        this.statsSystem.enterCombat(entity)
+      }
+    }
+
+    if (holdingAttack) {
+      weapon.bowDrawElapsedMs += deltaMs
+      weapon.bowDrawRatio = Math.min(
+        1,
+        weapon.bowDrawElapsedMs / BOW_MAX_DRAW_MS
+      )
+      return
+    }
+
+    if (weapon.bowReleasePending) {
+      weapon.bowReleaseDelayMs = Math.max(0, weapon.bowReleaseDelayMs - deltaMs)
+      weapon.bowDrawElapsedMs += deltaMs
+      weapon.bowDrawRatio = Math.min(
+        1,
+        weapon.bowDrawElapsedMs / BOW_MAX_DRAW_MS
+      )
+
+      if (weapon.bowReleaseDelayMs <= 0) {
+        const minForceRatio = Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+        const drawRatio = Math.max(weapon.bowForceRatio, minForceRatio)
+        weapon.bowReleasePending = false
+        weapon.bowReleaseDelayMs = 0
+        weapon.bowReleaseDelayTotalMs = 0
+        weapon.bowIsDrawing = false
+        weapon.bowDrawElapsedMs = 0
+        weapon.bowDrawRatio = 0
+        weapon.bowForceRatio = 0
+
+        if (drawRatio > 0) {
+          this.fireBowArrow(entity, weapon, facing, drawRatio)
+          weapon.bowRecoverElapsedMs = 0.0001
+        }
+      }
+      return
+    }
+
+    if (weapon.bowIsDrawing) {
+      const drawRatio = weapon.bowDrawRatio
+      const minForceRatio = Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+      weapon.bowForceRatio = drawRatio
+
+      if (weapon.bowDrawElapsedMs < BOW_MIN_WINDUP_MS) {
+        weapon.bowReleasePending = true
+        weapon.bowReleaseDelayMs = BOW_MIN_WINDUP_MS - weapon.bowDrawElapsedMs
+        weapon.bowReleaseDelayTotalMs = weapon.bowReleaseDelayMs
+        return
+      }
+
+      weapon.bowIsDrawing = false
+      weapon.bowDrawElapsedMs = 0
+      weapon.bowDrawRatio = 0
+      weapon.bowForceRatio = 0
+
+      if (drawRatio > 0) {
+        this.fireBowArrow(
+          entity,
+          weapon,
+          facing,
+          Math.max(drawRatio, minForceRatio)
+        )
+        weapon.bowRecoverElapsedMs = 0.0001
+      }
+    }
+  }
+
+  private fireBowArrow(
+    entity: Entity,
+    weapon: WeaponComponent,
+    facing: number,
+    drawRatio: number
+  ): void {
+    if (!this.world || !this.box2d || !this.worldId) return
+
+    const arrowEntity = this.world.createEntity()
+    const arrowTransform = new TransformComponent()
+
+    arrowTransform.x = weapon.visual.x
+    arrowTransform.y = weapon.visual.y
+    arrowEntity.addComponent(arrowTransform)
+
+    const physics = new PhysicsComponent()
+    const {
+      b2DefaultBodyDef,
+      b2CreateBody,
+      b2BodyType,
+      b2Circle,
+      b2DefaultShapeDef,
+      b2CreateCircleShape,
+      b2Vec2,
+    } = this.box2d
+
+    const bodyDef = b2DefaultBodyDef()
+    bodyDef.type = b2BodyType.b2_dynamicBody
+    bodyDef.position.Set(arrowTransform.x, arrowTransform.y)
+    bodyDef.linearDamping = 0.05
+    bodyDef.motionLocks.angularZ = true
+    bodyDef.isBullet = true
+    bodyDef.gravityScale = 0.5
+    physics.bodyId = b2CreateBody(this.worldId, bodyDef)
+
+    const arrowWeapon = new WeaponComponent()
+    const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9
+    const arrowThickness = DEFAULT_WEAPON_HEIGHT * 0.15
+    const arrowRotation = facing === 1 ? Math.PI / 2 : -Math.PI / 2
+    const arrowSpeed =
+      BOW_MIN_SPEED + (BOW_MAX_SPEED - BOW_MIN_SPEED) * drawRatio
+
+    const circle = new b2Circle()
+    circle.center.Set(0, 0)
+    circle.radius = Math.max(0.08, arrowThickness)
+    const shapeDef = b2DefaultShapeDef()
+    shapeDef.density = 0.1
+    shapeDef.material.friction = 0.2
+    shapeDef.material.restitution = 0.4
+    shapeDef.filter.categoryBits = CATEGORY_WEAPON
+    shapeDef.filter.maskBits = MASK_WEAPON
+    physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
+
+    const initialVelocity = new b2Vec2(arrowSpeed * facing * 1.5, 0)
+    this.box2d.b2Body_SetLinearVelocity(physics.bodyId, initialVelocity)
+
+    bodyDef.delete()
+    circle.delete()
+    shapeDef.delete()
+    initialVelocity.delete()
+
+    arrowEntity.addComponent(physics)
+
+    arrowWeapon.width = arrowLength
+    arrowWeapon.height = arrowThickness
+    arrowWeapon.baseWidth = arrowLength
+    arrowWeapon.blockWidthStart = arrowLength
+    arrowWeapon.blockWidthTarget = arrowLength
+    arrowWeapon.cornerRadius = 0
+    arrowWeapon.weight = 0
+    arrowWeapon.weaponType = 'arrow'
+    arrowWeapon.attackDamage = weapon.attackDamage * (0.6 + drawRatio * 0.6)
+    arrowWeapon.postureDamage = weapon.postureDamage * (0.6 + drawRatio * 0.6)
+    arrowWeapon.toughnessDamage =
+      weapon.toughnessDamage * (0.6 + drawRatio * 0.6)
+    arrowWeapon.knockback = weapon.knockback
+    arrowWeapon.isEquipped = false
+    arrowWeapon.attackPhase = 'idle'
+    arrowWeapon.visual.x = arrowTransform.x
+    arrowWeapon.visual.y = arrowTransform.y
+    arrowWeapon.visual.rotation = arrowRotation
+    arrowEntity.addComponent(arrowWeapon)
+
+    const arrow = new ArrowComponent()
+    arrow.ownerId = entity.id
+    arrow.faction = entity.faction?.faction ?? Faction.Player
+    arrow.velocityX = arrowSpeed * facing * 1.5
+    arrow.velocityY = 0
+    arrow.hitRadius = 0.12
+    arrow.elapsedMs = 0
+    arrow.lifetimeMs = 2500
+    arrowEntity.addComponent(arrow)
+  }
+
+  private getSlotForWeaponType(weaponType: WeaponVisualType): WeaponSlotId {
+    return weaponType === 'bow' ? 'secondary' : 'main'
+  }
+
+  private getSlotData(
+    weaponSlots: WeaponSlotsComponent,
+    slotId: WeaponSlotId
+  ): WeaponSlotData {
+    return slotId === 'main' ? weaponSlots.main : weaponSlots.secondary
+  }
+
+  private copyWeaponToSlot(
+    slot: WeaponSlotData,
+    weapon: WeaponComponent
+  ): void {
+    slot.hasWeapon = true
+    slot.weaponType = weapon.weaponType
+    slot.width = weapon.baseWidth
+    slot.height = weapon.height
+    slot.baseWidth = weapon.baseWidth
+    slot.cornerRadius = weapon.cornerRadius
+    slot.weight = weapon.weight
+    slot.attackDamage = weapon.attackDamage
+    slot.postureDamage = weapon.postureDamage
+    slot.toughnessDamage = weapon.toughnessDamage
+  }
+
+  private copySlotToWeapon(
+    slot: WeaponSlotData,
+    weapon: WeaponComponent
+  ): void {
+    weapon.width = slot.baseWidth
+    weapon.height = slot.height
+    weapon.baseWidth = slot.baseWidth
+    weapon.blockWidthStart = weapon.baseWidth
+    weapon.blockWidthTarget = weapon.baseWidth
+    weapon.cornerRadius = slot.cornerRadius
+    weapon.weight = slot.weight
+    weapon.weaponType = slot.weaponType
+    weapon.attackDamage = slot.attackDamage
+    weapon.postureDamage = slot.postureDamage
+    weapon.toughnessDamage = slot.toughnessDamage
+  }
+
+  private fillWeaponDropDataFromWeapon(
+    weapon: WeaponComponent,
+    out: WeaponDropData
+  ): void {
+    out.weaponType = weapon.weaponType
+    out.width = weapon.baseWidth
+    out.height = weapon.height
+    out.baseWidth = weapon.baseWidth
+    out.cornerRadius = weapon.cornerRadius
+    out.weight = weapon.weight
+    out.attackDamage = weapon.attackDamage
+    out.postureDamage = weapon.postureDamage
+    out.toughnessDamage = weapon.toughnessDamage
+  }
+
+  private fillWeaponDropDataFromSlot(
+    slot: WeaponSlotData,
+    out: WeaponDropData
+  ): void {
+    out.weaponType = slot.weaponType
+    out.width = slot.baseWidth
+    out.height = slot.height
+    out.baseWidth = slot.baseWidth
+    out.cornerRadius = slot.cornerRadius
+    out.weight = slot.weight
+    out.attackDamage = slot.attackDamage
+    out.postureDamage = slot.postureDamage
+    out.toughnessDamage = slot.toughnessDamage
+  }
+
+  private resetWeaponForSwap(weapon: WeaponComponent): void {
+    weapon.attackPhase = 'idle'
+    weapon.attackElapsedMs = 0
+    weapon.lastAttackTimestamp = 0
+    weapon.attackQueued = false
+    weapon.comboCount = 0
+    weapon.swingDirection = 'toFront'
+    weapon.nextSwingDirection = 'toFront'
+    weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
+    weapon.parryCounterTimerMs = 0
+    weapon.parryCounterActive = false
+    weapon.reboundLockedPause = false
+    weapon.isColliding = false
+    weapon.hitEntityIds.clear()
+    weapon.parryHitWeaponIds.clear()
+    weapon.bowIsDrawing = false
+    weapon.bowDrawElapsedMs = 0
+    weapon.bowDrawRatio = 0
+    weapon.bowForceRatio = 0
+    weapon.bowReleasePending = false
+    weapon.bowReleaseDelayMs = 0
+    weapon.bowReleaseDelayTotalMs = 0
+    weapon.bowRecoverElapsedMs = 0
+  }
+
   tryPickUpWeapon(entity: Entity): void {
     if (!entity.transform || !entity.weapon) return
     if (entity.stats?.isDead) return
+    const weaponSlots = entity.weaponSlots
 
     // 检查是否靠近独立的武器实体
     for (const weaponEntity of this.allEntities) {
       // 独立武器实体：有 weapon 组件但没有 stats 组件
       if (!weaponEntity.weapon || weaponEntity.stats) continue
+      if (weaponEntity.arrow || weaponEntity.weapon.weaponType === 'arrow')
+        continue
       if (weaponEntity.weapon.isEquipped) continue
       if (!weaponEntity.transform) continue
 
@@ -1336,6 +1726,66 @@ export class WeaponSystem extends System {
           continue // 还在冷却期内，跳过
         }
 
+        if (weaponSlots) {
+          const targetSlotId = this.getSlotForWeaponType(
+            weaponEntity.weapon.weaponType
+          )
+          const targetSlot = this.getSlotData(weaponSlots, targetSlotId)
+
+          if (!targetSlot.hasWeapon) {
+            this.copyWeaponToSlot(targetSlot, weaponEntity.weapon)
+            weaponEntity.weapon.isEquipped = true
+
+            if (!entity.weapon.isEquipped) {
+              weaponSlots.activeSlot = targetSlotId
+            }
+
+            if (weaponSlots.activeSlot === targetSlotId) {
+              this.copySlotToWeapon(targetSlot, entity.weapon)
+              entity.weapon.isEquipped = true
+              entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+              entity.weapon.visual.rotation =
+                DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+              this.resetWeaponForSwap(entity.weapon)
+            }
+            return
+          }
+
+          const interacted = entity.input?.inputBuffer.tryExecute(
+            'interact',
+            () => !entity.isStunned(),
+            () => {}
+          )
+
+          if (!interacted) continue
+
+          // 在玩家脚下掉落旧武器
+          const facing = entity.weapon.attackFacing
+          this.fillWeaponDropDataFromSlot(targetSlot, this.tempWeaponDropData)
+          this.dropWeapon(
+            entity.transform.x,
+            entity.transform.y,
+            facing,
+            this.tempWeaponDropData
+          )
+
+          this.copyWeaponToSlot(targetSlot, weaponEntity.weapon)
+          weaponEntity.weapon.isEquipped = true
+
+          if (!entity.weapon.isEquipped) {
+            weaponSlots.activeSlot = targetSlotId
+          }
+
+          if (weaponSlots.activeSlot === targetSlotId) {
+            this.copySlotToWeapon(targetSlot, entity.weapon)
+            entity.weapon.isEquipped = true
+            entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+            entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+            this.resetWeaponForSwap(entity.weapon)
+          }
+          return
+        }
+
         // 如果玩家武器未装备，直接装备并应用属性
         if (!entity.weapon.isEquipped) {
           entity.weapon.width = weaponEntity.weapon.width
@@ -1343,6 +1793,7 @@ export class WeaponSystem extends System {
           entity.weapon.baseWidth = weaponEntity.weapon.baseWidth
           entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
           entity.weapon.weight = weaponEntity.weapon.weight
+          entity.weapon.weaponType = weaponEntity.weapon.weaponType
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
@@ -1367,16 +1818,16 @@ export class WeaponSystem extends System {
 
           // 在玩家脚下掉落旧武器
           const facing = entity.weapon.attackFacing
-          this.dropWeapon(entity.transform.x, entity.transform.y, facing, {
-            width: entity.weapon.width,
-            height: entity.weapon.height,
-            baseWidth: entity.weapon.baseWidth,
-            cornerRadius: entity.weapon.cornerRadius,
-            weight: entity.weapon.weight,
-            attackDamage: entity.weapon.attackDamage,
-            postureDamage: entity.weapon.postureDamage,
-            toughnessDamage: entity.weapon.toughnessDamage,
-          })
+          this.fillWeaponDropDataFromWeapon(
+            entity.weapon,
+            this.tempWeaponDropData
+          )
+          this.dropWeapon(
+            entity.transform.x,
+            entity.transform.y,
+            facing,
+            this.tempWeaponDropData
+          )
 
           // 替换为新武器属性
           entity.weapon.width = weaponEntity.weapon.width
@@ -1384,6 +1835,7 @@ export class WeaponSystem extends System {
           entity.weapon.baseWidth = weaponEntity.weapon.baseWidth
           entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
           entity.weapon.weight = weaponEntity.weapon.weight
+          entity.weapon.weaponType = weaponEntity.weapon.weaponType
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
@@ -1402,16 +1854,53 @@ export class WeaponSystem extends System {
       const distance = Math.hypot(dx, dy)
 
       if (distance <= DEFAULT_WEAPON_PICKUP_DISTANCE) {
+        if (weaponSlots) {
+          const targetSlotId = this.getSlotForWeaponType(
+            entity.weapon.weaponType
+          )
+          const targetSlot = this.getSlotData(weaponSlots, targetSlotId)
+
+          if (!targetSlot.hasWeapon) {
+            this.copyWeaponToSlot(targetSlot, entity.weapon)
+          }
+
+          weaponSlots.activeSlot = targetSlotId
+          this.copySlotToWeapon(targetSlot, entity.weapon)
+        }
+
         entity.weapon.isEquipped = true
         entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
         entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+        this.resetWeaponForSwap(entity.weapon)
       }
     }
+  }
+
+  switchWeaponSlot(entity: Entity, slotId: WeaponSlotId): void {
+    if (!entity.weapon || !entity.weaponSlots) return
+    if (entity.stats?.isDead) return
+
+    const weaponSlots = entity.weaponSlots
+    if (weaponSlots.activeSlot === slotId) return
+
+    const targetSlot = this.getSlotData(weaponSlots, slotId)
+    if (!targetSlot.hasWeapon) return
+
+    const currentSlot = this.getSlotData(weaponSlots, weaponSlots.activeSlot)
+    this.copyWeaponToSlot(currentSlot, entity.weapon)
+
+    weaponSlots.activeSlot = slotId
+    this.copySlotToWeapon(targetSlot, entity.weapon)
+    entity.weapon.isEquipped = true
+    entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    this.resetWeaponForSwap(entity.weapon)
   }
 
   startAttack(entity: Entity): void {
     if (!entity.transform || !entity.input || !entity.weapon) return
     if (!entity.weapon.isEquipped) return
+    if (entity.weapon.weaponType === 'bow') return
     if (entity.stats?.isDead) return
     if (entity.isStunned()) {
       entity.input.inputBuffer.clearAll()
@@ -1563,7 +2052,14 @@ export class WeaponSystem extends System {
     radius: number
   ): void {
     if (!weapon) return
-    this.getFrontTransform(playerPos, facing, weapon.visual, radius)
+    this.getFrontTransform(
+      playerPos,
+      facing,
+      weapon.visual,
+      radius,
+      weapon.weaponType,
+      weapon.width
+    )
     this.getOffsetFromTransform(
       weapon.visual,
       playerPos,
@@ -1587,10 +2083,17 @@ export class WeaponSystem extends System {
     playerPos: { x: number; y: number },
     facing: number,
     out: WeaponTransform,
-    radius: number
+    radius: number,
+    weaponType: WeaponVisualType
   ): void {
     out.x = playerPos.x - facing * (radius + 0.2)
     out.y = playerPos.y
+
+    if (weaponType === 'bow') {
+      out.rotation = facing === 1 ? -Math.PI / 2 : Math.PI / 2
+      return
+    }
+
     out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
@@ -1598,8 +2101,18 @@ export class WeaponSystem extends System {
     playerPos: { x: number; y: number },
     facing: number,
     out: WeaponTransform,
-    radius: number
+    radius: number,
+    weaponType: WeaponVisualType,
+    weaponWidth: number
   ): void {
+    if (weaponType === 'bow') {
+      const offsetX = radius + 0.2
+      out.x = playerPos.x + facing * offsetX
+      out.y = playerPos.y
+      out.rotation = facing === 1 ? Math.PI / 2 : -Math.PI / 2
+      return
+    }
+
     out.x = playerPos.x + facing * 0
     out.y = playerPos.y - DEFAULT_WEAPON_WIDTH / 2
     out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
@@ -1649,7 +2162,14 @@ export class WeaponSystem extends System {
     weapon.hitEntityIds.clear()
 
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    this.getFrontTransform(playerPos, newFacing, weapon.visual, radius)
+    this.getFrontTransform(
+      playerPos,
+      newFacing,
+      weapon.visual,
+      radius,
+      weapon.weaponType,
+      weapon.width
+    )
   }
 
   private resetWeaponState(entity: Entity): void {
@@ -1685,7 +2205,13 @@ export class WeaponSystem extends System {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     this.tempPlayerPos.x = entity.transform.x
     this.tempPlayerPos.y = entity.transform.y
-    this.getBackTransform(this.tempPlayerPos, facing, weapon.visual, radius)
+    this.getBackTransform(
+      this.tempPlayerPos,
+      facing,
+      weapon.visual,
+      radius,
+      weapon.weaponType
+    )
   }
 
   private checkOBBvsAABB(

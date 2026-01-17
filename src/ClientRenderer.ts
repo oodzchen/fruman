@@ -5,6 +5,7 @@ import {
   FLAGS,
   MAX_ENTITIES,
   OFFSETS,
+  WEAPON_TYPES,
 } from './worker/binaryProtocol'
 import {
   EFFECTS_BASE_OFFSET,
@@ -341,6 +342,9 @@ export class ClientRenderer {
     const wRot = buf[offset + OFFSETS.WEAPON_ROT]
     const wWidth = buf[offset + OFFSETS.WEAPON_W] * this.pixelsPerMeter
     const wHeight = buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter
+    const weaponType = buf[offset + OFFSETS.WEAPON_TYPE]
+    const bowDraw = buf[offset + OFFSETS.WEAPON_DRAW]
+    const bowDrawActive = buf[offset + OFFSETS.WEAPON_DRAW_ACTIVE] === 1
 
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
     const isBlocking = !!(flags & FLAGS.WEAPON_BLOCKING)
@@ -350,33 +354,101 @@ export class ClientRenderer {
     this.ctx.translate(wx * this.pixelsPerMeter, wy * this.pixelsPerMeter)
     this.ctx.rotate(wRot)
 
-    this.ctx.beginPath()
-    const halfLen = wWidth / 2
-    const halfThick = wHeight / 2
+    if (weaponType === WEAPON_TYPES.ARROW) {
+      const arrowLen = wWidth
+      const lineWidth = Math.max(1, wHeight * 0.9)
+      const headLen = Math.max(4, wWidth * 0.18)
+      const headWidth = Math.max(4, wHeight * 1.6)
+      const tipY = -arrowLen
 
-    // Draw custom shape: Flat base (left), Round tip (right)
-    // Top-Left
-    this.ctx.moveTo(-halfLen, -halfThick)
-    // Top-Right (start of arc)
-    this.ctx.lineTo(halfLen - halfThick, -halfThick)
-    // Tip Arc (Semicircle at +X end)
-    this.ctx.arc(halfLen - halfThick, 0, halfThick, -Math.PI / 2, Math.PI / 2)
-    // Bottom-Right (end of arc) is implied
-    // Bottom-Left
-    this.ctx.lineTo(-halfLen, halfThick)
-    // Close
-    this.ctx.closePath()
+      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
+      this.ctx.lineWidth = lineWidth
 
-    this.ctx.fillStyle = bodyColor
-    // Border matches body unless attacking
-    /* if (isBlocking) {
-      this.ctx.strokeStyle = '#FFFF00' // Yellow for blocking
-    } else { */
-    this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
-    // }
-    this.ctx.lineWidth = 2
-    this.ctx.fill()
-    this.ctx.stroke()
+      this.ctx.beginPath()
+      this.ctx.moveTo(0, 0)
+      this.ctx.lineTo(0, tipY)
+      this.ctx.stroke()
+
+      this.ctx.beginPath()
+      this.ctx.moveTo(0, tipY)
+      this.ctx.lineTo(-headWidth / 2, tipY + headLen)
+      this.ctx.moveTo(0, tipY)
+      this.ctx.lineTo(headWidth / 2, tipY + headLen)
+      this.ctx.stroke()
+    } else if (weaponType === WEAPON_TYPES.BOW) {
+      const halfLen = wWidth / 2
+      const arcDepth = wHeight * 4
+      const lineWidth = Math.max(1, wHeight * 0.55)
+      const drawRatio = Math.max(0, Math.min(1, bowDraw))
+      const pullOffset = bowDrawActive ? drawRatio * wWidth * 0.25 : 0
+      const stringWidth = Math.max(1, lineWidth * (1 - drawRatio * 0.5))
+
+      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
+      this.ctx.lineWidth = lineWidth
+
+      // Minimal bow: shallow arc + straight string with shared endpoints
+      this.ctx.beginPath()
+      this.ctx.moveTo(-halfLen, 0)
+      this.ctx.quadraticCurveTo(0, -arcDepth, halfLen, 0)
+      this.ctx.stroke()
+
+      this.ctx.beginPath()
+      this.ctx.lineWidth = stringWidth
+      this.ctx.moveTo(-halfLen, 0)
+      if (bowDrawActive) {
+        this.ctx.lineTo(0, pullOffset)
+      }
+      this.ctx.lineTo(halfLen, 0)
+      this.ctx.stroke()
+
+      if (bowDrawActive) {
+        const arrowLen = wWidth * 0.9
+        const arrowHead = Math.max(4, wHeight * 2.2)
+        const arrowHeadWidth = Math.max(4, wHeight * 1.6)
+        const arrowTipY = pullOffset - arrowLen
+
+        this.ctx.lineWidth = Math.max(1, wHeight * 0.7)
+        this.ctx.beginPath()
+        this.ctx.moveTo(0, pullOffset)
+        this.ctx.lineTo(0, arrowTipY)
+        this.ctx.stroke()
+
+        this.ctx.beginPath()
+        this.ctx.moveTo(0, arrowTipY)
+        this.ctx.lineTo(-arrowHeadWidth / 2, arrowTipY + arrowHead)
+        this.ctx.moveTo(0, arrowTipY)
+        this.ctx.lineTo(arrowHeadWidth / 2, arrowTipY + arrowHead)
+        this.ctx.stroke()
+      }
+    } else {
+      this.ctx.beginPath()
+      const halfLen = wWidth / 2
+      const halfThick = wHeight / 2
+
+      // Draw custom shape: Flat base (left), Round tip (right)
+      // Top-Left
+      this.ctx.moveTo(-halfLen, -halfThick)
+      // Top-Right (start of arc)
+      this.ctx.lineTo(halfLen - halfThick, -halfThick)
+      // Tip Arc (Semicircle at +X end)
+      this.ctx.arc(halfLen - halfThick, 0, halfThick, -Math.PI / 2, Math.PI / 2)
+      // Bottom-Right (end of arc) is implied
+      // Bottom-Left
+      this.ctx.lineTo(-halfLen, halfThick)
+      // Close
+      this.ctx.closePath()
+
+      this.ctx.fillStyle = bodyColor
+      // Border matches body unless attacking
+      /* if (isBlocking) {
+        this.ctx.strokeStyle = '#FFFF00' // Yellow for blocking
+      } else { */
+      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
+      // }
+      this.ctx.lineWidth = 2
+      this.ctx.fill()
+      this.ctx.stroke()
+    }
     this.ctx.restore()
   }
 

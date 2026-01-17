@@ -16,6 +16,7 @@ import {
   createPlayer,
   createWeapon,
 } from '../ecs/factories/PlayerFactory'
+import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
@@ -24,12 +25,19 @@ import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
 import type {
   MainModule,
+  WeaponVisualType,
   b2BodyId,
   b2Hull,
   b2Polygon,
   b2ShapeId,
 } from '../types'
-import { ENTITY_STRIDE, FLAGS, MAX_ENTITIES, OFFSETS } from './binaryProtocol'
+import {
+  ENTITY_STRIDE,
+  FLAGS,
+  MAX_ENTITIES,
+  OFFSETS,
+  WEAPON_TYPES,
+} from './binaryProtocol'
 import {
   EFFECTS_BASE_OFFSET,
   EFFECT_OFFSETS,
@@ -59,6 +67,7 @@ let physicsSystem: PhysicsSystem
 let movementSystem: MovementSystem
 let statsSystem: StatsSystem
 let weaponSystem: WeaponSystem
+let arrowSystem: ArrowSystem
 let enemyAISystem: EnemyAISystem
 let targetingSystem: TargetingSystem
 
@@ -101,6 +110,24 @@ function parseColor(color: string): number {
     return val
   }
   return 0
+}
+
+function getWeaponTypeId(weaponType: WeaponVisualType | undefined): number {
+  switch (weaponType) {
+    case 'shortSword':
+      return WEAPON_TYPES.SHORT_SWORD
+    case 'longSword':
+      return WEAPON_TYPES.LONG_SWORD
+    case 'hammer':
+      return WEAPON_TYPES.HAMMER
+    case 'bow':
+      return WEAPON_TYPES.BOW
+    case 'arrow':
+      return WEAPON_TYPES.ARROW
+    case 'sword':
+    default:
+      return WEAPON_TYPES.SWORD
+  }
 }
 
 function queueEffect(
@@ -245,6 +272,8 @@ function registerComponents() {
   componentRegistry.registerComponent('Render')
   componentRegistry.registerComponent('Stats')
   componentRegistry.registerComponent('Weapon')
+  componentRegistry.registerComponent('WeaponSlots')
+  componentRegistry.registerComponent('Arrow')
   componentRegistry.registerComponent('Faction')
   componentRegistry.registerComponent('EnemyAI')
 }
@@ -257,6 +286,7 @@ function initializeSystems() {
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
   weaponSystem = new WeaponSystem(box2d, statsSystem)
+  arrowSystem = new ArrowSystem(box2d, statsSystem)
   enemyAISystem.setWeaponSystem(weaponSystem)
   targetingSystem = new TargetingSystem(box2d, worldId)
 
@@ -269,10 +299,13 @@ function initializeSystems() {
   world.addSystem(movementSystem)
   world.addSystem(physicsSystem)
   world.addSystem(weaponSystem)
+  world.addSystem(arrowSystem)
   world.addSystem(targetingSystem)
 
   weaponSystem.setObstacles(obstacles)
   weaponSystem.setWorld(world, worldId, groundTopY)
+  arrowSystem.setSpatialHash(spatialHash)
+  arrowSystem.setWorld(world)
 }
 
 function createGround(): b2BodyId {
@@ -517,6 +550,8 @@ function createPlayerAndWeapon(groundY: number) {
 
   // 在玩家左侧生成短剑（x=-14，向左走2米）
   createWeapon(world, -14, groundY - 0.6, groundY, 'shortSword')
+  // 在玩家左侧生成弓箭（副武器）
+  createWeapon(world, -16, groundY - 0.6, groundY, 'bow')
 
   // Obstacles are at -9.5, 9.5, 19.5
 
@@ -585,8 +620,15 @@ function handleInput(
     const attackJustPressed =
       (currKeys.has('j') && !prevKeys.has('j')) ||
       (currMouseButtons.has(0) && !prevMouseButtons.has(0))
+    const attackHeld = currKeys.has('j') || currMouseButtons.has(0)
 
-    if (attackJustPressed && !isPlayerDead) {
+    playerEntity.input.attackRequested = attackHeld && !isPlayerDead
+
+    if (
+      attackJustPressed &&
+      !isPlayerDead &&
+      playerEntity.weapon?.weaponType !== 'bow'
+    ) {
       weaponSystem.startAttack(playerEntity)
     }
 
@@ -628,6 +670,14 @@ function handleInput(
 
     if (currKeys.has('e') && !prevKeys.has('e') && !isPlayerDead) {
       playerEntity.input.inputBuffer.bufferAction('interact')
+    }
+
+    if (currKeys.has('1') && !prevKeys.has('1') && !isPlayerDead) {
+      weaponSystem.switchWeaponSlot(playerEntity, 'main')
+    }
+
+    if (currKeys.has('2') && !prevKeys.has('2') && !isPlayerDead) {
+      weaponSystem.switchWeaponSlot(playerEntity, 'secondary')
     }
   }
 
@@ -814,8 +864,18 @@ function sendState() {
       stateBuffer[offset + OFFSETS.WEAPON_W] = e.weapon.width
       stateBuffer[offset + OFFSETS.WEAPON_H] = e.weapon.height
       stateBuffer[offset + OFFSETS.WEAPON_R] = e.weapon.cornerRadius
+      stateBuffer[offset + OFFSETS.WEAPON_DRAW] = e.weapon.bowDrawRatio
+      stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] = e.weapon.bowIsDrawing
+        ? 1
+        : 0
+      stateBuffer[offset + OFFSETS.WEAPON_TYPE] = getWeaponTypeId(
+        e.weapon.weaponType
+      )
     } else {
       stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_DRAW] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_TYPE] = WEAPON_TYPES.SWORD
     }
 
     count++

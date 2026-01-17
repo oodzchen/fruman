@@ -5,6 +5,7 @@ import {
   DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_ENEMY_ATTACK_DESIRE,
   DEFAULT_ENEMY_MOVE_SPEED,
+  DEFAULT_GRAVITY,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_POSTURE,
   DEFAULT_PLAYER_MAX_TOUGHNESS,
@@ -19,7 +20,7 @@ import {
   ENEMY_PACE_SWITCH_INTERVAL_MS,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../constants'
-import type { EnemyType, b2BodyId, b2ShapeId } from '../types'
+import type { EnemyType, WeaponVisualType, b2BodyId, b2ShapeId } from '../types'
 import { componentRegistry } from './ComponentRegistry'
 
 export abstract class Component {
@@ -172,6 +173,32 @@ export type WeaponRelativeTransform = {
   dy: number
   rotation: number
 }
+export type WeaponSlotId = 'main' | 'secondary'
+export type WeaponSlotData = {
+  hasWeapon: boolean
+  weaponType: WeaponVisualType
+  width: number
+  height: number
+  baseWidth: number
+  cornerRadius: number
+  weight: number
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
+}
+
+const createWeaponSlotData = (): WeaponSlotData => ({
+  hasWeapon: false,
+  weaponType: 'sword',
+  width: 0,
+  height: 0,
+  baseWidth: 0,
+  cornerRadius: 0,
+  weight: 0,
+  attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE,
+  postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE,
+  toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+})
 
 export class WeaponComponent extends Component {
   width = 0
@@ -181,6 +208,7 @@ export class WeaponComponent extends Component {
   blockWidthTarget = 0
   cornerRadius = 0
   weight = 0
+  weaponType: WeaponVisualType = 'sword'
   attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
@@ -234,6 +262,15 @@ export class WeaponComponent extends Component {
   parryCounterTimerMs = 0
   parryCounterActive = false
 
+  bowIsDrawing = false
+  bowDrawElapsedMs = 0
+  bowDrawRatio = 0
+  bowForceRatio = 0
+  bowReleasePending = false
+  bowReleaseDelayMs = 0
+  bowReleaseDelayTotalMs = 0
+  bowRecoverElapsedMs = 0
+
   isDropping = false
   isDropped = false
   isRecovering = false
@@ -247,6 +284,16 @@ export class WeaponComponent extends Component {
 
   getName(): string {
     return 'Weapon'
+  }
+}
+
+export class WeaponSlotsComponent extends Component {
+  main = createWeaponSlotData()
+  secondary = createWeaponSlotData()
+  activeSlot: WeaponSlotId = 'main'
+
+  getName(): string {
+    return 'WeaponSlots'
   }
 }
 
@@ -271,6 +318,21 @@ export class FactionComponent extends Component {
       return false
     }
     return this.faction !== other.faction
+  }
+}
+
+export class ArrowComponent extends Component {
+  ownerId = 0
+  faction: Faction = Faction.Player
+  velocityX = 0
+  velocityY = 0
+  gravity = DEFAULT_GRAVITY
+  hitRadius = 0.12
+  elapsedMs = 0
+  lifetimeMs = 2500
+
+  getName(): string {
+    return 'Arrow'
   }
 }
 

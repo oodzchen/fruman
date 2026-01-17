@@ -1,5 +1,6 @@
 import type { Component } from './Component'
 import {
+  ArrowComponent,
   EnemyAIComponent,
   FactionComponent,
   InputComponent,
@@ -10,6 +11,7 @@ import {
   StatsComponent,
   TransformComponent,
   WeaponComponent,
+  WeaponSlotsComponent,
 } from './Component'
 
 let nextEntityId = 1
@@ -26,6 +28,8 @@ export class Entity {
   render?: RenderComponent
   stats?: StatsComponent
   weapon?: WeaponComponent
+  weaponSlots?: WeaponSlotsComponent
+  arrow?: ArrowComponent
   faction?: FactionComponent
   enemyAI?: EnemyAIComponent
   sensor?: SensorComponent
@@ -100,6 +104,8 @@ export class Entity {
     this.render = undefined
     this.stats = undefined
     this.weapon = undefined
+    this.weaponSlots = undefined
+    this.arrow = undefined
     this.faction = undefined
     this.enemyAI = undefined
     this.sensor = undefined
@@ -127,6 +133,12 @@ export class Entity {
         break
       case 'Weapon':
         this.weapon = component as WeaponComponent
+        break
+      case 'WeaponSlots':
+        this.weaponSlots = component as WeaponSlotsComponent
+        break
+      case 'Arrow':
+        this.arrow = component as ArrowComponent
         break
       case 'EnemyAI':
         this.enemyAI = component as EnemyAIComponent
@@ -162,6 +174,12 @@ export class Entity {
         break
       case 'Weapon':
         this.weapon = undefined
+        break
+      case 'WeaponSlots':
+        this.weaponSlots = undefined
+        break
+      case 'Arrow':
+        this.arrow = undefined
         break
       case 'EnemyAI':
         this.enemyAI = undefined

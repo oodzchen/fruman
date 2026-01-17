@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 26
+export const ENTITY_STRIDE = 29
 
 export const OFFSETS = {
   ID: 0,
@@ -25,8 +25,11 @@ export const OFFSETS = {
   WEAPON_W: 21,
   WEAPON_H: 22,
   WEAPON_R: 23,
-  ROLL_ANGLE: 24,
-  LOCKED_TARGET_ID: 25,
+  WEAPON_TYPE: 24,
+  WEAPON_DRAW: 25,
+  WEAPON_DRAW_ACTIVE: 26,
+  ROLL_ANGLE: 27,
+  LOCKED_TARGET_ID: 28,
 }
 
 export const FLAGS = {
@@ -40,5 +43,14 @@ export const FLAGS = {
   IN_COMBAT: 128,
   WEAPON_BLOCKING: 256,
 }
+
+export const WEAPON_TYPES = {
+  SWORD: 0,
+  SHORT_SWORD: 1,
+  LONG_SWORD: 2,
+  HAMMER: 3,
+  BOW: 4,
+  ARROW: 5,
+} as const
 
 export const MAX_ENTITIES = 2000
