@@ -29,6 +29,7 @@ import { Faction, PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
+import type { WeaponSystem } from './WeaponSystem'
 
 export type EffectsEmitter = {
   emitSpark: (x: number, y: number) => void
@@ -43,6 +44,7 @@ export class StatsSystem extends System {
   private tempVec?: InstanceType<MainModule['b2Vec2']>
   private currentDeltaTime = 0
   private effectsEmitter?: EffectsEmitter
+  private weaponSystem?: WeaponSystem
   private bloodEffectsEnabled = false
   private colorCache = new Map<string, number>()
 
@@ -228,6 +230,10 @@ export class StatsSystem extends System {
 
   setEffectsEmitter(emitter: EffectsEmitter | null): void {
     this.effectsEmitter = emitter ?? undefined
+  }
+
+  setWeaponSystem(weaponSystem: WeaponSystem | null): void {
+    this.weaponSystem = weaponSystem ?? undefined
   }
 
   setBloodEffectsEnabled(enabled: boolean): void {
@@ -632,6 +638,7 @@ export class StatsSystem extends System {
         return
       }
 
+      this.dropWeaponsOnDeath(entity)
       entity.stats.isDead = true
       entity.stats.isVanished = false
       entity.stats.deathElapsedSec = 0
@@ -684,6 +691,11 @@ export class StatsSystem extends System {
     if (!entity.physics) {
       this.recreatePhysics(entity)
     }
+  }
+
+  private dropWeaponsOnDeath(entity: Entity): void {
+    if (!this.weaponSystem) return
+    this.weaponSystem.dropWeaponsOnDeath(entity)
   }
 
   private stabilizeBody(entity: Entity): void {

@@ -2144,6 +2144,65 @@ export class WeaponSystem extends System {
     }
   }
 
+  dropWeaponsOnDeath(entity: Entity): void {
+    if (!entity.transform) return
+
+    const transform = entity.transform
+    const weaponSlots = entity.weaponSlots
+    const weapon = entity.weapon
+    let facing =
+      weapon?.attackFacing ??
+      entity.input?.lastMoveDirection ??
+      entity.enemyAI?.lastFacing ??
+      1
+    if (facing === 0) {
+      facing = 1
+    }
+
+    const dropOffset = 0.35
+    const dropFromSlot = (
+      slot: WeaponSlotData,
+      dropFacing: number,
+      offsetX: number
+    ) => {
+      if (!slot.hasWeapon) return
+      this.fillWeaponDropDataFromSlot(slot, this.tempWeaponDropData)
+      this.dropWeapon(
+        transform.x + offsetX,
+        transform.y,
+        dropFacing,
+        this.tempWeaponDropData
+      )
+      slot.hasWeapon = false
+    }
+
+    if (
+      weaponSlots &&
+      (weaponSlots.main.hasWeapon || weaponSlots.secondary.hasWeapon)
+    ) {
+      const hasMain = weaponSlots.main.hasWeapon
+      const hasSecondary = weaponSlots.secondary.hasWeapon
+      if (hasMain && hasSecondary) {
+        dropFromSlot(weaponSlots.main, facing, facing * dropOffset)
+        dropFromSlot(weaponSlots.secondary, -facing, -facing * dropOffset)
+      } else if (hasMain) {
+        dropFromSlot(weaponSlots.main, facing, 0)
+      } else {
+        dropFromSlot(weaponSlots.secondary, facing, 0)
+      }
+      if (weapon) {
+        weapon.isEquipped = false
+      }
+      return
+    }
+
+    if (weapon && weapon.isEquipped) {
+      this.fillWeaponDropDataFromWeapon(weapon, this.tempWeaponDropData)
+      this.dropWeapon(transform.x, transform.y, facing, this.tempWeaponDropData)
+      weapon.isEquipped = false
+    }
+  }
+
   switchWeaponSlot(entity: Entity, slotId: WeaponSlotId): void {
     if (!entity.weapon || !entity.weaponSlots) return
     if (entity.stats?.isDead) return

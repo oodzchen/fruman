@@ -288,6 +288,7 @@ function initializeSystems() {
   movementSystem = new MovementSystem(box2d)
   weaponSystem = new WeaponSystem(box2d, statsSystem)
   arrowSystem = new ArrowSystem(box2d, statsSystem)
+  statsSystem.setWeaponSystem(weaponSystem)
   enemyAISystem.setWeaponSystem(weaponSystem)
   targetingSystem = new TargetingSystem(box2d, worldId)
 
