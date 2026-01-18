@@ -1460,26 +1460,40 @@ export class WeaponSystem extends System {
     if (freeAimActive) {
       entity.input.lockedTargetId = null
       entity.input.lockLostTimer = 0
-      const adjust =
-        entity.input.freeAimAdjust * (weapon.attackFacing >= 0 ? 1 : -1)
-      if (adjust !== 0) {
-        weapon.bowFreeAimAngle +=
-          adjust * BOW_FREE_AIM_TURN_SPEED * (deltaMs / 1000)
-      }
-      const centerAngle = facing === 1 ? 0 : Math.PI
-      const minAngle = centerAngle - BOW_FREE_AIM_MAX_OFFSET
-      const maxAngle = centerAngle + BOW_FREE_AIM_MAX_OFFSET
-      if (weapon.bowFreeAimAngle < minAngle) {
-        weapon.bowFreeAimAngle = minAngle
-      } else if (weapon.bowFreeAimAngle > maxAngle) {
-        weapon.bowFreeAimAngle = maxAngle
-      }
+      const useMouseAim = entity.input.mouseAimActive
+      let reticleAngle = weapon.bowFreeAimAngle
+      let reticleX = 0
+      let reticleY = 0
+      if (useMouseAim) {
+        reticleX = entity.input.mouseAimX
+        reticleY = entity.input.mouseAimY
+        reticleAngle = Math.atan2(
+          reticleY - playerPos.y,
+          reticleX - playerPos.x
+        )
+        weapon.bowFreeAimAngle = reticleAngle
+      } else {
+        const adjust =
+          entity.input.freeAimAdjust * (weapon.attackFacing >= 0 ? 1 : -1)
+        if (adjust !== 0) {
+          weapon.bowFreeAimAngle +=
+            adjust * BOW_FREE_AIM_TURN_SPEED * (deltaMs / 1000)
+        }
+        const centerAngle = facing === 1 ? 0 : Math.PI
+        const minAngle = centerAngle - BOW_FREE_AIM_MAX_OFFSET
+        const maxAngle = centerAngle + BOW_FREE_AIM_MAX_OFFSET
+        if (weapon.bowFreeAimAngle < minAngle) {
+          weapon.bowFreeAimAngle = minAngle
+        } else if (weapon.bowFreeAimAngle > maxAngle) {
+          weapon.bowFreeAimAngle = maxAngle
+        }
 
-      const reticleRange =
-        Math.max(this.viewportWidth, this.viewportHeight) * 0.5
-      const reticleAngle = weapon.bowFreeAimAngle
-      const reticleX = playerPos.x + Math.cos(reticleAngle) * reticleRange
-      const reticleY = playerPos.y + Math.sin(reticleAngle) * reticleRange
+        const reticleRange =
+          Math.max(this.viewportWidth, this.viewportHeight) * 0.5
+        reticleAngle = weapon.bowFreeAimAngle
+        reticleX = playerPos.x + Math.cos(reticleAngle) * reticleRange
+        reticleY = playerPos.y + Math.sin(reticleAngle) * reticleRange
+      }
       weapon.bowFreeAimReticleX = reticleX
       weapon.bowFreeAimReticleY = reticleY
       entity.input.facingOverride = Math.cos(reticleAngle) >= 0 ? 1 : -1

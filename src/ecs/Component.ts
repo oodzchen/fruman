@@ -113,6 +113,9 @@ export class InputComponent extends Component {
   freeAimToggleRequested = false
   freeAimAdjust = 0
   moveSpeedScale = 1
+  mouseAimActive = false
+  mouseAimX = 0
+  mouseAimY = 0
 
   lastMoveDirection = 0
   facingOverride: number | null = null

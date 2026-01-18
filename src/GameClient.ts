@@ -31,6 +31,10 @@ export class GameClient {
   private mouseButtonsArray: number[] = []
   private targetZoom = 1.0
   private renderZoom = 1.0
+  private mouseX = 0
+  private mouseY = 0
+  private mouseCaptured = false
+  private mouseInside = false
 
   // Reusable message object for input
   private inputMessage: WorkerInputMessage = {
@@ -38,6 +42,9 @@ export class GameClient {
     keys: [],
     mouseButtons: [],
     mouseZoom: 1.0,
+    mouseX: 0,
+    mouseY: 0,
+    mouseCaptured: false,
   }
 
   // Cached bound functions
@@ -218,6 +225,40 @@ export class GameClient {
       this.sendInput()
     })
 
+    this.canvas.addEventListener('mouseenter', () => {
+      this.mouseInside = true
+      this.mouseCaptured = true
+      this.sendInput()
+    })
+
+    this.canvas.addEventListener('mouseleave', () => {
+      this.mouseInside = false
+      this.mouseCaptured = false
+      this.sendInput()
+    })
+
+    document.addEventListener('pointerlockchange', () => {
+      const isLocked = document.pointerLockElement === this.canvas
+      this.mouseCaptured = isLocked || this.mouseInside
+      this.sendInput()
+    })
+
+    this.canvas.addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement === this.canvas) {
+        this.mouseX += e.movementX
+        this.mouseY += e.movementY
+        if (this.mouseX < 0) this.mouseX = 0
+        if (this.mouseY < 0) this.mouseY = 0
+        if (this.mouseX > this.canvas.width) this.mouseX = this.canvas.width
+        if (this.mouseY > this.canvas.height) this.mouseY = this.canvas.height
+      } else {
+        this.mouseX = e.offsetX
+        this.mouseY = e.offsetY
+      }
+      this.mouseCaptured = true
+      this.sendInput()
+    })
+
     // Prevent context menu on right click to allow for blocking
     window.addEventListener('contextmenu', (e) => {
       e.preventDefault()
@@ -249,6 +290,9 @@ export class GameClient {
     this.inputMessage.keys = this.keysArray
     this.inputMessage.mouseButtons = this.mouseButtonsArray
     this.inputMessage.mouseZoom = this.targetZoom
+    this.inputMessage.mouseX = this.mouseX
+    this.inputMessage.mouseY = this.mouseY
+    this.inputMessage.mouseCaptured = this.mouseCaptured
     this.worker.postMessage(this.inputMessage)
   }
 

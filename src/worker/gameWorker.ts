@@ -585,7 +585,10 @@ function createPlayerAndWeapon(groundY: number) {
 function handleInput(
   activeKeys: string[],
   activeMouseButtons: number[],
-  mouseZoomTarget: number
+  mouseZoomTarget: number,
+  mouseX: number,
+  mouseY: number,
+  mouseCaptured: boolean
 ) {
   const temp = prevKeys
   prevKeys = currKeys
@@ -640,15 +643,21 @@ function handleInput(
       weaponSystem.startAttack(playerEntity)
     }
 
-    // Right click or K for block
+    const rightClickJustPressed =
+      currMouseButtons.has(2) && !prevMouseButtons.has(2)
     const freeAimToggleJustPressed = currKeys.has('k') && !prevKeys.has('k')
     playerEntity.input.freeAimToggleRequested = false
-    if (freeAimToggleJustPressed && !isPlayerDead && isBowEquipped) {
+    if (
+      !isPlayerDead &&
+      isBowEquipped &&
+      (rightClickJustPressed || freeAimToggleJustPressed)
+    ) {
       playerEntity.input.freeAimToggleRequested = true
     }
 
     const blockPressed =
-      currMouseButtons.has(2) || (currKeys.has('k') && !isBowEquipped)
+      (currMouseButtons.has(2) && !isBowEquipped) ||
+      (currKeys.has('k') && !isBowEquipped)
     if (blockPressed && !isPlayerDead) {
       playerEntity.input.blockRequested = true
     } else {
@@ -719,6 +728,20 @@ function handleInput(
     playerEntity.input.moveSpeedScale = playerEntity.weapon?.bowFreeAim
       ? 0.5
       : 1
+
+    playerEntity.input.mouseAimActive = mouseCaptured
+    if (mouseCaptured) {
+      const anchorX = canvasWidth * 0.5
+      const anchorY = canvasHeight
+      const invZoom = 1 / zoom
+      const camPxX = camera.x * pixelsPerMeter
+      const camPxY = camera.y * pixelsPerMeter
+      const worldPxX = (mouseX - anchorX) * invZoom + anchorX + camPxX
+      const worldPxY = (mouseY - anchorY) * invZoom + anchorY + camPxY
+      const invPixelsPerMeter = 1 / pixelsPerMeter
+      playerEntity.input.mouseAimX = worldPxX * invPixelsPerMeter
+      playerEntity.input.mouseAimY = worldPxY * invPixelsPerMeter
+    }
   }
 
   targetZoom = mouseZoomTarget
@@ -1038,7 +1061,14 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       break
     case 'input':
       if (world && playerEntity && 'mouseButtons' in msg) {
-        handleInput(msg.keys, msg.mouseButtons, msg.mouseZoom)
+        handleInput(
+          msg.keys,
+          msg.mouseButtons,
+          msg.mouseZoom,
+          msg.mouseX,
+          msg.mouseY,
+          msg.mouseCaptured
+        )
       }
       break
     case 'buffer_release':

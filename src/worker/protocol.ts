@@ -52,6 +52,9 @@ export type WorkerInputMessage = {
   keys: string[] // Active keys
   mouseButtons: number[] // Active mouse buttons (0=Left, 2=Right)
   mouseZoom: number // Target zoom
+  mouseX: number
+  mouseY: number
+  mouseCaptured: boolean
 }
 
 export type WorkerBufferReleaseMessage = {
