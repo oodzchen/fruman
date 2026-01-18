@@ -11,17 +11,7 @@ import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 
-const RAY_ANGLE_OFFSETS = [
-  (-80 * Math.PI) / 180,
-  (-60 * Math.PI) / 180,
-  (-40 * Math.PI) / 180,
-  (-20 * Math.PI) / 180,
-  0,
-  (20 * Math.PI) / 180,
-  (40 * Math.PI) / 180,
-  (60 * Math.PI) / 180,
-  (80 * Math.PI) / 180,
-]
+const VERTEX_OFFSETS = [-1, -1, 1, -1, 1, 1, -1, 1]
 
 type ShapeIdKeySource = {
   index?: number
@@ -37,8 +27,8 @@ export class TargetingSystem extends System {
   private shapeMap = new Map<number, Entity>()
   private player?: Entity
   private shapeMapDirty = true
-  private lastShapeMapRebuild = 0
   private shapeMapRebuildInterval = 1000
+  private shapeMapRebuildTimerMs = 0
   private rayStart: InstanceType<MainModule['b2Vec2']>
   private rayTranslation: InstanceType<MainModule['b2Vec2']>
   private rayFilter: ReturnType<MainModule['b2DefaultQueryFilter']>
@@ -70,17 +60,18 @@ export class TargetingSystem extends System {
     this.entityLookup = lookup
   }
 
-  update(entities: Entity[], _deltaTime: number): void {
-    const now = Date.now()
+  update(entities: Entity[], deltaTime: number): void {
+    const deltaMs = deltaTime > 0 ? deltaTime * 1000 : 0
+    this.shapeMapRebuildTimerMs += deltaMs
 
     // 1. 只在必要时重建 Shape ID 映射表
     if (
       this.shapeMapDirty ||
-      now - this.lastShapeMapRebuild > this.shapeMapRebuildInterval
+      this.shapeMapRebuildTimerMs >= this.shapeMapRebuildInterval
     ) {
       this.rebuildShapeMap(entities)
       this.shapeMapDirty = false
-      this.lastShapeMapRebuild = now
+      this.shapeMapRebuildTimerMs = 0
     }
 
     // 2. 更新所有带有传感器的实体
@@ -89,24 +80,26 @@ export class TargetingSystem extends System {
       if (entity.stats?.isDead || entity.stats?.isVanished) continue
 
       // 频率限制
-      if (
-        now - entity.sensor.lastScanTimestamp <
-        entity.sensor.scanIntervalMs
-      ) {
+      entity.sensor.scanElapsedMs += deltaMs
+      if (entity.sensor.scanElapsedMs < entity.sensor.scanIntervalMs) {
         continue
       }
-      entity.sensor.lastScanTimestamp = now
+      entity.sensor.scanElapsedMs = 0
 
-      this.updateSensor(entity)
+      this.updateSensor(entity, entities)
     }
 
     // 3. 处理玩家锁定逻辑
     if (this.player) {
-      this.handlePlayerLock(this.player, entities)
+      this.handlePlayerLock(this.player, entities, deltaMs)
     }
   }
 
-  private handlePlayerLock(player: Entity, entities: Entity[]): void {
+  private handlePlayerLock(
+    player: Entity,
+    entities: Entity[],
+    deltaMs: number
+  ): void {
     if (!player.input || !player.transform) return
     const input = player.input
     if (player.weapon?.bowFreeAim) {
@@ -199,15 +192,8 @@ export class TargetingSystem extends System {
           if (this.hasLineOfSight(player, target)) {
             input.lockLostTimer = 0
           } else {
-            // Using 16ms approx for delta since update doesn't pass it here explicitly,
-            // but we can rely on update frequency.
-            // Better: TargetingSystem update has deltaTime.
-            // Let's assume ~16ms per frame or use a fixed step.
-            // Since we don't have exact delta here easily without passing it down,
-            // we will use a small constant assuming 60fps, or better, pass delta.
-            // Actually `update` has `_deltaTime`.
-            // I'll update the signature of `handlePlayerLock` to accept `deltaTime`.
-            input.lockLostTimer += 16 // Approx 1 frame
+            const lockDeltaMs = deltaMs > 0 ? deltaMs : 0
+            input.lockLostTimer += lockDeltaMs
             if (input.lockLostTimer > 3000) {
               input.lockedTargetId = null
               input.lockLostTimer = 0
@@ -320,11 +306,12 @@ export class TargetingSystem extends System {
     return (index << 16) | (world0 << 8) | revision
   }
 
-  private updateSensor(entity: Entity): void {
+  private updateSensor(entity: Entity, entities: Entity[]): void {
     if (!entity.transform || !entity.sensor) return
 
     const { radius } = entity.sensor
     const { x, y } = entity.transform
+    const radiusSq = radius * radius
 
     let facingDir = 1
     if (entity.input) {
@@ -340,8 +327,9 @@ export class TargetingSystem extends System {
       facingDir = entity.weapon.attackFacing
     }
 
-    // Default to right if facingDir is >= 0. Left if < 0.
-    const baseAngle = facingDir >= 0 ? 0 : Math.PI
+    const forwardX = facingDir >= 0 ? 1 : -1
+    const forwardY = 0
+    const halfFovCos = Math.cos(entity.sensor.fov * 0.5)
 
     // Ray starts from eye position (offset from entity center)
     const entityRadius = entity.render?.radius || 0.5
@@ -350,10 +338,10 @@ export class TargetingSystem extends System {
     const startX = x + eyeOffsetX
     const startY = y + eyeOffsetY
 
-    // Fixed angles: Up-Forward (-45deg), Forward (0), Down-Forward (+45deg)
     const scanResults = entity.sensor.scanResults
     let detectedHostileId: number | null = null
     let closestDistSq = Infinity
+    let scanIndex = 0
 
     const { b2World_CastRayClosest } = this.box2d
     const startVec = this.rayStart
@@ -371,66 +359,100 @@ export class TargetingSystem extends System {
     }
     filter.maskBits = mask
 
-    for (let i = 0; i < RAY_ANGLE_OFFSETS.length; i++) {
-      const rayAngle = baseAngle + RAY_ANGLE_OFFSETS[i]
-      const dx = Math.cos(rayAngle) * radius
-      const dy = Math.sin(rayAngle) * radius
-      const endX = startX + dx
-      const endY = startY + dy
-      translationVec.Set(dx, dy)
+    for (const target of entities) {
+      if (target.id === entity.id) continue
+      if (!target.transform) continue
+      if (!entity.faction || !target.faction) continue
+      if (!entity.faction.canAttack(target.faction)) continue
+      if (target.stats?.isDead || target.stats?.isVanished) continue
 
-      const output = b2World_CastRayClosest(
-        this.worldId,
-        startVec,
-        translationVec,
-        filter
-      )
+      const centerDx = target.transform.x - startX
+      const centerDy = target.transform.y - startY
+      const centerDistSq = centerDx * centerDx + centerDy * centerDy
+      if (centerDistSq > radiusSq) continue
 
-      const hit = output.hit
-      let hitEntityId: number | undefined
-      let isHostile = false
+      const targetRadius = target.render?.radius || 0.5
+      for (let i = 0; i < VERTEX_OFFSETS.length; i += 2) {
+        const vertexX = target.transform.x + VERTEX_OFFSETS[i] * targetRadius
+        const vertexY =
+          target.transform.y + VERTEX_OFFSETS[i + 1] * targetRadius
+        const dx = vertexX - startX
+        const dy = vertexY - startY
+        const distSq = dx * dx + dy * dy
+        if (distSq > radiusSq) continue
+        if (distSq === 0) continue
+        const dist = Math.sqrt(distSq)
+        const dot = (dx * forwardX + dy * forwardY) / dist
+        if (dot < halfFovCos) continue
 
-      if (hit) {
-        const shapeKey = this.getShapeKey(output.shapeId)
-        const hitEntity = this.shapeMap.get(shapeKey)
+        translationVec.Set(dx, dy)
+        const output = b2World_CastRayClosest(
+          this.worldId,
+          startVec,
+          translationVec,
+          filter
+        )
 
-        if (hitEntity) {
-          hitEntityId = hitEntity.id
+        const hit = output.hit
+        let hitEntityId: number | undefined
+        let isHostile = false
 
-          // Check for hostile
-          if (
-            entity.faction &&
-            hitEntity.faction &&
-            entity.faction.canAttack(hitEntity.faction) &&
-            !hitEntity.stats?.isDead &&
-            !hitEntity.stats?.isVanished
-          ) {
-            isHostile = true
-            const distSq =
-              (output.point.x - startX) ** 2 + (output.point.y - startY) ** 2
-            if (distSq < closestDistSq) {
-              closestDistSq = distSq
-              detectedHostileId = hitEntityId
+        if (hit) {
+          const shapeKey = this.getShapeKey(output.shapeId)
+          const hitEntity = this.shapeMap.get(shapeKey)
+
+          if (hitEntity) {
+            hitEntityId = hitEntity.id
+            if (
+              entity.faction &&
+              hitEntity.faction &&
+              entity.faction.canAttack(hitEntity.faction) &&
+              !hitEntity.stats?.isDead &&
+              !hitEntity.stats?.isVanished
+            ) {
+              isHostile = true
+              const hitDx = output.point.x - startX
+              const hitDy = output.point.y - startY
+              const hitDistSq = hitDx * hitDx + hitDy * hitDy
+              if (hitDistSq < closestDistSq) {
+                closestDistSq = hitDistSq
+                detectedHostileId = hitEntityId
+              }
             }
           }
         }
-      }
 
+        if (scanIndex < scanResults.length) {
+          const result = scanResults[scanIndex]
+          result.start.x = startX
+          result.start.y = startY
+          result.end.x = startX + dx
+          result.end.y = startY + dy
+          result.hit = hit
+          result.hitEntityId = hitEntityId
+          result.isHostile = isHostile
+          if (hit) {
+            const hitPoint = result.hitPoint
+            if (hitPoint) {
+              hitPoint.x = output.point.x
+              hitPoint.y = output.point.y
+            }
+          }
+        }
+        scanIndex++
+      }
+    }
+
+    const maxResults = scanResults.length
+    for (let i = scanIndex; i < maxResults; i++) {
       const result = scanResults[i]
       result.start.x = startX
       result.start.y = startY
-      result.end.x = endX
-      result.end.y = endY
-      result.hit = hit
-      result.hitEntityId = hitEntityId
-      result.isHostile = isHostile
-      if (hit) {
-        const hitPoint = result.hitPoint
-        if (hitPoint) {
-          hitPoint.x = output.point.x
-          hitPoint.y = output.point.y
-        }
-      }
+      result.end.x = startX
+      result.end.y = startY
+      result.hit = false
+      result.hitEntityId = undefined
+      result.isHostile = false
     }
 
     if (detectedHostileId !== null) {

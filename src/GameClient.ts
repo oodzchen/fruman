@@ -3,7 +3,6 @@ import { ClientRenderer } from './ClientRenderer'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   MainToWorkerMessage,
-  SensorDebugData,
   WorkerInputMessage,
   WorkerToMainMessage,
 } from './worker/protocol'
@@ -22,7 +21,6 @@ export class GameClient {
   private lastTime = 0
   private frameCount = 0
   private fpsUpdateTime = 0
-  private sensorDebugData: SensorDebugData[] = []
 
   // Input State
   private keys = new Set<string>()
@@ -154,8 +152,6 @@ export class GameClient {
       this.renderZoom = msg.zoom
       this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
       this.releaseStateBuffer(msg.entitiesBuffer)
-    } else if (msg.type === 'debug') {
-      this.sensorDebugData = msg.sensors
     }
   }
 
@@ -354,9 +350,6 @@ export class GameClient {
     // Renderer now handles data internally via binary buffer
     this.renderer.render()
 
-    // 绘制sensor调试信息
-    // this.renderSensorDebug() // 调试用：启用此行可绘制sensor射线（需同时启用gameWorker.ts中的_sendDebugData()）
-
     this.ctx.restore()
 
     // Draw FPS
@@ -373,78 +366,6 @@ export class GameClient {
 
     // Draw Player UI (Health/Posture)
     this.renderer.renderPlayerUI()
-  }
-
-  private renderSensorDebug() {
-    if (this.sensorDebugData.length === 0) return
-
-    this.ctx.save()
-
-    for (const sensor of this.sensorDebugData) {
-      const { x, y, radius, rays } = sensor
-
-      // 绘制检测范围圆圈
-      this.ctx.beginPath()
-      this.ctx.arc(
-        x * this.pixelsPerMeter,
-        y * this.pixelsPerMeter,
-        radius * this.pixelsPerMeter,
-        0,
-        Math.PI * 2
-      )
-      this.ctx.strokeStyle = 'rgba(255, 255, 0, 0.3)'
-      this.ctx.lineWidth = 1
-      this.ctx.stroke()
-
-      // 绘制射线
-      for (const ray of rays) {
-        const { startX, startY, endX, endY, hit, hitX, hitY, isHostile } = ray
-
-        this.ctx.beginPath()
-        this.ctx.moveTo(
-          startX * this.pixelsPerMeter,
-          startY * this.pixelsPerMeter
-        )
-
-        if (hit && hitX !== undefined && hitY !== undefined) {
-          // 如果击中，绘制到击中点
-          this.ctx.lineTo(
-            hitX * this.pixelsPerMeter,
-            hitY * this.pixelsPerMeter
-          )
-
-          // 根据是否敌对设置颜色
-          if (isHostile) {
-            this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)' // 红色：检测到敌人
-          } else {
-            this.ctx.strokeStyle = 'rgba(100, 100, 255, 0.4)' // 蓝色：击中墙壁
-          }
-
-          // 绘制击中点
-          this.ctx.fillStyle = isHostile
-            ? 'rgba(255, 0, 0, 0.8)'
-            : 'rgba(100, 100, 255, 0.6)'
-          this.ctx.fillRect(
-            hitX * this.pixelsPerMeter - 2,
-            hitY * this.pixelsPerMeter - 2,
-            4,
-            4
-          )
-        } else {
-          // 未击中，绘制完整射线
-          this.ctx.lineTo(
-            endX * this.pixelsPerMeter,
-            endY * this.pixelsPerMeter
-          )
-          this.ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)' // 绿色：无阻挡
-        }
-
-        this.ctx.lineWidth = 1
-        this.ctx.stroke()
-      }
-    }
-
-    this.ctx.restore()
   }
 
   // Copied from GameECS

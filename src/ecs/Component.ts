@@ -455,7 +455,7 @@ export class SensorComponent extends Component {
   fov = (160 * Math.PI) / 180 // +/- 80 degrees
   rayCount = DEFAULT_SENSOR_RAY_COUNT
   scanResults: RayCastResult[] = createRayCastResults(DEFAULT_SENSOR_RAY_COUNT)
-  lastScanTimestamp = 0
+  scanElapsedMs = 0
   scanIntervalMs = 100
   detectedTargetId: number | null = null
 
