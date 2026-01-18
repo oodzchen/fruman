@@ -222,6 +222,33 @@ export const ENEMY_TEMPLATES = {
   },
 } as const
 
+export const ENEMY_SPAWNS = {
+  default: {
+    type: 'default',
+    x: 0,
+    yOffset: -0.6,
+  },
+  large: {
+    type: 'large',
+    x: 14.5,
+    yOffset: -0.6,
+  },
+  fast: {
+    type: 'fast',
+    x: 24,
+    yOffset: -0.6,
+  },
+} as const
+
+export const ARCHER_SPAWN_CONFIG = {
+  type: 'archer',
+  obstacleX: -9.5,
+  obstacleHalfWidth: 1.2,
+  obstacleHalfHeight: 2.8,
+  edgeOffset: 0.6,
+  yOffsetFromTop: -0.6,
+} as const
+
 // 受击振动效果
 export const DEFAULT_HIT_SHAKE_DURATION_MS = 150
 export const DEFAULT_HIT_SHAKE_INTENSITY = 0.3

@@ -1,11 +1,13 @@
 import Box2DFactory from 'box2d3-wasm'
 
 import {
+  ARCHER_SPAWN_CONFIG,
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
+  ENEMY_SPAWNS,
 } from '../constants'
 import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
@@ -567,19 +569,19 @@ function createPlayerAndWeapon(groundY: number) {
     world,
     box2d,
     worldId,
-    0,
-    groundY - 0.6,
+    ENEMY_SPAWNS.default.x,
+    groundY + ENEMY_SPAWNS.default.yOffset,
     groundY,
-    'default'
+    ENEMY_SPAWNS.default.type
   )
 
   // Archer enemy on top of the tallest obstacle near player spawn
-  const archerObstacleX = -9.5
-  const archerObstacleHalfWidth = 1.2
-  const archerObstacleHalfHeight = 2.8
-  const archerTopY = groundY - archerObstacleHalfHeight * 2
-  const archerSpawnX = archerObstacleX - archerObstacleHalfWidth + 0.2
-  const archerSpawnY = archerTopY - 0.6
+  const archerTopY = groundY - ARCHER_SPAWN_CONFIG.obstacleHalfHeight * 2
+  const archerSpawnX =
+    ARCHER_SPAWN_CONFIG.obstacleX -
+    ARCHER_SPAWN_CONFIG.obstacleHalfWidth +
+    ARCHER_SPAWN_CONFIG.edgeOffset
+  const archerSpawnY = archerTopY + ARCHER_SPAWN_CONFIG.yOffsetFromTop
   createEnemy(
     world,
     box2d,
@@ -587,14 +589,30 @@ function createPlayerAndWeapon(groundY: number) {
     archerSpawnX,
     archerSpawnY,
     groundY,
-    'archer'
+    ARCHER_SPAWN_CONFIG.type
   )
 
   // Large enemy between 2nd and 3rd obstacle
-  createEnemy(world, box2d, worldId, 14.5, groundY - 0.6, groundY, 'large')
+  createEnemy(
+    world,
+    box2d,
+    worldId,
+    ENEMY_SPAWNS.large.x,
+    groundY + ENEMY_SPAWNS.large.yOffset,
+    groundY,
+    ENEMY_SPAWNS.large.type
+  )
 
   // Fast (Small) enemy after the last obstacle
-  createEnemy(world, box2d, worldId, 24, groundY - 0.6, groundY, 'fast')
+  createEnemy(
+    world,
+    box2d,
+    worldId,
+    ENEMY_SPAWNS.fast.x,
+    groundY + ENEMY_SPAWNS.fast.yOffset,
+    groundY,
+    ENEMY_SPAWNS.fast.type
+  )
 
   enemyAISystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)

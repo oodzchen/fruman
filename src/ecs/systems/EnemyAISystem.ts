@@ -317,7 +317,7 @@ export class EnemyAISystem extends System {
           entity.input.moveDirection = 0
           entity.input.sprintRequested = false
           entity.input.blockRequested = false
-          entity.input.facingOverride = -1
+          entity.input.facingOverride = entity.weapon.attackFacing
           if (entity.movement) {
             entity.movement.moveSpeed = ai.moveSpeed
           }
@@ -339,7 +339,7 @@ export class EnemyAISystem extends System {
           entity.input.moveDirection = 0
           entity.input.sprintRequested = false
           entity.input.blockRequested = false
-          entity.input.facingOverride = -1
+          entity.input.facingOverride = entity.weapon.attackFacing
           if (entity.movement) {
             entity.movement.moveSpeed = ai.moveSpeed
           }
