@@ -407,6 +407,13 @@ export class StatsSystem extends System {
 
     // Enter combat state on damage taken
     this.enterCombat(entity)
+    if (entity.enemyAI && hitSource && entity.transform) {
+      const dx = hitSource.x - entity.transform.x
+      entity.enemyAI.forcedChaseDirection = dx >= 0 ? 1 : -1
+      entity.enemyAI.forcedChaseDistanceRemaining =
+        entity.enemyAI.detectionRange * 2
+      entity.enemyAI.forcedChaseLastX = entity.transform.x
+    }
 
     // 翻滚期间无敌
     if (entity.movement?.isRolling) return

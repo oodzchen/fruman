@@ -387,6 +387,9 @@ export class EnemyAIComponent extends Component {
   probeLastPositionX = 0
   probeLastPositionY = 0
   probeHasTriggered = false
+  forcedChaseDistanceRemaining = 0
+  forcedChaseDirection: -1 | 1 = 1
+  forcedChaseLastX = 0
   combatResetTime = 5000
   lastPosition = { x: 0, y: 0 }
   stuckTimer = 0
@@ -394,6 +397,7 @@ export class EnemyAIComponent extends Component {
   lastPositionUpdateTime = 0
   positionCheckInterval = 300
   obstacleJumpStage = 0 // 0: None, 1: First Jump, 2: Wall Jump, 3: Recovery
+  obstacleJumpDirection: -1 | 1 = 1
   jumpStartTimestamp = 0
   jumpStartPosition = { x: 0, y: 0 }
 

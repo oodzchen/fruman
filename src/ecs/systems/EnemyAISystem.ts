@@ -118,6 +118,48 @@ export class EnemyAISystem extends System {
         weaponRange
       )
 
+      const wasForcedChasing = ai.forcedChaseDistanceRemaining > 0
+      if (wasForcedChasing) {
+        const movedDistance = Math.abs(entity.transform.x - ai.forcedChaseLastX)
+        ai.forcedChaseDistanceRemaining = Math.max(
+          0,
+          ai.forcedChaseDistanceRemaining - movedDistance
+        )
+        ai.forcedChaseLastX = entity.transform.x
+        if (!hasLineOfSight) {
+          entity.input.moveDirection = ai.forcedChaseDirection
+          entity.input.sprintRequested =
+            !!entity.movement &&
+            entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED
+          entity.input.blockRequested = false
+          entity.input.attackRequested = false
+          entity.input.lockedTargetId = null
+          entity.input.facingOverride = ai.forcedChaseDirection
+          if (entity.weapon) {
+            entity.weapon.attackQueued = false
+          }
+          continue
+        }
+        ai.forcedChaseDistanceRemaining = 0
+      }
+
+      if (
+        wasForcedChasing &&
+        ai.forcedChaseDistanceRemaining === 0 &&
+        !hasLineOfSight &&
+        entity.input.lockedTargetId === null
+      ) {
+        this.handlePatrol(entity, ai, now)
+        if (entity.weapon) {
+          entity.weapon.attackQueued = false
+        }
+        if (entity.input) {
+          entity.input.sprintRequested = false
+          entity.input.lockedTargetId = null
+        }
+        continue
+      }
+
       if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
         continue
       }
@@ -187,7 +229,7 @@ export class EnemyAISystem extends System {
       if (ai.state === 'approach') {
         // 如果正在进行跨越障碍跳跃序列，优先处理
         if (ai.obstacleJumpStage > 0) {
-          entity.input.moveDirection = facing // 保持向前移动
+          entity.input.moveDirection = ai.obstacleJumpDirection // 保持跳跃方向
           this.handleObstacleJump(entity, ai, now, facing)
           continue
         }
@@ -319,6 +361,12 @@ export class EnemyAISystem extends System {
 
       if (ai.state === 'pacing') {
         entity.input.sprintRequested = false
+
+        if (ai.obstacleJumpStage > 0) {
+          entity.input.moveDirection = ai.obstacleJumpDirection
+          this.handleObstacleJump(entity, ai, now, facing)
+          continue
+        }
 
         // 调试日志
         // if (Math.random() < 0.05) {
@@ -452,6 +500,13 @@ export class EnemyAISystem extends System {
     ) {
       if (!entity.input) return false
       // console.log('[Obstacle] Stuck at wall, starting jump sequence')
+      const moveDir =
+        entity.input.moveDirection !== 0
+          ? entity.input.moveDirection
+          : entity.input.lastMoveDirection !== 0
+            ? entity.input.lastMoveDirection
+            : ai.lastFacing
+      ai.obstacleJumpDirection = (moveDir >= 0 ? 1 : -1) as -1 | 1
       entity.input.jumpRequested = true
       entity.input.inputBuffer.bufferAction('jump')
       ai.obstacleJumpStage = 1
@@ -481,13 +536,65 @@ export class EnemyAISystem extends System {
       entity.movement.moveSpeed = ai.moveSpeed
     }
 
-    // 站岗模式或无巡逻点时，使用原地待机逻辑
+    // 站岗模式或无巡逻点时，返回站岗点并原地待机
     const shouldStandGuard =
       ai.initialPatrolMode === 'guard' ||
       !ai.patrolWaypoints ||
       ai.patrolWaypoints.length === 0
     if (shouldStandGuard) {
-      entity.input.moveDirection = 0
+      const dx = ai.patrolCenter.x - entity.transform.x
+      const dist = Math.abs(dx)
+      const arrivalThreshold = 0.5
+
+      if (dist <= arrivalThreshold) {
+        entity.input.moveDirection = 0
+        entity.input.facingOverride = null
+        ai.patrolState = 'moving'
+        ai.patrolStuckTimer = 0
+        ai.lastPositionUpdateTime = 0
+        ai.state = 'approach'
+        ai.comboSwingsDone = 0
+        return
+      }
+
+      const facing = dx > 0 ? 1 : -1
+
+      if (ai.obstacleJumpStage > 0) {
+        entity.input.moveDirection = ai.obstacleJumpDirection
+        this.handleObstacleJump(entity, ai, now, facing)
+        return
+      }
+
+      if (ai.lastPositionUpdateTime === 0) {
+        ai.lastPositionUpdateTime = now
+        ai.lastPosition.x = entity.transform.x
+        ai.lastPosition.y = entity.transform.y
+      }
+
+      if (now - ai.lastPositionUpdateTime > 500) {
+        const moveDist = Math.hypot(
+          entity.transform.x - ai.lastPosition.x,
+          entity.transform.y - ai.lastPosition.y
+        )
+        if (moveDist < 0.2) {
+          ai.patrolStuckTimer += now - ai.lastPositionUpdateTime
+        } else {
+          ai.patrolStuckTimer = 0
+        }
+        ai.lastPosition.x = entity.transform.x
+        ai.lastPosition.y = entity.transform.y
+        ai.lastPositionUpdateTime = now
+      }
+
+      if (ai.patrolStuckTimer > 500) {
+        if (this.tryTriggerObstacleJump(entity, ai, now)) {
+          ai.patrolStuckTimer = 0
+          return
+        }
+      }
+
+      entity.input.moveDirection = facing
+      entity.input.facingOverride = entity.input.moveDirection
       ai.state = 'approach'
       ai.comboSwingsDone = 0
       return
@@ -506,7 +613,7 @@ export class EnemyAISystem extends System {
 
     // 优先处理跨越障碍跳跃序列
     if (ai.obstacleJumpStage > 0) {
-      entity.input.moveDirection = facing
+      entity.input.moveDirection = ai.obstacleJumpDirection
       this.handleObstacleJump(entity, ai, now, facing)
       return
     }
@@ -854,6 +961,7 @@ export class EnemyAISystem extends System {
         entity.enemyAI.probeLastPositionX = 0
         entity.enemyAI.probeLastPositionY = 0
         entity.enemyAI.probeHasTriggered = false
+        entity.enemyAI.forcedChaseDistanceRemaining = 0
       }
       if (entity.movement && entity.enemyAI) {
         entity.movement.moveSpeed = entity.enemyAI.moveSpeed
