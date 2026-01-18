@@ -29,7 +29,8 @@ export class GameClient {
   private mouseButtons = new Set<number>()
   private keysArray: string[] = []
   private mouseButtonsArray: number[] = []
-  private mouseZoom = 1.0
+  private targetZoom = 1.0
+  private renderZoom = 1.0
 
   // Reusable message object for input
   private inputMessage: WorkerInputMessage = {
@@ -143,8 +144,8 @@ export class GameClient {
       this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
-      this.mouseZoom = msg.zoom
-      this.renderer.setCamera(this.camera.x, this.camera.y, this.mouseZoom)
+      this.renderZoom = msg.zoom
+      this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
       this.releaseStateBuffer(msg.entitiesBuffer)
     } else if (msg.type === 'debug') {
       this.sensorDebugData = msg.sensors
@@ -191,13 +192,13 @@ export class GameClient {
 
       // Local Zoom control (immediate feedback)
       if (e.key.toLowerCase() === 'i') {
-        this.mouseZoom = Math.max(0.1, this.mouseZoom + 0.2)
+        this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
         this.sendInput()
       } else if (e.key.toLowerCase() === 'o') {
-        this.mouseZoom = Math.max(0.1, this.mouseZoom - 0.2)
+        this.targetZoom = Math.max(0.1, this.targetZoom - 0.2)
         this.sendInput()
       } else if (e.key.toLowerCase() === 'u') {
-        this.mouseZoom = 1.0
+        this.targetZoom = 1.0
         this.sendInput()
       }
     })
@@ -225,7 +226,10 @@ export class GameClient {
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault()
       const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1
-      this.mouseZoom = Math.max(0.1, Math.min(2.0, this.mouseZoom + zoomDelta))
+      this.targetZoom = Math.max(
+        0.1,
+        Math.min(2.0, this.targetZoom + zoomDelta)
+      )
       this.sendInput()
     })
   }
@@ -244,7 +248,7 @@ export class GameClient {
 
     this.inputMessage.keys = this.keysArray
     this.inputMessage.mouseButtons = this.mouseButtonsArray
-    this.inputMessage.mouseZoom = this.mouseZoom
+    this.inputMessage.mouseZoom = this.targetZoom
     this.worker.postMessage(this.inputMessage)
   }
 
@@ -285,32 +289,9 @@ export class GameClient {
 
     const centerX = this.canvas.width / 2
     const bottomY = this.canvas.height
-    // Current zoom is handled by worker camera logic mostly,
-    // BUT the worker sends camera position.
-    // The zoom effect in RenderSystem/GameECS was:
-    // ctx.scale(this.zoom, this.zoom)
-    // Worker sends 'camera' which is the center point in meters.
-    // The main thread 'zoom' variable tracks user input.
-    // The worker *also* tracks zoom to adjust camera deadzone.
-    // We should use the *worker's* calculated camera, but for the actual SCALE, we can use the local zoom or sync it.
-    // Better to use local zoom for smooth rendering if worker updates are slow,
-    // but worker sends state updates @ 60fps.
-    // Let's use local mouseZoom for now or wait for worker to send back "current smoothed zoom".
-    // Worker doesn't send "current smoothed zoom", only camera x/y.
-    // Let's assume user input zoom is the target.
-    // To match GameECS exactly, we should interpolate zoom here too.
+    // Use worker-smoothed zoom to keep camera and scale in sync.
 
-    // Simplification: Use this.mouseZoom as the scale.
-    // Wait, GameECS interpolated zoom. Worker does that too.
-    // We need the *interpolated* zoom from worker to match the camera position calculation?
-    // Actually, `camera.x` in worker is calculated based on `zoom`.
-    // If we use a different zoom here, the camera offset will be wrong.
-    // I should add `zoom` to the State message from worker.
-    // For now, I'll rely on `mouseZoom` effectively being close enough or add `currentZoom` to protocol later.
-    // Re-checking protocol: I didn't add zoom.
-    // I will use `this.mouseZoom` but smoother.
-
-    const zoom = this.mouseZoom // TODO: Add smooth zoom or get from worker
+    const zoom = this.renderZoom
 
     this.ctx.translate(centerX, bottomY)
     this.ctx.scale(zoom, zoom)
@@ -646,11 +627,11 @@ export class GameClient {
     this.updateParam('obstacleFriction', v)
   }
   setZoom(v: number) {
-    this.mouseZoom = v
+    this.targetZoom = v
     this.sendInput()
   }
   getZoom() {
-    return this.mouseZoom
+    return this.targetZoom
   }
 
   setJumpBufferWindow(v: number) {
