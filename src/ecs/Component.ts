@@ -349,6 +349,12 @@ export class ArrowComponent extends Component {
   hitRadius = 0.12
   elapsedMs = 0
   lifetimeMs = 2500
+  canHit = true
+  isStuck = false
+  stuckEntityId: number | null = null
+  stuckOffsetX = 0
+  stuckOffsetY = 0
+  stuckRotation = 0
 
   getName(): string {
     return 'Arrow'
