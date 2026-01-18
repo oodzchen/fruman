@@ -390,6 +390,9 @@ export class EnemyAIComponent extends Component {
   forcedChaseDistanceRemaining = 0
   forcedChaseDirection: -1 | 1 = 1
   forcedChaseLastX = 0
+  arrowDefenseTimeRemainingMs = 0
+  arrowDefenseSwitchTimerMs = 0
+  arrowDefenseActive = false
   combatResetTime = 5000
   lastPosition = { x: 0, y: 0 }
   stuckTimer = 0

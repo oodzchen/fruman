@@ -118,6 +118,38 @@ export class EnemyAISystem extends System {
         weaponRange
       )
 
+      if (ai.parryProficiency <= 50 && ai.arrowDefenseTimeRemainingMs > 0) {
+        ai.arrowDefenseTimeRemainingMs = 0
+        ai.arrowDefenseSwitchTimerMs = 0
+        ai.arrowDefenseActive = false
+      }
+
+      if (ai.arrowDefenseActive && distance <= weaponRange) {
+        ai.arrowDefenseTimeRemainingMs = 0
+        ai.arrowDefenseSwitchTimerMs = 0
+        ai.arrowDefenseActive = false
+      }
+
+      if (ai.arrowDefenseTimeRemainingMs > 0) {
+        ai.arrowDefenseTimeRemainingMs = Math.max(
+          0,
+          ai.arrowDefenseTimeRemainingMs - deltaMs
+        )
+        ai.arrowDefenseSwitchTimerMs -= deltaMs
+        if (
+          ai.arrowDefenseTimeRemainingMs > 0 &&
+          ai.arrowDefenseSwitchTimerMs <= 0 &&
+          ai.parryProficiency < 100
+        ) {
+          ai.arrowDefenseActive = !ai.arrowDefenseActive
+          ai.arrowDefenseSwitchTimerMs = 2000 + Math.random() * 2000
+        }
+        if (ai.arrowDefenseTimeRemainingMs === 0) {
+          ai.arrowDefenseActive = false
+          ai.arrowDefenseSwitchTimerMs = 0
+        }
+      }
+
       const wasForcedChasing = ai.forcedChaseDistanceRemaining > 0
       if (wasForcedChasing) {
         const movedDistance = Math.abs(entity.transform.x - ai.forcedChaseLastX)
@@ -128,10 +160,21 @@ export class EnemyAISystem extends System {
         ai.forcedChaseLastX = entity.transform.x
         if (!hasLineOfSight) {
           entity.input.moveDirection = ai.forcedChaseDirection
-          entity.input.sprintRequested =
-            !!entity.movement &&
-            entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED
-          entity.input.blockRequested = false
+          if (ai.arrowDefenseActive) {
+            entity.input.blockRequested = true
+            entity.input.sprintRequested = false
+            if (entity.movement) {
+              entity.movement.moveSpeed = ai.moveSpeed * 0.5
+            }
+          } else {
+            entity.input.blockRequested = false
+            entity.input.sprintRequested =
+              !!entity.movement &&
+              entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED
+            if (entity.movement) {
+              entity.movement.moveSpeed = ai.moveSpeed
+            }
+          }
           entity.input.attackRequested = false
           entity.input.lockedTargetId = null
           entity.input.facingOverride = ai.forcedChaseDirection
@@ -149,6 +192,9 @@ export class EnemyAISystem extends System {
         !hasLineOfSight &&
         entity.input.lockedTargetId === null
       ) {
+        ai.arrowDefenseActive = false
+        ai.arrowDefenseTimeRemainingMs = 0
+        ai.arrowDefenseSwitchTimerMs = 0
         this.handlePatrol(entity, ai, now)
         if (entity.weapon) {
           entity.weapon.attackQueued = false
@@ -234,6 +280,49 @@ export class EnemyAISystem extends System {
           continue
         }
 
+        if (ai.arrowDefenseActive) {
+          entity.input.moveDirection = facing
+          entity.input.blockRequested = true
+          entity.input.sprintRequested = false
+          if (entity.movement) {
+            entity.movement.moveSpeed = ai.moveSpeed * 0.5
+          }
+
+          // 检测是否被阻挡（每300ms检查一次位置变化）
+          if (now - ai.lastPositionUpdateTime >= ai.positionCheckInterval) {
+            const deltaX = Math.abs(entity.transform.x - ai.lastPosition.x)
+            const deltaY = Math.abs(entity.transform.y - ai.lastPosition.y)
+            // 300ms内移动距离小于0.3认为被阻挡（正常速度3m/s应该移动0.9m）
+            const positionChanged = deltaX > 0.3 || deltaY > 0.3
+
+            if (!positionChanged) {
+              ai.stuckTimer += ai.positionCheckInterval
+              if (ai.stuckTimer >= ai.stuckThreshold) {
+                if (this.tryTriggerObstacleJump(entity, ai, now)) {
+                  ai.stuckTimer = 0
+                } else {
+                  ai.state = 'pacing'
+                  ai.paceDirection = -1
+                  ai.lastPaceSwitchTimestamp = now
+                  ai.nextPaceResumeTimestamp = 0
+                  ai.stuckTimer = 0
+                  ai.obstacleJumpStage = 0
+                  if (entity.movement) {
+                    entity.movement.moveSpeed = ENEMY_PACE_SPEED
+                  }
+                }
+              }
+            } else {
+              ai.stuckTimer = 0
+            }
+
+            ai.lastPosition.x = entity.transform.x
+            ai.lastPosition.y = entity.transform.y
+            ai.lastPositionUpdateTime = now
+          }
+          continue
+        }
+
         if (distance > weaponRange) {
           entity.input.moveDirection = facing
           if (entity.movement && hasLineOfSight) {
@@ -245,6 +334,15 @@ export class EnemyAISystem extends System {
             }
           } else {
             entity.input.sprintRequested = false
+          }
+          if (ai.arrowDefenseActive) {
+            entity.input.blockRequested = true
+            entity.input.sprintRequested = false
+            if (entity.movement) {
+              entity.movement.moveSpeed = ai.moveSpeed * 0.5
+            }
+          } else if (entity.movement) {
+            entity.movement.moveSpeed = ai.moveSpeed
           }
 
           // 检测是否被阻挡（每300ms检查一次位置变化）
@@ -367,6 +465,15 @@ export class EnemyAISystem extends System {
           this.handleObstacleJump(entity, ai, now, facing)
           continue
         }
+        if (ai.arrowDefenseActive) {
+          entity.input.blockRequested = true
+          entity.input.sprintRequested = false
+          if (entity.movement) {
+            entity.movement.moveSpeed = ai.moveSpeed * 0.5
+          }
+        } else if (entity.movement) {
+          entity.movement.moveSpeed = ai.moveSpeed
+        }
 
         // 调试日志
         // if (Math.random() < 0.05) {
@@ -445,6 +552,13 @@ export class EnemyAISystem extends System {
     hasLineOfSight: boolean
   ): void {
     if (!entity.input || !entity.weapon) return
+
+    if (ai.arrowDefenseActive) {
+      entity.input.blockRequested = true
+      ai.playerSwingActive = false
+      ai.parryAttemptedThisSwing = true
+      return
+    }
 
     if (
       !entity.weapon.isEquipped ||
@@ -532,6 +646,9 @@ export class EnemyAISystem extends System {
     ai.probeLastPositionX = 0
     ai.probeLastPositionY = 0
     ai.probeHasTriggered = false
+    ai.arrowDefenseTimeRemainingMs = 0
+    ai.arrowDefenseSwitchTimerMs = 0
+    ai.arrowDefenseActive = false
     if (entity.movement) {
       entity.movement.moveSpeed = ai.moveSpeed
     }
@@ -962,6 +1079,9 @@ export class EnemyAISystem extends System {
         entity.enemyAI.probeLastPositionY = 0
         entity.enemyAI.probeHasTriggered = false
         entity.enemyAI.forcedChaseDistanceRemaining = 0
+        entity.enemyAI.arrowDefenseTimeRemainingMs = 0
+        entity.enemyAI.arrowDefenseSwitchTimerMs = 0
+        entity.enemyAI.arrowDefenseActive = false
       }
       if (entity.movement && entity.enemyAI) {
         entity.movement.moveSpeed = entity.enemyAI.moveSpeed

@@ -23,7 +23,7 @@ import {
   STAGGER_HIT_STUN_DURATION_MS,
   STAGGER_KNOCKBACK_MULTIPLIER,
 } from '../../constants'
-import type { MainModule, b2WorldId } from '../../types'
+import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import { Faction, PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
@@ -374,6 +374,7 @@ export class StatsSystem extends System {
       postureDamage: number
       toughnessDamage: number
       knockback?: number
+      weaponType?: WeaponVisualType
     },
     hitSource?: { x: number; y: number }
   ): void {
@@ -396,7 +397,8 @@ export class StatsSystem extends System {
       postureDamage,
       toughnessDamage,
       knockback,
-      hitSource
+      hitSource,
+      weapon?.weaponType
     )
   }
 
@@ -406,7 +408,8 @@ export class StatsSystem extends System {
     postureDamage: number,
     toughnessDamage: number,
     knockback: number,
-    hitSource?: { x: number; y: number }
+    hitSource?: { x: number; y: number },
+    weaponType?: WeaponVisualType
   ): void {
     if (!entity.stats) return
     if (entity.stats.isDead) return
@@ -419,6 +422,29 @@ export class StatsSystem extends System {
       entity.enemyAI.forcedChaseDistanceRemaining =
         entity.enemyAI.detectionRange * 2
       entity.enemyAI.forcedChaseLastX = entity.transform.x
+    }
+    if (entity.enemyAI && weaponType === 'arrow' && entity.stats) {
+      const parryProficiency = entity.enemyAI.parryProficiency
+      if (parryProficiency > 50) {
+        const shouldDefend =
+          parryProficiency >= 100 ||
+          Math.random() < (parryProficiency - 50) / 50
+        if (shouldDefend) {
+          entity.enemyAI.arrowDefenseTimeRemainingMs =
+            entity.stats.combatExitTimeout
+          entity.enemyAI.arrowDefenseActive = true
+          entity.enemyAI.arrowDefenseSwitchTimerMs =
+            parryProficiency >= 100 ? 0 : 2000 + Math.random() * 2000
+        } else {
+          entity.enemyAI.arrowDefenseTimeRemainingMs = 0
+          entity.enemyAI.arrowDefenseActive = false
+          entity.enemyAI.arrowDefenseSwitchTimerMs = 0
+        }
+      } else {
+        entity.enemyAI.arrowDefenseTimeRemainingMs = 0
+        entity.enemyAI.arrowDefenseActive = false
+        entity.enemyAI.arrowDefenseSwitchTimerMs = 0
+      }
     }
 
     // 翻滚期间无敌
