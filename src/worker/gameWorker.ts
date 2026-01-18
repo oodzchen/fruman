@@ -573,6 +573,23 @@ function createPlayerAndWeapon(groundY: number) {
     'default'
   )
 
+  // Archer enemy on top of the tallest obstacle near player spawn
+  const archerObstacleX = -9.5
+  const archerObstacleHalfWidth = 1.2
+  const archerObstacleHalfHeight = 2.8
+  const archerTopY = groundY - archerObstacleHalfHeight * 2
+  const archerSpawnX = archerObstacleX - archerObstacleHalfWidth + 0.2
+  const archerSpawnY = archerTopY - 0.6
+  createEnemy(
+    world,
+    box2d,
+    worldId,
+    archerSpawnX,
+    archerSpawnY,
+    groundY,
+    'archer'
+  )
+
   // Large enemy between 2nd and 3rd obstacle
   createEnemy(world, box2d, worldId, 14.5, groundY - 0.6, groundY, 'large')
 

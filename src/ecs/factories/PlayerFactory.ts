@@ -245,6 +245,9 @@ export function createEnemy(
   ai.initialPatrolMode = template.initialPatrolMode
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
+  if (enemyType === 'archer') {
+    ai.detectionRange = ENEMY_DETECTION_RANGE * 2
+  }
 
   // 站岗模式复用空巡逻点逻辑
   if (ai.initialPatrolMode === 'guard') {
@@ -259,7 +262,7 @@ export function createEnemy(
   enemy.addComponent(ai)
 
   if (enemy.sensor) {
-    enemy.sensor.radius = ENEMY_DETECTION_RANGE
+    enemy.sensor.radius = ai.detectionRange
     enemy.sensor.fov = (90 * Math.PI) / 180 // +/- 45 degrees
   }
 
@@ -293,6 +296,43 @@ export function createEnemy(
       rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
     }
 
+    if (enemy.weaponSlots && enemyType === 'archer') {
+      const swordTemplate = WEAPON_TEMPLATES.sword
+      enemy.weaponSlots.main.hasWeapon = true
+      enemy.weaponSlots.main.weaponType = 'sword'
+      enemy.weaponSlots.main.width = swordTemplate.width
+      enemy.weaponSlots.main.height = swordTemplate.height
+      enemy.weaponSlots.main.baseWidth = swordTemplate.width
+      enemy.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+      enemy.weaponSlots.main.weight = swordTemplate.weight
+      enemy.weaponSlots.main.attackDamage = swordTemplate.attackDamage
+      enemy.weaponSlots.main.postureDamage = swordTemplate.postureDamage
+      enemy.weaponSlots.main.toughnessDamage = swordTemplate.toughnessDamage
+
+      const bowTemplate = WEAPON_TEMPLATES.bow
+      enemy.weaponSlots.secondary.hasWeapon = true
+      enemy.weaponSlots.secondary.weaponType = 'bow'
+      enemy.weaponSlots.secondary.width = bowTemplate.width
+      enemy.weaponSlots.secondary.height = bowTemplate.height
+      enemy.weaponSlots.secondary.baseWidth = bowTemplate.width
+      enemy.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+      enemy.weaponSlots.secondary.weight = bowTemplate.weight
+      enemy.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
+      enemy.weaponSlots.secondary.postureDamage = bowTemplate.postureDamage
+      enemy.weaponSlots.secondary.toughnessDamage = bowTemplate.toughnessDamage
+
+      enemy.weaponSlots.activeSlot = 'secondary'
+      enemy.weapon.width = bowTemplate.width
+      enemy.weapon.height = bowTemplate.height
+      enemy.weapon.baseWidth = bowTemplate.width
+      enemy.weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+      enemy.weapon.weight = bowTemplate.weight
+      enemy.weapon.weaponType = 'bow'
+      enemy.weapon.attackDamage = bowTemplate.attackDamage
+      enemy.weapon.postureDamage = bowTemplate.postureDamage
+      enemy.weapon.toughnessDamage = bowTemplate.toughnessDamage
+    }
+
     enemy.weapon.isEquipped = true
     enemy.weapon.position = { x: followX, y: followY }
     enemy.weapon.visual = { ...equippedTransform }
@@ -310,6 +350,11 @@ export function createEnemy(
     enemy.weapon.attackPhase = 'idle'
     enemy.weapon.attackQueued = false
     // 武器重量由MovementSystem自动读取
+  }
+
+  if (enemyType === 'archer' && enemy.input) {
+    enemy.input.lastMoveDirection = -1
+    enemy.input.facingOverride = -1
   }
 
   return enemy

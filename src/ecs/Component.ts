@@ -393,6 +393,9 @@ export class EnemyAIComponent extends Component {
   arrowDefenseTimeRemainingMs = 0
   arrowDefenseSwitchTimerMs = 0
   arrowDefenseActive = false
+  bowHoldTimerMs = 0
+  bowCooldownTimerMs = 0
+  archerShotCheckPending = false
   combatResetTime = 5000
   lastPosition = { x: 0, y: 0 }
   stuckTimer = 0

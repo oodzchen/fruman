@@ -209,6 +209,17 @@ export const ENEMY_TEMPLATES = {
     maxPosture: DEFAULT_PLAYER_MAX_POSTURE * 2,
     maxToughness: DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS * 2,
   },
+  archer: {
+    moveSpeed: DEFAULT_ENEMY_MOVE_SPEED,
+    radius: DEFAULT_PLAYER_RADIUS,
+    attackDesire: DEFAULT_ENEMY_ATTACK_DESIRE,
+    color: '#6c8bd6',
+    parryProficiency: 30,
+    initialPatrolMode: 'guard',
+    maxHealth: DEFAULT_PLAYER_MAX_HEALTH,
+    maxPosture: DEFAULT_PLAYER_MAX_POSTURE,
+    maxToughness: 6,
+  },
 } as const
 
 // 受击振动效果

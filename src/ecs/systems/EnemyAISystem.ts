@@ -23,6 +23,9 @@ import type { Entity } from '../Entity'
 import { System } from '../System'
 import type { WeaponSystem } from './WeaponSystem'
 
+const ARCHER_MELEE_RANGE_RATIO = 0.25
+const ARCHER_BOW_MIN_WINDUP_MS = 200
+
 export class EnemyAISystem extends System {
   private player?: Entity
   private weaponSystem?: WeaponSystem
@@ -159,29 +162,37 @@ export class EnemyAISystem extends System {
         )
         ai.forcedChaseLastX = entity.transform.x
         if (!hasLineOfSight) {
-          entity.input.moveDirection = ai.forcedChaseDirection
-          if (ai.arrowDefenseActive) {
-            entity.input.blockRequested = true
-            entity.input.sprintRequested = false
-            if (entity.movement) {
-              entity.movement.moveSpeed = ai.moveSpeed * 0.5
-            }
+          if (
+            ai.enemyType === 'archer' &&
+            entity.weapon?.weaponType === 'bow'
+          ) {
+            ai.forcedChaseDistanceRemaining = 0
+            ai.forcedChaseLastX = entity.transform.x
           } else {
-            entity.input.blockRequested = false
-            entity.input.sprintRequested =
-              !!entity.movement &&
-              entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED
-            if (entity.movement) {
-              entity.movement.moveSpeed = ai.moveSpeed
+            entity.input.moveDirection = ai.forcedChaseDirection
+            if (ai.arrowDefenseActive) {
+              entity.input.blockRequested = true
+              entity.input.sprintRequested = false
+              if (entity.movement) {
+                entity.movement.moveSpeed = ai.moveSpeed * 0.5
+              }
+            } else {
+              entity.input.blockRequested = false
+              entity.input.sprintRequested =
+                !!entity.movement &&
+                entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED
+              if (entity.movement) {
+                entity.movement.moveSpeed = ai.moveSpeed
+              }
             }
+            entity.input.attackRequested = false
+            entity.input.lockedTargetId = null
+            entity.input.facingOverride = ai.forcedChaseDirection
+            if (entity.weapon) {
+              entity.weapon.attackQueued = false
+            }
+            continue
           }
-          entity.input.attackRequested = false
-          entity.input.lockedTargetId = null
-          entity.input.facingOverride = ai.forcedChaseDirection
-          if (entity.weapon) {
-            entity.weapon.attackQueued = false
-          }
-          continue
         }
         ai.forcedChaseDistanceRemaining = 0
       }
@@ -258,6 +269,82 @@ export class EnemyAISystem extends System {
       if (entity.input && entity.input.lockedTargetId !== this.player.id) {
         entity.input.lockedTargetId = this.player.id
         entity.input.lockLostTimer = 0
+      }
+
+      if (ai.enemyType === 'archer' && entity.weapon && entity.weaponSlots) {
+        const meleeSwitchDistance = ai.detectionRange * ARCHER_MELEE_RANGE_RATIO
+        const isUsingBow = entity.weapon.weaponType === 'bow'
+
+        if (isUsingBow) {
+          const canRangedAttack =
+            hasLineOfSight ||
+            (entity.input && entity.input.lockedTargetId === this.player.id)
+          if (canRangedAttack && this.weaponSystem) {
+            if (entity.weaponSlots.activeSlot !== 'secondary') {
+              this.weaponSystem.switchWeaponSlot(entity, 'secondary')
+              ai.archerShotCheckPending = false
+            }
+
+            const weapon = entity.weapon
+            if (weapon.bowRecoverElapsedMs > 0) {
+              ai.archerShotCheckPending = true
+              entity.input.attackRequested = false
+            } else if (
+              weapon.bowIsDrawing &&
+              weapon.bowDrawElapsedMs >= ARCHER_BOW_MIN_WINDUP_MS
+            ) {
+              entity.input.attackRequested = false
+            } else {
+              entity.input.attackRequested = true
+            }
+
+            if (
+              ai.archerShotCheckPending &&
+              weapon.bowRecoverElapsedMs === 0 &&
+              !weapon.bowIsDrawing &&
+              !weapon.bowReleasePending
+            ) {
+              ai.archerShotCheckPending = false
+              if (distance <= meleeSwitchDistance) {
+                entity.input.attackRequested = false
+                this.weaponSystem.switchWeaponSlot(entity, 'main')
+              }
+            }
+          } else {
+            entity.input.attackRequested = false
+          }
+
+          entity.input.moveDirection = 0
+          entity.input.sprintRequested = false
+          entity.input.blockRequested = false
+          entity.input.facingOverride = -1
+          if (entity.movement) {
+            entity.movement.moveSpeed = ai.moveSpeed
+          }
+          continue
+        }
+
+        if (
+          hasLineOfSight &&
+          this.weaponSystem &&
+          distance > meleeSwitchDistance
+        ) {
+          if (entity.weaponSlots.activeSlot !== 'secondary') {
+            this.weaponSystem.switchWeaponSlot(entity, 'secondary')
+            ai.archerShotCheckPending = false
+            ai.bowHoldTimerMs = 0
+          }
+
+          entity.input.attackRequested = false
+          entity.input.moveDirection = 0
+          entity.input.sprintRequested = false
+          entity.input.blockRequested = false
+          entity.input.facingOverride = -1
+          if (entity.movement) {
+            entity.movement.moveSpeed = ai.moveSpeed
+          }
+          continue
+        }
       }
 
       if (ai.state === 'probe') {
@@ -639,6 +726,7 @@ export class EnemyAISystem extends System {
   ): void {
     if (!entity.input || !entity.transform) return
 
+    entity.input.attackRequested = false
     ai.probeSwitchTimerMs = 0
     ai.probePaceTimerMs = 0
     ai.probePaceDirection = 1
@@ -649,6 +737,9 @@ export class EnemyAISystem extends System {
     ai.arrowDefenseTimeRemainingMs = 0
     ai.arrowDefenseSwitchTimerMs = 0
     ai.arrowDefenseActive = false
+    ai.bowHoldTimerMs = 0
+    ai.bowCooldownTimerMs = 0
+    ai.archerShotCheckPending = false
     if (entity.movement) {
       entity.movement.moveSpeed = ai.moveSpeed
     }
@@ -1082,6 +1173,9 @@ export class EnemyAISystem extends System {
         entity.enemyAI.arrowDefenseTimeRemainingMs = 0
         entity.enemyAI.arrowDefenseSwitchTimerMs = 0
         entity.enemyAI.arrowDefenseActive = false
+        entity.enemyAI.bowHoldTimerMs = 0
+        entity.enemyAI.bowCooldownTimerMs = 0
+        entity.enemyAI.archerShotCheckPending = false
       }
       if (entity.movement && entity.enemyAI) {
         entity.movement.moveSpeed = entity.enemyAI.moveSpeed

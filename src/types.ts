@@ -22,7 +22,7 @@ export interface EnemyTemplate {
   initialPatrolMode: EnemyPatrolMode
 }
 
-export type EnemyType = 'default' | 'fast' | 'large'
+export type EnemyType = 'default' | 'fast' | 'large' | 'archer'
 
 export interface WeaponTemplate {
   width: number
