@@ -305,6 +305,10 @@ function initializeSystems() {
 
   weaponSystem.setObstacles(obstacles)
   weaponSystem.setWorld(world, worldId, groundTopY)
+  weaponSystem.setViewportSize(
+    canvasWidth / pixelsPerMeter,
+    canvasHeight / pixelsPerMeter
+  )
   arrowSystem.setSpatialHash(spatialHash)
   arrowSystem.setWorld(world)
 }
@@ -605,6 +609,8 @@ function handleInput(
     if (currKeys.has('a') || currKeys.has('arrowleft')) moveDirection -= 1
     if (currKeys.has('d') || currKeys.has('arrowright')) moveDirection += 1
 
+    const isBowEquipped = playerEntity.weapon?.weaponType === 'bow'
+
     playerEntity.input.moveDirection = isPlayerDead ? 0 : moveDirection
 
     if (currKeys.has(' ') && !prevKeys.has(' ') && !isPlayerDead) {
@@ -634,7 +640,14 @@ function handleInput(
     }
 
     // Right click or K for block
-    const blockPressed = currKeys.has('k') || currMouseButtons.has(2)
+    const freeAimToggleJustPressed = currKeys.has('k') && !prevKeys.has('k')
+    playerEntity.input.freeAimToggleRequested = false
+    if (freeAimToggleJustPressed && !isPlayerDead && isBowEquipped) {
+      playerEntity.input.freeAimToggleRequested = true
+    }
+
+    const blockPressed =
+      currMouseButtons.has(2) || (currKeys.has('k') && !isBowEquipped)
     if (blockPressed && !isPlayerDead) {
       playerEntity.input.blockRequested = true
     } else {
@@ -646,7 +659,11 @@ function handleInput(
       (currKeys.has('q') && !prevKeys.has('q')) ||
       (currMouseButtons.has(1) && !prevMouseButtons.has(1))
 
-    if (lockToggleJustPressed && !isPlayerDead) {
+    if (
+      lockToggleJustPressed &&
+      !isPlayerDead &&
+      !playerEntity.weapon?.bowFreeAim
+    ) {
       const dir = playerEntity.input.moveDirection
       const isLocked = playerEntity.input.lockedTargetId !== null
       if (dir !== 0 && isLocked) {
@@ -664,7 +681,7 @@ function handleInput(
     }
 
     if (currKeys.has('shift') && !isPlayerDead) {
-      playerEntity.input.sprintRequested = true
+      playerEntity.input.sprintRequested = !playerEntity.weapon?.bowFreeAim
     } else {
       playerEntity.input.sprintRequested = false
     }
@@ -680,6 +697,27 @@ function handleInput(
     if (currKeys.has('2') && !prevKeys.has('2') && !isPlayerDead) {
       weaponSystem.switchWeaponSlot(playerEntity, 'secondary')
     }
+
+    let aimAdjust = 0
+    if (
+      currKeys.has('arrowup') ||
+      currKeys.has('ArrowUp') ||
+      currKeys.has('w')
+    ) {
+      aimAdjust -= 1
+    }
+    if (
+      currKeys.has('arrowdown') ||
+      currKeys.has('ArrowDown') ||
+      currKeys.has('s')
+    ) {
+      aimAdjust += 1
+    }
+    playerEntity.input.freeAimAdjust = aimAdjust
+
+    playerEntity.input.moveSpeedScale = playerEntity.weapon?.bowFreeAim
+      ? 0.5
+      : 1
   }
 
   targetZoom = mouseZoomTarget
@@ -837,6 +875,15 @@ function sendState() {
       : 0
     stateBuffer[offset + OFFSETS.LOCKED_TARGET_ID] =
       e.input?.lockedTargetId ?? -1
+    if (e.id === playerEntity.id && e.weapon?.bowFreeAim) {
+      stateBuffer[offset + OFFSETS.FREE_AIM_ACTIVE] = 1
+      stateBuffer[offset + OFFSETS.FREE_AIM_X] = e.weapon.bowFreeAimReticleX
+      stateBuffer[offset + OFFSETS.FREE_AIM_Y] = e.weapon.bowFreeAimReticleY
+    } else {
+      stateBuffer[offset + OFFSETS.FREE_AIM_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.FREE_AIM_X] = 0
+      stateBuffer[offset + OFFSETS.FREE_AIM_Y] = 0
+    }
 
     if (e.stats) {
       stateBuffer[offset + OFFSETS.STATS_HEALTH_MAX] = e.stats.maxHealth

@@ -68,6 +68,8 @@ const BOW_MIN_SPEED = 10
 const BOW_MAX_SPEED = 22
 const BOW_RECOVER_MS = 180
 const BOW_GRAVITY_SCALE = 0.5
+const BOW_FREE_AIM_TURN_SPEED = 1.6
+const BOW_FREE_AIM_MAX_OFFSET = Math.PI * 0.45
 
 type ObstacleCollider = {
   bodyId: b2BodyId
@@ -100,6 +102,8 @@ export class WeaponSystem extends System {
   private world?: World
   private worldId?: ReturnType<MainModule['b2CreateWorld']>
   private groundTopY = 0
+  private viewportWidth = 16
+  private viewportHeight = 9
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempRelativeTransform: WeaponRelativeTransform = {
@@ -143,6 +147,11 @@ export class WeaponSystem extends System {
     this.world = world
     this.worldId = worldId
     this.groundTopY = groundTopY
+  }
+
+  setViewportSize(viewportWidth: number, viewportHeight: number): void {
+    this.viewportWidth = viewportWidth
+    this.viewportHeight = viewportHeight
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -1404,27 +1413,101 @@ export class WeaponSystem extends System {
       weapon.bowRecoverElapsedMs = 0
       weapon.bowAimAngle = 0
       weapon.bowHasAim = false
+      weapon.bowFreeAim = false
+      weapon.bowFreeAimAngle = 0
+      weapon.bowFreeAimReticleX = 0
+      weapon.bowFreeAimReticleY = 0
       return
     }
 
     const holdingAttack = entity.input.attackRequested && !entity.isStunned()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    const aimAngle = this.getBowAimAngleForTarget(
-      entity,
-      weapon,
-      playerPos,
-      radius
-    )
+    if (entity.input.freeAimToggleRequested) {
+      entity.input.freeAimToggleRequested = false
+      weapon.bowFreeAim = !weapon.bowFreeAim
+      if (weapon.bowFreeAim) {
+        const defaultAngle = weapon.bowHasAim
+          ? weapon.bowAimAngle
+          : facing === 1
+            ? 0
+            : Math.PI
+        weapon.bowFreeAimAngle = defaultAngle
+        weapon.bowFreeAimReticleX = 0
+        weapon.bowFreeAimReticleY = 0
+        entity.input.lockedTargetId = null
+        entity.input.lockLostTimer = 0
+      } else {
+        entity.input.lockedTargetId = null
+        entity.input.lockLostTimer = 0
+        entity.input.facingOverride = null
+        weapon.bowFreeAimReticleX = 0
+        weapon.bowFreeAimReticleY = 0
+      }
+    }
+
+    const freeAimActive = weapon.bowFreeAim
+    const aimAngle = freeAimActive
+      ? null
+      : this.getBowAimAngleForTarget(entity, weapon, playerPos, radius)
     const hasAimLock = aimAngle !== null
     const inCombat =
       entity.stats?.isInCombat ||
       weapon.bowIsDrawing ||
       holdingAttack ||
-      hasAimLock
+      hasAimLock ||
+      freeAimActive
 
-    if (hasAimLock && aimAngle !== null) {
+    if (freeAimActive) {
+      entity.input.lockedTargetId = null
+      entity.input.lockLostTimer = 0
+      const adjust =
+        entity.input.freeAimAdjust * (weapon.attackFacing >= 0 ? 1 : -1)
+      if (adjust !== 0) {
+        weapon.bowFreeAimAngle +=
+          adjust * BOW_FREE_AIM_TURN_SPEED * (deltaMs / 1000)
+      }
+      const centerAngle = facing === 1 ? 0 : Math.PI
+      const minAngle = centerAngle - BOW_FREE_AIM_MAX_OFFSET
+      const maxAngle = centerAngle + BOW_FREE_AIM_MAX_OFFSET
+      if (weapon.bowFreeAimAngle < minAngle) {
+        weapon.bowFreeAimAngle = minAngle
+      } else if (weapon.bowFreeAimAngle > maxAngle) {
+        weapon.bowFreeAimAngle = maxAngle
+      }
+
+      const reticleRange =
+        Math.max(this.viewportWidth, this.viewportHeight) * 0.5
+      const reticleAngle = weapon.bowFreeAimAngle
+      const reticleX = playerPos.x + Math.cos(reticleAngle) * reticleRange
+      const reticleY = playerPos.y + Math.sin(reticleAngle) * reticleRange
+      weapon.bowFreeAimReticleX = reticleX
+      weapon.bowFreeAimReticleY = reticleY
+      entity.input.facingOverride = Math.cos(reticleAngle) >= 0 ? 1 : -1
+
+      const minForceRatio = Math.max(
+        BOW_MIN_FORCE_RATIO,
+        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+      )
+      const drawRatio = Math.max(weapon.bowDrawRatio, minForceRatio)
+      const freeAimAngle = this.getBowAimAngleForPosition(
+        playerPos,
+        radius,
+        reticleX,
+        reticleY,
+        drawRatio
+      )
+      weapon.bowAimAngle = freeAimAngle
+      weapon.bowHasAim = true
+      const offset = radius + 0.2
+      weapon.visual.x = playerPos.x + Math.cos(freeAimAngle) * offset
+      weapon.visual.y = playerPos.y + Math.sin(freeAimAngle) * offset
+      weapon.visual.rotation = freeAimAngle + Math.PI / 2
+      weapon.attackFacing = Math.cos(freeAimAngle) >= 0 ? 1 : -1
+    } else if (hasAimLock && aimAngle !== null) {
       weapon.bowAimAngle = aimAngle
       weapon.bowHasAim = true
+      weapon.bowFreeAimReticleX = 0
+      weapon.bowFreeAimReticleY = 0
       const offset = radius + 0.2
       weapon.visual.x = playerPos.x + Math.cos(aimAngle) * offset
       weapon.visual.y = playerPos.y + Math.sin(aimAngle) * offset
@@ -1432,6 +1515,8 @@ export class WeaponSystem extends System {
       weapon.attackFacing = Math.cos(aimAngle) >= 0 ? 1 : -1
     } else if (inCombat) {
       weapon.bowHasAim = false
+      weapon.bowFreeAimReticleX = 0
+      weapon.bowFreeAimReticleY = 0
       this.getFrontTransform(
         playerPos,
         facing,
@@ -1442,6 +1527,8 @@ export class WeaponSystem extends System {
       )
     } else {
       weapon.bowHasAim = false
+      weapon.bowFreeAimReticleX = 0
+      weapon.bowFreeAimReticleY = 0
       this.getBackTransform(
         playerPos,
         facing,
@@ -1697,26 +1784,35 @@ export class WeaponSystem extends System {
       Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
     )
     const drawRatio = Math.max(weapon.bowDrawRatio, minForceRatio)
+    return this.getBowAimAngleForPosition(
+      playerPos,
+      radius,
+      target.transform.x,
+      target.transform.y,
+      drawRatio
+    )
+  }
+
+  private getBowAimAngleForPosition(
+    playerPos: { x: number; y: number },
+    radius: number,
+    targetX: number,
+    targetY: number,
+    drawRatio: number
+  ): number {
     const speed = this.getBowLaunchSpeed(drawRatio) * 1.5
     const offset = radius + 0.2
-
     let aimAngle = this.getBowAimAngle(
       playerPos.x,
       playerPos.y,
-      target.transform.x,
-      target.transform.y,
+      targetX,
+      targetY,
       speed
     )
 
     const originX = playerPos.x + Math.cos(aimAngle) * offset
     const originY = playerPos.y + Math.sin(aimAngle) * offset
-    aimAngle = this.getBowAimAngle(
-      originX,
-      originY,
-      target.transform.x,
-      target.transform.y,
-      speed
-    )
+    aimAngle = this.getBowAimAngle(originX, originY, targetX, targetY, speed)
 
     return aimAngle
   }
@@ -1854,6 +1950,10 @@ export class WeaponSystem extends System {
     weapon.bowRecoverElapsedMs = 0
     weapon.bowAimAngle = 0
     weapon.bowHasAim = false
+    weapon.bowFreeAim = false
+    weapon.bowFreeAimAngle = 0
+    weapon.bowFreeAimReticleX = 0
+    weapon.bowFreeAimReticleY = 0
   }
 
   tryPickUpWeapon(entity: Entity): void {

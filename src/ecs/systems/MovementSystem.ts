@@ -421,9 +421,12 @@ export class MovementSystem extends System {
       direction = 0
     }
 
-    const moveSpeed = entity.movement.isSprinting
-      ? DEFAULT_SPRINT_SPEED
-      : entity.movement.moveSpeed
+    const moveSpeedScale =
+      entity.input.moveSpeedScale > 0 ? entity.input.moveSpeedScale : 1
+    const moveSpeed =
+      (entity.movement.isSprinting
+        ? DEFAULT_SPRINT_SPEED
+        : entity.movement.moveSpeed) * moveSpeedScale
 
     this.tempVec.x = direction * moveSpeed
     this.tempVec.y = currentVel.y

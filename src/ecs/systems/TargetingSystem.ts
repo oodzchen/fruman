@@ -109,6 +109,13 @@ export class TargetingSystem extends System {
   private handlePlayerLock(player: Entity, entities: Entity[]): void {
     if (!player.input || !player.transform) return
     const input = player.input
+    if (player.weapon?.bowFreeAim) {
+      input.lockedTargetId = null
+      input.lockToggleRequested = false
+      input.lockSwitchIntent = 0
+      input.lockLostTimer = 0
+      return
+    }
 
     // Toggle Lock
     if (input.lockToggleRequested) {

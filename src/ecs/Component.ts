@@ -110,6 +110,9 @@ export class InputComponent extends Component {
   lockToggleRequested = false
   lockSwitchIntent = 0
   lockLostTimer = 0
+  freeAimToggleRequested = false
+  freeAimAdjust = 0
+  moveSpeedScale = 1
 
   lastMoveDirection = 0
   facingOverride: number | null = null
@@ -273,6 +276,10 @@ export class WeaponComponent extends Component {
   bowRecoverElapsedMs = 0
   bowAimAngle = 0
   bowHasAim = false
+  bowFreeAim = false
+  bowFreeAimAngle = 0
+  bowFreeAimReticleX = 0
+  bowFreeAimReticleY = 0
 
   isDropping = false
   isDropped = false

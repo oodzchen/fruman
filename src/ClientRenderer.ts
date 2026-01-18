@@ -116,11 +116,17 @@ export class ClientRenderer {
 
     // First pass: Find Player (Check for IS_PLAYER flag)
     let playerLockedTargetId = -1
+    let playerFreeAimActive = false
+    let playerFreeAimX = 0
+    let playerFreeAimY = 0
     for (let i = 0; i < this.entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
       if (flags & FLAGS.IS_PLAYER) {
         playerLockedTargetId = buf[offset + OFFSETS.LOCKED_TARGET_ID]
+        playerFreeAimActive = buf[offset + OFFSETS.FREE_AIM_ACTIVE] === 1
+        playerFreeAimX = buf[offset + OFFSETS.FREE_AIM_X]
+        playerFreeAimY = buf[offset + OFFSETS.FREE_AIM_Y]
         break
       }
     }
@@ -152,7 +158,7 @@ export class ClientRenderer {
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
 
     // Draw LockOn Reticle
-    if (playerLockedTargetId !== -1) {
+    if (!playerFreeAimActive && playerLockedTargetId !== -1) {
       // Find target
       for (let i = 0; i < this.entityCount; i++) {
         const offset = i * ENTITY_STRIDE
@@ -165,6 +171,10 @@ export class ClientRenderer {
         }
       }
     }
+
+    if (playerFreeAimActive) {
+      this.drawFreeAimReticle(playerFreeAimX, playerFreeAimY)
+    }
   }
 
   private drawLockOnReticle(buf: Float32Array, offset: number): void {
@@ -173,10 +183,18 @@ export class ClientRenderer {
 
     // Shake
     const shakeOffset = this.getHitShakeOffset(buf, offset)
-
     const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
     const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
+    this.drawReticleAt(centerX, centerY)
+  }
 
+  private drawFreeAimReticle(x: number, y: number): void {
+    const centerX = x * this.pixelsPerMeter
+    const centerY = y * this.pixelsPerMeter
+    this.drawReticleAt(centerX, centerY)
+  }
+
+  private drawReticleAt(centerX: number, centerY: number): void {
     this.ctx.save()
     this.ctx.translate(centerX, centerY)
     this.ctx.strokeStyle = '#FFFFFF'
@@ -348,6 +366,7 @@ export class ClientRenderer {
 
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
     const isBlocking = !!(flags & FLAGS.WEAPON_BLOCKING)
+    const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const bodyColor = '#b4bdc7'
 
     this.ctx.save()
@@ -399,15 +418,16 @@ export class ClientRenderer {
       this.ctx.lineTo(halfLen, 0)
       this.ctx.stroke()
 
-      if (bowDrawActive) {
+      if (bowDrawActive || isInCombat) {
         const arrowLen = wWidth * 0.9
         const arrowHead = Math.max(4, wHeight * 2.2)
         const arrowHeadWidth = Math.max(4, wHeight * 1.6)
-        const arrowTipY = pullOffset - arrowLen
+        const arrowBase = bowDrawActive ? pullOffset : 0
+        const arrowTipY = arrowBase - arrowLen
 
         this.ctx.lineWidth = Math.max(1, wHeight * 0.7)
         this.ctx.beginPath()
-        this.ctx.moveTo(0, pullOffset)
+        this.ctx.moveTo(0, arrowBase)
         this.ctx.lineTo(0, arrowTipY)
         this.ctx.stroke()
 
