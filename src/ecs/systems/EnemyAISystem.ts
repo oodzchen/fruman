@@ -25,6 +25,7 @@ import type { WeaponSystem } from './WeaponSystem'
 
 const ARCHER_MELEE_RANGE_RATIO = 0.25
 const ARCHER_BOW_MIN_WINDUP_MS = 200
+const ENEMY_LOCK_LOST_TIMEOUT_MS = 3000
 
 export class EnemyAISystem extends System {
   private player?: Entity
@@ -217,6 +218,20 @@ export class EnemyAISystem extends System {
         continue
       }
 
+      if (entity.input.lockedTargetId === this.player.id) {
+        if (hasLineOfSight) {
+          entity.input.lockLostTimer = 0
+        } else {
+          entity.input.lockLostTimer += deltaMs
+          if (entity.input.lockLostTimer > ENEMY_LOCK_LOST_TIMEOUT_MS) {
+            entity.input.lockedTargetId = null
+            entity.input.lockLostTimer = 0
+          }
+        }
+      } else {
+        entity.input.lockLostTimer = 0
+      }
+
       if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
         continue
       }
@@ -266,7 +281,11 @@ export class EnemyAISystem extends System {
       }
 
       // 敌人锁定玩家（进入战斗状态）
-      if (entity.input && entity.input.lockedTargetId !== this.player.id) {
+      if (
+        hasLineOfSight &&
+        entity.input &&
+        entity.input.lockedTargetId !== this.player.id
+      ) {
         entity.input.lockedTargetId = this.player.id
         entity.input.lockLostTimer = 0
       }
@@ -275,75 +294,60 @@ export class EnemyAISystem extends System {
         const meleeSwitchDistance = ai.detectionRange * ARCHER_MELEE_RANGE_RATIO
         const isUsingBow = entity.weapon.weaponType === 'bow'
 
-        if (isUsingBow) {
-          const canRangedAttack =
-            hasLineOfSight ||
-            (entity.input && entity.input.lockedTargetId === this.player.id)
-          if (canRangedAttack && this.weaponSystem) {
-            if (entity.weaponSlots.activeSlot !== 'secondary') {
-              this.weaponSystem.switchWeaponSlot(entity, 'secondary')
-              ai.archerShotCheckPending = false
-            }
+        if (distance > meleeSwitchDistance) {
+          // 远程逻辑
+          // 只要有视野或者已经锁定，就维持远程攻击状态（防止射击间隙的射线检测失败导致丢失目标）
+          const isLocked = entity.input.lockedTargetId === this.player.id
+          if (hasLineOfSight || isLocked) {
+            // 有视野：使用弓箭远程射击，原地不动
+            // 强制锁定并更新朝向
+            entity.input.lockedTargetId = this.player.id
+            entity.input.facingOverride = dx >= 0 ? 1 : -1
 
-            const weapon = entity.weapon
-            if (weapon.bowRecoverElapsedMs > 0) {
-              ai.archerShotCheckPending = true
-              entity.input.attackRequested = false
-            } else if (
-              weapon.bowIsDrawing &&
-              weapon.bowDrawElapsedMs >= ARCHER_BOW_MIN_WINDUP_MS
-            ) {
-              entity.input.attackRequested = false
-            } else {
-              entity.input.attackRequested = true
-            }
-
-            if (
-              ai.archerShotCheckPending &&
-              weapon.bowRecoverElapsedMs === 0 &&
-              !weapon.bowIsDrawing &&
-              !weapon.bowReleasePending
-            ) {
-              ai.archerShotCheckPending = false
-              if (distance <= meleeSwitchDistance) {
-                entity.input.attackRequested = false
-                this.weaponSystem.switchWeaponSlot(entity, 'main')
+            if (this.weaponSystem) {
+              if (entity.weaponSlots.activeSlot !== 'secondary') {
+                this.weaponSystem.switchWeaponSlot(entity, 'secondary')
+              } else {
+                // 已经在用弓，执行连续射击逻辑
+                const weapon = entity.weapon
+                // 如果正在后摇（recovery），等待；否则开始或保持蓄力
+                if (weapon.bowRecoverElapsedMs > 0) {
+                  entity.input.attackRequested = false
+                } else if (
+                  weapon.bowIsDrawing &&
+                  weapon.bowDrawElapsedMs >= ARCHER_BOW_MIN_WINDUP_MS
+                ) {
+                  // 蓄力完成，释放攻击
+                  entity.input.attackRequested = false
+                } else {
+                  // 开始蓄力
+                  entity.input.attackRequested = true
+                }
               }
             }
+            // 保持原地不动
+            entity.input.moveDirection = 0
+            entity.input.sprintRequested = false
+            entity.input.blockRequested = false
+            if (entity.movement) {
+              entity.movement.moveSpeed = ai.moveSpeed
+            }
+            continue
           } else {
+            // 无视野且距离较远：放弃追击，回巡逻
+            entity.input.attackRequested = false
+            entity.input.lockedTargetId = null
+            this.handlePatrol(entity, ai, now)
+            continue
+          }
+        } else {
+          // 近战逻辑 (<= meleeSwitchDistance)
+          // 无论是否有视野，如果距离很近，都尝试切近战并追击（如果有视野直接打，无视野追过去）
+          if (this.weaponSystem && entity.weaponSlots.activeSlot !== 'main') {
+            this.weaponSystem.switchWeaponSlot(entity, 'main')
             entity.input.attackRequested = false
           }
-
-          entity.input.moveDirection = 0
-          entity.input.sprintRequested = false
-          entity.input.blockRequested = false
-          entity.input.facingOverride = entity.weapon.attackFacing
-          if (entity.movement) {
-            entity.movement.moveSpeed = ai.moveSpeed
-          }
-          continue
-        }
-
-        if (
-          hasLineOfSight &&
-          this.weaponSystem &&
-          distance > meleeSwitchDistance
-        ) {
-          if (entity.weaponSlots.activeSlot !== 'secondary') {
-            this.weaponSystem.switchWeaponSlot(entity, 'secondary')
-            ai.archerShotCheckPending = false
-            ai.bowHoldTimerMs = 0
-          }
-
-          entity.input.attackRequested = false
-          entity.input.moveDirection = 0
-          entity.input.sprintRequested = false
-          entity.input.blockRequested = false
-          entity.input.facingOverride = entity.weapon.attackFacing
-          if (entity.movement) {
-            entity.movement.moveSpeed = ai.moveSpeed
-          }
-          continue
+          // 不使用 continue，让逻辑流转到下方的 approach/combo 状态处理近战行为
         }
       }
 
