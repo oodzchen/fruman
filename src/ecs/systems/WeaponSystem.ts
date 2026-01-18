@@ -270,6 +270,14 @@ export class WeaponSystem extends System {
 
     // 崩塌解除后启动武器回收动画
     if (weapon.isDropped && !weapon.isRecovering) {
+      if (
+        weapon.weaponType === 'bow' &&
+        entity.stats &&
+        !entity.stats.isInCombat
+      ) {
+        this.applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+        return
+      }
       this.startWeaponRecover(entity)
     }
 
@@ -679,10 +687,14 @@ export class WeaponSystem extends System {
     weapon.isRecovering = true
     weapon.dropElapsedTime = 0
 
+    this.tempPlayerPos.x = entity.transform.x
+    this.tempPlayerPos.y = entity.transform.y
+    const playerPos = this.tempPlayerPos
+
     // 计算起始相对偏移（当前武器位置相对于玩家）
     this.getOffsetFromTransform(
       weapon.visual,
-      { x: entity.transform.x, y: entity.transform.y },
+      playerPos,
       weapon.dropStartOffset
     )
 
@@ -690,11 +702,27 @@ export class WeaponSystem extends System {
     const facing =
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
-        : 1
+        : weapon.attackFacing || 1
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    weapon.dropEndOffset.dx = -facing * (radius + 0.2)
-    weapon.dropEndOffset.dy = radius * -0.2
-    weapon.dropEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    if (weapon.weaponType === 'bow') {
+      this.getFrontTransform(
+        playerPos,
+        facing,
+        this.tempTransform,
+        radius,
+        weapon.weaponType,
+        weapon.width
+      )
+      this.getOffsetFromTransform(
+        this.tempTransform,
+        playerPos,
+        weapon.dropEndOffset
+      )
+    } else {
+      weapon.dropEndOffset.dx = -facing * (radius + 0.2)
+      weapon.dropEndOffset.dy = radius * -0.2
+      weapon.dropEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    }
   }
 
   private checkOBBvsOBB(
