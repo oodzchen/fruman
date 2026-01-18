@@ -78,6 +78,7 @@ export type WorkerStateMessage = {
   entityCount: number
   effectsCount: number
   camera: { x: number; y: number }
+  zoom: number
 }
 
 export type SensorDebugData = {

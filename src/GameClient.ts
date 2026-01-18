@@ -143,6 +143,8 @@ export class GameClient {
       this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
+      this.mouseZoom = msg.zoom
+      this.renderer.setCamera(this.camera.x, this.camera.y, this.mouseZoom)
       this.releaseStateBuffer(msg.entitiesBuffer)
     } else if (msg.type === 'debug') {
       this.sensorDebugData = msg.sensors

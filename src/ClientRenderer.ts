@@ -1,5 +1,7 @@
 import type { AudioManager } from './AudioManager'
+import { BowTrajectoryCalculator } from './BowTrajectory'
 import { ParticleSystem } from './ParticleSystem'
+import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
 import {
   ENTITY_STRIDE,
   FLAGS,
@@ -15,14 +17,21 @@ import {
 } from './worker/effectsProtocol'
 
 const MAX_PARTICLES = 600
+const DEBUG_DRAW_TRAJECTORY = false
+const RETICLE_EDGE_PX = 8
+const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
+const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
   private pixelsPerMeter: number
   private camera: { x: number; y: number }
+  private zoom: number = 1.0
 
   private tempOffset = { x: 0, y: 0 }
   private tempScale = { x: 1, y: 1 }
+  private viewBounds = { left: 0, right: 0, top: 0, bottom: 0 }
+  private reticleClampPos = { x: 0, y: 0 }
 
   // Pre-allocated buffer to avoid creating new Float32Array each frame
   private stateBuffer = new Float32Array(MAX_ENTITIES * ENTITY_STRIDE)
@@ -36,12 +45,14 @@ export class ClientRenderer {
   private effectsBuffer: ArrayBuffer | SharedArrayBuffer | null = null
   private effectsView: Float32Array | null = null
   private audioManager: AudioManager | null = null
+  private trajectoryCalculator: BowTrajectoryCalculator
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
     this.pixelsPerMeter = pixelsPerMeter
     this.camera = { x: 0, y: 0 }
     this.particleSystem = new ParticleSystem(MAX_PARTICLES)
+    this.trajectoryCalculator = new BowTrajectoryCalculator()
   }
 
   setAudioManager(audioManager: AudioManager): void {
@@ -96,9 +107,10 @@ export class ClientRenderer {
     }
   }
 
-  setCamera(x: number, y: number) {
+  setCamera(x: number, y: number, zoom: number = 1.0) {
     this.camera.x = x
     this.camera.y = y
+    this.zoom = zoom
   }
 
   private getColorString(colorInt: number): string {
@@ -119,6 +131,9 @@ export class ClientRenderer {
     let playerFreeAimActive = false
     let playerFreeAimX = 0
     let playerFreeAimY = 0
+    let playerX = 0
+    let playerY = 0
+    let playerDrawRatio = 0
     for (let i = 0; i < this.entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
@@ -127,6 +142,9 @@ export class ClientRenderer {
         playerFreeAimActive = buf[offset + OFFSETS.FREE_AIM_ACTIVE] === 1
         playerFreeAimX = buf[offset + OFFSETS.FREE_AIM_X]
         playerFreeAimY = buf[offset + OFFSETS.FREE_AIM_Y]
+        playerX = buf[offset + OFFSETS.X]
+        playerY = buf[offset + OFFSETS.Y]
+        playerDrawRatio = buf[offset + OFFSETS.WEAPON_DRAW]
         break
       }
     }
@@ -173,7 +191,22 @@ export class ClientRenderer {
     }
 
     if (playerFreeAimActive) {
-      this.drawFreeAimReticle(playerFreeAimX, playerFreeAimY)
+      if (DEBUG_DRAW_TRAJECTORY) {
+        this.drawTrajectory(
+          playerX,
+          playerY,
+          playerFreeAimX,
+          playerFreeAimY,
+          playerDrawRatio
+        )
+      }
+      this.drawFreeAimReticle(
+        playerX,
+        playerY,
+        playerFreeAimX,
+        playerFreeAimY,
+        playerDrawRatio
+      )
     }
   }
 
@@ -188,9 +221,22 @@ export class ClientRenderer {
     this.drawReticleAt(centerX, centerY)
   }
 
-  private drawFreeAimReticle(x: number, y: number): void {
-    const centerX = x * this.pixelsPerMeter
-    const centerY = y * this.pixelsPerMeter
+  private drawFreeAimReticle(
+    playerX: number,
+    playerY: number,
+    reticleX: number,
+    reticleY: number,
+    drawRatio: number
+  ): void {
+    const clampedPos = this.clampReticleToViewport(
+      playerX,
+      playerY,
+      reticleX,
+      reticleY,
+      drawRatio
+    )
+    const centerX = clampedPos.x * this.pixelsPerMeter
+    const centerY = clampedPos.y * this.pixelsPerMeter
     this.drawReticleAt(centerX, centerY)
   }
 
@@ -374,26 +420,7 @@ export class ClientRenderer {
     this.ctx.rotate(wRot)
 
     if (weaponType === WEAPON_TYPES.ARROW) {
-      const arrowLen = wWidth
-      const lineWidth = Math.max(1, wHeight * 0.9)
-      const headLen = Math.max(4, wWidth * 0.18)
-      const headWidth = Math.max(4, wHeight * 1.6)
-      const tipY = -arrowLen
-
-      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
-      this.ctx.lineWidth = lineWidth
-
-      this.ctx.beginPath()
-      this.ctx.moveTo(0, 0)
-      this.ctx.lineTo(0, tipY)
-      this.ctx.stroke()
-
-      this.ctx.beginPath()
-      this.ctx.moveTo(0, tipY)
-      this.ctx.lineTo(-headWidth / 2, tipY + headLen)
-      this.ctx.moveTo(0, tipY)
-      this.ctx.lineTo(headWidth / 2, tipY + headLen)
-      this.ctx.stroke()
+      this.drawArrowShape(wWidth, wHeight, isAttacking, bodyColor)
     } else if (weaponType === WEAPON_TYPES.BOW) {
       const halfLen = wWidth / 2
       const arcDepth = wHeight * 4
@@ -418,25 +445,18 @@ export class ClientRenderer {
       this.ctx.lineTo(halfLen, 0)
       this.ctx.stroke()
 
-      if (bowDrawActive || isInCombat) {
-        const arrowLen = wWidth * 0.9
-        const arrowHead = Math.max(4, wHeight * 2.2)
-        const arrowHeadWidth = Math.max(4, wHeight * 1.6)
+      const shouldShowArrow = bowDrawActive || (isInCombat && drawRatio <= 0)
+      if (shouldShowArrow) {
+        const arrowLen = BOW_ARROW_LENGTH * this.pixelsPerMeter
+        const arrowThickness = BOW_ARROW_THICKNESS * this.pixelsPerMeter
         const arrowBase = bowDrawActive ? pullOffset : 0
-        const arrowTipY = arrowBase - arrowLen
-
-        this.ctx.lineWidth = Math.max(1, wHeight * 0.7)
-        this.ctx.beginPath()
-        this.ctx.moveTo(0, arrowBase)
-        this.ctx.lineTo(0, arrowTipY)
-        this.ctx.stroke()
-
-        this.ctx.beginPath()
-        this.ctx.moveTo(0, arrowTipY)
-        this.ctx.lineTo(-arrowHeadWidth / 2, arrowTipY + arrowHead)
-        this.ctx.moveTo(0, arrowTipY)
-        this.ctx.lineTo(arrowHeadWidth / 2, arrowTipY + arrowHead)
-        this.ctx.stroke()
+        this.drawArrowShape(
+          arrowLen,
+          arrowThickness,
+          isAttacking,
+          bodyColor,
+          arrowBase
+        )
       }
     } else {
       this.ctx.beginPath()
@@ -468,6 +488,34 @@ export class ClientRenderer {
       this.ctx.stroke()
     }
     this.ctx.restore()
+  }
+
+  private drawArrowShape(
+    lengthPx: number,
+    thicknessPx: number,
+    isAttacking: boolean,
+    bodyColor: string,
+    baseOffsetY: number = 0
+  ): void {
+    const lineWidth = Math.max(1, thicknessPx * 0.9)
+    const headLen = Math.max(4, lengthPx * 0.18)
+    const headWidth = Math.max(4, thicknessPx * 1.6)
+    const tipY = baseOffsetY - lengthPx
+
+    this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
+    this.ctx.lineWidth = lineWidth
+
+    this.ctx.beginPath()
+    this.ctx.moveTo(0, baseOffsetY)
+    this.ctx.lineTo(0, tipY)
+    this.ctx.stroke()
+
+    this.ctx.beginPath()
+    this.ctx.moveTo(0, tipY)
+    this.ctx.lineTo(-headWidth / 2, tipY + headLen)
+    this.ctx.moveTo(0, tipY)
+    this.ctx.lineTo(headWidth / 2, tipY + headLen)
+    this.ctx.stroke()
   }
 
   private drawStatusBars(
@@ -580,5 +628,142 @@ export class ClientRenderer {
     this.tempOffset.x = offsetX
     this.tempOffset.y = 0
     return this.tempOffset
+  }
+
+  private drawTrajectory(
+    playerX: number,
+    playerY: number,
+    reticleX: number,
+    reticleY: number,
+    drawRatio: number
+  ): void {
+    const speed = this.trajectoryCalculator.getBowSpeed(drawRatio) * 1.5
+    const points = this.trajectoryCalculator.simulateTrajectory(
+      playerX,
+      playerY,
+      reticleX,
+      reticleY,
+      speed
+    )
+
+    if (points.length < 2) return
+
+    this.ctx.save()
+    this.ctx.strokeStyle = '#00FF00'
+    this.ctx.lineWidth = 2
+    this.ctx.setLineDash([5, 5])
+    this.ctx.globalAlpha = 0.6
+
+    this.ctx.beginPath()
+    const firstPoint = points[0]
+    this.ctx.moveTo(
+      firstPoint.x * this.pixelsPerMeter,
+      firstPoint.y * this.pixelsPerMeter
+    )
+
+    for (let i = 1; i < points.length; i++) {
+      const point = points[i]
+      this.ctx.lineTo(
+        point.x * this.pixelsPerMeter,
+        point.y * this.pixelsPerMeter
+      )
+    }
+
+    this.ctx.stroke()
+
+    const viewBounds = this.updateViewBounds()
+
+    this.ctx.strokeStyle = '#FF0000'
+    this.ctx.setLineDash([])
+    this.ctx.strokeRect(
+      viewBounds.left * this.pixelsPerMeter,
+      viewBounds.top * this.pixelsPerMeter,
+      (viewBounds.right - viewBounds.left) * this.pixelsPerMeter,
+      (viewBounds.bottom - viewBounds.top) * this.pixelsPerMeter
+    )
+
+    this.ctx.restore()
+  }
+
+  private clampReticleToViewport(
+    playerX: number,
+    playerY: number,
+    reticleX: number,
+    reticleY: number,
+    weaponDrawRatio: number
+  ): { x: number; y: number } {
+    const viewBounds = this.updateViewBounds()
+    const reticlePadding = this.getReticlePaddingMeters()
+    const paddedLeft = viewBounds.left + reticlePadding
+    const paddedRight = viewBounds.right - reticlePadding
+    const paddedTop = viewBounds.top + reticlePadding
+    const paddedBottom = viewBounds.bottom - reticlePadding
+
+    const reticleInView =
+      reticleX >= paddedLeft &&
+      reticleX <= paddedRight &&
+      reticleY >= paddedTop &&
+      reticleY <= paddedBottom
+
+    if (reticleInView) {
+      this.reticleClampPos.x = reticleX
+      this.reticleClampPos.y = reticleY
+      return this.reticleClampPos
+    }
+
+    const speed = this.trajectoryCalculator.getBowSpeed(weaponDrawRatio) * 1.5
+    const intersection = this.trajectoryCalculator.findViewportIntersection(
+      playerX,
+      playerY,
+      reticleX,
+      reticleY,
+      speed,
+      paddedLeft,
+      paddedRight,
+      paddedTop,
+      paddedBottom
+    )
+
+    if (intersection) {
+      this.reticleClampPos.x = intersection.x
+      this.reticleClampPos.y = intersection.y
+      return this.reticleClampPos
+    }
+
+    this.reticleClampPos.x = reticleX
+    this.reticleClampPos.y = reticleY
+    return this.reticleClampPos
+  }
+
+  private updateViewBounds(): {
+    left: number
+    right: number
+    top: number
+    bottom: number
+  } {
+    const canvasWidth = this.ctx.canvas.width
+    const canvasHeight = this.ctx.canvas.height
+    const anchorX = canvasWidth * 0.5
+    const anchorY = canvasHeight
+    const invZoom = 1 / this.zoom
+    const camX = this.camera.x * this.pixelsPerMeter
+    const camY = this.camera.y * this.pixelsPerMeter
+
+    const leftPx = -anchorX * invZoom + anchorX + camX
+    const rightPx = (canvasWidth - anchorX) * invZoom + anchorX + camX
+    const topPx = -anchorY * invZoom + anchorY + camY
+    const bottomPx = (canvasHeight - anchorY) * invZoom + anchorY + camY
+
+    const invPixelsPerMeter = 1 / this.pixelsPerMeter
+    this.viewBounds.left = leftPx * invPixelsPerMeter
+    this.viewBounds.right = rightPx * invPixelsPerMeter
+    this.viewBounds.top = topPx * invPixelsPerMeter
+    this.viewBounds.bottom = bottomPx * invPixelsPerMeter
+
+    return this.viewBounds
+  }
+
+  private getReticlePaddingMeters(): number {
+    return RETICLE_EDGE_PX / (this.pixelsPerMeter * this.zoom)
   }
 }

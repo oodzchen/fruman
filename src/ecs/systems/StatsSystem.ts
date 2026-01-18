@@ -178,12 +178,16 @@ export class StatsSystem extends System {
           // 玩家：基于deltaTime累积计时，每次战斗动作重置
           entity.stats.combatExitTimer += deltaMs
           if (entity.stats.combatExitTimer >= entity.stats.combatExitTimeout) {
-            entity.stats.isInCombat = false
-            entity.stats.combatExitTimer = 0
-            if (entity.weapon) {
-              entity.weapon.comboCount = 0
-              entity.weapon.attackQueued = false
-              entity.weapon.nextSwingDirection = 'toFront'
+            if (entity.weapon?.bowFreeAim) {
+              entity.stats.combatExitTimer = 0
+            } else {
+              entity.stats.isInCombat = false
+              entity.stats.combatExitTimer = 0
+              if (entity.weapon) {
+                entity.weapon.comboCount = 0
+                entity.weapon.attackQueued = false
+                entity.weapon.nextSwingDirection = 'toFront'
+              }
             }
           }
         } else {

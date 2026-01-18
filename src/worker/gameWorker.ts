@@ -189,6 +189,7 @@ const stateMessage: WorkerStateMessage = {
   entityCount: 0,
   effectsCount: 0,
   camera: { x: 0, y: 0 },
+  zoom: 1.0,
 }
 
 // Loop Logic
@@ -934,6 +935,7 @@ function sendState() {
   stateMessage.effectsCount = effectsCount
   stateMessage.camera.x = camera.x
   stateMessage.camera.y = camera.y
+  stateMessage.zoom = zoom
   if (sharedStateBuffer) {
     ctx.postMessage(stateMessage)
     effectsCount = 0
