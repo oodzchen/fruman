@@ -83,20 +83,6 @@ export class EnemyAISystem extends System {
       }
 
       const ai = entity.enemyAI
-      if (ai.enemyType === 'default') {
-        const dx = this.player.transform.x - entity.transform.x
-        const facingAway = dx >= 0 ? -1 : 1
-        entity.input.moveDirection = 0
-        entity.input.sprintRequested = false
-        entity.input.blockRequested = false
-        entity.input.attackRequested = false
-        entity.input.lockedTargetId = null
-        entity.input.facingOverride = facingAway
-        if (entity.weapon) {
-          entity.weapon.attackQueued = false
-        }
-        continue
-      }
 
       const dx = this.player.transform.x - entity.transform.x
       const dy = this.player.transform.y - entity.transform.y
@@ -495,8 +481,12 @@ export class EnemyAISystem extends System {
       entity.movement.moveSpeed = ai.moveSpeed
     }
 
-    // 如果没有设置巡逻点，使用默认的原地待机逻辑
-    if (!ai.patrolWaypoints || ai.patrolWaypoints.length === 0) {
+    // 站岗模式或无巡逻点时，使用原地待机逻辑
+    const shouldStandGuard =
+      ai.initialPatrolMode === 'guard' ||
+      !ai.patrolWaypoints ||
+      ai.patrolWaypoints.length === 0
+    if (shouldStandGuard) {
       entity.input.moveDirection = 0
       ai.state = 'approach'
       ai.comboSwingsDone = 0

@@ -20,7 +20,13 @@ import {
   ENEMY_PACE_SWITCH_INTERVAL_MS,
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../constants'
-import type { EnemyType, WeaponVisualType, b2BodyId, b2ShapeId } from '../types'
+import type {
+  EnemyPatrolMode,
+  EnemyType,
+  WeaponVisualType,
+  b2BodyId,
+  b2ShapeId,
+} from '../types'
 import { componentRegistry } from './ComponentRegistry'
 
 export abstract class Component {
@@ -362,6 +368,7 @@ export class EnemyAIComponent extends Component {
   nextPaceResumeTimestamp = 0
   moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
   state: 'approach' | 'combo' | 'retreat' | 'pacing' | 'probe' = 'approach'
+  initialPatrolMode: EnemyPatrolMode = 'patrol'
   comboSwingsDone = 0
   comboSwingTarget = 5
   lastFacing: -1 | 1 = 1

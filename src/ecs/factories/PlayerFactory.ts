@@ -242,11 +242,12 @@ export function createEnemy(
   ai.attackDesire = template.attackDesire
   ai.parryProficiency = template.parryProficiency
   ai.enemyType = enemyType
+  ai.initialPatrolMode = template.initialPatrolMode
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
 
-  // 如果是大体型敌人，设置为站岗模式（无巡逻点）
-  if (enemyType === 'large') {
+  // 站岗模式复用空巡逻点逻辑
+  if (ai.initialPatrolMode === 'guard') {
     ai.patrolWaypoints = []
   } else {
     // 默认巡逻路线：以出生点为中心，左右各5米的范围

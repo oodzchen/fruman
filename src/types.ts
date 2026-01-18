@@ -11,12 +11,15 @@ export type b2Hull = ReturnType<MainModule['b2ComputeHull']>
 export type b2Polygon = ReturnType<MainModule['b2MakePolygon']>
 export type b2Vec2 = InstanceType<MainModule['b2Vec2']>
 
+export type EnemyPatrolMode = 'guard' | 'patrol'
+
 export interface EnemyTemplate {
   moveSpeed: number
   radius: number
   attackDesire: number
   color: string
   parryProficiency: number
+  initialPatrolMode: EnemyPatrolMode
 }
 
 export type EnemyType = 'default' | 'fast' | 'large'
