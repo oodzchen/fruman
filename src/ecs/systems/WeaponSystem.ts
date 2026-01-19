@@ -1996,6 +1996,16 @@ export class WeaponSystem extends System {
     weapon.bowFreeAimAngle = 0
     weapon.bowFreeAimReticleX = 0
     weapon.bowFreeAimReticleY = 0
+    weapon.isDropping = false
+    weapon.isDropped = false
+    weapon.isRecovering = false
+    weapon.dropElapsedTime = 0
+    weapon.dropStartOffset.dx = 0
+    weapon.dropStartOffset.dy = 0
+    weapon.dropStartOffset.rotation = 0
+    weapon.dropEndOffset.dx = 0
+    weapon.dropEndOffset.dy = 0
+    weapon.dropEndOffset.rotation = 0
   }
 
   tryPickUpWeapon(entity: Entity): void {
@@ -2096,6 +2106,7 @@ export class WeaponSystem extends System {
           entity.weapon.isEquipped = true
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+          this.resetWeaponForSwap(entity.weapon)
 
           // 标记武器实体为已拾取（会在后续清理）
           weaponEntity.weapon.isEquipped = true
@@ -2135,6 +2146,9 @@ export class WeaponSystem extends System {
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
+          entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+          entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+          this.resetWeaponForSwap(entity.weapon)
 
           // 标记武器实体为已拾取（会在后续清理）
           weaponEntity.weapon.isEquipped = true

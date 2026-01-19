@@ -245,7 +245,7 @@ export const ARCHER_SPAWN_CONFIG = {
   obstacleX: -9.5,
   obstacleHalfWidth: 1.2,
   obstacleHalfHeight: 2.8,
-  edgeOffset: 0.6,
+  edgeOffset: 0.8,
   yOffsetFromTop: -0.6,
 } as const
 
