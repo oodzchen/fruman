@@ -68,7 +68,7 @@ const BOW_MIN_SPEED = 10
 const BOW_MAX_SPEED = 22
 const BOW_RECOVER_MS = 360
 const BOW_GRAVITY_SCALE = 0.5
-const BOW_FREE_AIM_TURN_SPEED = 1.6
+const BOW_FREE_AIM_TURN_SPEED = 1.0
 const BOW_FREE_AIM_MAX_OFFSET = Math.PI * 0.45
 
 type ObstacleCollider = {
@@ -1445,23 +1445,77 @@ export class WeaponSystem extends System {
       weapon.bowFreeAimAngle = 0
       weapon.bowFreeAimReticleX = 0
       weapon.bowFreeAimReticleY = 0
+      weapon.bowFreeAimUseMouse = false
+      weapon.bowFreeAimUseReticle = false
+      weapon.bowFreeAimLastMouseX = 0
+      weapon.bowFreeAimLastMouseY = 0
+      weapon.bowFreeAimReticleOffsetX = 0
+      weapon.bowFreeAimReticleOffsetY = 0
       return
     }
 
     const holdingAttack = entity.input.attackRequested && !entity.isStunned()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const wantsLockToggle =
+      entity.input.lockToggleRequested || entity.input.lockSwitchIntent !== 0
+    if (weapon.bowFreeAim && wantsLockToggle) {
+      weapon.bowFreeAim = false
+      weapon.bowFreeAimAngle = 0
+      weapon.bowFreeAimReticleX = 0
+      weapon.bowFreeAimReticleY = 0
+      weapon.bowFreeAimUseMouse = false
+      weapon.bowFreeAimUseReticle = false
+      weapon.bowFreeAimReticleOffsetX = 0
+      weapon.bowFreeAimReticleOffsetY = 0
+      entity.input.facingOverride = null
+    }
     if (entity.input.freeAimToggleRequested) {
       entity.input.freeAimToggleRequested = false
+      let lockedAimAngle: number | null = null
+      let lockedTargetX = 0
+      let lockedTargetY = 0
+      let hasLockedTarget = false
+      if (this.entityLookup && entity.input.lockedTargetId !== null) {
+        const target = this.entityLookup(entity.input.lockedTargetId)
+        if (target?.transform && target.stats && !target.stats.isDead) {
+          lockedTargetX = target.transform.x
+          lockedTargetY = target.transform.y
+          hasLockedTarget = true
+          const minForceRatio = Math.max(
+            BOW_MIN_FORCE_RATIO,
+            Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+          )
+          const drawRatio = Math.max(weapon.bowDrawRatio, minForceRatio)
+          lockedAimAngle = this.getBowAimAngleForPosition(
+            playerPos,
+            radius,
+            lockedTargetX,
+            lockedTargetY,
+            drawRatio
+          )
+        }
+      }
       weapon.bowFreeAim = !weapon.bowFreeAim
       if (weapon.bowFreeAim) {
-        const defaultAngle = weapon.bowHasAim
-          ? weapon.bowAimAngle
-          : facing === 1
-            ? 0
-            : Math.PI
+        const defaultAngle =
+          lockedAimAngle ??
+          (weapon.bowHasAim ? weapon.bowAimAngle : facing === 1 ? 0 : Math.PI)
         weapon.bowFreeAimAngle = defaultAngle
-        weapon.bowFreeAimReticleX = 0
-        weapon.bowFreeAimReticleY = 0
+        weapon.bowFreeAimUseMouse = false
+        weapon.bowFreeAimUseReticle = hasLockedTarget
+        weapon.bowFreeAimLastMouseX = entity.input.mouseAimX
+        weapon.bowFreeAimLastMouseY = entity.input.mouseAimY
+        if (hasLockedTarget) {
+          weapon.bowFreeAimReticleX = lockedTargetX
+          weapon.bowFreeAimReticleY = lockedTargetY
+          weapon.bowFreeAimReticleOffsetX = lockedTargetX - playerPos.x
+          weapon.bowFreeAimReticleOffsetY = lockedTargetY - playerPos.y
+        } else {
+          weapon.bowFreeAimReticleX = 0
+          weapon.bowFreeAimReticleY = 0
+          weapon.bowFreeAimReticleOffsetX = 0
+          weapon.bowFreeAimReticleOffsetY = 0
+        }
         entity.input.lockedTargetId = null
         entity.input.lockLostTimer = 0
       } else {
@@ -1470,6 +1524,10 @@ export class WeaponSystem extends System {
         entity.input.facingOverride = null
         weapon.bowFreeAimReticleX = 0
         weapon.bowFreeAimReticleY = 0
+        weapon.bowFreeAimUseMouse = false
+        weapon.bowFreeAimUseReticle = false
+        weapon.bowFreeAimReticleOffsetX = 0
+        weapon.bowFreeAimReticleOffsetY = 0
       }
     }
 
@@ -1492,38 +1550,74 @@ export class WeaponSystem extends System {
       let reticleAngle = weapon.bowFreeAimAngle
       let reticleX = 0
       let reticleY = 0
+      let useMouseAimNow = false
       if (useMouseAim) {
-        reticleX = entity.input.mouseAimX
-        reticleY = entity.input.mouseAimY
-        reticleAngle = Math.atan2(
-          reticleY - playerPos.y,
-          reticleX - playerPos.x
-        )
-        weapon.bowFreeAimAngle = reticleAngle
-      } else {
+        const mouseX = entity.input.mouseAimX
+        const mouseY = entity.input.mouseAimY
+        const dx = mouseX - weapon.bowFreeAimLastMouseX
+        const dy = mouseY - weapon.bowFreeAimLastMouseY
+        if (weapon.bowFreeAimUseMouse || dx !== 0 || dy !== 0) {
+          weapon.bowFreeAimUseMouse = true
+          useMouseAimNow = true
+        }
+        weapon.bowFreeAimLastMouseX = mouseX
+        weapon.bowFreeAimLastMouseY = mouseY
+        if (useMouseAimNow) {
+          reticleX = mouseX
+          reticleY = mouseY
+          reticleAngle = Math.atan2(
+            reticleY - playerPos.y,
+            reticleX - playerPos.x
+          )
+          weapon.bowFreeAimAngle = reticleAngle
+          weapon.bowFreeAimReticleX = reticleX
+          weapon.bowFreeAimReticleY = reticleY
+          weapon.bowFreeAimReticleOffsetX = reticleX - playerPos.x
+          weapon.bowFreeAimReticleOffsetY = reticleY - playerPos.y
+          weapon.bowFreeAimUseReticle = false
+        }
+      }
+      if (!useMouseAimNow) {
         const adjust =
           entity.input.freeAimAdjust * (weapon.attackFacing >= 0 ? 1 : -1)
         if (adjust !== 0) {
+          weapon.bowFreeAimUseReticle = false
           weapon.bowFreeAimAngle +=
             adjust * BOW_FREE_AIM_TURN_SPEED * (deltaMs / 1000)
         }
-        const centerAngle = facing === 1 ? 0 : Math.PI
-        const minAngle = centerAngle - BOW_FREE_AIM_MAX_OFFSET
-        const maxAngle = centerAngle + BOW_FREE_AIM_MAX_OFFSET
-        if (weapon.bowFreeAimAngle < minAngle) {
-          weapon.bowFreeAimAngle = minAngle
-        } else if (weapon.bowFreeAimAngle > maxAngle) {
-          weapon.bowFreeAimAngle = maxAngle
+        if (!weapon.bowFreeAimUseReticle) {
+          const centerAngle = facing === 1 ? 0 : Math.PI
+          const minAngle = centerAngle - BOW_FREE_AIM_MAX_OFFSET
+          const maxAngle = centerAngle + BOW_FREE_AIM_MAX_OFFSET
+          if (weapon.bowFreeAimAngle < minAngle) {
+            weapon.bowFreeAimAngle = minAngle
+          } else if (weapon.bowFreeAimAngle > maxAngle) {
+            weapon.bowFreeAimAngle = maxAngle
+          }
         }
 
-        const reticleRange =
-          Math.max(this.viewportWidth, this.viewportHeight) * 0.5
-        reticleAngle = weapon.bowFreeAimAngle
-        reticleX = playerPos.x + Math.cos(reticleAngle) * reticleRange
-        reticleY = playerPos.y + Math.sin(reticleAngle) * reticleRange
+        if (weapon.bowFreeAimUseReticle) {
+          reticleX = playerPos.x + weapon.bowFreeAimReticleOffsetX
+          reticleY = playerPos.y + weapon.bowFreeAimReticleOffsetY
+          reticleAngle = Math.atan2(
+            reticleY - playerPos.y,
+            reticleX - playerPos.x
+          )
+          weapon.bowFreeAimAngle = reticleAngle
+          weapon.bowFreeAimReticleX = reticleX
+          weapon.bowFreeAimReticleY = reticleY
+        } else {
+          const reticleRange =
+            Math.max(this.viewportWidth, this.viewportHeight) * 0.5
+          reticleAngle = weapon.bowFreeAimAngle
+          reticleX = playerPos.x + Math.cos(reticleAngle) * reticleRange
+          reticleY = playerPos.y + Math.sin(reticleAngle) * reticleRange
+          weapon.bowFreeAimReticleX = reticleX
+          weapon.bowFreeAimReticleY = reticleY
+          weapon.bowFreeAimReticleOffsetX = reticleX - playerPos.x
+          weapon.bowFreeAimReticleOffsetY = reticleY - playerPos.y
+        }
       }
-      weapon.bowFreeAimReticleX = reticleX
-      weapon.bowFreeAimReticleY = reticleY
       entity.input.facingOverride = Math.cos(reticleAngle) >= 0 ? 1 : -1
 
       const minForceRatio = Math.max(
@@ -1996,6 +2090,12 @@ export class WeaponSystem extends System {
     weapon.bowFreeAimAngle = 0
     weapon.bowFreeAimReticleX = 0
     weapon.bowFreeAimReticleY = 0
+    weapon.bowFreeAimUseMouse = false
+    weapon.bowFreeAimUseReticle = false
+    weapon.bowFreeAimLastMouseX = 0
+    weapon.bowFreeAimLastMouseY = 0
+    weapon.bowFreeAimReticleOffsetX = 0
+    weapon.bowFreeAimReticleOffsetY = 0
     weapon.isDropping = false
     weapon.isDropped = false
     weapon.isRecovering = false

@@ -700,11 +700,7 @@ function handleInput(
       (currKeys.has('q') && !prevKeys.has('q')) ||
       (currMouseButtons.has(1) && !prevMouseButtons.has(1))
 
-    if (
-      lockToggleJustPressed &&
-      !isPlayerDead &&
-      !playerEntity.weapon?.bowFreeAim
-    ) {
+    if (lockToggleJustPressed && !isPlayerDead) {
       const dir = playerEntity.input.moveDirection
       const isLocked = playerEntity.input.lockedTargetId !== null
       if (dir !== 0 && isLocked) {

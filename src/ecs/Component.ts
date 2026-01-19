@@ -289,6 +289,12 @@ export class WeaponComponent extends Component {
   bowFreeAimAngle = 0
   bowFreeAimReticleX = 0
   bowFreeAimReticleY = 0
+  bowFreeAimUseMouse = false
+  bowFreeAimUseReticle = false
+  bowFreeAimLastMouseX = 0
+  bowFreeAimLastMouseY = 0
+  bowFreeAimReticleOffsetX = 0
+  bowFreeAimReticleOffsetY = 0
 
   isDropping = false
   isDropped = false
