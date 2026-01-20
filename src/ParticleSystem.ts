@@ -99,50 +99,63 @@ export class ParticleSystem {
   render(ctx: CanvasRenderingContext2D, pixelsPerMeter: number): void {
     if (this.activeCount === 0) return
 
-    ctx.save()
+    const savedAlpha = ctx.globalAlpha
+    const savedComposite = ctx.globalCompositeOperation
     ctx.globalCompositeOperation = 'lighter'
     ctx.lineCap = 'round'
+
+    let lastColor = ''
+
+    // 火花粒子：单次遍历绘制尾迹+发光+核心
     for (let i = 0; i < this.activeCount; i++) {
       const particle = this.active[i]
       if (particle.type !== PARTICLE_TYPE_SPARK) continue
+
       const lifeRatio = particle.age / particle.life
       const alpha = 1 - lifeRatio
       const sizeScale = 1.8 - lifeRatio * 1.5
       const radius = particle.size * sizeScale
-      const glowRadius = radius * (1.4 - lifeRatio * 0.4)
-      const color = this.getColorString(particle.color)
       const px = particle.x * pixelsPerMeter
       const py = particle.y * pixelsPerMeter
-      const trailAlpha = alpha * 0.6
+      const color = this.getColorString(particle.color)
+
+      if (color !== lastColor) {
+        ctx.fillStyle = color
+        ctx.strokeStyle = color
+        lastColor = color
+      }
+
+      // 尾迹
       const trailSeconds = 0.05 + (1 - lifeRatio) * 0.07
-      const tailX = particle.x - particle.vx * trailSeconds
-      const tailY = particle.y - particle.vy * trailSeconds
-
-      ctx.fillStyle = color
-      ctx.strokeStyle = color
-
-      ctx.globalAlpha = trailAlpha
+      const tailX = (particle.x - particle.vx * trailSeconds) * pixelsPerMeter
+      const tailY = (particle.y - particle.vy * trailSeconds) * pixelsPerMeter
       const trailWidth = radius * pixelsPerMeter * 0.65
+      ctx.globalAlpha = alpha * 0.6
       ctx.lineWidth = trailWidth < 1 ? 1 : trailWidth
       ctx.beginPath()
-      ctx.moveTo(tailX * pixelsPerMeter, tailY * pixelsPerMeter)
+      ctx.moveTo(tailX, tailY)
       ctx.lineTo(px, py)
       ctx.stroke()
 
+      // 发光层
+      const glowRadius = radius * (1.4 - lifeRatio * 0.4)
       ctx.globalAlpha = alpha * 0.45
       ctx.beginPath()
       ctx.arc(px, py, glowRadius * pixelsPerMeter, 0, TWO_PI)
       ctx.fill()
 
+      // 核心层
       const coreAlpha = alpha * 1.1
       ctx.globalAlpha = coreAlpha > 1 ? 1 : coreAlpha
       ctx.beginPath()
       ctx.arc(px, py, radius * pixelsPerMeter, 0, TWO_PI)
       ctx.fill()
     }
-    ctx.restore()
 
-    ctx.save()
+    ctx.globalCompositeOperation = savedComposite
+    lastColor = ''
+
+    // 血液和死亡粒子
     for (let i = 0; i < this.activeCount; i++) {
       const particle = this.active[i]
       if (
@@ -150,16 +163,21 @@ export class ParticleSystem {
         particle.type !== PARTICLE_TYPE_DEATH
       )
         continue
+
       const lifeRatio = particle.age / particle.life
       const alpha = 1 - lifeRatio
       let radius = particle.size * (0.4 + alpha * 0.6)
       if (particle.type === PARTICLE_TYPE_DEATH) {
-        const shrink = 1 - lifeRatio
-        radius = particle.size * shrink
+        radius = particle.size * (1 - lifeRatio)
       }
       if (radius <= 0) continue
+
+      const color = this.getColorString(particle.color)
+      if (color !== lastColor) {
+        ctx.fillStyle = color
+        lastColor = color
+      }
       ctx.globalAlpha = alpha
-      ctx.fillStyle = this.getColorString(particle.color)
       ctx.beginPath()
       ctx.arc(
         particle.x * pixelsPerMeter,
@@ -170,7 +188,8 @@ export class ParticleSystem {
       )
       ctx.fill()
     }
-    ctx.restore()
+
+    ctx.globalAlpha = savedAlpha
   }
 
   spawnSpark(x: number, y: number, color: number): void {

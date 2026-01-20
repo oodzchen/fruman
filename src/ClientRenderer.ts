@@ -32,6 +32,8 @@ export class ClientRenderer {
   private tempScale = { x: 1, y: 1 }
   private viewBounds = { left: 0, right: 0, top: 0, bottom: 0 }
   private reticleClampPos = { x: 0, y: 0 }
+  private readonly emptyDash: number[] = []
+  private readonly dashedLine: number[] = [5, 5]
 
   // Pre-allocated buffer to avoid creating new Float32Array each frame
   private stateBuffer = new Float32Array(MAX_ENTITIES * ENTITY_STRIDE)
@@ -67,9 +69,7 @@ export class ClientRenderer {
     const incoming = this.incomingView
     if (!incoming) return
     const copyLength = count * ENTITY_STRIDE
-    for (let i = 0; i < copyLength; i++) {
-      this.stateBuffer[i] = incoming[i]
-    }
+    this.stateBuffer.set(incoming.subarray(0, copyLength), 0)
     this.entityCount = count
   }
 
@@ -656,7 +656,7 @@ export class ClientRenderer {
     this.ctx.save()
     this.ctx.strokeStyle = '#00FF00'
     this.ctx.lineWidth = 2
-    this.ctx.setLineDash([5, 5])
+    this.ctx.setLineDash(this.dashedLine)
     this.ctx.globalAlpha = 0.6
 
     this.ctx.beginPath()
@@ -679,7 +679,7 @@ export class ClientRenderer {
     const viewBounds = this.updateViewBounds()
 
     this.ctx.strokeStyle = '#FF0000'
-    this.ctx.setLineDash([])
+    this.ctx.setLineDash(this.emptyDash)
     this.ctx.strokeRect(
       viewBounds.left * this.pixelsPerMeter,
       viewBounds.top * this.pixelsPerMeter,
