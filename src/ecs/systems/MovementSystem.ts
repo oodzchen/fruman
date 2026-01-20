@@ -105,6 +105,7 @@ export class MovementSystem extends System {
     let grounded = false
     let touchingWall = false
     let newWallDirection = 0
+    const groundNormalMin = 0.2
 
     for (let i = 0; i < contactData.length; i++) {
       const contact = contactData[i]
@@ -112,11 +113,9 @@ export class MovementSystem extends System {
       const absX = Math.abs(normal.x)
       const absY = Math.abs(normal.y)
 
-      if (absY > 0.7 && isFallingOrStill) {
+      if (absY > groundNormalMin && isFallingOrStill) {
         grounded = true
-      }
-
-      if (absX > 0.7) {
+      } else if (absX > 0.7) {
         touchingWall = true
         newWallDirection = normal.x > 0 ? -1 : 1
       }
