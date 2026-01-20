@@ -2219,6 +2219,16 @@ export class WeaponSystem extends System {
 
           // 在玩家脚下掉落旧武器
           const facing = entity.weapon.attackFacing
+
+          // Sync active weapon state to slot before dropping if we are dropping the active slot
+          if (
+            weaponSlots.activeSlot === targetSlotId &&
+            entity.weapon &&
+            entity.weapon.isEquipped
+          ) {
+            this.copyWeaponToSlot(targetSlot, entity.weapon)
+          }
+
           this.fillWeaponDropDataFromSlot(targetSlot, this.tempWeaponDropData)
           this.dropWeapon(
             entity.transform.x,
@@ -2255,6 +2265,8 @@ export class WeaponSystem extends System {
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
+          entity.weapon.bowAmmo = weaponEntity.weapon.bowAmmo
+          entity.weapon.bowAmmoMax = weaponEntity.weapon.bowAmmoMax
           entity.weapon.isEquipped = true
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
@@ -2298,6 +2310,8 @@ export class WeaponSystem extends System {
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
+          entity.weapon.bowAmmo = weaponEntity.weapon.bowAmmo
+          entity.weapon.bowAmmoMax = weaponEntity.weapon.bowAmmoMax
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           this.resetWeaponForSwap(entity.weapon)
@@ -2374,6 +2388,12 @@ export class WeaponSystem extends System {
       weaponSlots &&
       (weaponSlots.main.hasWeapon || weaponSlots.secondary.hasWeapon)
     ) {
+      // Sync active weapon state (ammo, etc.) to the slot before dropping
+      if (weapon && weapon.isEquipped) {
+        const activeSlot = this.getSlotData(weaponSlots, weaponSlots.activeSlot)
+        this.copyWeaponToSlot(activeSlot, weapon)
+      }
+
       const hasMain = weaponSlots.main.hasWeapon
       const hasSecondary = weaponSlots.secondary.hasWeapon
       if (hasMain && hasSecondary) {
