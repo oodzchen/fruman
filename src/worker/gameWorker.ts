@@ -193,6 +193,7 @@ let lastUnlockTime = 0
 let currentTime = 0
 const TRANSITION_DURATION = 3.0
 const UNLOCK_COOLDOWN = 0.2
+const CAMERA_FORWARD_OFFSET = 0.67 // 2/3 角色宽度前向偏移
 
 // Reusable message object for sendState
 const stateMessage: WorkerStateMessage = {
@@ -986,22 +987,26 @@ function updateCamera(playerX: number) {
 
     // Set desired camera position with time-based easing transition
     if (isCameraLocked) {
+      const forwardOffset = lastVelocityDirection * CAMERA_FORWARD_OFFSET
       if (isTransitioning) {
         const elapsed = currentTime - transitionStartTime
         const progress = Math.min(elapsed / TRANSITION_DURATION, 1)
 
         if (progress >= 1) {
           isTransitioning = false
-          desiredCameraX = playerX - centerX / zoom / pixelsPerMeter
+          desiredCameraX =
+            playerX + forwardOffset - centerX / zoom / pixelsPerMeter
         } else {
-          const targetX = playerX - centerX / zoom / pixelsPerMeter
+          const targetX =
+            playerX + forwardOffset - centerX / zoom / pixelsPerMeter
           const easedProgress = easeOutCubic(progress)
           desiredCameraX =
             transitionStartCameraX +
             (targetX - transitionStartCameraX) * easedProgress
         }
       } else {
-        desiredCameraX = playerX - centerX / zoom / pixelsPerMeter
+        desiredCameraX =
+          playerX + forwardOffset - centerX / zoom / pixelsPerMeter
       }
     } else {
       desiredCameraX = currentCameraX
