@@ -844,21 +844,57 @@ function update() {
 }
 
 function updateCamera(playerX: number) {
+  const canvasWidthInMeters = canvasWidth / (pixelsPerMeter * zoom)
+  let isLocked = false
+  let targetEntityX = 0
+
+  if (playerEntity && playerEntity.input && playerEntity.input.lockedTargetId !== null) {
+    const targetEntity = world.getEntityById(playerEntity.input.lockedTargetId)
+    if (targetEntity && targetEntity.transform) {
+      const dist = Math.abs(targetEntity.transform.x - playerX)
+      // Check if distance exceeds view width (with 10% margin)
+      if (dist > canvasWidthInMeters * 0.9) {
+        playerEntity.input.lockedTargetId = null
+      } else {
+        targetEntityX = targetEntity.transform.x
+        isLocked = true
+      }
+    }
+  }
+
   const centerX = canvasWidth / 2
-  const playerScreenX =
-    centerX + ((playerX - camera.x) * pixelsPerMeter - centerX) * zoom
+  let desiredCameraX = camera.x
 
-  const deadZoneLeft = canvasWidth / 8
-  const deadZoneRight = (7 * canvasWidth) / 8
+  if (isLocked) {
+     // Center strictly on midpoint when locked
+     const midPointX = (playerX + targetEntityX) * 0.5
+     desiredCameraX = midPointX - (centerX / zoom) / pixelsPerMeter
+  } else {
+    // Default Deadzone Logic
+    const currentCameraX = camera.x
+    const playerScreenX =
+      centerX + ((playerX - currentCameraX) * pixelsPerMeter - centerX) * zoom
 
-  if (playerScreenX < deadZoneLeft) {
-    const targetCameraX =
-      playerX - ((deadZoneLeft - centerX) / zoom + centerX) / pixelsPerMeter
-    camera.x = targetCameraX
-  } else if (playerScreenX > deadZoneRight) {
-    const targetCameraX =
-      playerX - ((deadZoneRight - centerX) / zoom + centerX) / pixelsPerMeter
-    camera.x = targetCameraX
+    const deadZoneLeft = canvasWidth / 8
+    const deadZoneRight = (7 * canvasWidth) / 8
+
+    if (playerScreenX < deadZoneLeft) {
+      desiredCameraX =
+        playerX - ((deadZoneLeft - centerX) / zoom + centerX) / pixelsPerMeter
+    } else if (playerScreenX > deadZoneRight) {
+      desiredCameraX =
+        playerX - ((deadZoneRight - centerX) / zoom + centerX) / pixelsPerMeter
+    } else {
+      desiredCameraX = currentCameraX
+    }
+  }
+
+  // Unified smoothing
+  const diff = desiredCameraX - camera.x
+  if (Math.abs(diff) > 0.001) {
+    camera.x += diff * 0.1
+  } else {
+    camera.x = desiredCameraX
   }
 
   const canvasHeightInMeters = canvasHeight / pixelsPerMeter
