@@ -43,6 +43,7 @@ export class StatsSystem extends System {
   private worldId?: b2WorldId
   private tempVec?: InstanceType<MainModule['b2Vec2']>
   private currentDeltaTime = 0
+  private currentTimeMs = 0
   private effectsEmitter?: EffectsEmitter
   private weaponSystem?: WeaponSystem
   private bloodEffectsEnabled = false
@@ -63,6 +64,7 @@ export class StatsSystem extends System {
     this.currentDeltaTime = deltaTime
     const deltaSeconds = deltaTime > 0 ? deltaTime : 0
     const deltaMs = deltaSeconds * 1000
+    this.currentTimeMs += deltaMs
     for (const entity of entities) {
       if (!entity.stats) continue
       if (entity.stats.isDead) {
@@ -593,7 +595,8 @@ export class StatsSystem extends System {
           const knockbackDuration = wasStaggered
             ? STAGGER_HIT_STUN_DURATION_MS
             : DEFAULT_HIT_STUN_DURATION_MS
-          entity.movement.knockbackEndTime = Date.now() + knockbackDuration
+          entity.movement.knockbackEndTime =
+            this.currentTimeMs + knockbackDuration
           entity.movement.knockbackDuration = knockbackDuration
           entity.movement.knockbackElapsedTime = 0
         }

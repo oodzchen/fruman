@@ -18,7 +18,8 @@ export class PhysicsSystem extends System {
   }
 
   update(entities: Entity[], _deltaTime: number): void {
-    const { b2World_Step, b2Body_GetPosition } = this.box2d
+    const { b2World_Step, b2Body_GetLinearVelocity, b2Body_GetPosition } =
+      this.box2d
     const timeStep = 1 / 60
     b2World_Step(this.worldId, timeStep, 4)
 
@@ -27,9 +28,20 @@ export class PhysicsSystem extends System {
       if (entity.stats?.isVanished) continue
 
       const pos = b2Body_GetPosition(entity.physics.bodyId)
-      entity.transform.x = pos.x
-      entity.transform.y = pos.y
+      const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
+      const posX = pos.x
+      const posY = pos.y
+      entity.transform.x = posX
+      entity.transform.y = posY
+      entity.physics.posX = posX
+      entity.physics.posY = posY
+      entity.physics.velX = vel.x
+      entity.physics.velY = vel.y
+      entity.physics.prevX = posX
+      entity.physics.prevY = posY
+      entity.physics.hasPrev = true
       pos.delete()
+      vel.delete()
     }
   }
 }

@@ -56,10 +56,24 @@ export class TransformComponent extends Component {
 export class PhysicsComponent extends Component {
   bodyId!: b2BodyId
   shapeId!: b2ShapeId
+  posX = 0
+  posY = 0
+  prevX = 0
+  prevY = 0
+  velX = 0
+  velY = 0
+  hasPrev = false
 
   reset(): void {
     this.bodyId = 0 as unknown as b2BodyId
     this.shapeId = 0 as unknown as b2ShapeId
+    this.posX = 0
+    this.posY = 0
+    this.prevX = 0
+    this.prevY = 0
+    this.velX = 0
+    this.velY = 0
+    this.hasPrev = false
   }
 
   getName(): string {
@@ -112,6 +126,45 @@ export class MovementComponent extends Component {
   knockbackDuration = 0
   knockbackElapsedTime = 0
 
+  reset(): void {
+    this.moveSpeed = 0
+    this.jumpForce = 0
+    this.maxJumpDuration = 0
+    this.jumpForceMultiplier = 0
+    this.wallJumpPushAwayMultiplier = 0
+    this.wallJumpUpwardMultiplier = 0
+    this.maxWallJumps = 0
+    this.isGrounded = false
+    this.isTouchingWall = false
+    this.wallDirection = 0
+    this.wallJumpCount = 0
+    this.wallJumpTime = 0
+    this.wallJumpElapsedTime = 0
+    this.isJumping = false
+    this.jumpStartTime = 0
+    this.jumpElapsedTime = 0
+    this.lastContactUpdate = 0
+    this.contactUpdateIntervalMs = 16
+    this.baseWeight = 0
+    this.carryWeight = 0
+    this.bodyFriction = DEFAULT_BODY_FRICTION
+    this.currentFriction = DEFAULT_BODY_FRICTION
+    this.isSprinting = false
+    this.lKeyHoldTime = 0
+    this.lKeyIsDown = false
+    this.isRolling = false
+    this.rollStartTime = 0
+    this.rollDuration = 0
+    this.rollElapsedTime = 0
+    this.rollDirection = 0
+    this.rollAngle = 0
+    this.rollCooldownEndTime = 0
+    this.rollCooldownElapsedTime = 0
+    this.knockbackEndTime = 0
+    this.knockbackDuration = 0
+    this.knockbackElapsedTime = 0
+  }
+
   getName(): string {
     return 'Movement'
   }
@@ -138,6 +191,27 @@ export class InputComponent extends Component {
   facingOverride: number | null = null
   inputBuffer = new InputBuffer()
 
+  reset(): void {
+    this.moveDirection = 0
+    this.jumpRequested = false
+    this.sprintRequested = false
+    this.attackRequested = false
+    this.blockRequested = false
+    this.lockedTargetId = null
+    this.lockToggleRequested = false
+    this.lockSwitchIntent = 0
+    this.lockLostTimer = 0
+    this.freeAimToggleRequested = false
+    this.freeAimAdjust = 0
+    this.moveSpeedScale = 1
+    this.mouseAimActive = false
+    this.mouseAimX = 0
+    this.mouseAimY = 0
+    this.lastMoveDirection = 0
+    this.facingOverride = null
+    this.inputBuffer.clearAll()
+  }
+
   getName(): string {
     return 'Input'
   }
@@ -148,6 +222,13 @@ export class RenderComponent extends Component {
   color = '#F58025'
   borderColor = '#FFD700'
   visible = true
+
+  reset(): void {
+    this.radius = 0.5
+    this.color = '#F58025'
+    this.borderColor = '#FFD700'
+    this.visible = true
+  }
 
   getName(): string {
     return 'Render'
@@ -184,6 +265,35 @@ export class StatsComponent extends Component {
   staggerDuration = 1000
   staggerAnimationPhase: 'none' | 'rotateBack' | 'prone' = 'none'
   staggerAnimationElapsed = 0
+
+  reset(): void {
+    this.maxHealth = DEFAULT_PLAYER_MAX_HEALTH
+    this.health = DEFAULT_PLAYER_MAX_HEALTH
+    this.maxPosture = DEFAULT_PLAYER_MAX_POSTURE
+    this.posture = DEFAULT_PLAYER_MAX_POSTURE
+    this.postureRecoveryPerSecond = DEFAULT_PLAYER_POSTURE_RECOVERY_PER_SEC
+    this.maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+    this.toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
+    this.toughnessRecoveryPerSecond = DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC
+    this.isDead = false
+    this.isVanished = false
+    this.deathElapsedSec = 0
+    this.deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
+    this.deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
+    this.hitShakeElapsedMs = 0
+    this.hitShakeDurationMs = 0
+    this.hitShakeIntensity = 0
+    this.hitShakeDirectionX = 0
+    this.isInCombat = false
+    this.lastCombatTimestamp = 0
+    this.combatExitTimer = 0
+    this.combatExitTimeout = 5000
+    this.isStaggered = false
+    this.staggerElapsedTime = 0
+    this.staggerDuration = 1000
+    this.staggerAnimationPhase = 'none'
+    this.staggerAnimationElapsed = 0
+  }
 
   getName(): string {
     return 'Stats'
@@ -444,6 +554,12 @@ export class WeaponSlotsComponent extends Component {
   secondary = createWeaponSlotData()
   activeSlot: WeaponSlotId = 'main'
 
+  reset(): void {
+    this.main = createWeaponSlotData()
+    this.secondary = createWeaponSlotData()
+    this.activeSlot = 'main'
+  }
+
   getName(): string {
     return 'WeaponSlots'
   }
@@ -457,6 +573,10 @@ export enum Faction {
 
 export class FactionComponent extends Component {
   faction: Faction = Faction.Neutral
+
+  reset(): void {
+    this.faction = Faction.Neutral
+  }
 
   getName(): string {
     return 'Faction'
@@ -577,6 +697,68 @@ export class EnemyAIComponent extends Component {
   patrolStuckTimer = 0
   enemyType: EnemyType = 'default'
 
+  reset(): void {
+    this.attackDesire = DEFAULT_ENEMY_ATTACK_DESIRE
+    this.parryProficiency = 0
+    this.detectionRange = ENEMY_DETECTION_RANGE
+    this.decisionCooldownMs = ENEMY_DECISION_COOLDOWN_MS
+    this.paceSwitchIntervalMs = ENEMY_PACE_SWITCH_INTERVAL_MS
+    this.pacePauseMs = ENEMY_PACE_PAUSE_MS
+    this.paceDirection = 1
+    this.lastDecisionTimestamp = 0
+    this.lastPaceSwitchTimestamp = 0
+    this.nextPaceResumeTimestamp = 0
+    this.moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
+    this.state = 'approach'
+    this.initialPatrolMode = 'patrol'
+    this.comboSwingsDone = 0
+    this.comboSwingTarget = 5
+    this.lastFacing = 1
+    this.retreatDirection = -1
+    this.retreatTargetDistance = ENEMY_RETREAT_EXTRA_DISTANCE + 1
+    this.patrolRange = 5
+    this.patrolCenter.x = 0
+    this.patrolCenter.y = 0
+    this.hasLineOfSight = false
+    this.targetLostTimer = 0
+    this.playerSwingActive = false
+    this.parryAttemptedThisSwing = false
+    this.probeSwitchTimerMs = 0
+    this.probePaceTimerMs = 0
+    this.probePaceDirection = 1
+    this.probePaceMovedDistance = 0
+    this.probeLastPositionX = 0
+    this.probeLastPositionY = 0
+    this.probeHasTriggered = false
+    this.forcedChaseDistanceRemaining = 0
+    this.forcedChaseDirection = 1
+    this.forcedChaseLastX = 0
+    this.arrowDefenseTimeRemainingMs = 0
+    this.arrowDefenseSwitchTimerMs = 0
+    this.arrowDefenseActive = false
+    this.bowHoldTimerMs = 0
+    this.bowCooldownTimerMs = 0
+    this.archerShotCheckPending = false
+    this.combatResetTime = 5000
+    this.lastPosition.x = 0
+    this.lastPosition.y = 0
+    this.stuckTimer = 0
+    this.stuckThreshold = 500
+    this.lastPositionUpdateTime = 0
+    this.positionCheckInterval = 300
+    this.obstacleJumpStage = 0
+    this.obstacleJumpDirection = 1
+    this.jumpStartTimestamp = 0
+    this.jumpStartPosition.x = 0
+    this.jumpStartPosition.y = 0
+    this.patrolWaypoints = []
+    this.currentWaypointIndex = 0
+    this.patrolResumeTimestamp = 0
+    this.patrolState = 'moving'
+    this.patrolStuckTimer = 0
+    this.enemyType = 'default'
+  }
+
   getName(): string {
     return 'EnemyAI'
   }
@@ -614,6 +796,16 @@ export class SensorComponent extends Component {
   scanElapsedMs = 0
   scanIntervalMs = 100
   detectedTargetId: number | null = null
+
+  reset(): void {
+    this.radius = 10
+    this.fov = (160 * Math.PI) / 180
+    this.rayCount = DEFAULT_SENSOR_RAY_COUNT
+    this.scanResults = createRayCastResults(DEFAULT_SENSOR_RAY_COUNT)
+    this.scanElapsedMs = 0
+    this.scanIntervalMs = 100
+    this.detectedTargetId = null
+  }
 
   getName(): string {
     return 'Sensor'

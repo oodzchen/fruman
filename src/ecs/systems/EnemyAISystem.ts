@@ -32,6 +32,7 @@ export class EnemyAISystem extends System {
   private weaponSystem?: WeaponSystem
   private box2d: MainModule
   private worldId: b2WorldId
+  private currentTimeMs = 0
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
@@ -65,8 +66,9 @@ export class EnemyAISystem extends System {
       return
     }
 
-    const now = Date.now()
     const deltaMs = deltaTime > 0 ? deltaTime * 1000 : 0
+    this.currentTimeMs += deltaMs
+    const now = this.currentTimeMs
     for (const entity of entities) {
       if (!entity.transform || !entity.input || !entity.enemyAI) continue
       if (entity.faction?.faction !== Faction.Enemy) continue

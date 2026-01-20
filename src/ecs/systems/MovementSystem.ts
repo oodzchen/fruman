@@ -26,6 +26,7 @@ export class MovementSystem extends System {
   private tempVec: InstanceType<MainModule['b2Vec2']>
   private tempVec2: InstanceType<MainModule['b2Vec2']>
   private currentDeltaTime = 0
+  private currentTimeMs = 0
 
   constructor(box2d: MainModule) {
     super()
@@ -53,6 +54,8 @@ export class MovementSystem extends System {
 
   update(entities: Entity[], deltaTime: number): void {
     this.currentDeltaTime = deltaTime
+    const deltaMs = Math.max(0, deltaTime * 1000)
+    this.currentTimeMs += deltaMs
     for (const entity of entities) {
       if (!entity.physics || !entity.movement || !entity.input) continue
       if (entity.stats?.isDead) {
@@ -88,7 +91,7 @@ export class MovementSystem extends System {
       b2Body_GetLinearVelocity,
     } = this.box2d
 
-    const now = Date.now()
+    const now = this.currentTimeMs
     if (
       now - entity.movement.lastContactUpdate <
       entity.movement.contactUpdateIntervalMs
@@ -97,8 +100,10 @@ export class MovementSystem extends System {
     }
     entity.movement.lastContactUpdate = now
 
-    const velocity = b2Body_GetLinearVelocity(entity.physics.bodyId)
-    const isFallingOrStill = velocity.y >= -0.1
+    // 获取实时速度用于接触检测（关键：保证物理逻辑正确）
+    const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const isFallingOrStill = vel.y >= -0.1
+    vel.delete()
     const capacity = b2Body_GetContactCapacity(entity.physics.bodyId)
     const contactData = b2Body_GetContactData(entity.physics.bodyId, capacity)
 
@@ -122,8 +127,6 @@ export class MovementSystem extends System {
 
       contact.delete()
     }
-
-    velocity.delete()
 
     entity.movement.isGrounded = grounded
     entity.movement.isTouchingWall = touchingWall
@@ -302,7 +305,7 @@ export class MovementSystem extends System {
     }
 
     entity.movement.isRolling = true
-    entity.movement.rollStartTime = Date.now()
+    entity.movement.rollStartTime = this.currentTimeMs
     entity.movement.rollElapsedTime = 0
     entity.movement.rollDuration = DEFAULT_ROLL_DURATION
 
@@ -330,23 +333,20 @@ export class MovementSystem extends System {
   private updateRollPhysics(entity: Entity): void {
     if (!entity.physics || !entity.movement) return
 
-    const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity } = this.box2d
-
-    const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const { b2Body_SetLinearVelocity } = this.box2d
     const rollSpeed = DEFAULT_ROLL_SPEED
     const velX = entity.movement.rollDirection * rollSpeed
 
     this.tempVec.x = velX
-    this.tempVec.y = currentVel.y
+    this.tempVec.y = entity.physics.velY
     b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
-
-    currentVel.delete()
   }
 
   private endRoll(entity: Entity): void {
     if (!entity.movement || !entity.physics) return
     entity.movement.isRolling = false
-    entity.movement.rollCooldownEndTime = Date.now() + DEFAULT_ROLL_COOLDOWN
+    entity.movement.rollCooldownEndTime =
+      this.currentTimeMs + DEFAULT_ROLL_COOLDOWN
     entity.movement.rollCooldownElapsedTime = 0
 
     // 恢复碰撞掩码
@@ -362,8 +362,7 @@ export class MovementSystem extends System {
     // 硬直状态时不处理移动输入，保留物理惯性
     if (entity.isStunned()) return
 
-    const { b2Body_SetLinearVelocity, b2Body_GetLinearVelocity } = this.box2d
-    const currentVel = b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const { b2Body_SetLinearVelocity } = this.box2d
 
     let direction = entity.input.moveDirection
 
@@ -407,7 +406,6 @@ export class MovementSystem extends System {
     const wallJumpElapsedMs = entity.movement.wallJumpElapsedTime * 1000
 
     if (wallJumpElapsedMs < wallJumpCooldownMs) {
-      currentVel.delete()
       return
     }
 
@@ -428,9 +426,8 @@ export class MovementSystem extends System {
         : entity.movement.moveSpeed) * moveSpeedScale
 
     this.tempVec.x = direction * moveSpeed
-    this.tempVec.y = currentVel.y
+    this.tempVec.y = entity.physics.velY
     b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
-    currentVel.delete()
   }
 
   private handleJump(entity: Entity): void {
@@ -466,18 +463,20 @@ export class MovementSystem extends System {
     entity.movement.jumpElapsedTime += this.currentDeltaTime
 
     const {
-      b2Body_GetLinearVelocity,
       b2Body_ApplyForceToCenter,
       b2Body_GetMass,
+      b2Body_GetLinearVelocity,
     } = this.box2d
+    // 获取实时速度用于跳跃控制（关键：保证物理逻辑正确）
     const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const velY = vel.y
     const mass = b2Body_GetMass(entity.physics.bodyId)
     const jumpDurationMs = entity.movement.jumpElapsedTime * 1000
     const weightFactor = this.getWeightFactor(entity)
     const jumpScale = 1 / weightFactor
 
     if (
-      vel.y < 0 &&
+      velY < 0 &&
       jumpDurationMs < entity.movement.maxJumpDuration &&
       entity.input.jumpRequested
     ) {
@@ -490,7 +489,7 @@ export class MovementSystem extends System {
       b2Body_ApplyForceToCenter(entity.physics.bodyId, this.tempVec, true)
     } else if (
       jumpDurationMs >= entity.movement.maxJumpDuration ||
-      vel.y >= 0 ||
+      velY >= 0 ||
       !entity.input.jumpRequested
     ) {
       entity.movement.isJumping = false
@@ -526,7 +525,7 @@ export class MovementSystem extends System {
     const jumpScale = 1 / weightFactor
 
     entity.movement.isJumping = true
-    entity.movement.jumpStartTime = Date.now()
+    entity.movement.jumpStartTime = this.currentTimeMs
     entity.movement.jumpElapsedTime = 0
 
     const canWallJump =
@@ -549,7 +548,7 @@ export class MovementSystem extends System {
       this.tempVec.y = upwardSpeed
       b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
 
-      entity.movement.wallJumpTime = Date.now()
+      entity.movement.wallJumpTime = this.currentTimeMs
       entity.movement.wallJumpElapsedTime = 0
       entity.movement.wallJumpCount++
     } else if (entity.movement.isGrounded) {

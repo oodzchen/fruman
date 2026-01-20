@@ -76,9 +76,12 @@ let obstacles: {
   mainShapeId: b2ShapeId
   capBodyId: b2BodyId
   capShapeId: b2ShapeId
+  centerX: number
+  centerY: number
   width: number
   height: number
   vertices?: { x: number; y: number }[]
+  worldVertices?: { x: number; y: number }[]
 }[] = []
 
 let isPaused = false
@@ -297,6 +300,8 @@ function initializeSystems() {
   targetingSystem.setEntityLookup(entityLookup)
   weaponSystem.setEntityLookup(entityLookup)
 
+  // 关键：MovementSystem必须在PhysicsSystem之前执行
+  // 这样施加的力才能在当前帧的b2World_Step中被处理
   world.addSystem(statsSystem)
   world.addSystem(enemyAISystem)
   world.addSystem(movementSystem)
@@ -462,14 +467,24 @@ function createObstacles() {
         if (v.y > maxY) maxY = v.y
       })
 
+      const centerX = obs.x
+      const centerY = groundY - 0.5
+      const worldVertices = obs.vertices.map((vertex) => ({
+        x: centerX + vertex.x,
+        y: centerY + vertex.y,
+      }))
+
       obstacles.push({
         bodyId,
         mainShapeId: shapeId,
         capBodyId: bodyId, // Use same body for cap for now (simplified for polygons)
         capShapeId: shapeId,
+        centerX,
+        centerY,
         width: Math.max(Math.abs(minX), Math.abs(maxX)),
         height: Math.abs(minY), // Height approx
         vertices: obs.vertices,
+        worldVertices,
       })
 
       bodyDef.delete()
@@ -527,6 +542,8 @@ function createObstacles() {
       mainShapeId,
       capBodyId,
       capShapeId,
+      centerX: obs.x,
+      centerY: baseY,
       width: obs.width,
       height: baseHalfHeight,
     })

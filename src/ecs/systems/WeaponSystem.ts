@@ -73,9 +73,12 @@ const BOW_FREE_AIM_MAX_OFFSET = Math.PI * 0.45
 
 type ObstacleCollider = {
   bodyId: b2BodyId
+  centerX: number
+  centerY: number
   width: number
   height: number
   vertices?: { x: number; y: number }[]
+  worldVertices?: { x: number; y: number }[]
   radius?: number
 }
 
@@ -102,6 +105,9 @@ export class WeaponSystem extends System {
   private arrowBodyDef?: ReturnType<MainModule['b2DefaultBodyDef']>
   private arrowShapeDef?: ReturnType<MainModule['b2DefaultShapeDef']>
   private arrowCircle?: InstanceType<MainModule['b2Circle']>
+  private dropBodyDef?: ReturnType<MainModule['b2DefaultBodyDef']>
+  private dropShapeDef?: ReturnType<MainModule['b2DefaultShapeDef']>
+  private dropCircle?: InstanceType<MainModule['b2Circle']>
   private world?: World
   private worldId?: ReturnType<MainModule['b2CreateWorld']>
   private groundTopY = 0
@@ -128,7 +134,20 @@ export class WeaponSystem extends System {
   }
   private tempPlayerPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
+  private tempObbVerts = [
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+  ]
+  private tempAxes = [
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+  ]
   private currentDeltaTime = 0
+  private currentTimeMs = 0
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -139,6 +158,9 @@ export class WeaponSystem extends System {
       this.arrowBodyDef = box2d.b2DefaultBodyDef()
       this.arrowShapeDef = box2d.b2DefaultShapeDef()
       this.arrowCircle = new box2d.b2Circle()
+      this.dropBodyDef = box2d.b2DefaultBodyDef()
+      this.dropShapeDef = box2d.b2DefaultShapeDef()
+      this.dropCircle = new box2d.b2Circle()
     }
 
     const transformType = componentRegistry.getComponentType('Transform')
@@ -170,6 +192,7 @@ export class WeaponSystem extends System {
     const scaledDeltaTime = deltaTime / DEBUG_ANIMATION_SLOWDOWN
     this.currentDeltaTime = scaledDeltaTime
     const deltaMs = Math.max(0, scaledDeltaTime * 1000)
+    this.currentTimeMs += deltaMs
 
     for (const entity of entities) {
       if (!entity.transform || !entity.weapon) continue
@@ -324,7 +347,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    const now = Date.now()
+    const now = this.currentTimeMs
     const attackRadius = weapon.attackRadius || this.getAttackRadius(entity)
     const attackFacing = weapon.attackFacing
 
@@ -474,7 +497,7 @@ export class WeaponSystem extends System {
     if (this.statsSystem) {
       this.statsSystem.enterCombat(entity)
     }
-    weapon.lastAttackTimestamp = Date.now()
+    weapon.lastAttackTimestamp = this.currentTimeMs
 
     // 每一帧都根据当前朝向更新目标位置，确保武器跟随转向
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
@@ -669,7 +692,7 @@ export class WeaponSystem extends System {
       if (attacker.weapon && attacker.transform) {
         this.tempPlayerPos.x = attacker.transform.x
         this.tempPlayerPos.y = attacker.transform.y
-        this.startRebound(attacker, this.tempPlayerPos, Date.now())
+        this.startRebound(attacker, this.tempPlayerPos, this.currentTimeMs)
       }
     } else {
       // 普通弹反
@@ -681,7 +704,7 @@ export class WeaponSystem extends System {
         // 非霸体攻击：仅触发回弹，无硬直
         this.tempPlayerPos.x = attacker.transform.x
         this.tempPlayerPos.y = attacker.transform.y
-        this.startRebound(attacker, this.tempPlayerPos, Date.now())
+        this.startRebound(attacker, this.tempPlayerPos, this.currentTimeMs)
       }
 
       // 将防御者加入已击中列表，从而避免产生伤害（无论是霸体还是回弹，都要避免当次伤害）
@@ -754,13 +777,15 @@ export class WeaponSystem extends System {
     const cos2 = Math.cos(rot2)
     const sin2 = Math.sin(rot2)
 
-    // 两个OBB的轴
-    const axes = [
-      { x: cos1, y: sin1 },
-      { x: -sin1, y: cos1 },
-      { x: cos2, y: sin2 },
-      { x: -sin2, y: cos2 },
-    ]
+    // 复用预分配的轴数组
+    this.tempAxes[0].x = cos1
+    this.tempAxes[0].y = sin1
+    this.tempAxes[1].x = -sin1
+    this.tempAxes[1].y = cos1
+    this.tempAxes[2].x = cos2
+    this.tempAxes[2].y = sin2
+    this.tempAxes[3].x = -sin2
+    this.tempAxes[3].y = cos2
 
     // 两个OBB的半尺寸
     const hw1 = w1 / 2
@@ -772,7 +797,7 @@ export class WeaponSystem extends System {
     const dx = x2 - x1
     const dy = y2 - y1
 
-    for (const axis of axes) {
+    for (const axis of this.tempAxes) {
       // 投影两个OBB到轴上
       const proj1 =
         Math.abs(hw1 * (cos1 * axis.x + sin1 * axis.y)) +
@@ -1281,7 +1306,16 @@ export class WeaponSystem extends System {
     facing: number,
     weaponData: WeaponDropData
   ): void {
-    if (!this.world || !this.box2d || !this.worldId) return
+    if (
+      !this.world ||
+      !this.box2d ||
+      !this.worldId ||
+      !this.dropBodyDef ||
+      !this.dropShapeDef ||
+      !this.dropCircle
+    ) {
+      return
+    }
 
     const entity = this.world.createEntity()
 
@@ -1292,16 +1326,9 @@ export class WeaponSystem extends System {
 
     // 创建物理组件用于掉落动画
     const physics = new PhysicsComponent()
-    const {
-      b2DefaultBodyDef,
-      b2CreateBody,
-      b2BodyType,
-      b2Circle,
-      b2DefaultShapeDef,
-      b2CreateCircleShape,
-    } = this.box2d
+    const { b2CreateBody, b2BodyType, b2CreateCircleShape } = this.box2d
 
-    const bodyDef = b2DefaultBodyDef()
+    const bodyDef = this.dropBodyDef
     bodyDef.type = b2BodyType.b2_dynamicBody
     bodyDef.position.Set(x, y)
     bodyDef.linearDamping = 2.0 // 较高的阻尼，快速减速
@@ -1310,10 +1337,10 @@ export class WeaponSystem extends System {
 
     // 使用圆形碰撞体，半径基于武器高度
     const weaponRadius = weaponData.height * 0.5
-    const circle = new b2Circle()
+    const circle = this.dropCircle
     circle.center.Set(0, 0)
     circle.radius = weaponRadius
-    const shapeDef = b2DefaultShapeDef()
+    const shapeDef = this.dropShapeDef
     shapeDef.density = 0.5
     shapeDef.material.friction = 0.3
     shapeDef.material.restitution = 0.2 // 轻微弹跳
@@ -1330,10 +1357,6 @@ export class WeaponSystem extends System {
       throwVelocity.y = throwSpeedY
       this.box2d.b2Body_SetLinearVelocity(physics.bodyId, throwVelocity)
     }
-
-    bodyDef.delete()
-    circle.delete()
-    shapeDef.delete()
 
     entity.addComponent(physics)
 
@@ -1378,36 +1401,36 @@ export class WeaponSystem extends System {
     weapon.swingEndOffset.dy = 0
     weapon.swingEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
-    weapon.pickupCooldownEndTime = performance.now() + 500 // 500ms 冷却时间
+    weapon.pickupCooldownEndTime = this.currentTimeMs + 500 // 500ms 冷却时间
 
     entity.addComponent(weapon)
   }
 
   private updateDroppingWeapon(entity: Entity): void {
-    if (!entity.physics || !entity.transform || !entity.weapon || !this.box2d)
+    if (!entity.physics || !entity.transform || !entity.weapon || !this.box2d) {
       return
+    }
 
-    const { b2Body_GetPosition, b2Body_GetLinearVelocity, b2DestroyBody } =
-      this.box2d
+    const { b2DestroyBody } = this.box2d
 
     // 同步物理位置到 transform
-    const bodyPos = b2Body_GetPosition(entity.physics.bodyId)
-    entity.transform.x = bodyPos.x
-    entity.transform.y = bodyPos.y
+    const bodyX = entity.physics.posX
+    const bodyY = entity.physics.posY
+    entity.transform.x = bodyX
+    entity.transform.y = bodyY
 
     // 更新武器视觉位置
-    entity.weapon.visual.x = bodyPos.x
-    entity.weapon.visual.y = bodyPos.y
+    entity.weapon.visual.x = bodyX
+    entity.weapon.visual.y = bodyY
 
     // 检查速度是否接近 0（已落地）
-    const velocity = b2Body_GetLinearVelocity(entity.physics.bodyId)
-    const speed = Math.hypot(velocity.x, velocity.y)
+    const speed = Math.hypot(entity.physics.velX, entity.physics.velY)
 
     if (speed < 0.5) {
       // 速度很小，认为已经落地
       // 保留物理体最后的位置作为武器的最终位置
-      const finalX = bodyPos.x
-      const finalY = bodyPos.y
+      const finalX = bodyX
+      const finalY = bodyY
 
       // 销毁物理体
       b2DestroyBody(entity.physics.bodyId)
@@ -2136,7 +2159,7 @@ export class WeaponSystem extends System {
 
       if (distance <= DEFAULT_WEAPON_PICKUP_DISTANCE) {
         // 检查拾取冷却时间
-        if (weaponEntity.weapon.pickupCooldownEndTime > performance.now()) {
+        if (weaponEntity.weapon.pickupCooldownEndTime > this.currentTimeMs) {
           continue // 还在冷却期内，跳过
         }
 
@@ -2386,7 +2409,7 @@ export class WeaponSystem extends System {
     }
 
     const weapon = entity.weapon
-    const now = Date.now()
+    const now = this.currentTimeMs
     this.tempPlayerPos.x = entity.transform.x
     this.tempPlayerPos.y = entity.transform.y
     const playerPos = this.tempPlayerPos
@@ -2768,10 +2791,8 @@ export class WeaponSystem extends System {
   }
 
   private checkObstacleCollision(weapon?: Entity['weapon']): boolean {
-    if (!this.box2d || !weapon) return false
+    if (!weapon) return false
     if (this.obstacles.length === 0) return false
-
-    const { b2Body_GetPosition } = this.box2d
     const wx = weapon.visual.x
     const wy = weapon.visual.y
     const wWidth = weapon.width
@@ -2779,9 +2800,11 @@ export class WeaponSystem extends System {
     const wRotation = weapon.visual.rotation
 
     for (const obstacle of this.obstacles) {
-      const pos = b2Body_GetPosition(obstacle.bodyId)
+      const centerX = obstacle.centerX
+      const centerY = obstacle.centerY
+      const worldVertices = obstacle.worldVertices
 
-      if (obstacle.vertices) {
+      if (worldVertices) {
         // Polygon (SAT)
         if (
           this.checkOBBvsPolygon(
@@ -2790,12 +2813,9 @@ export class WeaponSystem extends System {
             wWidth,
             wHeight,
             wRotation,
-            pos.x,
-            pos.y,
-            obstacle.vertices
+            worldVertices
           )
         ) {
-          pos.delete()
           return true
         }
       } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
@@ -2807,12 +2827,11 @@ export class WeaponSystem extends System {
             wWidth,
             wHeight,
             wRotation,
-            pos.x,
-            pos.y,
+            centerX,
+            centerY,
             obstacle.radius
           )
         ) {
-          pos.delete()
           return true
         }
       } else {
@@ -2827,17 +2846,15 @@ export class WeaponSystem extends System {
             wWidth,
             wHeight,
             wRotation,
-            pos.x,
-            pos.y,
+            centerX,
+            centerY,
             halfW,
             halfH
           )
         ) {
-          pos.delete()
           return true
         }
       }
-      pos.delete()
     }
 
     return false
@@ -2849,76 +2866,65 @@ export class WeaponSystem extends System {
     ww: number,
     wh: number,
     wRot: number,
-    polyX: number,
-    polyY: number,
     vertices: { x: number; y: number }[]
   ): boolean {
-    // 1. Construct OBB vertices in world space
     const cos = Math.cos(wRot)
     const sin = Math.sin(wRot)
     const hw = ww / 2
     const hh = wh / 2
 
-    // Local OBB corners: (-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)
-    // Rotated + Translated
-    const obbVerts = [
-      { x: wx + (cos * -hw - sin * -hh), y: wy + (sin * -hw + cos * -hh) },
-      { x: wx + (cos * hw - sin * -hh), y: wy + (sin * hw + cos * -hh) },
-      { x: wx + (cos * hw - sin * hh), y: wy + (sin * hw + cos * hh) },
-      { x: wx + (cos * -hw - sin * hh), y: wy + (sin * -hw + cos * hh) },
-    ]
+    const obbVerts = this.tempObbVerts
+    obbVerts[0].x = wx + (cos * -hw - sin * -hh)
+    obbVerts[0].y = wy + (sin * -hw + cos * -hh)
+    obbVerts[1].x = wx + (cos * hw - sin * -hh)
+    obbVerts[1].y = wy + (sin * hw + cos * -hh)
+    obbVerts[2].x = wx + (cos * hw - sin * hh)
+    obbVerts[2].y = wy + (sin * hw + cos * hh)
+    obbVerts[3].x = wx + (cos * -hw - sin * hh)
+    obbVerts[3].y = wy + (sin * -hw + cos * hh)
 
-    // 2. Construct Polygon vertices in world space
-    const polyVerts = vertices.map((v) => ({
-      x: polyX + v.x,
-      y: polyY + v.y,
-    }))
+    if (!this.checkOBBvsPolyAxis(cos, sin, obbVerts, vertices)) return false
+    if (!this.checkOBBvsPolyAxis(-sin, cos, obbVerts, vertices)) return false
 
-    // 3. Axes to test
-    // a) OBB axes (2 normals)
-    const axes = [
-      { x: cos, y: sin },
-      { x: -sin, y: cos },
-    ]
-
-    // b) Polygon axes (edge normals)
-    for (let i = 0; i < polyVerts.length; i++) {
-      const p1 = polyVerts[i]
-      const p2 = polyVerts[(i + 1) % polyVerts.length]
-      const edgeX = p2.x - p1.x
-      const edgeY = p2.y - p1.y
-      // Normal: (-y, x) normalized
-      const len = Math.hypot(edgeX, edgeY)
-      axes.push({ x: -edgeY / len, y: edgeX / len })
-    }
-
-    // 4. SAT Loop
-    for (const axis of axes) {
-      // Project OBB
-      let minOBB = Infinity
-      let maxOBB = -Infinity
-      for (const v of obbVerts) {
-        const proj = v.x * axis.x + v.y * axis.y
-        if (proj < minOBB) minOBB = proj
-        if (proj > maxOBB) maxOBB = proj
-      }
-
-      // Project Polygon
-      let minPoly = Infinity
-      let maxPoly = -Infinity
-      for (const v of polyVerts) {
-        const proj = v.x * axis.x + v.y * axis.y
-        if (proj < minPoly) minPoly = proj
-        if (proj > maxPoly) maxPoly = proj
-      }
-
-      // Check overlap
-      if (maxOBB < minPoly || maxPoly < minOBB) {
-        return false // Separating axis found
+    const polyCount = vertices.length
+    for (let i = 0; i < polyCount; i++) {
+      const curr = vertices[i]
+      const next = vertices[(i + 1) % polyCount]
+      const edgeX = next.x - curr.x
+      const edgeY = next.y - curr.y
+      if (!this.checkOBBvsPolyAxis(-edgeY, edgeX, obbVerts, vertices)) {
+        return false
       }
     }
 
     return true
+  }
+
+  private checkOBBvsPolyAxis(
+    axisX: number,
+    axisY: number,
+    obbVerts: { x: number; y: number }[],
+    polyVerts: { x: number; y: number }[]
+  ): boolean {
+    let minOBB = Infinity
+    let maxOBB = -Infinity
+    for (let i = 0; i < obbVerts.length; i++) {
+      const v = obbVerts[i]
+      const proj = v.x * axisX + v.y * axisY
+      if (proj < minOBB) minOBB = proj
+      if (proj > maxOBB) maxOBB = proj
+    }
+
+    let minPoly = Infinity
+    let maxPoly = -Infinity
+    for (let i = 0; i < polyVerts.length; i++) {
+      const v = polyVerts[i]
+      const proj = v.x * axisX + v.y * axisY
+      if (proj < minPoly) minPoly = proj
+      if (proj > maxPoly) maxPoly = proj
+    }
+
+    return !(maxOBB < minPoly || maxPoly < minOBB)
   }
 
   private applyPushback(entity: Entity, weapon: Entity['weapon']): void {
