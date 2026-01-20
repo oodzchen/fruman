@@ -183,6 +183,16 @@ const camera = { x: 0, y: 0 }
 let zoom = 1.0
 let targetZoom = 1.0
 let canvasWidth = 0
+let isCameraLocked = false
+let isTransitioning = false
+let transitionStartTime = 0
+let transitionStartCameraX = 0
+let lastVelocityDirection = 0
+let needsReturnToCenter = false
+let lastUnlockTime = 0
+let currentTime = 0
+const TRANSITION_DURATION = 3.0
+const UNLOCK_COOLDOWN = 0.2
 
 // Reusable message object for sendState
 const stateMessage: WorkerStateMessage = {
@@ -228,6 +238,13 @@ async function init(width: number, height: number, ppm: number) {
   initializeSystems()
   createPlayerAndWeapon(groundTopY)
 
+  // Initialize camera to center on player
+  if (playerEntity && playerEntity.transform) {
+    const centerX = canvasWidth / 2
+    camera.x = playerEntity.transform.x - centerX / zoom / pixelsPerMeter
+    isCameraLocked = true
+  }
+
   // Apply pending parameters
   Object.entries(pendingParams).forEach(([id, value]) => {
     updateParam(id, value)
@@ -236,6 +253,7 @@ async function init(width: number, height: number, ppm: number) {
   // Start Loop
   lastTime = performance.now()
   accumulator = 0
+  currentTime = 0
   clearInterval(loopInterval)
   loopInterval = setInterval(update, 1000 / TARGET_FPS)
 }
@@ -798,6 +816,9 @@ function handleInput(
 }
 
 function fixedUpdate() {
+  // Accumulate time using delta time
+  currentTime += TIME_STEP
+
   // Update Zoom logic (smooth transition)
   const zoomDiff = targetZoom - zoom
   if (Math.abs(zoomDiff) > 0.001) {
@@ -843,21 +864,28 @@ function update() {
   sendState()
 }
 
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3)
+}
+
 function updateCamera(playerX: number) {
   const canvasWidthInMeters = canvasWidth / (pixelsPerMeter * zoom)
-  let isLocked = false
+  let isEnemyLocked = false
   let targetEntityX = 0
 
-  if (playerEntity && playerEntity.input && playerEntity.input.lockedTargetId !== null) {
+  if (
+    playerEntity &&
+    playerEntity.input &&
+    playerEntity.input.lockedTargetId !== null
+  ) {
     const targetEntity = world.getEntityById(playerEntity.input.lockedTargetId)
     if (targetEntity && targetEntity.transform) {
       const dist = Math.abs(targetEntity.transform.x - playerX)
-      // Check if distance exceeds view width (with 10% margin)
       if (dist > canvasWidthInMeters * 0.9) {
         playerEntity.input.lockedTargetId = null
       } else {
         targetEntityX = targetEntity.transform.x
-        isLocked = true
+        isEnemyLocked = true
       }
     }
   }
@@ -865,34 +893,125 @@ function updateCamera(playerX: number) {
   const centerX = canvasWidth / 2
   let desiredCameraX = camera.x
 
-  if (isLocked) {
-     // Center strictly on midpoint when locked
-     const midPointX = (playerX + targetEntityX) * 0.5
-     desiredCameraX = midPointX - (centerX / zoom) / pixelsPerMeter
+  if (isEnemyLocked) {
+    const midPointX = (playerX + targetEntityX) * 0.5
+    desiredCameraX = midPointX - centerX / zoom / pixelsPerMeter
   } else {
-    // Default Deadzone Logic
     const currentCameraX = camera.x
     const playerScreenX =
       centerX + ((playerX - currentCameraX) * pixelsPerMeter - centerX) * zoom
 
-    const deadZoneLeft = canvasWidth / 8
-    const deadZoneRight = (7 * canvasWidth) / 8
+    const leftThird = canvasWidth / 3
+    const rightThird = (2 * canvasWidth) / 3
 
-    if (playerScreenX < deadZoneLeft) {
-      desiredCameraX =
-        playerX - ((deadZoneLeft - centerX) / zoom + centerX) / pixelsPerMeter
-    } else if (playerScreenX > deadZoneRight) {
-      desiredCameraX =
-        playerX - ((deadZoneRight - centerX) / zoom + centerX) / pixelsPerMeter
+    // Safety check: player is too close to screen edge
+    const edgeMargin = canvasWidth * 0.1
+    const isNearEdge =
+      playerScreenX < edgeMargin || playerScreenX > canvasWidth - edgeMargin
+
+    // Check if player is in center zone
+    const isInCenterZone =
+      playerScreenX >= leftThird && playerScreenX <= rightThird
+
+    // Clear the return-to-center flag if player is back in center
+    if (needsReturnToCenter && isInCenterZone) {
+      needsReturnToCenter = false
+    }
+
+    // Check if we need to lock
+    if (!isCameraLocked) {
+      const timeSinceUnlock = currentTime - lastUnlockTime
+      const normalLockCondition =
+        !needsReturnToCenter && timeSinceUnlock > UNLOCK_COOLDOWN
+      const emergencyLock = isNearEdge
+
+      // Lock if in left/right third (with normal conditions) OR emergency
+      if (playerScreenX < leftThird || playerScreenX > rightThird) {
+        if (normalLockCondition || emergencyLock) {
+          isCameraLocked = true
+          isTransitioning = true
+          transitionStartTime = currentTime
+          transitionStartCameraX = camera.x
+
+          // Clear flags on emergency lock
+          if (emergencyLock) {
+            needsReturnToCenter = false
+          }
+
+          // Initialize velocity direction for turn detection
+          if (playerEntity && playerEntity.physics) {
+            const vel = box2d.b2Body_GetLinearVelocity(
+              playerEntity.physics.bodyId
+            )
+            lastVelocityDirection = vel.x > 0.05 ? 1 : vel.x < -0.05 ? -1 : 0
+            vel.delete()
+          }
+        }
+      }
+    }
+
+    // Check if we need to unlock (player stopped or turned around)
+    if (isCameraLocked) {
+      if (playerEntity && playerEntity.physics) {
+        const vel = box2d.b2Body_GetLinearVelocity(playerEntity.physics.bodyId)
+        const speed = Math.abs(vel.x)
+        const currentDirection = vel.x > 0.05 ? 1 : vel.x < -0.05 ? -1 : 0
+        vel.delete()
+
+        // Unlock if player stopped (and not transitioning)
+        if (speed < 0.1 && !isTransitioning) {
+          isCameraLocked = false
+          lastVelocityDirection = 0
+          needsReturnToCenter = true
+          lastUnlockTime = currentTime
+        }
+        // Unlock if player turned around (more sensitive detection)
+        else if (lastVelocityDirection !== 0 && currentDirection !== 0) {
+          if (lastVelocityDirection !== currentDirection) {
+            isCameraLocked = false
+            isTransitioning = false
+            lastVelocityDirection = 0
+            needsReturnToCenter = true
+            lastUnlockTime = currentTime
+          } else {
+            // Only update direction if still moving in same direction
+            lastVelocityDirection = currentDirection
+          }
+        } else if (currentDirection !== 0 && lastVelocityDirection === 0) {
+          // Initialize direction if starting to move
+          lastVelocityDirection = currentDirection
+        }
+      }
+    }
+
+    // Set desired camera position with time-based easing transition
+    if (isCameraLocked) {
+      if (isTransitioning) {
+        const elapsed = currentTime - transitionStartTime
+        const progress = Math.min(elapsed / TRANSITION_DURATION, 1)
+
+        if (progress >= 1) {
+          isTransitioning = false
+          desiredCameraX = playerX - centerX / zoom / pixelsPerMeter
+        } else {
+          const targetX = playerX - centerX / zoom / pixelsPerMeter
+          const easedProgress = easeOutCubic(progress)
+          desiredCameraX =
+            transitionStartCameraX +
+            (targetX - transitionStartCameraX) * easedProgress
+        }
+      } else {
+        desiredCameraX = playerX - centerX / zoom / pixelsPerMeter
+      }
     } else {
       desiredCameraX = currentCameraX
     }
   }
 
-  // Unified smoothing
+  // Simple interpolation system - always uses fixed factor
   const diff = desiredCameraX - camera.x
   if (Math.abs(diff) > 0.001) {
-    camera.x += diff * 0.1
+    camera.x += diff * 0.15
   } else {
     camera.x = desiredCameraX
   }
@@ -1078,6 +1197,7 @@ function restart() {
   isPaused = false
   lastTime = performance.now()
   accumulator = 0
+  currentTime = 0
 }
 
 // Message Handler
