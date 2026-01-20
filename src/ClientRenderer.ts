@@ -409,6 +409,7 @@ export class ClientRenderer {
     const weaponType = buf[offset + OFFSETS.WEAPON_TYPE]
     const bowDraw = buf[offset + OFFSETS.WEAPON_DRAW]
     const bowDrawActive = buf[offset + OFFSETS.WEAPON_DRAW_ACTIVE] === 1
+    const bowHasArrow = buf[offset + OFFSETS.WEAPON_HAS_ARROW] === 1
 
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
     const isBlocking = !!(flags & FLAGS.WEAPON_BLOCKING)
@@ -445,7 +446,8 @@ export class ClientRenderer {
       this.ctx.lineTo(halfLen, 0)
       this.ctx.stroke()
 
-      const shouldShowArrow = bowDrawActive || (isInCombat && drawRatio <= 0)
+      const shouldShowArrow =
+        bowHasArrow && (bowDrawActive || (isInCombat && drawRatio <= 0))
       if (shouldShowArrow) {
         const arrowLen = BOW_ARROW_LENGTH * this.pixelsPerMeter
         const arrowThickness = BOW_ARROW_THICKNESS * this.pixelsPerMeter

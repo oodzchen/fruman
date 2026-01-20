@@ -92,6 +92,8 @@ type WeaponDropData = {
   attackDamage: number
   postureDamage: number
   toughnessDamage: number
+  bowAmmo: number
+  bowAmmoMax: number
 }
 
 export class WeaponSystem extends System {
@@ -131,6 +133,8 @@ export class WeaponSystem extends System {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
+    bowAmmo: 0,
+    bowAmmoMax: 0,
   }
   private tempPlayerPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
@@ -1372,6 +1376,8 @@ export class WeaponSystem extends System {
     weapon.attackDamage = weaponData.attackDamage
     weapon.postureDamage = weaponData.postureDamage
     weapon.toughnessDamage = weaponData.toughnessDamage
+    weapon.bowAmmo = weaponData.bowAmmo
+    weapon.bowAmmoMax = weaponData.bowAmmoMax
 
     const weaponY = this.groundTopY - weapon.height / 2
     weapon.position.x = x
@@ -1477,7 +1483,9 @@ export class WeaponSystem extends System {
       return
     }
 
-    const holdingAttack = entity.input.attackRequested && !entity.isStunned()
+    const hasAmmo = weapon.bowAmmo > 0
+    const holdingAttack =
+      hasAmmo && entity.input.attackRequested && !entity.isStunned()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const wantsLockToggle =
       entity.input.lockToggleRequested || entity.input.lockSwitchIntent !== 0
@@ -1821,6 +1829,10 @@ export class WeaponSystem extends System {
       return
     }
 
+    if (weapon.bowAmmo <= 0) {
+      return
+    }
+
     const arrowFaction = entity.faction?.faction ?? Faction.Player
     if (!this.arrowPools.canSpawn(arrowFaction)) {
       return
@@ -1925,6 +1937,7 @@ export class WeaponSystem extends System {
     arrowEntity.addComponent(arrow)
 
     this.arrowPools.registerSpawn(arrowFaction)
+    weapon.bowAmmo = Math.max(0, weapon.bowAmmo - 1)
     this.statsSystem?.playSound(SOUND_IDS.BOW_SNAP)
   }
 
@@ -2039,6 +2052,8 @@ export class WeaponSystem extends System {
     slot.attackDamage = weapon.attackDamage
     slot.postureDamage = weapon.postureDamage
     slot.toughnessDamage = weapon.toughnessDamage
+    slot.bowAmmo = weapon.bowAmmo
+    slot.bowAmmoMax = weapon.bowAmmoMax
   }
 
   private copySlotToWeapon(
@@ -2056,6 +2071,8 @@ export class WeaponSystem extends System {
     weapon.attackDamage = slot.attackDamage
     weapon.postureDamage = slot.postureDamage
     weapon.toughnessDamage = slot.toughnessDamage
+    weapon.bowAmmo = slot.bowAmmo
+    weapon.bowAmmoMax = slot.bowAmmoMax
   }
 
   private fillWeaponDropDataFromWeapon(
@@ -2071,6 +2088,8 @@ export class WeaponSystem extends System {
     out.attackDamage = weapon.attackDamage
     out.postureDamage = weapon.postureDamage
     out.toughnessDamage = weapon.toughnessDamage
+    out.bowAmmo = weapon.bowAmmo
+    out.bowAmmoMax = weapon.bowAmmoMax
   }
 
   private fillWeaponDropDataFromSlot(
@@ -2086,6 +2105,8 @@ export class WeaponSystem extends System {
     out.attackDamage = slot.attackDamage
     out.postureDamage = slot.postureDamage
     out.toughnessDamage = slot.toughnessDamage
+    out.bowAmmo = slot.bowAmmo
+    out.bowAmmoMax = slot.bowAmmoMax
   }
 
   private resetWeaponForSwap(weapon: WeaponComponent): void {

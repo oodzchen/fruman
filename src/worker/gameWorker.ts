@@ -989,6 +989,8 @@ function sendState() {
       stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] = e.weapon.bowIsDrawing
         ? 1
         : 0
+      stateBuffer[offset + OFFSETS.WEAPON_HAS_ARROW] =
+        e.weapon.weaponType === 'bow' && e.weapon.bowAmmo > 0 ? 1 : 0
       stateBuffer[offset + OFFSETS.WEAPON_TYPE] = getWeaponTypeId(
         e.weapon.weaponType
       )
@@ -996,6 +998,7 @@ function sendState() {
       stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 0
       stateBuffer[offset + OFFSETS.WEAPON_DRAW] = 0
       stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_HAS_ARROW] = 0
       stateBuffer[offset + OFFSETS.WEAPON_TYPE] = WEAPON_TYPES.SWORD
     }
 

@@ -3,6 +3,8 @@ import {
   CATEGORY_PLAYER,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
+  DEFAULT_BOW_AMMO_ENEMY,
+  DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_JUMP_BUFFER_WINDOW,
   DEFAULT_JUMP_FORCE,
   DEFAULT_JUMP_FORCE_MULTIPLIER,
@@ -320,6 +322,8 @@ export function createEnemy(
       enemy.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
       enemy.weaponSlots.secondary.postureDamage = bowTemplate.postureDamage
       enemy.weaponSlots.secondary.toughnessDamage = bowTemplate.toughnessDamage
+      enemy.weaponSlots.secondary.bowAmmoMax = DEFAULT_BOW_AMMO_ENEMY
+      enemy.weaponSlots.secondary.bowAmmo = DEFAULT_BOW_AMMO_ENEMY
 
       enemy.weaponSlots.activeSlot = 'secondary'
       enemy.weapon.width = bowTemplate.width
@@ -331,6 +335,8 @@ export function createEnemy(
       enemy.weapon.attackDamage = bowTemplate.attackDamage
       enemy.weapon.postureDamage = bowTemplate.postureDamage
       enemy.weapon.toughnessDamage = bowTemplate.toughnessDamage
+      enemy.weapon.bowAmmoMax = DEFAULT_BOW_AMMO_ENEMY
+      enemy.weapon.bowAmmo = DEFAULT_BOW_AMMO_ENEMY
     }
 
     enemy.weapon.isEquipped = true
@@ -387,6 +393,10 @@ export function createWeapon(
   weapon.attackDamage = template.attackDamage
   weapon.postureDamage = template.postureDamage
   weapon.toughnessDamage = template.toughnessDamage
+  if (weaponType === 'bow') {
+    weapon.bowAmmoMax = DEFAULT_BOW_AMMO_PLAYER
+    weapon.bowAmmo = DEFAULT_BOW_AMMO_PLAYER
+  }
   const weaponY = groundTopY - weapon.height / 2
   weapon.position = {
     x: x,

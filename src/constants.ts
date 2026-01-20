@@ -270,6 +270,9 @@ export const MASK_PLAYER_ROLLING = 0xffff & ~CATEGORY_ENEMY
 export const MASK_ENEMY = 0xffff
 export const MASK_WEAPON = CATEGORY_GROUND | CATEGORY_OBSTACLE
 
+export const DEFAULT_BOW_AMMO_PLAYER = 20
+export const DEFAULT_BOW_AMMO_ENEMY = 50
+
 // 武器模板配置
 export const WEAPON_TEMPLATES = {
   sword: {

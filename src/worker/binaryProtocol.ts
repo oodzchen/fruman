@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 32
+export const ENTITY_STRIDE = 33
 
 export const OFFSETS = {
   ID: 0,
@@ -33,6 +33,7 @@ export const OFFSETS = {
   FREE_AIM_ACTIVE: 29,
   FREE_AIM_X: 30,
   FREE_AIM_Y: 31,
+  WEAPON_HAS_ARROW: 32,
 }
 
 export const FLAGS = {

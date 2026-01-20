@@ -318,6 +318,8 @@ export type WeaponSlotData = {
   attackDamage: number
   postureDamage: number
   toughnessDamage: number
+  bowAmmo: number
+  bowAmmoMax: number
 }
 
 const createWeaponSlotData = (): WeaponSlotData => ({
@@ -331,6 +333,8 @@ const createWeaponSlotData = (): WeaponSlotData => ({
   attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE,
   postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE,
   toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  bowAmmo: 0,
+  bowAmmoMax: 0,
 })
 
 export class WeaponComponent extends Component {
@@ -416,6 +420,8 @@ export class WeaponComponent extends Component {
   bowFreeAimLastMouseY = 0
   bowFreeAimReticleOffsetX = 0
   bowFreeAimReticleOffsetY = 0
+  bowAmmo = 0
+  bowAmmoMax = 0
 
   isDropping = false
   isDropped = false
@@ -525,6 +531,8 @@ export class WeaponComponent extends Component {
     this.bowFreeAimLastMouseY = 0
     this.bowFreeAimReticleOffsetX = 0
     this.bowFreeAimReticleOffsetY = 0
+    this.bowAmmo = 0
+    this.bowAmmoMax = 0
     this.isDropping = false
     this.isDropped = false
     this.isRecovering = false
