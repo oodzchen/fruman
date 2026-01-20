@@ -9,6 +9,7 @@ import {
   DEFAULT_OBSTACLE_FRICTION,
   ENEMY_SPAWNS,
 } from '../constants'
+import { ArrowPools } from '../ecs/ArrowPools'
 import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
@@ -67,6 +68,7 @@ let weaponSystem: WeaponSystem
 let arrowSystem: ArrowSystem
 let enemyAISystem: EnemyAISystem
 let targetingSystem: TargetingSystem
+let arrowPools: ArrowPools
 
 let groundShapeId: b2ShapeId
 let obstacles: {
@@ -285,6 +287,7 @@ function initializeSystems() {
   movementSystem = new MovementSystem(box2d)
   weaponSystem = new WeaponSystem(box2d, statsSystem)
   arrowSystem = new ArrowSystem(box2d, statsSystem)
+  arrowPools = new ArrowPools()
   statsSystem.setWeaponSystem(weaponSystem)
   enemyAISystem.setWeaponSystem(weaponSystem)
   targetingSystem = new TargetingSystem(box2d, worldId)
@@ -302,14 +305,17 @@ function initializeSystems() {
   world.addSystem(arrowSystem)
   world.addSystem(targetingSystem)
 
+  world.setComponentPool(arrowPools)
   weaponSystem.setObstacles(obstacles)
   weaponSystem.setWorld(world, worldId, groundTopY)
+  weaponSystem.setArrowPools(arrowPools)
   weaponSystem.setViewportSize(
     canvasWidth / pixelsPerMeter,
     canvasHeight / pixelsPerMeter
   )
   arrowSystem.setSpatialHash(spatialHash)
   arrowSystem.setWorld(world)
+  arrowSystem.setArrowPools(arrowPools)
 }
 
 function createGround(): b2BodyId {

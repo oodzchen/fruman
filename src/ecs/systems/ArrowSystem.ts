@@ -1,5 +1,6 @@
 import { DEFAULT_PLAYER_RADIUS } from '../../constants'
 import type { MainModule } from '../../types'
+import type { ArrowPools } from '../ArrowPools'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
@@ -12,6 +13,7 @@ export class ArrowSystem extends System {
   private spatialHash: SpatialHash | null = null
   private statsSystem?: StatsSystem
   private world?: World
+  private arrowPools?: ArrowPools
   private tempHitSource = { x: 0, y: 0 }
   private tempVec?: InstanceType<MainModule['b2Vec2']>
 
@@ -35,8 +37,13 @@ export class ArrowSystem extends System {
     this.world = world
   }
 
+  setArrowPools(arrowPools: ArrowPools): void {
+    this.arrowPools = arrowPools
+  }
+
   update(entities: Entity[], deltaTime: number): void {
     const deltaMs = Math.max(0, deltaTime * 1000)
+    const deltaSec = deltaMs > 0 ? deltaMs / 1000 : 0
 
     for (const entity of entities) {
       if (!entity.transform || !entity.weapon || !entity.arrow) continue
@@ -62,6 +69,9 @@ export class ArrowSystem extends System {
         entity.weapon.visual.x = entity.transform.x
         entity.weapon.visual.y = entity.transform.y
         entity.weapon.visual.rotation = arrow.stuckRotation
+        arrow.prevX = entity.transform.x
+        arrow.prevY = entity.transform.y
+        arrow.hasPrev = true
         continue
       }
 
@@ -69,16 +79,25 @@ export class ArrowSystem extends System {
 
       entity.weapon.visual.x = entity.transform.x
       entity.weapon.visual.y = entity.transform.y
-      const velocity = this.box2d.b2Body_GetLinearVelocity(
-        entity.physics.bodyId
-      )
-      const speed = Math.hypot(velocity.x, velocity.y)
+      let velX = arrow.velocityX
+      let velY = arrow.velocityY
+      if (arrow.hasPrev && deltaSec > 0) {
+        const dx = entity.transform.x - arrow.prevX
+        const dy = entity.transform.y - arrow.prevY
+        velX = dx / deltaSec
+        velY = dy / deltaSec
+      }
+      arrow.velocityX = velX
+      arrow.velocityY = velY
+      arrow.prevX = entity.transform.x
+      arrow.prevY = entity.transform.y
+      arrow.hasPrev = true
+      const speed = Math.hypot(velX, velY)
       const dirAngle =
         speed > 0.01
-          ? Math.atan2(velocity.y, velocity.x)
+          ? Math.atan2(velY, velX)
           : entity.weapon.visual.rotation - Math.PI / 2
       entity.weapon.visual.rotation = dirAngle + Math.PI / 2
-      velocity.delete()
 
       if (!this.spatialHash || !this.statsSystem || !arrow.canHit) continue
 
@@ -172,6 +191,9 @@ export class ArrowSystem extends System {
     arrow.stuckRotation = rotation
     if (entity.physics) {
       this.box2d.b2DestroyBody(entity.physics.bodyId)
+      if (this.arrowPools) {
+        this.arrowPools.releasePhysics(entity.physics)
+      }
       entity.removeComponent('Physics')
     }
     entity.transform.x = stickX
@@ -184,7 +206,6 @@ export class ArrowSystem extends System {
   private destroyArrowEntity(entity: Entity): void {
     if (entity.physics) {
       this.box2d.b2DestroyBody(entity.physics.bodyId)
-      entity.removeComponent('Physics')
     }
     this.world?.destroyEntity(entity)
   }

@@ -42,6 +42,12 @@ export class TransformComponent extends Component {
   y = 0
   rotation = 0
 
+  reset(): void {
+    this.x = 0
+    this.y = 0
+    this.rotation = 0
+  }
+
   getName(): string {
     return 'Transform'
   }
@@ -50,6 +56,11 @@ export class TransformComponent extends Component {
 export class PhysicsComponent extends Component {
   bodyId!: b2BodyId
   shapeId!: b2ShapeId
+
+  reset(): void {
+    this.bodyId = 0 as unknown as b2BodyId
+    this.shapeId = 0 as unknown as b2ShapeId
+  }
 
   getName(): string {
     return 'Physics'
@@ -307,6 +318,122 @@ export class WeaponComponent extends Component {
 
   pickupCooldownEndTime = 0 // 在此时间之前不可拾取（毫秒时间戳）
 
+  reset(): void {
+    this.width = 0
+    this.height = 0
+    this.baseWidth = 0
+    this.blockWidthStart = 0
+    this.blockWidthTarget = 0
+    this.cornerRadius = 0
+    this.weight = 0
+    this.weaponType = 'sword'
+    this.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
+    this.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
+    this.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+    this.knockback = 0
+    this.isColliding = false
+    this.isUnstoppable = false
+    this.position.x = 0
+    this.position.y = 0
+    this.rotation = 0
+    this.isEquipped = false
+    this.isBlocking = false
+    this.attackPhase = 'idle'
+    this.attackElapsedMs = 0
+    this.lastAttackTimestamp = 0
+    this.attackStartTransform.x = 0
+    this.attackStartTransform.y = 0
+    this.attackStartTransform.rotation = 0
+    this.visual.x = 0
+    this.visual.y = 0
+    this.visual.rotation = 0
+    this.attackQueued = false
+    this.comboCount = 0
+    this.swingDirection = 'toFront'
+    this.nextSwingDirection = 'toFront'
+    this.attackFacing = 1
+    this.attackStartOffset.dx = 0
+    this.attackStartOffset.dy = 0
+    this.attackStartOffset.rotation = 0
+    this.swingStartOffset.dx = 0
+    this.swingStartOffset.dy = 0
+    this.swingStartOffset.rotation = 0
+    this.swingEndOffset.dx = 0
+    this.swingEndOffset.dy = 0
+    this.swingEndOffset.rotation = 0
+    this.swingStartTransform.x = 0
+    this.swingStartTransform.y = 0
+    this.swingStartTransform.rotation = 0
+    this.swingEndTransform.x = 0
+    this.swingEndTransform.y = 0
+    this.swingEndTransform.rotation = 0
+    this.attackRadius = 0
+    this.reboundLockedPause = false
+    this.reboundTargetTransform.x = 0
+    this.reboundTargetTransform.y = 0
+    this.reboundTargetTransform.rotation = 0
+    this.reboundTargetOffset.dx = 0
+    this.reboundTargetOffset.dy = 0
+    this.reboundTargetOffset.rotation = 0
+    this.hitEntityIds.clear()
+    this.isParrying = false
+    this.parryElapsedTime = 0
+    this.parryWindowDuration = 200
+    this.parryStartTransform.x = 0
+    this.parryStartTransform.y = 0
+    this.parryStartTransform.rotation = 0
+    this.parryEndTransform.x = 0
+    this.parryEndTransform.y = 0
+    this.parryEndTransform.rotation = 0
+    this.parryStartOffset.dx = 0
+    this.parryStartOffset.dy = 0
+    this.parryStartOffset.rotation = 0
+    this.parryEndOffset.dx = 0
+    this.parryEndOffset.dy = 0
+    this.parryEndOffset.rotation = 0
+    this.parryHitWeaponIds.clear()
+    this.parryCounterTimerMs = 0
+    this.parryCounterActive = false
+    this.bowIsDrawing = false
+    this.bowDrawElapsedMs = 0
+    this.bowDrawRatio = 0
+    this.bowForceRatio = 0
+    this.bowReleaseRatio = 0
+    this.bowReleasePending = false
+    this.bowReleaseDelayMs = 0
+    this.bowReleaseDelayTotalMs = 0
+    this.bowRecoverElapsedMs = 0
+    this.bowAimAngle = 0
+    this.bowHasAim = false
+    this.bowFreeAim = false
+    this.bowFreeAimAngle = 0
+    this.bowFreeAimReticleX = 0
+    this.bowFreeAimReticleY = 0
+    this.bowFreeAimUseMouse = false
+    this.bowFreeAimUseReticle = false
+    this.bowFreeAimLastMouseX = 0
+    this.bowFreeAimLastMouseY = 0
+    this.bowFreeAimReticleOffsetX = 0
+    this.bowFreeAimReticleOffsetY = 0
+    this.isDropping = false
+    this.isDropped = false
+    this.isRecovering = false
+    this.dropElapsedTime = 0
+    this.dropStartTransform.x = 0
+    this.dropStartTransform.y = 0
+    this.dropStartTransform.rotation = 0
+    this.dropEndTransform.x = 0
+    this.dropEndTransform.y = 0
+    this.dropEndTransform.rotation = 0
+    this.dropStartOffset.dx = 0
+    this.dropStartOffset.dy = 0
+    this.dropStartOffset.rotation = 0
+    this.dropEndOffset.dx = 0
+    this.dropEndOffset.dy = 0
+    this.dropEndOffset.rotation = 0
+    this.pickupCooldownEndTime = 0
+  }
+
   getName(): string {
     return 'Weapon'
   }
@@ -361,6 +488,29 @@ export class ArrowComponent extends Component {
   stuckOffsetX = 0
   stuckOffsetY = 0
   stuckRotation = 0
+  prevX = 0
+  prevY = 0
+  hasPrev = false
+
+  reset(): void {
+    this.ownerId = 0
+    this.faction = Faction.Player
+    this.velocityX = 0
+    this.velocityY = 0
+    this.gravity = DEFAULT_GRAVITY
+    this.hitRadius = 0.12
+    this.elapsedMs = 0
+    this.lifetimeMs = 2500
+    this.canHit = true
+    this.isStuck = false
+    this.stuckEntityId = null
+    this.stuckOffsetX = 0
+    this.stuckOffsetY = 0
+    this.stuckRotation = 0
+    this.prevX = 0
+    this.prevY = 0
+    this.hasPrev = false
+  }
 
   getName(): string {
     return 'Arrow'

@@ -1,4 +1,5 @@
 import { Entity } from './Entity'
+import type { EntityComponentPool } from './EntityComponentPool'
 import { ObjectPool } from './ObjectPool'
 
 export class EntityManager {
@@ -6,6 +7,7 @@ export class EntityManager {
   private entitiesToRemove: Entity[] = []
   private entityIndexMap = new Map<number, number>()
   private entityPool: ObjectPool<Entity>
+  private componentPool?: EntityComponentPool
 
   constructor() {
     this.entityPool = new ObjectPool<Entity>(
@@ -26,6 +28,10 @@ export class EntityManager {
     this.entities.push(entity)
     this.entityIndexMap.set(entity.id, index)
     return entity
+  }
+
+  setComponentPool(componentPool: EntityComponentPool): void {
+    this.componentPool = componentPool
   }
 
   destroyEntity(entity: Entity): void {
@@ -57,6 +63,7 @@ export class EntityManager {
 
           this.entities.pop()
           this.entityIndexMap.delete(entity.id)
+          this.componentPool?.releaseEntityComponents(entity)
           this.entityPool.release(entity)
         }
       }
@@ -69,5 +76,6 @@ export class EntityManager {
     this.entities.length = 0
     this.entitiesToRemove.length = 0
     this.entityIndexMap.clear()
+    this.componentPool?.reset()
   }
 }

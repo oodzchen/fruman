@@ -33,6 +33,7 @@ import {
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2BodyId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
+import type { ArrowPools } from '../ArrowPools'
 import type {
   WeaponRelativeTransform,
   WeaponSlotData,
@@ -40,7 +41,6 @@ import type {
   WeaponTransform,
 } from '../Component'
 import {
-  ArrowComponent,
   Faction,
   PhysicsComponent,
   TransformComponent,
@@ -99,11 +99,15 @@ export class WeaponSystem extends System {
   private spatialHash: SpatialHash | null = null
   private entityLookup?: (id: number) => Entity | undefined
   private tempVec?: InstanceType<MainModule['b2Vec2']>
+  private arrowBodyDef?: ReturnType<MainModule['b2DefaultBodyDef']>
+  private arrowShapeDef?: ReturnType<MainModule['b2DefaultShapeDef']>
+  private arrowCircle?: InstanceType<MainModule['b2Circle']>
   private world?: World
   private worldId?: ReturnType<MainModule['b2CreateWorld']>
   private groundTopY = 0
   private viewportWidth = 16
   private viewportHeight = 9
+  private arrowPools?: ArrowPools
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempRelativeTransform: WeaponRelativeTransform = {
@@ -132,6 +136,9 @@ export class WeaponSystem extends System {
     this.statsSystem = statsSystem
     if (box2d) {
       this.tempVec = new box2d.b2Vec2(0, 0)
+      this.arrowBodyDef = box2d.b2DefaultBodyDef()
+      this.arrowShapeDef = box2d.b2DefaultShapeDef()
+      this.arrowCircle = new box2d.b2Circle()
     }
 
     const transformType = componentRegistry.getComponentType('Transform')
@@ -152,6 +159,10 @@ export class WeaponSystem extends System {
   setViewportSize(viewportWidth: number, viewportHeight: number): void {
     this.viewportWidth = viewportWidth
     this.viewportHeight = viewportHeight
+  }
+
+  setArrowPools(arrowPools: ArrowPools): void {
+    this.arrowPools = arrowPools
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -1288,7 +1299,6 @@ export class WeaponSystem extends System {
       b2Circle,
       b2DefaultShapeDef,
       b2CreateCircleShape,
-      b2Vec2,
     } = this.box2d
 
     const bodyDef = b2DefaultBodyDef()
@@ -1314,13 +1324,16 @@ export class WeaponSystem extends System {
     // 施加初始速度：向玩家面朝的前方抛出，同时向上
     const throwSpeedX = facing * 8.0 // 向前抛
     const throwSpeedY = -6.0 // 向上抛
-    const throwVelocity = new b2Vec2(throwSpeedX, throwSpeedY)
-    this.box2d.b2Body_SetLinearVelocity(physics.bodyId, throwVelocity)
+    const throwVelocity = this.tempVec
+    if (throwVelocity) {
+      throwVelocity.x = throwSpeedX
+      throwVelocity.y = throwSpeedY
+      this.box2d.b2Body_SetLinearVelocity(physics.bodyId, throwVelocity)
+    }
 
     bodyDef.delete()
     circle.delete()
     shapeDef.delete()
-    throwVelocity.delete()
 
     entity.addComponent(physics)
 
@@ -1338,45 +1351,32 @@ export class WeaponSystem extends System {
     weapon.toughnessDamage = weaponData.toughnessDamage
 
     const weaponY = this.groundTopY - weapon.height / 2
-    weapon.position = { x, y: weaponY }
+    weapon.position.x = x
+    weapon.position.y = weaponY
     weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
     weapon.isEquipped = false
     weapon.attackPhase = 'idle'
-    weapon.visual = {
-      x,
-      y: weaponY,
-      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
-    }
-    weapon.attackStartTransform = {
-      x,
-      y: weaponY,
-      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
-    }
-    weapon.swingStartTransform = {
-      x,
-      y: weaponY,
-      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
-    }
-    weapon.swingEndTransform = {
-      x,
-      y: weaponY,
-      rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
-    }
-    weapon.attackStartOffset = {
-      dx: 0,
-      dy: 0,
-      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-    }
-    weapon.swingStartOffset = {
-      dx: 0,
-      dy: 0,
-      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-    }
-    weapon.swingEndOffset = {
-      dx: 0,
-      dy: 0,
-      rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-    }
+    weapon.visual.x = x
+    weapon.visual.y = weaponY
+    weapon.visual.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.attackStartTransform.x = x
+    weapon.attackStartTransform.y = weaponY
+    weapon.attackStartTransform.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.swingStartTransform.x = x
+    weapon.swingStartTransform.y = weaponY
+    weapon.swingStartTransform.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.swingEndTransform.x = x
+    weapon.swingEndTransform.y = weaponY
+    weapon.swingEndTransform.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.attackStartOffset.dx = 0
+    weapon.attackStartOffset.dy = 0
+    weapon.attackStartOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    weapon.swingStartOffset.dx = 0
+    weapon.swingStartOffset.dy = 0
+    weapon.swingStartOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    weapon.swingEndOffset.dx = 0
+    weapon.swingEndOffset.dy = 0
+    weapon.swingEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
     weapon.pickupCooldownEndTime = performance.now() + 500 // 500ms 冷却时间
 
@@ -1786,27 +1786,35 @@ export class WeaponSystem extends System {
     facing: number,
     drawRatio: number
   ): void {
-    if (!this.world || !this.box2d || !this.worldId) return
+    if (
+      !this.world ||
+      !this.box2d ||
+      !this.worldId ||
+      !this.arrowPools ||
+      !this.arrowBodyDef ||
+      !this.arrowShapeDef ||
+      !this.arrowCircle
+    ) {
+      return
+    }
+
+    const arrowFaction = entity.faction?.faction ?? Faction.Player
+    if (!this.arrowPools.canSpawn(arrowFaction)) {
+      return
+    }
 
     const arrowEntity = this.world.createEntity()
-    const arrowTransform = new TransformComponent()
+    const arrowTransform = this.arrowPools.acquireTransform()
 
     arrowTransform.x = weapon.visual.x
     arrowTransform.y = weapon.visual.y
+    arrowTransform.rotation = 0
     arrowEntity.addComponent(arrowTransform)
 
-    const physics = new PhysicsComponent()
-    const {
-      b2DefaultBodyDef,
-      b2CreateBody,
-      b2BodyType,
-      b2Circle,
-      b2DefaultShapeDef,
-      b2CreateCircleShape,
-      b2Vec2,
-    } = this.box2d
+    const physics = this.arrowPools.acquirePhysics()
+    const { b2CreateBody, b2BodyType, b2CreateCircleShape } = this.box2d
 
-    const bodyDef = b2DefaultBodyDef()
+    const bodyDef = this.arrowBodyDef
     bodyDef.type = b2BodyType.b2_dynamicBody
     bodyDef.position.Set(arrowTransform.x, arrowTransform.y)
     bodyDef.linearDamping = 0.05
@@ -1815,7 +1823,7 @@ export class WeaponSystem extends System {
     bodyDef.gravityScale = BOW_GRAVITY_SCALE
     physics.bodyId = b2CreateBody(this.worldId, bodyDef)
 
-    const arrowWeapon = new WeaponComponent()
+    const arrowWeapon = this.arrowPools.acquireWeapon()
     const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9
     const arrowThickness = DEFAULT_WEAPON_HEIGHT * 0.15
     const arrowSpeed = this.getBowLaunchSpeed(drawRatio)
@@ -1836,10 +1844,10 @@ export class WeaponSystem extends System {
         : Math.PI
     const arrowRotation = aimAngle + Math.PI / 2
 
-    const circle = new b2Circle()
+    const circle = this.arrowCircle
     circle.center.Set(0, 0)
     circle.radius = Math.max(0.08, arrowThickness)
-    const shapeDef = b2DefaultShapeDef()
+    const shapeDef = this.arrowShapeDef
     shapeDef.density = 0.1
     shapeDef.material.friction = 0.2
     shapeDef.material.restitution = 0.4
@@ -1848,16 +1856,11 @@ export class WeaponSystem extends System {
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
 
     const launchSpeed = arrowSpeed * 1.5
-    const initialVelocity = new b2Vec2(
-      Math.cos(aimAngle) * launchSpeed,
-      Math.sin(aimAngle) * launchSpeed
-    )
-    this.box2d.b2Body_SetLinearVelocity(physics.bodyId, initialVelocity)
-
-    bodyDef.delete()
-    circle.delete()
-    shapeDef.delete()
-    initialVelocity.delete()
+    if (this.tempVec) {
+      this.tempVec.x = Math.cos(aimAngle) * launchSpeed
+      this.tempVec.y = Math.sin(aimAngle) * launchSpeed
+      this.box2d.b2Body_SetLinearVelocity(physics.bodyId, this.tempVec)
+    }
 
     arrowEntity.addComponent(physics)
 
@@ -1884,16 +1887,21 @@ export class WeaponSystem extends System {
     arrowWeapon.visual.rotation = arrowRotation
     arrowEntity.addComponent(arrowWeapon)
 
-    const arrow = new ArrowComponent()
+    const arrow = this.arrowPools.acquireArrow()
     arrow.ownerId = entity.id
-    arrow.faction = entity.faction?.faction ?? Faction.Player
+    arrow.faction = arrowFaction
     arrow.velocityX = Math.cos(aimAngle) * launchSpeed
     arrow.velocityY = Math.sin(aimAngle) * launchSpeed
+    arrow.gravity = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE
     arrow.hitRadius = 0.12
     arrow.elapsedMs = 0
     arrow.lifetimeMs = 2500
+    arrow.prevX = arrowTransform.x
+    arrow.prevY = arrowTransform.y
+    arrow.hasPrev = true
     arrowEntity.addComponent(arrow)
 
+    this.arrowPools.registerSpawn(arrowFaction)
     this.statsSystem?.playSound(SOUND_IDS.BOW_SNAP)
   }
 

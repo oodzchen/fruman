@@ -1,4 +1,5 @@
 import type { Entity } from './Entity'
+import type { EntityComponentPool } from './EntityComponentPool'
 import { EntityManager } from './EntityManager'
 import type { System } from './System'
 
@@ -11,6 +12,10 @@ export class World {
   createEntity(): Entity {
     this.cacheNeedsRebuild = true
     return this.entityManager.createEntity()
+  }
+
+  setComponentPool(componentPool: EntityComponentPool): void {
+    this.entityManager.setComponentPool(componentPool)
   }
 
   destroyEntity(entity: Entity): void {
