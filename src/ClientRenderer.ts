@@ -640,7 +640,7 @@ export class ClientRenderer {
     drawRatio: number
   ): void {
     const speed = this.trajectoryCalculator.getBowSpeed(drawRatio) * 1.5
-    const points = this.trajectoryCalculator.simulateTrajectory(
+    this.trajectoryCalculator.simulateTrajectory(
       playerX,
       playerY,
       reticleX,
@@ -648,7 +648,10 @@ export class ClientRenderer {
       speed
     )
 
-    if (points.length < 2) return
+    const points = this.trajectoryCalculator.getPoints()
+    const count = this.trajectoryCalculator.getPointCount()
+
+    if (count < 2) return
 
     this.ctx.save()
     this.ctx.strokeStyle = '#00FF00'
@@ -663,7 +666,7 @@ export class ClientRenderer {
       firstPoint.y * this.pixelsPerMeter
     )
 
-    for (let i = 1; i < points.length; i++) {
+    for (let i = 1; i < count; i++) {
       const point = points[i]
       this.ctx.lineTo(
         point.x * this.pixelsPerMeter,

@@ -412,15 +412,16 @@ export class GameClient {
         const bodyY = groundY - 0.5
 
         this.ctx.beginPath()
-        obs.vertices.forEach((v: { x: number; y: number }, index: number) => {
+        for (let j = 0; j < obs.vertices.length; j++) {
+          const v = obs.vertices[j]
           const vx = (bodyX + v.x) * this.pixelsPerMeter
           const vy = (bodyY + v.y) * this.pixelsPerMeter
-          if (index === 0) {
+          if (j === 0) {
             this.ctx.moveTo(vx, vy)
           } else {
             this.ctx.lineTo(vx, vy)
           }
-        })
+        }
         this.ctx.closePath()
         this.ctx.fill()
         this.ctx.stroke()

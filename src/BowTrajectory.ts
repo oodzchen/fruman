@@ -17,9 +17,15 @@ export interface TrajectoryPoint {
 
 export class BowTrajectoryCalculator {
   private gravity: number
+  private pointBuffer: TrajectoryPoint[] = []
+  private pointCount = 0
+  private readonly MAX_POINTS = 350 // ~5.6s at 60fps
 
   constructor() {
     this.gravity = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE
+    for (let i = 0; i < this.MAX_POINTS; i++) {
+      this.pointBuffer.push({ x: 0, y: 0, vx: 0, vy: 0, t: 0 })
+    }
   }
 
   getBowSpeed(drawRatio: number): number {
@@ -60,7 +66,7 @@ export class BowTrajectoryCalculator {
     speed: number,
     maxTime: number = 5,
     timeStep: number = 0.016
-  ): TrajectoryPoint[] {
+  ): void {
     const dx = targetX - startX
     const dyUp = startY - targetY
 
@@ -68,16 +74,22 @@ export class BowTrajectoryCalculator {
     const vx0 = Math.cos(angle) * speed
     const vy0 = Math.sin(angle) * speed
 
-    const points: TrajectoryPoint[] = []
+    this.pointCount = 0
     let t = 0
 
-    while (t <= maxTime) {
+    while (t <= maxTime && this.pointCount < this.MAX_POINTS) {
       const x = startX + vx0 * t
       const y = startY + vy0 * t + 0.5 * this.gravity * t * t
       const vx = vx0
       const vy = vy0 + this.gravity * t
 
-      points.push({ x, y, vx, vy, t })
+      const point = this.pointBuffer[this.pointCount]
+      point.x = x
+      point.y = y
+      point.vx = vx
+      point.vy = vy
+      point.t = t
+      this.pointCount++
 
       if (y > startY + 20) {
         break
@@ -85,8 +97,14 @@ export class BowTrajectoryCalculator {
 
       t += timeStep
     }
+  }
 
-    return points
+  getPoints(): TrajectoryPoint[] {
+    return this.pointBuffer
+  }
+
+  getPointCount(): number {
+    return this.pointCount
   }
 
   findViewportIntersection(
@@ -100,17 +118,13 @@ export class BowTrajectoryCalculator {
     viewTop: number,
     viewBottom: number
   ): { x: number; y: number } | null {
-    const points = this.simulateTrajectory(
-      startX,
-      startY,
-      targetX,
-      targetY,
-      speed,
-      5,
-      0.016
-    )
+    this.simulateTrajectory(startX, startY, targetX, targetY, speed, 5, 0.016)
 
-    for (const point of points) {
+    const points = this.pointBuffer
+    const count = this.pointCount
+
+    for (let i = 0; i < count; i++) {
+      const point = points[i]
       const outsideLeft = point.x < viewLeft
       const outsideRight = point.x > viewRight
       const outsideTop = point.y < viewTop
