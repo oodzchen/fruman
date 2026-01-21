@@ -295,8 +295,10 @@ export class EnemyAISystem extends System {
       if (ai.enemyType === 'archer' && entity.weapon && entity.weaponSlots) {
         const meleeSwitchDistance = ai.detectionRange * ARCHER_MELEE_RANGE_RATIO
         const isUsingBow = entity.weapon.weaponType === 'bow'
+        const bowAmmo = this.getArcherBowAmmo(entity)
+        const hasBowAmmo = bowAmmo > 0
 
-        if (distance > meleeSwitchDistance) {
+        if (distance > meleeSwitchDistance && hasBowAmmo) {
           // 远程逻辑
           // 只要有视野或者已经锁定，就维持远程攻击状态（防止射击间隙的射线检测失败导致丢失目标）
           const isLocked = entity.input.lockedTargetId === this.player.id
@@ -1203,5 +1205,15 @@ export class EnemyAISystem extends System {
     const entityRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     // 使用武器长度计算攻击半径：玩家半径 + 武器长度的一半 + 安全间隙
     return entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
+  }
+
+  private getArcherBowAmmo(entity: Entity): number {
+    if (entity.weapon?.weaponType === 'bow') {
+      return entity.weapon.bowAmmo
+    }
+    if (entity.weaponSlots?.secondary.weaponType === 'bow') {
+      return entity.weaponSlots.secondary.bowAmmo
+    }
+    return 0
   }
 }
