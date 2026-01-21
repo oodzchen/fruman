@@ -74,11 +74,28 @@ export class ArrowSystem extends System {
           this.destroyArrowEntity(entity)
           continue
         }
-        entity.transform.x = target.transform.x + arrow.stuckOffsetX
-        entity.transform.y = target.transform.y + arrow.stuckOffsetY
+
+        const facing = this.getTargetFacing(target)
+        const rollAngle = target.movement?.rollAngle ?? 0
+        const cosAngle = Math.cos(rollAngle)
+        const sinAngle = Math.sin(rollAngle)
+        const localFacingX = arrow.stuckOffsetX * facing
+        const offsetX = localFacingX * cosAngle - arrow.stuckOffsetY * sinAngle
+        const offsetY = localFacingX * sinAngle + arrow.stuckOffsetY * cosAngle
+
+        const worldX = target.transform.x + offsetX
+        const worldY = target.transform.y + offsetY
+        const dirFacingX = arrow.stuckDirX * facing
+        const dirX = dirFacingX * cosAngle - arrow.stuckDirY * sinAngle
+        const dirY = dirFacingX * sinAngle + arrow.stuckDirY * cosAngle
+        const dirAngle = Math.atan2(dirY, dirX)
+        const rotation = dirAngle + Math.PI / 2
+
+        entity.transform.x = worldX
+        entity.transform.y = worldY
         entity.weapon.visual.x = entity.transform.x
         entity.weapon.visual.y = entity.transform.y
-        entity.weapon.visual.rotation = arrow.stuckRotation
+        entity.weapon.visual.rotation = rotation
         arrow.prevX = entity.transform.x
         arrow.prevY = entity.transform.y
         arrow.hasPrev = true
@@ -235,9 +252,26 @@ export class ArrowSystem extends System {
     arrow.canHit = false
     arrow.isStuck = true
     arrow.stuckEntityId = target.id
-    arrow.stuckOffsetX = stickX - target.transform.x
-    arrow.stuckOffsetY = stickY - target.transform.y
+    const facing = this.getTargetFacing(target)
+    const rollAngle = target.movement?.rollAngle ?? 0
+    const cosAngle = Math.cos(rollAngle)
+    const sinAngle = Math.sin(rollAngle)
+    const dx = stickX - target.transform.x
+    const dy = stickY - target.transform.y
+    const localFacingX = dx * cosAngle + dy * sinAngle
+    const localY = -dx * sinAngle + dy * cosAngle
+    const localX = localFacingX * facing
+    arrow.stuckOffsetX = localX
+    arrow.stuckOffsetY = localY
     arrow.stuckRotation = rotation
+
+    const worldDirX = Math.cos(dirAngle)
+    const worldDirY = Math.sin(dirAngle)
+    const localDirFacingX = worldDirX * cosAngle + worldDirY * sinAngle
+    const localDirY = -worldDirX * sinAngle + worldDirY * cosAngle
+    const localDirX = localDirFacingX * facing
+    arrow.stuckDirX = localDirX
+    arrow.stuckDirY = localDirY
     if (entity.physics) {
       this.box2d.b2DestroyBody(entity.physics.bodyId)
       if (this.arrowPools) {
@@ -250,6 +284,13 @@ export class ArrowSystem extends System {
     entity.weapon.visual.x = stickX
     entity.weapon.visual.y = stickY
     entity.weapon.visual.rotation = rotation
+  }
+
+  private getTargetFacing(target: Entity): number {
+    if (target.input && target.input.lastMoveDirection !== 0) {
+      return target.input.lastMoveDirection
+    }
+    return target.weapon?.attackFacing || 1
   }
 
   private destroyArrowEntity(entity: Entity): void {

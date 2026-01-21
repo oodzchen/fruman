@@ -622,6 +622,8 @@ export class ArrowComponent extends Component {
   stuckOffsetX = 0
   stuckOffsetY = 0
   stuckRotation = 0
+  stuckDirX = 0
+  stuckDirY = 0
   prevX = 0
   prevY = 0
   hasPrev = false
@@ -641,6 +643,8 @@ export class ArrowComponent extends Component {
     this.stuckOffsetX = 0
     this.stuckOffsetY = 0
     this.stuckRotation = 0
+    this.stuckDirX = 0
+    this.stuckDirY = 0
     this.prevX = 0
     this.prevY = 0
     this.hasPrev = false
