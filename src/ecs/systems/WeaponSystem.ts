@@ -1530,7 +1530,11 @@ export class WeaponSystem extends System {
       if (weapon.bowFreeAim) {
         const defaultAngle =
           lockedAimAngle ??
-          (weapon.bowHasAim ? weapon.bowAimAngle : facing === 1 ? 0 : Math.PI)
+          (weapon.bowHasAim
+            ? weapon.bowAimAngle
+            : weapon.attackFacing === 1
+              ? 0
+              : Math.PI)
         weapon.bowFreeAimAngle = defaultAngle
         weapon.bowFreeAimUseMouse = false
         weapon.bowFreeAimUseReticle = hasLockedTarget
@@ -1542,13 +1546,21 @@ export class WeaponSystem extends System {
           weapon.bowFreeAimReticleOffsetX = lockedTargetX - playerPos.x
           weapon.bowFreeAimReticleOffsetY = lockedTargetY - playerPos.y
         } else {
-          weapon.bowFreeAimReticleX = 0
-          weapon.bowFreeAimReticleY = 0
-          weapon.bowFreeAimReticleOffsetX = 0
-          weapon.bowFreeAimReticleOffsetY = 0
+          const reticleRange =
+            Math.max(this.viewportWidth, this.viewportHeight) * 0.5
+          const reticleX = playerPos.x + Math.cos(defaultAngle) * reticleRange
+          const reticleY = playerPos.y + Math.sin(defaultAngle) * reticleRange
+          weapon.bowFreeAimReticleX = reticleX
+          weapon.bowFreeAimReticleY = reticleY
+          weapon.bowFreeAimReticleOffsetX = reticleX - playerPos.x
+          weapon.bowFreeAimReticleOffsetY = reticleY - playerPos.y
         }
         entity.input.lockedTargetId = null
         entity.input.lockLostTimer = 0
+        if (entity.stats && !entity.stats.isInCombat) {
+          entity.stats.isInCombat = true
+          entity.stats.combatExitTimer = 0
+        }
       } else {
         entity.input.lockedTargetId = null
         entity.input.lockLostTimer = 0
@@ -1578,6 +1590,7 @@ export class WeaponSystem extends System {
       entity.input.lockedTargetId = null
       entity.input.lockLostTimer = 0
       const useMouseAim = entity.input.mouseAimActive
+      const mouseAimMoved = entity.input.mouseAimMoved
       let reticleAngle = weapon.bowFreeAimAngle
       let reticleX = 0
       let reticleY = 0
@@ -1585,9 +1598,7 @@ export class WeaponSystem extends System {
       if (useMouseAim) {
         const mouseX = entity.input.mouseAimX
         const mouseY = entity.input.mouseAimY
-        const dx = mouseX - weapon.bowFreeAimLastMouseX
-        const dy = mouseY - weapon.bowFreeAimLastMouseY
-        if (weapon.bowFreeAimUseMouse || dx !== 0 || dy !== 0) {
+        if (weapon.bowFreeAimUseMouse || mouseAimMoved) {
           weapon.bowFreeAimUseMouse = true
           useMouseAimNow = true
         }

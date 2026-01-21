@@ -800,6 +800,12 @@ function handleInput(
 
     playerEntity.input.mouseAimActive = mouseCaptured
     if (mouseCaptured) {
+      const prevMouseX = playerEntity.input.mouseScreenX
+      const prevMouseY = playerEntity.input.mouseScreenY
+      playerEntity.input.mouseAimMoved =
+        mouseX !== prevMouseX || mouseY !== prevMouseY
+      playerEntity.input.mouseScreenX = mouseX
+      playerEntity.input.mouseScreenY = mouseY
       const anchorX = canvasWidth * 0.5
       const anchorY = canvasHeight
       const invZoom = 1 / zoom
@@ -810,6 +816,8 @@ function handleInput(
       const invPixelsPerMeter = 1 / pixelsPerMeter
       playerEntity.input.mouseAimX = worldPxX * invPixelsPerMeter
       playerEntity.input.mouseAimY = worldPxY * invPixelsPerMeter
+    } else {
+      playerEntity.input.mouseAimMoved = false
     }
   }
 

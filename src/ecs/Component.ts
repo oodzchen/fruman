@@ -186,6 +186,9 @@ export class InputComponent extends Component {
   mouseAimActive = false
   mouseAimX = 0
   mouseAimY = 0
+  mouseAimMoved = false
+  mouseScreenX = 0
+  mouseScreenY = 0
 
   lastMoveDirection = 0
   facingOverride: number | null = null
@@ -207,6 +210,9 @@ export class InputComponent extends Component {
     this.mouseAimActive = false
     this.mouseAimX = 0
     this.mouseAimY = 0
+    this.mouseAimMoved = false
+    this.mouseScreenX = 0
+    this.mouseScreenY = 0
     this.lastMoveDirection = 0
     this.facingOverride = null
     this.inputBuffer.clearAll()
