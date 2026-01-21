@@ -1,5 +1,11 @@
-import { DEFAULT_PLAYER_RADIUS } from '../../constants'
+import {
+  DEFAULT_FRAME_RATE,
+  DEFAULT_PARRY_WINDOW_MS,
+  DEFAULT_PLAYER_RADIUS,
+  PARRY_COUNTER_WINDOW_MS,
+} from '../../constants'
 import type { MainModule } from '../../types'
+import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -7,6 +13,10 @@ import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { World } from '../World'
 import type { StatsSystem } from './StatsSystem'
+
+const PARRY_WINDOW_FRAMES =
+  (DEFAULT_PARRY_WINDOW_MS * DEFAULT_FRAME_RATE) / 1000
+const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
 
 export class ArrowSystem extends System {
   private box2d: MainModule
@@ -123,21 +133,60 @@ export class ArrowSystem extends System {
         if (dx * dx + dy * dy <= hitRadius * hitRadius) {
           this.tempHitSource.x = headX
           this.tempHitSource.y = headY
-          const blocked = this.isArrowBlocked(target, headX)
-          this.statsSystem.applyWeaponHit(
-            target,
-            entity.weapon,
-            this.tempHitSource
-          )
-          if (blocked) {
-            this.deflectArrow(entity, dirX, dirY, speed)
+          if (this.isArrowParried(target)) {
+            this.handleArrowParry(
+              target,
+              entity,
+              headX,
+              headY,
+              dirX,
+              dirY,
+              speed
+            )
           } else {
-            this.stickArrow(entity, target, dirAngle + Math.PI / 2)
+            const blocked = this.isArrowBlocked(target, headX)
+            this.statsSystem.applyWeaponHit(
+              target,
+              entity.weapon,
+              this.tempHitSource
+            )
+            if (blocked) {
+              this.deflectArrow(entity, dirX, dirY, speed)
+            } else {
+              this.stickArrow(entity, target, dirAngle + Math.PI / 2)
+            }
           }
           break
         }
       }
     }
+  }
+
+  private isArrowParried(target: Entity): boolean {
+    const weapon = target.weapon
+    if (!weapon || !weapon.isParrying) return false
+    return weapon.parryElapsedTime >= PARRY_ACTIVE_START_FRAME
+  }
+
+  private handleArrowParry(
+    defender: Entity,
+    arrowEntity: Entity,
+    hitX: number,
+    hitY: number,
+    dirX: number,
+    dirY: number,
+    speed: number
+  ): void {
+    if (!this.statsSystem) return
+
+    this.statsSystem.emitSpark(hitX, hitY)
+    this.statsSystem.playSound(SOUND_IDS.SWORD_PARRY)
+    this.statsSystem.applyParryRecovery(defender)
+    if (defender.weapon) {
+      defender.weapon.parryCounterTimerMs = PARRY_COUNTER_WINDOW_MS
+      defender.weapon.parryCounterActive = false
+    }
+    this.deflectArrow(arrowEntity, dirX, dirY, speed)
   }
 
   private isArrowBlocked(target: Entity, hitX: number): boolean {

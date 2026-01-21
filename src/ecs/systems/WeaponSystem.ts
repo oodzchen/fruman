@@ -688,9 +688,16 @@ export class WeaponSystem extends System {
       defender.weapon.parryCounterTimerMs = PARRY_COUNTER_WINDOW_MS
       defender.weapon.parryCounterActive = false
     }
-    const result = this.statsSystem.applyParryDamage(defender, attacker)
+    const weaponType = attacker.weapon?.weaponType
+    const isRangedAttack = weaponType === 'bow' || weaponType === 'arrow'
+    let attackerStaggered = false
+    if (isRangedAttack) {
+      this.statsSystem.applyParryRecovery(defender)
+    } else {
+      attackerStaggered = this.statsSystem.applyParryDamage(defender, attacker)
+    }
 
-    if (result.attackerStaggered) {
+    if (attackerStaggered) {
       // 触发攻击者武器回弹效果
       // 具体的崩塌状态和武器掉落由 StatsSystem 统一处理
       if (attacker.weapon && attacker.transform) {

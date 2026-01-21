@@ -257,12 +257,9 @@ export class StatsSystem extends System {
     this.effectsEmitter.playSound(soundId, playbackRate)
   }
 
-  applyParryDamage(
-    defender: Entity,
-    attacker: Entity
-  ): { attackerStaggered: boolean } {
+  applyParryDamage(defender: Entity, attacker: Entity): boolean {
     if (!defender.stats || !attacker.stats) {
-      return { attackerStaggered: false }
+      return false
     }
 
     const newPosture = attacker.stats.posture - PARRY_ENEMY_POSTURE_DAMAGE
@@ -273,7 +270,16 @@ export class StatsSystem extends System {
       defender.stats.posture + PARRY_SELF_POSTURE_RECOVERY
     )
 
-    return { attackerStaggered: newPosture <= 0 }
+    return newPosture <= 0
+  }
+
+  applyParryRecovery(defender: Entity): void {
+    if (!defender.stats) return
+
+    defender.stats.posture = Math.min(
+      defender.stats.maxPosture,
+      defender.stats.posture + PARRY_SELF_POSTURE_RECOVERY
+    )
   }
 
   applyImpulse(entity: Entity, impulseX: number, impulseY: number): void {
