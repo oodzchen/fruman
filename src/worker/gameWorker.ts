@@ -191,8 +191,10 @@ let lastVelocityDirection = 0
 let needsReturnToCenter = false
 let lastUnlockTime = 0
 let currentTime = 0
+let outOfCenterTime = 0
 const TRANSITION_DURATION = 3.0
 const UNLOCK_COOLDOWN = 0.2
+const OUTSIDE_THIRD_RELOCK_DELAY = 0.15
 const CAMERA_FORWARD_OFFSET = 0.67 // 2/3 角色宽度前向偏移
 
 // Reusable message object for sendState
@@ -242,7 +244,7 @@ async function init(width: number, height: number, ppm: number) {
   // Initialize camera to center on player
   if (playerEntity && playerEntity.transform) {
     const centerX = canvasWidth / 2
-    camera.x = playerEntity.transform.x - centerX / zoom / pixelsPerMeter
+    camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
     isCameraLocked = true
   }
 
@@ -904,7 +906,7 @@ function updateCamera(playerX: number) {
 
   if (isEnemyLocked) {
     const midPointX = (playerX + targetEntityX) * 0.5
-    desiredCameraX = midPointX - centerX / zoom / pixelsPerMeter
+    desiredCameraX = midPointX - centerX / pixelsPerMeter
   } else {
     const currentCameraX = camera.x
     const playerScreenX =
@@ -912,6 +914,8 @@ function updateCamera(playerX: number) {
 
     const leftThird = canvasWidth / 3
     const rightThird = (2 * canvasWidth) / 3
+    const isOutsideCenterZone =
+      playerScreenX < leftThird || playerScreenX > rightThird
 
     // Safety check: player is too close to screen edge
     const edgeMargin = canvasWidth * 0.1
@@ -919,8 +923,15 @@ function updateCamera(playerX: number) {
       playerScreenX < edgeMargin || playerScreenX > canvasWidth - edgeMargin
 
     // Check if player is in center zone
-    const isInCenterZone =
-      playerScreenX >= leftThird && playerScreenX <= rightThird
+    const isInCenterZone = !isOutsideCenterZone
+
+    if (isCameraLocked) {
+      outOfCenterTime = 0
+    } else if (isOutsideCenterZone) {
+      outOfCenterTime += TIME_STEP
+    } else {
+      outOfCenterTime = 0
+    }
 
     // Clear the return-to-center flag if player is back in center
     if (needsReturnToCenter && isInCenterZone) {
@@ -930,12 +941,14 @@ function updateCamera(playerX: number) {
     // Check if we need to lock
     if (!isCameraLocked) {
       const timeSinceUnlock = currentTime - lastUnlockTime
+      const canRelockWhileReturning =
+        !needsReturnToCenter || outOfCenterTime >= OUTSIDE_THIRD_RELOCK_DELAY
       const normalLockCondition =
-        !needsReturnToCenter && timeSinceUnlock > UNLOCK_COOLDOWN
+        canRelockWhileReturning && timeSinceUnlock > UNLOCK_COOLDOWN
       const emergencyLock = isNearEdge
 
       // Lock if in left/right third (with normal conditions) OR emergency
-      if (playerScreenX < leftThird || playerScreenX > rightThird) {
+      if (isOutsideCenterZone) {
         if (normalLockCondition || emergencyLock) {
           isCameraLocked = true
           isTransitioning = true
@@ -1002,19 +1015,16 @@ function updateCamera(playerX: number) {
 
         if (progress >= 1) {
           isTransitioning = false
-          desiredCameraX =
-            playerX + forwardOffset - centerX / zoom / pixelsPerMeter
+          desiredCameraX = playerX + forwardOffset - centerX / pixelsPerMeter
         } else {
-          const targetX =
-            playerX + forwardOffset - centerX / zoom / pixelsPerMeter
+          const targetX = playerX + forwardOffset - centerX / pixelsPerMeter
           const easedProgress = easeOutCubic(progress)
           desiredCameraX =
             transitionStartCameraX +
             (targetX - transitionStartCameraX) * easedProgress
         }
       } else {
-        desiredCameraX =
-          playerX + forwardOffset - centerX / zoom / pixelsPerMeter
+        desiredCameraX = playerX + forwardOffset - centerX / pixelsPerMeter
       }
     } else {
       desiredCameraX = currentCameraX
