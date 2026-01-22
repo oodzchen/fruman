@@ -1111,7 +1111,15 @@ export class WeaponSystem extends System {
     }
 
     // Allow interrupting pause/recovery with block
-    if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
+    // Allow blocking even if stunned IF we are in a locked pause (rebound recovery)
+    if (
+      entity.input &&
+      entity.input.blockRequested &&
+      (!entity.isStunned() || weapon.reboundLockedPause)
+    ) {
+      if (entity.isStunned() && entity.movement) {
+        entity.movement.knockbackDuration = 0
+      }
       this.interruptWindupToBlock(entity, playerPos, currentFacing)
       return
     }
@@ -3209,6 +3217,15 @@ export class WeaponSystem extends System {
     now: number
   ): void {
     if (!weapon) return
+
+    // Allow canceling rebound with block
+    if (entity.input && entity.input.blockRequested) {
+      if (entity.movement) {
+        entity.movement.knockbackDuration = 0
+      }
+      this.interruptWindupToBlock(entity, playerPos, weapon.attackFacing)
+      return
+    }
 
     const reboundDurationMs = DEFAULT_WEAPON_ATTACK_SWING_MS * 0.8
 
