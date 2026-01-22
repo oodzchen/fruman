@@ -650,7 +650,7 @@ export class StatsSystem extends System {
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       }
 
-      if (toughnessBroken && !isBlockingSuccessfully) {
+      if ((toughnessBroken || wasStaggered) && !isBlockingSuccessfully) {
         const hitStunOverrideMs = wasStaggered
           ? STAGGER_HIT_STUN_DURATION_MS
           : undefined
