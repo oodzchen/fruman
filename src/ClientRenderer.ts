@@ -1,11 +1,11 @@
 import type { AudioManager } from './AudioManager'
+import { BowTrajectoryCalculator } from './BowTrajectory'
+import { ParticleSystem } from './ParticleSystem'
 import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
-  BowTrajectoryCalculator,
-} from './BowTrajectory'
-import { ParticleSystem } from './ParticleSystem'
+} from './constants'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
 import {
   ENTITY_STRIDE,

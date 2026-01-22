@@ -1,11 +1,10 @@
-import { DEFAULT_GRAVITY } from './constants'
-
-export const BOW_GRAVITY_SCALE = 0.5
-export const BOW_MIN_FORCE_RATIO = 0.6
-export const BOW_MIN_SPEED = 10
-export const BOW_MAX_SPEED = 22
-export const BOW_MIN_WINDUP_MS = 200
-export const BOW_MAX_DRAW_MS = 900
+import {
+  BOW_GRAVITY_SCALE,
+  BOW_MAX_SPEED,
+  BOW_MIN_FORCE_RATIO,
+  BOW_MIN_SPEED,
+  DEFAULT_GRAVITY,
+} from './constants'
 
 export interface TrajectoryPoint {
   x: number

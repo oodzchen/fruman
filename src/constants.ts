@@ -143,6 +143,17 @@ export const DEFAULT_WEAPON_ATTACK_PAUSE_MS = 250
 export const DEFAULT_WEAPON_FINAL_WINDUP_MS = 150
 export const DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS = 250 // 最小攻击间隔，防止快速连点
 
+// 弓箭参数
+export const BOW_MAX_DRAW_MS = 900
+export const BOW_MIN_WINDUP_MS = 400
+export const BOW_MIN_FORCE_RATIO = 0.6
+export const BOW_MIN_SPEED = 10
+export const BOW_MAX_SPEED = 22
+export const BOW_RECOVER_MS = 360
+export const BOW_GRAVITY_SCALE = 0.5
+export const BOW_FREE_AIM_TURN_SPEED = 1.0
+export const BOW_FREE_AIM_MAX_OFFSET = Math.PI * 0.45
+
 // 攻击挥舞半径（米）
 export const DEFAULT_WEAPON_ATTACK_RADIUS = 0.9
 
