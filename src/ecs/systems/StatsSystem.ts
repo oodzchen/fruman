@@ -9,13 +9,15 @@ import {
   DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_HIT_SHAKE_DURATION_MS,
   DEFAULT_HIT_SHAKE_INTENSITY,
-  DEFAULT_HIT_STUN_DURATION_MS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_POSTURE_DAMAGE,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
   ENEMY_PROBE_CHASE_DURATION_MS,
+  HIT_STUN_HEAVY_MS,
+  HIT_STUN_LIGHT_MS,
+  HIT_STUN_MEDIUM_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
   STAGGER_DAMAGE_MULTIPLIER,
@@ -37,6 +39,8 @@ export type EffectsEmitter = {
   emitDeath: (x: number, y: number, color: number, radius: number) => void
   playSound: (soundId: number, playbackRate?: number) => void
 }
+
+type ForcedHitStunLevel = 'light' | 'medium' | 'heavy'
 
 export class StatsSystem extends System {
   private box2d?: MainModule
@@ -262,6 +266,26 @@ export class StatsSystem extends System {
   playSound(soundId: number, playbackRate?: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.playSound(soundId, playbackRate)
+  }
+
+  applyForcedHitStun(
+    entity: Entity,
+    level: ForcedHitStunLevel,
+    durationOverrideMs?: number
+  ): void {
+    if (!entity.movement) return
+    const durationMs =
+      durationOverrideMs ?? this.getForcedHitStunDuration(level)
+    if (durationMs <= 0) return
+    const currentDuration = entity.movement.knockbackDuration
+    const currentElapsedMs = entity.movement.knockbackElapsedTime * 1000
+    const isActive = currentDuration > 0 && currentElapsedMs < currentDuration
+    if (isActive && currentDuration > durationMs) {
+      return
+    }
+    entity.movement.knockbackDuration = durationMs
+    entity.movement.knockbackElapsedTime = 0
+    entity.movement.knockbackEndTime = this.currentTimeMs + durationMs
   }
 
   applyParryDamage(defender: Entity, attacker: Entity): boolean {
@@ -604,15 +628,10 @@ export class StatsSystem extends System {
       }
 
       if (toughnessBroken && !isBlockingSuccessfully) {
-        if (entity.movement) {
-          const knockbackDuration = wasStaggered
-            ? STAGGER_HIT_STUN_DURATION_MS
-            : DEFAULT_HIT_STUN_DURATION_MS
-          entity.movement.knockbackEndTime =
-            this.currentTimeMs + knockbackDuration
-          entity.movement.knockbackDuration = knockbackDuration
-          entity.movement.knockbackElapsedTime = 0
-        }
+        const hitStunOverrideMs = wasStaggered
+          ? STAGGER_HIT_STUN_DURATION_MS
+          : undefined
+        this.applyForcedHitStun(entity, 'medium', hitStunOverrideMs)
 
         if (entity.weapon) {
           entity.weapon.attackPhase = 'idle'
@@ -813,5 +832,18 @@ export class StatsSystem extends System {
       return value
     }
     return 0
+  }
+
+  private getForcedHitStunDuration(level: ForcedHitStunLevel): number {
+    switch (level) {
+      case 'light':
+        return HIT_STUN_LIGHT_MS
+      case 'medium':
+        return HIT_STUN_MEDIUM_MS
+      case 'heavy':
+        return HIT_STUN_HEAVY_MS
+      default:
+        return 0
+    }
   }
 }

@@ -62,6 +62,9 @@ export const WEAPON_DROP_DURATION_MS = 300
 
 // 受击硬直
 export const DEFAULT_HIT_STUN_DURATION_MS = 1000
+export const HIT_STUN_LIGHT_MS = 500
+export const HIT_STUN_MEDIUM_MS = DEFAULT_HIT_STUN_DURATION_MS
+export const HIT_STUN_HEAVY_MS = 1500
 
 // 攻击冲击力
 export const DEFAULT_ATTACK_KNOCKBACK = 1

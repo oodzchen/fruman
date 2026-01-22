@@ -690,6 +690,13 @@ export class WeaponSystem extends System {
     }
     const weaponType = attacker.weapon?.weaponType
     const isRangedAttack = weaponType === 'bow' || weaponType === 'arrow'
+    if (attacker.weapon && !isRangedAttack) {
+      this.resetAttackStateForInterrupt(attacker.weapon)
+      if (attacker.input?.inputBuffer) {
+        attacker.input.inputBuffer.clearAction('attack')
+      }
+      this.statsSystem.applyForcedHitStun(attacker, 'light')
+    }
     let attackerStaggered = false
     if (isRangedAttack) {
       this.statsSystem.applyParryRecovery(defender)
