@@ -424,7 +424,6 @@ export class ClientRenderer {
     const pixelsPerUnit = 4
 
     const healthWidth = maxHealth * pixelsPerUnit
-    const postureWidth = maxPosture * pixelsPerUnit
 
     // Health Bar
     const healthRatio = health / maxHealth
@@ -438,7 +437,9 @@ export class ClientRenderer {
       '#ff4d4f'
     )
 
+    /*
     // Posture Bar
+    const postureWidth = maxPosture * pixelsPerUnit
     const postureRatio = maxPosture > 0 ? posture / maxPosture : 0
     this.drawBar(
       startX,
@@ -449,6 +450,9 @@ export class ClientRenderer {
       '#665511',
       '#ffd666'
     )
+    */
+    void posture
+    void maxPosture
 
     this.renderWeaponSlots(playerOffset)
   }
@@ -825,6 +829,7 @@ export class ClientRenderer {
       '#ff4d4f'
     )
 
+    /*
     const postureRatio = maxPosture > 0 ? posture / maxPosture : 0
     this.drawBar(
       startX,
@@ -835,6 +840,10 @@ export class ClientRenderer {
       '#665511',
       '#ffd666'
     )
+    */
+    void posture
+    void maxPosture
+    void postureY
   }
 
   private drawBar(
