@@ -265,6 +265,7 @@ export class StatsComponent extends Component {
   lastCombatTimestamp = 0
   combatExitTimer = 0
   combatExitTimeout = 5000
+  hudVisibleTimer = 0
 
   isStaggered = false
   staggerElapsedTime = 0
@@ -294,6 +295,7 @@ export class StatsComponent extends Component {
     this.lastCombatTimestamp = 0
     this.combatExitTimer = 0
     this.combatExitTimeout = 5000
+    this.hudVisibleTimer = 0
     this.isStaggered = false
     this.staggerElapsedTime = 0
     this.staggerDuration = 1000

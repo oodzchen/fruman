@@ -2374,6 +2374,12 @@ export class WeaponSystem extends System {
         this.resetWeaponForSwap(entity.weapon)
       }
     }
+
+    const inputBuffer = entity.input?.inputBuffer
+    if (!inputBuffer || !entity.stats) return
+    if (!inputBuffer.hasActiveAction('interact')) return
+    inputBuffer.clearAction('interact')
+    entity.stats.hudVisibleTimer = entity.stats.combatExitTimeout
   }
 
   dropWeaponsOnDeath(entity: Entity): void {

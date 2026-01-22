@@ -1114,6 +1114,8 @@ function sendState() {
     if (isWeaponAttacking) flags |= FLAGS.WEAPON_ATTACKING
     if (e.id === playerEntity.id) flags |= FLAGS.IS_PLAYER
     if (e.stats?.isInCombat) flags |= FLAGS.IN_COMBAT
+    const hudVisibleTimer = e.stats ? e.stats.hudVisibleTimer : 0
+    if (hudVisibleTimer > 0) flags |= FLAGS.HUD_VISIBLE
     if (e.weapon?.isBlocking) flags |= FLAGS.WEAPON_BLOCKING
 
     stateBuffer[offset + OFFSETS.FLAGS] = flags

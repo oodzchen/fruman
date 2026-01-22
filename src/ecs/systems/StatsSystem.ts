@@ -215,6 +215,13 @@ export class StatsSystem extends System {
           }
         }
       }
+
+      if (entity.stats.hudVisibleTimer > 0) {
+        entity.stats.hudVisibleTimer = Math.max(
+          0,
+          entity.stats.hudVisibleTimer - deltaMs
+        )
+      }
     }
   }
 
