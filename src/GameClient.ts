@@ -152,6 +152,8 @@ export class GameClient {
       this.renderZoom = msg.zoom
       this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
       this.releaseStateBuffer(msg.entitiesBuffer)
+    } else if (msg.type === 'debug') {
+      this.renderer.setSensorDebugData(msg.sensors)
     }
   }
 

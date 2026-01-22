@@ -20,6 +20,7 @@ import {
   EFFECT_STRIDE,
   EFFECT_TYPES,
 } from './worker/effectsProtocol'
+import type { SensorDebugData } from './worker/protocol'
 
 const MAX_PARTICLES = 600
 const DEBUG_DRAW_TRAJECTORY = false
@@ -53,6 +54,7 @@ export class ClientRenderer {
   private effectsView: Float32Array | null = null
   private audioManager: AudioManager | null = null
   private trajectoryCalculator: BowTrajectoryCalculator
+  private sensorDebugData: SensorDebugData[] = []
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
@@ -110,6 +112,10 @@ export class ClientRenderer {
         this.audioManager?.play(soundId, 1.0, playbackRate)
       }
     }
+  }
+
+  setSensorDebugData(sensors: SensorDebugData[]): void {
+    this.sensorDebugData = sensors
   }
 
   setCamera(x: number, y: number, zoom: number = 1.0) {
@@ -181,6 +187,7 @@ export class ClientRenderer {
     }
 
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
+    this.drawSensorDebug()
 
     // Draw LockOn Reticle
     if (!playerFreeAimActive && playerLockedTargetId !== -1) {
@@ -784,5 +791,68 @@ export class ClientRenderer {
 
   private getReticlePaddingMeters(): number {
     return RETICLE_EDGE_PX / (this.pixelsPerMeter * this.zoom)
+  }
+
+  private drawSensorDebug(): void {
+    if (this.sensorDebugData.length === 0) return
+
+    const ctx = this.ctx
+    const pixelsPerMeter = this.pixelsPerMeter
+    const fullCircle = Math.PI * 2
+    ctx.save()
+    ctx.globalAlpha *= 0.7
+    ctx.lineWidth = 1
+
+    for (let i = 0; i < this.sensorDebugData.length; i++) {
+      const sensor = this.sensorDebugData[i]
+      const centerX = sensor.x * pixelsPerMeter
+      const centerY = sensor.y * pixelsPerMeter
+      const radius = sensor.radius * pixelsPerMeter
+
+      ctx.setLineDash(this.dashedLine)
+      ctx.strokeStyle = '#22cc88'
+      ctx.beginPath()
+      ctx.arc(centerX, centerY, radius, 0, fullCircle)
+      ctx.stroke()
+
+      ctx.setLineDash(this.emptyDash)
+      ctx.strokeStyle = '#ffffff'
+      const facing = sensor.facing >= 0 ? 1 : -1
+      ctx.beginPath()
+      ctx.moveTo(centerX, centerY)
+      ctx.lineTo(centerX + facing * radius, centerY)
+      ctx.stroke()
+
+      const rays = sensor.rays
+      for (let r = 0; r < rays.length; r++) {
+        const ray = rays[r]
+        ctx.strokeStyle = ray.isHostile
+          ? '#ff4d4f'
+          : ray.hit
+            ? '#ffd166'
+            : '#4aa3ff'
+        ctx.beginPath()
+        ctx.moveTo(ray.startX * pixelsPerMeter, ray.startY * pixelsPerMeter)
+        ctx.lineTo(ray.endX * pixelsPerMeter, ray.endY * pixelsPerMeter)
+        ctx.stroke()
+
+        if (ray.hit) {
+          ctx.fillStyle = ctx.strokeStyle
+          const hitX = ray.hitX ?? ray.endX
+          const hitY = ray.hitY ?? ray.endY
+          ctx.beginPath()
+          ctx.arc(
+            hitX * pixelsPerMeter,
+            hitY * pixelsPerMeter,
+            2,
+            0,
+            fullCircle
+          )
+          ctx.fill()
+        }
+      }
+    }
+
+    ctx.restore()
   }
 }

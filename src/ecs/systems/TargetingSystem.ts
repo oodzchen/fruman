@@ -460,8 +460,17 @@ export class TargetingSystem extends System {
 
       // Auto-combat state for player/enemies upon detection
       if (entity.stats && !entity.stats.isInCombat) {
-        entity.stats.isInCombat = true
-        entity.stats.combatExitTimer = 0
+        let shouldEnterCombat = true
+        if (entity.faction?.faction === Faction.Enemy) {
+          const combatRange = entity.enemyAI
+            ? entity.enemyAI.detectionRange
+            : entity.sensor.radius
+          shouldEnterCombat = closestDistSq <= combatRange * combatRange
+        }
+        if (shouldEnterCombat) {
+          entity.stats.isInCombat = true
+          entity.stats.combatExitTimer = 0
+        }
       }
     } else {
       // 没有检测到敌人时清除detectedTargetId

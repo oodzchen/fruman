@@ -14,6 +14,7 @@ import {
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_POSTURE_DAMAGE,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
+  ENEMY_ALERT_DURATION_MS,
   ENEMY_DECISION_COOLDOWN_MS,
   ENEMY_DETECTION_RANGE,
   ENEMY_PACE_PAUSE_MS,
@@ -665,11 +666,15 @@ export class EnemyAIComponent extends Component {
   paceSwitchIntervalMs = ENEMY_PACE_SWITCH_INTERVAL_MS
   pacePauseMs = ENEMY_PACE_PAUSE_MS
   paceDirection: -1 | 1 = 1
+  paceMovedDistance = 0
+  paceLastPositionX = 0
+  paceLastPositionY = 0
   lastDecisionTimestamp = 0
   lastPaceSwitchTimestamp = 0
   nextPaceResumeTimestamp = 0
   moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
-  state: 'approach' | 'combo' | 'retreat' | 'pacing' | 'probe' = 'approach'
+  state: 'approach' | 'combo' | 'retreat' | 'pacing' | 'probe' | 'alert' =
+    'approach'
   initialPatrolMode: EnemyPatrolMode = 'patrol'
   comboSwingsDone = 0
   comboSwingTarget = 5
@@ -699,6 +704,15 @@ export class EnemyAIComponent extends Component {
   bowCooldownTimerMs = 0
   archerShotCheckPending = false
   combatResetTime = 5000
+  alertTimeRemainingMs = 0
+  alertDurationMs = ENEMY_ALERT_DURATION_MS
+  alertPaceDirection: -1 | 1 = 1
+  alertPaceMovedDistance = 0
+  alertPaceLastPositionX = 0
+  alertPaceLastPositionY = 0
+  alertLastPaceSwitchTimestamp = 0
+  alertNextPaceResumeTimestamp = 0
+  alertChaseActive = false
   lastPosition = { x: 0, y: 0 }
   stuckTimer = 0
   stuckThreshold = 500
@@ -725,6 +739,9 @@ export class EnemyAIComponent extends Component {
     this.paceSwitchIntervalMs = ENEMY_PACE_SWITCH_INTERVAL_MS
     this.pacePauseMs = ENEMY_PACE_PAUSE_MS
     this.paceDirection = 1
+    this.paceMovedDistance = 0
+    this.paceLastPositionX = 0
+    this.paceLastPositionY = 0
     this.lastDecisionTimestamp = 0
     this.lastPaceSwitchTimestamp = 0
     this.nextPaceResumeTimestamp = 0
@@ -760,6 +777,15 @@ export class EnemyAIComponent extends Component {
     this.bowCooldownTimerMs = 0
     this.archerShotCheckPending = false
     this.combatResetTime = 5000
+    this.alertTimeRemainingMs = 0
+    this.alertDurationMs = ENEMY_ALERT_DURATION_MS
+    this.alertPaceDirection = 1
+    this.alertPaceMovedDistance = 0
+    this.alertPaceLastPositionX = 0
+    this.alertPaceLastPositionY = 0
+    this.alertLastPaceSwitchTimestamp = 0
+    this.alertNextPaceResumeTimestamp = 0
+    this.alertChaseActive = false
     this.lastPosition.x = 0
     this.lastPosition.y = 0
     this.stuckTimer = 0

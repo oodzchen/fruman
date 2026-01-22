@@ -5,6 +5,12 @@ import {
   DEFAULT_SPRINT_SPEED,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
+  ENEMY_ALERT_ACCEL_RANGE_MULTIPLIER,
+  ENEMY_ALERT_PACE_SPEED_MULTIPLIER,
+  ENEMY_ALERT_RANGE_MULTIPLIER,
+  ENEMY_PACE_MIN_DISTANCE,
+  ENEMY_PACE_MIN_PAUSE_MS,
+  ENEMY_PACE_MIN_SWITCH_INTERVAL_MS,
   ENEMY_PACE_SPEED,
   ENEMY_PROBE_CHASE_DURATION_MS,
   ENEMY_PROBE_DISTANCE_MULTIPLIER,
@@ -93,6 +99,11 @@ export class EnemyAISystem extends System {
       const dx = this.player.transform.x - entity.transform.x
       const dy = this.player.transform.y - entity.transform.y
       const distance = Math.hypot(dx, dy)
+      const facing = dx >= 0 ? 1 : -1
+      if (Math.abs(dx) >= ENEMY_PACE_MIN_DISTANCE) {
+        ai.lastFacing = facing
+      }
+      const stableFacing = ai.lastFacing
 
       // 计算武器的有效攻击半径（与 WeaponSystem.getAttackRadius 相同逻辑）
       const weaponAttackRadius = this.getWeaponAttackRadius(entity)
@@ -101,8 +112,12 @@ export class EnemyAISystem extends System {
       const weaponRange = weaponAttackRadius + playerRadius
 
       // 使用传感器结果判断视线
-      const hasLineOfSight =
+      const hasSensorContact =
         entity.sensor && entity.sensor.detectedTargetId === this.player.id
+      const alertRange = ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
+      const hasCombatLineOfSight =
+        hasSensorContact && distance <= ai.detectionRange
+      const hasAlertLineOfSight = hasSensorContact && distance <= alertRange
       const isPlayerSwinging = this.player.weapon
         ? this.player.weapon.attackPhase === 'swing'
         : false
@@ -112,9 +127,12 @@ export class EnemyAISystem extends System {
         isPlayerSwinging,
         distance,
         weaponRange,
-        !!hasLineOfSight
+        !!hasCombatLineOfSight
       )
-      const isEngaged = !!hasLineOfSight || !!entity.stats?.isInCombat
+      const isEngaged =
+        !!hasCombatLineOfSight ||
+        !!entity.stats?.isInCombat ||
+        ai.alertChaseActive
       this.updateProbeCycle(
         entity,
         ai,
@@ -164,7 +182,7 @@ export class EnemyAISystem extends System {
           ai.forcedChaseDistanceRemaining - movedDistance
         )
         ai.forcedChaseLastX = entity.transform.x
-        if (!hasLineOfSight) {
+        if (!hasCombatLineOfSight) {
           if (
             ai.enemyType === 'archer' &&
             entity.weapon?.weaponType === 'bow'
@@ -203,7 +221,7 @@ export class EnemyAISystem extends System {
       if (
         wasForcedChasing &&
         ai.forcedChaseDistanceRemaining === 0 &&
-        !hasLineOfSight &&
+        !hasCombatLineOfSight &&
         entity.input.lockedTargetId === null
       ) {
         ai.arrowDefenseActive = false
@@ -220,8 +238,21 @@ export class EnemyAISystem extends System {
         continue
       }
 
+      const alertHandled = this.updateAlertState(
+        entity,
+        ai,
+        distance,
+        !!hasAlertLineOfSight,
+        deltaMs,
+        now,
+        stableFacing
+      )
+      if (alertHandled) {
+        continue
+      }
+
       if (entity.input.lockedTargetId === this.player.id) {
-        if (hasLineOfSight) {
+        if (hasCombatLineOfSight) {
           entity.input.lockLostTimer = 0
         } else {
           entity.input.lockLostTimer += deltaMs
@@ -239,19 +270,21 @@ export class EnemyAISystem extends System {
       }
       ai.lastDecisionTimestamp = now
 
-      const facing = dx >= 0 ? 1 : -1
-      entity.input.facingOverride = facing
+      entity.input.facingOverride = stableFacing
 
-      ai.hasLineOfSight = !!hasLineOfSight
+      ai.hasLineOfSight = !!hasCombatLineOfSight
 
       // 战斗状态管理由StatsSystem负责，这里只记录是否有视线
-      if (hasLineOfSight) {
+      if (hasCombatLineOfSight) {
         ai.targetLostTimer = 0
       } else {
         ai.targetLostTimer += deltaMs
       }
 
-      const lostInterest = !hasLineOfSight && !entity.stats?.isInCombat
+      const lostInterest =
+        !hasCombatLineOfSight &&
+        !entity.stats?.isInCombat &&
+        !ai.alertChaseActive
 
       // 计算当前位置距离巡逻中心的距离
       const distFromPatrolCenter = Math.hypot(
@@ -262,11 +295,16 @@ export class EnemyAISystem extends System {
       // 且当前没有看到玩家，则不再追击
       const isTooFarFromPatrol =
         distFromPatrolCenter > ai.patrolRange + ai.detectionRange
-      const shouldRetreatDueToDistance = isTooFarFromPatrol && !hasLineOfSight
+      const shouldRetreatDueToDistance =
+        isTooFarFromPatrol && !hasCombatLineOfSight
+
+      const effectiveDetectionRange = ai.alertChaseActive
+        ? ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
+        : ai.detectionRange
 
       if (
         ai.attackDesire <= 0 ||
-        distance > ai.detectionRange ||
+        distance > effectiveDetectionRange ||
         lostInterest ||
         shouldRetreatDueToDistance
       ) {
@@ -284,7 +322,7 @@ export class EnemyAISystem extends System {
 
       // 敌人锁定玩家（进入战斗状态）
       if (
-        hasLineOfSight &&
+        hasCombatLineOfSight &&
         entity.input &&
         entity.input.lockedTargetId !== this.player.id
       ) {
@@ -302,11 +340,11 @@ export class EnemyAISystem extends System {
           // 远程逻辑
           // 只要有视野或者已经锁定，就维持远程攻击状态（防止射击间隙的射线检测失败导致丢失目标）
           const isLocked = entity.input.lockedTargetId === this.player.id
-          if (hasLineOfSight || isLocked) {
+          if (hasCombatLineOfSight || isLocked) {
             // 有视野：使用弓箭远程射击，原地不动
             // 强制锁定并更新朝向
             entity.input.lockedTargetId = this.player.id
-            entity.input.facingOverride = dx >= 0 ? 1 : -1
+            entity.input.facingOverride = stableFacing
 
             if (this.weaponSystem) {
               if (entity.weaponSlots.activeSlot !== 'secondary') {
@@ -361,7 +399,7 @@ export class EnemyAISystem extends System {
           ai,
           distance,
           weaponRange,
-          facing,
+          stableFacing,
           deltaMs
         )
         continue
@@ -371,12 +409,12 @@ export class EnemyAISystem extends System {
         // 如果正在进行跨越障碍跳跃序列，优先处理
         if (ai.obstacleJumpStage > 0) {
           entity.input.moveDirection = ai.obstacleJumpDirection // 保持跳跃方向
-          this.handleObstacleJump(entity, ai, now, facing)
+          this.handleObstacleJump(entity, ai, now, stableFacing)
           continue
         }
 
         if (ai.arrowDefenseActive) {
-          entity.input.moveDirection = facing
+          entity.input.moveDirection = stableFacing
           entity.input.blockRequested = true
           entity.input.sprintRequested = false
           if (entity.movement) {
@@ -398,6 +436,9 @@ export class EnemyAISystem extends System {
                 } else {
                   ai.state = 'pacing'
                   ai.paceDirection = -1
+                  ai.paceMovedDistance = 0
+                  ai.paceLastPositionX = entity.transform?.x ?? 0
+                  ai.paceLastPositionY = entity.transform?.y ?? 0
                   ai.lastPaceSwitchTimestamp = now
                   ai.nextPaceResumeTimestamp = 0
                   ai.stuckTimer = 0
@@ -419,8 +460,8 @@ export class EnemyAISystem extends System {
         }
 
         if (distance > weaponRange) {
-          entity.input.moveDirection = facing
-          if (entity.movement && hasLineOfSight) {
+          entity.input.moveDirection = stableFacing
+          if (entity.movement && hasCombatLineOfSight) {
             // 如果基础速度小于奔跑速度（人类奔跑速度），则尝试奔跑
             if (entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED) {
               entity.input.sprintRequested = true
@@ -448,7 +489,7 @@ export class EnemyAISystem extends System {
             const positionChanged = deltaX > 0.3 || deltaY > 0.3
 
             // 在追击状态下（战斗中）检测阻挡，即使视线被遮挡
-            const isChasing = entity.stats?.isInCombat || hasLineOfSight
+            const isChasing = entity.stats?.isInCombat || hasCombatLineOfSight
             if (!positionChanged && isChasing) {
               ai.stuckTimer += ai.positionCheckInterval
               if (ai.stuckTimer >= ai.stuckThreshold) {
@@ -459,6 +500,9 @@ export class EnemyAISystem extends System {
                   // 无法跳跃或已在序列中（不应发生），切换到踱步
                   ai.state = 'pacing'
                   ai.paceDirection = -1 // 初始方向为后退
+                  ai.paceMovedDistance = 0
+                  ai.paceLastPositionX = entity.transform?.x ?? 0
+                  ai.paceLastPositionY = entity.transform?.y ?? 0
                   ai.lastPaceSwitchTimestamp = now
                   ai.nextPaceResumeTimestamp = 0
                   ai.stuckTimer = 0
@@ -480,7 +524,7 @@ export class EnemyAISystem extends System {
           ai.state = 'combo'
           ai.comboSwingsDone = 0
           ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
-          ai.lastFacing = facing
+          ai.lastFacing = stableFacing
           if (entity.weapon) {
             entity.weapon.attackQueued = false
             entity.weapon.comboCount = 0
@@ -490,13 +534,13 @@ export class EnemyAISystem extends System {
           entity.input.moveDirection = 0
           entity.input.sprintRequested = false
           ai.stuckTimer = 0
-          this.queueAttack(entity, facing, ai)
+          this.queueAttack(entity, stableFacing, ai)
         }
         continue
       }
 
       if (ai.state === 'combo') {
-        ai.lastFacing = facing
+        ai.lastFacing = stableFacing
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
 
@@ -515,7 +559,7 @@ export class EnemyAISystem extends System {
           }
         }
 
-        this.queueAttack(entity, facing, ai)
+        this.queueAttack(entity, stableFacing, ai)
         const weapon = entity.weapon
         const comboFinished =
           weapon &&
@@ -541,7 +585,7 @@ export class EnemyAISystem extends System {
           ai.state = 'combo'
           ai.comboSwingsDone = 0
           entity.input.moveDirection = 0
-          this.queueAttack(entity, facing, ai)
+          this.queueAttack(entity, stableFacing, ai)
         } else if (distance < targetDistance) {
           entity.input.moveDirection = ai.retreatDirection
         } else {
@@ -557,7 +601,7 @@ export class EnemyAISystem extends System {
 
         if (ai.obstacleJumpStage > 0) {
           entity.input.moveDirection = ai.obstacleJumpDirection
-          this.handleObstacleJump(entity, ai, now, facing)
+          this.handleObstacleJump(entity, ai, now, stableFacing)
           continue
         }
         if (ai.arrowDefenseActive) {
@@ -585,7 +629,7 @@ export class EnemyAISystem extends System {
         // }
 
         // 如果恢复视线，回到追击状态
-        if (hasLineOfSight) {
+        if (hasCombatLineOfSight) {
           // console.log('[Pacing] Line of sight restored, returning to approach')
           // 恢复正常移动速度
           if (entity.movement) {
@@ -617,13 +661,30 @@ export class EnemyAISystem extends System {
           continue
         }
 
+        if (entity.transform) {
+          const deltaX = entity.transform.x - ai.paceLastPositionX
+          const deltaY = entity.transform.y - ai.paceLastPositionY
+          ai.paceMovedDistance += Math.abs(deltaX) + Math.abs(deltaY)
+          ai.paceLastPositionX = entity.transform.x
+          ai.paceLastPositionY = entity.transform.y
+        }
+
         // 检查是否需要切换方向或进入暂停
-        if (now - ai.lastPaceSwitchTimestamp >= ai.paceSwitchIntervalMs) {
+        const paceSwitchIntervalMs = Math.max(
+          ai.paceSwitchIntervalMs,
+          ENEMY_PACE_MIN_SWITCH_INTERVAL_MS
+        )
+        if (
+          now - ai.lastPaceSwitchTimestamp >= paceSwitchIntervalMs &&
+          ai.paceMovedDistance >= ENEMY_PACE_MIN_DISTANCE
+        ) {
           // 切换踱步方向：前进和后退交替
           ai.paceDirection = (ai.paceDirection === 1 ? -1 : 1) as -1 | 1
           ai.lastPaceSwitchTimestamp = now
-          ai.nextPaceResumeTimestamp = now + ai.pacePauseMs
+          ai.nextPaceResumeTimestamp =
+            now + Math.max(ai.pacePauseMs, ENEMY_PACE_MIN_PAUSE_MS)
           entity.input.moveDirection = 0
+          ai.paceMovedDistance = 0
           // console.log(
           //   `[Pacing] Switching direction to ${ai.paceDirection}, pausing for ${ai.pacePauseMs}ms`
           // )
@@ -632,7 +693,7 @@ export class EnemyAISystem extends System {
 
         // 前后踱步：朝向玩家方向移动或远离
         // paceDirection=1 表示靠近玩家，-1 表示远离玩家
-        const computedMoveDir = (facing * ai.paceDirection) as -1 | 1
+        const computedMoveDir = (stableFacing * ai.paceDirection) as -1 | 1
         entity.input.moveDirection = computedMoveDir
       }
     }
@@ -742,12 +803,23 @@ export class EnemyAISystem extends System {
     ai.probeLastPositionX = 0
     ai.probeLastPositionY = 0
     ai.probeHasTriggered = false
+    ai.paceMovedDistance = 0
+    ai.paceLastPositionX = 0
+    ai.paceLastPositionY = 0
     ai.arrowDefenseTimeRemainingMs = 0
     ai.arrowDefenseSwitchTimerMs = 0
     ai.arrowDefenseActive = false
     ai.bowHoldTimerMs = 0
     ai.bowCooldownTimerMs = 0
     ai.archerShotCheckPending = false
+    ai.alertTimeRemainingMs = 0
+    ai.alertPaceDirection = 1
+    ai.alertPaceMovedDistance = 0
+    ai.alertPaceLastPositionX = 0
+    ai.alertPaceLastPositionY = 0
+    ai.alertLastPaceSwitchTimestamp = 0
+    ai.alertNextPaceResumeTimestamp = 0
+    ai.alertChaseActive = false
     if (entity.movement) {
       entity.movement.moveSpeed = ai.moveSpeed
     }
@@ -908,6 +980,162 @@ export class EnemyAISystem extends System {
     ai.comboSwingsDone = 0
   }
 
+  private updateAlertState(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    distance: number,
+    hasAlertLineOfSight: boolean,
+    deltaMs: number,
+    now: number,
+    facing: number
+  ): boolean {
+    if (!this.player || !entity.input) return false
+    const detectionRange = ai.detectionRange
+    const alertRange = detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
+
+    if (ai.alertChaseActive) {
+      if (distance > alertRange) {
+        this.clearAlertState(entity, ai)
+      }
+      return false
+    }
+    if (!hasAlertLineOfSight) {
+      if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
+        this.clearAlertState(entity, ai)
+      }
+      return false
+    }
+    if (entity.stats?.isInCombat) {
+      if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
+        this.clearAlertState(entity, ai)
+      }
+      return false
+    }
+
+    const alertAccelerateRange =
+      detectionRange * ENEMY_ALERT_ACCEL_RANGE_MULTIPLIER
+
+    if (distance <= detectionRange) {
+      if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
+        this.clearAlertState(entity, ai)
+      }
+      ai.alertChaseActive = false
+      return false
+    }
+
+    if (distance > alertRange) {
+      if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
+        this.clearAlertState(entity, ai)
+      }
+      if (ai.alertChaseActive) {
+        ai.alertChaseActive = false
+      }
+      return false
+    }
+
+    if (ai.state !== 'alert') {
+      ai.state = 'alert'
+      ai.alertTimeRemainingMs = ai.alertDurationMs
+      ai.alertPaceDirection = 1
+      ai.alertPaceMovedDistance = 0
+      if (entity.transform) {
+        ai.alertPaceLastPositionX = entity.transform.x
+        ai.alertPaceLastPositionY = entity.transform.y
+      } else {
+        ai.alertPaceLastPositionX = 0
+        ai.alertPaceLastPositionY = 0
+      }
+      ai.alertLastPaceSwitchTimestamp = now
+      ai.alertNextPaceResumeTimestamp = 0
+    }
+
+    if (ai.alertTimeRemainingMs > 0) {
+      const countdownMultiplier = distance <= alertAccelerateRange ? 2 : 1
+      ai.alertTimeRemainingMs = Math.max(
+        0,
+        ai.alertTimeRemainingMs - deltaMs * countdownMultiplier
+      )
+    }
+
+    if (ai.alertTimeRemainingMs <= 0) {
+      ai.alertChaseActive = true
+      ai.state = 'approach'
+      return false
+    }
+
+    entity.input.lockedTargetId = this.player.id
+    entity.input.lockLostTimer = 0
+    entity.input.attackRequested = false
+    entity.input.sprintRequested = false
+    entity.input.blockRequested = false
+    entity.input.facingOverride = facing
+    if (entity.weapon) {
+      entity.weapon.attackQueued = false
+    }
+    if (entity.movement) {
+      entity.movement.moveSpeed =
+        ai.moveSpeed * ENEMY_ALERT_PACE_SPEED_MULTIPLIER
+    }
+
+    if (entity.transform) {
+      const deltaX = entity.transform.x - ai.alertPaceLastPositionX
+      const deltaY = entity.transform.y - ai.alertPaceLastPositionY
+      ai.alertPaceMovedDistance += Math.abs(deltaX) + Math.abs(deltaY)
+      ai.alertPaceLastPositionX = entity.transform.x
+      ai.alertPaceLastPositionY = entity.transform.y
+    }
+
+    if (now < ai.alertNextPaceResumeTimestamp) {
+      entity.input.moveDirection = 0
+      return true
+    }
+
+    const paceSwitchIntervalMs = Math.max(
+      ai.paceSwitchIntervalMs,
+      ENEMY_PACE_MIN_SWITCH_INTERVAL_MS
+    )
+    if (
+      now - ai.alertLastPaceSwitchTimestamp >= paceSwitchIntervalMs &&
+      ai.alertPaceMovedDistance >= ENEMY_PACE_MIN_DISTANCE
+    ) {
+      ai.alertPaceDirection = (ai.alertPaceDirection === 1 ? -1 : 1) as -1 | 1
+      ai.alertLastPaceSwitchTimestamp = now
+      ai.alertNextPaceResumeTimestamp =
+        now + Math.max(ai.pacePauseMs, ENEMY_PACE_MIN_PAUSE_MS)
+      entity.input.moveDirection = 0
+      ai.alertPaceMovedDistance = 0
+      return true
+    }
+
+    const paceFacing =
+      distance >= ENEMY_PACE_MIN_DISTANCE ? facing : ai.lastFacing
+    entity.input.moveDirection = (paceFacing * ai.alertPaceDirection) as -1 | 1
+    return true
+  }
+
+  private clearAlertState(entity: Entity, ai: EnemyAIComponent): void {
+    if (ai.state === 'alert') {
+      ai.state = 'approach'
+    }
+    ai.alertTimeRemainingMs = 0
+    ai.alertPaceDirection = 1
+    ai.alertPaceMovedDistance = 0
+    ai.alertPaceLastPositionX = 0
+    ai.alertPaceLastPositionY = 0
+    ai.alertLastPaceSwitchTimestamp = 0
+    ai.alertNextPaceResumeTimestamp = 0
+    ai.alertChaseActive = false
+    if (
+      this.player &&
+      entity.input &&
+      entity.input.lockedTargetId === this.player.id &&
+      !entity.stats?.isInCombat
+    ) {
+      entity.input.lockedTargetId = null
+      entity.input.lockLostTimer = 0
+    }
+  }
+
   private updateProbeCycle(
     entity: Entity,
     ai: EnemyAIComponent,
@@ -1045,6 +1273,7 @@ export class EnemyAISystem extends System {
       entity.input.moveDirection = (facing * -1) as -1 | 1
       ai.probePaceTimerMs = 0
       ai.probePaceMovedDistance = 0
+      ai.probePaceDirection = -1
       return
     }
 
@@ -1052,6 +1281,7 @@ export class EnemyAISystem extends System {
       entity.input.moveDirection = facing as -1 | 1
       ai.probePaceTimerMs = 0
       ai.probePaceMovedDistance = 0
+      ai.probePaceDirection = 1
       return
     }
 
@@ -1117,6 +1347,9 @@ export class EnemyAISystem extends System {
           // 失败，切换到踱步
           ai.state = 'pacing'
           ai.paceDirection = -1
+          ai.paceMovedDistance = 0
+          ai.paceLastPositionX = entity.transform.x
+          ai.paceLastPositionY = entity.transform.y
           ai.lastPaceSwitchTimestamp = now
           ai.nextPaceResumeTimestamp = 0
           ai.stuckTimer = 0
@@ -1178,12 +1411,23 @@ export class EnemyAISystem extends System {
         entity.enemyAI.probeLastPositionY = 0
         entity.enemyAI.probeHasTriggered = false
         entity.enemyAI.forcedChaseDistanceRemaining = 0
+        entity.enemyAI.paceMovedDistance = 0
+        entity.enemyAI.paceLastPositionX = 0
+        entity.enemyAI.paceLastPositionY = 0
         entity.enemyAI.arrowDefenseTimeRemainingMs = 0
         entity.enemyAI.arrowDefenseSwitchTimerMs = 0
         entity.enemyAI.arrowDefenseActive = false
         entity.enemyAI.bowHoldTimerMs = 0
         entity.enemyAI.bowCooldownTimerMs = 0
         entity.enemyAI.archerShotCheckPending = false
+        entity.enemyAI.alertTimeRemainingMs = 0
+        entity.enemyAI.alertPaceDirection = 1
+        entity.enemyAI.alertPaceMovedDistance = 0
+        entity.enemyAI.alertPaceLastPositionX = 0
+        entity.enemyAI.alertPaceLastPositionY = 0
+        entity.enemyAI.alertLastPaceSwitchTimestamp = 0
+        entity.enemyAI.alertNextPaceResumeTimestamp = 0
+        entity.enemyAI.alertChaseActive = false
       }
       if (entity.movement && entity.enemyAI) {
         entity.movement.moveSpeed = entity.enemyAI.moveSpeed

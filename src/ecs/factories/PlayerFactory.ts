@@ -28,6 +28,7 @@ import {
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WEIGHT,
   DEFAULT_WEAPON_WIDTH,
+  ENEMY_ALERT_RANGE_MULTIPLIER,
   ENEMY_DETECTION_RANGE,
   ENEMY_TEMPLATES,
   MASK_ENEMY,
@@ -264,7 +265,7 @@ export function createEnemy(
   enemy.addComponent(ai)
 
   if (enemy.sensor) {
-    enemy.sensor.radius = ai.detectionRange
+    enemy.sensor.radius = ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
     enemy.sensor.fov = (160 * Math.PI) / 180 // +/- 80 degrees
   }
 

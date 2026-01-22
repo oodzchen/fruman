@@ -4,6 +4,7 @@ import {
   ARCHER_SPAWN_CONFIG,
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
+  DEBUG_DRAW_SENSORS,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
@@ -49,7 +50,12 @@ import {
   MAX_EFFECTS,
   STATE_BUFFER_FLOATS,
 } from './effectsProtocol'
-import type { MainToWorkerMessage, WorkerStateMessage } from './protocol'
+import type {
+  MainToWorkerMessage,
+  SensorDebugData,
+  WorkerDebugMessage,
+  WorkerStateMessage,
+} from './protocol'
 
 // Worker global scope
 const ctx: Worker = self as unknown as Worker
@@ -206,6 +212,12 @@ const stateMessage: WorkerStateMessage = {
   camera: { x: 0, y: 0 },
   zoom: 1.0,
 }
+
+const debugMessage: WorkerDebugMessage = {
+  type: 'debug',
+  sensors: [],
+}
+const debugSensors: SensorDebugData[] = []
 
 // Loop Logic
 let lastTime = performance.now()
@@ -612,6 +624,17 @@ function createPlayerAndWeapon(groundY: number) {
     groundY + ENEMY_SPAWNS.default.yOffset,
     groundY,
     ENEMY_SPAWNS.default.type
+  )
+
+  // Leftmost default enemy outside alert range
+  createEnemy(
+    world,
+    box2d,
+    worldId,
+    ENEMY_SPAWNS.left.x,
+    groundY + ENEMY_SPAWNS.left.yOffset,
+    groundY,
+    ENEMY_SPAWNS.left.type
   )
 
   // Archer enemy on top of the tallest obstacle near player spawn
@@ -1071,6 +1094,91 @@ function cleanupDestroyedEntities() {
   }
 }
 
+function collectSensorDebugData(entities: Entity[]): SensorDebugData[] {
+  let sensorCount = 0
+
+  for (const entity of entities) {
+    if (!entity.sensor || !entity.transform) continue
+
+    let facing = 1
+    if (entity.input) {
+      if (
+        entity.input.facingOverride !== null &&
+        entity.input.facingOverride !== 0
+      ) {
+        facing = entity.input.facingOverride
+      } else if (entity.input.lastMoveDirection !== 0) {
+        facing = entity.input.lastMoveDirection
+      }
+    } else if (entity.weapon) {
+      facing = entity.weapon.attackFacing
+    }
+
+    const scanResults = entity.sensor.scanResults
+    let sensorDebug = debugSensors[sensorCount]
+    if (!sensorDebug) {
+      sensorDebug = {
+        entityId: entity.id,
+        x: 0,
+        y: 0,
+        radius: 0,
+        facing: 1,
+        rays: [],
+      }
+      debugSensors[sensorCount] = sensorDebug
+    }
+
+    sensorDebug.entityId = entity.id
+    sensorDebug.x = entity.transform.x
+    sensorDebug.y = entity.transform.y
+    sensorDebug.radius = entity.sensor.radius
+    sensorDebug.facing = facing
+
+    const rays = sensorDebug.rays
+    for (let i = rays.length; i < scanResults.length; i++) {
+      rays.push({
+        startX: 0,
+        startY: 0,
+        endX: 0,
+        endY: 0,
+        hit: false,
+        hitX: 0,
+        hitY: 0,
+        isHostile: false,
+      })
+    }
+    if (rays.length > scanResults.length) {
+      rays.length = scanResults.length
+    }
+
+    for (let i = 0; i < scanResults.length; i++) {
+      const result = scanResults[i]
+      const ray = rays[i]
+      ray.startX = result.start.x
+      ray.startY = result.start.y
+      ray.endX = result.end.x
+      ray.endY = result.end.y
+      ray.hit = result.hit
+      ray.isHostile = result.isHostile ?? false
+      if (result.hit && result.hitPoint) {
+        ray.hitX = result.hitPoint.x
+        ray.hitY = result.hitPoint.y
+      } else {
+        ray.hitX = result.end.x
+        ray.hitY = result.end.y
+      }
+    }
+
+    sensorCount++
+  }
+
+  if (debugSensors.length > sensorCount) {
+    debugSensors.length = sensorCount
+  }
+
+  return debugSensors
+}
+
 function sendState() {
   if (!sharedStateBuffer && stateBufferViews.length === 0) {
     return
@@ -1193,12 +1301,20 @@ function sendState() {
   stateMessage.zoom = zoom
   if (sharedStateBuffer) {
     ctx.postMessage(stateMessage)
+    if (DEBUG_DRAW_SENSORS) {
+      debugMessage.sensors = collectSensorDebugData(entities)
+      ctx.postMessage(debugMessage)
+    }
     effectsCount = 0
     return
   }
 
   const buffer = stateBuffer.buffer as ArrayBuffer
   ctx.postMessage(stateMessage, [buffer])
+  if (DEBUG_DRAW_SENSORS) {
+    debugMessage.sensors = collectSensorDebugData(entities)
+    ctx.postMessage(debugMessage)
+  }
   effectsCount = 0
 
   const nextView = stateBufferViews.pop()

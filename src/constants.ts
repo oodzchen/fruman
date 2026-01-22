@@ -41,6 +41,7 @@ export const DEBUG_LOCK_PLAYER_POSTURE = false
 export const DEBUG_PLAYER_IMMORTALITY = true
 export const DEBUG_LOCK_DEFAULT_ENEMY_HEALTH = true
 export const DEBUG_ANIMATION_SLOWDOWN = 1
+export const DEBUG_DRAW_SENSORS = false
 
 // 武器默认伤害与削架势
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
@@ -178,6 +179,13 @@ export const ENEMY_PACE_SWITCH_INTERVAL_MS = 3000
 export const ENEMY_DECISION_COOLDOWN_MS = 90
 export const ENEMY_PACE_PAUSE_MS = 1200
 export const ENEMY_PACE_SPEED = 1.5
+export const ENEMY_PACE_MIN_SWITCH_INTERVAL_MS = 800
+export const ENEMY_PACE_MIN_PAUSE_MS = 300
+export const ENEMY_PACE_MIN_DISTANCE = 0.4
+export const ENEMY_ALERT_DURATION_MS = 10000
+export const ENEMY_ALERT_RANGE_MULTIPLIER = 1.5
+export const ENEMY_ALERT_ACCEL_RANGE_MULTIPLIER = 1.25
+export const ENEMY_ALERT_PACE_SPEED_MULTIPLIER = 0.35
 export const ENEMY_RETREAT_EXTRA_DISTANCE = 1
 export const ENEMY_PROBE_DISTANCE_MULTIPLIER = 3
 export const ENEMY_PROBE_SPEED_MULTIPLIER = 0.5
@@ -237,6 +245,11 @@ export const ENEMY_TEMPLATES = {
 } as const
 
 export const ENEMY_SPAWNS = {
+  left: {
+    type: 'default',
+    x: -40.5,
+    yOffset: -0.6,
+  },
   default: {
     type: 'default',
     x: 0,
@@ -270,7 +283,7 @@ export const DEFAULT_HIT_SHAKE_INTENSITY = 0.3
 // 翻滚参数
 export const DEFAULT_ROLL_DURATION = 500
 export const DEFAULT_ROLL_SPEED = 6
-export const DEFAULT_ROLL_COOLDOWN = 0
+export const DEFAULT_ROLL_COOLDOWN = 200
 
 // 碰撞分类
 export const CATEGORY_GROUND = 0x0001
