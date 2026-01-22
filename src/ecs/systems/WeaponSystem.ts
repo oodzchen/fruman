@@ -1523,7 +1523,9 @@ export class WeaponSystem extends System {
             BOW_MIN_FORCE_RATIO,
             Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
           )
-          const drawRatio = Math.max(weapon.bowDrawRatio, minForceRatio)
+          const drawRatio = weapon.bowIsDrawing
+            ? weapon.bowDrawRatio
+            : Math.max(weapon.bowDrawRatio, minForceRatio)
           lockedAimAngle = this.getBowAimAngleForPosition(
             playerPos,
             radius,
@@ -1673,7 +1675,9 @@ export class WeaponSystem extends System {
         BOW_MIN_FORCE_RATIO,
         Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
       )
-      const drawRatio = Math.max(weapon.bowDrawRatio, minForceRatio)
+      const drawRatio = weapon.bowIsDrawing
+        ? weapon.bowDrawRatio
+        : Math.max(weapon.bowDrawRatio, minForceRatio)
       const freeAimAngle = this.getBowAimAngleForPosition(
         playerPos,
         radius,
@@ -1981,7 +1985,9 @@ export class WeaponSystem extends System {
       BOW_MIN_FORCE_RATIO,
       Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
     )
-    const drawRatio = Math.max(weapon.bowDrawRatio, minForceRatio)
+    const drawRatio = weapon.bowIsDrawing
+      ? weapon.bowDrawRatio
+      : Math.max(weapon.bowDrawRatio, minForceRatio)
     return this.getBowAimAngleForPosition(
       playerPos,
       radius,

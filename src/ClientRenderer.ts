@@ -1,5 +1,10 @@
 import type { AudioManager } from './AudioManager'
-import { BowTrajectoryCalculator } from './BowTrajectory'
+import {
+  BOW_MAX_DRAW_MS,
+  BOW_MIN_FORCE_RATIO,
+  BOW_MIN_WINDUP_MS,
+  BowTrajectoryCalculator,
+} from './BowTrajectory'
 import { ParticleSystem } from './ParticleSystem'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
 import {
@@ -134,6 +139,7 @@ export class ClientRenderer {
     let playerX = 0
     let playerY = 0
     let playerDrawRatio = 0
+    let playerDrawActive = false
     for (let i = 0; i < this.entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
@@ -145,6 +151,7 @@ export class ClientRenderer {
         playerX = buf[offset + OFFSETS.X]
         playerY = buf[offset + OFFSETS.Y]
         playerDrawRatio = buf[offset + OFFSETS.WEAPON_DRAW]
+        playerDrawActive = buf[offset + OFFSETS.WEAPON_DRAW_ACTIVE] === 1
         break
       }
     }
@@ -191,13 +198,20 @@ export class ClientRenderer {
     }
 
     if (playerFreeAimActive) {
+      const minForceRatio = Math.max(
+        BOW_MIN_FORCE_RATIO,
+        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+      )
+      const effectiveDrawRatio = playerDrawActive
+        ? playerDrawRatio
+        : Math.max(playerDrawRatio, minForceRatio)
       if (DEBUG_DRAW_TRAJECTORY) {
         this.drawTrajectory(
           playerX,
           playerY,
           playerFreeAimX,
           playerFreeAimY,
-          playerDrawRatio
+          effectiveDrawRatio
         )
       }
       this.drawFreeAimReticle(
@@ -205,7 +219,7 @@ export class ClientRenderer {
         playerY,
         playerFreeAimX,
         playerFreeAimY,
-        playerDrawRatio
+        effectiveDrawRatio
       )
     }
   }

@@ -20,6 +20,9 @@ export class BowTrajectoryCalculator {
   private pointBuffer: TrajectoryPoint[] = []
   private pointCount = 0
   private readonly MAX_POINTS = 350 // ~5.6s at 60fps
+  private intersectionPoint = { x: 0, y: 0 }
+  private clipT0 = 0
+  private clipT1 = 1
 
   constructor() {
     this.gravity = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE
@@ -29,10 +32,7 @@ export class BowTrajectoryCalculator {
   }
 
   getBowSpeed(drawRatio: number): number {
-    const clampedRatio = Math.max(
-      BOW_MIN_FORCE_RATIO,
-      Math.min(1, drawRatio || BOW_MIN_FORCE_RATIO)
-    )
+    const clampedRatio = Math.max(0, Math.min(1, drawRatio ?? 0))
     return BOW_MIN_SPEED + (BOW_MAX_SPEED - BOW_MIN_SPEED) * clampedRatio
   }
 
@@ -123,20 +123,89 @@ export class BowTrajectoryCalculator {
     const points = this.pointBuffer
     const count = this.pointCount
 
-    for (let i = 0; i < count; i++) {
-      const point = points[i]
-      const outsideLeft = point.x < viewLeft
-      const outsideRight = point.x > viewRight
-      const outsideTop = point.y < viewTop
-      const outsideBottom = point.y > viewBottom
+    for (let i = 1; i < count; i++) {
+      const prev = points[i - 1]
+      const curr = points[i]
+      const prevInside =
+        prev.x >= viewLeft &&
+        prev.x <= viewRight &&
+        prev.y >= viewTop &&
+        prev.y <= viewBottom
+      const currInside =
+        curr.x >= viewLeft &&
+        curr.x <= viewRight &&
+        curr.y >= viewTop &&
+        curr.y <= viewBottom
 
-      if (outsideLeft || outsideRight || outsideTop || outsideBottom) {
-        const clampedX = Math.max(viewLeft, Math.min(viewRight, point.x))
-        const clampedY = Math.max(viewTop, Math.min(viewBottom, point.y))
-        return { x: clampedX, y: clampedY }
+      if (currInside) continue
+      if (!prevInside && !currInside) continue
+
+      if (
+        this.intersectSegmentRect(
+          prev.x,
+          prev.y,
+          curr.x,
+          curr.y,
+          viewLeft,
+          viewRight,
+          viewTop,
+          viewBottom,
+          prevInside,
+          this.intersectionPoint
+        )
+      ) {
+        return this.intersectionPoint
       }
     }
 
     return null
+  }
+
+  private intersectSegmentRect(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    left: number,
+    right: number,
+    top: number,
+    bottom: number,
+    startInside: boolean,
+    out: { x: number; y: number }
+  ): boolean {
+    const dx = x1 - x0
+    const dy = y1 - y0
+    this.clipT0 = 0
+    this.clipT1 = 1
+
+    if (
+      !this.clipSegment(-dx, x0 - left) ||
+      !this.clipSegment(dx, right - x0) ||
+      !this.clipSegment(-dy, y0 - top) ||
+      !this.clipSegment(dy, bottom - y0)
+    ) {
+      return false
+    }
+
+    const t = startInside ? this.clipT1 : this.clipT0
+    out.x = x0 + dx * t
+    out.y = y0 + dy * t
+    return true
+  }
+
+  private clipSegment(p: number, q: number): boolean {
+    if (p === 0) {
+      return q >= 0
+    }
+
+    const r = q / p
+    if (p < 0) {
+      if (r > this.clipT1) return false
+      if (r > this.clipT0) this.clipT0 = r
+    } else {
+      if (r < this.clipT0) return false
+      if (r < this.clipT1) this.clipT1 = r
+    }
+    return true
   }
 }
