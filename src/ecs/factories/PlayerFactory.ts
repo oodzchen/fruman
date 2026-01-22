@@ -306,6 +306,8 @@ export function createEnemy(
       enemy.weaponSlots.main.width = swordTemplate.width
       enemy.weaponSlots.main.height = swordTemplate.height
       enemy.weaponSlots.main.baseWidth = swordTemplate.width
+      enemy.weaponSlots.main.sizeLevel = swordTemplate.sizeLevel
+      enemy.weaponSlots.main.sizeMaxLevel = swordTemplate.sizeMaxLevel
       enemy.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
       enemy.weaponSlots.main.weight = swordTemplate.weight
       enemy.weaponSlots.main.attackDamage = swordTemplate.attackDamage
@@ -318,6 +320,8 @@ export function createEnemy(
       enemy.weaponSlots.secondary.width = bowTemplate.width
       enemy.weaponSlots.secondary.height = bowTemplate.height
       enemy.weaponSlots.secondary.baseWidth = bowTemplate.width
+      enemy.weaponSlots.secondary.sizeLevel = bowTemplate.sizeLevel
+      enemy.weaponSlots.secondary.sizeMaxLevel = bowTemplate.sizeMaxLevel
       enemy.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
       enemy.weaponSlots.secondary.weight = bowTemplate.weight
       enemy.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
@@ -330,6 +334,8 @@ export function createEnemy(
       enemy.weapon.width = bowTemplate.width
       enemy.weapon.height = bowTemplate.height
       enemy.weapon.baseWidth = bowTemplate.width
+      enemy.weapon.sizeLevel = bowTemplate.sizeLevel
+      enemy.weapon.sizeMaxLevel = bowTemplate.sizeMaxLevel
       enemy.weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
       enemy.weapon.weight = bowTemplate.weight
       enemy.weapon.weaponType = 'bow'
@@ -386,6 +392,8 @@ export function createWeapon(
   weapon.width = template.width
   weapon.height = template.height
   weapon.baseWidth = weapon.width
+  weapon.sizeLevel = template.sizeLevel
+  weapon.sizeMaxLevel = template.sizeMaxLevel
   weapon.blockWidthStart = weapon.width
   weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS

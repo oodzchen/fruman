@@ -6,7 +6,11 @@ import {
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
 } from './constants'
-import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
+import {
+  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+  DEFAULT_WEAPON_HEIGHT,
+  DEFAULT_WEAPON_WIDTH,
+} from './constants'
 import {
   ENTITY_STRIDE,
   FLAGS,
@@ -27,6 +31,19 @@ const DEBUG_DRAW_TRAJECTORY = false
 const RETICLE_EDGE_PX = 8
 const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
 const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
+const HUD_SLOT_SIZE = 46
+const HUD_SLOT_SPACING = 14
+const HUD_SLOT_MARGIN = 16
+const HUD_SLOT_FILL = 'rgba(0, 0, 0, 0.5)'
+const HUD_SLOT_BORDER = 'rgba(255, 255, 255, 0.35)'
+const HUD_SLOT_BORDER_ACTIVE = 'rgba(255, 255, 255, 0.75)'
+const HUD_ICON_COLOR = '#ffffff'
+const HUD_ICON_ALPHA = 0.65
+const HUD_ICON_ALPHA_ACTIVE = 0.9
+const HUD_AMMO_ALPHA = 0.85
+const HUD_ICON_SCALE = 0.6
+const HUD_SIZE_BOX = 5
+const HUD_SIZE_OUTER_GAP = 0
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
@@ -55,6 +72,7 @@ export class ClientRenderer {
   private audioManager: AudioManager | null = null
   private trajectoryCalculator: BowTrajectoryCalculator
   private sensorDebugData: SensorDebugData[] = []
+  private ammoTextCache: string[] = []
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
@@ -416,6 +434,225 @@ export class ClientRenderer {
       '#665511',
       '#ffd666'
     )
+
+    this.renderWeaponSlots(playerOffset)
+  }
+
+  private renderWeaponSlots(playerOffset: number): void {
+    const buf = this.stateBuffer
+    const mainHasWeapon = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_HAS] === 1
+    const secondaryHasWeapon =
+      buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_HAS] === 1
+    const mainType = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_TYPE] | 0
+    const secondaryType =
+      buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_TYPE] | 0
+    const mainWidth = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_W]
+    const mainHeight = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_H]
+    const secondaryWidth = buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_W]
+    const secondaryHeight = buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_H]
+    const mainAmmo = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_AMMO] | 0
+    const secondaryAmmo =
+      buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_AMMO] | 0
+    const mainSize = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_SIZE] | 0
+    const secondarySize =
+      buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_SIZE] | 0
+    const mainMax = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_MAX] | 0
+    const secondaryMax =
+      buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_MAX] | 0
+    const activeSlot = buf[playerOffset + OFFSETS.WEAPON_SLOT_ACTIVE] | 0
+
+    const canvasWidth = this.ctx.canvas.width
+    const canvasHeight = this.ctx.canvas.height
+    const totalWidth = HUD_SLOT_SIZE * 2 + HUD_SLOT_SPACING
+    const startX = canvasWidth - HUD_SLOT_MARGIN - totalWidth
+    const slotY = canvasHeight - HUD_SLOT_MARGIN - HUD_SLOT_SIZE
+    const mainX = startX
+    const secondaryX = startX + HUD_SLOT_SIZE + HUD_SLOT_SPACING
+
+    this.drawWeaponSlot(
+      mainX,
+      slotY,
+      HUD_SLOT_SIZE,
+      activeSlot === 0,
+      mainHasWeapon,
+      mainType,
+      mainWidth,
+      mainHeight,
+      mainSize,
+      mainMax,
+      mainAmmo
+    )
+    this.drawWeaponSlot(
+      secondaryX,
+      slotY,
+      HUD_SLOT_SIZE,
+      activeSlot === 1,
+      secondaryHasWeapon,
+      secondaryType,
+      secondaryWidth,
+      secondaryHeight,
+      secondarySize,
+      secondaryMax,
+      secondaryAmmo
+    )
+  }
+
+  private drawWeaponSlot(
+    x: number,
+    y: number,
+    size: number,
+    isActive: boolean,
+    hasWeapon: boolean,
+    weaponType: number,
+    weaponWidth: number,
+    weaponHeight: number,
+    sizeLevel: number,
+    sizeMaxLevel: number,
+    ammo: number
+  ): void {
+    this.ctx.save()
+    this.ctx.globalAlpha = 1
+    this.ctx.fillStyle = HUD_SLOT_FILL
+    const slotBorder = isActive ? HUD_SLOT_BORDER_ACTIVE : HUD_SLOT_BORDER
+    this.ctx.strokeStyle = slotBorder
+    this.ctx.lineWidth = 2
+    this.ctx.fillRect(x, y, size, size)
+    this.ctx.strokeRect(x, y, size, size)
+    this.drawWeaponSizeIndicator(
+      x,
+      y,
+      size,
+      hasWeapon ? sizeLevel : 0,
+      hasWeapon ? sizeMaxLevel : 0,
+      isActive,
+      slotBorder
+    )
+    if (hasWeapon) {
+      const slotWidth = weaponWidth > 0 ? weaponWidth : DEFAULT_WEAPON_WIDTH
+      const slotHeight = weaponHeight > 0 ? weaponHeight : DEFAULT_WEAPON_HEIGHT
+      const activeScale = isActive ? 1.2 : 1
+      const iconMax = size * HUD_ICON_SCALE * activeScale
+      const iconScale = iconMax / slotWidth
+      const iconWidth = slotWidth * iconScale
+      const iconHeight = slotHeight * iconScale
+      const centerX = x + size * 0.5
+      const centerY = y + size * 0.5
+
+      this.ctx.save()
+      this.ctx.translate(centerX, centerY)
+      this.ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      this.ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+      this.ctx.fillStyle = HUD_ICON_COLOR
+      this.ctx.strokeStyle = HUD_ICON_COLOR
+
+      if (weaponType === WEAPON_TYPES.BOW) {
+        const halfLen = iconWidth / 2
+        const arcDepth = iconHeight * 4
+        const lineWidth = Math.max(1, iconHeight * 0.55)
+
+        this.ctx.lineWidth = lineWidth
+        this.ctx.beginPath()
+        this.ctx.moveTo(-halfLen, 0)
+        this.ctx.quadraticCurveTo(0, -arcDepth, halfLen, 0)
+        this.ctx.stroke()
+
+        this.ctx.beginPath()
+        this.ctx.lineWidth = Math.max(1, lineWidth * 0.8)
+        this.ctx.moveTo(-halfLen, 0)
+        this.ctx.lineTo(0, 0)
+        this.ctx.lineTo(halfLen, 0)
+        this.ctx.stroke()
+
+        this.ctx.save()
+        this.ctx.rotate(Math.PI / 6)
+        const arrowLength = iconWidth * 0.85
+        this.drawArrowShape(
+          arrowLength,
+          iconHeight * 0.2,
+          false,
+          HUD_ICON_COLOR,
+          arrowLength * 0.5
+        )
+        this.ctx.restore()
+      } else {
+        const halfLen = iconWidth / 2
+        const halfThick = iconHeight / 2
+
+        this.ctx.beginPath()
+        this.ctx.moveTo(-halfLen, -halfThick)
+        this.ctx.lineTo(halfLen - halfThick, -halfThick)
+        this.ctx.arc(
+          halfLen - halfThick,
+          0,
+          halfThick,
+          -Math.PI / 2,
+          Math.PI / 2
+        )
+        this.ctx.lineTo(-halfLen, halfThick)
+        this.ctx.closePath()
+
+        this.ctx.fill()
+        this.ctx.stroke()
+      }
+      this.ctx.restore()
+
+      if (weaponType === WEAPON_TYPES.BOW) {
+        const ammoValue = ammo < 0 ? 0 : ammo
+        const ammoText = this.getAmmoText(ammoValue)
+        this.ctx.save()
+        this.ctx.globalAlpha = HUD_AMMO_ALPHA
+        this.ctx.fillStyle = HUD_ICON_COLOR
+        this.ctx.font = '12px monospace'
+        this.ctx.textAlign = 'right'
+        this.ctx.textBaseline = 'bottom'
+        this.ctx.fillText(ammoText, x + size - 4, y + size - 2)
+        this.ctx.restore()
+      }
+    }
+    this.ctx.restore()
+  }
+
+  private drawWeaponSizeIndicator(
+    x: number,
+    y: number,
+    size: number,
+    filledCount: number,
+    maxCount: number,
+    isActive: boolean,
+    borderColor: string
+  ): void {
+    if (maxCount <= 0) return
+    const boxHeight = size / maxCount
+    const startY = y
+    const startX = x - HUD_SIZE_OUTER_GAP - HUD_SIZE_BOX
+
+    this.ctx.save()
+    this.ctx.lineWidth = 1
+    this.ctx.strokeStyle = borderColor
+    this.ctx.fillStyle = HUD_ICON_COLOR
+    this.ctx.globalAlpha = HUD_ICON_ALPHA
+
+    for (let i = 0; i < maxCount; i++) {
+      const boxY = startY + size - boxHeight * (i + 1)
+      this.ctx.fillStyle = HUD_SLOT_FILL
+      this.ctx.fillRect(startX, boxY, HUD_SIZE_BOX, boxHeight)
+      this.ctx.fillStyle = HUD_ICON_COLOR
+      this.ctx.strokeRect(startX, boxY, HUD_SIZE_BOX, boxHeight)
+      if (i < filledCount) {
+        this.ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+        this.ctx.fillRect(startX, boxY, HUD_SIZE_BOX, boxHeight)
+        this.ctx.globalAlpha = HUD_ICON_ALPHA
+      }
+    }
+    this.ctx.restore()
+  }
+
+  private getAmmoText(ammo: number): string {
+    const cached = this.ammoTextCache[ammo]
+    if (cached) return cached
+    const text = String(ammo)
+    this.ammoTextCache[ammo] = text
+    return text
   }
 
   private renderWeapon(buf: Float32Array, offset: number, flags: number): void {

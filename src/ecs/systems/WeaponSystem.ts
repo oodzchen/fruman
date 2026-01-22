@@ -87,6 +87,8 @@ type WeaponDropData = {
   width: number
   height: number
   baseWidth: number
+  sizeLevel: number
+  sizeMaxLevel: number
   cornerRadius: number
   weight: number
   attackDamage: number
@@ -128,6 +130,8 @@ export class WeaponSystem extends System {
     width: 0,
     height: 0,
     baseWidth: 0,
+    sizeLevel: 0,
+    sizeMaxLevel: 0,
     cornerRadius: 0,
     weight: 0,
     attackDamage: 0,
@@ -1382,6 +1386,8 @@ export class WeaponSystem extends System {
     weapon.width = weaponData.width
     weapon.height = weaponData.height
     weapon.baseWidth = weaponData.baseWidth
+    weapon.sizeLevel = weaponData.sizeLevel
+    weapon.sizeMaxLevel = weaponData.sizeMaxLevel
     weapon.blockWidthStart = weaponData.width
     weapon.blockWidthTarget = weaponData.width
     weapon.cornerRadius = weaponData.cornerRadius
@@ -2078,6 +2084,8 @@ export class WeaponSystem extends System {
     slot.width = weapon.baseWidth
     slot.height = weapon.height
     slot.baseWidth = weapon.baseWidth
+    slot.sizeLevel = weapon.sizeLevel
+    slot.sizeMaxLevel = weapon.sizeMaxLevel
     slot.cornerRadius = weapon.cornerRadius
     slot.weight = weapon.weight
     slot.attackDamage = weapon.attackDamage
@@ -2094,6 +2102,8 @@ export class WeaponSystem extends System {
     weapon.width = slot.baseWidth
     weapon.height = slot.height
     weapon.baseWidth = slot.baseWidth
+    weapon.sizeLevel = slot.sizeLevel
+    weapon.sizeMaxLevel = slot.sizeMaxLevel
     weapon.blockWidthStart = weapon.baseWidth
     weapon.blockWidthTarget = weapon.baseWidth
     weapon.cornerRadius = slot.cornerRadius
@@ -2114,6 +2124,8 @@ export class WeaponSystem extends System {
     out.width = weapon.baseWidth
     out.height = weapon.height
     out.baseWidth = weapon.baseWidth
+    out.sizeLevel = weapon.sizeLevel
+    out.sizeMaxLevel = weapon.sizeMaxLevel
     out.cornerRadius = weapon.cornerRadius
     out.weight = weapon.weight
     out.attackDamage = weapon.attackDamage
@@ -2131,6 +2143,8 @@ export class WeaponSystem extends System {
     out.width = slot.baseWidth
     out.height = slot.height
     out.baseWidth = slot.baseWidth
+    out.sizeLevel = slot.sizeLevel
+    out.sizeMaxLevel = slot.sizeMaxLevel
     out.cornerRadius = slot.cornerRadius
     out.weight = slot.weight
     out.attackDamage = slot.attackDamage

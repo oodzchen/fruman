@@ -305,6 +305,8 @@ export const WEAPON_TEMPLATES = {
   sword: {
     width: DEFAULT_WEAPON_WIDTH,
     height: DEFAULT_WEAPON_HEIGHT,
+    sizeLevel: 2,
+    sizeMaxLevel: 4,
     weight: DEFAULT_WEAPON_WEIGHT,
     attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE,
     postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE,
@@ -313,6 +315,8 @@ export const WEAPON_TEMPLATES = {
   shortSword: {
     width: DEFAULT_WEAPON_WIDTH * 0.7,
     height: DEFAULT_WEAPON_HEIGHT * 0.8,
+    sizeLevel: 1,
+    sizeMaxLevel: 4,
     weight: DEFAULT_WEAPON_WEIGHT * 0.6,
     attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 0.7,
     postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 0.8,
@@ -321,6 +325,8 @@ export const WEAPON_TEMPLATES = {
   longSword: {
     width: DEFAULT_WEAPON_WIDTH * 1.4,
     height: DEFAULT_WEAPON_HEIGHT * 1.1,
+    sizeLevel: 3,
+    sizeMaxLevel: 4,
     weight: DEFAULT_WEAPON_WEIGHT * 1.5,
     attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 1.3,
     postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 1.2,
@@ -329,6 +335,8 @@ export const WEAPON_TEMPLATES = {
   hammer: {
     width: DEFAULT_WEAPON_WIDTH * 0.8,
     height: DEFAULT_WEAPON_HEIGHT * 1.5,
+    sizeLevel: 4,
+    sizeMaxLevel: 4,
     weight: DEFAULT_WEAPON_WEIGHT * 2,
     attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 1.5,
     postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 1.8,
@@ -337,6 +345,8 @@ export const WEAPON_TEMPLATES = {
   bow: {
     width: DEFAULT_WEAPON_WIDTH * 1.1,
     height: DEFAULT_WEAPON_HEIGHT * 0.35,
+    sizeLevel: 1,
+    sizeMaxLevel: 2,
     weight: DEFAULT_WEAPON_WEIGHT * 0.5,
     attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE * 0.6,
     postureDamage: DEFAULT_WEAPON_POSTURE_DAMAGE * 0.6,

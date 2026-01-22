@@ -322,6 +322,8 @@ export type WeaponSlotData = {
   width: number
   height: number
   baseWidth: number
+  sizeLevel: number
+  sizeMaxLevel: number
   cornerRadius: number
   weight: number
   attackDamage: number
@@ -337,6 +339,8 @@ const createWeaponSlotData = (): WeaponSlotData => ({
   width: 0,
   height: 0,
   baseWidth: 0,
+  sizeLevel: 0,
+  sizeMaxLevel: 0,
   cornerRadius: 0,
   weight: 0,
   attackDamage: DEFAULT_WEAPON_ATTACK_DAMAGE,
@@ -350,6 +354,8 @@ export class WeaponComponent extends Component {
   width = 0
   height = 0
   baseWidth = 0
+  sizeLevel = 2
+  sizeMaxLevel = 4
   blockWidthStart = 0
   blockWidthTarget = 0
   cornerRadius = 0
@@ -447,6 +453,8 @@ export class WeaponComponent extends Component {
     this.width = 0
     this.height = 0
     this.baseWidth = 0
+    this.sizeLevel = 2
+    this.sizeMaxLevel = 4
     this.blockWidthStart = 0
     this.blockWidthTarget = 0
     this.cornerRadius = 0

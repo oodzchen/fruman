@@ -1290,6 +1290,75 @@ function sendState() {
       stateBuffer[offset + OFFSETS.WEAPON_TYPE] = WEAPON_TYPES.SWORD
     }
 
+    if (e.weaponSlots) {
+      const weaponSlots = e.weaponSlots
+      const mainSlot = weaponSlots.main
+      const secondarySlot = weaponSlots.secondary
+      const activeSlotIndex = weaponSlots.activeSlot === 'main' ? 0 : 1
+      let mainAmmo = mainSlot.bowAmmo
+      let secondaryAmmo = secondarySlot.bowAmmo
+      let mainSize = mainSlot.sizeLevel
+      let secondarySize = secondarySlot.sizeLevel
+      let mainMax = mainSlot.sizeMaxLevel
+      let secondaryMax = secondarySlot.sizeMaxLevel
+
+      if (e.weapon && e.weapon.isEquipped) {
+        if (activeSlotIndex === 0) {
+          mainAmmo = e.weapon.bowAmmo
+          mainSize = e.weapon.sizeLevel
+          mainMax = e.weapon.sizeMaxLevel
+        } else {
+          secondaryAmmo = e.weapon.bowAmmo
+          secondarySize = e.weapon.sizeLevel
+          secondaryMax = e.weapon.sizeMaxLevel
+        }
+      }
+
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_HAS] = mainSlot.hasWeapon
+        ? 1
+        : 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_TYPE] = mainSlot.hasWeapon
+        ? getWeaponTypeId(mainSlot.weaponType)
+        : WEAPON_TYPES.SWORD
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_W] = mainSlot.width
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_H] = mainSlot.height
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_AMMO] = mainAmmo
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_SIZE] = mainSize
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_MAX] = mainMax
+
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_HAS] =
+        secondarySlot.hasWeapon ? 1 : 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_TYPE] =
+        secondarySlot.hasWeapon
+          ? getWeaponTypeId(secondarySlot.weaponType)
+          : WEAPON_TYPES.SWORD
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_W] =
+        secondarySlot.width
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_H] =
+        secondarySlot.height
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_AMMO] = secondaryAmmo
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_SIZE] = secondarySize
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_MAX] = secondaryMax
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_ACTIVE] = activeSlotIndex
+    } else {
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_HAS] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_TYPE] = WEAPON_TYPES.SWORD
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_W] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_H] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_AMMO] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_SIZE] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_MAIN_MAX] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_HAS] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_TYPE] =
+        WEAPON_TYPES.SWORD
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_W] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_H] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_AMMO] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_SIZE] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_MAX] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_SLOT_ACTIVE] = 0
+    }
+
     count++
   }
 

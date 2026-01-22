@@ -27,6 +27,8 @@ export type EnemyType = 'default' | 'fast' | 'large' | 'archer'
 export interface WeaponTemplate {
   width: number
   height: number
+  sizeLevel: number
+  sizeMaxLevel: number
   weight: number
   attackDamage: number
   postureDamage: number
