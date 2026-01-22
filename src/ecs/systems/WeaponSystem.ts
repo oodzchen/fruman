@@ -38,6 +38,10 @@ import {
   PARRY_COUNTER_WINDOW_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
+  SOUND_DB_BOW_SNAP,
+  SOUND_DB_PARRY,
+  SOUND_DB_SWORD_HIT_OBSTACLE,
+  SOUND_DB_SWORD_SWING,
   WEAPON_DROP_DURATION_MS,
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2BodyId } from '../../types'
@@ -61,6 +65,7 @@ import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { World } from '../World'
+import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
 
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
@@ -102,6 +107,7 @@ export class WeaponSystem extends System {
   private box2d?: MainModule
   private obstacles: ObstacleCollider[] = []
   private statsSystem?: StatsSystem
+  private soundSystem: SoundSystem | null = null
   private allEntities: Entity[] = []
   private spatialHash: SpatialHash | null = null
   private entityLookup?: (id: number) => Entity | undefined
@@ -193,6 +199,10 @@ export class WeaponSystem extends System {
 
   setArrowPools(arrowPools: ArrowPools): void {
     this.arrowPools = arrowPools
+  }
+
+  setSoundSystem(soundSystem: SoundSystem): void {
+    this.soundSystem = soundSystem
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -680,6 +690,7 @@ export class WeaponSystem extends System {
         const sparkY = (weaponY + attackerY) * 0.5
         this.statsSystem?.emitSpark(sparkX, sparkY)
         this.statsSystem?.playSound(SOUND_IDS.SWORD_PARRY)
+        this.emitSoundAt(sparkX, sparkY, defender, SOUND_DB_PARRY)
         this.applyParryEffect(defender, attacker)
       }
     }
@@ -970,6 +981,12 @@ export class WeaponSystem extends System {
     if (t >= 1) {
       weapon.parryCounterActive = false
       this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
+      this.emitSoundAt(
+        weapon.visual.x,
+        weapon.visual.y,
+        entity,
+        SOUND_DB_SWORD_SWING
+      )
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
       // We don't need to copyTransform(attackStartTransform, swingStartTransform) anymore for logic,
@@ -1011,6 +1028,12 @@ export class WeaponSystem extends System {
     if (t >= 1) {
       weapon.parryCounterActive = false
       this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_FINAL)
+      this.emitSoundAt(
+        weapon.visual.x,
+        weapon.visual.y,
+        entity,
+        SOUND_DB_SWORD_SWING
+      )
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
       this.copyTransform(
@@ -1044,6 +1067,12 @@ export class WeaponSystem extends System {
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
       this.statsSystem?.playSound(SOUND_IDS.SWORD_HIT_OBSTACLE)
+      this.emitSoundAt(
+        weapon.visual.x,
+        weapon.visual.y,
+        entity,
+        SOUND_DB_SWORD_HIT_OBSTACLE
+      )
       this.applyPushback(entity, weapon)
       this.startRebound(entity, playerPos, now)
       return
@@ -1201,6 +1230,12 @@ export class WeaponSystem extends System {
       )
 
       this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
+      this.emitSoundAt(
+        weapon.visual.x,
+        weapon.visual.y,
+        entity,
+        SOUND_DB_SWORD_SWING
+      )
       weapon.attackPhase = 'swing'
       weapon.attackElapsedMs = 0
 
@@ -1974,6 +2009,12 @@ export class WeaponSystem extends System {
     this.arrowPools.registerSpawn(arrowFaction)
     weapon.bowAmmo = Math.max(0, weapon.bowAmmo - 1)
     this.statsSystem?.playSound(SOUND_IDS.BOW_SNAP)
+    this.emitSoundAt(
+      weapon.visual.x,
+      weapon.visual.y,
+      entity,
+      SOUND_DB_BOW_SNAP
+    )
   }
 
   private getBowLaunchSpeed(drawRatio: number): number {
@@ -2584,6 +2625,18 @@ export class WeaponSystem extends System {
     }
     const entityRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     return entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
+  }
+
+  private emitSoundAt(
+    x: number,
+    y: number,
+    source: Entity,
+    db: number,
+    rangeMultiplier = 1
+  ): void {
+    if (!this.soundSystem) return
+    const radius = source.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    this.soundSystem.emitSoundAt(x, y, radius, db, rangeMultiplier)
   }
 
   private clamp01(value: number): number {

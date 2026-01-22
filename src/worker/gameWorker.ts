@@ -5,12 +5,15 @@ import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   DEBUG_DRAW_SENSORS,
+  DEBUG_DRAW_SOUND,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
+  ENEMY_HEARING_RANGE_MULTIPLIER,
   ENEMY_SPAWNS,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
+import { Faction } from '../ecs/Component'
 import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
@@ -24,6 +27,7 @@ import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
+import { SoundSystem } from '../ecs/systems/SoundSystem'
 import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
@@ -53,6 +57,8 @@ import {
 import type {
   MainToWorkerMessage,
   SensorDebugData,
+  SoundListenerDebugData,
+  SoundWaveDebugData,
   WorkerDebugMessage,
   WorkerStateMessage,
 } from './protocol'
@@ -73,6 +79,7 @@ let statsSystem: StatsSystem
 let weaponSystem: WeaponSystem
 let arrowSystem: ArrowSystem
 let enemyAISystem: EnemyAISystem
+let soundSystem: SoundSystem
 let targetingSystem: TargetingSystem
 let arrowPools: ArrowPools
 
@@ -216,8 +223,15 @@ const stateMessage: WorkerStateMessage = {
 const debugMessage: WorkerDebugMessage = {
   type: 'debug',
   sensors: [],
+  soundWaves: [],
+  soundListeners: [],
 }
 const debugSensors: SensorDebugData[] = []
+const debugSoundWaves: SoundWaveDebugData[] = []
+const debugSoundListeners: SoundListenerDebugData[] = []
+const emptySoundWaves: SoundWaveDebugData[] = []
+const emptySoundListeners: SoundListenerDebugData[] = []
+const emptySensors: SensorDebugData[] = []
 
 // Loop Logic
 let lastTime = performance.now()
@@ -318,6 +332,7 @@ function initializeSystems() {
   statsSystem = new StatsSystem(box2d, worldId)
   statsSystem.setEffectsEmitter(effectsEmitter)
   statsSystem.setBloodEffectsEnabled(false)
+  soundSystem = new SoundSystem()
   enemyAISystem = new EnemyAISystem(box2d, worldId)
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
@@ -325,7 +340,11 @@ function initializeSystems() {
   arrowSystem = new ArrowSystem(box2d, statsSystem)
   arrowPools = new ArrowPools()
   statsSystem.setWeaponSystem(weaponSystem)
+  statsSystem.setSoundSystem(soundSystem)
   enemyAISystem.setWeaponSystem(weaponSystem)
+  movementSystem.setSoundSystem(soundSystem)
+  weaponSystem.setSoundSystem(soundSystem)
+  arrowSystem.setSoundSystem(soundSystem)
   targetingSystem = new TargetingSystem(box2d, worldId)
 
   const entityLookup = world.getEntityById.bind(world)
@@ -336,6 +355,7 @@ function initializeSystems() {
   // 关键：MovementSystem必须在PhysicsSystem之前执行
   // 这样施加的力才能在当前帧的b2World_Step中被处理
   world.addSystem(statsSystem)
+  world.addSystem(soundSystem)
   world.addSystem(enemyAISystem)
   world.addSystem(movementSystem)
   world.addSystem(physicsSystem)
@@ -677,6 +697,7 @@ function createPlayerAndWeapon(groundY: number) {
   )
 
   enemyAISystem.setPlayer(playerEntity)
+  soundSystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)
 }
 
@@ -1179,6 +1200,73 @@ function collectSensorDebugData(entities: Entity[]): SensorDebugData[] {
   return debugSensors
 }
 
+function collectSoundWaveDebugData(): SoundWaveDebugData[] {
+  const waves = soundSystem.getActiveWaves()
+  for (let i = 0; i < waves.length; i++) {
+    const wave = waves[i]
+    let debugWave = debugSoundWaves[i]
+    if (!debugWave) {
+      debugWave = {
+        x: 0,
+        y: 0,
+        radius: 0,
+        maxRadius: 0,
+        db: 0,
+      }
+      debugSoundWaves[i] = debugWave
+    }
+    debugWave.x = wave.x
+    debugWave.y = wave.y
+    debugWave.radius = wave.radius
+    debugWave.maxRadius = wave.maxRadius
+    debugWave.db = wave.currentDb
+  }
+
+  if (debugSoundWaves.length > waves.length) {
+    debugSoundWaves.length = waves.length
+  }
+
+  return debugSoundWaves
+}
+
+function collectSoundListenerDebugData(
+  entities: Entity[]
+): SoundListenerDebugData[] {
+  let listenerCount = 0
+
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.enemyAI || !entity.transform) continue
+    if (entity.faction?.faction !== Faction.Enemy) continue
+    if (entity.stats?.isDead || entity.stats?.isVanished) continue
+
+    let debugListener = debugSoundListeners[listenerCount]
+    if (!debugListener) {
+      debugListener = {
+        entityId: entity.id,
+        x: 0,
+        y: 0,
+        radius: 0,
+      }
+      debugSoundListeners[listenerCount] = debugListener
+    }
+
+    debugListener.entityId = entity.id
+    debugListener.x = entity.transform.x
+    debugListener.y = entity.transform.y
+    debugListener.radius =
+      entity.enemyAI.detectionRange * ENEMY_HEARING_RANGE_MULTIPLIER
+
+    listenerCount += 1
+  }
+
+  if (debugSoundListeners.length > listenerCount) {
+    debugSoundListeners.length = listenerCount
+  }
+
+  return debugSoundListeners
+}
+
 function sendState() {
   if (!sharedStateBuffer && stateBufferViews.length === 0) {
     return
@@ -1368,10 +1456,19 @@ function sendState() {
   stateMessage.camera.x = camera.x
   stateMessage.camera.y = camera.y
   stateMessage.zoom = zoom
+  const shouldSendDebug = DEBUG_DRAW_SENSORS || DEBUG_DRAW_SOUND
   if (sharedStateBuffer) {
     ctx.postMessage(stateMessage)
-    if (DEBUG_DRAW_SENSORS) {
-      debugMessage.sensors = collectSensorDebugData(entities)
+    if (shouldSendDebug) {
+      debugMessage.sensors = DEBUG_DRAW_SENSORS
+        ? collectSensorDebugData(entities)
+        : emptySensors
+      debugMessage.soundWaves = DEBUG_DRAW_SOUND
+        ? collectSoundWaveDebugData()
+        : emptySoundWaves
+      debugMessage.soundListeners = DEBUG_DRAW_SOUND
+        ? collectSoundListenerDebugData(entities)
+        : emptySoundListeners
       ctx.postMessage(debugMessage)
     }
     effectsCount = 0
@@ -1380,8 +1477,16 @@ function sendState() {
 
   const buffer = stateBuffer.buffer as ArrayBuffer
   ctx.postMessage(stateMessage, [buffer])
-  if (DEBUG_DRAW_SENSORS) {
-    debugMessage.sensors = collectSensorDebugData(entities)
+  if (shouldSendDebug) {
+    debugMessage.sensors = DEBUG_DRAW_SENSORS
+      ? collectSensorDebugData(entities)
+      : emptySensors
+    debugMessage.soundWaves = DEBUG_DRAW_SOUND
+      ? collectSoundWaveDebugData()
+      : emptySoundWaves
+    debugMessage.soundListeners = DEBUG_DRAW_SOUND
+      ? collectSoundListenerDebugData(entities)
+      : emptySoundListeners
     ctx.postMessage(debugMessage)
   }
   effectsCount = 0

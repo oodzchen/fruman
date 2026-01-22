@@ -6,9 +6,11 @@ import {
   DEFAULT_ROLL_SPEED,
   DEFAULT_SPRINT_SPEED,
   DEFAULT_WALL_SLIDE_FRICTION,
+  LANDING_MIN_VELOCITY,
   MASK_PLAYER,
   MASK_PLAYER_ROLLING,
   PLAYER_WEIGHT_REFERENCE,
+  SOUND_DB_LAND,
   SPRINT_HOLD_THRESHOLD_MS,
 } from '../../constants'
 import type { MainModule } from '../../types'
@@ -17,12 +19,14 @@ import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
+import type { SoundSystem } from './SoundSystem'
 
 export class MovementSystem extends System {
   private box2d: MainModule
   private allEntities: Entity[] = []
   private spatialHash: SpatialHash | null = null
   private entityLookup?: (id: number) => Entity | undefined
+  private soundSystem: SoundSystem | null = null
   private tempVec: InstanceType<MainModule['b2Vec2']>
   private tempVec2: InstanceType<MainModule['b2Vec2']>
   private currentDeltaTime = 0
@@ -50,6 +54,10 @@ export class MovementSystem extends System {
 
   setEntityLookup(lookup: (id: number) => Entity | undefined): void {
     this.entityLookup = lookup
+  }
+
+  setSoundSystem(soundSystem: SoundSystem): void {
+    this.soundSystem = soundSystem
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -100,9 +108,11 @@ export class MovementSystem extends System {
     }
     entity.movement.lastContactUpdate = now
 
+    const wasGrounded = entity.movement.wasGrounded
     // 获取实时速度用于接触检测（关键：保证物理逻辑正确）
     const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
-    const isFallingOrStill = vel.y >= -0.1
+    const velY = vel.y
+    const isFallingOrStill = velY >= -0.1
     vel.delete()
     const capacity = b2Body_GetContactCapacity(entity.physics.bodyId)
     const contactData = b2Body_GetContactData(entity.physics.bodyId, capacity)
@@ -130,6 +140,7 @@ export class MovementSystem extends System {
 
     entity.movement.isGrounded = grounded
     entity.movement.isTouchingWall = touchingWall
+    entity.movement.wasGrounded = grounded
 
     if (entity.movement.isTouchingWall && !entity.movement.isGrounded) {
       entity.movement.wallDirection = newWallDirection
@@ -138,6 +149,19 @@ export class MovementSystem extends System {
     }
 
     this.updateBodyFriction(entity, grounded, touchingWall)
+
+    if (!wasGrounded && grounded && this.soundSystem && entity.render) {
+      const impactSpeed = Math.abs(velY)
+      if (impactSpeed >= LANDING_MIN_VELOCITY) {
+        const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
+        this.soundSystem.emitSoundAt(
+          entity.transform?.x ?? 0,
+          (entity.transform?.y ?? 0) + radius,
+          radius,
+          SOUND_DB_LAND
+        )
+      }
+    }
   }
 
   private updateBodyFriction(

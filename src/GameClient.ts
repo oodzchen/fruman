@@ -154,6 +154,7 @@ export class GameClient {
       this.releaseStateBuffer(msg.entitiesBuffer)
     } else if (msg.type === 'debug') {
       this.renderer.setSensorDebugData(msg.sensors)
+      this.renderer.setSoundDebugData(msg.soundWaves, msg.soundListeners)
     }
   }
 

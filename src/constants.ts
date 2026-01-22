@@ -42,6 +42,7 @@ export const DEBUG_PLAYER_IMMORTALITY = true
 export const DEBUG_LOCK_DEFAULT_ENEMY_HEALTH = true
 export const DEBUG_ANIMATION_SLOWDOWN = 1
 export const DEBUG_DRAW_SENSORS = false
+export const DEBUG_DRAW_SOUND = false
 
 // 武器默认伤害与削架势
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
@@ -195,6 +196,24 @@ export const ENEMY_PROBE_DURATION_MAX_MS = 10000
 export const ENEMY_PROBE_PACE_SWITCH_INTERVAL_MS = 700
 export const ENEMY_PROBE_RANGE_BUFFER_RATIO = 0.2
 export const ENEMY_PROBE_PACE_MIN_DISTANCE = 0.4
+export const ENEMY_HEARING_RANGE_MULTIPLIER = 0.5
+
+// 脚步声参数
+export const FOOTSTEP_INTERVAL_MS = 320
+export const FOOTSTEP_WAVE_SPEED = 6
+export const FOOTSTEP_WAVE_DISTANCE_MULTIPLIER = 4
+export const FOOTSTEP_SOUND_DB = 1
+export const FOOTSTEP_MIN_MOVE_SPEED = 0.1
+export const LANDING_MIN_VELOCITY = 1.2
+
+// 碰撞/攻击声音分贝
+export const SOUND_DB_LAND = 1
+export const SOUND_DB_SWORD_SWING = 0.8
+export const SOUND_DB_SWORD_HIT_OBSTACLE = 1.2
+export const SOUND_DB_SWORD_BLOCK = 1
+export const SOUND_DB_BODY_HIT = 1.1
+export const SOUND_DB_PARRY = 1.6
+export const SOUND_DB_BOW_SNAP = 0.9
 
 // 敌人模板配置
 export const ENEMY_TEMPLATES = {

@@ -20,6 +20,8 @@ import {
   HIT_STUN_MEDIUM_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
+  SOUND_DB_BODY_HIT,
+  SOUND_DB_SWORD_BLOCK,
   STAGGER_DAMAGE_MULTIPLIER,
   STAGGER_DURATION_MS,
   STAGGER_HIT_STUN_DURATION_MS,
@@ -31,6 +33,7 @@ import { Faction, PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
+import type { SoundSystem } from './SoundSystem'
 import type { WeaponSystem } from './WeaponSystem'
 
 export type EffectsEmitter = {
@@ -50,6 +53,7 @@ export class StatsSystem extends System {
   private currentTimeMs = 0
   private effectsEmitter?: EffectsEmitter
   private weaponSystem?: WeaponSystem
+  private soundSystem: SoundSystem | null = null
   private bloodEffectsEnabled = false
   private colorCache = new Map<string, number>()
 
@@ -249,6 +253,10 @@ export class StatsSystem extends System {
     this.weaponSystem = weaponSystem ?? undefined
   }
 
+  setSoundSystem(soundSystem: SoundSystem): void {
+    this.soundSystem = soundSystem
+  }
+
   setBloodEffectsEnabled(enabled: boolean): void {
     this.bloodEffectsEnabled = enabled
   }
@@ -266,6 +274,17 @@ export class StatsSystem extends System {
   playSound(soundId: number, playbackRate?: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.playSound(soundId, playbackRate)
+  }
+
+  private emitSoundFromEntity(entity: Entity, db: number): void {
+    if (!this.soundSystem || !entity.transform) return
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    this.soundSystem.emitSoundAt(
+      entity.transform.x,
+      entity.transform.y,
+      radius,
+      db
+    )
   }
 
   applyForcedHitStun(
@@ -326,6 +345,7 @@ export class StatsSystem extends System {
     if (!entity.stats) return
 
     this.playSound(SOUND_IDS.BODY_HIT, 0.3)
+    this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
 
     entity.stats.isStaggered = true
     entity.stats.staggerElapsedTime = 0
@@ -540,6 +560,7 @@ export class StatsSystem extends System {
         finalKnockback = 0
         finalToughnessDamage = 0
         this.playSound(SOUND_IDS.SWORD_BLOCK)
+        this.emitSoundFromEntity(entity, SOUND_DB_SWORD_BLOCK)
       }
     }
 
@@ -623,8 +644,10 @@ export class StatsSystem extends System {
           this.effectsEmitter.emitBlood(hitX, hitY, colorInt)
         }
         this.playSound(SOUND_IDS.BODY_HIT)
+        this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       } else if (toughnessBroken) {
         this.playSound(SOUND_IDS.BODY_HIT)
+        this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       }
 
       if (toughnessBroken && !isBlockingSuccessfully) {

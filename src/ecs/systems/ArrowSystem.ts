@@ -3,6 +3,7 @@ import {
   DEFAULT_PARRY_WINDOW_MS,
   DEFAULT_PLAYER_RADIUS,
   PARRY_COUNTER_WINDOW_MS,
+  SOUND_DB_PARRY,
 } from '../../constants'
 import type { MainModule } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -12,6 +13,7 @@ import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { World } from '../World'
+import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
 
 const PARRY_WINDOW_FRAMES =
@@ -22,6 +24,7 @@ export class ArrowSystem extends System {
   private box2d: MainModule
   private spatialHash: SpatialHash | null = null
   private statsSystem?: StatsSystem
+  private soundSystem: SoundSystem | null = null
   private world?: World
   private arrowPools?: ArrowPools
   private tempHitSource = { x: 0, y: 0 }
@@ -49,6 +52,10 @@ export class ArrowSystem extends System {
 
   setArrowPools(arrowPools: ArrowPools): void {
     this.arrowPools = arrowPools
+  }
+
+  setSoundSystem(soundSystem: SoundSystem): void {
+    this.soundSystem = soundSystem
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -198,6 +205,10 @@ export class ArrowSystem extends System {
 
     this.statsSystem.emitSpark(hitX, hitY)
     this.statsSystem.playSound(SOUND_IDS.SWORD_PARRY)
+    if (this.soundSystem) {
+      const radius = defender.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      this.soundSystem.emitSoundAt(hitX, hitY, radius, SOUND_DB_PARRY)
+    }
     this.statsSystem.applyParryRecovery(defender)
     if (defender.weapon) {
       defender.weapon.parryCounterTimerMs = PARRY_COUNTER_WINDOW_MS

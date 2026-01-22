@@ -102,9 +102,26 @@ export type SensorDebugData = {
   }>
 }
 
+export type SoundWaveDebugData = {
+  x: number
+  y: number
+  radius: number
+  maxRadius: number
+  db: number
+}
+
+export type SoundListenerDebugData = {
+  entityId: number
+  x: number
+  y: number
+  radius: number
+}
+
 export type WorkerDebugMessage = {
   type: 'debug'
   sensors: SensorDebugData[]
+  soundWaves: SoundWaveDebugData[]
+  soundListeners: SoundListenerDebugData[]
 }
 
 export type WorkerToMainMessage = WorkerStateMessage | WorkerDebugMessage

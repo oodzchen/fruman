@@ -20,6 +20,7 @@ import {
   ENEMY_PACE_PAUSE_MS,
   ENEMY_PACE_SWITCH_INTERVAL_MS,
   ENEMY_RETREAT_EXTRA_DISTANCE,
+  FOOTSTEP_INTERVAL_MS,
 } from '../constants'
 import type {
   EnemyPatrolMode,
@@ -126,6 +127,9 @@ export class MovementComponent extends Component {
   knockbackEndTime = 0
   knockbackDuration = 0
   knockbackElapsedTime = 0
+  footstepIntervalMs = FOOTSTEP_INTERVAL_MS
+  footstepTimerMs = 0
+  wasGrounded = false
 
   reset(): void {
     this.moveSpeed = 0
@@ -164,6 +168,9 @@ export class MovementComponent extends Component {
     this.knockbackEndTime = 0
     this.knockbackDuration = 0
     this.knockbackElapsedTime = 0
+    this.footstepIntervalMs = FOOTSTEP_INTERVAL_MS
+    this.footstepTimerMs = 0
+    this.wasGrounded = false
   }
 
   getName(): string {

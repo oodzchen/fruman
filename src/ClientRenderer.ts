@@ -24,7 +24,11 @@ import {
   EFFECT_STRIDE,
   EFFECT_TYPES,
 } from './worker/effectsProtocol'
-import type { SensorDebugData } from './worker/protocol'
+import type {
+  SensorDebugData,
+  SoundListenerDebugData,
+  SoundWaveDebugData,
+} from './worker/protocol'
 
 const MAX_PARTICLES = 600
 const DEBUG_DRAW_TRAJECTORY = false
@@ -72,6 +76,8 @@ export class ClientRenderer {
   private audioManager: AudioManager | null = null
   private trajectoryCalculator: BowTrajectoryCalculator
   private sensorDebugData: SensorDebugData[] = []
+  private soundWaveDebugData: SoundWaveDebugData[] = []
+  private soundListenerDebugData: SoundListenerDebugData[] = []
   private ammoTextCache: string[] = []
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
@@ -134,6 +140,14 @@ export class ClientRenderer {
 
   setSensorDebugData(sensors: SensorDebugData[]): void {
     this.sensorDebugData = sensors
+  }
+
+  setSoundDebugData(
+    waves: SoundWaveDebugData[],
+    listeners: SoundListenerDebugData[]
+  ): void {
+    this.soundWaveDebugData = waves
+    this.soundListenerDebugData = listeners
   }
 
   setCamera(x: number, y: number, zoom: number = 1.0) {
@@ -206,6 +220,7 @@ export class ClientRenderer {
 
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
     this.drawSensorDebug()
+    this.drawSoundDebug()
 
     // Draw LockOn Reticle
     if (!playerFreeAimActive && playerLockedTargetId !== -1) {
@@ -1088,6 +1103,61 @@ export class ClientRenderer {
           ctx.fill()
         }
       }
+    }
+
+    ctx.restore()
+  }
+
+  private drawSoundDebug(): void {
+    if (
+      this.soundWaveDebugData.length === 0 &&
+      this.soundListenerDebugData.length === 0
+    ) {
+      return
+    }
+
+    const ctx = this.ctx
+    const pixelsPerMeter = this.pixelsPerMeter
+    const fullCircle = Math.PI * 2
+    const baseAlpha = ctx.globalAlpha
+    ctx.save()
+    ctx.lineWidth = 1
+    ctx.globalAlpha = baseAlpha * 0.6
+
+    ctx.setLineDash(this.dashedLine)
+    ctx.strokeStyle = '#33b1ff'
+    for (let i = 0; i < this.soundListenerDebugData.length; i++) {
+      const listener = this.soundListenerDebugData[i]
+      const centerX = listener.x * pixelsPerMeter
+      const centerY = listener.y * pixelsPerMeter
+      const radius = listener.radius * pixelsPerMeter
+      ctx.beginPath()
+      ctx.arc(centerX, centerY, radius, 0, fullCircle)
+      ctx.stroke()
+    }
+
+    ctx.setLineDash(this.emptyDash)
+    for (let i = 0; i < this.soundWaveDebugData.length; i++) {
+      const wave = this.soundWaveDebugData[i]
+      const centerX = wave.x * pixelsPerMeter
+      const centerY = wave.y * pixelsPerMeter
+      const radius = wave.radius * pixelsPerMeter
+      const maxRadius = wave.maxRadius * pixelsPerMeter
+      const intensity = Math.max(0.2, Math.min(1, wave.db))
+
+      ctx.globalAlpha = baseAlpha * intensity
+      ctx.strokeStyle = '#ff9f1a'
+      ctx.beginPath()
+      ctx.arc(centerX, centerY, radius, 0, fullCircle)
+      ctx.stroke()
+
+      ctx.globalAlpha = baseAlpha * intensity * 0.5
+      ctx.setLineDash(this.dashedLine)
+      ctx.strokeStyle = '#ffcc80'
+      ctx.beginPath()
+      ctx.arc(centerX, centerY, maxRadius, 0, fullCircle)
+      ctx.stroke()
+      ctx.setLineDash(this.emptyDash)
     }
 
     ctx.restore()
