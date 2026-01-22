@@ -522,14 +522,20 @@ export class EnemyAISystem extends System {
           }
         } else {
           ai.state = 'combo'
-          ai.comboSwingsDone = 0
           ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
           ai.lastFacing = stableFacing
           if (entity.weapon) {
             entity.weapon.attackQueued = false
-            entity.weapon.comboCount = 0
-            entity.weapon.nextSwingDirection = 'toFront'
-            entity.weapon.swingDirection = 'toFront'
+            if (entity.weapon.attackPhase === 'idle') {
+              entity.weapon.comboCount = 0
+              entity.weapon.nextSwingDirection = 'toFront'
+              entity.weapon.swingDirection = 'toFront'
+              ai.comboSwingsDone = 0
+            } else {
+              ai.comboSwingsDone = entity.weapon.comboCount
+            }
+          } else {
+            ai.comboSwingsDone = 0
           }
           entity.input.moveDirection = 0
           entity.input.sprintRequested = false
@@ -552,7 +558,7 @@ export class EnemyAISystem extends System {
             entity.weapon.attackPhase === 'pause' ||
             entity.weapon.attackPhase === 'rebound')
         ) {
-          if (distance > weaponRange) {
+          if (distance > weaponRange + 0.5) {
             ai.state = 'approach'
             ai.comboSwingsDone = 0
             continue
