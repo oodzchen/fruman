@@ -495,6 +495,14 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
     const weapon = entity.weapon
 
+    // Update block target offset (parryEndOffset) immediately
+    // ensuring we have the correct target for the current frame
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const blockRotation = -Math.PI / 2
+    weapon.parryEndOffset.dx = facing * (radius + 0.2)
+    weapon.parryEndOffset.dy = 0
+    weapon.parryEndOffset.rotation = blockRotation
+
     // 硬直期间退出格挡
     if (entity.isStunned()) {
       weapon.attackPhase = 'idle'
@@ -507,6 +515,9 @@ export class WeaponSystem extends System {
 
     // 弹反窗口结束后，松开格挡键才能退出
     if (!weapon.isParrying && entity.input && !entity.input.blockRequested) {
+      // Vital fix: Ensure visual is up-to-date with current playerPos before capturing offset
+      // Since we are in "Hold" state here, we snap visual to the calculated parryEndOffset
+      this.applyOffset(weapon.parryEndOffset, playerPos, weapon.visual)
       this.startBlockReturn(entity, weapon, playerPos)
       return
     }
@@ -516,13 +527,6 @@ export class WeaponSystem extends System {
       this.statsSystem.enterCombat(entity)
     }
     weapon.lastAttackTimestamp = this.currentTimeMs
-
-    // 每一帧都根据当前朝向更新目标位置，确保武器跟随转向
-    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    const blockRotation = -Math.PI / 2
-    weapon.parryEndOffset.dx = facing * (radius + 0.2)
-    weapon.parryEndOffset.dy = 0
-    weapon.parryEndOffset.rotation = blockRotation
 
     // 弹反窗口期间（只在武器移动期间有效）
     if (weapon.isParrying) {
