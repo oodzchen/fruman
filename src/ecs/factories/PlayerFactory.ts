@@ -1,6 +1,7 @@
 import {
   CATEGORY_ENEMY,
   CATEGORY_PLAYER,
+  CATEGORY_WEAPON,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_BOW_AMMO_ENEMY,
@@ -33,6 +34,7 @@ import {
   ENEMY_TEMPLATES,
   MASK_ENEMY,
   MASK_PLAYER,
+  MASK_WEAPON,
   WEAPON_TEMPLATES,
 } from '../../constants'
 import type { EnemyType, MainModule, WeaponType, b2WorldId } from '../../types'
@@ -145,63 +147,35 @@ export function createPlayer(
   sensor.fov = (160 * Math.PI) / 180 // +/- 80 degrees
   entity.addComponent(sensor)
 
-  // 玩家初始武器组件（不在地上，直接装备状态，重量为0避免影响跌落测试）
+  // 玩家初始武器组件（默认为空，需要在地上拾取）
   const weapon = new WeaponComponent()
-  weapon.width = DEFAULT_WEAPON_WIDTH
-  weapon.height = DEFAULT_WEAPON_HEIGHT
-  weapon.baseWidth = weapon.width
-  weapon.blockWidthStart = weapon.width
-  weapon.blockWidthTarget = weapon.width
-  weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-  weapon.weight = 0 // 测试跌落伤害时武器重量设为0
-  weapon.weaponType = 'sword'
+  weapon.width = 0
+  weapon.height = 0
+  weapon.baseWidth = 0
+  weapon.blockWidthStart = 0
+  weapon.blockWidthTarget = 0
+  weapon.cornerRadius = 0
+  weapon.weight = 0
+  weapon.weaponType = 'sword' // 默认类型，但尺寸为0不会渲染
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
-  weapon.isEquipped = true // 直接装备，不在地上显示
-  const followX = x - 1 * (radius + 0.2)
-  const followY = y + radius * -0.2
-  weapon.position = {
-    x: followX,
-    y: followY,
-  }
-  weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-  weapon.visual = {
-    x: followX,
-    y: followY,
-    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-  }
-  weapon.attackStartTransform = {
-    x: followX,
-    y: followY,
-    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-  }
-  weapon.swingStartTransform = {
-    x: followX,
-    y: followY,
-    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-  }
-  weapon.swingEndTransform = {
-    x: followX,
-    y: followY,
-    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-  }
-  weapon.attackStartOffset = {
-    dx: followX - x,
-    dy: followY - y,
-    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-  }
-  weapon.swingStartOffset = {
-    dx: followX - x,
-    dy: followY - y,
-    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-  }
-  weapon.swingEndOffset = {
-    dx: followX - x,
-    dy: followY - y,
-    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
-  }
-  weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
+  weapon.isEquipped = false
+
+  // 初始化位置和变换为0，因为没有实际武器
+  const zeroTransform = { x: 0, y: 0, rotation: 0 }
+  const zeroOffset = { dx: 0, dy: 0, rotation: 0 }
+
+  weapon.position = { x: 0, y: 0 }
+  weapon.rotation = 0
+  weapon.visual = { ...zeroTransform }
+  weapon.attackStartTransform = { ...zeroTransform }
+  weapon.swingStartTransform = { ...zeroTransform }
+  weapon.swingEndTransform = { ...zeroTransform }
+  weapon.attackStartOffset = { ...zeroOffset }
+  weapon.swingStartOffset = { ...zeroOffset }
+  weapon.swingEndOffset = { ...zeroOffset }
+  weapon.attackRadius = 0
   entity.addComponent(weapon)
 
   const weaponSlots = new WeaponSlotsComponent()
@@ -376,12 +350,17 @@ export function createEnemy(
 
 export function createWeapon(
   world: World,
+  box2d: MainModule,
+  worldId: b2WorldId,
   x: number,
   y: number,
   groundTopY: number,
   weaponType: WeaponType = 'sword'
 ): Entity {
   const entity = world.createEntity()
+
+  // Use the passed y parameter for spawn height
+  // Caller should ensure y is high enough to avoid obstacles
 
   const transform = new TransformComponent()
   transform.x = x
@@ -407,10 +386,11 @@ export function createWeapon(
     weapon.bowAmmoMax = DEFAULT_BOW_AMMO_PLAYER
     weapon.bowAmmo = DEFAULT_BOW_AMMO_PLAYER
   }
-  const weaponY = groundTopY - weapon.height / 2
+
+  // Set initial position to spawn point
   weapon.position = {
     x: x,
-    y: weaponY,
+    y: y,
   }
   weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
   weapon.isEquipped = false
@@ -419,12 +399,12 @@ export function createWeapon(
   weapon.lastAttackTimestamp = 0
   weapon.attackStartTransform = {
     x: x,
-    y: weaponY,
+    y: y,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.visual = {
     x: x,
-    y: weaponY,
+    y: y,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.attackQueued = false
@@ -449,17 +429,51 @@ export function createWeapon(
   }
   weapon.swingStartTransform = {
     x: x,
-    y: weaponY,
+    y: y,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.swingEndTransform = {
     x: x,
-    y: weaponY,
+    y: y,
     rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   }
   weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
+  weapon.pickupCooldownEndTime = 0 // 初始生成的武器没有拾取冷却
 
   entity.addComponent(weapon)
+
+  // 创建物理组件，让武器自然掉落
+  const physics = new PhysicsComponent()
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2CreateCircleShape,
+    b2Circle,
+  } = box2d
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(x, y)
+  bodyDef.linearDamping = 2.0 // 较高的阻尼，快速减速
+  bodyDef.motionLocks.angularZ = true // 锁定旋转，保持水平
+  physics.bodyId = b2CreateBody(worldId, bodyDef)
+
+  // 使用圆形碰撞体，半径基于武器高度
+  const weaponRadius = weapon.height * 0.5
+  const circle = new b2Circle()
+  circle.center.Set(0, 0)
+  circle.radius = weaponRadius
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.5
+  shapeDef.material.friction = 0.3
+  shapeDef.material.restitution = 0.2 // 轻微弹跳
+  shapeDef.filter.categoryBits = CATEGORY_WEAPON
+  shapeDef.filter.maskBits = MASK_WEAPON
+  physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
+
+  entity.addComponent(physics)
 
   return entity
 }

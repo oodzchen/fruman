@@ -211,7 +211,7 @@ export const LANDING_MIN_VELOCITY = 1.2
 // 伤害：damage = (E - threshold) / divisor；E >= fatal 时直接致命
 // 若按自由落体估算：v^2 = 2 * g * h，则 E = m * g * h（g=50）
 export const FALL_DAMAGE_KINETIC_THRESHOLD = 42000 // 动能阈值，超过开始计伤
-export const FALL_DAMAGE_KINETIC_FATAL = 80000 // 致命动能阈值
+export const FALL_DAMAGE_KINETIC_FATAL = 100000 // 致命动能阈值
 export const FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR = 2000 // 动能转伤害除数（数值越大伤害越低）
 
 // 碰撞/攻击声音分贝

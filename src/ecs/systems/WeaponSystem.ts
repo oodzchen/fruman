@@ -1425,6 +1425,8 @@ export class WeaponSystem extends System {
       throwVelocity.x = throwSpeedX
       throwVelocity.y = throwSpeedY
       this.box2d.b2Body_SetLinearVelocity(physics.bodyId, throwVelocity)
+      physics.velX = throwVelocity.x
+      physics.velY = throwVelocity.y
     }
 
     entity.addComponent(physics)
@@ -1446,7 +1448,7 @@ export class WeaponSystem extends System {
     weapon.bowAmmo = weaponData.bowAmmo
     weapon.bowAmmoMax = weaponData.bowAmmoMax
 
-    const weaponY = this.groundTopY - weapon.height / 2
+    const weaponY = y
     weapon.position.x = x
     weapon.position.y = weaponY
     weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
@@ -1496,10 +1498,13 @@ export class WeaponSystem extends System {
     entity.weapon.visual.x = bodyX
     entity.weapon.visual.y = bodyY
 
-    // 检查速度是否接近 0（已落地）
-    const speed = Math.hypot(entity.physics.velX, entity.physics.velY)
+    // 增加掉落时间计时
+    entity.weapon.dropElapsedTime += this.currentDeltaTime
 
-    if (speed < 0.5) {
+    // 检查速度是否接近 0（已落地）
+    // 增加最小掉落时间保护（0.1秒），防止生成第一帧因速度未更新而直接判定落地（悬空）
+    const speed = Math.hypot(entity.physics.velX, entity.physics.velY)
+    if (speed < 0.5 && entity.weapon.dropElapsedTime > 0.1) {
       // 速度很小，认为已经落地
       // 保留物理体最后的位置作为武器的最终位置
       const finalX = bodyX
@@ -2258,9 +2263,13 @@ export class WeaponSystem extends System {
     weapon.dropEndOffset.rotation = 0
   }
 
-  tryPickUpWeapon(entity: Entity): void {
-    if (!entity.transform || !entity.weapon) return
-    if (entity.stats?.isDead) return
+  /**
+   * 尝试拾取附近的武器
+   * @returns 如果消费了互动键（进行了武器替换）返回true，否则返回false
+   */
+  tryPickUpWeapon(entity: Entity): boolean {
+    if (!entity.transform || !entity.weapon) return false
+    if (entity.stats?.isDead) return false
     const weaponSlots = entity.weaponSlots
 
     // 检查是否靠近独立的武器实体
@@ -2288,6 +2297,7 @@ export class WeaponSystem extends System {
           )
           const targetSlot = this.getSlotData(weaponSlots, targetSlotId)
 
+          // 自动拾取逻辑：如果槽位为空，直接捡起，不需要按互动键
           if (!targetSlot.hasWeapon) {
             this.copyWeaponToSlot(targetSlot, weaponEntity.weapon)
             weaponEntity.weapon.isEquipped = true
@@ -2303,10 +2313,33 @@ export class WeaponSystem extends System {
               entity.weapon.visual.rotation =
                 DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
               this.resetWeaponForSwap(entity.weapon)
+
+              // 立即更新视觉位置，防止闪烁
+              const facing = entity.input?.lastMoveDirection || 1
+              const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+              if (entity.stats?.isInCombat) {
+                this.getFrontTransform(
+                  entity.transform,
+                  facing,
+                  entity.weapon.visual,
+                  radius,
+                  entity.weapon.weaponType,
+                  entity.weapon.width
+                )
+              } else {
+                this.getBackTransform(
+                  entity.transform,
+                  facing,
+                  entity.weapon.visual,
+                  radius,
+                  entity.weapon.weaponType
+                )
+              }
             }
-            return
+            continue // 已自动拾取，继续检查其他武器（或结束）
           }
 
+          // 替换逻辑：槽位已满，必须按互动键（E）
           const interacted = entity.input?.inputBuffer.tryExecute(
             'interact',
             () => !entity.isStunned(),
@@ -2349,7 +2382,7 @@ export class WeaponSystem extends System {
             entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
             this.resetWeaponForSwap(entity.weapon)
           }
-          return
+          return true // 替换武器，已消费互动键
         }
 
         // 如果玩家武器未装备，直接装备并应用属性
@@ -2370,9 +2403,31 @@ export class WeaponSystem extends System {
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           this.resetWeaponForSwap(entity.weapon)
 
+          // 立即更新视觉位置，防止闪烁
+          const newFacing = entity.input?.lastMoveDirection || 1
+          const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+          if (entity.stats?.isInCombat) {
+            this.getFrontTransform(
+              entity.transform,
+              newFacing,
+              entity.weapon.visual,
+              radius,
+              entity.weapon.weaponType,
+              entity.weapon.width
+            )
+          } else {
+            this.getBackTransform(
+              entity.transform,
+              newFacing,
+              entity.weapon.visual,
+              radius,
+              entity.weapon.weaponType
+            )
+          }
+
           // 标记武器实体为已拾取（会在后续清理）
           weaponEntity.weapon.isEquipped = true
-          return
+          return false // 自动拾取，未消费互动键
         }
 
         // 如果玩家已有武器，需要按 E 键（interact）才能替换
@@ -2409,51 +2464,41 @@ export class WeaponSystem extends System {
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
           entity.weapon.bowAmmo = weaponEntity.weapon.bowAmmo
-          entity.weapon.bowAmmoMax = weaponEntity.weapon.bowAmmoMax
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           this.resetWeaponForSwap(entity.weapon)
 
-          // 标记武器实体为已拾取（会在后续清理）
-          weaponEntity.weapon.isEquipped = true
-          return
-        }
-      }
-    }
-
-    // 检查玩家自己的默认武器是否未装备（用于初始拾取场景）
-    if (!entity.weapon.isEquipped) {
-      const dx = entity.transform.x - entity.weapon.position.x
-      const dy = entity.transform.y - entity.weapon.position.y
-      const distance = Math.hypot(dx, dy)
-
-      if (distance <= DEFAULT_WEAPON_PICKUP_DISTANCE) {
-        if (weaponSlots) {
-          const targetSlotId = this.getSlotForWeaponType(
-            entity.weapon.weaponType
-          )
-          const targetSlot = this.getSlotData(weaponSlots, targetSlotId)
-
-          if (!targetSlot.hasWeapon) {
-            this.copyWeaponToSlot(targetSlot, entity.weapon)
+          // 立即更新视觉位置，防止闪烁
+          const newFacing = entity.input?.lastMoveDirection || 1
+          const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+          if (entity.stats?.isInCombat) {
+            this.getFrontTransform(
+              entity.transform,
+              newFacing,
+              entity.weapon.visual,
+              radius,
+              entity.weapon.weaponType,
+              entity.weapon.width
+            )
+          } else {
+            this.getBackTransform(
+              entity.transform,
+              newFacing,
+              entity.weapon.visual,
+              radius,
+              entity.weapon.weaponType
+            )
           }
 
-          weaponSlots.activeSlot = targetSlotId
-          this.copySlotToWeapon(targetSlot, entity.weapon)
+          // 标记武器实体为已拾取（会在后续清理）
+          weaponEntity.weapon.isEquipped = true
+          return true // 替换武器，已消费互动键
         }
-
-        entity.weapon.isEquipped = true
-        entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-        entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-        this.resetWeaponForSwap(entity.weapon)
       }
     }
 
-    const inputBuffer = entity.input?.inputBuffer
-    if (!inputBuffer || !entity.stats) return
-    if (!inputBuffer.hasActiveAction('interact')) return
-    inputBuffer.clearAction('interact')
-    entity.stats.hudVisibleTimer = entity.stats.combatExitTimeout
+    // 没有可拾取的武器，未消费互动键
+    return false
   }
 
   dropWeaponsOnDeath(entity: Entity): void {

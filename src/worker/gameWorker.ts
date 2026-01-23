@@ -17,9 +17,10 @@ import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
 import { World } from '../ecs/World'
-import { createPlayer } from '../ecs/factories/PlayerFactory'
+import { createPlayer, createWeapon } from '../ecs/factories/PlayerFactory'
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
+import { InteractionSystem } from '../ecs/systems/InteractionSystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
 import { SoundSystem } from '../ecs/systems/SoundSystem'
@@ -76,6 +77,7 @@ let arrowSystem: ArrowSystem
 let enemyAISystem: EnemyAISystem
 let soundSystem: SoundSystem
 let targetingSystem: TargetingSystem
+let interactionSystem: InteractionSystem
 let arrowPools: ArrowPools
 
 let groundShapeId: b2ShapeId
@@ -334,6 +336,7 @@ function initializeSystems() {
   weaponSystem = new WeaponSystem(box2d, statsSystem)
   arrowSystem = new ArrowSystem(box2d, statsSystem)
   arrowPools = new ArrowPools()
+  interactionSystem = new InteractionSystem()
   statsSystem.setWeaponSystem(weaponSystem)
   statsSystem.setSoundSystem(soundSystem)
   enemyAISystem.setWeaponSystem(weaponSystem)
@@ -341,6 +344,7 @@ function initializeSystems() {
   movementSystem.setStatsSystem(statsSystem)
   weaponSystem.setSoundSystem(soundSystem)
   arrowSystem.setSoundSystem(soundSystem)
+  interactionSystem.setWeaponSystem(weaponSystem)
   targetingSystem = new TargetingSystem(box2d, worldId)
 
   const entityLookup = world.getEntityById.bind(world)
@@ -358,6 +362,7 @@ function initializeSystems() {
   world.addSystem(weaponSystem)
   world.addSystem(arrowSystem)
   world.addSystem(targetingSystem)
+  world.addSystem(interactionSystem) // 交互系统在weaponSystem之后执行
 
   world.setComponentPool(arrowPools)
   weaponSystem.setObstacles(obstacles)
@@ -607,16 +612,13 @@ function createPlayerAndWeapon(groundY: number) {
     groundY
   )
 
-  // 暂时注释掉武器以便测试跌落伤害
-  /*
-  // 在第一个障碍物右侧生成标准剑（x=-7，障碍物后1.9米）
-  createWeapon(world, -7, groundY - 0.6, groundY, 'sword')
+  // 在玩家右前方（向右7米）生成一把剑，方便看到
+  // Spawn weapon higher to avoid clipping into obstacles (platform at x=-5 is 5m high, top at groundY-5.5)
+  createWeapon(world, box2d, worldId, -5, groundY - 8.0, groundY, 'sword')
 
-  // 在玩家左侧生成短剑（x=-14，向左走2米）
-  createWeapon(world, -14, groundY - 0.6, groundY, 'shortSword')
-  // 在玩家左侧生成弓箭（副武器）
-  createWeapon(world, -16, groundY - 0.6, groundY, 'bow')
-  */
+  // 在远处阶梯平台（x=15，高度21m）上生成一把小剑用于测试
+  // 平台6：x=15, height=10.5 (全高21m), 顶部在 groundY - 21.0
+  createWeapon(world, box2d, worldId, 15, groundY - 22.0, groundY, 'shortSword')
 
   // Obstacles are at -9.5, 9.5, 19.5
 
@@ -869,8 +871,6 @@ function fixedUpdate() {
   } else {
     zoom = targetZoom
   }
-
-  weaponSystem.tryPickUpWeapon(playerEntity)
 
   const entities = world.getEntities()
   spatialHash.update(entities)
@@ -1341,7 +1341,9 @@ function sendState() {
       stateBuffer[offset + OFFSETS.STATS_HEALTH_MAX] = 0
     }
 
-    if (e.weapon) {
+    // 独立武器实体（地面武器）：只要有weapon组件就显示
+    // 角色实体：只有装备时才显示武器
+    if (e.weapon && (!e.stats || e.weapon.isEquipped)) {
       stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 1
       stateBuffer[offset + OFFSETS.WEAPON_X] = e.weapon.visual.x
       stateBuffer[offset + OFFSETS.WEAPON_Y] = e.weapon.visual.y
