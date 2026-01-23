@@ -95,6 +95,7 @@ export class MovementComponent extends Component {
   isGrounded = false
   isTouchingWall = false
   wallDirection = 0
+  lastWallJumpDirection = 0
   wallJumpCount = 0
   wallJumpTime = 0
   wallJumpElapsedTime = 0
@@ -144,6 +145,7 @@ export class MovementComponent extends Component {
     this.isGrounded = false
     this.isTouchingWall = false
     this.wallDirection = 0
+    this.lastWallJumpDirection = 0
     this.wallJumpCount = 0
     this.wallJumpTime = 0
     this.wallJumpElapsedTime = 0

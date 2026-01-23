@@ -554,10 +554,16 @@ export class MovementSystem extends System {
 
     if (entity.movement.isJumping) return false
 
+    const isDifferentWall =
+      entity.movement.isTouchingWall &&
+      !entity.movement.isGrounded &&
+      entity.movement.wallDirection !== entity.movement.lastWallJumpDirection
+
     const canWallJump =
       entity.movement.isTouchingWall &&
       !entity.movement.isGrounded &&
-      entity.movement.wallJumpCount < entity.movement.maxWallJumps
+      (entity.movement.wallJumpCount < entity.movement.maxWallJumps ||
+        isDifferentWall)
 
     return entity.movement.isGrounded || canWallJump
   }
@@ -578,6 +584,15 @@ export class MovementSystem extends System {
     entity.movement.isJumping = true
     entity.movement.jumpStartTime = this.currentTimeMs
     entity.movement.jumpElapsedTime = 0
+
+    const isDifferentWall =
+      entity.movement.isTouchingWall &&
+      !entity.movement.isGrounded &&
+      entity.movement.wallDirection !== entity.movement.lastWallJumpDirection
+
+    if (isDifferentWall) {
+      entity.movement.wallJumpCount = 0
+    }
 
     const canWallJump =
       entity.movement.isTouchingWall &&
@@ -602,6 +617,7 @@ export class MovementSystem extends System {
       entity.movement.wallJumpTime = this.currentTimeMs
       entity.movement.wallJumpElapsedTime = 0
       entity.movement.wallJumpCount++
+      entity.movement.lastWallJumpDirection = entity.movement.wallDirection
     } else if (entity.movement.isGrounded) {
       entity.movement.wallJumpCount = 0
       this.tempVec.x = 0
