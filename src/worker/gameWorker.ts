@@ -1498,16 +1498,63 @@ function sendState() {
 }
 
 function restart() {
-  if (!world) return
+  if (!world || !box2d) return
+
+  world.clear()
+
+  if (worldId) {
+    const { b2DestroyWorld } = box2d
+    b2DestroyWorld(worldId)
+  }
+
+  const { b2DefaultWorldDef, b2CreateWorld, b2Vec2 } = box2d
+  const worldDef = b2DefaultWorldDef()
+  worldDef.gravity = new b2Vec2(0, DEFAULT_GRAVITY)
+  worldId = b2CreateWorld(worldDef)
+  worldDef.delete()
+
+  spatialHash = new SpatialHash(5)
+  obstacles = []
+
   const groundHeight = 0.5
   const groundY = canvasHeight / pixelsPerMeter - groundHeight
   groundTopY = groundY - groundHeight
 
-  world.clear()
+  createGround()
+  createObstacles()
+
   initializeSystems()
   createPlayerAndWeapon(groundTopY)
+
   enemyAISystem.setPlayer(playerEntity)
+  soundSystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)
+
+  prevKeys.clear()
+  currKeys.clear()
+  prevMouseButtons.clear()
+  currMouseButtons.clear()
+
+  camera.x = 0
+  camera.y = 0
+  zoom = 1.0
+  targetZoom = 1.0
+  isCameraLocked = false
+  isTransitioning = false
+  transitionStartTime = 0
+  transitionStartCameraX = 0
+  lastVelocityDirection = 0
+  needsReturnToCenter = false
+  lastUnlockTime = 0
+  outOfCenterTime = 0
+
+  if (playerEntity && playerEntity.transform) {
+    const centerX = canvasWidth / 2
+    camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
+    isCameraLocked = true
+  }
+
+  effectsCount = 0
 
   isPaused = false
   lastTime = performance.now()

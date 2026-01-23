@@ -1,4 +1,6 @@
 import { GameClient } from './GameClient'
+import { InitializationManager } from './InitializationManager'
+import { MenuAction, MenuMode } from './MenuManager'
 import {
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
@@ -199,7 +201,20 @@ function syncInputs(
 }
 
 async function initialize() {
-  const game = new GameClient(canvas, ctx)
+  const initManager = new InitializationManager(canvas, ctx)
+  const steps = [
+    '加载配置',
+    '初始化渲染器',
+    '创建纹理图案',
+    '初始化游戏逻辑',
+    '设置输入系统',
+    '初始化音频系统',
+    '完成初始化',
+  ]
+  initManager.setSteps(steps)
+
+  initManager.nextStep('加载配置')
+  await new Promise((resolve) => setTimeout(resolve, 200))
 
   const storedValues = await loadStoredValues()
   const updateStoredValue = (id: string, value: string) => {
@@ -208,6 +223,13 @@ async function initialize() {
   }
   const applyControls: Array<() => void> = []
   setupDetailsState(storedValues, updateStoredValue)
+
+  const game = new GameClient(canvas, ctx, (step: string) => {
+    initManager.nextStep(step)
+  })
+
+  initManager.complete()
+  await new Promise((resolve) => setTimeout(resolve, 200))
 
   // Setup control panel
   const btnStop = document.getElementById('btnStop') as HTMLButtonElement
@@ -305,6 +327,43 @@ async function initialize() {
     requestAnimationFrame(uiLoop)
   }
   requestAnimationFrame(uiLoop)
+
+  const menuManager = game.getMenuManager()
+  menuManager.onAction((action: MenuAction) => {
+    switch (action) {
+      case MenuAction.NewGame:
+        menuManager.hide()
+        game.restart()
+        break
+      case MenuAction.Continue:
+        menuManager.hide()
+        game.start()
+        break
+      case MenuAction.Resume:
+        menuManager.hide()
+        game.start()
+        break
+      case MenuAction.MainMenu:
+        game.restart()
+        game.stop()
+        menuManager.show(MenuMode.Start)
+        break
+      case MenuAction.Editor:
+        alert('编辑模式功能尚未实现')
+        break
+      case MenuAction.Settings:
+        alert('设置功能尚未实现')
+        break
+      case MenuAction.Exit:
+        if (confirm('确定要退出游戏吗？')) {
+          window.close()
+        }
+        break
+    }
+  })
+
+  game.stop()
+  menuManager.show(MenuMode.Start)
 }
 
 initialize()

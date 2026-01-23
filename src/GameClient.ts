@@ -1,5 +1,6 @@
 import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
+import { MenuManager, MenuMode } from './MenuManager'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   MainToWorkerMessage,
@@ -13,6 +14,7 @@ export class GameClient {
   private ctx: CanvasRenderingContext2D
   private renderer: ClientRenderer
   private audioManager: AudioManager
+  private menuManager: MenuManager
   private pixelsPerMeter = 50
 
   private camera = { x: 0, y: 0 }
@@ -85,18 +87,26 @@ export class GameClient {
     },
   ]
 
-  constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    ctx: CanvasRenderingContext2D,
+    onInitProgress?: (step: string) => void
+  ) {
     this.canvas = canvas
     this.ctx = ctx
     this.renderer = new ClientRenderer(ctx, this.pixelsPerMeter)
     this.audioManager = new AudioManager()
+    this.menuManager = new MenuManager(canvas, ctx)
     this.renderer.setAudioManager(this.audioManager)
+
+    onInitProgress?.('初始化渲染器')
 
     // Cache bound functions once
     this.boundRenderLoop = this.renderLoop.bind(this)
     this.boundHandleWorkerMessage = this.handleWorkerMessage.bind(this)
 
     // Initialize Patterns
+    onInitProgress?.('创建纹理图案')
     this.backgroundPattern = this.createBackgroundPattern()
     this.groundPattern = this.createGroundPattern()
     this.obstaclePattern = this.createObstaclePattern()
@@ -109,6 +119,7 @@ export class GameClient {
     this.groundTopY = this.groundY - this.groundHeight
 
     // Initialize Worker
+    onInitProgress?.('初始化游戏逻辑')
     this.worker = new GameWorker()
     this.worker.onmessage = this.boundHandleWorkerMessage
 
@@ -120,9 +131,11 @@ export class GameClient {
       pixelsPerMeter: this.pixelsPerMeter,
     } as MainToWorkerMessage)
 
+    onInitProgress?.('设置输入系统')
     this.setupInput()
     this.setupAudioResume()
 
+    onInitProgress?.('初始化音频系统')
     this.audioManager.init().catch((error) => {
       console.error('Failed to initialize audio:', error)
     })
@@ -176,6 +189,23 @@ export class GameClient {
   private setupInput() {
     window.addEventListener('keydown', (e) => {
       const key = e.key.toLowerCase()
+
+      if (key === 'escape') {
+        e.preventDefault()
+        if (this.menuManager.isVisible()) {
+          this.menuManager.hide()
+          this.start()
+        } else {
+          this.stop()
+          this.menuManager.show(MenuMode.Pause)
+        }
+        return
+      }
+
+      if (this.menuManager.isVisible()) {
+        return
+      }
+
       // Prevent browser default behavior for game keys (scrolling, tab switching, etc.)
       if (
         [
@@ -210,16 +240,25 @@ export class GameClient {
     })
 
     window.addEventListener('keyup', (e) => {
+      if (this.menuManager.isVisible()) {
+        return
+      }
       this.keys.delete(e.key.toLowerCase())
       this.sendInput()
     })
 
     window.addEventListener('mousedown', (e) => {
+      if (this.menuManager.isVisible()) {
+        return
+      }
       this.mouseButtons.add(e.button)
       this.sendInput()
     })
 
     window.addEventListener('mouseup', (e) => {
+      if (this.menuManager.isVisible()) {
+        return
+      }
       this.mouseButtons.delete(e.button)
       this.sendInput()
     })
@@ -243,6 +282,9 @@ export class GameClient {
     })
 
     this.canvas.addEventListener('mousemove', (e) => {
+      if (this.menuManager.isVisible()) {
+        return
+      }
       if (document.pointerLockElement === this.canvas) {
         this.mouseX += e.movementX
         this.mouseY += e.movementY
@@ -264,6 +306,9 @@ export class GameClient {
     })
 
     this.canvas.addEventListener('wheel', (e) => {
+      if (this.menuManager.isVisible()) {
+        return
+      }
       e.preventDefault()
       const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1
       this.targetZoom = Math.max(
@@ -369,6 +414,9 @@ export class GameClient {
 
     // Draw Player UI (Health/Posture)
     this.renderer.renderPlayerUI()
+
+    // Draw Menu if visible
+    this.menuManager.render()
   }
 
   // Copied from GameECS
@@ -646,5 +694,9 @@ export class GameClient {
       paramId: id,
       value: value,
     })
+  }
+
+  getMenuManager(): MenuManager {
+    return this.menuManager
   }
 }
