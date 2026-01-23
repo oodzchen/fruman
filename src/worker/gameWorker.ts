@@ -1,16 +1,15 @@
 import Box2DFactory from 'box2d3-wasm'
 
 import {
-  ARCHER_SPAWN_CONFIG,
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   DEBUG_DRAW_SENSORS,
   DEBUG_DRAW_SOUND,
+  DEFAULT_CAMERA_ZOOM,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
   ENEMY_HEARING_RANGE_MULTIPLIER,
-  ENEMY_SPAWNS,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
 import { Faction } from '../ecs/Component'
@@ -18,11 +17,7 @@ import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
 import { World } from '../ecs/World'
-import {
-  createEnemy,
-  createPlayer,
-  createWeapon,
-} from '../ecs/factories/PlayerFactory'
+import { createPlayer } from '../ecs/factories/PlayerFactory'
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
@@ -193,8 +188,8 @@ const pendingParams: Record<string, number> = {}
 
 // Camera tracking logic (moved from Main to here to send correct camera pos)
 const camera = { x: 0, y: 0 }
-let zoom = 1.0
-let targetZoom = 1.0
+let zoom = DEFAULT_CAMERA_ZOOM
+let targetZoom = DEFAULT_CAMERA_ZOOM
 let canvasWidth = 0
 let isCameraLocked = false
 let isTransitioning = false
@@ -217,7 +212,7 @@ const stateMessage: WorkerStateMessage = {
   entityCount: 0,
   effectsCount: 0,
   camera: { x: 0, y: 0 },
-  zoom: 1.0,
+  zoom: DEFAULT_CAMERA_ZOOM,
 }
 
 const debugMessage: WorkerDebugMessage = {
@@ -343,6 +338,7 @@ function initializeSystems() {
   statsSystem.setSoundSystem(soundSystem)
   enemyAISystem.setWeaponSystem(weaponSystem)
   movementSystem.setSoundSystem(soundSystem)
+  movementSystem.setStatsSystem(statsSystem)
   weaponSystem.setSoundSystem(soundSystem)
   arrowSystem.setSoundSystem(soundSystem)
   targetingSystem = new TargetingSystem(box2d, worldId)
@@ -440,30 +436,16 @@ function createObstacles() {
   const groundY = canvasHeightInMeters - 0.5
   obstacles = []
 
+  // 跌落伤害测试平台（高度递增设计）
+  // 玩家在x=-12，向右是测试阶梯区
+  // height参数是半高，实际高度=height*2
   const obstacleConfigs: ObstacleConfig[] = [
-    { type: 'box', x: -9.5, width: 1.2, height: 2.8 },
-    { type: 'box', x: 9.5, width: 1.2, height: 2.8 },
-    { type: 'box', x: 19.5, width: 1.2, height: 1.0 },
-    // Irregular Triangle Left
-    {
-      type: 'polygon',
-      x: -22,
-      vertices: [
-        { x: -2, y: 0 },
-        { x: 2, y: 0 },
-        { x: 0.5, y: -3 },
-      ],
-    },
-    // Irregular Triangle Right
-    {
-      type: 'polygon',
-      x: 22,
-      vertices: [
-        { x: -2, y: 0 },
-        { x: 2, y: 0 },
-        { x: -0.5, y: -4 },
-      ],
-    },
+    { type: 'box', x: -9.5, width: 1.5, height: 1.5 }, // 平台1: 3.0m高（基础平台）
+    { type: 'box', x: -5, width: 1.5, height: 2.5 }, // 平台2: 5.0m高
+    { type: 'box', x: 0, width: 1.5, height: 3.5 }, // 平台3: 7.0m高
+    { type: 'box', x: 5, width: 1.5, height: 5.5 }, // 平台4: 11.0m高
+    { type: 'box', x: 10, width: 1.5, height: 7.5 }, // 平台5: 15.0m高
+    { type: 'box', x: 15, width: 1.5, height: 10.5 }, // 平台6: 21.0m高
   ]
 
   // Cap parameters
@@ -625,6 +607,8 @@ function createPlayerAndWeapon(groundY: number) {
     groundY
   )
 
+  // 暂时注释掉武器以便测试跌落伤害
+  /*
   // 在第一个障碍物右侧生成标准剑（x=-7，障碍物后1.9米）
   createWeapon(world, -7, groundY - 0.6, groundY, 'sword')
 
@@ -632,9 +616,12 @@ function createPlayerAndWeapon(groundY: number) {
   createWeapon(world, -14, groundY - 0.6, groundY, 'shortSword')
   // 在玩家左侧生成弓箭（副武器）
   createWeapon(world, -16, groundY - 0.6, groundY, 'bow')
+  */
 
   // Obstacles are at -9.5, 9.5, 19.5
 
+  // 暂时注释掉敌人以便测试跌落伤害
+  /*
   // Default enemy in the middle area
   enemyEntity = createEnemy(
     world,
@@ -695,6 +682,7 @@ function createPlayerAndWeapon(groundY: number) {
     groundY,
     ENEMY_SPAWNS.fast.type
   )
+  */
 
   enemyAISystem.setPlayer(playerEntity)
   soundSystem.setPlayer(playerEntity)
@@ -1537,8 +1525,8 @@ function restart() {
 
   camera.x = 0
   camera.y = 0
-  zoom = 1.0
-  targetZoom = 1.0
+  zoom = DEFAULT_CAMERA_ZOOM
+  targetZoom = DEFAULT_CAMERA_ZOOM
   isCameraLocked = false
   isTransitioning = false
   transitionStartTime = 0

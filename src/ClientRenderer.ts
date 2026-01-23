@@ -405,7 +405,13 @@ export class ClientRenderer {
     if (playerOffset === -1) return
 
     const flags = buf[playerOffset + OFFSETS.FLAGS]
-    if (!(flags & FLAGS.IN_COMBAT) && !(flags & FLAGS.HUD_VISIBLE)) return
+    if (
+      !(flags & FLAGS.IN_COMBAT) &&
+      !(flags & FLAGS.HUD_VISIBLE) &&
+      !(flags & FLAGS.DEAD)
+    ) {
+      return
+    }
 
     const health = buf[playerOffset + OFFSETS.STATS_HEALTH]
     const maxHealth = buf[playerOffset + OFFSETS.STATS_HEALTH_MAX]

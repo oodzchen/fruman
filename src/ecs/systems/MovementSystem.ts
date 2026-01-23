@@ -1,4 +1,5 @@
 import {
+  DEFAULT_GRAVITY,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
   DEFAULT_ROLL_COOLDOWN,
@@ -6,6 +7,9 @@ import {
   DEFAULT_ROLL_SPEED,
   DEFAULT_SPRINT_SPEED,
   DEFAULT_WALL_SLIDE_FRICTION,
+  FALL_DAMAGE_KINETIC_FATAL,
+  FALL_DAMAGE_KINETIC_THRESHOLD,
+  FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR,
   LANDING_MIN_VELOCITY,
   MASK_PLAYER,
   MASK_PLAYER_ROLLING,
@@ -20,6 +24,7 @@ import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { SoundSystem } from './SoundSystem'
+import type { StatsSystem } from './StatsSystem'
 
 export class MovementSystem extends System {
   private box2d: MainModule
@@ -27,6 +32,7 @@ export class MovementSystem extends System {
   private spatialHash: SpatialHash | null = null
   private entityLookup?: (id: number) => Entity | undefined
   private soundSystem: SoundSystem | null = null
+  private statsSystem: StatsSystem | null = null
   private tempVec: InstanceType<MainModule['b2Vec2']>
   private tempVec2: InstanceType<MainModule['b2Vec2']>
   private currentDeltaTime = 0
@@ -58,6 +64,10 @@ export class MovementSystem extends System {
 
   setSoundSystem(soundSystem: SoundSystem): void {
     this.soundSystem = soundSystem
+  }
+
+  setStatsSystem(statsSystem: StatsSystem): void {
+    this.statsSystem = statsSystem
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -150,17 +160,34 @@ export class MovementSystem extends System {
 
     this.updateBodyFriction(entity, grounded, touchingWall)
 
-    if (!wasGrounded && grounded && this.soundSystem && entity.render) {
-      const impactSpeed = Math.abs(velY)
-      if (impactSpeed >= LANDING_MIN_VELOCITY) {
-        const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
-        this.soundSystem.emitSoundAt(
-          entity.transform?.x ?? 0,
-          (entity.transform?.y ?? 0) + radius,
-          radius,
-          SOUND_DB_LAND
-        )
+    if (!grounded && velY > 0) {
+      if (entity.movement.maxFallVelocity === 0) {
+        entity.movement.fallStartY = entity.transform?.y ?? 0
       }
+      entity.movement.maxFallVelocity = Math.max(
+        entity.movement.maxFallVelocity,
+        velY
+      )
+      this.applyFatalFallDamageDuringFall(entity)
+    }
+
+    if (!wasGrounded && grounded) {
+      if (this.soundSystem && entity.render) {
+        const impactSpeed = Math.abs(velY)
+        if (impactSpeed >= LANDING_MIN_VELOCITY) {
+          const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
+          this.soundSystem.emitSoundAt(
+            entity.transform?.x ?? 0,
+            (entity.transform?.y ?? 0) + radius,
+            radius,
+            SOUND_DB_LAND
+          )
+        }
+      }
+
+      this.applyFallDamage(entity)
+      entity.movement.maxFallVelocity = 0
+      entity.movement.fallStartY = 0
     }
   }
 
@@ -652,5 +679,67 @@ export class MovementSystem extends System {
     }
 
     return false
+  }
+
+  private applyFallDamage(entity: Entity): void {
+    if (!entity.movement || !entity.stats || !this.statsSystem) return
+    if (entity.stats.isDead) return
+
+    const fallVelocity = entity.movement.maxFallVelocity
+    if (fallVelocity <= 0) return
+
+    const effectiveWeight = this.getEffectiveWeight(entity)
+
+    const kineticEnergy = 0.5 * effectiveWeight * fallVelocity * fallVelocity
+
+    if (kineticEnergy >= FALL_DAMAGE_KINETIC_FATAL) {
+      const fatalDamage = entity.stats.maxHealth
+      this.statsSystem.applyWeaponHit(entity, {
+        attackDamage: fatalDamage,
+        postureDamage: 0,
+        toughnessDamage: 0,
+        knockback: 0,
+      })
+    } else if (kineticEnergy >= FALL_DAMAGE_KINETIC_THRESHOLD) {
+      const excessKinetic = kineticEnergy - FALL_DAMAGE_KINETIC_THRESHOLD
+      const damage = excessKinetic / FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR
+      this.statsSystem.applyWeaponHit(entity, {
+        attackDamage: damage,
+        postureDamage: 0,
+        toughnessDamage: 0,
+        knockback: 0,
+      })
+    }
+  }
+
+  private applyFatalFallDamageDuringFall(entity: Entity): void {
+    if (!entity.movement || !entity.stats || !this.statsSystem) return
+    if (entity.stats.isDead) return
+    if (!entity.transform) return
+
+    const fallHeight = entity.transform.y - entity.movement.fallStartY
+    if (fallHeight <= 0) return
+
+    const effectiveWeight = this.getEffectiveWeight(entity)
+    const kineticEnergy = effectiveWeight * DEFAULT_GRAVITY * fallHeight
+    if (kineticEnergy < FALL_DAMAGE_KINETIC_FATAL) return
+
+    const fatalDamage = entity.stats.maxHealth
+    this.statsSystem.applyWeaponHit(entity, {
+      attackDamage: fatalDamage,
+      postureDamage: 0,
+      toughnessDamage: 0,
+      knockback: 0,
+    })
+  }
+
+  private getEffectiveWeight(entity: Entity): number {
+    if (!entity.movement) return DEFAULT_PLAYER_WEIGHT
+    const baseWeight =
+      entity.movement.baseWeight > 0
+        ? entity.movement.baseWeight
+        : DEFAULT_PLAYER_WEIGHT
+    const carryWeight = entity.weapon?.isEquipped ? entity.weapon.weight : 0
+    return baseWeight + carryWeight
   }
 }

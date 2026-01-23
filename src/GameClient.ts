@@ -69,29 +69,14 @@ export class GameClient {
   private groundY = 0
   private groundTopY = 0
   private obstacleConfigs = [
-    { type: 'box', x: -9.5, width: 1.2, height: 2.8 },
-    { type: 'box', x: 9.5, width: 1.2, height: 2.8 },
-    { type: 'box', x: 19.5, width: 1.2, height: 1.0 },
-    // Irregular Triangle Left
-    {
-      type: 'polygon',
-      x: -22,
-      vertices: [
-        { x: -2, y: 0 },
-        { x: 2, y: 0 },
-        { x: 0.5, y: -3 },
-      ],
-    },
-    // Irregular Triangle Right
-    {
-      type: 'polygon',
-      x: 22,
-      vertices: [
-        { x: -2, y: 0 },
-        { x: 2, y: 0 },
-        { x: -0.5, y: -4 },
-      ],
-    },
+    // 跌落伤害测试平台（与gameWorker.ts保持一致）
+    // height参数是半高，实际高度=height*2
+    { type: 'box', x: -9.5, width: 1.5, height: 1.5 }, // 平台1: 3.0m高（基础平台）
+    { type: 'box', x: -5, width: 1.5, height: 2.5 }, // 平台2: 5.0m高
+    { type: 'box', x: 0, width: 1.5, height: 3.5 }, // 平台3: 7.0m高
+    { type: 'box', x: 5, width: 1.5, height: 5.5 }, // 平台4: 11.0m高
+    { type: 'box', x: 10, width: 1.5, height: 7.5 }, // 平台5: 15.0m高
+    { type: 'box', x: 15, width: 1.5, height: 10.5 }, // 平台6: 21.0m高
   ]
 
   constructor(

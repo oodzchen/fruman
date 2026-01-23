@@ -38,7 +38,7 @@ export const DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS = 18
 // 调试开关：玩家锁血/锁架势
 export const DEBUG_LOCK_PLAYER_HEALTH = false
 export const DEBUG_LOCK_PLAYER_POSTURE = false
-export const DEBUG_PLAYER_IMMORTALITY = true
+export const DEBUG_PLAYER_IMMORTALITY = false
 export const DEBUG_LOCK_DEFAULT_ENEMY_HEALTH = true
 export const DEBUG_ANIMATION_SLOWDOWN = 1
 export const DEBUG_DRAW_SENSORS = false
@@ -205,6 +205,14 @@ export const FOOTSTEP_WAVE_DISTANCE_MULTIPLIER = 4
 export const FOOTSTEP_SOUND_DB = 1
 export const FOOTSTEP_MIN_MOVE_SPEED = 0.1
 export const LANDING_MIN_VELOCITY = 1.2
+
+// 跌落伤害参数
+// 实际计算使用动能：E = 0.5 * m * v^2（m为有效重量，v为最大下落速度）
+// 伤害：damage = (E - threshold) / divisor；E >= fatal 时直接致命
+// 若按自由落体估算：v^2 = 2 * g * h，则 E = m * g * h（g=50）
+export const FALL_DAMAGE_KINETIC_THRESHOLD = 42000 // 动能阈值，超过开始计伤
+export const FALL_DAMAGE_KINETIC_FATAL = 80000 // 致命动能阈值
+export const FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR = 2000 // 动能转伤害除数（数值越大伤害越低）
 
 // 碰撞/攻击声音分贝
 export const SOUND_DB_LAND = 1

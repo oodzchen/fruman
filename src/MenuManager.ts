@@ -150,16 +150,17 @@ export class MenuManager {
       } else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
         this.selectMenuItem(this.selectedIndex)
-            } else if (e.key === 'Escape') {
-              // Handle Back if in settings
-              if (this.mode === MenuMode.Settings) {
-                 e.preventDefault()
-                 this.show(this.previousMode, true)
-              }
-            }
-          }
-      
-          const handleMouseMove = (e: MouseEvent) => {      if (!this.visible) return
+      } else if (e.key === 'Escape') {
+        // Handle Back if in settings
+        if (this.mode === MenuMode.Settings) {
+          e.preventDefault()
+          this.show(this.previousMode, true)
+        }
+      }
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!this.visible) return
 
       const rect = this.canvas.getBoundingClientRect()
       this.mouseX = e.clientX - rect.left
@@ -231,24 +232,24 @@ export class MenuManager {
     )
   }
 
-    private selectMenuItem(index: number) {
-      const item = this.menuItems[index]
-      
-      if (item.action === MenuAction.Settings) {
-        this.previousMode = this.mode
-        this.show(MenuMode.Settings, true)
-        return
-      }
-  
-      if (item.action === MenuAction.Back) {
-        this.show(this.previousMode, true)
-        return
-      }
-  
-      if (this.onActionCallback) {
-        this.onActionCallback(item.action)
-      }
+  private selectMenuItem(index: number) {
+    const item = this.menuItems[index]
+
+    if (item.action === MenuAction.Settings) {
+      this.previousMode = this.mode
+      this.show(MenuMode.Settings, true)
+      return
     }
+
+    if (item.action === MenuAction.Back) {
+      this.show(this.previousMode, true)
+      return
+    }
+
+    if (this.onActionCallback) {
+      this.onActionCallback(item.action)
+    }
+  }
   show(mode: MenuMode = MenuMode.Start, skipAnimation = false) {
     this.mode = mode
     this.visible = true

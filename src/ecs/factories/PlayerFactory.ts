@@ -145,6 +145,7 @@ export function createPlayer(
   sensor.fov = (160 * Math.PI) / 180 // +/- 80 degrees
   entity.addComponent(sensor)
 
+  // 玩家初始武器组件（不在地上，直接装备状态，重量为0避免影响跌落测试）
   const weapon = new WeaponComponent()
   weapon.width = DEFAULT_WEAPON_WIDTH
   weapon.height = DEFAULT_WEAPON_HEIGHT
@@ -152,52 +153,52 @@ export function createPlayer(
   weapon.blockWidthStart = weapon.width
   weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-  weapon.weight = DEFAULT_WEAPON_WEIGHT
+  weapon.weight = 0 // 测试跌落伤害时武器重量设为0
   weapon.weaponType = 'sword'
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
-  const weaponX = 6
-  const weaponY = groundTopY - DEFAULT_WEAPON_HEIGHT / 2
+  weapon.isEquipped = true // 直接装备，不在地上显示
+  const followX = x - 1 * (radius + 0.2)
+  const followY = y + radius * -0.2
   weapon.position = {
-    x: weaponX,
-    y: weaponY,
+    x: followX,
+    y: followY,
   }
-  weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
-  weapon.isEquipped = false
+  weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   weapon.visual = {
-    x: weaponX,
-    y: weaponY,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    x: followX,
+    y: followY,
+    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   }
   weapon.attackStartTransform = {
-    x: weaponX,
-    y: weaponY,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    x: followX,
+    y: followY,
+    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   }
   weapon.swingStartTransform = {
-    x: weaponX,
-    y: weaponY,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    x: followX,
+    y: followY,
+    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   }
   weapon.swingEndTransform = {
-    x: weaponX,
-    y: weaponY,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    x: followX,
+    y: followY,
+    rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   }
   weapon.attackStartOffset = {
-    dx: 0,
-    dy: 0,
+    dx: followX - x,
+    dy: followY - y,
     rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   }
   weapon.swingStartOffset = {
-    dx: 0,
-    dy: 0,
+    dx: followX - x,
+    dy: followY - y,
     rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   }
   weapon.swingEndOffset = {
-    dx: 0,
-    dy: 0,
+    dx: followX - x,
+    dy: followY - y,
     rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   }
   weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
