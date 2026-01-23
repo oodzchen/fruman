@@ -1,5 +1,6 @@
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
+import { Language, localizer } from './Localizer'
 import { MenuAction, MenuMode } from './MenuManager'
 import {
   DEFAULT_BODY_FRICTION,
@@ -29,79 +30,79 @@ const PARAM_CONFIGS: ParamConfig[] = [
   {
     id: 'jumpForce',
     numberId: 'jumpForceNum',
-    label: '跳跃力度',
+    label: 'param_jump_force',
     defaultValue: DEFAULT_JUMP_FORCE,
   },
   {
     id: 'jumpBufferWindow',
     numberId: 'jumpBufferWindowNum',
-    label: '跳跃预输入时间(ms)',
+    label: 'param_jump_buffer',
     defaultValue: DEFAULT_JUMP_BUFFER_WINDOW,
   },
   {
     id: 'maxJumpDuration',
     numberId: 'maxJumpDurationNum',
-    label: '跳跃持续时间(ms)',
+    label: 'param_jump_duration',
     defaultValue: DEFAULT_MAX_JUMP_DURATION,
   },
   {
     id: 'jumpForceMultiplier',
     numberId: 'jumpForceMultiplierNum',
-    label: '持续跳跃力倍数',
+    label: 'param_sustained_jump',
     defaultValue: DEFAULT_JUMP_FORCE_MULTIPLIER,
   },
   {
     id: 'wallJumpPushAway',
     numberId: 'wallJumpPushAwayNum',
-    label: '蹬墙横向推离倍数',
+    label: 'param_wall_jump_horizontal',
     defaultValue: DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
   },
   {
     id: 'wallJumpUpward',
     numberId: 'wallJumpUpwardNum',
-    label: '蹬墙向上速度倍数',
+    label: 'param_wall_jump_vertical',
     defaultValue: DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
   },
   {
     id: 'maxWallJumps',
     numberId: 'maxWallJumpsNum',
-    label: '最大蹬墙次数',
+    label: 'param_max_wall_jumps',
     defaultValue: DEFAULT_MAX_WALL_JUMPS,
   },
   {
     id: 'moveSpeed',
     numberId: 'moveSpeedNum',
-    label: '移动速度',
+    label: 'param_move_speed',
     defaultValue: DEFAULT_MOVE_SPEED,
   },
   {
     id: 'bodyFriction',
     numberId: 'bodyFrictionNum',
-    label: '身体摩擦力',
+    label: 'param_body_friction',
     defaultValue: DEFAULT_BODY_FRICTION,
   },
   {
     id: 'bodyLinearDamping',
     numberId: 'bodyLinearDampingNum',
-    label: '角色线性阻尼',
+    label: 'param_linear_damping',
     defaultValue: DEFAULT_BODY_LINEAR_DAMPING,
   },
   {
     id: 'groundFriction',
     numberId: 'groundFrictionNum',
-    label: '地面摩擦力',
+    label: 'param_ground_friction',
     defaultValue: DEFAULT_GROUND_FRICTION,
   },
   {
     id: 'obstacleFriction',
     numberId: 'obstacleFrictionNum',
-    label: '障碍物摩擦力',
+    label: 'param_obstacle_friction',
     defaultValue: DEFAULT_OBSTACLE_FRICTION,
   },
   {
     id: 'cameraZoom',
     numberId: 'cameraZoomNum',
-    label: '镜头缩放',
+    label: 'param_camera_zoom',
     defaultValue: DEFAULT_CAMERA_ZOOM,
   },
 ]
@@ -201,19 +202,21 @@ function syncInputs(
 }
 
 async function initialize() {
+  await localizer.init(Language.ZhHans)
+
   const initManager = new InitializationManager(canvas, ctx)
   const steps = [
-    '加载配置',
-    '初始化渲染器',
-    '创建纹理图案',
-    '初始化游戏逻辑',
-    '设置输入系统',
-    '初始化音频系统',
-    '完成初始化',
+    'init_loading_config',
+    'init_renderer',
+    'init_textures',
+    'init_game_logic',
+    'init_input',
+    'init_audio',
+    'init_complete',
   ]
   initManager.setSteps(steps)
 
-  initManager.nextStep('加载配置')
+  initManager.nextStep('init_loading_config')
   await new Promise((resolve) => setTimeout(resolve, 200))
 
   const storedValues = await loadStoredValues()
@@ -239,14 +242,14 @@ async function initialize() {
 
   btnStop.addEventListener('click', () => {
     game.stop()
-    btnStop.textContent = '继续'
+    btnStop.textContent = localizer.t('ui_resume')
     btnStop.onclick = () => {
       game.start()
-      btnStop.textContent = '暂停'
+      btnStop.textContent = localizer.t('ui_pause')
       btnStop.onclick = null
       btnStop.addEventListener('click', () => {
         game.stop()
-        btnStop.textContent = '继续'
+        btnStop.textContent = localizer.t('ui_resume')
       })
     }
   })
@@ -254,7 +257,7 @@ async function initialize() {
   btnRestart.addEventListener('click', () => {
     game.restart()
     applyControls.forEach((apply) => apply())
-    btnStop.textContent = '暂停'
+    btnStop.textContent = localizer.t('ui_pause')
   })
 
   // 参数回调映射
@@ -299,7 +302,7 @@ async function initialize() {
   for (const config of PARAM_CONFIGS) {
     const result = paramResults[config.id]
     if (result) {
-      paramLog[config.label] = result.getValue()
+      paramLog[localizer.t(config.label)] = result.getValue()
     }
   }
   console.table(paramLog)
@@ -349,13 +352,13 @@ async function initialize() {
         menuManager.show(MenuMode.Start)
         break
       case MenuAction.Editor:
-        alert('编辑模式功能尚未实现')
+        alert(localizer.t('alert_editor_not_implemented'))
         break
       case MenuAction.Settings:
-        alert('设置功能尚未实现')
+        alert(localizer.t('alert_settings_not_implemented'))
         break
       case MenuAction.Exit:
-        if (confirm('确定要退出游戏吗？')) {
+        if (confirm(localizer.t('confirm_exit_game'))) {
           window.close()
         }
         break

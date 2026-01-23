@@ -1,3 +1,5 @@
+import { localizer } from './Localizer'
+
 export enum MenuAction {
   NewGame,
   Continue,
@@ -43,22 +45,54 @@ export class MenuManager {
 
     if (this.mode === MenuMode.Start) {
       this.menuItems = [
-        { label: '新游戏', action: MenuAction.NewGame, y: startY },
-        { label: '继续游戏', action: MenuAction.Continue, y: startY + spacing },
         {
-          label: '编辑模式',
+          label: localizer.t('menu_new_game'),
+          action: MenuAction.NewGame,
+          y: startY,
+        },
+        {
+          label: localizer.t('menu_continue_game'),
+          action: MenuAction.Continue,
+          y: startY + spacing,
+        },
+        {
+          label: localizer.t('menu_editor'),
           action: MenuAction.Editor,
           y: startY + spacing * 2,
         },
-        { label: '设置', action: MenuAction.Settings, y: startY + spacing * 3 },
-        { label: '退出', action: MenuAction.Exit, y: startY + spacing * 4 },
+        {
+          label: localizer.t('menu_settings'),
+          action: MenuAction.Settings,
+          y: startY + spacing * 3,
+        },
+        {
+          label: localizer.t('menu_exit'),
+          action: MenuAction.Exit,
+          y: startY + spacing * 4,
+        },
       ]
     } else {
       this.menuItems = [
-        { label: '继续', action: MenuAction.Resume, y: startY },
-        { label: '主菜单', action: MenuAction.MainMenu, y: startY + spacing },
-        { label: '设置', action: MenuAction.Settings, y: startY + spacing * 2 },
-        { label: '退出', action: MenuAction.Exit, y: startY + spacing * 3 },
+        {
+          label: localizer.t('menu_resume'),
+          action: MenuAction.Resume,
+          y: startY,
+        },
+        {
+          label: localizer.t('menu_main_menu'),
+          action: MenuAction.MainMenu,
+          y: startY + spacing,
+        },
+        {
+          label: localizer.t('menu_settings'),
+          action: MenuAction.Settings,
+          y: startY + spacing * 2,
+        },
+        {
+          label: localizer.t('menu_exit'),
+          action: MenuAction.Exit,
+          y: startY + spacing * 3,
+        },
       ]
     }
   }
@@ -179,7 +213,7 @@ export class MenuManager {
     this.ctx.fillStyle = '#ffffff'
     this.ctx.textAlign = 'center'
     this.ctx.textBaseline = 'middle'
-    this.ctx.fillText('FRUMAN', centerX, height / 2 - 150)
+    this.ctx.fillText(localizer.t('title'), centerX, height / 2 - 150)
 
     this.ctx.font = '20px monospace'
     for (let i = 0; i < this.menuItems.length; i++) {

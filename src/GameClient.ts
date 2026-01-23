@@ -1,5 +1,6 @@
 import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
+import { localizer } from './Localizer'
 import { MenuManager, MenuMode } from './MenuManager'
 import GameWorker from './worker/gameWorker?worker'
 import type {
@@ -99,14 +100,14 @@ export class GameClient {
     this.menuManager = new MenuManager(canvas, ctx)
     this.renderer.setAudioManager(this.audioManager)
 
-    onInitProgress?.('初始化渲染器')
+    onInitProgress?.(localizer.t('init_renderer'))
 
     // Cache bound functions once
     this.boundRenderLoop = this.renderLoop.bind(this)
     this.boundHandleWorkerMessage = this.handleWorkerMessage.bind(this)
 
     // Initialize Patterns
-    onInitProgress?.('创建纹理图案')
+    onInitProgress?.(localizer.t('init_textures'))
     this.backgroundPattern = this.createBackgroundPattern()
     this.groundPattern = this.createGroundPattern()
     this.obstaclePattern = this.createObstaclePattern()
@@ -119,7 +120,7 @@ export class GameClient {
     this.groundTopY = this.groundY - this.groundHeight
 
     // Initialize Worker
-    onInitProgress?.('初始化游戏逻辑')
+    onInitProgress?.(localizer.t('init_game_logic'))
     this.worker = new GameWorker()
     this.worker.onmessage = this.boundHandleWorkerMessage
 
@@ -131,11 +132,11 @@ export class GameClient {
       pixelsPerMeter: this.pixelsPerMeter,
     } as MainToWorkerMessage)
 
-    onInitProgress?.('设置输入系统')
+    onInitProgress?.(localizer.t('init_input'))
     this.setupInput()
     this.setupAudioResume()
 
-    onInitProgress?.('初始化音频系统')
+    onInitProgress?.(localizer.t('init_audio'))
     this.audioManager.init().catch((error) => {
       console.error('Failed to initialize audio:', error)
     })

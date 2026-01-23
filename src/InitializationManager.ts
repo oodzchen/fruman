@@ -1,3 +1,5 @@
+import { localizer } from './Localizer'
+
 export class InitializationManager {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
@@ -44,7 +46,7 @@ export class InitializationManager {
     this.ctx.font = '32px monospace'
     this.ctx.fillStyle = '#ffffff'
     this.ctx.textAlign = 'center'
-    this.ctx.fillText('FRUMAN', centerX, centerY - 80)
+    this.ctx.fillText(localizer.t('title'), centerX, centerY - 80)
 
     const barWidth = 400
     const barHeight = 30
@@ -62,8 +64,9 @@ export class InitializationManager {
     this.ctx.font = '16px monospace'
     this.ctx.fillStyle = '#aaaaaa'
     const progressPercent = Math.floor(this.progress * 100)
+    const stepText = localizer.t(this.currentStep)
     this.ctx.fillText(
-      `${progressPercent}% - ${this.currentStep}`,
+      `${progressPercent}% - ${stepText}`,
       centerX,
       centerY + 60
     )
