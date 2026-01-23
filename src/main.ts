@@ -230,6 +230,8 @@ async function initialize() {
   const game = new GameClient(canvas, ctx, (step: string) => {
     initManager.nextStep(step)
   })
+  // Initially disable input until game starts
+  game.setInputEnabled(false)
 
   initManager.complete()
   await new Promise((resolve) => setTimeout(resolve, 200))
@@ -242,13 +244,16 @@ async function initialize() {
 
   btnStop.addEventListener('click', () => {
     game.stop()
+    game.setInputEnabled(false)
     btnStop.textContent = localizer.t('ui_resume')
     btnStop.onclick = () => {
       game.start()
+      game.setInputEnabled(true)
       btnStop.textContent = localizer.t('ui_pause')
       btnStop.onclick = null
       btnStop.addEventListener('click', () => {
         game.stop()
+        game.setInputEnabled(false)
         btnStop.textContent = localizer.t('ui_resume')
       })
     }
@@ -256,6 +261,7 @@ async function initialize() {
 
   btnRestart.addEventListener('click', () => {
     game.restart()
+    game.setInputEnabled(true)
     applyControls.forEach((apply) => apply())
     btnStop.textContent = localizer.t('ui_pause')
   })
@@ -336,26 +342,30 @@ async function initialize() {
     switch (action) {
       case MenuAction.NewGame:
         menuManager.hide()
-        game.restart()
+        game.start()
+        game.setInputEnabled(true)
         break
       case MenuAction.Continue:
         menuManager.hide()
         game.start()
+        game.setInputEnabled(true)
         break
       case MenuAction.Resume:
         menuManager.hide()
         game.start()
+        game.setInputEnabled(true)
         break
       case MenuAction.MainMenu:
         game.restart()
         game.stop()
+        game.setInputEnabled(false)
         menuManager.show(MenuMode.Start)
         break
       case MenuAction.Editor:
         alert(localizer.t('alert_editor_not_implemented'))
         break
       case MenuAction.Settings:
-        alert(localizer.t('alert_settings_not_implemented'))
+        // Handled by MenuManager internally
         break
       case MenuAction.Exit:
         if (confirm(localizer.t('confirm_exit_game'))) {
@@ -365,8 +375,12 @@ async function initialize() {
     }
   })
 
-  game.stop()
-  menuManager.show(MenuMode.Start)
+  game.setOnFirstFrameRendered(() => {
+    setTimeout(() => {
+      game.stop()
+      menuManager.show(MenuMode.Start)
+    }, 800)
+  })
 }
 
 initialize()

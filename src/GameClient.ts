@@ -22,8 +22,13 @@ export class GameClient {
   private renderFps = 0
   private fpsText = '0 FPS'
   private lastTime = 0
+  private lastDeltaTime = 0
   private frameCount = 0
   private fpsUpdateTime = 0
+
+  private hasReceivedFirstState = false
+  private isFirstFrameRendered = false
+  private onFirstFrameRendered?: () => void
 
   // Input State
   private keys = new Set<string>()
@@ -36,6 +41,7 @@ export class GameClient {
   private mouseY = 0
   private mouseCaptured = false
   private mouseInside = false
+  private inputEnabled = true
 
   // Reusable message object for input
   private inputMessage: WorkerInputMessage = {
@@ -145,6 +151,10 @@ export class GameClient {
     requestAnimationFrame(this.boundRenderLoop)
   }
 
+  setInputEnabled(enabled: boolean) {
+    this.inputEnabled = enabled
+  }
+
   private setupAudioResume() {
     const resume = () => {
       this.audioManager.resumeContext()
@@ -166,6 +176,7 @@ export class GameClient {
       this.renderZoom = msg.zoom
       this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
       this.releaseStateBuffer(msg.entitiesBuffer)
+      this.hasReceivedFirstState = true
     } else if (msg.type === 'debug') {
       this.renderer.setSensorDebugData(msg.sensors)
       this.renderer.setSoundDebugData(msg.soundWaves, msg.soundListeners)
@@ -196,14 +207,16 @@ export class GameClient {
         if (this.menuManager.isVisible()) {
           this.menuManager.hide()
           this.start()
+          this.inputEnabled = true
         } else {
           this.stop()
           this.menuManager.show(MenuMode.Pause)
+          this.inputEnabled = false
         }
         return
       }
 
-      if (this.menuManager.isVisible()) {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
 
@@ -241,7 +254,7 @@ export class GameClient {
     })
 
     window.addEventListener('keyup', (e) => {
-      if (this.menuManager.isVisible()) {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
       this.keys.delete(e.key.toLowerCase())
@@ -249,7 +262,7 @@ export class GameClient {
     })
 
     window.addEventListener('mousedown', (e) => {
-      if (this.menuManager.isVisible()) {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
       this.mouseButtons.add(e.button)
@@ -257,7 +270,7 @@ export class GameClient {
     })
 
     window.addEventListener('mouseup', (e) => {
-      if (this.menuManager.isVisible()) {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
       this.mouseButtons.delete(e.button)
@@ -265,25 +278,28 @@ export class GameClient {
     })
 
     this.canvas.addEventListener('mouseenter', () => {
+      if (this.menuManager.isVisible() || !this.inputEnabled) return
       this.mouseInside = true
       this.mouseCaptured = true
       this.sendInput()
     })
 
     this.canvas.addEventListener('mouseleave', () => {
+      if (this.menuManager.isVisible() || !this.inputEnabled) return
       this.mouseInside = false
       this.mouseCaptured = false
       this.sendInput()
     })
 
     document.addEventListener('pointerlockchange', () => {
+      if (this.menuManager.isVisible() || !this.inputEnabled) return
       const isLocked = document.pointerLockElement === this.canvas
       this.mouseCaptured = isLocked || this.mouseInside
       this.sendInput()
     })
 
     this.canvas.addEventListener('mousemove', (e) => {
-      if (this.menuManager.isVisible()) {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
       if (document.pointerLockElement === this.canvas) {
@@ -307,7 +323,7 @@ export class GameClient {
     })
 
     this.canvas.addEventListener('wheel', (e) => {
-      if (this.menuManager.isVisible()) {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
       e.preventDefault()
@@ -348,6 +364,7 @@ export class GameClient {
     }
     const deltaTime = (now - this.lastTime) / 1000
     this.lastTime = now
+    this.lastDeltaTime = deltaTime
 
     this.frameCount++
     this.fpsUpdateTime += deltaTime
@@ -359,11 +376,21 @@ export class GameClient {
     }
 
     this.renderer.update(deltaTime)
-    this.render()
+    this.render(deltaTime)
+
+    if (
+      !this.isFirstFrameRendered &&
+      this.hasReceivedFirstState &&
+      this.onFirstFrameRendered
+    ) {
+      this.isFirstFrameRendered = true
+      this.onFirstFrameRendered()
+    }
+
     requestAnimationFrame(this.boundRenderLoop)
   }
 
-  private render() {
+  private render(deltaTime: number) {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
 
     // Draw Background
@@ -417,7 +444,7 @@ export class GameClient {
     this.renderer.renderPlayerUI()
 
     // Draw Menu if visible
-    this.menuManager.render()
+    this.menuManager.render(deltaTime)
   }
 
   // Copied from GameECS
@@ -627,6 +654,10 @@ export class GameClient {
   }
 
   // Public Control API (Proxy to Worker)
+  setOnFirstFrameRendered(callback: () => void) {
+    this.onFirstFrameRendered = callback
+  }
+
   stop() {
     this.worker.postMessage({ type: 'control', action: 'stop' })
   }

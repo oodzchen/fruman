@@ -58,7 +58,7 @@ export class InitializationManager {
     this.ctx.strokeRect(barX, barY, barWidth, barHeight)
 
     const progressWidth = barWidth * this.progress
-    this.ctx.fillStyle = '#4a9eff'
+    this.ctx.fillStyle = '#ffffff'
     this.ctx.fillRect(barX, barY, progressWidth, barHeight)
 
     this.ctx.font = '16px monospace'

@@ -5,6 +5,8 @@
   "menu_resume": "Resume",
   "menu_editor": "Editor Mode",
   "menu_settings": "Settings",
+  "menu_settings_language": "Language",
+  "menu_back": "Back",
   "menu_exit": "Exit",
   "menu_main_menu": "Main Menu",
   "init_loading_config": "Loading Config",
