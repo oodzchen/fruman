@@ -117,11 +117,22 @@ export type SoundListenerDebugData = {
   radius: number
 }
 
+export type CameraDebugData = {
+  topLimitRatio: number
+  bottomLimitRatio: number
+  playerScreenY: number
+  playerFeetY: number
+  cameraY: number
+  zoom: number
+  isOutsideVerticalZone: boolean
+}
+
 export type WorkerDebugMessage = {
   type: 'debug'
   sensors: SensorDebugData[]
   soundWaves: SoundWaveDebugData[]
   soundListeners: SoundListenerDebugData[]
+  camera: CameraDebugData | null
 }
 
 export type WorkerToMainMessage = WorkerStateMessage | WorkerDebugMessage

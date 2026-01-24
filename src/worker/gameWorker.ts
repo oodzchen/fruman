@@ -3,12 +3,14 @@ import Box2DFactory from 'box2d3-wasm'
 import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
+  DEBUG_DRAW_CAMERA,
   DEBUG_DRAW_SENSORS,
   DEBUG_DRAW_SOUND,
   DEFAULT_CAMERA_ZOOM,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
+  DEFAULT_PLAYER_RADIUS,
   ENEMY_HEARING_RANGE_MULTIPLIER,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
@@ -51,6 +53,7 @@ import {
   STATE_BUFFER_FLOATS,
 } from './effectsProtocol'
 import type {
+  CameraDebugData,
   MainToWorkerMessage,
   SensorDebugData,
   SoundListenerDebugData,
@@ -202,6 +205,16 @@ let needsReturnToCenter = false
 let lastUnlockTime = 0
 let currentTime = 0
 let outOfCenterTime = 0
+
+// Vertical Camera State
+let isVerticalCameraLocked = false
+let isVerticalTransitioning = false
+let verticalTransitionStartTime = 0
+let verticalTransitionStartCameraY = 0
+let verticalOutOfCenterTime = 0
+let lastVerticalUnlockTime = 0
+let initialPlayerScreenRatioY = 0.95 // Default to near bottom
+
 const TRANSITION_DURATION = 3.0
 const UNLOCK_COOLDOWN = 0.2
 const OUTSIDE_THIRD_RELOCK_DELAY = 0.15
@@ -222,10 +235,20 @@ const debugMessage: WorkerDebugMessage = {
   sensors: [],
   soundWaves: [],
   soundListeners: [],
+  camera: null,
 }
 const debugSensors: SensorDebugData[] = []
 const debugSoundWaves: SoundWaveDebugData[] = []
 const debugSoundListeners: SoundListenerDebugData[] = []
+const debugCameraData: CameraDebugData = {
+  topLimitRatio: 0.5,
+  bottomLimitRatio: 0.95,
+  playerScreenY: 0,
+  playerFeetY: 0,
+  cameraY: 0,
+  zoom: DEFAULT_CAMERA_ZOOM,
+  isOutsideVerticalZone: false,
+}
 const emptySoundWaves: SoundWaveDebugData[] = []
 const emptySoundListeners: SoundListenerDebugData[] = []
 const emptySensors: SensorDebugData[] = []
@@ -268,10 +291,25 @@ async function init(width: number, height: number, ppm: number) {
   if (playerEntity && playerEntity.transform) {
     const centerX = canvasWidth / 2
     camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
+
+    // Vertical initialization: Camera at top (0), Player near bottom
+    const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+    camera.y = canvasHeightInMeters - canvasHeightInMeters // Effectively 0
+
+    // Capture initial screen ratio (considering the 0.2 buffer)
+    const initialPlayerFeetY =
+      playerEntity.transform.y + DEFAULT_PLAYER_RADIUS + 0.2
+    // Formula derived from GameClient's anchor-at-bottom-center transform
+    const initialScreenY =
+      canvasHeight +
+      ((initialPlayerFeetY - camera.y) * pixelsPerMeter - canvasHeight) * zoom
+    initialPlayerScreenRatioY = Math.max(
+      0.6,
+      Math.min(0.98, initialScreenY / canvasHeight)
+    )
+
     isCameraLocked = true
   }
-
-  // Apply pending parameters
   Object.entries(pendingParams).forEach(([id, value]) => {
     updateParam(id, value)
   })
@@ -912,6 +950,7 @@ function easeOutCubic(t: number): number {
 }
 
 function updateCamera(playerX: number) {
+  // --- Horizontal Logic ---
   const canvasWidthInMeters = canvasWidth / (pixelsPerMeter * zoom)
   let isEnemyLocked = false
   let targetEntityX = 0
@@ -1063,16 +1102,141 @@ function updateCamera(playerX: number) {
     }
   }
 
-  // Simple interpolation system - always uses fixed factor
-  const diff = desiredCameraX - camera.x
-  if (Math.abs(diff) > 0.001) {
-    camera.x += diff * 0.15
+  // Horizontal Interpolation
+  const diffX = desiredCameraX - camera.x
+  if (Math.abs(diffX) > 0.001) {
+    camera.x += diffX * 0.15
   } else {
     camera.x = desiredCameraX
   }
 
+  // --- Vertical Logic ---
   const canvasHeightInMeters = canvasHeight / pixelsPerMeter
-  camera.y = canvasHeightInMeters - canvasHeightInMeters
+  let desiredCameraY = camera.y
+
+  if (playerEntity && playerEntity.transform) {
+    const playerY = playerEntity.transform.y
+    const playerFeetY = playerY + DEFAULT_PLAYER_RADIUS
+    const currentCameraY = camera.y
+
+    // Screen-space position calculation (matching GameClient render transform)
+    const playerScreenY =
+      canvasHeight +
+      ((playerFeetY - currentCameraY) * pixelsPerMeter - canvasHeight) * zoom
+
+    const topLimit = 0.5 * canvasHeight
+    const bottomLimit = initialPlayerScreenRatioY * canvasHeight
+    const isOutsideVerticalZone =
+      playerScreenY < topLimit || playerScreenY > bottomLimit
+
+    if (DEBUG_DRAW_CAMERA) {
+      debugCameraData.topLimitRatio = 0.5
+      debugCameraData.bottomLimitRatio = initialPlayerScreenRatioY
+      debugCameraData.playerScreenY = playerScreenY
+      debugCameraData.playerFeetY = playerFeetY
+      debugCameraData.cameraY = currentCameraY
+      debugCameraData.zoom = zoom
+      debugCameraData.isOutsideVerticalZone = isOutsideVerticalZone
+    }
+
+    // Time tracking
+    if (isVerticalCameraLocked) {
+      verticalOutOfCenterTime = 0
+    } else if (isOutsideVerticalZone) {
+      verticalOutOfCenterTime += TIME_STEP
+    } else {
+      verticalOutOfCenterTime = 0
+    }
+
+    // Lock Logic
+    if (!isVerticalCameraLocked) {
+      const timeSinceUnlock = currentTime - lastVerticalUnlockTime
+
+      if (
+        isOutsideVerticalZone &&
+        verticalOutOfCenterTime >= OUTSIDE_THIRD_RELOCK_DELAY &&
+        timeSinceUnlock > UNLOCK_COOLDOWN
+      ) {
+        isVerticalCameraLocked = true
+        isVerticalTransitioning = true
+        verticalTransitionStartTime = currentTime
+        verticalTransitionStartCameraY = camera.y
+      }
+    }
+
+    // Unlock Logic
+    if (isVerticalCameraLocked) {
+      if (playerEntity.physics) {
+        const vel = box2d.b2Body_GetLinearVelocity(playerEntity.physics.bodyId)
+        const verticalSpeed = Math.abs(vel.y)
+        vel.delete()
+
+        if (
+          verticalSpeed < 0.2 &&
+          !isVerticalTransitioning &&
+          !isOutsideVerticalZone
+        ) {
+          isVerticalCameraLocked = false
+          isVerticalTransitioning = false
+          lastVerticalUnlockTime = currentTime
+        }
+      }
+    }
+
+    // Target Calculation
+    if (isVerticalCameraLocked) {
+      // Formula to find CameraY for a specific ScreenRatio:
+      // camY = worldY - canvasHeightInMeters * ((ratio - 1) / zoom + 1)
+      const targetY =
+        playerFeetY -
+        canvasHeightInMeters * ((initialPlayerScreenRatioY - 1) / zoom + 1)
+
+      if (isVerticalTransitioning) {
+        const elapsed = currentTime - verticalTransitionStartTime
+        const progress = Math.min(elapsed / TRANSITION_DURATION, 1)
+
+        if (progress >= 1) {
+          isVerticalTransitioning = false
+          desiredCameraY = targetY
+        } else {
+          const eased = easeOutCubic(progress)
+          desiredCameraY =
+            verticalTransitionStartCameraY +
+            (targetY - verticalTransitionStartCameraY) * eased
+        }
+      } else {
+        desiredCameraY = targetY
+      }
+    } else {
+      desiredCameraY = currentCameraY
+    }
+  }
+
+  // Vertical Interpolation (Slower)
+  const diffY = desiredCameraY - camera.y
+  if (Math.abs(diffY) > 0.001) {
+    camera.y += diffY * 0.08
+  } else {
+    camera.y = desiredCameraY
+  }
+
+  // Emergency Clamp: Prevent player from falling out of screen (Scale-invariant)
+  if (playerEntity && playerEntity.transform) {
+    const playerFeetY = playerEntity.transform.y + DEFAULT_PLAYER_RADIUS
+    const currentCameraY = camera.y
+    const playerScreenY =
+      canvasHeight +
+      ((playerFeetY - currentCameraY) * pixelsPerMeter - canvasHeight) * zoom
+
+    const bottomMarginRatio = 0.15
+    const emergencyThreshold = (1 - bottomMarginRatio) * canvasHeight
+
+    if (playerScreenY > emergencyThreshold) {
+      // Force CameraY so that player stays at emergencyThreshold
+      const ratio = 1 - bottomMarginRatio
+      camera.y = playerFeetY - canvasHeightInMeters * ((ratio - 1) / zoom + 1)
+    }
+  }
 }
 
 function cleanupDestroyedEntities() {
@@ -1446,7 +1610,8 @@ function sendState() {
   stateMessage.camera.x = camera.x
   stateMessage.camera.y = camera.y
   stateMessage.zoom = zoom
-  const shouldSendDebug = DEBUG_DRAW_SENSORS || DEBUG_DRAW_SOUND
+  const shouldSendDebug =
+    DEBUG_DRAW_SENSORS || DEBUG_DRAW_SOUND || DEBUG_DRAW_CAMERA
   if (sharedStateBuffer) {
     ctx.postMessage(stateMessage)
     if (shouldSendDebug) {
@@ -1459,6 +1624,7 @@ function sendState() {
       debugMessage.soundListeners = DEBUG_DRAW_SOUND
         ? collectSoundListenerDebugData(entities)
         : emptySoundListeners
+      debugMessage.camera = DEBUG_DRAW_CAMERA ? debugCameraData : null
       ctx.postMessage(debugMessage)
     }
     effectsCount = 0
@@ -1477,6 +1643,7 @@ function sendState() {
     debugMessage.soundListeners = DEBUG_DRAW_SOUND
       ? collectSoundListenerDebugData(entities)
       : emptySoundListeners
+    debugMessage.camera = DEBUG_DRAW_CAMERA ? debugCameraData : null
     ctx.postMessage(debugMessage)
   }
   effectsCount = 0
@@ -1538,14 +1705,36 @@ function restart() {
   lastUnlockTime = 0
   outOfCenterTime = 0
 
+  // Reset Vertical State
+  isVerticalCameraLocked = false
+  isVerticalTransitioning = false
+  verticalTransitionStartTime = 0
+  verticalTransitionStartCameraY = 0
+  verticalOutOfCenterTime = 0
+  lastVerticalUnlockTime = 0
+  initialPlayerScreenRatioY = 0.95
+
   if (playerEntity && playerEntity.transform) {
     const centerX = canvasWidth / 2
     camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
+
+    // Vertical initialization
+    const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+    camera.y = canvasHeightInMeters - canvasHeightInMeters
+
+    const initialPlayerFeetY =
+      playerEntity.transform.y + DEFAULT_PLAYER_RADIUS + 0.2
+    const initialScreenY =
+      canvasHeight +
+      ((initialPlayerFeetY - camera.y) * pixelsPerMeter - canvasHeight) * zoom
+    initialPlayerScreenRatioY = Math.max(
+      0.6,
+      Math.min(0.98, initialScreenY / canvasHeight)
+    )
+
     isCameraLocked = true
   }
-
   effectsCount = 0
-
   isPaused = false
   lastTime = performance.now()
   accumulator = 0

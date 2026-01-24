@@ -4,6 +4,7 @@ import { localizer } from './Localizer'
 import { MenuManager, MenuMode } from './MenuManager'
 import GameWorker from './worker/gameWorker?worker'
 import type {
+  CameraDebugData,
   MainToWorkerMessage,
   WorkerInputMessage,
   WorkerToMainMessage,
@@ -42,6 +43,16 @@ export class GameClient {
   private mouseCaptured = false
   private mouseInside = false
   private inputEnabled = true
+  private cameraDebug: CameraDebugData & { enabled: boolean } = {
+    topLimitRatio: 0.5,
+    bottomLimitRatio: 0.95,
+    playerScreenY: 0,
+    playerFeetY: 0,
+    cameraY: 0,
+    zoom: 1,
+    isOutsideVerticalZone: false,
+    enabled: false,
+  }
 
   // Reusable message object for input
   private inputMessage: WorkerInputMessage = {
@@ -165,6 +176,19 @@ export class GameClient {
     } else if (msg.type === 'debug') {
       this.renderer.setSensorDebugData(msg.sensors)
       this.renderer.setSoundDebugData(msg.soundWaves, msg.soundListeners)
+      if (msg.camera) {
+        this.cameraDebug.topLimitRatio = msg.camera.topLimitRatio
+        this.cameraDebug.bottomLimitRatio = msg.camera.bottomLimitRatio
+        this.cameraDebug.playerScreenY = msg.camera.playerScreenY
+        this.cameraDebug.playerFeetY = msg.camera.playerFeetY
+        this.cameraDebug.cameraY = msg.camera.cameraY
+        this.cameraDebug.zoom = msg.camera.zoom
+        this.cameraDebug.isOutsideVerticalZone =
+          msg.camera.isOutsideVerticalZone
+        this.cameraDebug.enabled = true
+      } else {
+        this.cameraDebug.enabled = false
+      }
     }
   }
 
@@ -413,6 +437,10 @@ export class GameClient {
 
     this.ctx.restore()
 
+    if (this.cameraDebug.enabled) {
+      this.renderCameraDebug()
+    }
+
     // Draw FPS
     this.ctx.save()
     this.ctx.font = '20px monospace'
@@ -430,6 +458,31 @@ export class GameClient {
 
     // Draw Menu if visible
     this.menuManager.render(deltaTime)
+  }
+
+  private renderCameraDebug(): void {
+    const ctx = this.ctx
+    const canvasWidth = this.canvas.width
+    const canvasHeight = this.canvas.height
+    const topLimitY = this.cameraDebug.topLimitRatio * canvasHeight
+    const bottomLimitY = this.cameraDebug.bottomLimitRatio * canvasHeight
+
+    ctx.save()
+    ctx.lineWidth = 1
+    ctx.strokeStyle = this.cameraDebug.isOutsideVerticalZone
+      ? '#ff3b30'
+      : '#00d2ff'
+
+    ctx.beginPath()
+    ctx.moveTo(0, topLimitY)
+    ctx.lineTo(canvasWidth, topLimitY)
+    ctx.moveTo(0, bottomLimitY)
+    ctx.lineTo(canvasWidth, bottomLimitY)
+    ctx.stroke()
+
+    ctx.strokeStyle = '#ffb020'
+    ctx.strokeRect(1, 1, canvasWidth - 2, canvasHeight - 2)
+    ctx.restore()
   }
 
   // Copied from GameECS
