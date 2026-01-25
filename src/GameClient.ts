@@ -152,13 +152,19 @@ export class GameClient {
   }
 
   private setupAudioResume() {
+    let hasUnlockedAudio = false
+    const passiveListenerOptions: AddEventListenerOptions = { passive: true }
     const resume = () => {
+      if (hasUnlockedAudio) return
+      hasUnlockedAudio = true
       this.audioManager.resumeContext()
       window.removeEventListener('keydown', resume)
-      window.removeEventListener('mousedown', resume)
+      window.removeEventListener('pointerdown', resume)
+      window.removeEventListener('touchstart', resume)
     }
     window.addEventListener('keydown', resume)
-    window.addEventListener('mousedown', resume)
+    window.addEventListener('pointerdown', resume, passiveListenerOptions)
+    window.addEventListener('touchstart', resume, passiveListenerOptions)
   }
 
   private handleWorkerMessage(e: MessageEvent<WorkerToMainMessage>) {
