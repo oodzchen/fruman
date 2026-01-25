@@ -214,11 +214,16 @@ let verticalTransitionStartCameraY = 0
 let verticalOutOfCenterTime = 0
 let lastVerticalUnlockTime = 0
 let initialPlayerScreenRatioY = 0.95 // Default to near bottom
+let verticalIdleTime = 0
+let verticalTransitionTargetRatio = 0.5
 
 const TRANSITION_DURATION = 3.0
 const UNLOCK_COOLDOWN = 0.2
 const OUTSIDE_THIRD_RELOCK_DELAY = 0.15
 const CAMERA_FORWARD_OFFSET = 0.67 // 2/3 角色宽度前向偏移
+const VERTICAL_LOCK_SCREEN_RATIO = 0.5
+const VERTICAL_UNLOCK_DELAY = 3.0
+const VERTICAL_IDLE_SPEED = 0.1
 
 // Reusable message object for sendState
 const stateMessage: WorkerStateMessage = {
@@ -1118,6 +1123,8 @@ function updateCamera(playerX: number) {
     const playerY = playerEntity.transform.y
     const playerFeetY = playerY + DEFAULT_PLAYER_RADIUS
     const currentCameraY = camera.y
+    let speedY = 0
+    let hasVelocity = false
 
     // Screen-space position calculation (matching GameClient render transform)
     const playerScreenY =
@@ -1161,35 +1168,50 @@ function updateCamera(playerX: number) {
         isVerticalTransitioning = true
         verticalTransitionStartTime = currentTime
         verticalTransitionStartCameraY = camera.y
+        verticalTransitionTargetRatio = VERTICAL_LOCK_SCREEN_RATIO
+        verticalIdleTime = 0
       }
     }
 
     // Unlock Logic
-    if (isVerticalCameraLocked) {
-      if (playerEntity.physics) {
-        const vel = box2d.b2Body_GetLinearVelocity(playerEntity.physics.bodyId)
-        const verticalSpeed = Math.abs(vel.y)
-        vel.delete()
+    if (playerEntity.physics) {
+      const vel = box2d.b2Body_GetLinearVelocity(playerEntity.physics.bodyId)
+      speedY = Math.abs(vel.y)
+      hasVelocity = true
+      vel.delete()
+    }
 
-        if (
-          verticalSpeed < 0.2 &&
-          !isVerticalTransitioning &&
-          !isOutsideVerticalZone
-        ) {
-          isVerticalCameraLocked = false
-          isVerticalTransitioning = false
-          lastVerticalUnlockTime = currentTime
+    if (hasVelocity) {
+      const isIdle = speedY < VERTICAL_IDLE_SPEED
+      if (isVerticalCameraLocked) {
+        if (isIdle && !isVerticalTransitioning) {
+          verticalIdleTime += TIME_STEP
+          if (verticalIdleTime >= VERTICAL_UNLOCK_DELAY) {
+            isVerticalCameraLocked = false
+            isVerticalTransitioning = true
+            verticalTransitionStartTime = currentTime
+            verticalTransitionStartCameraY = camera.y
+            verticalTransitionTargetRatio = initialPlayerScreenRatioY
+            lastVerticalUnlockTime = currentTime
+            verticalIdleTime = 0
+          }
+        } else {
+          verticalIdleTime = 0
         }
+      } else if (isVerticalTransitioning && !isIdle) {
+        isVerticalTransitioning = false
       }
     }
 
     // Target Calculation
-    if (isVerticalCameraLocked) {
+    if (isVerticalCameraLocked || isVerticalTransitioning) {
+      const targetRatio = isVerticalCameraLocked
+        ? VERTICAL_LOCK_SCREEN_RATIO
+        : verticalTransitionTargetRatio
       // Formula to find CameraY for a specific ScreenRatio:
       // camY = worldY - canvasHeightInMeters * ((ratio - 1) / zoom + 1)
       const targetY =
-        playerFeetY -
-        canvasHeightInMeters * ((initialPlayerScreenRatioY - 1) / zoom + 1)
+        playerFeetY - canvasHeightInMeters * ((targetRatio - 1) / zoom + 1)
 
       if (isVerticalTransitioning) {
         const elapsed = currentTime - verticalTransitionStartTime
@@ -1713,6 +1735,8 @@ function restart() {
   verticalOutOfCenterTime = 0
   lastVerticalUnlockTime = 0
   initialPlayerScreenRatioY = 0.95
+  verticalIdleTime = 0
+  verticalTransitionTargetRatio = VERTICAL_LOCK_SCREEN_RATIO
 
   if (playerEntity && playerEntity.transform) {
     const centerX = canvasWidth / 2

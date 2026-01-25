@@ -36,7 +36,7 @@ export const DEFAULT_SMALL_ENEMY_MAX_TOUGHNESS = 3
 export const DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS = 18
 
 // 调试开关：玩家锁血/锁架势
-export const DEBUG_LOCK_PLAYER_HEALTH = true
+export const DEBUG_LOCK_PLAYER_HEALTH = false
 export const DEBUG_LOCK_PLAYER_POSTURE = false
 export const DEBUG_PLAYER_IMMORTALITY = true
 export const DEBUG_LOCK_DEFAULT_ENEMY_HEALTH = true
