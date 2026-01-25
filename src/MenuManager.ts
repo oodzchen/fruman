@@ -27,20 +27,39 @@ interface MenuItem {
 
 export class MenuManager {
   private canvas: HTMLCanvasElement
-  private ctx: CanvasRenderingContext2D
+  private menuOverlay: HTMLDivElement
+  private uiLayer: HTMLDivElement
+  private menuTitle: HTMLDivElement
+  private menuItemsContainer: HTMLDivElement
+  private menuItemElements: HTMLButtonElement[] = []
+  private activeItemCount = 0
   private visible = false
   private mode: MenuMode = MenuMode.Start
   private previousMode: MenuMode = MenuMode.Start
   private menuItems: MenuItem[] = []
   private selectedIndex = 0
   private onActionCallback?: (action: MenuAction) => void
-  private mouseX = 0
-  private mouseY = 0
   private animTime = 0
 
-  constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
+  private boundHandleItemMouseEnter: (event: Event) => void
+  private boundHandleItemClick: (event: Event) => void
+
+  constructor(canvas: HTMLCanvasElement, menuOverlay: HTMLDivElement) {
     this.canvas = canvas
-    this.ctx = ctx
+    this.menuOverlay = menuOverlay
+    const uiLayer = menuOverlay.parentElement
+    const title = menuOverlay.querySelector<HTMLDivElement>('#menuTitle')
+    const items = menuOverlay.querySelector<HTMLDivElement>('#menuItems')
+    if (!(uiLayer instanceof HTMLDivElement) || !title || !items) {
+      throw new Error('Menu overlay elements are missing.')
+    }
+    this.uiLayer = uiLayer
+    this.menuTitle = title
+    this.menuItemsContainer = items
+    this.boundHandleItemMouseEnter = this.handleItemMouseEnter.bind(this)
+    this.boundHandleItemClick = this.handleItemClick.bind(this)
+    this.menuOverlay.classList.remove('is-visible')
+    this.menuOverlay.setAttribute('aria-hidden', 'true')
     this.initMenuItems()
     this.setupInput()
   }
@@ -120,6 +139,10 @@ export class MenuManager {
         },
       ]
     }
+
+    if (this.selectedIndex >= this.menuItems.length) {
+      this.selectedIndex = 0
+    }
   }
 
   private setupInput() {
@@ -128,13 +151,14 @@ export class MenuManager {
 
       if (e.key === 'ArrowUp' || e.key === 'w') {
         e.preventDefault()
-        this.selectedIndex =
+        this.setSelectedIndex(
           (this.selectedIndex - 1 + this.menuItems.length) %
-          this.menuItems.length
+            this.menuItems.length
+        )
         // Reset animation time slightly for feedback? No, keep it smooth.
       } else if (e.key === 'ArrowDown' || e.key === 's') {
         e.preventDefault()
-        this.selectedIndex = (this.selectedIndex + 1) % this.menuItems.length
+        this.setSelectedIndex((this.selectedIndex + 1) % this.menuItems.length)
       } else if (e.key === 'ArrowLeft' || e.key === 'a') {
         const item = this.menuItems[this.selectedIndex]
         if (item.action === MenuAction.Language) {
@@ -159,52 +183,7 @@ export class MenuManager {
       }
     }
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!this.visible) return
-
-      const rect = this.canvas.getBoundingClientRect()
-      this.mouseX = e.clientX - rect.left
-      this.mouseY = e.clientY - rect.top
-
-      let hoveredIndex = -1
-      for (let i = 0; i < this.menuItems.length; i++) {
-        if (this.isMouseOverItem(i)) {
-          hoveredIndex = i
-          break
-        }
-      }
-
-      if (hoveredIndex !== -1 && hoveredIndex !== this.selectedIndex) {
-        this.selectedIndex = hoveredIndex
-      }
-    }
-
-    const handleClick = (e: MouseEvent) => {
-      if (!this.visible) return
-
-      const rect = this.canvas.getBoundingClientRect()
-      this.mouseX = e.clientX - rect.left
-      this.mouseY = e.clientY - rect.top
-
-      for (let i = 0; i < this.menuItems.length; i++) {
-        if (this.isMouseOverItem(i)) {
-          // If clicking language, maybe cycle it?
-          // Or just allow selection to do nothing (as interaction is via arrows)
-          // But 'selectMenuItem' is called.
-          const item = this.menuItems[i]
-          if (item.action === MenuAction.Language) {
-            this.cycleLanguage(1)
-          } else {
-            this.selectMenuItem(i)
-          }
-          break
-        }
-      }
-    }
-
     window.addEventListener('keydown', handleKeyDown)
-    this.canvas.addEventListener('mousemove', handleMouseMove)
-    this.canvas.addEventListener('click', handleClick)
   }
 
   private async cycleLanguage(direction: number) {
@@ -216,20 +195,96 @@ export class MenuManager {
 
     await localizer.setLanguage(languages[newIndex])
     this.initMenuItems() // Refresh text
+    this.syncMenuDom()
   }
 
-  private isMouseOverItem(index: number): boolean {
-    const item = this.menuItems[index]
-    const centerX = this.canvas.width / 2
-    const itemWidth = 300
-    const itemHeight = 40
+  private handleItemMouseEnter(event: Event) {
+    if (!this.visible) return
+    const target = event.currentTarget
+    if (!(target instanceof HTMLButtonElement)) return
+    const index = Number.parseInt(target.dataset.index || '', 10)
+    if (!Number.isFinite(index)) return
+    if (index !== this.selectedIndex) {
+      this.setSelectedIndex(index)
+    }
+  }
 
-    return (
-      this.mouseX >= centerX - itemWidth / 2 &&
-      this.mouseX <= centerX + itemWidth / 2 &&
-      this.mouseY >= item.y - itemHeight / 2 &&
-      this.mouseY <= item.y + itemHeight / 2
-    )
+  private handleItemClick(event: Event) {
+    if (!this.visible) return
+    const target = event.currentTarget
+    if (!(target instanceof HTMLButtonElement)) return
+    const index = Number.parseInt(target.dataset.index || '', 10)
+    if (!Number.isFinite(index)) return
+    const item = this.menuItems[index]
+    if (!item) return
+    if (item.action === MenuAction.Language) {
+      this.cycleLanguage(1)
+      return
+    }
+    this.selectMenuItem(index)
+  }
+
+  private ensureMenuItemElements(count: number) {
+    while (this.menuItemElements.length < count) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'menu-item'
+      button.addEventListener('mouseenter', this.boundHandleItemMouseEnter)
+      button.addEventListener('click', this.boundHandleItemClick)
+      this.menuItemsContainer.appendChild(button)
+      this.menuItemElements.push(button)
+    }
+  }
+
+  private buildMenuItemText(item: MenuItem, isSelected: boolean): string {
+    let text = item.label
+    if (item.value) {
+      if (isSelected && item.action === MenuAction.Language) {
+        text += ` < ${item.value} >`
+      } else {
+        text += ` : ${item.value}`
+      }
+    }
+    return text
+  }
+
+  private updateMenuItemState(index: number) {
+    if (index < 0 || index >= this.activeItemCount) return
+    const item = this.menuItems[index]
+    const element = this.menuItemElements[index]
+    if (!item || !element) return
+    const isSelected = index === this.selectedIndex
+    element.classList.toggle('is-selected', isSelected)
+    element.textContent = this.buildMenuItemText(item, isSelected)
+  }
+
+  private updateMenuTitle() {
+    this.menuTitle.textContent = localizer.t('title')
+  }
+
+  private syncMenuDom() {
+    this.updateMenuTitle()
+    this.ensureMenuItemElements(this.menuItems.length)
+    this.activeItemCount = this.menuItems.length
+    for (let i = 0; i < this.menuItemElements.length; i++) {
+      const element = this.menuItemElements[i]
+      if (i < this.activeItemCount) {
+        element.style.display = ''
+        element.dataset.index = String(i)
+        this.updateMenuItemState(i)
+      } else {
+        element.style.display = 'none'
+        element.dataset.index = ''
+      }
+    }
+  }
+
+  private setSelectedIndex(index: number) {
+    if (index === this.selectedIndex) return
+    const previousIndex = this.selectedIndex
+    this.selectedIndex = index
+    this.updateMenuItemState(previousIndex)
+    this.updateMenuItemState(index)
   }
 
   private selectMenuItem(index: number) {
@@ -257,11 +312,18 @@ export class MenuManager {
     // If skipping animation, fast forward to end state (300ms)
     this.animTime = skipAnimation ? 300 : 0
     this.initMenuItems()
+    this.syncMenuDom()
+    this.uiLayer.classList.add('is-interactive')
+    this.menuOverlay.classList.add('is-visible')
+    this.menuOverlay.setAttribute('aria-hidden', 'false')
     this.render(0)
   }
 
   hide() {
     this.visible = false
+    this.uiLayer.classList.remove('is-interactive')
+    this.menuOverlay.classList.remove('is-visible')
+    this.menuOverlay.setAttribute('aria-hidden', 'true')
   }
 
   isVisible(): boolean {
@@ -275,13 +337,7 @@ export class MenuManager {
   render(deltaTime: number) {
     if (!this.visible) return
 
-    const width = this.canvas.width
     const height = this.canvas.height
-    const centerX = width / 2
-
-    // Background with 80% transparency
-    this.ctx.fillStyle = 'rgba(11, 12, 14, 0.2)'
-    this.ctx.fillRect(0, 0, width, height)
 
     // Animation progress
     this.animTime += deltaTime * 1000 // convert to ms
@@ -294,42 +350,18 @@ export class MenuManager {
     const titleStartY = -150
     const titleY = titleStartY + (titleTargetY - titleStartY) * ease
 
-    this.ctx.font = 'bold 150px monospace'
-    this.ctx.fillStyle = '#ffffff'
-    this.ctx.textAlign = 'center'
-    this.ctx.textBaseline = 'middle'
-    this.ctx.fillText(localizer.t('title'), centerX, titleY)
-
     // Menu Items Animation (From bottom)
-    this.ctx.font = '20px monospace'
-
     const groupStartY = height / 2
     const currentGroupOffset = groupStartY * (1 - ease)
 
+    this.menuTitle.style.top = `${titleY}px`
+
     for (let i = 0; i < this.menuItems.length; i++) {
       const item = this.menuItems[i]
-      const isSelected = i === this.selectedIndex
-
+      const element = this.menuItemElements[i]
+      if (!element) continue
       const currentY = item.y + currentGroupOffset
-
-      if (isSelected) {
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
-        this.ctx.fillRect(centerX - 150, currentY - 15, 300, 30)
-      }
-
-      this.ctx.fillStyle = isSelected ? '#ffffff' : '#aaaaaa'
-
-      let text = item.label
-      if (item.value) {
-        // Add arrows if selected
-        if (isSelected && item.action === MenuAction.Language) {
-          text += ` < ${item.value} >`
-        } else {
-          text += ` : ${item.value}`
-        }
-      }
-
-      this.ctx.fillText(text, centerX, currentY)
+      element.style.top = `${currentY}px`
     }
   }
 }

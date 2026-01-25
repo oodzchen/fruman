@@ -93,13 +93,14 @@ export class GameClient {
   constructor(
     canvas: HTMLCanvasElement,
     ctx: CanvasRenderingContext2D,
+    menuOverlay: HTMLDivElement,
     onInitProgress?: (step: string) => void
   ) {
     this.canvas = canvas
     this.ctx = ctx
     this.renderer = new ClientRenderer(ctx, this.pixelsPerMeter)
     this.audioManager = new AudioManager()
-    this.menuManager = new MenuManager(canvas, ctx)
+    this.menuManager = new MenuManager(canvas, menuOverlay)
     this.renderer.setAudioManager(this.audioManager)
 
     onInitProgress?.(localizer.t('init_renderer'))

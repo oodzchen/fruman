@@ -109,6 +109,7 @@ const PARAM_CONFIGS: ParamConfig[] = [
 
 const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
+const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 
 const setupDetailsState = (
   storedValues: Record<string, string>,
@@ -227,7 +228,7 @@ async function initialize() {
   const applyControls: Array<() => void> = []
   setupDetailsState(storedValues, updateStoredValue)
 
-  const game = new GameClient(canvas, ctx, (step: string) => {
+  const game = new GameClient(canvas, ctx, menuOverlay, (step: string) => {
     initManager.nextStep(step)
   })
   // Initially disable input until game starts

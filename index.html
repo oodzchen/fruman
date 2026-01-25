@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SL2D Game</title>
     <style>
+      :root {
+        --ui-font: monospace;
+        --ui-color: #ffffff;
+        --ui-muted: #aaaaaa;
+        --ui-dim: rgba(11, 12, 14, 0.2);
+        --ui-highlight: rgba(128, 128, 128, 0.8);
+      }
       body {
         margin: 0;
         padding: 5px;
@@ -19,6 +26,7 @@
         border: 1px solid #000;
         background-color: #000;
         flex-shrink: 0;
+        display: block;
       }
       #canvasColumn {
         display: flex;
@@ -26,6 +34,85 @@
         align-items: flex-start;
         gap: 8px;
         flex-shrink: 0;
+      }
+      #gameViewport {
+        position: relative;
+        width: 800px;
+        height: 600px;
+        flex-shrink: 0;
+        overflow: hidden;
+      }
+      .ui-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        display: none;
+      }
+      .ui-layer.is-interactive {
+        display: block;
+        pointer-events: auto;
+      }
+      .ui-text-muted {
+        color: var(--ui-muted);
+      }
+      .menu-overlay {
+        position: absolute;
+        inset: 0;
+        font-family: var(--ui-font);
+        color: var(--ui-color);
+        opacity: 0;
+        pointer-events: none;
+      }
+      .menu-overlay.is-visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .menu-dim {
+        position: absolute;
+        inset: 0;
+        background: var(--ui-dim);
+      }
+      .menu-title {
+        position: absolute;
+        left: 50%;
+        font-size: 150px;
+        font-weight: bold;
+        line-height: 1;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .menu-items {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .menu-item {
+        position: absolute;
+        left: 50%;
+        width: 300px;
+        height: 30px;
+        line-height: 30px;
+        transform: translate(-50%, -50%);
+        font-size: 20px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        text-align: center;
+        font-family: var(--ui-font);
+        pointer-events: auto;
+      }
+      .menu-item.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .menu-item:focus-visible {
+        outline: 1px solid #ffffff;
+        outline-offset: 2px;
       }
       #info {
         color: #000;
@@ -106,7 +193,16 @@
   <body>
     <div id="gameContainer">
       <div id="canvasColumn">
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="gameViewport">
+          <canvas id="gameCanvas" width="800" height="600"></canvas>
+          <div id="uiOverlay" class="ui-layer">
+            <div id="menuOverlay" class="menu-overlay">
+              <div class="menu-dim"></div>
+              <div id="menuTitle" class="menu-title"></div>
+              <div id="menuItems" class="menu-items"></div>
+            </div>
+          </div>
+        </div>
         <div id="info">
           <div>A/D - 移动</div>
           <div>Space - 跳跃</div>
