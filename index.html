@@ -23,8 +23,6 @@
         align-items: flex-start;
       }
       canvas {
-        border: 1px solid #000;
-        background-color: #000;
         flex-shrink: 0;
         display: block;
       }
@@ -188,6 +186,338 @@
         flex: 1;
         margin: 0;
       }
+      /* Editor Styles */
+      #editorOverlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.25);
+        display: none;
+      }
+      #editorOverlay.is-visible {
+        display: block;
+      }
+      .editor-content {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .editor-sidebar {
+        width: 100px;
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        padding: 24px 12px;
+        box-sizing: border-box;
+        background: rgba(0, 0, 0, 0.35);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        pointer-events: auto;
+        z-index: 3;
+      }
+      .editor-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        margin-bottom: 12px;
+      }
+      .editor-panel-toggle {
+        height: 28px;
+        line-height: 28px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 0 10px;
+        cursor: pointer;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-panel-toggle:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-panel-collapsed {
+        position: absolute;
+        left: 12px;
+        top: 12px;
+        height: 30px;
+        line-height: 30px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 0 12px;
+        cursor: pointer;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+        display: none;
+        pointer-events: auto;
+        z-index: 4;
+      }
+      .editor-panel-collapsed.is-visible {
+        display: block;
+      }
+      .editor-panel-collapsed:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-object-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .editor-object-item {
+        position: relative;
+        width: 100%;
+        height: 34px;
+        line-height: 34px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: none;
+        padding: 0 12px;
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-object-item:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-submenu {
+        position: absolute;
+        left: 100px;
+        min-width: 180px;
+        padding: 10px;
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-sizing: border-box;
+        pointer-events: auto;
+        z-index: 4;
+      }
+      .editor-submenu.is-visible {
+        display: flex;
+      }
+      .editor-context-menu {
+        position: fixed;
+        display: none;
+        min-width: 140px;
+        padding: 6px;
+        flex-direction: column;
+        background: rgba(12, 12, 12, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+        z-index: 10;
+        pointer-events: auto;
+        white-space: nowrap;
+      }
+      .editor-context-menu.is-visible {
+        display: flex;
+      }
+      .editor-context-menu-item {
+        width: 100%;
+        height: 30px;
+        line-height: 30px;
+        font-size: 13px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: none;
+        padding: 0 8px;
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-context-menu-item.is-hidden {
+        display: none;
+      }
+      .editor-context-menu-item:hover {
+        color: var(--ui-color);
+        background: rgba(120, 100, 60, 0.35);
+      }
+      .editor-submenu-item {
+        width: 100%;
+        height: 30px;
+        line-height: 30px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: none;
+        padding: 0 10px;
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-submenu-item:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-workspace {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+      }
+      .editor-canvas {
+        position: absolute;
+        inset: 0;
+        display: block;
+      }
+      .editor-map-list-view {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        background: #000;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--ui-font);
+        color: var(--ui-color);
+        z-index: 2;
+      }
+      .editor-map-list-container {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 20px;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-sizing: border-box;
+        pointer-events: auto;
+      }
+      .editor-map-list {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .editor-map-item {
+        position: relative;
+        width: 300px;
+        height: 34px;
+        line-height: 34px;
+        font-size: 20px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: none;
+        padding: 0 16px;
+        cursor: pointer;
+        text-align: center;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-map-item:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-back-item {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        width: 200px;
+        height: 34px;
+        line-height: 34px;
+        font-size: 16px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: none;
+        padding: 0 12px;
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--ui-font);
+        pointer-events: auto;
+        box-sizing: border-box;
+        z-index: 4;
+      }
+      .editor-back-item:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      #editorPropertiesModal {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.8);
+        display: none;
+        z-index: 10;
+      }
+      #editorPropertiesModal.is-visible {
+        display: block;
+      }
+      .editor-modal-content {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        min-width: 400px;
+        max-width: 600px;
+        font-family: var(--ui-font);
+        color: var(--ui-color);
+      }
+      .editor-modal-content h3 {
+        margin: 0 0 30px 0;
+        font-size: 24px;
+        text-align: center;
+        font-weight: bold;
+      }
+      .editor-property-group {
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .editor-property-group label {
+        width: 120px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        text-align: right;
+      }
+      .editor-property-group input {
+        flex: 1;
+        padding: 6px 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--ui-muted);
+        color: var(--ui-color);
+        font-size: 14px;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-property-group input:focus {
+        outline: none;
+        border-color: var(--ui-color);
+        background: rgba(255, 255, 255, 0.15);
+      }
+      .editor-modal-actions {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        margin-top: 30px;
+      }
+      .editor-modal-btn {
+        width: 150px;
+        height: 34px;
+        line-height: 34px;
+        font-size: 16px;
+        color: var(--ui-muted);
+        background: transparent;
+        border: none;
+        padding: 0 12px;
+        cursor: pointer;
+        text-align: center;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-modal-btn:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
     </style>
   </head>
   <body>
@@ -200,6 +530,91 @@
               <div class="menu-dim"></div>
               <div id="menuTitle" class="menu-title"></div>
               <div id="menuItems" class="menu-items"></div>
+            </div>
+          </div>
+          <div id="editorOverlay">
+            <div class="editor-content">
+              <div id="editorSidebar" class="editor-sidebar">
+                <div class="editor-panel-header">
+                  <button
+                    id="editorPanelCollapse"
+                    class="editor-panel-toggle"
+                  ></button>
+                </div>
+                <div class="editor-object-list">
+                  <button class="editor-object-item" data-type="enemy"></button>
+                  <button
+                    class="editor-object-item"
+                    data-type="weapon"
+                  ></button>
+                  <button
+                    class="editor-object-item"
+                    data-type="ground"
+                  ></button>
+                  <button
+                    class="editor-object-item"
+                    data-type="obstacle"
+                  ></button>
+                </div>
+              </div>
+              <div id="editorGroundSubmenu" class="editor-submenu">
+                <button class="editor-submenu-item" data-shape="rect"></button>
+                <button
+                  class="editor-submenu-item"
+                  data-shape="triangle"
+                ></button>
+                <button
+                  class="editor-submenu-item"
+                  data-shape="circle"
+                ></button>
+                <button
+                  class="editor-submenu-item"
+                  data-shape="polygon"
+                ></button>
+              </div>
+              <div id="editorPolygonMenu" class="editor-context-menu">
+                <button
+                  id="editorPolygonMenuPrimary"
+                  class="editor-context-menu-item"
+                ></button>
+                <button
+                  id="editorPolygonMenuSecondary"
+                  class="editor-context-menu-item"
+                ></button>
+                <button
+                  id="editorPolygonMenuTertiary"
+                  class="editor-context-menu-item"
+                ></button>
+              </div>
+              <div id="editorWorkspace" class="editor-workspace">
+                <canvas id="editorCanvas" class="editor-canvas"></canvas>
+                <div id="editorMapListView" class="editor-map-list-view">
+                  <div class="editor-map-list-container">
+                    <div id="editorMapList" class="editor-map-list"></div>
+                  </div>
+                </div>
+              </div>
+              <button
+                id="editorPanelCollapsed"
+                class="editor-panel-collapsed"
+              ></button>
+              <button id="editorBackBtn" class="editor-back-item"></button>
+            </div>
+            <div id="editorPropertiesModal">
+              <div class="editor-modal-content">
+                <h3 id="editorPropertiesTitle"></h3>
+                <div id="editorPropertiesForm"></div>
+                <div class="editor-modal-actions">
+                  <button
+                    id="editorPropertiesConfirm"
+                    class="editor-modal-btn"
+                  ></button>
+                  <button
+                    id="editorPropertiesCancel"
+                    class="editor-modal-btn"
+                  ></button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

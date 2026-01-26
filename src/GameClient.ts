@@ -43,6 +43,7 @@ export class GameClient {
   private mouseCaptured = false
   private mouseInside = false
   private inputEnabled = true
+  private editorOverlay: HTMLDivElement | null = null
   private cameraDebug: CameraDebugData & { enabled: boolean } = {
     topLimitRatio: 0.5,
     bottomLimitRatio: 0.95,
@@ -79,6 +80,7 @@ export class GameClient {
   private groundHeight = 0.5
   private groundY = 0
   private groundTopY = 0
+  private editorPreview = false
   private obstacleConfigs = [
     // 跌落伤害测试平台（与gameWorker.ts保持一致）
     // height参数是半高，实际高度=height*2
@@ -102,6 +104,9 @@ export class GameClient {
     this.audioManager = new AudioManager()
     this.menuManager = new MenuManager(canvas, menuOverlay)
     this.renderer.setAudioManager(this.audioManager)
+    const editorOverlay = document.getElementById('editorOverlay')
+    this.editorOverlay =
+      editorOverlay instanceof HTMLDivElement ? editorOverlay : null
 
     onInitProgress?.(localizer.t('init_renderer'))
 
@@ -150,6 +155,17 @@ export class GameClient {
 
   setInputEnabled(enabled: boolean) {
     this.inputEnabled = enabled
+  }
+
+  setEditorPreview(enabled: boolean) {
+    this.editorPreview = enabled
+    if (enabled) {
+      this.camera.x = 0
+      this.camera.y = 0
+      this.targetZoom = 1
+      this.renderZoom = 1
+      this.cameraDebug.enabled = false
+    }
   }
 
   private setupAudioResume() {
@@ -278,7 +294,11 @@ export class GameClient {
     })
 
     window.addEventListener('mousedown', (e) => {
-      if (this.menuManager.isVisible() || !this.inputEnabled) {
+      if (
+        this.menuManager.isVisible() ||
+        !this.inputEnabled ||
+        this.isEditorOverlayVisible()
+      ) {
         return
       }
       this.mouseButtons.add(e.button)
@@ -286,7 +306,11 @@ export class GameClient {
     })
 
     window.addEventListener('mouseup', (e) => {
-      if (this.menuManager.isVisible() || !this.inputEnabled) {
+      if (
+        this.menuManager.isVisible() ||
+        !this.inputEnabled ||
+        this.isEditorOverlayVisible()
+      ) {
         return
       }
       this.mouseButtons.delete(e.button)
@@ -335,6 +359,9 @@ export class GameClient {
 
     // Prevent context menu on right click to allow for blocking
     window.addEventListener('contextmenu', (e) => {
+      if (this.isEditorOverlayVisible()) {
+        return
+      }
       e.preventDefault()
     })
 
@@ -373,6 +400,10 @@ export class GameClient {
     this.worker.postMessage(this.inputMessage)
   }
 
+  private isEditorOverlayVisible() {
+    return this.editorOverlay?.classList.contains('is-visible') ?? false
+  }
+
   private renderLoop(timestamp?: number) {
     const now = timestamp ?? performance.now()
     if (this.lastTime === 0) {
@@ -391,7 +422,9 @@ export class GameClient {
       this.fpsUpdateTime = 0
     }
 
-    this.renderer.update(deltaTime)
+    if (!this.editorPreview) {
+      this.renderer.update(deltaTime)
+    }
     this.render(deltaTime)
 
     if (
@@ -415,6 +448,10 @@ export class GameClient {
       this.ctx.fillStyle = this.backgroundPattern
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
       this.ctx.restore()
+    }
+
+    if (this.editorPreview) {
+      return
     }
 
     this.ctx.save()

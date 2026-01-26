@@ -1,3 +1,4 @@
+import { EditorManager } from './EditorManager'
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
 import { Language, localizer } from './Localizer'
@@ -314,6 +315,12 @@ async function initialize() {
   }
   console.table(paramLog)
 
+  const editorManager = new EditorManager()
+  editorManager.onBackToMenu(() => {
+    game.setEditorPreview(false)
+    menuManager.show(MenuMode.Start)
+  })
+
   // 获取缩放控件引用，用于实时同步
   const cameraZoomRange = document.getElementById(
     'cameraZoom'
@@ -343,16 +350,19 @@ async function initialize() {
     switch (action) {
       case MenuAction.NewGame:
         menuManager.hide()
+        game.setEditorPreview(false)
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.Continue:
         menuManager.hide()
+        game.setEditorPreview(false)
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.Resume:
         menuManager.hide()
+        game.setEditorPreview(false)
         game.start()
         game.setInputEnabled(true)
         break
@@ -360,10 +370,15 @@ async function initialize() {
         game.restart()
         game.stop()
         game.setInputEnabled(false)
+        game.setEditorPreview(false)
         menuManager.show(MenuMode.Start)
         break
       case MenuAction.Editor:
-        alert(localizer.t('alert_editor_not_implemented'))
+        menuManager.hide()
+        game.stop()
+        game.setInputEnabled(false)
+        game.setEditorPreview(true)
+        editorManager.show()
         break
       case MenuAction.Settings:
         // Handled by MenuManager internally
