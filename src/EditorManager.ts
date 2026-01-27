@@ -79,6 +79,9 @@ const PLAYER_BODY_COLOR = '#F58025'
 const PLAYER_EYE_COLOR = '#000000'
 const DEBUG_EDITOR_MENU = false
 const OBSTACLE_FILL_COLOR = 'rgba(112, 64, 14, 0.85)'
+const SNAP_THRESHOLD_PX = 10
+const SNAP_GUIDE_COLOR = 'rgba(240, 220, 180, 0.75)'
+const SNAP_EVERY_N_FRAMES = 2
 
 const GROUND_RECT_OPTIONS: fabric.IRectOptions = {
   width: 160,
@@ -264,6 +267,15 @@ interface EditorObjectData {
   object: fabric.Object
 }
 
+interface SnapBounds {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  centerX: number
+  centerY: number
+}
+
 export class EditorManager {
   private editorOverlay: HTMLDivElement
   private editorBackBtn: HTMLButtonElement
@@ -356,6 +368,28 @@ export class EditorManager {
   private dragPreviewAfter = false
   private groundPatternTransformScratch: number[] = [1, 0, 0, 1, 0, 0]
   private obstaclePatternTransformScratch: number[] = [1, 0, 0, 1, 0, 0]
+  private snapGuideVertical: fabric.Line | null = null
+  private snapGuideHorizontal: fabric.Line | null = null
+  private snapBoundsScratchA: SnapBounds = {
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    centerX: 0,
+    centerY: 0,
+  }
+  private snapBoundsScratchB: SnapBounds = {
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    centerX: 0,
+    centerY: 0,
+  }
+  private snapCandidateBounds: SnapBounds[] = []
+  private snapBoundsPool: SnapBounds[] = []
+  private snapActiveTarget: fabric.Object | null = null
+  private snapFrameCounter = 0
 
   constructor() {
     const overlay = document.getElementById('editorOverlay')
@@ -949,6 +983,303 @@ export class EditorManager {
         data.icon.bringToFront()
       }
     }
+  }
+
+  private ensureSnapGuides() {
+    if (
+      !this.fabricCanvas ||
+      (this.snapGuideVertical && this.snapGuideHorizontal)
+    ) {
+      return
+    }
+    const canvas = this.fabricCanvas
+    const width = canvas.getWidth()
+    const height = canvas.getHeight()
+    const baseOptions: fabric.ILineOptions = {
+      stroke: SNAP_GUIDE_COLOR,
+      strokeWidth: 1,
+      selectable: false,
+      evented: false,
+      excludeFromExport: true,
+      objectCaching: false,
+      visible: false,
+    }
+    if (!this.snapGuideVertical) {
+      this.snapGuideVertical = new fabric.Line([0, 0, 0, height], baseOptions)
+      canvas.add(this.snapGuideVertical)
+    }
+    if (!this.snapGuideHorizontal) {
+      this.snapGuideHorizontal = new fabric.Line([0, 0, width, 0], baseOptions)
+      canvas.add(this.snapGuideHorizontal)
+    }
+    this.snapGuideVertical.bringToFront()
+    this.snapGuideHorizontal.bringToFront()
+  }
+
+  private hideSnapGuides() {
+    if (this.snapGuideVertical && this.snapGuideVertical.visible) {
+      this.snapGuideVertical.visible = false
+    }
+    if (this.snapGuideHorizontal && this.snapGuideHorizontal.visible) {
+      this.snapGuideHorizontal.visible = false
+    }
+    this.fabricCanvas?.requestRenderAll()
+  }
+
+  private updateSnapGuideVertical(x: number) {
+    if (!this.snapGuideVertical || !this.fabricCanvas) {
+      return
+    }
+    const height = this.fabricCanvas.getHeight()
+    this.snapGuideVertical.set({
+      x1: x,
+      y1: 0,
+      x2: x,
+      y2: height,
+      visible: true,
+    })
+    this.snapGuideVertical.setCoords()
+    this.snapGuideVertical.bringToFront()
+  }
+
+  private updateSnapGuideHorizontal(y: number) {
+    if (!this.snapGuideHorizontal || !this.fabricCanvas) {
+      return
+    }
+    const width = this.fabricCanvas.getWidth()
+    this.snapGuideHorizontal.set({
+      x1: 0,
+      y1: y,
+      x2: width,
+      y2: y,
+      visible: true,
+    })
+    this.snapGuideHorizontal.setCoords()
+    this.snapGuideHorizontal.bringToFront()
+  }
+
+  private updateSnapBoundsFromObject(object: fabric.Object, out: SnapBounds) {
+    const coords = object.aCoords
+    if (!coords) {
+      return
+    }
+    let minX = coords.tl.x
+    let maxX = coords.tl.x
+    let minY = coords.tl.y
+    let maxY = coords.tl.y
+    const tr = coords.tr
+    const br = coords.br
+    const bl = coords.bl
+    if (tr.x < minX) minX = tr.x
+    if (tr.x > maxX) maxX = tr.x
+    if (br.x < minX) minX = br.x
+    if (br.x > maxX) maxX = br.x
+    if (bl.x < minX) minX = bl.x
+    if (bl.x > maxX) maxX = bl.x
+    if (tr.y < minY) minY = tr.y
+    if (tr.y > maxY) maxY = tr.y
+    if (br.y < minY) minY = br.y
+    if (br.y > maxY) maxY = br.y
+    if (bl.y < minY) minY = bl.y
+    if (bl.y > maxY) maxY = bl.y
+    out.left = minX
+    out.right = maxX
+    out.top = minY
+    out.bottom = maxY
+    out.centerX = (minX + maxX) * 0.5
+    out.centerY = (minY + maxY) * 0.5
+  }
+
+  private acquireSnapBounds() {
+    return (
+      this.snapBoundsPool.pop() ?? {
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        centerX: 0,
+        centerY: 0,
+      }
+    )
+  }
+
+  private releaseSnapBounds(bounds: SnapBounds) {
+    this.snapBoundsPool.push(bounds)
+  }
+
+  private clearSnapCandidates() {
+    for (let i = 0; i < this.snapCandidateBounds.length; i++) {
+      this.releaseSnapBounds(this.snapCandidateBounds[i])
+    }
+    this.snapCandidateBounds.length = 0
+    this.snapActiveTarget = null
+    this.snapFrameCounter = 0
+  }
+
+  // Cache other objects' bounds at drag start to avoid O(n) setCoords every move.
+  private prepareSnapCandidates(target: fabric.Object) {
+    if (!this.fabricCanvas) {
+      return
+    }
+    this.clearSnapCandidates()
+    this.snapActiveTarget = target
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const other = this.editorObjects[i].object
+      if (other === target || other.canvas !== this.fabricCanvas) {
+        continue
+      }
+      other.setCoords()
+      const bounds = this.acquireSnapBounds()
+      this.updateSnapBoundsFromObject(other, bounds)
+      this.snapCandidateBounds.push(bounds)
+    }
+  }
+
+  // Snap moving objects by edges/centers and show guide lines for center alignment.
+  private handleObjectMovingSnap(target: fabric.Object) {
+    if (!this.fabricCanvas || !this.editorObjectMap.has(target)) {
+      return
+    }
+    this.ensureSnapGuides()
+    if (this.snapActiveTarget !== target) {
+      this.prepareSnapCandidates(target)
+    }
+    this.snapFrameCounter += 1
+    if (this.snapFrameCounter % SNAP_EVERY_N_FRAMES !== 0) {
+      if (this.groundPatternMap.has(target)) {
+        this.updateGroundPatternTransform(target)
+      }
+      if (this.obstaclePatternMap.has(target)) {
+        this.updateObstaclePatternTransform(target)
+      }
+      if (this.isCameraFrame(target)) {
+        const data = this.cameraViewMap.get(target)
+        if (data) {
+          this.syncCameraIcon(data)
+        }
+      }
+      return
+    }
+    target.setCoords()
+    const targetBounds = this.snapBoundsScratchA
+    this.updateSnapBoundsFromObject(target, targetBounds)
+    let bestDx = 0
+    let bestDy = 0
+    let bestAbsDx = SNAP_THRESHOLD_PX + 1
+    let bestAbsDy = SNAP_THRESHOLD_PX + 1
+    let guideX: number | null = null
+    let guideY: number | null = null
+    const candidates = this.snapCandidateBounds
+    for (let i = 0; i < candidates.length; i++) {
+      const otherBounds = candidates[i]
+
+      const dxLL = otherBounds.left - targetBounds.left
+      const dxLR = otherBounds.left - targetBounds.right
+      const dxRL = otherBounds.right - targetBounds.left
+      const dxRR = otherBounds.right - targetBounds.right
+      const dxCC = otherBounds.centerX - targetBounds.centerX
+
+      const dyTT = otherBounds.top - targetBounds.top
+      const dyTB = otherBounds.top - targetBounds.bottom
+      const dyBT = otherBounds.bottom - targetBounds.top
+      const dyBB = otherBounds.bottom - targetBounds.bottom
+      const dyCC = otherBounds.centerY - targetBounds.centerY
+
+      const absDxLL = Math.abs(dxLL)
+      if (absDxLL < bestAbsDx && absDxLL <= SNAP_THRESHOLD_PX) {
+        bestAbsDx = absDxLL
+        bestDx = dxLL
+        guideX = null
+      }
+      const absDxLR = Math.abs(dxLR)
+      if (absDxLR < bestAbsDx && absDxLR <= SNAP_THRESHOLD_PX) {
+        bestAbsDx = absDxLR
+        bestDx = dxLR
+        guideX = null
+      }
+      const absDxRL = Math.abs(dxRL)
+      if (absDxRL < bestAbsDx && absDxRL <= SNAP_THRESHOLD_PX) {
+        bestAbsDx = absDxRL
+        bestDx = dxRL
+        guideX = null
+      }
+      const absDxRR = Math.abs(dxRR)
+      if (absDxRR < bestAbsDx && absDxRR <= SNAP_THRESHOLD_PX) {
+        bestAbsDx = absDxRR
+        bestDx = dxRR
+        guideX = null
+      }
+      const absDxCC = Math.abs(dxCC)
+      if (absDxCC < bestAbsDx && absDxCC <= SNAP_THRESHOLD_PX) {
+        bestAbsDx = absDxCC
+        bestDx = dxCC
+        guideX = otherBounds.centerX
+      }
+
+      const absDyTT = Math.abs(dyTT)
+      if (absDyTT < bestAbsDy && absDyTT <= SNAP_THRESHOLD_PX) {
+        bestAbsDy = absDyTT
+        bestDy = dyTT
+        guideY = null
+      }
+      const absDyTB = Math.abs(dyTB)
+      if (absDyTB < bestAbsDy && absDyTB <= SNAP_THRESHOLD_PX) {
+        bestAbsDy = absDyTB
+        bestDy = dyTB
+        guideY = null
+      }
+      const absDyBT = Math.abs(dyBT)
+      if (absDyBT < bestAbsDy && absDyBT <= SNAP_THRESHOLD_PX) {
+        bestAbsDy = absDyBT
+        bestDy = dyBT
+        guideY = null
+      }
+      const absDyBB = Math.abs(dyBB)
+      if (absDyBB < bestAbsDy && absDyBB <= SNAP_THRESHOLD_PX) {
+        bestAbsDy = absDyBB
+        bestDy = dyBB
+        guideY = null
+      }
+      const absDyCC = Math.abs(dyCC)
+      if (absDyCC < bestAbsDy && absDyCC <= SNAP_THRESHOLD_PX) {
+        bestAbsDy = absDyCC
+        bestDy = dyCC
+        guideY = otherBounds.centerY
+      }
+    }
+
+    if (bestAbsDx <= SNAP_THRESHOLD_PX || bestAbsDy <= SNAP_THRESHOLD_PX) {
+      target.set({
+        left: (target.left ?? 0) + bestDx,
+        top: (target.top ?? 0) + bestDy,
+      })
+      target.setCoords()
+    }
+
+    if (guideX !== null) {
+      this.updateSnapGuideVertical(guideX)
+    } else if (this.snapGuideVertical) {
+      this.snapGuideVertical.visible = false
+    }
+    if (guideY !== null) {
+      this.updateSnapGuideHorizontal(guideY)
+    } else if (this.snapGuideHorizontal) {
+      this.snapGuideHorizontal.visible = false
+    }
+
+    if (this.groundPatternMap.has(target)) {
+      this.updateGroundPatternTransform(target)
+    }
+    if (this.obstaclePatternMap.has(target)) {
+      this.updateObstaclePatternTransform(target)
+    }
+    if (this.isCameraFrame(target)) {
+      const data = this.cameraViewMap.get(target)
+      if (data) {
+        this.syncCameraIcon(data)
+      }
+    }
+    this.fabricCanvas.requestRenderAll()
   }
 
   private getEditorObjectById(id: number) {
@@ -2921,6 +3252,11 @@ export class EditorManager {
       }
       if (evt.button === 0) {
         this.hidePolygonMenu()
+        if (opt.target && this.editorObjectMap.has(opt.target)) {
+          this.prepareSnapCandidates(opt.target)
+        } else {
+          this.clearSnapCandidates()
+        }
         this.handleEditablePolygonPointerDown(opt)
       }
     })
@@ -2949,6 +3285,22 @@ export class EditorManager {
           this.fabricCanvas!.setViewportTransform(vpt)
         }
       }
+      if (!this.isPanning) {
+        this.hideSnapGuides()
+        this.clearSnapCandidates()
+      }
+    })
+
+    this.fabricCanvas.on('object:moving', (opt) => {
+      const target = opt.target
+      if (!target || this.isPanning) {
+        return
+      }
+      this.handleObjectMovingSnap(target)
+    })
+    this.fabricCanvas.on('object:modified', () => {
+      this.hideSnapGuides()
+      this.clearSnapCandidates()
     })
 
     this.fabricCanvas.on('selection:created', (opt) => {
@@ -2959,6 +3311,8 @@ export class EditorManager {
     })
     this.fabricCanvas.on('selection:cleared', () => {
       this.handleCanvasSelection(null)
+      this.hideSnapGuides()
+      this.clearSnapCandidates()
     })
 
     this.resizeEditorCanvas()
@@ -3231,6 +3585,24 @@ export class EditorManager {
     )
 
     this.fabricCanvas.calcOffset()
+    if (this.snapGuideVertical) {
+      this.snapGuideVertical.set({
+        x1: this.snapGuideVertical.x1,
+        x2: this.snapGuideVertical.x2,
+        y1: 0,
+        y2: targetHeight,
+      })
+      this.snapGuideVertical.setCoords()
+    }
+    if (this.snapGuideHorizontal) {
+      this.snapGuideHorizontal.set({
+        x1: 0,
+        x2: targetWidth,
+        y1: this.snapGuideHorizontal.y1,
+        y2: this.snapGuideHorizontal.y2,
+      })
+      this.snapGuideHorizontal.setCoords()
+    }
     this.fabricCanvas.requestRenderAll()
   }
 
