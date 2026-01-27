@@ -2,6 +2,7 @@ import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
 import { localizer } from './Localizer'
 import { MenuManager, MenuMode } from './MenuManager'
+import type { EditorMapData } from './editorMapTypes'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
@@ -44,6 +45,9 @@ export class GameClient {
   private mouseInside = false
   private inputEnabled = true
   private editorOverlay: HTMLDivElement | null = null
+  private previewExitBtn: HTMLButtonElement | null = null
+  private previewActive = false
+  private onExitPreviewCallback?: () => void
   private cameraDebug: CameraDebugData & { enabled: boolean } = {
     topLimitRatio: 0.5,
     bottomLimitRatio: 0.95,
@@ -81,16 +85,7 @@ export class GameClient {
   private groundY = 0
   private groundTopY = 0
   private editorPreview = false
-  private obstacleConfigs = [
-    // 跌落伤害测试平台（与gameWorker.ts保持一致）
-    // height参数是半高，实际高度=height*2
-    { type: 'box', x: -9.5, width: 1.5, height: 1.5 }, // 平台1: 3.0m高（基础平台）
-    { type: 'box', x: -5, width: 1.5, height: 2.5 }, // 平台2: 5.0m高
-    { type: 'box', x: 0, width: 1.5, height: 3.5 }, // 平台3: 7.0m高
-    { type: 'box', x: 5, width: 1.5, height: 5.5 }, // 平台4: 11.0m高
-    { type: 'box', x: 10, width: 1.5, height: 7.5 }, // 平台5: 15.0m高
-    { type: 'box', x: 15, width: 1.5, height: 10.5 }, // 平台6: 21.0m高
-  ]
+  private currentMapData: EditorMapData | null = null
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -107,6 +102,15 @@ export class GameClient {
     const editorOverlay = document.getElementById('editorOverlay')
     this.editorOverlay =
       editorOverlay instanceof HTMLDivElement ? editorOverlay : null
+    const previewExitBtn = document.getElementById('previewExitBtn')
+    this.previewExitBtn =
+      previewExitBtn instanceof HTMLButtonElement ? previewExitBtn : null
+    if (this.previewExitBtn) {
+      this.previewExitBtn.textContent = localizer.t('editor_exit_preview')
+      this.previewExitBtn.addEventListener('click', () => {
+        this.exitPreview()
+      })
+    }
 
     onInitProgress?.(localizer.t('init_renderer'))
 
@@ -165,7 +169,25 @@ export class GameClient {
       this.targetZoom = 1
       this.renderZoom = 1
       this.cameraDebug.enabled = false
+      this.setPreviewExitVisible(false)
     }
+  }
+
+  applyMapPreview(map: EditorMapData) {
+    this.setEditorPreview(false)
+    this.previewActive = true
+    this.setPreviewExitVisible(true)
+    this.currentMapData = map
+
+    if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
+      this.targetZoom = map.camera.zoom
+      this.renderZoom = map.camera.zoom
+    }
+
+    this.worker.postMessage({
+      type: 'map_preview',
+      map,
+    } as MainToWorkerMessage)
   }
 
   private setupAudioResume() {
@@ -211,6 +233,16 @@ export class GameClient {
         this.cameraDebug.enabled = true
       } else {
         this.cameraDebug.enabled = false
+      }
+    } else if (msg.type === 'map_data') {
+      this.currentMapData = msg.map
+      if (
+        msg.map.camera &&
+        msg.map.camera.zoom > 0 &&
+        Number.isFinite(msg.map.camera.zoom)
+      ) {
+        this.targetZoom = msg.map.camera.zoom
+        this.renderZoom = msg.map.camera.zoom
       }
     }
   }
@@ -529,82 +561,162 @@ export class GameClient {
     ctx.restore()
   }
 
-  // Copied from GameECS
   private drawGround() {
-    // Static ground at y=height - 0.5m
-    const topY = this.groundTopY * this.pixelsPerMeter // Wait, GameECS: pos.y is center.
-    // In GameECS: createGround pos = groundY. groundBox is 0.5 height (half-height 0.25? No, MakeBox takes half-width/height).
-    // b2MakeBox(50, 0.5) -> Total height 1.0.
-    // So top is pos.y - 0.5.
-
-    // Let's just use the visual logic from GameECS
-    // const pos = b2Body_GetPosition(this.groundBodyId)
-    // topY = (pos.y - groundHeight) * ppm
-    // height = groundHeight * 2 * ppm
-
-    // We assume the ground didn't move.
-    const topY_px = topY // 0.5 is the half-height used in GameECS
-    const height_px = this.groundHeight * 2 * this.pixelsPerMeter
+    if (!this.currentMapData) {
+      return
+    }
 
     this.ctx.fillStyle = this.groundPattern ?? '#654321'
-    this.ctx.fillRect(
-      -50 * this.pixelsPerMeter,
-      topY_px,
-      100 * this.pixelsPerMeter,
-      height_px
-    )
+    this.ctx.strokeStyle = '#000'
+    this.ctx.lineWidth = 2
+
+    for (let i = 0; i < this.currentMapData.shapes.length; i++) {
+      const placedShape = this.currentMapData.shapes[i]
+      if (placedShape.objectKind !== 'ground') {
+        continue
+      }
+
+      const shape = placedShape.shape
+      if (shape.kind === 'rect') {
+        const centerX = shape.center.x
+        const centerY = shape.center.y
+        const halfWidth = shape.halfWidth
+        const halfHeight = shape.halfHeight
+        const rotation = shape.rotationRad
+
+        this.ctx.save()
+        this.ctx.translate(
+          centerX * this.pixelsPerMeter,
+          centerY * this.pixelsPerMeter
+        )
+        this.ctx.rotate(rotation)
+        this.ctx.fillRect(
+          -halfWidth * this.pixelsPerMeter,
+          -halfHeight * this.pixelsPerMeter,
+          halfWidth * 2 * this.pixelsPerMeter,
+          halfHeight * 2 * this.pixelsPerMeter
+        )
+        this.ctx.restore()
+      } else if (shape.kind === 'circle') {
+        const centerX = shape.center.x
+        const centerY = shape.center.y
+        const radius = shape.radius
+
+        this.ctx.beginPath()
+        this.ctx.arc(
+          centerX * this.pixelsPerMeter,
+          centerY * this.pixelsPerMeter,
+          radius * this.pixelsPerMeter,
+          0,
+          Math.PI * 2
+        )
+        this.ctx.fill()
+      } else if (shape.kind === 'polygon') {
+        const points = shape.points
+
+        if (points.length < 6) {
+          continue
+        }
+
+        this.ctx.beginPath()
+        for (let j = 0; j < points.length; j += 2) {
+          const x = points[j]
+          const y = points[j + 1]
+          const px = x * this.pixelsPerMeter
+          const py = y * this.pixelsPerMeter
+          if (j === 0) {
+            this.ctx.moveTo(px, py)
+          } else {
+            this.ctx.lineTo(px, py)
+          }
+        }
+        this.ctx.closePath()
+        this.ctx.fill()
+      }
+    }
   }
 
   private drawObstacles() {
-    // Static obstacles
-    const groundY = this.groundY
+    if (!this.currentMapData) {
+      return
+    }
 
-    for (let i = 0; i < this.obstacleConfigs.length; i++) {
-      const obs = this.obstacleConfigs[i] as any
-      this.ctx.fillStyle = this.obstaclePattern ?? '#d2691e'
-      this.ctx.strokeStyle = '#000'
-      this.ctx.lineWidth = 2
+    this.ctx.fillStyle = this.obstaclePattern ?? '#d2691e'
+    this.ctx.strokeStyle = '#000'
+    this.ctx.lineWidth = 2
 
-      if (obs.type === 'polygon') {
-        // Polygon rendering
-        // Body Pos: obs.x, groundY - 0.5 (surface)
-        // Vertices are relative
-        const bodyX = obs.x
-        const bodyY = groundY - 0.5
+    for (let i = 0; i < this.currentMapData.shapes.length; i++) {
+      const placedShape = this.currentMapData.shapes[i]
+      if (placedShape.objectKind !== 'obstacle') {
+        continue
+      }
+
+      const shape = placedShape.shape
+      if (shape.kind === 'rect') {
+        const centerX = shape.center.x
+        const centerY = shape.center.y
+        const halfWidth = shape.halfWidth
+        const halfHeight = shape.halfHeight
+        const rotation = shape.rotationRad
+
+        this.ctx.save()
+        this.ctx.translate(
+          centerX * this.pixelsPerMeter,
+          centerY * this.pixelsPerMeter
+        )
+        this.ctx.rotate(rotation)
+        this.ctx.fillRect(
+          -halfWidth * this.pixelsPerMeter,
+          -halfHeight * this.pixelsPerMeter,
+          halfWidth * 2 * this.pixelsPerMeter,
+          halfHeight * 2 * this.pixelsPerMeter
+        )
+        this.ctx.strokeRect(
+          -halfWidth * this.pixelsPerMeter,
+          -halfHeight * this.pixelsPerMeter,
+          halfWidth * 2 * this.pixelsPerMeter,
+          halfHeight * 2 * this.pixelsPerMeter
+        )
+        this.ctx.restore()
+      } else if (shape.kind === 'circle') {
+        const centerX = shape.center.x
+        const centerY = shape.center.y
+        const radius = shape.radius
 
         this.ctx.beginPath()
-        for (let j = 0; j < obs.vertices.length; j++) {
-          const v = obs.vertices[j]
-          const vx = (bodyX + v.x) * this.pixelsPerMeter
-          const vy = (bodyY + v.y) * this.pixelsPerMeter
+        this.ctx.arc(
+          centerX * this.pixelsPerMeter,
+          centerY * this.pixelsPerMeter,
+          radius * this.pixelsPerMeter,
+          0,
+          Math.PI * 2
+        )
+        this.ctx.fill()
+        this.ctx.stroke()
+      } else if (shape.kind === 'polygon') {
+        const centerX = shape.center.x
+        const centerY = shape.center.y
+        const points = shape.points
+
+        if (points.length < 6) {
+          continue
+        }
+
+        this.ctx.beginPath()
+        for (let j = 0; j < points.length; j += 2) {
+          const x = points[j]
+          const y = points[j + 1]
+          const px = x * this.pixelsPerMeter
+          const py = y * this.pixelsPerMeter
           if (j === 0) {
-            this.ctx.moveTo(vx, vy)
+            this.ctx.moveTo(px, py)
           } else {
-            this.ctx.lineTo(vx, vy)
+            this.ctx.lineTo(px, py)
           }
         }
         this.ctx.closePath()
         this.ctx.fill()
         this.ctx.stroke()
-      } else {
-        // Box rendering (default)
-        // Body Pos: obs.x, groundY - obs.height
-        const posX = obs.x
-        const posY = groundY - obs.height
-
-        this.ctx.fillRect(
-          (posX - obs.width) * this.pixelsPerMeter,
-          (posY - obs.height) * this.pixelsPerMeter,
-          obs.width * 2 * this.pixelsPerMeter,
-          obs.height * 2 * this.pixelsPerMeter
-        )
-
-        this.ctx.strokeRect(
-          (posX - obs.width) * this.pixelsPerMeter,
-          (posY - obs.height) * this.pixelsPerMeter,
-          obs.width * 2 * this.pixelsPerMeter,
-          obs.height * 2 * this.pixelsPerMeter
-        )
       }
     }
   }
@@ -749,6 +861,15 @@ export class GameClient {
   restart() {
     this.worker.postMessage({ type: 'control', action: 'restart' })
   }
+  clearMapPreview() {
+    this.previewActive = false
+    this.setPreviewExitVisible(false)
+    this.worker.postMessage({ type: 'control', action: 'clear_map_preview' })
+  }
+
+  setPreviewExitHandler(callback: () => void) {
+    this.onExitPreviewCallback = callback
+  }
 
   // Parameter Setters
   setGroundFriction(v: number) {
@@ -812,5 +933,23 @@ export class GameClient {
 
   getMenuManager(): MenuManager {
     return this.menuManager
+  }
+
+  private setPreviewExitVisible(visible: boolean) {
+    if (!this.previewExitBtn) {
+      return
+    }
+    this.previewExitBtn.style.display = visible ? 'block' : 'none'
+  }
+
+  private exitPreview() {
+    if (!this.previewActive) {
+      return
+    }
+    this.previewActive = false
+    this.setPreviewExitVisible(false)
+    if (this.onExitPreviewCallback) {
+      this.onExitPreviewCallback()
+    }
   }
 }

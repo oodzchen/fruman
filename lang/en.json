@@ -71,6 +71,13 @@
   "editor_prop_health": "Health",
   "editor_prop_speed": "Speed",
   "editor_prop_damage": "Damage",
+  "editor_preview": "Preview",
+  "editor_save": "Save",
+  "editor_exit_preview": "Exit Preview",
+  "editor_create_map_prompt": "Enter map name",
+  "editor_save_success": "Map saved",
+  "editor_save_failed": "Failed to save map",
+  "editor_preview_failed": "Failed to preview map",
   "editor_btn_confirm": "Confirm",
   "editor_btn_cancel": "Cancel"
 }

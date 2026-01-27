@@ -19,7 +19,11 @@ import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
 import { World } from '../ecs/World'
-import { createPlayer, createWeapon } from '../ecs/factories/PlayerFactory'
+import {
+  createEnemy,
+  createPlayer,
+  createWeapon,
+} from '../ecs/factories/PlayerFactory'
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { InteractionSystem } from '../ecs/systems/InteractionSystem'
@@ -29,6 +33,8 @@ import { SoundSystem } from '../ecs/systems/SoundSystem'
 import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
+import type { EditorMapData, MapPlacedShape } from '../editorMapTypes'
+import { ensureDefaultMap } from '../storage'
 import type {
   MainModule,
   WeaponVisualType,
@@ -83,7 +89,9 @@ let targetingSystem: TargetingSystem
 let interactionSystem: InteractionSystem
 let arrowPools: ArrowPools
 
-let groundShapeId: b2ShapeId
+let groundShapeIds: b2ShapeId[] = []
+let activeMapData: EditorMapData | null = null
+let defaultMapData: EditorMapData | null = null
 let obstacles: {
   bodyId: b2BodyId
   mainShapeId: b2ShapeId
@@ -93,6 +101,7 @@ let obstacles: {
   centerY: number
   width: number
   height: number
+  radius?: number
   vertices?: { x: number; y: number }[]
   worldVertices?: { x: number; y: number }[]
 }[] = []
@@ -267,6 +276,15 @@ async function init(width: number, height: number, ppm: number) {
   canvasHeight = height
   pixelsPerMeter = ppm
 
+  const defaultMapResult = await ensureDefaultMap(width, height, ppm)
+  defaultMapData = defaultMapResult.data
+  activeMapData = defaultMapData
+
+  ctx.postMessage({
+    type: 'map_data',
+    map: activeMapData,
+  })
+
   initStateBuffers()
 
   box2d = await Box2DFactory()
@@ -283,17 +301,19 @@ async function init(width: number, height: number, ppm: number) {
   registerComponents()
 
   // Setup Environment
-  createGround()
-  createObstacles()
   const groundHeight = 0.5
   const groundY = canvasHeight / pixelsPerMeter - groundHeight
   groundTopY = groundY - groundHeight
+  createEnvironment()
 
   initializeSystems()
-  createPlayerAndWeapon(groundTopY)
+  enemyEntity = null
+  createPlayerAndWeapon(groundTopY, activeMapData)
 
   // Initialize camera to center on player
-  if (playerEntity && playerEntity.transform) {
+  if (activeMapData) {
+    applyMapCamera(activeMapData)
+  } else if (playerEntity && playerEntity.transform) {
     const centerX = canvasWidth / 2
     camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
 
@@ -442,7 +462,8 @@ function createGround(): b2BodyId {
   shapeDef.material.friction = groundFriction
   shapeDef.material.restitution = 0
   shapeDef.filter.categoryBits = CATEGORY_GROUND
-  groundShapeId = b2CreatePolygonShape(bodyId, shapeDef, groundBox)
+  const shapeId = b2CreatePolygonShape(bodyId, shapeDef, groundBox)
+  groundShapeIds.push(shapeId)
 
   groundDef.delete()
   groundBox.delete()
@@ -479,22 +500,10 @@ function createObstacles() {
   } = box2d
 
   const canvasHeightInMeters = canvasHeight / pixelsPerMeter
-  // groundY logic matches createGround: bottom of screen - 0.5 (ground center)
-  // Actually ground center is at (Bottom - 0.5).
   const groundY = canvasHeightInMeters - 0.5
   obstacles = []
 
-  // 跌落伤害测试平台（高度递增设计）
-  // 玩家在x=-12，向右是测试阶梯区
-  // height参数是半高，实际高度=height*2
-  const obstacleConfigs: ObstacleConfig[] = [
-    { type: 'box', x: -9.5, width: 1.5, height: 1.5 }, // 平台1: 3.0m高（基础平台）
-    { type: 'box', x: -5, width: 1.5, height: 2.5 }, // 平台2: 5.0m高
-    { type: 'box', x: 0, width: 1.5, height: 3.5 }, // 平台3: 7.0m高
-    { type: 'box', x: 5, width: 1.5, height: 5.5 }, // 平台4: 11.0m高
-    { type: 'box', x: 10, width: 1.5, height: 7.5 }, // 平台5: 15.0m高
-    { type: 'box', x: 15, width: 1.5, height: 10.5 }, // 平台6: 21.0m高
-  ]
+  const obstacleConfigs: ObstacleConfig[] = []
 
   // Cap parameters
   const CAP_TOTAL_HEIGHT = 0.1
@@ -645,23 +654,403 @@ function createObstacles() {
   }
 }
 
-function createPlayerAndWeapon(groundY: number) {
+function createEnvironment(): void {
+  groundShapeIds.length = 0
+  obstacles = []
+  if (activeMapData) {
+    createEnvironmentFromMap(activeMapData)
+  } else {
+    createGround()
+    createObstacles()
+  }
+  if (weaponSystem) {
+    weaponSystem.setObstacles(obstacles)
+  }
+}
+
+function createEnvironmentFromMap(map: EditorMapData): void {
+  for (let i = 0; i < map.shapes.length; i++) {
+    const placed = map.shapes[i]
+    if (placed.objectKind === 'ground') {
+      createGroundShapeFromMap(placed)
+    } else {
+      createObstacleShapeFromMap(placed)
+    }
+  }
+}
+
+function createGroundShapeFromMap(placed: MapPlacedShape): void {
+  createStaticShapeFromMap(placed, CATEGORY_GROUND, groundFriction, false)
+}
+
+function createObstacleShapeFromMap(placed: MapPlacedShape): void {
+  createStaticShapeFromMap(placed, CATEGORY_OBSTACLE, obstacleFriction, true)
+}
+
+function createStaticShapeFromMap(
+  placed: MapPlacedShape,
+  categoryBits: number,
+  friction: number,
+  shouldRegisterObstacle: boolean
+): void {
+  const shape = placed.shape
+  if (shape.kind === 'rect') {
+    const rectResult = createStaticRectBody(
+      shape.center.x,
+      shape.center.y,
+      shape.halfWidth,
+      shape.halfHeight,
+      shape.rotationRad,
+      categoryBits,
+      friction
+    )
+    if (shouldRegisterObstacle) {
+      registerObstacleFromRect(shape, rectResult)
+    }
+    return
+  }
+  if (shape.kind === 'circle') {
+    const circleResult = createStaticCircleBody(
+      shape.center.x,
+      shape.center.y,
+      shape.radius,
+      categoryBits,
+      friction
+    )
+    if (shouldRegisterObstacle) {
+      registerObstacleFromCircle(shape, circleResult)
+    }
+    return
+  }
+  if (shape.kind === 'polygon') {
+    registerPolygonShape(shape, categoryBits, friction, shouldRegisterObstacle)
+  }
+}
+
+function createStaticRectBody(
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number,
+  rotationRad: number,
+  categoryBits: number,
+  friction: number
+): { bodyId: b2BodyId; shapeId: b2ShapeId } {
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2MakeBox,
+    b2DefaultShapeDef,
+    b2CreatePolygonShape,
+  } = box2d
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.position.Set(centerX, centerY)
+  ;(
+    bodyDef as ReturnType<MainModule['b2DefaultBodyDef']> & { angle: number }
+  ).angle = rotationRad
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const box = b2MakeBox(halfWidth, halfHeight)
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.material.friction = friction
+  shapeDef.material.restitution = 0
+  shapeDef.filter.categoryBits = categoryBits
+  const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
+  if (categoryBits === CATEGORY_GROUND) {
+    groundShapeIds.push(shapeId)
+  }
+
+  bodyDef.delete()
+  box.delete()
+  shapeDef.delete()
+
+  return { bodyId, shapeId }
+}
+
+function createStaticCircleBody(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  categoryBits: number,
+  friction: number
+): { bodyId: b2BodyId; shapeId: b2ShapeId } {
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2Circle,
+    b2DefaultShapeDef,
+    b2CreateCircleShape,
+  } = box2d
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.position.Set(centerX, centerY)
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const circle = new b2Circle()
+  circle.center.Set(0, 0)
+  circle.radius = radius
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.material.friction = friction
+  shapeDef.material.restitution = 0
+  shapeDef.filter.categoryBits = categoryBits
+  const shapeId = b2CreateCircleShape(bodyId, shapeDef, circle)
+  if (categoryBits === CATEGORY_GROUND) {
+    groundShapeIds.push(shapeId)
+  }
+
+  circle.delete()
+  bodyDef.delete()
+  shapeDef.delete()
+
+  return { bodyId, shapeId }
+}
+
+function registerObstacleFromRect(
+  shape: Extract<MapPlacedShape['shape'], { kind: 'rect' }>,
+  result: { bodyId: b2BodyId; shapeId: b2ShapeId }
+): void {
+  const halfWidth = shape.halfWidth
+  const halfHeight = shape.halfHeight
+  const centerX = shape.center.x
+  const centerY = shape.center.y
+  const rotationRad = shape.rotationRad
+  const cap = createObstacleCapRect(
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    rotationRad
+  )
+  const worldVertices =
+    Math.abs(rotationRad) > 0.0001
+      ? computeRectWorldVertices(
+          centerX,
+          centerY,
+          halfWidth,
+          halfHeight,
+          rotationRad
+        )
+      : undefined
+  obstacles.push({
+    bodyId: result.bodyId,
+    mainShapeId: result.shapeId,
+    capBodyId: cap.capBodyId,
+    capShapeId: cap.capShapeId,
+    centerX,
+    centerY,
+    width: halfWidth,
+    height: halfHeight,
+    worldVertices,
+  })
+}
+
+function registerObstacleFromCircle(
+  shape: Extract<MapPlacedShape['shape'], { kind: 'circle' }>,
+  result: { bodyId: b2BodyId; shapeId: b2ShapeId }
+): void {
+  const radius = shape.radius
+  const centerX = shape.center.x
+  const centerY = shape.center.y
+  const cap = createObstacleCapRect(centerX, centerY, radius, radius, 0)
+  obstacles.push({
+    bodyId: result.bodyId,
+    mainShapeId: result.shapeId,
+    capBodyId: cap.capBodyId,
+    capShapeId: cap.capShapeId,
+    centerX,
+    centerY,
+    width: radius,
+    height: radius,
+    radius,
+  })
+}
+
+function registerPolygonShape(
+  shape: Extract<MapPlacedShape['shape'], { kind: 'polygon' }>,
+  categoryBits: number,
+  friction: number,
+  shouldRegisterObstacle: boolean
+): void {
+  if (shape.points.length < 6) {
+    return
+  }
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2DefaultShapeDef,
+    b2CreatePolygonShape,
+    b2ComputeHull,
+    b2MakePolygon,
+    b2Vec2,
+  } = box2d
+
+  const centerX = shape.center.x
+  const centerY = shape.center.y
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.position.Set(centerX, centerY)
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const localPoints: InstanceType<MainModule['b2Vec2']>[] = []
+  const vertices: { x: number; y: number }[] = []
+  const worldVertices: { x: number; y: number }[] = []
+  let minX = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (let i = 0; i < shape.points.length; i += 2) {
+    const worldX = shape.points[i]
+    const worldY = shape.points[i + 1]
+    const localX = worldX - centerX
+    const localY = worldY - centerY
+    vertices.push({ x: localX, y: localY })
+    worldVertices.push({ x: worldX, y: worldY })
+    if (localX < minX) minX = localX
+    if (localX > maxX) maxX = localX
+    if (localY < minY) minY = localY
+    if (localY > maxY) maxY = localY
+    localPoints.push(new b2Vec2(localX, localY))
+  }
+
+  const hull: b2Hull = b2ComputeHull(localPoints)
+  const polygon: b2Polygon = b2MakePolygon(hull, 0)
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.material.friction = friction
+  shapeDef.material.restitution = 0
+  shapeDef.filter.categoryBits = categoryBits
+  const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
+  if (categoryBits === CATEGORY_GROUND) {
+    groundShapeIds.push(shapeId)
+  }
+
+  bodyDef.delete()
+  shapeDef.delete()
+  hull.delete()
+  polygon.delete()
+  for (let i = 0; i < localPoints.length; i++) {
+    localPoints[i].delete()
+  }
+
+  if (!shouldRegisterObstacle) {
+    return
+  }
+  const halfWidth = Math.max(Math.abs(minX), Math.abs(maxX))
+  const halfHeight = Math.max(Math.abs(minY), Math.abs(maxY))
+  obstacles.push({
+    bodyId,
+    mainShapeId: shapeId,
+    capBodyId: bodyId,
+    capShapeId: shapeId,
+    centerX,
+    centerY,
+    width: halfWidth,
+    height: halfHeight,
+    vertices,
+    worldVertices,
+  })
+}
+
+function createObstacleCapRect(
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number,
+  rotationRad: number
+): { capBodyId: b2BodyId; capShapeId: b2ShapeId } {
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2MakeBox,
+    b2DefaultShapeDef,
+    b2CreatePolygonShape,
+  } = box2d
+  const CAP_TOTAL_HEIGHT = 0.1
+  const capHalfHeight = CAP_TOTAL_HEIGHT * 0.5
+  const offsetY = -halfHeight + capHalfHeight
+  const cos = Math.cos(rotationRad)
+  const sin = Math.sin(rotationRad)
+  const capCenterX = centerX - offsetY * sin
+  const capCenterY = centerY + offsetY * cos
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.position.Set(capCenterX, capCenterY)
+  ;(
+    bodyDef as ReturnType<MainModule['b2DefaultBodyDef']> & { angle: number }
+  ).angle = rotationRad
+  const bodyId = b2CreateBody(worldId, bodyDef)
+  const capBox = b2MakeBox(halfWidth, capHalfHeight)
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.material.friction = obstacleFriction
+  shapeDef.material.restitution = 0
+  shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+  const capShapeId = b2CreatePolygonShape(bodyId, shapeDef, capBox)
+
+  bodyDef.delete()
+  capBox.delete()
+  shapeDef.delete()
+
+  return { capBodyId: bodyId, capShapeId }
+}
+
+function computeRectWorldVertices(
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number,
+  rotationRad: number
+): { x: number; y: number }[] {
+  const cos = Math.cos(rotationRad)
+  const sin = Math.sin(rotationRad)
+  const corners = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: halfWidth, y: -halfHeight },
+    { x: halfWidth, y: halfHeight },
+    { x: -halfWidth, y: halfHeight },
+  ]
+  const world: { x: number; y: number }[] = []
+  for (let i = 0; i < corners.length; i++) {
+    const localX = corners[i].x
+    const localY = corners[i].y
+    const worldX = centerX + localX * cos - localY * sin
+    const worldY = centerY + localX * sin + localY * cos
+    world.push({ x: worldX, y: worldY })
+  }
+  return world
+}
+
+function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
   playerEntity = createPlayer(
     world,
     box2d,
     worldId,
-    -12,
-    groundY - 0.6,
+    map ? map.playerSpawn.x : -12,
+    map ? map.playerSpawn.y : groundY - 0.6,
     groundY
   )
 
+  const weaponBaseX = map ? map.playerSpawn.x : -12
+  const weaponBaseY = map ? map.playerSpawn.y : groundY - 0.6
+
   // 在玩家右前方（向右7米）生成一把剑，方便看到
-  // Spawn weapon higher to avoid clipping into obstacles (platform at x=-5 is 5m high, top at groundY-5.5)
-  createWeapon(world, box2d, worldId, -5, groundY - 8.0, groundY, 'sword')
+  createWeapon(
+    world,
+    box2d,
+    worldId,
+    weaponBaseX + 6,
+    weaponBaseY - 4,
+    groundY,
+    'sword'
+  )
 
   // 在远处阶梯平台（x=15，高度21m）上生成一把小剑用于测试
-  // 平台6：x=15, height=10.5 (全高21m), 顶部在 groundY - 21.0
-  createWeapon(world, box2d, worldId, 15, groundY - 22.0, groundY, 'shortSword')
+  createWeapon(
+    world,
+    box2d,
+    worldId,
+    weaponBaseX + 12,
+    weaponBaseY - 8,
+    groundY,
+    'shortSword'
+  )
 
   // Obstacles are at -9.5, 9.5, 19.5
 
@@ -729,9 +1118,66 @@ function createPlayerAndWeapon(groundY: number) {
   )
   */
 
+  if (map && map.enemies.length > 0) {
+    enemyEntity = null
+    for (let i = 0; i < map.enemies.length; i++) {
+      const enemy = map.enemies[i]
+      const created = createEnemy(
+        world,
+        box2d,
+        worldId,
+        enemy.x,
+        enemy.y,
+        groundY,
+        enemy.enemyType
+      )
+      if (!enemyEntity) {
+        enemyEntity = created
+      }
+    }
+  }
+
   enemyAISystem.setPlayer(playerEntity)
   soundSystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)
+}
+
+function applyMapCamera(map: EditorMapData): void {
+  const zoomValue =
+    map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)
+      ? map.camera.zoom
+      : DEFAULT_CAMERA_ZOOM
+
+  camera.x = map.camera.x
+  camera.y = map.camera.y
+  zoom = zoomValue
+  targetZoom = zoomValue
+
+  const isDefaultCamera =
+    Math.abs(map.camera.x) < 0.01 &&
+    Math.abs(map.camera.y) < 0.01 &&
+    Math.abs(map.camera.zoom - 1) < 0.01
+
+  if (isDefaultCamera && playerEntity && playerEntity.transform) {
+    const centerX = canvasWidth / 2
+    camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
+
+    const initialPlayerFeetY =
+      playerEntity.transform.y + DEFAULT_PLAYER_RADIUS + 0.2
+    const initialScreenY =
+      canvasHeight +
+      ((initialPlayerFeetY - camera.y) * pixelsPerMeter - canvasHeight) * zoom
+    initialPlayerScreenRatioY = Math.max(
+      0.6,
+      Math.min(0.98, initialScreenY / canvasHeight)
+    )
+
+    isCameraLocked = true
+    isVerticalCameraLocked = false
+  } else {
+    isCameraLocked = false
+    isVerticalCameraLocked = false
+  }
 }
 
 function handleInput(
@@ -1699,11 +2145,10 @@ function restart() {
   const groundY = canvasHeight / pixelsPerMeter - groundHeight
   groundTopY = groundY - groundHeight
 
-  createGround()
-  createObstacles()
-
+  createEnvironment()
   initializeSystems()
-  createPlayerAndWeapon(groundTopY)
+  enemyEntity = null
+  createPlayerAndWeapon(groundTopY, activeMapData)
 
   enemyAISystem.setPlayer(playerEntity)
   soundSystem.setPlayer(playerEntity)
@@ -1714,10 +2159,7 @@ function restart() {
   prevMouseButtons.clear()
   currMouseButtons.clear()
 
-  camera.x = 0
-  camera.y = 0
-  zoom = DEFAULT_CAMERA_ZOOM
-  targetZoom = DEFAULT_CAMERA_ZOOM
+  // Reset camera state variables
   isCameraLocked = false
   isTransitioning = false
   transitionStartTime = 0
@@ -1738,7 +2180,14 @@ function restart() {
   verticalIdleTime = 0
   verticalTransitionTargetRatio = VERTICAL_LOCK_SCREEN_RATIO
 
-  if (playerEntity && playerEntity.transform) {
+  if (activeMapData) {
+    applyMapCamera(activeMapData)
+  } else if (playerEntity && playerEntity.transform) {
+    camera.x = 0
+    camera.y = 0
+    zoom = DEFAULT_CAMERA_ZOOM
+    targetZoom = DEFAULT_CAMERA_ZOOM
+
     const centerX = canvasWidth / 2
     camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
 
@@ -1794,9 +2243,23 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
         lastTime = performance.now()
       }
       if (msg.action === 'restart') restart()
+      if (msg.action === 'clear_map_preview') {
+        activeMapData = defaultMapData
+        if (activeMapData) {
+          ctx.postMessage({
+            type: 'map_data',
+            map: activeMapData,
+          })
+        }
+        restart()
+      }
       if (msg.action === 'update_param') {
         updateParam(msg.paramId, msg.value)
       }
+      break
+    case 'map_preview':
+      activeMapData = msg.map
+      restart()
       break
   }
 }
@@ -1863,9 +2326,11 @@ function updateParam(id?: string, value?: number) {
 
   if (id === 'groundFriction') {
     groundFriction = value
-    if (groundShapeId) {
+    if (groundShapeIds.length > 0) {
       const { b2Shape_SetFriction } = box2d
-      b2Shape_SetFriction(groundShapeId, value)
+      for (let i = 0; i < groundShapeIds.length; i++) {
+        b2Shape_SetFriction(groundShapeIds[i], value)
+      }
     }
   }
 

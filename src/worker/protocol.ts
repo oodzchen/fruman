@@ -3,6 +3,7 @@ import type {
   TransformComponent,
   WeaponComponent,
 } from '../ecs/Component'
+import type { EditorMapData } from '../editorMapTypes'
 
 export type RenderEntity = {
   id: number
@@ -64,9 +65,14 @@ export type WorkerBufferReleaseMessage = {
 
 export type WorkerControlMessage = {
   type: 'control'
-  action: 'stop' | 'start' | 'restart' | 'update_param'
+  action: 'stop' | 'start' | 'restart' | 'update_param' | 'clear_map_preview'
   paramId?: string
   value?: number
+}
+
+export type WorkerMapPreviewMessage = {
+  type: 'map_preview'
+  map: EditorMapData
 }
 
 export type MainToWorkerMessage =
@@ -74,6 +80,7 @@ export type MainToWorkerMessage =
   | WorkerInputMessage
   | WorkerBufferReleaseMessage
   | WorkerControlMessage
+  | WorkerMapPreviewMessage
 
 export type WorkerStateMessage = {
   type: 'state'
@@ -135,4 +142,12 @@ export type WorkerDebugMessage = {
   camera: CameraDebugData | null
 }
 
-export type WorkerToMainMessage = WorkerStateMessage | WorkerDebugMessage
+export type WorkerMapDataMessage = {
+  type: 'map_data'
+  map: EditorMapData
+}
+
+export type WorkerToMainMessage =
+  | WorkerStateMessage
+  | WorkerDebugMessage
+  | WorkerMapDataMessage

@@ -428,6 +428,59 @@
         inset: 0;
         z-index: 1;
       }
+      .editor-actions {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        gap: 8px;
+        z-index: 4;
+        pointer-events: auto;
+      }
+      .editor-action-btn {
+        min-width: 96px;
+        height: 34px;
+        line-height: 34px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 0 12px;
+        cursor: pointer;
+        text-align: center;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-action-btn:hover {
+        color: var(--ui-color);
+        background: rgba(120, 100, 60, 0.4);
+        border-color: rgba(255, 255, 255, 0.32);
+      }
+      .preview-exit-btn {
+        position: absolute;
+        left: 12px;
+        top: 12px;
+        min-width: 120px;
+        height: 34px;
+        line-height: 34px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        padding: 0 12px;
+        cursor: pointer;
+        text-align: center;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+        z-index: 5;
+        pointer-events: auto;
+        display: none;
+      }
+      .preview-exit-btn:hover {
+        color: var(--ui-color);
+        background: rgba(120, 100, 60, 0.45);
+        border-color: rgba(255, 255, 255, 0.34);
+      }
       .editor-canvas {
         position: absolute;
         inset: 0;
@@ -597,6 +650,7 @@
               <div id="menuItems" class="menu-items"></div>
             </div>
           </div>
+          <button id="previewExitBtn" class="preview-exit-btn"></button>
           <div id="editorOverlay">
             <div class="editor-content">
               <div id="editorSidebar" class="editor-sidebar">
@@ -699,6 +753,13 @@
                   <div class="editor-map-list-container">
                     <div id="editorMapList" class="editor-map-list"></div>
                   </div>
+                </div>
+                <div id="editorActions" class="editor-actions">
+                  <button
+                    id="editorPreviewBtn"
+                    class="editor-action-btn"
+                  ></button>
+                  <button id="editorSaveBtn" class="editor-action-btn"></button>
                 </div>
               </div>
               <button

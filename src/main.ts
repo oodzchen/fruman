@@ -318,7 +318,34 @@ async function initialize() {
   const editorManager = new EditorManager()
   editorManager.onBackToMenu(() => {
     game.setEditorPreview(false)
+    game.clearMapPreview()
     menuManager.show(MenuMode.Start)
+  })
+  editorManager.onPreview((_meta, data) => {
+    editorManager.hide()
+    game.applyMapPreview(data)
+
+    if (data.camera && data.camera.zoom) {
+      const zoomValue = data.camera.zoom.toString()
+      const cameraZoomRange = document.getElementById(
+        'cameraZoom'
+      ) as HTMLInputElement
+      const cameraZoomNum = document.getElementById(
+        'cameraZoomNum'
+      ) as HTMLInputElement
+      if (cameraZoomRange) cameraZoomRange.value = zoomValue
+      if (cameraZoomNum) cameraZoomNum.value = zoomValue
+    }
+
+    applyControls.forEach((apply) => apply())
+    game.start()
+    game.setInputEnabled(true)
+  })
+  game.setPreviewExitHandler(() => {
+    game.stop()
+    game.setInputEnabled(false)
+    game.setEditorPreview(true)
+    editorManager.showEditorForCurrentMap()
   })
 
   // 获取缩放控件引用，用于实时同步
@@ -351,23 +378,26 @@ async function initialize() {
       case MenuAction.NewGame:
         menuManager.hide()
         game.setEditorPreview(false)
+        game.clearMapPreview()
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.Continue:
         menuManager.hide()
         game.setEditorPreview(false)
+        game.clearMapPreview()
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.Resume:
         menuManager.hide()
         game.setEditorPreview(false)
+        game.clearMapPreview()
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.MainMenu:
-        game.restart()
+        game.clearMapPreview()
         game.stop()
         game.setInputEnabled(false)
         game.setEditorPreview(false)

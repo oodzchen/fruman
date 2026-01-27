@@ -2,6 +2,18 @@ import { fabric } from 'fabric'
 
 import { localizer } from './Localizer'
 import { DEFAULT_PLAYER_RADIUS } from './constants'
+import type {
+  EditorMapData,
+  EditorMapMeta,
+  MapPlacedShape,
+} from './editorMapTypes'
+import {
+  createEditorMap,
+  listEditorMaps,
+  loadEditorMapData,
+  saveEditorMap,
+} from './storage'
+import type { EnemyType } from './types'
 
 const fabricControlsUtils = (
   fabric as unknown as {
@@ -41,6 +53,11 @@ type PlayerMarker = fabric.Group & {
   editorShape: 'player-marker'
 }
 
+type EnemyMarker = fabric.Group & {
+  editorShape: 'enemy-marker'
+  enemyType: EnemyType
+}
+
 type ShapeResetData =
   | { kind: 'rect'; width: number; height: number }
   | { kind: 'circle'; radius: number }
@@ -53,6 +70,11 @@ interface CameraViewData {
   zoom: number
   baseWidth: number
   baseHeight: number
+}
+
+interface EnemyMarkerData {
+  marker: EnemyMarker
+  enemyType: EnemyType
 }
 
 const POLYGON_POINT_POOL: fabric.Point[] = []
@@ -77,6 +99,9 @@ const CAMERA_ICON_FILL = 'rgba(230, 230, 230, 0.18)'
 const EDITOR_PIXELS_PER_METER = 50
 const PLAYER_BODY_COLOR = '#F58025'
 const PLAYER_EYE_COLOR = '#000000'
+const ENEMY_BODY_COLOR = '#A34C2A'
+const ENEMY_EYE_COLOR = '#1A0F08'
+const DEFAULT_ENEMY_TYPE: EnemyType = 'default'
 const DEBUG_EDITOR_MENU = false
 const OBSTACLE_FILL_COLOR = 'rgba(112, 64, 14, 0.85)'
 const SNAP_THRESHOLD_PX = 10
@@ -251,6 +276,7 @@ interface EditorMap {
   id: string
   name: string
   createdAt: number
+  updatedAt: number
 }
 
 interface PropertyField {
@@ -290,6 +316,9 @@ export class EditorManager {
   private gameCanvas: HTMLCanvasElement
   private editorMapListView: HTMLDivElement
   private editorMapList: HTMLDivElement
+  private editorActions: HTMLDivElement
+  private editorPreviewBtn: HTMLButtonElement
+  private editorSaveBtn: HTMLButtonElement
   private editorObjectItems: NodeListOf<HTMLButtonElement>
   private objectTypeMenu: HTMLDivElement
   private panelMenu: HTMLDivElement
@@ -312,7 +341,9 @@ export class EditorManager {
   private visible = false
   private currentView: EditorView = EditorView.MapList
   private maps: EditorMap[] = []
+  private currentMapMeta: EditorMapMeta | null = null
   private onBackToMenuCallback?: () => void
+  private onPreviewCallback?: (meta: EditorMapMeta, data: EditorMapData) => void
   private fabricCanvas: fabric.Canvas | null = null
   private activeObjectType: ObjectType | null = null
   private handleResize: () => void
@@ -350,6 +381,8 @@ export class EditorManager {
   private cameraViews: CameraViewData[] = []
   private cameraViewMap = new Map<fabric.Object, CameraViewData>()
   private playerMarker: PlayerMarker | null = null
+  private enemyMarkers: EnemyMarkerData[] = []
+  private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
   private editorObjects: EditorObjectData[] = []
   private editorObjectMap = new Map<fabric.Object, EditorObjectData>()
   private objectTypeCounts = new Map<ObjectType, number>()
@@ -390,6 +423,7 @@ export class EditorManager {
   private snapBoundsPool: SnapBounds[] = []
   private snapActiveTarget: fabric.Object | null = null
   private snapFrameCounter = 0
+  private readonly invPixelsPerMeter = 1 / EDITOR_PIXELS_PER_METER
 
   constructor() {
     const overlay = document.getElementById('editorOverlay')
@@ -405,6 +439,9 @@ export class EditorManager {
     const gameCanvas = document.getElementById('gameCanvas')
     const mapListView = document.getElementById('editorMapListView')
     const mapList = document.getElementById('editorMapList')
+    const actions = document.getElementById('editorActions')
+    const previewBtn = document.getElementById('editorPreviewBtn')
+    const saveBtn = document.getElementById('editorSaveBtn')
     const objectItems = document.querySelectorAll<HTMLButtonElement>(
       '.editor-object-item'
     )
@@ -459,6 +496,9 @@ export class EditorManager {
       !(gameCanvas instanceof HTMLCanvasElement) ||
       !(mapListView instanceof HTMLDivElement) ||
       !(mapList instanceof HTMLDivElement) ||
+      !(actions instanceof HTMLDivElement) ||
+      !(previewBtn instanceof HTMLButtonElement) ||
+      !(saveBtn instanceof HTMLButtonElement) ||
       !(groundMenu instanceof HTMLButtonElement) ||
       !(groundSubmenu instanceof HTMLDivElement) ||
       !(obstacleMenu instanceof HTMLButtonElement) ||
@@ -493,6 +533,9 @@ export class EditorManager {
     this.gameCanvas = gameCanvas
     this.editorMapListView = mapListView
     this.editorMapList = mapList
+    this.editorActions = actions
+    this.editorPreviewBtn = previewBtn
+    this.editorSaveBtn = saveBtn
     this.editorObjectItems = objectItems
     this.objectTypeMenu = objectTypeMenu
     this.panelMenu = panelMenu
@@ -527,6 +570,14 @@ export class EditorManager {
   private setupEventListeners() {
     this.editorBackBtn.addEventListener('click', () => {
       this.handleBack()
+    })
+
+    this.editorPreviewBtn.addEventListener('click', () => {
+      this.handlePreview()
+    })
+
+    this.editorSaveBtn.addEventListener('click', () => {
+      void this.handleSave()
     })
 
     this.editorPanelCollapseBtn.addEventListener('click', () => {
@@ -660,6 +711,8 @@ export class EditorManager {
 
   private updateLocalization() {
     this.editorBackBtn.textContent = localizer.t('editor_back_to_menu')
+    this.editorPreviewBtn.textContent = localizer.t('editor_preview')
+    this.editorSaveBtn.textContent = localizer.t('editor_save')
     this.editorObjectPanelTitle.textContent = localizer.t(
       'editor_object_panel_title'
     )
@@ -707,8 +760,29 @@ export class EditorManager {
     }
   }
 
-  private handleCreateMap() {
+  private async handleCreateMap() {
+    const nameInput = window.prompt(localizer.t('editor_create_map_prompt'))
+    if (nameInput === null) {
+      return
+    }
+    const name = nameInput.trim()
+    if (name.length === 0) {
+      return
+    }
+
+    this.ensureFabricCanvas()
+    this.resizeEditorCanvas()
+    const initialData = this.buildDefaultMapData()
+    const meta = await createEditorMap(name, initialData)
+    if (!meta) {
+      window.alert(localizer.t('editor_save_failed'))
+      return
+    }
+
+    this.currentMapMeta = meta
+    this.refreshMapMetas()
     this.showEditorView()
+    this.applyMapData(initialData)
   }
 
   private handleObjectClick(type: ObjectType) {
@@ -744,6 +818,15 @@ export class EditorManager {
       return
     }
 
+    if (type === ObjectType.Enemy) {
+      this.hideGroundSubmenu()
+      this.hideObstacleSubmenu()
+      this.hideObjectTypeMenu()
+      this.setActiveObjectType(type)
+      this.spawnEnemyMarker()
+      return
+    }
+
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideObjectTypeMenu()
@@ -760,6 +843,7 @@ export class EditorManager {
     this.editorSidebar.style.display = 'none'
     this.editorMapListView.style.display = 'flex'
     this.editorCanvas.style.display = 'none'
+    this.editorActions.style.display = 'none'
     this.hidePanelMenu()
     this.hideObjectTypeMenu()
     this.hideGroundSubmenu()
@@ -774,6 +858,7 @@ export class EditorManager {
     this.currentView = EditorView.Editor
     this.editorMapListView.style.display = 'none'
     this.editorSidebar.style.display = this.panelCollapsed ? 'none' : 'block'
+    this.editorActions.style.display = 'flex'
     if (this.panelCollapsed) {
       this.editorPanelCollapsedBtn.classList.add('is-visible')
     } else {
@@ -797,7 +882,7 @@ export class EditorManager {
       createBtn.className = 'editor-map-item'
       createBtn.textContent = `+ ${localizer.t('editor_create_map')}`
       createBtn.addEventListener('click', () => {
-        this.handleCreateMap()
+        void this.handleCreateMap()
       })
       this.editorMapList.appendChild(createBtn)
       return
@@ -817,13 +902,521 @@ export class EditorManager {
     createBtn.className = 'editor-map-item'
     createBtn.textContent = `+ ${localizer.t('editor_create_map')}`
     createBtn.addEventListener('click', () => {
-      this.handleCreateMap()
+      void this.handleCreateMap()
     })
     this.editorMapList.appendChild(createBtn)
   }
 
   private loadMap(mapId: string) {
     this.showEditorView()
+    void this.loadMapData(mapId)
+  }
+
+  private refreshMapMetas() {
+    listEditorMaps()
+      .then((maps) => {
+        this.maps = maps
+        if (this.visible && this.currentView === EditorView.MapList) {
+          this.renderMapList()
+        }
+      })
+      .catch(() => {})
+  }
+
+  private findMapMeta(mapId: string): EditorMapMeta | null {
+    for (let i = 0; i < this.maps.length; i++) {
+      const meta = this.maps[i]
+      if (meta.id === mapId) {
+        return meta
+      }
+    }
+    return null
+  }
+
+  private async loadMapData(mapId: string) {
+    const stored = await loadEditorMapData(mapId)
+    const meta = this.findMapMeta(mapId)
+    if (meta) {
+      this.currentMapMeta = meta
+    } else if (this.currentMapMeta?.id !== mapId) {
+      const now = Date.now()
+      this.currentMapMeta = {
+        id: mapId,
+        name: mapId,
+        createdAt: now,
+        updatedAt: now,
+      }
+    }
+    const data = stored ?? this.buildDefaultMapData()
+    this.applyMapData(data)
+  }
+
+  private buildDefaultMapData(): EditorMapData {
+    const width = this.editorCanvas.width
+    const height = this.editorCanvas.height
+    const ppm = EDITOR_PIXELS_PER_METER
+    const spawnX = width * 0.5 * this.invPixelsPerMeter
+    const spawnY = Math.max(0.8, height * this.invPixelsPerMeter - 1.6)
+    return {
+      version: 1,
+      canvasWidth: width,
+      canvasHeight: height,
+      pixelsPerMeter: ppm,
+      playerSpawn: { x: spawnX, y: spawnY },
+      camera: { x: 0, y: 0, zoom: 1 },
+      shapes: [],
+      enemies: [],
+    }
+  }
+
+  private handlePreview() {
+    const data = this.serializeCurrentMapData()
+    const meta = this.currentMapMeta ?? {
+      id: 'preview',
+      name: 'preview',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    if (!this.onPreviewCallback) {
+      window.alert(localizer.t('editor_preview_failed'))
+      return
+    }
+    this.onPreviewCallback(meta, data)
+  }
+
+  private async handleSave() {
+    const data = this.serializeCurrentMapData()
+    const meta = await this.ensureMapMeta(data)
+    if (!meta) {
+      return
+    }
+    const savedMeta = await saveEditorMap(meta, data)
+    if (!savedMeta) {
+      window.alert(localizer.t('editor_save_failed'))
+      return
+    }
+    this.currentMapMeta = savedMeta
+    this.refreshMapMetas()
+    window.alert(localizer.t('editor_save_success'))
+  }
+
+  private async ensureMapMeta(
+    data: EditorMapData
+  ): Promise<EditorMapMeta | null> {
+    if (this.currentMapMeta) {
+      return this.currentMapMeta
+    }
+    const nameInput = window.prompt(localizer.t('editor_create_map_prompt'))
+    if (nameInput === null) {
+      return null
+    }
+    const name = nameInput.trim()
+    if (name.length === 0) {
+      return null
+    }
+    const created = await createEditorMap(name, data)
+    if (!created) {
+      window.alert(localizer.t('editor_save_failed'))
+      return null
+    }
+    this.currentMapMeta = created
+    this.refreshMapMetas()
+    return created
+  }
+
+  private serializeCurrentMapData(): EditorMapData {
+    const base = this.buildDefaultMapData()
+    const playerSpawn = this.serializePlayerSpawn(base)
+    const camera = this.serializeCamera(base)
+    const shapes: MapPlacedShape[] = []
+    this.serializeShapes(shapes)
+    const enemies = this.serializeEnemies()
+    return {
+      version: 1,
+      canvasWidth: base.canvasWidth,
+      canvasHeight: base.canvasHeight,
+      pixelsPerMeter: base.pixelsPerMeter,
+      playerSpawn,
+      camera,
+      shapes,
+      enemies,
+    }
+  }
+
+  private serializePlayerSpawn(base: EditorMapData) {
+    const marker = this.playerMarker
+    if (!marker) {
+      return base.playerSpawn
+    }
+    const x = (marker.left ?? 0) * this.invPixelsPerMeter
+    const y = (marker.top ?? 0) * this.invPixelsPerMeter
+    return { x, y }
+  }
+
+  private serializeCamera(base: EditorMapData) {
+    if (this.cameraViews.length === 0) {
+      return base.camera
+    }
+    const data = this.cameraViews[0]
+    const frame = data.frame
+    const centerX = (frame.left ?? 0) * this.invPixelsPerMeter
+    const centerY = (frame.top ?? 0) * this.invPixelsPerMeter
+    const zoom = data.zoom > 0 ? data.zoom : 1
+    return this.computeCameraOffsetFromCenter(centerX, centerY, zoom)
+  }
+
+  private computeCameraOffsetFromCenter(
+    centerX: number,
+    centerY: number,
+    zoom: number
+  ) {
+    const invZoom = zoom > 0 ? 1 / zoom : 1
+    const canvasWidthMeters = this.editorCanvas.width * this.invPixelsPerMeter
+    const canvasHeightMeters = this.editorCanvas.height * this.invPixelsPerMeter
+    const anchorX = canvasWidthMeters * 0.5
+    const anchorY = canvasHeightMeters
+    const viewWidth = canvasWidthMeters * invZoom
+    const viewHeight = canvasHeightMeters * invZoom
+    const desiredLeft = centerX - viewWidth * 0.5
+    const desiredTop = centerY - viewHeight * 0.5
+    const cameraX = desiredLeft - anchorX * (1 - invZoom)
+    const cameraY = desiredTop - anchorY * (1 - invZoom)
+    return { x: cameraX, y: cameraY, zoom }
+  }
+
+  private computeCameraCenterFromOffset(camera: EditorMapData['camera']) {
+    const zoom = camera.zoom > 0 ? camera.zoom : 1
+    const invZoom = 1 / zoom
+    const canvasWidthMeters = this.editorCanvas.width * this.invPixelsPerMeter
+    const canvasHeightMeters = this.editorCanvas.height * this.invPixelsPerMeter
+    const anchorX = canvasWidthMeters * 0.5
+    const anchorY = canvasHeightMeters
+    const viewWidth = canvasWidthMeters * invZoom
+    const viewHeight = canvasHeightMeters * invZoom
+    const left = anchorX * (1 - invZoom) + camera.x
+    const top = anchorY * (1 - invZoom) + camera.y
+    const centerX = left + viewWidth * 0.5
+    const centerY = top + viewHeight * 0.5
+    return { centerX, centerY, zoom }
+  }
+
+  private serializeShapes(out: MapPlacedShape[]) {
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const data = this.editorObjects[i]
+      if (
+        data.type !== ObjectType.Ground &&
+        data.type !== ObjectType.Obstacle
+      ) {
+        continue
+      }
+      const placed = this.serializeShapeObject(data)
+      if (placed) {
+        out.push(placed)
+      }
+    }
+  }
+
+  private serializeShapeObject(data: EditorObjectData): MapPlacedShape | null {
+    const object = data.object
+    const objectKind = data.type === ObjectType.Ground ? 'ground' : 'obstacle'
+    if (object instanceof fabric.Rect) {
+      return this.serializeRectShape(objectKind, object)
+    }
+    if (object instanceof fabric.Circle) {
+      return this.serializeCircleShape(objectKind, object)
+    }
+    if (object instanceof fabric.Polygon) {
+      return this.serializePolygonShape(objectKind, object)
+    }
+    return null
+  }
+
+  private serializeRectShape(
+    objectKind: 'ground' | 'obstacle',
+    rect: fabric.Rect
+  ): MapPlacedShape {
+    const centerX = (rect.left ?? 0) * this.invPixelsPerMeter
+    const centerY = (rect.top ?? 0) * this.invPixelsPerMeter
+    const scaleX = rect.scaleX ?? 1
+    const scaleY = rect.scaleY ?? 1
+    const widthPx = (rect.width ?? 0) * scaleX
+    const heightPx = (rect.height ?? 0) * scaleY
+    const halfWidth = widthPx * this.invPixelsPerMeter * 0.5
+    const halfHeight = heightPx * this.invPixelsPerMeter * 0.5
+    const angleDeg = rect.angle ?? 0
+    const rotationRad = (angleDeg * Math.PI) / 180
+    return {
+      objectKind,
+      shape: {
+        kind: 'rect',
+        center: { x: centerX, y: centerY },
+        halfWidth,
+        halfHeight,
+        rotationRad,
+      },
+    }
+  }
+
+  private serializeCircleShape(
+    objectKind: 'ground' | 'obstacle',
+    circle: fabric.Circle
+  ): MapPlacedShape {
+    const centerX = (circle.left ?? 0) * this.invPixelsPerMeter
+    const centerY = (circle.top ?? 0) * this.invPixelsPerMeter
+    const scaleX = circle.scaleX ?? 1
+    const scaleY = circle.scaleY ?? 1
+    const radiusPx = (circle.radius ?? 0) * Math.max(scaleX, scaleY)
+    const radius = radiusPx * this.invPixelsPerMeter
+    return {
+      objectKind,
+      shape: {
+        kind: 'circle',
+        center: { x: centerX, y: centerY },
+        radius,
+      },
+    }
+  }
+
+  private serializePolygonShape(
+    objectKind: 'ground' | 'obstacle',
+    polygon: fabric.Polygon
+  ): MapPlacedShape | null {
+    if (!polygon.points || polygon.points.length < 3) {
+      return null
+    }
+    const centerX = (polygon.left ?? 0) * this.invPixelsPerMeter
+    const centerY = (polygon.top ?? 0) * this.invPixelsPerMeter
+    const matrix = polygon.calcTransformMatrix()
+    const pathOffset = polygon.pathOffset
+    const points: number[] = []
+    for (let i = 0; i < polygon.points.length; i++) {
+      const point = polygon.points[i]
+      const localX = point.x - pathOffset.x
+      const localY = point.y - pathOffset.y
+      this.applyTransform(localX, localY, matrix, this.polygonScratchPoint)
+      points.push(
+        this.polygonScratchPoint.x * this.invPixelsPerMeter,
+        this.polygonScratchPoint.y * this.invPixelsPerMeter
+      )
+    }
+    return {
+      objectKind,
+      shape: {
+        kind: 'polygon',
+        center: { x: centerX, y: centerY },
+        points,
+      },
+    }
+  }
+
+  private serializeEnemies() {
+    const enemies: EditorMapData['enemies'] = []
+    for (let i = 0; i < this.enemyMarkers.length; i++) {
+      const marker = this.enemyMarkers[i].marker
+      enemies.push({
+        x: (marker.left ?? 0) * this.invPixelsPerMeter,
+        y: (marker.top ?? 0) * this.invPixelsPerMeter,
+        enemyType: marker.enemyType ?? DEFAULT_ENEMY_TYPE,
+      })
+    }
+    return enemies
+  }
+
+  private applyMapData(data: EditorMapData) {
+    this.ensureFabricCanvas()
+    if (!this.fabricCanvas) {
+      return
+    }
+    this.resizeEditorCanvas()
+    this.clearEditorScene()
+    this.spawnPlayerMarker(data.playerSpawn)
+    this.spawnCameraViewFrame(data.camera)
+    this.applyPlacedShapes(data.shapes)
+    this.applyEnemies(data.enemies)
+    this.renderObjectTree()
+    this.fabricCanvas.requestRenderAll()
+  }
+
+  private clearEditorScene() {
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      return
+    }
+    canvas.discardActiveObject()
+    for (let i = 0; i < this.cameraViews.length; i++) {
+      const icon = this.cameraViews[i].icon
+      if (icon.canvas === canvas) {
+        canvas.remove(icon)
+      }
+    }
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const object = this.editorObjects[i].object
+      if (object.canvas === canvas) {
+        canvas.remove(object)
+      }
+    }
+    this.shapeResetMap.clear()
+    this.cameraViews.length = 0
+    this.cameraViewMap.clear()
+    this.playerMarker = null
+    this.enemyMarkers.length = 0
+    this.enemyMarkerMap.clear()
+    this.editorObjects.length = 0
+    this.editorObjectMap.clear()
+    this.objectTypeCounts.clear()
+    this.nextEditorObjectId = 1
+    this.selectedEditorObjectId = -1
+    this.renamingEditorObjectId = -1
+    this.focusedEditorObject = null
+    this.resetDragState()
+    this.groundPatternMap.clear()
+    this.obstaclePatternMap.clear()
+    this.ensureSnapGuides()
+  }
+
+  private applyEnemies(enemies: EditorMapData['enemies']) {
+    for (let i = 0; i < enemies.length; i++) {
+      const enemy = enemies[i]
+      this.spawnEnemyMarker(enemy.enemyType, enemy)
+    }
+  }
+
+  private applyPlacedShapes(shapes: EditorMapData['shapes']) {
+    for (let i = 0; i < shapes.length; i++) {
+      const placed = shapes[i]
+      if (placed.shape.kind === 'rect') {
+        this.applyRectShape(placed)
+        continue
+      }
+      if (placed.shape.kind === 'circle') {
+        this.applyCircleShape(placed)
+        continue
+      }
+      this.applyPolygonShape(placed)
+    }
+  }
+
+  private applyRectShape(placed: MapPlacedShape) {
+    const shape = placed.shape
+    if (shape.kind !== 'rect') {
+      return
+    }
+    const rectOptions =
+      placed.objectKind === 'ground'
+        ? GROUND_RECT_OPTIONS
+        : OBSTACLE_RECT_OPTIONS
+    const rect = new fabric.Rect(rectOptions)
+    const width = shape.halfWidth * EDITOR_PIXELS_PER_METER * 2
+    const height = shape.halfHeight * EDITOR_PIXELS_PER_METER * 2
+    rect.width = width
+    rect.height = height
+    rect.scaleX = 1
+    rect.scaleY = 1
+    rect.angle = (shape.rotationRad * 180) / Math.PI
+    rect.left = shape.center.x * EDITOR_PIXELS_PER_METER
+    rect.top = shape.center.y * EDITOR_PIXELS_PER_METER
+    rect.setCoords()
+    this.registerShapeResetData(rect, {
+      kind: 'rect',
+      width,
+      height,
+    })
+    if (placed.objectKind === 'ground') {
+      this.applyGroundPatternToObject(rect)
+    } else {
+      this.applyObstaclePatternToObject(rect)
+    }
+    this.fabricCanvas?.add(rect)
+    this.registerEditorObject(
+      placed.objectKind === 'ground' ? ObjectType.Ground : ObjectType.Obstacle,
+      rect
+    )
+  }
+
+  private applyCircleShape(placed: MapPlacedShape) {
+    const shape = placed.shape
+    if (shape.kind !== 'circle') {
+      return
+    }
+    const circleOptions =
+      placed.objectKind === 'ground'
+        ? GROUND_CIRCLE_OPTIONS
+        : OBSTACLE_CIRCLE_OPTIONS
+    const circle = new fabric.Circle(circleOptions)
+    const radius = shape.radius * EDITOR_PIXELS_PER_METER
+    circle.radius = radius
+    circle.scaleX = 1
+    circle.scaleY = 1
+    circle.left = shape.center.x * EDITOR_PIXELS_PER_METER
+    circle.top = shape.center.y * EDITOR_PIXELS_PER_METER
+    circle.setCoords()
+    this.registerShapeResetData(circle, {
+      kind: 'circle',
+      radius,
+    })
+    if (placed.objectKind === 'ground') {
+      this.applyGroundPatternToObject(circle)
+    } else {
+      this.applyObstaclePatternToObject(circle)
+    }
+    this.fabricCanvas?.add(circle)
+    this.registerEditorObject(
+      placed.objectKind === 'ground' ? ObjectType.Ground : ObjectType.Obstacle,
+      circle
+    )
+  }
+
+  private applyPolygonShape(placed: MapPlacedShape) {
+    const shape = placed.shape
+    if (shape.kind !== 'polygon') {
+      return
+    }
+    const centerXPx = shape.center.x * EDITOR_PIXELS_PER_METER
+    const centerYPx = shape.center.y * EDITOR_PIXELS_PER_METER
+    const localPoints: fabric.Point[] = []
+    const resetPoints: Array<readonly [number, number]> = []
+    for (let i = 0; i < shape.points.length; i += 2) {
+      const absX = shape.points[i] * EDITOR_PIXELS_PER_METER
+      const absY = shape.points[i + 1] * EDITOR_PIXELS_PER_METER
+      const localX = absX - centerXPx
+      const localY = absY - centerYPx
+      localPoints.push(acquirePoint(localX, localY))
+      resetPoints.push([localX, localY])
+    }
+    const options =
+      placed.objectKind === 'ground'
+        ? GROUND_EDITABLE_POLYGON_OPTIONS
+        : OBSTACLE_EDITABLE_POLYGON_OPTIONS
+    const polygon = new fabric.Polygon(localPoints, options)
+    this.setupEditablePolygon(polygon)
+    const offset = polygon.pathOffset
+    if (polygon.points) {
+      for (let i = 0; i < polygon.points.length; i++) {
+        const point = polygon.points[i]
+        point.x += offset.x
+        point.y += offset.y
+      }
+    }
+    polygon.left = centerXPx
+    polygon.top = centerYPx
+    polygon.scaleX = 1
+    polygon.scaleY = 1
+    polygon.angle = 0
+    polygon.setCoords()
+    this.registerShapeResetData(polygon, {
+      kind: 'polygon',
+      points: resetPoints,
+    })
+    if (placed.objectKind === 'ground') {
+      this.applyGroundPatternToObject(polygon)
+    } else {
+      this.applyObstaclePatternToObject(polygon)
+    }
+    this.fabricCanvas?.add(polygon)
+    this.registerEditorObject(
+      placed.objectKind === 'ground' ? ObjectType.Ground : ObjectType.Obstacle,
+      polygon
+    )
   }
 
   private showPropertiesModal(type: ObjectType) {
@@ -931,6 +1524,15 @@ export class EditorManager {
     const data = this.editorObjectMap.get(object)
     if (!data) {
       return
+    }
+    if (this.isCameraFrame(object)) {
+      this.removeCameraView(object)
+    }
+    if (this.isPlayerMarker(object)) {
+      this.removePlayerMarker(object)
+    }
+    if (this.isEnemyMarker(object)) {
+      this.removeEnemyMarker(object)
     }
     this.editorObjectMap.delete(object)
     const index = this.editorObjects.indexOf(data)
@@ -1646,23 +2248,32 @@ export class EditorManager {
     this.hideObstacleSubmenu()
   }
 
-  private spawnPlayerMarker() {
+  private spawnPlayerMarker(spawn?: { x: number; y: number }) {
     this.ensureFabricCanvas()
     if (!this.fabricCanvas) {
       console.warn('[editor] Fabric canvas not ready')
       return
     }
+    const spawnX =
+      spawn?.x !== undefined
+        ? spawn.x * EDITOR_PIXELS_PER_METER
+        : this.editorCanvas.width * 0.5
+    const spawnY =
+      spawn?.y !== undefined
+        ? spawn.y * EDITOR_PIXELS_PER_METER
+        : this.editorCanvas.height * 0.5
     if (this.playerMarker && this.playerMarker.canvas) {
+      this.playerMarker.left = spawnX
+      this.playerMarker.top = spawnY
+      this.playerMarker.setCoords()
       this.fabricCanvas.setActiveObject(this.playerMarker)
       this.handleCanvasSelection(this.playerMarker)
       this.fabricCanvas.requestRenderAll()
       return
     }
     const marker = this.createPlayerMarker()
-    const centerX = this.editorCanvas.width * 0.5
-    const centerY = this.editorCanvas.height * 0.5
-    marker.left = centerX
-    marker.top = centerY
+    marker.left = spawnX
+    marker.top = spawnY
     marker.setCoords()
     this.playerMarker = marker
     this.fabricCanvas.add(marker)
@@ -1711,7 +2322,78 @@ export class EditorManager {
     return group
   }
 
-  private spawnCameraViewFrame() {
+  private spawnEnemyMarker(
+    enemyType: EnemyType = DEFAULT_ENEMY_TYPE,
+    spawn?: { x: number; y: number }
+  ) {
+    this.ensureFabricCanvas()
+    if (!this.fabricCanvas) {
+      console.warn('[editor] Fabric canvas not ready')
+      return
+    }
+    const centerX =
+      spawn?.x !== undefined
+        ? spawn.x * EDITOR_PIXELS_PER_METER
+        : this.editorCanvas.width * 0.5
+    const centerY =
+      spawn?.y !== undefined
+        ? spawn.y * EDITOR_PIXELS_PER_METER
+        : this.editorCanvas.height * 0.5
+    const marker = this.createEnemyMarker(enemyType)
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    this.fabricCanvas.add(marker)
+    this.registerEditorObject(ObjectType.Enemy, marker)
+    const enemyData: EnemyMarkerData = { marker, enemyType }
+    this.enemyMarkers.push(enemyData)
+    this.enemyMarkerMap.set(marker, enemyData)
+    this.fabricCanvas.setActiveObject(marker)
+    this.handleCanvasSelection(marker)
+    this.fabricCanvas.renderAll()
+  }
+
+  private createEnemyMarker(enemyType: EnemyType): EnemyMarker {
+    const radius = DEFAULT_PLAYER_RADIUS * EDITOR_PIXELS_PER_METER * 0.92
+    const eyeRadius = 0.07 * EDITOR_PIXELS_PER_METER
+    const eyeOffsetX = radius * 0.45
+    const eyeOffsetY = -radius * 0.45
+    const body = new fabric.Circle({
+      radius,
+      fill: ENEMY_BODY_COLOR,
+      stroke: ENEMY_BODY_COLOR,
+      strokeWidth: 3,
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+    })
+    const eye = new fabric.Circle({
+      radius: eyeRadius,
+      fill: ENEMY_EYE_COLOR,
+      stroke: ENEMY_EYE_COLOR,
+      strokeWidth: 1,
+      originX: 'center',
+      originY: 'center',
+      left: eyeOffsetX,
+      top: eyeOffsetY,
+      objectCaching: false,
+    })
+    const group = new fabric.Group([body, eye], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    }) as EnemyMarker
+    group.editorShape = 'enemy-marker'
+    group.enemyType = enemyType
+    return group
+  }
+
+  private spawnCameraViewFrame(camera?: EditorMapData['camera']) {
     this.ensureFabricCanvas()
     if (!this.fabricCanvas) {
       console.warn('[editor] Fabric canvas not ready')
@@ -1734,13 +2416,20 @@ export class EditorManager {
       this.editorCanvas.height * 2
     )
     const baseHeight = baseWidth * 0.5
-    frame.width = baseWidth
-    frame.height = baseHeight
+    let zoom = 1
+    let centerX = this.editorCanvas.width * 0.5
+    let centerY = this.editorCanvas.height * 0.5
+    if (camera) {
+      const center = this.computeCameraCenterFromOffset(camera)
+      zoom = center.zoom
+      centerX = center.centerX * EDITOR_PIXELS_PER_METER
+      centerY = center.centerY * EDITOR_PIXELS_PER_METER
+    }
+    frame.width = baseWidth / zoom
+    frame.height = baseHeight / zoom
     frame.scaleX = 1
     frame.scaleY = 1
     frame.fill = CAMERA_FRAME_FILL_UNFOCUSED
-    const centerX = this.editorCanvas.width * 0.5
-    const centerY = this.editorCanvas.height * 0.5
     frame.left = centerX
     frame.top = centerY
     frame.setCoords()
@@ -1751,7 +2440,7 @@ export class EditorManager {
     const data: CameraViewData = {
       frame,
       icon,
-      zoom: 1,
+      zoom,
       baseWidth,
       baseHeight,
     }
@@ -2218,6 +2907,13 @@ export class EditorManager {
     )
   }
 
+  private isEnemyMarker(object: fabric.Object | null): object is EnemyMarker {
+    return (
+      object instanceof fabric.Group &&
+      (object as EnemyMarker).editorShape === 'enemy-marker'
+    )
+  }
+
   private handleEditablePolygonContextMenu(opt: fabric.IEvent<MouseEvent>) {
     if (!this.fabricCanvas) {
       return
@@ -2327,6 +3023,9 @@ export class EditorManager {
     if (this.isPlayerMarker(object)) {
       return true
     }
+    if (this.isEnemyMarker(object)) {
+      return true
+    }
     return (
       object.type === 'rect' ||
       object.type === 'circle' ||
@@ -2350,6 +3049,16 @@ export class EditorManager {
       return
     }
     if (this.isPlayerMarker(target)) {
+      this.showPolygonMenuWithActions(
+        ['rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
+    if (this.isEnemyMarker(target)) {
       this.showPolygonMenuWithActions(
         ['rename', 'delete'],
         target,
@@ -2855,6 +3564,9 @@ export class EditorManager {
       if (this.isPlayerMarker(target)) {
         this.removePlayerMarker(target)
       }
+      if (this.isEnemyMarker(target)) {
+        this.removeEnemyMarker(target)
+      }
       this.unregisterEditorObject(target)
       canvas.remove(target)
       this.shapeResetMap.delete(target)
@@ -2964,6 +3676,20 @@ export class EditorManager {
   private removePlayerMarker(marker: PlayerMarker) {
     if (this.playerMarker === marker) {
       this.playerMarker = null
+    }
+  }
+
+  private removeEnemyMarker(marker: EnemyMarker) {
+    const data = this.enemyMarkerMap.get(marker)
+    if (!data) {
+      return
+    }
+    this.enemyMarkerMap.delete(marker)
+    for (let i = 0; i < this.enemyMarkers.length; i++) {
+      if (this.enemyMarkers[i].marker === marker) {
+        this.enemyMarkers.splice(i, 1)
+        break
+      }
     }
   }
 
@@ -3628,9 +4354,18 @@ export class EditorManager {
 
   show() {
     this.visible = true
+    this.refreshMapMetas()
     this.showMapListView()
     this.editorOverlay.classList.add('is-visible')
     this.updateLocalization()
+    this.gameCanvas.style.visibility = 'hidden'
+  }
+
+  showEditorForCurrentMap() {
+    this.visible = true
+    this.editorOverlay.classList.add('is-visible')
+    this.updateLocalization()
+    this.showEditorView()
     this.gameCanvas.style.visibility = 'hidden'
   }
 
@@ -3654,5 +4389,9 @@ export class EditorManager {
 
   onBackToMenu(callback: () => void) {
     this.onBackToMenuCallback = callback
+  }
+
+  onPreview(callback: (meta: EditorMapMeta, data: EditorMapData) => void) {
+    this.onPreviewCallback = callback
   }
 }
