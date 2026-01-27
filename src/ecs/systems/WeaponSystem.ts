@@ -43,6 +43,7 @@ import {
   SOUND_DB_SWORD_HIT_OBSTACLE,
   SOUND_DB_SWORD_SWING,
   WEAPON_DROP_DURATION_MS,
+  WEAPON_TEMPLATES,
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2BodyId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -1946,8 +1947,11 @@ export class WeaponSystem extends System {
     physics.bodyId = b2CreateBody(this.worldId, bodyDef)
 
     const arrowWeapon = this.arrowPools.acquireWeapon()
-    const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9
-    const arrowThickness = DEFAULT_WEAPON_HEIGHT * 0.15
+    const bowTemplate = WEAPON_TEMPLATES.bow
+    const bowBaseWidth = bowTemplate.width > 0 ? bowTemplate.width : 1
+    const bowScale = Math.max(0.5, weapon.width / bowBaseWidth)
+    const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9 * bowScale
+    const arrowThickness = DEFAULT_WEAPON_HEIGHT * 0.15 * bowScale
     const arrowSpeed = this.getBowLaunchSpeed(drawRatio)
     const minForceRatio = Math.max(
       BOW_MIN_FORCE_RATIO,
@@ -2015,7 +2019,7 @@ export class WeaponSystem extends System {
     arrow.velocityX = Math.cos(aimAngle) * launchSpeed
     arrow.velocityY = Math.sin(aimAngle) * launchSpeed
     arrow.gravity = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE
-    arrow.hitRadius = 0.12
+    arrow.hitRadius = circle.radius
     arrow.elapsedMs = 0
     arrow.lifetimeMs = 2500
     arrow.prevX = arrowTransform.x

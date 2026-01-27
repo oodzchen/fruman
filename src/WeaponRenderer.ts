@@ -6,12 +6,13 @@ export function renderWeapon(
   width: number,
   height: number,
   color: string,
-  isAttacking: boolean = false
+  isAttacking: boolean = false,
+  drawRatio: number = 0
 ): void {
   if (weaponType === 'arrow') {
     renderArrow(ctx, width, height, color, isAttacking, 0)
   } else if (weaponType === 'bow') {
-    renderBow(ctx, width, height, color, isAttacking)
+    renderBow(ctx, width, height, color, isAttacking, drawRatio)
   } else {
     renderSword(ctx, width, height, color, isAttacking)
   }
@@ -47,14 +48,17 @@ function renderBow(
   width: number,
   height: number,
   color: string,
-  isAttacking: boolean
+  isAttacking: boolean,
+  drawRatio: number
 ): void {
   const halfLen = width / 2
-  const arcDepth = height * 4
-  const lineWidth = Math.max(1, height * 0.55)
+  const clampedDraw = Math.max(0, Math.min(1, drawRatio))
+  const arcDepth = height * (4 + clampedDraw * 2.5)
+  const bowLineWidth = Math.max(1, height * 0.55)
+  const stringLineWidth = 1.5
 
   ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
-  ctx.lineWidth = lineWidth
+  ctx.lineWidth = bowLineWidth
 
   // Bow body arc
   ctx.beginPath()
@@ -63,8 +67,11 @@ function renderBow(
   ctx.stroke()
 
   // Bow string
+  const pullOffset = clampedDraw * halfLen * 0.5
+  ctx.lineWidth = stringLineWidth
   ctx.beginPath()
   ctx.moveTo(-halfLen, 0)
+  ctx.lineTo(0, pullOffset)
   ctx.lineTo(halfLen, 0)
   ctx.stroke()
 }

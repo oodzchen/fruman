@@ -3,6 +3,7 @@ import Box2DFactory from 'box2d3-wasm'
 import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
+  CATEGORY_WEAPON,
   DEBUG_DRAW_CAMERA,
   DEBUG_DRAW_SENSORS,
   DEBUG_DRAW_SOUND,
@@ -12,6 +13,8 @@ import {
   DEFAULT_OBSTACLE_FRICTION,
   DEFAULT_PLAYER_RADIUS,
   ENEMY_HEARING_RANGE_MULTIPLIER,
+  MASK_WEAPON,
+  WEAPON_TEMPLATES,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
 import { Faction } from '../ecs/Component'
@@ -20,6 +23,7 @@ import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
 import { World } from '../ecs/World'
 import {
+  applyWeaponSizeLevel,
   createEnemy,
   createPlayer,
   createWeapon,
@@ -1046,7 +1050,13 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
 
       const sizeLevel = weaponData.sizeLevel
       if (Number.isFinite(sizeLevel) && sizeLevel > 0) {
-        weapon.sizeLevel = sizeLevel
+        const weaponType = weapon.weaponType
+        if (!isTemplateWeaponType(weaponType)) {
+          continue
+        }
+        const template = WEAPON_TEMPLATES[weaponType]
+        applyWeaponSizeLevel(weapon, template, sizeLevel)
+        resetWeaponPhysicsCircle(weaponEntity)
       }
 
       const attackDamage = weaponData.attackDamage
@@ -1152,7 +1162,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         enemy.x,
         enemy.y,
         groundY,
-        enemy.enemyType
+        enemy.enemyType,
+        enemy
       )
       if (!enemyEntity) {
         enemyEntity = created
@@ -1201,6 +1212,60 @@ function applyMapCamera(map: EditorMapData): void {
     isCameraLocked = false
     isVerticalCameraLocked = false
   }
+}
+
+function resetWeaponPhysicsCircle(entity: Entity): void {
+  if (!entity.physics || !entity.weapon || !entity.transform) {
+    return
+  }
+  if (!box2d || !worldId) {
+    return
+  }
+
+  const {
+    b2DestroyBody,
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2CreateCircleShape,
+    b2Circle,
+  } = box2d
+
+  b2DestroyBody(entity.physics.bodyId)
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(entity.transform.x, entity.transform.y)
+  bodyDef.linearDamping = 2.0
+  bodyDef.motionLocks.angularZ = true
+  entity.physics.bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.5
+  shapeDef.material.friction = 0.3
+  shapeDef.material.restitution = 0.2
+  shapeDef.filter.categoryBits = CATEGORY_WEAPON
+  shapeDef.filter.maskBits = MASK_WEAPON
+
+  const circle = new b2Circle()
+  circle.center.Set(0, 0)
+  circle.radius = entity.weapon.height * 0.5
+  entity.physics.shapeId = b2CreateCircleShape(
+    entity.physics.bodyId,
+    shapeDef,
+    circle
+  )
+
+  bodyDef.delete()
+  shapeDef.delete()
+  circle.delete()
+}
+
+function isTemplateWeaponType(
+  weaponType: string
+): weaponType is keyof typeof WEAPON_TEMPLATES {
+  return weaponType in WEAPON_TEMPLATES
 }
 
 function handleInput(

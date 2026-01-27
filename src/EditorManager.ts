@@ -1,13 +1,16 @@
 import { fabric } from 'fabric'
 
+import { renderBody } from './BodyRenderer'
 import { DialogManager } from './DialogManager'
 import { localizer } from './Localizer'
 import { renderWeapon } from './WeaponRenderer'
 import {
   DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_PLAYER_RADIUS,
+  ENEMY_TEMPLATES,
   WEAPON_TEMPLATES,
 } from './constants'
+import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import type {
   EditorMapData,
   EditorMapMeta,
@@ -21,7 +24,7 @@ import {
   loadEditorMapData,
   saveEditorMap,
 } from './storage'
-import type { EnemyType, WeaponType } from './types'
+import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
 
 const fabricControlsUtils = (
   fabric as unknown as {
@@ -64,6 +67,16 @@ type PlayerMarker = fabric.Group & {
 type EnemyMarker = fabric.Group & {
   editorShape: 'enemy-marker'
   enemyType: EnemyType
+  radius: number
+  moveSpeed: number
+  attackDesire: number
+  parryProficiency: number
+  initialPatrolMode: EnemyPatrolMode
+  maxHealth: number
+  maxPosture: number
+  maxToughness: number
+  color: string
+  equipWeapon: boolean
 }
 
 type WeaponMarker = fabric.Group & {
@@ -75,6 +88,14 @@ type WeaponMarker = fabric.Group & {
   postureDamage: number
   toughnessDamage: number
   bowAmmo?: number
+}
+
+type WeaponShape = fabric.Object & {
+  weaponWidthPx: number
+  weaponHeightPx: number
+  weaponBoundingWidthPx: number
+  weaponBoundingHeightPx: number
+  weaponRenderType: 'sword' | 'bow'
 }
 
 type ShapeResetData =
@@ -94,6 +115,16 @@ interface CameraViewData {
 interface EnemyMarkerData {
   marker: EnemyMarker
   enemyType: EnemyType
+  radius: number
+  moveSpeed: number
+  attackDesire: number
+  parryProficiency: number
+  initialPatrolMode: EnemyPatrolMode
+  maxHealth: number
+  maxPosture: number
+  maxToughness: number
+  color: string
+  equipWeapon: boolean
 }
 
 interface WeaponMarkerData {
@@ -129,14 +160,59 @@ const CAMERA_ICON_FILL = 'rgba(230, 230, 230, 0.18)'
 const EDITOR_PIXELS_PER_METER = 50
 const PLAYER_BODY_COLOR = '#F58025'
 const PLAYER_EYE_COLOR = '#000000'
-const ENEMY_BODY_COLOR = '#A34C2A'
-const ENEMY_EYE_COLOR = '#1A0F08'
+const ENEMY_EYE_COLOR = '#000000'
 const DEFAULT_ENEMY_TYPE: EnemyType = 'default'
 const DEBUG_EDITOR_MENU = false
 const OBSTACLE_FILL_COLOR = 'rgba(112, 64, 14, 0.85)'
 const SNAP_THRESHOLD_PX = 10
 const SNAP_GUIDE_COLOR = 'rgba(240, 220, 180, 0.75)'
 const SNAP_EVERY_N_FRAMES = 2
+
+type WeaponTemplate = (typeof WEAPON_TEMPLATES)[WeaponType]
+
+function computeEnemyBodyRadiusPx(
+  radiusMeters: number,
+  pixelsPerMeter: number
+): number {
+  return radiusMeters * pixelsPerMeter
+}
+
+function computeWeaponRenderDimensions(
+  template: WeaponTemplate,
+  sizeLevel: number,
+  pixelsPerMeter: number,
+  isBow: boolean
+): {
+  widthPx: number
+  heightPx: number
+  boundingWidthPx: number
+  boundingHeightPx: number
+} {
+  const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
+  const widthPx = template.width * pixelsPerMeter * scaleFactor
+  const heightPx = template.height * pixelsPerMeter * scaleFactor
+  return {
+    widthPx,
+    heightPx,
+    boundingWidthPx: widthPx,
+    boundingHeightPx: isBow ? heightPx * 4 : heightPx,
+  }
+}
+
+function renderEnemyPreviewToContext(
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radiusMeters: number,
+  bodyColor: string,
+  pixelsPerMeter: number
+): void {
+  const bodyRadius = computeEnemyBodyRadiusPx(radiusMeters, pixelsPerMeter)
+  ctx.save()
+  ctx.translate(centerX, centerY)
+  renderBody(ctx, bodyRadius, bodyColor, pixelsPerMeter, 1)
+  ctx.restore()
+}
 
 const GROUND_RECT_OPTIONS: fabric.IRectOptions = {
   width: 160,
@@ -1075,6 +1151,7 @@ export class EditorManager {
 
   private async handleSave() {
     const data = this.serializeCurrentMapData()
+    console.log('[editor] map data to save', data)
     const meta = await this.ensureMapMeta(data)
     if (!meta) {
       return
@@ -1305,11 +1382,22 @@ export class EditorManager {
   private serializeEnemies() {
     const enemies: EditorMapData['enemies'] = []
     for (let i = 0; i < this.enemyMarkers.length; i++) {
-      const marker = this.enemyMarkers[i].marker
+      const data = this.enemyMarkers[i]
+      const marker = data.marker
       enemies.push({
         x: (marker.left ?? 0) * this.invPixelsPerMeter,
         y: (marker.top ?? 0) * this.invPixelsPerMeter,
-        enemyType: marker.enemyType ?? DEFAULT_ENEMY_TYPE,
+        enemyType: data.enemyType,
+        radius: data.radius,
+        moveSpeed: data.moveSpeed,
+        attackDesire: data.attackDesire,
+        parryProficiency: data.parryProficiency,
+        initialPatrolMode: data.initialPatrolMode,
+        maxHealth: data.maxHealth,
+        maxPosture: data.maxPosture,
+        maxToughness: data.maxToughness,
+        color: data.color,
+        equipWeapon: data.equipWeapon,
       })
     }
     return enemies
@@ -2473,13 +2561,39 @@ export class EditorManager {
 
   private spawnEnemyMarker(
     enemyType: EnemyType = DEFAULT_ENEMY_TYPE,
-    spawn?: { x: number; y: number }
+    spawn?: {
+      x: number
+      y: number
+      radius?: number
+      moveSpeed?: number
+      attackDesire?: number
+      parryProficiency?: number
+      initialPatrolMode?: EnemyPatrolMode
+      maxHealth?: number
+      maxPosture?: number
+      maxToughness?: number
+      color?: string
+      equipWeapon?: boolean
+    }
   ) {
     this.ensureFabricCanvas()
     if (!this.fabricCanvas) {
       console.warn('[editor] Fabric canvas not ready')
       return
     }
+    const template = ENEMY_TEMPLATES[enemyType]
+    const radius = spawn?.radius ?? template.radius
+    const moveSpeed = spawn?.moveSpeed ?? template.moveSpeed
+    const attackDesire = spawn?.attackDesire ?? template.attackDesire
+    const parryProficiency =
+      spawn?.parryProficiency ?? template.parryProficiency
+    const initialPatrolMode =
+      spawn?.initialPatrolMode ?? template.initialPatrolMode
+    const maxHealth = spawn?.maxHealth ?? template.maxHealth
+    const maxPosture = spawn?.maxPosture ?? template.maxPosture
+    const maxToughness = spawn?.maxToughness ?? template.maxToughness
+    const color = spawn?.color ?? template.color
+    const equipWeapon = spawn?.equipWeapon ?? false
     const centerX =
       spawn?.x !== undefined
         ? spawn.x * EDITOR_PIXELS_PER_METER
@@ -2488,13 +2602,36 @@ export class EditorManager {
       spawn?.y !== undefined
         ? spawn.y * EDITOR_PIXELS_PER_METER
         : this.editorCanvas.height * 0.5
-    const marker = this.createEnemyMarker(enemyType)
+    const marker = this.createEnemyMarker(enemyType, radius, color, equipWeapon)
+    marker.radius = radius
+    marker.moveSpeed = moveSpeed
+    marker.attackDesire = attackDesire
+    marker.parryProficiency = parryProficiency
+    marker.initialPatrolMode = initialPatrolMode
+    marker.maxHealth = maxHealth
+    marker.maxPosture = maxPosture
+    marker.maxToughness = maxToughness
+    marker.color = color
+    marker.equipWeapon = equipWeapon
     marker.left = centerX
     marker.top = centerY
     marker.setCoords()
     this.fabricCanvas.add(marker)
     this.registerEditorObject(ObjectType.Enemy, marker)
-    const enemyData: EnemyMarkerData = { marker, enemyType }
+    const enemyData: EnemyMarkerData = {
+      marker,
+      enemyType,
+      radius,
+      moveSpeed,
+      attackDesire,
+      parryProficiency,
+      initialPatrolMode,
+      maxHealth,
+      maxPosture,
+      maxToughness,
+      color,
+      equipWeapon,
+    }
     this.enemyMarkers.push(enemyData)
     this.enemyMarkerMap.set(marker, enemyData)
     this.fabricCanvas.setActiveObject(marker)
@@ -2502,15 +2639,23 @@ export class EditorManager {
     this.fabricCanvas.renderAll()
   }
 
-  private createEnemyMarker(enemyType: EnemyType): EnemyMarker {
-    const radius = DEFAULT_PLAYER_RADIUS * EDITOR_PIXELS_PER_METER * 0.92
-    const eyeRadius = 0.07 * EDITOR_PIXELS_PER_METER
-    const eyeOffsetX = radius * 0.45
-    const eyeOffsetY = -radius * 0.45
+  private createEnemyMarker(
+    enemyType: EnemyType,
+    radiusMeters: number,
+    color: string,
+    equipWeapon: boolean
+  ): EnemyMarker {
+    const radius = computeEnemyBodyRadiusPx(
+      radiusMeters,
+      EDITOR_PIXELS_PER_METER
+    )
+    const eyeRadius = 0.08 * EDITOR_PIXELS_PER_METER
+    const eyeOffsetX = radius * 0.5
+    const eyeOffsetY = -radius * 0.5
     const body = new fabric.Circle({
       radius,
-      fill: ENEMY_BODY_COLOR,
-      stroke: ENEMY_BODY_COLOR,
+      fill: color,
+      stroke: color,
       strokeWidth: 3,
       originX: 'center',
       originY: 'center',
@@ -2528,6 +2673,8 @@ export class EditorManager {
       objectCaching: false,
     })
     const group = new fabric.Group([body, eye], {
+      width: radius * 2,
+      height: radius * 2,
       originX: 'center',
       originY: 'center',
       selectable: true,
@@ -2539,6 +2686,8 @@ export class EditorManager {
     }) as EnemyMarker
     group.editorShape = 'enemy-marker'
     group.enemyType = enemyType
+    group.color = color
+    group.equipWeapon = equipWeapon
     return group
   }
 
@@ -2617,31 +2766,39 @@ export class EditorManager {
     bowAmmo?: number
   ): WeaponMarker {
     const template = WEAPON_TEMPLATES[weaponType]
-    const width = template.width * EDITOR_PIXELS_PER_METER
-    const height = template.height * EDITOR_PIXELS_PER_METER
     const color = '#b4bdc7'
 
     const isBow = weaponType === 'bow'
-    const boundingWidth = width
-    const boundingHeight = isBow ? height * 4 : height
+    const dims = computeWeaponRenderDimensions(
+      template,
+      sizeLevel,
+      EDITOR_PIXELS_PER_METER,
+      isBow
+    )
+    const renderType: WeaponShape['weaponRenderType'] = isBow ? 'bow' : 'sword'
 
     const weaponShape = new (fabric.util.createClass(fabric.Object, {
       type: 'customWeapon',
       weaponType,
-      width: boundingWidth,
-      height: boundingHeight,
+      weaponWidthPx: dims.widthPx,
+      weaponHeightPx: dims.heightPx,
+      weaponBoundingWidthPx: dims.boundingWidthPx,
+      weaponBoundingHeightPx: dims.boundingHeightPx,
+      weaponRenderType: renderType,
       initialize(options?: fabric.IObjectOptions) {
         this.callSuper('initialize', options)
-        this.width = boundingWidth
-        this.height = boundingHeight
+        const self = this as WeaponShape
+        self.width = self.weaponBoundingWidthPx
+        self.height = self.weaponBoundingHeightPx
         this.weaponType = weaponType
       },
       _render(ctx: CanvasRenderingContext2D) {
+        const self = this as WeaponShape
         renderWeapon(
           ctx,
-          weaponType === 'bow' ? 'bow' : 'sword',
-          width,
-          height,
+          self.weaponRenderType,
+          self.weaponWidthPx,
+          self.weaponHeightPx,
           color,
           false
         )
@@ -2650,7 +2807,7 @@ export class EditorManager {
       originX: 'center',
       originY: 'center',
       objectCaching: false,
-    })
+    }) as WeaponShape
 
     const group = new fabric.Group([weaponShape], {
       originX: 'center',
@@ -3371,7 +3528,7 @@ export class EditorManager {
     }
     if (this.isEnemyMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['rename', 'delete'],
+        ['properties', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -3876,6 +4033,8 @@ export class EditorManager {
     if (action === 'properties') {
       if (this.isWeaponMarker(target)) {
         await this.showWeaponPropertiesDialog(target)
+      } else if (this.isEnemyMarker(target)) {
+        await this.showEnemyPropertiesDialog(target)
       }
       this.hidePolygonMenu()
       return
@@ -4040,6 +4199,455 @@ export class EditorManager {
     }
   }
 
+  private updateEnemyMarkerVisual(
+    marker: EnemyMarker,
+    nextRadius: number,
+    nextColor: string
+  ) {
+    const body = marker.item(0)
+    const eye = marker.item(1)
+    const bodyRadiusPx = computeEnemyBodyRadiusPx(
+      nextRadius,
+      EDITOR_PIXELS_PER_METER
+    )
+    const eyeRadiusPx = 0.08 * EDITOR_PIXELS_PER_METER
+    const eyeOffsetX = bodyRadiusPx * 0.5
+    const eyeOffsetY = -bodyRadiusPx * 0.5
+
+    marker.scaleX = 1
+    marker.scaleY = 1
+    marker.width = bodyRadiusPx * 2
+    marker.height = bodyRadiusPx * 2
+
+    if (body instanceof fabric.Circle) {
+      body.set('radius', bodyRadiusPx)
+      body.set('fill', nextColor)
+      body.set('stroke', nextColor)
+    }
+    if (eye instanceof fabric.Circle) {
+      eye.set('radius', eyeRadiusPx)
+      eye.set('left', eyeOffsetX)
+      eye.set('top', eyeOffsetY)
+    }
+
+    marker.radius = nextRadius
+    marker.color = nextColor
+    marker.setCoords()
+  }
+
+  private updateWeaponMarkerVisual(
+    marker: WeaponMarker,
+    nextSizeLevel: number
+  ) {
+    const item = marker.item(0)
+    if (!(item instanceof fabric.Object)) {
+      return
+    }
+    const shape = item as unknown as WeaponShape
+    const template = WEAPON_TEMPLATES[marker.weaponType]
+    const isBow = marker.weaponType === 'bow'
+    const dims = computeWeaponRenderDimensions(
+      template,
+      nextSizeLevel,
+      EDITOR_PIXELS_PER_METER,
+      isBow
+    )
+
+    shape.weaponWidthPx = dims.widthPx
+    shape.weaponHeightPx = dims.heightPx
+    shape.weaponBoundingWidthPx = dims.boundingWidthPx
+    shape.weaponBoundingHeightPx = dims.boundingHeightPx
+    shape.width = dims.boundingWidthPx
+    shape.height = dims.boundingHeightPx
+    shape.setCoords()
+
+    marker.sizeLevel = nextSizeLevel
+    marker.width = dims.boundingWidthPx
+    marker.height = dims.boundingHeightPx
+    marker.setCoords()
+  }
+
+  private async showEnemyPropertiesDialog(marker: EnemyMarker) {
+    const data = this.enemyMarkerMap.get(marker)
+    if (!data) {
+      return
+    }
+
+    const modal = document.createElement('div')
+    modal.style.cssText = `
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    `
+
+    const form = document.createElement('div')
+    form.style.cssText = `
+      background: rgba(0, 0, 0, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 24px;
+      min-width: 520px;
+      font-family: monospace;
+      color: #ffffff;
+    `
+
+    const title = document.createElement('h3')
+    title.textContent = localizer.t('editor_weapon_menu_properties')
+    title.style.cssText = 'margin: 0 0 16px 0; font-size: 12px;'
+    form.appendChild(title)
+
+    const content = document.createElement('div')
+    content.style.cssText = 'display: flex; align-items: flex-start; gap: 16px;'
+    form.appendChild(content)
+
+    const leftPanel = document.createElement('div')
+    leftPanel.style.cssText = 'flex: 1; min-width: 0;'
+    content.appendChild(leftPanel)
+
+    const rightPanel = document.createElement('div')
+    rightPanel.style.cssText =
+      'width: 180px; padding: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.35); box-sizing: border-box;'
+    content.appendChild(rightPanel)
+
+    const previewCanvas = document.createElement('canvas')
+    previewCanvas.width = 160
+    previewCanvas.height = 160
+    previewCanvas.style.cssText =
+      'width: 160px; height: 160px; display: block; image-rendering: pixelated;'
+    rightPanel.appendChild(previewCanvas)
+    const previewCtx = previewCanvas.getContext('2d')
+
+    const buildRow = (labelText: string) => {
+      const row = document.createElement('div')
+      row.style.cssText =
+        'display: flex; align-items: center; gap: 12px; margin-bottom: 12px;'
+
+      const label = document.createElement('label')
+      label.textContent = labelText
+      label.style.cssText = 'width: 110px; font-size: 12px; flex-shrink: 0;'
+      row.appendChild(label)
+
+      return { row, label }
+    }
+
+    const radiusRow = buildRow(localizer.t('editor_enemy_prop_radius'))
+    const radiusInput = document.createElement('input')
+    radiusInput.type = 'number'
+    radiusInput.value = String(data.radius)
+    radiusInput.step = '0.1'
+    radiusInput.min = '0.1'
+    radiusInput.style.cssText = `
+      flex: 0 0 200px;
+      width: 200px;
+      padding: 6px 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+      box-sizing: border-box;
+    `
+    radiusRow.row.appendChild(radiusInput)
+    leftPanel.appendChild(radiusRow.row)
+
+    const speedRow = buildRow(localizer.t('editor_enemy_prop_move_speed'))
+    const speedInput = document.createElement('input')
+    speedInput.type = 'number'
+    speedInput.value = String(data.moveSpeed)
+    speedInput.step = '0.1'
+    speedInput.min = '0'
+    speedInput.style.cssText = radiusInput.style.cssText
+    speedRow.row.appendChild(speedInput)
+    leftPanel.appendChild(speedRow.row)
+
+    const desireRow = buildRow(localizer.t('editor_enemy_prop_attack_desire'))
+    const desireInput = document.createElement('input')
+    desireInput.type = 'number'
+    desireInput.value = String(data.attackDesire)
+    desireInput.step = '1'
+    desireInput.min = '0'
+    desireInput.max = '100'
+    desireInput.style.cssText = radiusInput.style.cssText
+    desireRow.row.appendChild(desireInput)
+    leftPanel.appendChild(desireRow.row)
+
+    const parryRow = buildRow(localizer.t('editor_enemy_prop_parry'))
+    const parryInput = document.createElement('input')
+    parryInput.type = 'number'
+    parryInput.value = String(data.parryProficiency)
+    parryInput.step = '1'
+    parryInput.min = '0'
+    parryInput.max = '100'
+    parryInput.style.cssText = radiusInput.style.cssText
+    parryRow.row.appendChild(parryInput)
+    leftPanel.appendChild(parryRow.row)
+
+    const patrolRow = buildRow(localizer.t('editor_enemy_prop_patrol_mode'))
+    const patrolSelect = document.createElement('select')
+    patrolSelect.style.cssText = `
+      flex: 0 0 200px;
+      width: 200px;
+      padding: 6px 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+    `
+    const patrolModes: EnemyPatrolMode[] = ['patrol', 'guard']
+    for (let i = 0; i < patrolModes.length; i++) {
+      const mode = patrolModes[i]
+      const option = document.createElement('option')
+      option.value = mode
+      option.textContent = localizer.t(`editor_enemy_patrol_${mode}`)
+      if (mode === data.initialPatrolMode) {
+        option.selected = true
+      }
+      patrolSelect.appendChild(option)
+    }
+    patrolRow.row.appendChild(patrolSelect)
+    leftPanel.appendChild(patrolRow.row)
+
+    const healthRow = buildRow(localizer.t('editor_enemy_prop_max_health'))
+    const healthInput = document.createElement('input')
+    healthInput.type = 'number'
+    healthInput.value = String(data.maxHealth)
+    healthInput.step = '1'
+    healthInput.min = '1'
+    healthInput.style.cssText = radiusInput.style.cssText
+    healthRow.row.appendChild(healthInput)
+    leftPanel.appendChild(healthRow.row)
+
+    const postureRow = buildRow(localizer.t('editor_enemy_prop_max_posture'))
+    const postureInput = document.createElement('input')
+    postureInput.type = 'number'
+    postureInput.value = String(data.maxPosture)
+    postureInput.step = '1'
+    postureInput.min = '0'
+    postureInput.style.cssText = radiusInput.style.cssText
+    postureRow.row.appendChild(postureInput)
+    leftPanel.appendChild(postureRow.row)
+
+    const toughnessRow = buildRow(
+      localizer.t('editor_enemy_prop_max_toughness')
+    )
+    const toughnessInput = document.createElement('input')
+    toughnessInput.type = 'number'
+    toughnessInput.value = String(data.maxToughness)
+    toughnessInput.step = '1'
+    toughnessInput.min = '0'
+    toughnessInput.style.cssText = radiusInput.style.cssText
+    toughnessRow.row.appendChild(toughnessInput)
+    leftPanel.appendChild(toughnessRow.row)
+
+    const colorRow = buildRow(localizer.t('editor_enemy_prop_color'))
+    const colorInput = document.createElement('input')
+    colorInput.type = 'text'
+    colorInput.value = data.color
+    colorInput.style.cssText = radiusInput.style.cssText
+    colorRow.row.appendChild(colorInput)
+
+    const colorPicker = document.createElement('input')
+    colorPicker.type = 'color'
+    colorPicker.value = data.color
+    colorPicker.style.cssText = `
+      width: 40px;
+      height: 26px;
+      padding: 0;
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      cursor: pointer;
+      box-sizing: border-box;
+    `
+    colorPicker.addEventListener('input', () => {
+      colorInput.value = colorPicker.value
+    })
+    colorInput.addEventListener('input', () => {
+      const value = colorInput.value.trim()
+      if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+        colorPicker.value = value
+      }
+    })
+    colorRow.row.appendChild(colorPicker)
+    leftPanel.appendChild(colorRow.row)
+
+    const buttons = document.createElement('div')
+    buttons.style.cssText = 'display: flex; gap: 8px; margin-top: 16px;'
+
+    const confirmBtn = document.createElement('button')
+    confirmBtn.textContent = localizer.t('editor_btn_confirm')
+    confirmBtn.style.cssText = `
+      flex: 1;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+      cursor: pointer;
+    `
+    confirmBtn.addEventListener('mouseenter', () => {
+      confirmBtn.style.background = 'rgba(255, 255, 255, 0.2)'
+    })
+    confirmBtn.addEventListener('mouseleave', () => {
+      confirmBtn.style.background = 'rgba(255, 255, 255, 0.1)'
+    })
+
+    const cancelBtn = document.createElement('button')
+    cancelBtn.textContent = localizer.t('editor_btn_cancel')
+    cancelBtn.style.cssText = confirmBtn.style.cssText
+    cancelBtn.addEventListener('mouseenter', () => {
+      cancelBtn.style.background = 'rgba(255, 255, 255, 0.2)'
+    })
+    cancelBtn.addEventListener('mouseleave', () => {
+      cancelBtn.style.background = 'rgba(255, 255, 255, 0.1)'
+    })
+
+    buttons.appendChild(confirmBtn)
+    buttons.appendChild(cancelBtn)
+    leftPanel.appendChild(buttons)
+    modal.appendChild(form)
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return
+    }
+    viewport.appendChild(modal)
+
+    const closeModal = () => {
+      if (modal.parentElement) {
+        modal.parentElement.removeChild(modal)
+      }
+    }
+
+    cancelBtn.addEventListener('click', closeModal)
+
+    const colorRegex = /^#[0-9a-fA-F]{6}$/
+    const getValidColor = () => {
+      const value = colorInput.value.trim()
+      return colorRegex.test(value) ? value : data.color
+    }
+
+    const renderEnemyPreview = () => {
+      if (!previewCtx) {
+        return
+      }
+      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height)
+      const radiusMeters = Number.parseFloat(radiusInput.value)
+      const radius =
+        Number.isFinite(radiusMeters) && radiusMeters > 0
+          ? radiusMeters
+          : data.radius
+      const color = getValidColor()
+
+      const centerX = previewCanvas.width * 0.5
+      const centerY = previewCanvas.height * 0.58
+      const pixelsPerMeter = 60
+      renderEnemyPreviewToContext(
+        previewCtx,
+        centerX,
+        centerY,
+        radius,
+        color,
+        pixelsPerMeter
+      )
+    }
+
+    const updateEnemyVisualFromInputs = () => {
+      const radiusMeters = Number.parseFloat(radiusInput.value)
+      if (Number.isFinite(radiusMeters) && radiusMeters > 0) {
+        this.updateEnemyMarkerVisual(marker, radiusMeters, getValidColor())
+        this.fabricCanvas?.requestRenderAll()
+      } else {
+        renderEnemyPreview()
+      }
+    }
+
+    radiusInput.addEventListener('input', () => {
+      updateEnemyVisualFromInputs()
+      renderEnemyPreview()
+    })
+    colorPicker.addEventListener('input', () => {
+      updateEnemyVisualFromInputs()
+      renderEnemyPreview()
+    })
+    colorInput.addEventListener('input', () => {
+      renderEnemyPreview()
+      if (colorRegex.test(colorInput.value.trim())) {
+        updateEnemyVisualFromInputs()
+      }
+    })
+
+    renderEnemyPreview()
+
+    confirmBtn.addEventListener('click', () => {
+      const radius = Number.parseFloat(radiusInput.value)
+      const moveSpeed = Number.parseFloat(speedInput.value)
+      const attackDesire = Number.parseFloat(desireInput.value)
+      const parryProficiency = Number.parseFloat(parryInput.value)
+      const initialPatrolMode = patrolSelect.value as EnemyPatrolMode
+      const maxHealth = Number.parseFloat(healthInput.value)
+      const maxPosture = Number.parseFloat(postureInput.value)
+      const maxToughness = Number.parseFloat(toughnessInput.value)
+      const color = getValidColor()
+
+      if (
+        !Number.isFinite(radius) ||
+        radius <= 0 ||
+        !Number.isFinite(moveSpeed) ||
+        moveSpeed < 0 ||
+        !Number.isFinite(attackDesire) ||
+        attackDesire < 0 ||
+        !Number.isFinite(parryProficiency) ||
+        parryProficiency < 0 ||
+        !Number.isFinite(maxHealth) ||
+        maxHealth <= 0 ||
+        !Number.isFinite(maxPosture) ||
+        maxPosture < 0 ||
+        !Number.isFinite(maxToughness) ||
+        maxToughness < 0 ||
+        color.length === 0
+      ) {
+        return
+      }
+
+      data.radius = radius
+      data.moveSpeed = moveSpeed
+      data.attackDesire = attackDesire
+      data.parryProficiency = parryProficiency
+      data.initialPatrolMode = initialPatrolMode
+      data.maxHealth = maxHealth
+      data.maxPosture = maxPosture
+      data.maxToughness = maxToughness
+      data.color = color
+      data.equipWeapon = false
+
+      marker.enemyType = data.enemyType
+      marker.radius = radius
+      marker.moveSpeed = moveSpeed
+      marker.attackDesire = attackDesire
+      marker.parryProficiency = parryProficiency
+      marker.initialPatrolMode = initialPatrolMode
+      marker.maxHealth = maxHealth
+      marker.maxPosture = maxPosture
+      marker.maxToughness = maxToughness
+      marker.equipWeapon = false
+      this.updateEnemyMarkerVisual(marker, radius, color)
+
+      this.fabricCanvas?.requestRenderAll()
+      closeModal()
+    })
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeModal()
+      }
+    })
+  }
+
   private async showWeaponPropertiesDialog(marker: WeaponMarker) {
     const data = this.weaponMarkerMap.get(marker)
     if (!data) {
@@ -4065,7 +4673,7 @@ export class EditorManager {
       background: rgba(0, 0, 0, 0.9);
       border: 1px solid rgba(255, 255, 255, 0.25);
       padding: 24px;
-      min-width: 300px;
+      min-width: 520px;
       font-family: monospace;
       color: #ffffff;
     `
@@ -4074,6 +4682,27 @@ export class EditorManager {
     title.textContent = localizer.t('editor_weapon_menu_properties')
     title.style.cssText = 'margin: 0 0 16px 0; font-size: 12px;'
     form.appendChild(title)
+
+    const content = document.createElement('div')
+    content.style.cssText = 'display: flex; align-items: flex-start; gap: 16px;'
+    form.appendChild(content)
+
+    const leftPanel = document.createElement('div')
+    leftPanel.style.cssText = 'flex: 1; min-width: 0;'
+    content.appendChild(leftPanel)
+
+    const rightPanel = document.createElement('div')
+    rightPanel.style.cssText =
+      'width: 180px; padding: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.35); box-sizing: border-box;'
+    content.appendChild(rightPanel)
+
+    const previewCanvas = document.createElement('canvas')
+    previewCanvas.width = 160
+    previewCanvas.height = 160
+    previewCanvas.style.cssText =
+      'width: 160px; height: 160px; display: block; image-rendering: pixelated;'
+    rightPanel.appendChild(previewCanvas)
+    const previewCtx = previewCanvas.getContext('2d')
 
     const getSizeName = (level: number): string => {
       if (isBow) {
@@ -4107,7 +4736,8 @@ export class EditorManager {
 
     const sizeSelect = document.createElement('select')
     sizeSelect.style.cssText = `
-      flex: 1;
+      flex: 0 0 200px;
+      width: 200px;
       padding: 8px;
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.25);
@@ -4125,7 +4755,7 @@ export class EditorManager {
       sizeSelect.appendChild(option)
     }
     sizeGroup.appendChild(sizeSelect)
-    form.appendChild(sizeGroup)
+    leftPanel.appendChild(sizeGroup)
 
     const attackGroup = document.createElement('div')
     attackGroup.style.cssText =
@@ -4142,7 +4772,8 @@ export class EditorManager {
     attackInput.step = '0.1'
     attackInput.min = '0'
     attackInput.style.cssText = `
-      flex: 1;
+      flex: 0 0 200px;
+      width: 200px;
       padding: 8px;
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.25);
@@ -4152,7 +4783,7 @@ export class EditorManager {
       box-sizing: border-box;
     `
     attackGroup.appendChild(attackInput)
-    form.appendChild(attackGroup)
+    leftPanel.appendChild(attackGroup)
 
     const postureGroup = document.createElement('div')
     postureGroup.style.cssText =
@@ -4170,7 +4801,8 @@ export class EditorManager {
     postureInput.step = '0.1'
     postureInput.min = '0'
     postureInput.style.cssText = `
-      flex: 1;
+      flex: 0 0 200px;
+      width: 200px;
       padding: 8px;
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.25);
@@ -4180,7 +4812,7 @@ export class EditorManager {
       box-sizing: border-box;
     `
     postureGroup.appendChild(postureInput)
-    form.appendChild(postureGroup)
+    leftPanel.appendChild(postureGroup)
 
     const toughnessGroup = document.createElement('div')
     toughnessGroup.style.cssText =
@@ -4200,7 +4832,8 @@ export class EditorManager {
     toughnessInput.step = '0.1'
     toughnessInput.min = '0'
     toughnessInput.style.cssText = `
-      flex: 1;
+      flex: 0 0 200px;
+      width: 200px;
       padding: 8px;
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.25);
@@ -4210,7 +4843,7 @@ export class EditorManager {
       box-sizing: border-box;
     `
     toughnessGroup.appendChild(toughnessInput)
-    form.appendChild(toughnessGroup)
+    leftPanel.appendChild(toughnessGroup)
 
     let bowAmmoInput: HTMLInputElement | null = null
     if (isBow) {
@@ -4229,7 +4862,8 @@ export class EditorManager {
       bowAmmoInput.step = '1'
       bowAmmoInput.min = '0'
       bowAmmoInput.style.cssText = `
-        flex: 1;
+        flex: 0 0 200px;
+        width: 200px;
         padding: 8px;
         background: rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.25);
@@ -4239,7 +4873,7 @@ export class EditorManager {
         box-sizing: border-box;
       `
       ammoGroup.appendChild(bowAmmoInput)
-      form.appendChild(ammoGroup)
+      leftPanel.appendChild(ammoGroup)
     }
 
     const buttons = document.createElement('div')
@@ -4276,7 +4910,7 @@ export class EditorManager {
 
     buttons.appendChild(confirmBtn)
     buttons.appendChild(cancelBtn)
-    form.appendChild(buttons)
+    leftPanel.appendChild(buttons)
     modal.appendChild(form)
 
     const viewport = document.getElementById('gameViewport')
@@ -4284,6 +4918,53 @@ export class EditorManager {
       return
     }
     viewport.appendChild(modal)
+
+    const renderWeaponPreview = () => {
+      if (!previewCtx) {
+        return
+      }
+      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height)
+
+      const sizeLevel = Number.parseInt(sizeSelect.value, 10)
+      const pixelsPerMeter = 60
+      const dims = computeWeaponRenderDimensions(
+        template,
+        sizeLevel,
+        pixelsPerMeter,
+        isBow
+      )
+      const centerX = previewCanvas.width * 0.5
+      const centerY = previewCanvas.height * 0.6
+      const previewType = marker.weaponType === 'bow' ? 'bow' : 'sword'
+      const previewColor = '#b4bdc7'
+
+      previewCtx.save()
+      previewCtx.translate(centerX, centerY)
+      renderWeapon(
+        previewCtx,
+        previewType,
+        dims.widthPx,
+        dims.heightPx,
+        previewColor
+      )
+      previewCtx.restore()
+    }
+
+    sizeSelect.addEventListener('input', () => {
+      const sizeLevel = Number.parseInt(sizeSelect.value, 10)
+      if (Number.isFinite(sizeLevel) && sizeLevel > 0) {
+        this.updateWeaponMarkerVisual(marker, sizeLevel)
+        this.fabricCanvas?.requestRenderAll()
+      }
+      renderWeaponPreview()
+    })
+    attackInput.addEventListener('input', renderWeaponPreview)
+    postureInput.addEventListener('input', renderWeaponPreview)
+    toughnessInput.addEventListener('input', renderWeaponPreview)
+    if (bowAmmoInput) {
+      bowAmmoInput.addEventListener('input', renderWeaponPreview)
+    }
+    renderWeaponPreview()
 
     return new Promise<void>((resolve) => {
       const cleanup = () => {
@@ -4328,6 +5009,8 @@ export class EditorManager {
         marker.postureDamage = postureDamage
         marker.toughnessDamage = toughnessDamage
         marker.bowAmmo = bowAmmo
+        this.updateWeaponMarkerVisual(marker, sizeLevel)
+        this.fabricCanvas?.requestRenderAll()
 
         cleanup()
       })

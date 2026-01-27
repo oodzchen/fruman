@@ -1,4 +1,4 @@
-import type { EnemyType, WeaponType } from './types'
+import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
 
 export type MapObjectKind = 'ground' | 'obstacle'
 
@@ -50,6 +50,16 @@ export interface MapEnemy {
   x: number
   y: number
   enemyType: EnemyType
+  radius?: number
+  moveSpeed?: number
+  attackDesire?: number
+  parryProficiency?: number
+  initialPatrolMode?: EnemyPatrolMode
+  maxHealth?: number
+  maxPosture?: number
+  maxToughness?: number
+  color?: string
+  equipWeapon?: boolean
 }
 
 export interface MapWeapon {

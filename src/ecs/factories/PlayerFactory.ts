@@ -37,7 +37,13 @@ import {
   MASK_WEAPON,
   WEAPON_TEMPLATES,
 } from '../../constants'
-import type { EnemyType, MainModule, WeaponType, b2WorldId } from '../../types'
+import type {
+  EnemyPatrolMode,
+  EnemyType,
+  MainModule,
+  WeaponType,
+  b2WorldId,
+} from '../../types'
 import {
   EnemyAIComponent,
   Faction,
@@ -54,6 +60,34 @@ import {
 } from '../Component'
 import type { Entity } from '../Entity'
 import type { World } from '../World'
+
+type WeaponTemplate = (typeof WEAPON_TEMPLATES)[WeaponType]
+
+export function computeWeaponScaleFactor(
+  template: WeaponTemplate,
+  sizeLevel: number
+): number {
+  const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
+  if (!Number.isFinite(sizeLevel) || sizeLevel <= 0) {
+    return 1
+  }
+  return Math.max(0.5, sizeLevel / baseLevel)
+}
+
+export function applyWeaponSizeLevel(
+  weapon: WeaponComponent,
+  template: WeaponTemplate,
+  sizeLevel: number
+): void {
+  const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
+  weapon.sizeLevel = sizeLevel
+  weapon.width = template.width * scaleFactor
+  weapon.height = template.height * scaleFactor
+  weapon.baseWidth = weapon.width
+  weapon.blockWidthStart = weapon.width
+  weapon.blockWidthTarget = weapon.width
+  weapon.weight = template.weight * scaleFactor
+}
 
 export function createPlayer(
   world: World,
@@ -185,6 +219,19 @@ export function createPlayer(
   return entity
 }
 
+export interface EnemySpawnConfig {
+  equipWeapon?: boolean
+  radius?: number
+  moveSpeed?: number
+  attackDesire?: number
+  parryProficiency?: number
+  initialPatrolMode?: EnemyPatrolMode
+  maxHealth?: number
+  maxPosture?: number
+  maxToughness?: number
+  color?: string
+}
+
 export function createEnemy(
   world: World,
   box2d: MainModule,
@@ -192,35 +239,41 @@ export function createEnemy(
   x: number,
   y: number,
   groundTopY: number,
-  enemyType: EnemyType = 'default'
+  enemyType: EnemyType = 'default',
+  options?: EnemySpawnConfig
 ): Entity {
   const template = ENEMY_TEMPLATES[enemyType]
-  const enemy = createPlayer(
-    world,
-    box2d,
-    worldId,
-    x,
-    y,
-    groundTopY,
-    template.radius
-  )
+  const hasOptions = options !== undefined
+  const equipWeapon = options?.equipWeapon ?? (hasOptions ? false : true)
+  const radius = options?.radius ?? template.radius
+  const moveSpeed = options?.moveSpeed ?? template.moveSpeed
+  const attackDesire = options?.attackDesire ?? template.attackDesire
+  const parryProficiency =
+    options?.parryProficiency ?? template.parryProficiency
+  const initialPatrolMode =
+    options?.initialPatrolMode ?? template.initialPatrolMode
+  const maxHealth = options?.maxHealth ?? template.maxHealth
+  const maxPosture = options?.maxPosture ?? template.maxPosture
+  const maxToughness = options?.maxToughness ?? template.maxToughness
+  const color = options?.color ?? template.color
+  const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY, radius)
 
   // 重置敌人的脱战超时为10秒
   if (enemy.stats) {
     enemy.stats.combatExitTimeout = 10000
-    enemy.stats.maxHealth = template.maxHealth
-    enemy.stats.health = template.maxHealth
-    enemy.stats.maxPosture = template.maxPosture
-    enemy.stats.posture = template.maxPosture
-    enemy.stats.maxToughness = template.maxToughness
-    enemy.stats.toughness = template.maxToughness
+    enemy.stats.maxHealth = maxHealth
+    enemy.stats.health = maxHealth
+    enemy.stats.maxPosture = maxPosture
+    enemy.stats.posture = maxPosture
+    enemy.stats.maxToughness = maxToughness
+    enemy.stats.toughness = maxToughness
   }
 
   const ai = new EnemyAIComponent()
-  ai.attackDesire = template.attackDesire
-  ai.parryProficiency = template.parryProficiency
+  ai.attackDesire = attackDesire
+  ai.parryProficiency = parryProficiency
   ai.enemyType = enemyType
-  ai.initialPatrolMode = template.initialPatrolMode
+  ai.initialPatrolMode = initialPatrolMode
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
   if (enemyType === 'archer') {
@@ -257,24 +310,24 @@ export function createEnemy(
   }
 
   if (enemy.render) {
-    enemy.render.color = template.color
+    enemy.render.color = color
   }
 
   if (enemy.movement) {
-    enemy.movement.moveSpeed = template.moveSpeed
+    enemy.movement.moveSpeed = moveSpeed
   }
 
-  if (enemy.weapon && enemy.transform) {
+  if (equipWeapon && enemy.weapon && enemy.transform) {
     const facing = 1
-    const followX = enemy.transform.x - facing * (template.radius + 0.2)
-    const followY = enemy.transform.y + template.radius * -0.2
+    const followX = enemy.transform.x - facing * (radius + 0.2)
+    const followY = enemy.transform.y + radius * -0.2
     const equippedTransform = {
       x: followX,
       y: followY,
       rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
     }
 
-    if (enemy.weaponSlots && enemyType === 'archer') {
+    if (enemy.weaponSlots) {
       const swordTemplate = WEAPON_TEMPLATES.sword
       enemy.weaponSlots.main.hasWeapon = true
       enemy.weaponSlots.main.weaponType = 'sword'
@@ -289,36 +342,50 @@ export function createEnemy(
       enemy.weaponSlots.main.postureDamage = swordTemplate.postureDamage
       enemy.weaponSlots.main.toughnessDamage = swordTemplate.toughnessDamage
 
-      const bowTemplate = WEAPON_TEMPLATES.bow
-      enemy.weaponSlots.secondary.hasWeapon = true
-      enemy.weaponSlots.secondary.weaponType = 'bow'
-      enemy.weaponSlots.secondary.width = bowTemplate.width
-      enemy.weaponSlots.secondary.height = bowTemplate.height
-      enemy.weaponSlots.secondary.baseWidth = bowTemplate.width
-      enemy.weaponSlots.secondary.sizeLevel = bowTemplate.sizeLevel
-      enemy.weaponSlots.secondary.sizeMaxLevel = bowTemplate.sizeMaxLevel
-      enemy.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-      enemy.weaponSlots.secondary.weight = bowTemplate.weight
-      enemy.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
-      enemy.weaponSlots.secondary.postureDamage = bowTemplate.postureDamage
-      enemy.weaponSlots.secondary.toughnessDamage = bowTemplate.toughnessDamage
-      enemy.weaponSlots.secondary.bowAmmoMax = DEFAULT_BOW_AMMO_ENEMY
-      enemy.weaponSlots.secondary.bowAmmo = DEFAULT_BOW_AMMO_ENEMY
+      if (enemyType === 'archer') {
+        const bowTemplate = WEAPON_TEMPLATES.bow
+        enemy.weaponSlots.secondary.hasWeapon = true
+        enemy.weaponSlots.secondary.weaponType = 'bow'
+        enemy.weaponSlots.secondary.width = bowTemplate.width
+        enemy.weaponSlots.secondary.height = bowTemplate.height
+        enemy.weaponSlots.secondary.baseWidth = bowTemplate.width
+        enemy.weaponSlots.secondary.sizeLevel = bowTemplate.sizeLevel
+        enemy.weaponSlots.secondary.sizeMaxLevel = bowTemplate.sizeMaxLevel
+        enemy.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+        enemy.weaponSlots.secondary.weight = bowTemplate.weight
+        enemy.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
+        enemy.weaponSlots.secondary.postureDamage = bowTemplate.postureDamage
+        enemy.weaponSlots.secondary.toughnessDamage =
+          bowTemplate.toughnessDamage
+        enemy.weaponSlots.secondary.bowAmmoMax = DEFAULT_BOW_AMMO_ENEMY
+        enemy.weaponSlots.secondary.bowAmmo = DEFAULT_BOW_AMMO_ENEMY
 
-      enemy.weaponSlots.activeSlot = 'secondary'
-      enemy.weapon.width = bowTemplate.width
-      enemy.weapon.height = bowTemplate.height
-      enemy.weapon.baseWidth = bowTemplate.width
-      enemy.weapon.sizeLevel = bowTemplate.sizeLevel
-      enemy.weapon.sizeMaxLevel = bowTemplate.sizeMaxLevel
-      enemy.weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-      enemy.weapon.weight = bowTemplate.weight
-      enemy.weapon.weaponType = 'bow'
-      enemy.weapon.attackDamage = bowTemplate.attackDamage
-      enemy.weapon.postureDamage = bowTemplate.postureDamage
-      enemy.weapon.toughnessDamage = bowTemplate.toughnessDamage
-      enemy.weapon.bowAmmoMax = DEFAULT_BOW_AMMO_ENEMY
-      enemy.weapon.bowAmmo = DEFAULT_BOW_AMMO_ENEMY
+        enemy.weaponSlots.activeSlot = 'secondary'
+        applyWeaponSizeLevel(enemy.weapon, bowTemplate, bowTemplate.sizeLevel)
+        enemy.weapon.sizeMaxLevel = bowTemplate.sizeMaxLevel
+        enemy.weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+        enemy.weapon.weaponType = 'bow'
+        enemy.weapon.attackDamage = bowTemplate.attackDamage
+        enemy.weapon.postureDamage = bowTemplate.postureDamage
+        enemy.weapon.toughnessDamage = bowTemplate.toughnessDamage
+        enemy.weapon.bowAmmoMax = DEFAULT_BOW_AMMO_ENEMY
+        enemy.weapon.bowAmmo = DEFAULT_BOW_AMMO_ENEMY
+      } else {
+        enemy.weaponSlots.activeSlot = 'main'
+        applyWeaponSizeLevel(
+          enemy.weapon,
+          swordTemplate,
+          swordTemplate.sizeLevel
+        )
+        enemy.weapon.sizeMaxLevel = swordTemplate.sizeMaxLevel
+        enemy.weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+        enemy.weapon.weaponType = 'sword'
+        enemy.weapon.attackDamage = swordTemplate.attackDamage
+        enemy.weapon.postureDamage = swordTemplate.postureDamage
+        enemy.weapon.toughnessDamage = swordTemplate.toughnessDamage
+        enemy.weapon.bowAmmoMax = 0
+        enemy.weapon.bowAmmo = 0
+      }
     }
 
     enemy.weapon.isEquipped = true
@@ -369,15 +436,9 @@ export function createWeapon(
 
   const template = WEAPON_TEMPLATES[weaponType]
   const weapon = new WeaponComponent()
-  weapon.width = template.width
-  weapon.height = template.height
-  weapon.baseWidth = weapon.width
-  weapon.sizeLevel = template.sizeLevel
+  applyWeaponSizeLevel(weapon, template, template.sizeLevel)
   weapon.sizeMaxLevel = template.sizeMaxLevel
-  weapon.blockWidthStart = weapon.width
-  weapon.blockWidthTarget = weapon.width
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-  weapon.weight = template.weight
   weapon.weaponType = weaponType
   weapon.attackDamage = template.attackDamage
   weapon.postureDamage = template.postureDamage

@@ -1,4 +1,5 @@
 import type { AudioManager } from './AudioManager'
+import { renderBody } from './BodyRenderer'
 import { BowTrajectoryCalculator } from './BowTrajectory'
 import { ParticleSystem } from './ParticleSystem'
 import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
@@ -6,6 +7,7 @@ import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
+  WEAPON_TEMPLATES,
 } from './constants'
 import {
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
@@ -347,28 +349,14 @@ export class ClientRenderer {
 
     // 只有 radius > 0 时才渲染圆圈和眼睛
     if (radius > 0) {
-      this.ctx.fillStyle = this.getColorString(colorInt)
-      this.ctx.beginPath()
-      this.ctx.arc(0, 0, radius, 0, 2 * Math.PI)
-      this.ctx.fill()
-
-      this.ctx.strokeStyle = this.getColorString(colorInt)
-      this.ctx.lineWidth = 3
-      this.ctx.stroke()
-
-      // Eyes
-      const eyeRadius = 0.08 * this.pixelsPerMeter
-      const eyeOffsetX = radius * 0.5
-      const eyeOffsetY = -radius * 0.5
-
       const direction = buf[offset + OFFSETS.MOVE_DIR]
-      const eyeX = direction < 0 ? -eyeOffsetX : eyeOffsetX
-      const eyeY = eyeOffsetY
-
-      this.ctx.fillStyle = '#000000'
-      this.ctx.beginPath()
-      this.ctx.arc(eyeX, eyeY, eyeRadius, 0, 2 * Math.PI)
-      this.ctx.fill()
+      renderBody(
+        this.ctx,
+        radius,
+        this.getColorString(colorInt),
+        this.pixelsPerMeter,
+        direction
+      )
     }
 
     this.ctx.restore()
@@ -713,7 +701,8 @@ export class ClientRenderer {
         wWidth,
         wHeight,
         bodyColor,
-        isAttacking
+        isAttacking,
+        bowDraw
       )
 
       const drawRatio = Math.max(0, Math.min(1, bowDraw))
@@ -722,8 +711,12 @@ export class ClientRenderer {
       const shouldShowArrow =
         bowHasArrow && (bowDrawActive || (isInCombat && drawRatio <= 0))
       if (shouldShowArrow) {
-        const arrowLen = BOW_ARROW_LENGTH * this.pixelsPerMeter
-        const arrowThickness = BOW_ARROW_THICKNESS * this.pixelsPerMeter
+        const bowBaseWidthPx = WEAPON_TEMPLATES.bow.width * this.pixelsPerMeter
+        const bowScale =
+          bowBaseWidthPx > 0 ? Math.max(0.5, wWidth / bowBaseWidthPx) : 1
+        const arrowLen = BOW_ARROW_LENGTH * this.pixelsPerMeter * bowScale
+        const arrowThickness =
+          BOW_ARROW_THICKNESS * this.pixelsPerMeter * bowScale
         const arrowBase = bowDrawActive ? pullOffset : 0
         this.drawArrowShape(
           arrowLen,
