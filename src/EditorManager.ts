@@ -2,11 +2,18 @@ import { fabric } from 'fabric'
 
 import { DialogManager } from './DialogManager'
 import { localizer } from './Localizer'
-import { DEFAULT_PLAYER_RADIUS } from './constants'
+import { renderWeapon } from './WeaponRenderer'
+import {
+  DEFAULT_BOW_AMMO_PLAYER,
+  DEFAULT_PLAYER_RADIUS,
+  WEAPON_TEMPLATES,
+} from './constants'
 import type {
   EditorMapData,
   EditorMapMeta,
   MapPlacedShape,
+  MapWeapon,
+  WeaponCategory,
 } from './editorMapTypes'
 import {
   createEditorMap,
@@ -14,7 +21,7 @@ import {
   loadEditorMapData,
   saveEditorMap,
 } from './storage'
-import type { EnemyType } from './types'
+import type { EnemyType, WeaponType } from './types'
 
 const fabricControlsUtils = (
   fabric as unknown as {
@@ -59,6 +66,17 @@ type EnemyMarker = fabric.Group & {
   enemyType: EnemyType
 }
 
+type WeaponMarker = fabric.Group & {
+  editorShape: 'weapon-marker'
+  weaponType: WeaponType
+  category: WeaponCategory
+  sizeLevel: number
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
+  bowAmmo?: number
+}
+
 type ShapeResetData =
   | { kind: 'rect'; width: number; height: number }
   | { kind: 'circle'; radius: number }
@@ -76,6 +94,17 @@ interface CameraViewData {
 interface EnemyMarkerData {
   marker: EnemyMarker
   enemyType: EnemyType
+}
+
+interface WeaponMarkerData {
+  marker: WeaponMarker
+  weaponType: WeaponType
+  category: WeaponCategory
+  sizeLevel: number
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
+  bowAmmo?: number
 }
 
 const POLYGON_POINT_POOL: fabric.Point[] = []
@@ -310,7 +339,6 @@ export class EditorManager {
   private editorPanelCollapseBtn: HTMLButtonElement
   private editorPanelCollapsedBtn: HTMLButtonElement
   private editorObjectPanel: HTMLDivElement
-  private editorObjectPanelTitle: HTMLDivElement
   private editorObjectTree: HTMLDivElement
   private editorWorkspace: HTMLDivElement
   private editorCanvas: HTMLCanvasElement
@@ -330,6 +358,10 @@ export class EditorManager {
   private obstacleMenuItem: HTMLButtonElement
   private obstacleSubmenu: HTMLDivElement
   private obstacleSubmenuItems: NodeListOf<HTMLButtonElement>
+  private weaponMenuItem: HTMLButtonElement
+  private weaponMenu: HTMLDivElement
+  private weaponGroupTitles: NodeListOf<HTMLDivElement>
+  private weaponItems: NodeListOf<HTMLButtonElement>
 
   private propertiesModal: HTMLDivElement
   private propertiesTitle: HTMLHeadingElement
@@ -373,6 +405,7 @@ export class EditorManager {
     | 'equilateral'
     | 'zoom'
     | 'rename'
+    | 'properties'
   )[] = []
   private polygonMenuPolygon: EditablePolygon | null = null
   private polygonMenuTarget: fabric.Object | null = null
@@ -384,7 +417,9 @@ export class EditorManager {
   private cameraViewMap = new Map<fabric.Object, CameraViewData>()
   private playerMarker: PlayerMarker | null = null
   private enemyMarkers: EnemyMarkerData[] = []
+  private weaponMarkers: WeaponMarkerData[] = []
   private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
+  private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
   private editorObjects: EditorObjectData[] = []
   private editorObjectMap = new Map<fabric.Object, EditorObjectData>()
   private objectTypeCounts = new Map<ObjectType, number>()
@@ -434,7 +469,6 @@ export class EditorManager {
     const panelCollapseBtn = document.getElementById('editorPanelCollapse')
     const panelCollapsedBtn = document.getElementById('editorPanelCollapsed')
     const objectPanel = document.getElementById('editorObjectPanel')
-    const objectPanelTitle = document.getElementById('editorObjectPanelTitle')
     const objectTree = document.getElementById('editorObjectTree')
     const workspace = document.getElementById('editorWorkspace')
     const editorCanvas = document.getElementById('editorCanvas')
@@ -460,6 +494,16 @@ export class EditorManager {
     const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
     const obstacleSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorObstacleSubmenu .editor-submenu-item'
+    )
+    const weaponMenu = document.querySelector<HTMLButtonElement>(
+      '.editor-object-item[data-type="weapon"]'
+    )
+    const weaponSubmenu = document.getElementById('editorWeaponMenu')
+    const weaponGroupTitles = document.querySelectorAll<HTMLDivElement>(
+      '#editorWeaponMenu .editor-submenu-group-title'
+    )
+    const weaponItems = document.querySelectorAll<HTMLButtonElement>(
+      '#editorWeaponMenu .editor-submenu-item'
     )
     const objectTypeMenu = document.getElementById('editorObjectTypeMenu')
 
@@ -491,7 +535,6 @@ export class EditorManager {
       !(panelCollapseBtn instanceof HTMLButtonElement) ||
       !(panelCollapsedBtn instanceof HTMLButtonElement) ||
       !(objectPanel instanceof HTMLDivElement) ||
-      !(objectPanelTitle instanceof HTMLDivElement) ||
       !(objectTree instanceof HTMLDivElement) ||
       !(workspace instanceof HTMLDivElement) ||
       !(editorCanvas instanceof HTMLCanvasElement) ||
@@ -505,6 +548,8 @@ export class EditorManager {
       !(groundSubmenu instanceof HTMLDivElement) ||
       !(obstacleMenu instanceof HTMLButtonElement) ||
       !(obstacleSubmenu instanceof HTMLDivElement) ||
+      !(weaponMenu instanceof HTMLButtonElement) ||
+      !(weaponSubmenu instanceof HTMLDivElement) ||
       !(modal instanceof HTMLDivElement) ||
       !(modalTitle instanceof HTMLHeadingElement) ||
       !(modalForm instanceof HTMLDivElement) ||
@@ -528,7 +573,6 @@ export class EditorManager {
     this.editorPanelCollapseBtn = panelCollapseBtn
     this.editorPanelCollapsedBtn = panelCollapsedBtn
     this.editorObjectPanel = objectPanel
-    this.editorObjectPanelTitle = objectPanelTitle
     this.editorObjectTree = objectTree
     this.editorWorkspace = workspace
     this.editorCanvas = editorCanvas
@@ -548,6 +592,10 @@ export class EditorManager {
     this.obstacleMenuItem = obstacleMenu
     this.obstacleSubmenu = obstacleSubmenu
     this.obstacleSubmenuItems = obstacleSubmenuItems
+    this.weaponMenuItem = weaponMenu
+    this.weaponMenu = weaponSubmenu
+    this.weaponGroupTitles = weaponGroupTitles
+    this.weaponItems = weaponItems
 
     this.propertiesModal = modal
     this.propertiesTitle = modalTitle
@@ -622,6 +670,17 @@ export class EditorManager {
       })
     })
 
+    this.weaponItems.forEach((item) => {
+      item.addEventListener('click', () => {
+        const weaponType = item.dataset.weapon as WeaponType | undefined
+        const category = item.dataset.category as WeaponCategory | undefined
+        if (!weaponType || !category) {
+          return
+        }
+        this.handleWeaponTypeClick(weaponType, category)
+      })
+    })
+
     this.propertiesConfirmBtn.addEventListener('click', () => {
       this.handlePropertiesConfirm()
     })
@@ -660,7 +719,8 @@ export class EditorManager {
           this.panelMenu.contains(target) ||
           this.objectTypeMenu.contains(target) ||
           this.groundSubmenu.contains(target) ||
-          this.obstacleSubmenu.contains(target)
+          this.obstacleSubmenu.contains(target) ||
+          this.weaponMenu.contains(target)
         ) {
           return
         }
@@ -674,6 +734,7 @@ export class EditorManager {
         this.hideObjectTypeMenu()
         this.hideGroundSubmenu()
         this.hideObstacleSubmenu()
+        this.hideWeaponMenu()
       },
       true
     )
@@ -704,6 +765,10 @@ export class EditorManager {
       event.stopPropagation()
     })
 
+    this.weaponMenu.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
+
     document.addEventListener(
       'contextmenu',
       (event) => {
@@ -717,9 +782,6 @@ export class EditorManager {
     this.editorBackBtn.textContent = localizer.t('editor_back_to_menu')
     this.editorPreviewBtn.textContent = localizer.t('editor_preview')
     this.editorSaveBtn.textContent = localizer.t('editor_save')
-    this.editorObjectPanelTitle.textContent = localizer.t(
-      'editor_object_panel_title'
-    )
     this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')
 
     this.editorObjectItems.forEach((item) => {
@@ -748,6 +810,18 @@ export class EditorManager {
       const shape = item.dataset.shape
       if (shape) {
         item.textContent = localizer.t(`editor_ground_shape_${shape}`)
+      }
+    })
+    this.weaponGroupTitles.forEach((title) => {
+      const category = title.dataset.categoryTitle
+      if (category) {
+        title.textContent = localizer.t(`editor_weapon_category_${category}`)
+      }
+    })
+    this.weaponItems.forEach((item) => {
+      const weapon = item.dataset.weapon
+      if (weapon) {
+        item.textContent = localizer.t(`editor_weapon_${weapon}`)
       }
     })
     this.renderObjectTree()
@@ -803,6 +877,14 @@ export class EditorManager {
       this.setActiveObjectType(ObjectType.Obstacle)
       this.hideGroundSubmenu()
       this.showObstacleSubmenu()
+      return
+    }
+
+    if (type === ObjectType.Weapon) {
+      this.setActiveObjectType(ObjectType.Weapon)
+      this.hideGroundSubmenu()
+      this.hideObstacleSubmenu()
+      this.showWeaponMenu()
       return
     }
 
@@ -972,6 +1054,7 @@ export class EditorManager {
       camera: { x: 0, y: 0, zoom: 1 },
       shapes: [],
       enemies: [],
+      weapons: [],
     }
   }
 
@@ -1039,6 +1122,7 @@ export class EditorManager {
     const shapes: MapPlacedShape[] = []
     this.serializeShapes(shapes)
     const enemies = this.serializeEnemies()
+    const weapons = this.serializeWeapons()
     return {
       version: 1,
       canvasWidth: base.canvasWidth,
@@ -1048,6 +1132,7 @@ export class EditorManager {
       camera,
       shapes,
       enemies,
+      weapons,
     }
   }
 
@@ -1230,6 +1315,26 @@ export class EditorManager {
     return enemies
   }
 
+  private serializeWeapons() {
+    const weapons: EditorMapData['weapons'] = []
+    for (let i = 0; i < this.weaponMarkers.length; i++) {
+      const data = this.weaponMarkers[i]
+      const marker = data.marker
+      weapons.push({
+        x: (marker.left ?? 0) * this.invPixelsPerMeter,
+        y: (marker.top ?? 0) * this.invPixelsPerMeter,
+        weaponType: data.weaponType,
+        category: data.category,
+        sizeLevel: data.sizeLevel,
+        attackDamage: data.attackDamage,
+        postureDamage: data.postureDamage,
+        toughnessDamage: data.toughnessDamage,
+        bowAmmo: data.bowAmmo,
+      })
+    }
+    return weapons
+  }
+
   private applyMapData(data: EditorMapData) {
     this.ensureFabricCanvas()
     if (!this.fabricCanvas) {
@@ -1241,6 +1346,7 @@ export class EditorManager {
     this.spawnCameraViewFrame(data.camera)
     this.applyPlacedShapes(data.shapes)
     this.applyEnemies(data.enemies)
+    this.applyWeapons(data.weapons)
     this.renderObjectTree()
     this.fabricCanvas.requestRenderAll()
   }
@@ -1269,6 +1375,8 @@ export class EditorManager {
     this.playerMarker = null
     this.enemyMarkers.length = 0
     this.enemyMarkerMap.clear()
+    this.weaponMarkers.length = 0
+    this.weaponMarkerMap.clear()
     this.editorObjects.length = 0
     this.editorObjectMap.clear()
     this.objectTypeCounts.clear()
@@ -1286,6 +1394,16 @@ export class EditorManager {
     for (let i = 0; i < enemies.length; i++) {
       const enemy = enemies[i]
       this.spawnEnemyMarker(enemy.enemyType, enemy)
+    }
+  }
+
+  private applyWeapons(weapons: EditorMapData['weapons']) {
+    if (!weapons) {
+      return
+    }
+    for (let i = 0; i < weapons.length; i++) {
+      const weapon = weapons[i]
+      this.spawnWeaponMarker(weapon.weaponType, weapon.category, weapon)
     }
   }
 
@@ -1541,6 +1659,9 @@ export class EditorManager {
     }
     if (this.isEnemyMarker(object)) {
       this.removeEnemyMarker(object)
+    }
+    if (this.isWeaponMarker(object)) {
+      this.removeWeaponMarker(object)
     }
     this.editorObjectMap.delete(object)
     const index = this.editorObjects.indexOf(data)
@@ -2182,6 +2303,7 @@ export class EditorManager {
       this.objectTypeMenu.contains(targetNode) ||
       this.groundSubmenu.contains(targetNode) ||
       this.obstacleSubmenu.contains(targetNode) ||
+      this.weaponMenu.contains(targetNode) ||
       this.polygonMenu.contains(targetNode)
     )
   }
@@ -2235,6 +2357,10 @@ export class EditorManager {
     }
   }
 
+  private hasObjectOfType(type: ObjectType): boolean {
+    return this.editorObjects.some((obj) => obj.type === type)
+  }
+
   private showObjectTypeMenu(clientX: number, clientY: number) {
     this.hidePolygonMenu()
     this.hidePanelMenu()
@@ -2244,6 +2370,20 @@ export class EditorManager {
     this.objectTypeMenuY = clientY
     this.objectTypeMenu.style.left = `${clientX}px`
     this.objectTypeMenu.style.top = `${clientY}px`
+
+    this.editorObjectItems.forEach((item) => {
+      const type = item.dataset.type as ObjectType
+      if (type === ObjectType.Player || type === ObjectType.Camera) {
+        if (this.hasObjectOfType(type)) {
+          item.disabled = true
+          item.classList.add('disabled')
+        } else {
+          item.disabled = false
+          item.classList.remove('disabled')
+        }
+      }
+    })
+
     this.objectTypeMenu.classList.add('is-visible')
   }
 
@@ -2254,6 +2394,7 @@ export class EditorManager {
     this.objectTypeMenu.classList.remove('is-visible')
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
+    this.hideWeaponMenu()
   }
 
   private spawnPlayerMarker(spawn?: { x: number; y: number }) {
@@ -2398,6 +2539,136 @@ export class EditorManager {
     }) as EnemyMarker
     group.editorShape = 'enemy-marker'
     group.enemyType = enemyType
+    return group
+  }
+
+  private spawnWeaponMarker(
+    weaponType: WeaponType,
+    category: WeaponCategory,
+    spawn?: {
+      x: number
+      y: number
+      sizeLevel?: number
+      attackDamage?: number
+      postureDamage?: number
+      toughnessDamage?: number
+      bowAmmo?: number
+    }
+  ) {
+    this.ensureFabricCanvas()
+    if (!this.fabricCanvas) {
+      console.warn('[editor] Fabric canvas not ready')
+      return
+    }
+    const centerX =
+      spawn?.x !== undefined
+        ? spawn.x * EDITOR_PIXELS_PER_METER
+        : this.editorCanvas.width * 0.5
+    const centerY =
+      spawn?.y !== undefined
+        ? spawn.y * EDITOR_PIXELS_PER_METER
+        : this.editorCanvas.height * 0.5
+    const template = WEAPON_TEMPLATES[weaponType]
+    const sizeLevel = spawn?.sizeLevel ?? template.sizeLevel
+    const attackDamage = spawn?.attackDamage ?? template.attackDamage
+    const postureDamage = spawn?.postureDamage ?? template.postureDamage
+    const toughnessDamage = spawn?.toughnessDamage ?? template.toughnessDamage
+    const bowAmmo =
+      spawn?.bowAmmo ??
+      (weaponType === 'bow' ? DEFAULT_BOW_AMMO_PLAYER : undefined)
+    const marker = this.createWeaponMarker(
+      weaponType,
+      category,
+      sizeLevel,
+      attackDamage,
+      postureDamage,
+      toughnessDamage,
+      bowAmmo
+    )
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    this.fabricCanvas.add(marker)
+    this.registerEditorObject(ObjectType.Weapon, marker)
+    const weaponData: WeaponMarkerData = {
+      marker,
+      weaponType,
+      category,
+      sizeLevel,
+      attackDamage,
+      postureDamage,
+      toughnessDamage,
+      bowAmmo,
+    }
+    this.weaponMarkers.push(weaponData)
+    this.weaponMarkerMap.set(marker, weaponData)
+    this.fabricCanvas.setActiveObject(marker)
+    this.handleCanvasSelection(marker)
+    this.fabricCanvas.renderAll()
+  }
+
+  private createWeaponMarker(
+    weaponType: WeaponType,
+    category: WeaponCategory,
+    sizeLevel: number,
+    attackDamage: number,
+    postureDamage: number,
+    toughnessDamage: number,
+    bowAmmo?: number
+  ): WeaponMarker {
+    const template = WEAPON_TEMPLATES[weaponType]
+    const width = template.width * EDITOR_PIXELS_PER_METER
+    const height = template.height * EDITOR_PIXELS_PER_METER
+    const color = '#b4bdc7'
+
+    const isBow = weaponType === 'bow'
+    const boundingWidth = width
+    const boundingHeight = isBow ? height * 4 : height
+
+    const weaponShape = new (fabric.util.createClass(fabric.Object, {
+      type: 'customWeapon',
+      weaponType,
+      width: boundingWidth,
+      height: boundingHeight,
+      initialize(options?: fabric.IObjectOptions) {
+        this.callSuper('initialize', options)
+        this.width = boundingWidth
+        this.height = boundingHeight
+        this.weaponType = weaponType
+      },
+      _render(ctx: CanvasRenderingContext2D) {
+        renderWeapon(
+          ctx,
+          weaponType === 'bow' ? 'bow' : 'sword',
+          width,
+          height,
+          color,
+          false
+        )
+      },
+    }))({
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+    })
+
+    const group = new fabric.Group([weaponShape], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    }) as WeaponMarker
+    group.editorShape = 'weapon-marker'
+    group.weaponType = weaponType
+    group.category = category
+    group.sizeLevel = sizeLevel
+    group.attackDamage = attackDamage
+    group.postureDamage = postureDamage
+    group.toughnessDamage = toughnessDamage
+    group.bowAmmo = bowAmmo
     return group
   }
 
@@ -2622,6 +2893,19 @@ export class EditorManager {
     this.obstacleSubmenu.classList.remove('is-visible')
   }
 
+  private showWeaponMenu() {
+    this.positionWeaponMenu()
+    this.weaponMenu.classList.add('is-visible')
+  }
+
+  private hideWeaponMenu() {
+    this.weaponMenu.classList.remove('is-visible')
+  }
+
+  private positionWeaponMenu() {
+    this.positionShapeSubmenu(this.weaponMenuItem, this.weaponMenu)
+  }
+
   private positionObstacleSubmenu() {
     this.positionShapeSubmenu(this.obstacleMenuItem, this.obstacleSubmenu)
   }
@@ -2782,6 +3066,15 @@ export class EditorManager {
     this.hideObjectTypeMenu()
   }
 
+  private handleWeaponTypeClick(
+    weaponType: WeaponType,
+    category: WeaponCategory
+  ) {
+    this.hideWeaponMenu()
+    this.hideObjectTypeMenu()
+    this.spawnWeaponMarker(weaponType, category)
+  }
+
   private applyGroundPatternToObject(object: fabric.Object) {
     const image = this.getGroundPatternImage()
     if (!image) {
@@ -2922,6 +3215,13 @@ export class EditorManager {
     )
   }
 
+  private isWeaponMarker(object: fabric.Object | null): object is WeaponMarker {
+    return (
+      object instanceof fabric.Group &&
+      (object as WeaponMarker).editorShape === 'weapon-marker'
+    )
+  }
+
   private handleEditablePolygonContextMenu(opt: fabric.IEvent<MouseEvent>) {
     if (!this.fabricCanvas) {
       return
@@ -3034,6 +3334,9 @@ export class EditorManager {
     if (this.isEnemyMarker(object)) {
       return true
     }
+    if (this.isWeaponMarker(object)) {
+      return true
+    }
     return (
       object.type === 'rect' ||
       object.type === 'circle' ||
@@ -3069,6 +3372,16 @@ export class EditorManager {
     if (this.isEnemyMarker(target)) {
       this.showPolygonMenuWithActions(
         ['rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
+    if (this.isWeaponMarker(target)) {
+      this.showPolygonMenuWithActions(
+        ['properties', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -3464,6 +3777,7 @@ export class EditorManager {
       | 'equilateral'
       | 'zoom'
       | 'rename'
+      | 'properties'
     )[],
     target: EditablePolygon | fabric.Object,
     index: number,
@@ -3505,6 +3819,7 @@ export class EditorManager {
       | 'equilateral'
       | 'zoom'
       | 'rename'
+      | 'properties'
   ) {
     switch (action) {
       case 'add':
@@ -3521,6 +3836,8 @@ export class EditorManager {
         return 'editor_camera_menu_zoom'
       case 'rename':
         return 'editor_object_menu_rename'
+      case 'properties':
+        return 'editor_weapon_menu_properties'
       default:
         return 'editor_polygon_menu_delete_shape'
     }
@@ -3547,6 +3864,7 @@ export class EditorManager {
       | 'equilateral'
       | 'zoom'
       | 'rename'
+      | 'properties'
   ) {
     const polygon = this.polygonMenuPolygon
     const target = this.polygonMenuTarget
@@ -3555,6 +3873,13 @@ export class EditorManager {
       return
     }
     const canvas = target.canvas
+    if (action === 'properties') {
+      if (this.isWeaponMarker(target)) {
+        await this.showWeaponPropertiesDialog(target)
+      }
+      this.hidePolygonMenu()
+      return
+    }
     if (action === 'delete') {
       const confirmed = await this.dialogManager.confirm(
         localizer.t('editor_confirm_delete_shape')
@@ -3699,6 +4024,321 @@ export class EditorManager {
         break
       }
     }
+  }
+
+  private removeWeaponMarker(marker: WeaponMarker) {
+    const data = this.weaponMarkerMap.get(marker)
+    if (!data) {
+      return
+    }
+    this.weaponMarkerMap.delete(marker)
+    for (let i = 0; i < this.weaponMarkers.length; i++) {
+      if (this.weaponMarkers[i].marker === marker) {
+        this.weaponMarkers.splice(i, 1)
+        break
+      }
+    }
+  }
+
+  private async showWeaponPropertiesDialog(marker: WeaponMarker) {
+    const data = this.weaponMarkerMap.get(marker)
+    if (!data) {
+      return
+    }
+
+    const template = WEAPON_TEMPLATES[marker.weaponType]
+    const isBow = marker.weaponType === 'bow'
+
+    const modal = document.createElement('div')
+    modal.style.cssText = `
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    `
+
+    const form = document.createElement('div')
+    form.style.cssText = `
+      background: rgba(0, 0, 0, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 24px;
+      min-width: 300px;
+      font-family: monospace;
+      color: #ffffff;
+    `
+
+    const title = document.createElement('h3')
+    title.textContent = localizer.t('editor_weapon_menu_properties')
+    title.style.cssText = 'margin: 0 0 16px 0; font-size: 12px;'
+    form.appendChild(title)
+
+    const getSizeName = (level: number): string => {
+      if (isBow) {
+        return level === 1
+          ? localizer.t('editor_weapon_size_bow_1')
+          : localizer.t('editor_weapon_size_bow_2')
+      } else {
+        switch (level) {
+          case 1:
+            return localizer.t('editor_weapon_size_sword_1')
+          case 2:
+            return localizer.t('editor_weapon_size_sword_2')
+          case 3:
+            return localizer.t('editor_weapon_size_sword_3')
+          case 4:
+            return localizer.t('editor_weapon_size_sword_4')
+          default:
+            return String(level)
+        }
+      }
+    }
+
+    const sizeGroup = document.createElement('div')
+    sizeGroup.style.cssText =
+      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
+
+    const sizeLabel = document.createElement('label')
+    sizeLabel.textContent = localizer.t('editor_weapon_prop_size')
+    sizeLabel.style.cssText = 'width: 100px; font-size: 12px; flex-shrink: 0;'
+    sizeGroup.appendChild(sizeLabel)
+
+    const sizeSelect = document.createElement('select')
+    sizeSelect.style.cssText = `
+      flex: 1;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+    `
+    for (let i = 1; i <= template.sizeMaxLevel; i++) {
+      const option = document.createElement('option')
+      option.value = String(i)
+      option.textContent = `${i} - ${getSizeName(i)}`
+      if (i === data.sizeLevel) {
+        option.selected = true
+      }
+      sizeSelect.appendChild(option)
+    }
+    sizeGroup.appendChild(sizeSelect)
+    form.appendChild(sizeGroup)
+
+    const attackGroup = document.createElement('div')
+    attackGroup.style.cssText =
+      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
+
+    const attackLabel = document.createElement('label')
+    attackLabel.textContent = localizer.t('editor_weapon_prop_attack_damage')
+    attackLabel.style.cssText = 'width: 100px; font-size: 12px; flex-shrink: 0;'
+    attackGroup.appendChild(attackLabel)
+
+    const attackInput = document.createElement('input')
+    attackInput.type = 'number'
+    attackInput.value = String(data.attackDamage)
+    attackInput.step = '0.1'
+    attackInput.min = '0'
+    attackInput.style.cssText = `
+      flex: 1;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+      box-sizing: border-box;
+    `
+    attackGroup.appendChild(attackInput)
+    form.appendChild(attackGroup)
+
+    const postureGroup = document.createElement('div')
+    postureGroup.style.cssText =
+      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
+
+    const postureLabel = document.createElement('label')
+    postureLabel.textContent = localizer.t('editor_weapon_prop_posture_damage')
+    postureLabel.style.cssText =
+      'width: 100px; font-size: 12px; flex-shrink: 0;'
+    postureGroup.appendChild(postureLabel)
+
+    const postureInput = document.createElement('input')
+    postureInput.type = 'number'
+    postureInput.value = String(data.postureDamage)
+    postureInput.step = '0.1'
+    postureInput.min = '0'
+    postureInput.style.cssText = `
+      flex: 1;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+      box-sizing: border-box;
+    `
+    postureGroup.appendChild(postureInput)
+    form.appendChild(postureGroup)
+
+    const toughnessGroup = document.createElement('div')
+    toughnessGroup.style.cssText =
+      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
+
+    const toughnessLabel = document.createElement('label')
+    toughnessLabel.textContent = localizer.t(
+      'editor_weapon_prop_toughness_damage'
+    )
+    toughnessLabel.style.cssText =
+      'width: 100px; font-size: 12px; flex-shrink: 0;'
+    toughnessGroup.appendChild(toughnessLabel)
+
+    const toughnessInput = document.createElement('input')
+    toughnessInput.type = 'number'
+    toughnessInput.value = String(data.toughnessDamage)
+    toughnessInput.step = '0.1'
+    toughnessInput.min = '0'
+    toughnessInput.style.cssText = `
+      flex: 1;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+      box-sizing: border-box;
+    `
+    toughnessGroup.appendChild(toughnessInput)
+    form.appendChild(toughnessGroup)
+
+    let bowAmmoInput: HTMLInputElement | null = null
+    if (isBow) {
+      const ammoGroup = document.createElement('div')
+      ammoGroup.style.cssText =
+        'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
+
+      const ammoLabel = document.createElement('label')
+      ammoLabel.textContent = localizer.t('editor_weapon_prop_bow_ammo')
+      ammoLabel.style.cssText = 'width: 100px; font-size: 12px; flex-shrink: 0;'
+      ammoGroup.appendChild(ammoLabel)
+
+      bowAmmoInput = document.createElement('input')
+      bowAmmoInput.type = 'number'
+      bowAmmoInput.value = String(data.bowAmmo ?? DEFAULT_BOW_AMMO_PLAYER)
+      bowAmmoInput.step = '1'
+      bowAmmoInput.min = '0'
+      bowAmmoInput.style.cssText = `
+        flex: 1;
+        padding: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        color: #ffffff;
+        font-family: monospace;
+        font-size: 12px;
+        box-sizing: border-box;
+      `
+      ammoGroup.appendChild(bowAmmoInput)
+      form.appendChild(ammoGroup)
+    }
+
+    const buttons = document.createElement('div')
+    buttons.style.cssText = 'display: flex; gap: 8px; margin-top: 16px;'
+
+    const confirmBtn = document.createElement('button')
+    confirmBtn.textContent = localizer.t('editor_btn_confirm')
+    confirmBtn.style.cssText = `
+      flex: 1;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 12px;
+      cursor: pointer;
+    `
+    confirmBtn.addEventListener('mouseenter', () => {
+      confirmBtn.style.background = 'rgba(255, 255, 255, 0.2)'
+    })
+    confirmBtn.addEventListener('mouseleave', () => {
+      confirmBtn.style.background = 'rgba(255, 255, 255, 0.1)'
+    })
+
+    const cancelBtn = document.createElement('button')
+    cancelBtn.textContent = localizer.t('editor_btn_cancel')
+    cancelBtn.style.cssText = confirmBtn.style.cssText
+    cancelBtn.addEventListener('mouseenter', () => {
+      cancelBtn.style.background = 'rgba(255, 255, 255, 0.2)'
+    })
+    cancelBtn.addEventListener('mouseleave', () => {
+      cancelBtn.style.background = 'rgba(255, 255, 255, 0.1)'
+    })
+
+    buttons.appendChild(confirmBtn)
+    buttons.appendChild(cancelBtn)
+    form.appendChild(buttons)
+    modal.appendChild(form)
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return
+    }
+    viewport.appendChild(modal)
+
+    return new Promise<void>((resolve) => {
+      const cleanup = () => {
+        if (modal.parentElement) {
+          modal.parentElement.removeChild(modal)
+        }
+        resolve()
+      }
+
+      confirmBtn.addEventListener('click', () => {
+        const sizeLevel = Number.parseInt(sizeSelect.value, 10)
+        const attackDamage = Number.parseFloat(attackInput.value)
+        const postureDamage = Number.parseFloat(postureInput.value)
+        const toughnessDamage = Number.parseFloat(toughnessInput.value)
+        const bowAmmo = bowAmmoInput
+          ? Number.parseInt(bowAmmoInput.value, 10)
+          : data.bowAmmo
+
+        if (
+          !Number.isFinite(sizeLevel) ||
+          !Number.isFinite(attackDamage) ||
+          !Number.isFinite(postureDamage) ||
+          !Number.isFinite(toughnessDamage)
+        ) {
+          cleanup()
+          return
+        }
+
+        if (bowAmmoInput && !Number.isFinite(bowAmmo)) {
+          cleanup()
+          return
+        }
+
+        data.sizeLevel = sizeLevel
+        data.attackDamage = attackDamage
+        data.postureDamage = postureDamage
+        data.toughnessDamage = toughnessDamage
+        data.bowAmmo = bowAmmo
+
+        marker.sizeLevel = sizeLevel
+        marker.attackDamage = attackDamage
+        marker.postureDamage = postureDamage
+        marker.toughnessDamage = toughnessDamage
+        marker.bowAmmo = bowAmmo
+
+        cleanup()
+      })
+
+      cancelBtn.addEventListener('click', cleanup)
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          cleanup()
+        }
+      })
+    })
   }
 
   private removeCameraView(frame: CameraFrame) {
@@ -4385,6 +5025,7 @@ export class EditorManager {
     this.hideObjectTypeMenu()
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
+    this.hideWeaponMenu()
     this.hidePolygonMenu()
     this.cancelObjectRename()
     this.setActiveObjectType(null)

@@ -1027,30 +1027,53 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     groundY
   )
 
-  const weaponBaseX = map ? map.playerSpawn.x : -12
-  const weaponBaseY = map ? map.playerSpawn.y : groundY - 0.6
+  if (map?.weapons) {
+    for (let i = 0; i < map.weapons.length; i++) {
+      const weaponData = map.weapons[i]
+      const weaponEntity = createWeapon(
+        world,
+        box2d,
+        worldId,
+        weaponData.x,
+        weaponData.y,
+        groundY,
+        weaponData.weaponType
+      )
+      const weapon = weaponEntity.weapon
+      if (!weapon) {
+        continue
+      }
 
-  // 在玩家右前方（向右7米）生成一把剑，方便看到
-  createWeapon(
-    world,
-    box2d,
-    worldId,
-    weaponBaseX + 6,
-    weaponBaseY - 4,
-    groundY,
-    'sword'
-  )
+      const sizeLevel = weaponData.sizeLevel
+      if (Number.isFinite(sizeLevel) && sizeLevel > 0) {
+        weapon.sizeLevel = sizeLevel
+      }
 
-  // 在远处阶梯平台（x=15，高度21m）上生成一把小剑用于测试
-  createWeapon(
-    world,
-    box2d,
-    worldId,
-    weaponBaseX + 12,
-    weaponBaseY - 8,
-    groundY,
-    'shortSword'
-  )
+      const attackDamage = weaponData.attackDamage
+      if (attackDamage !== undefined && Number.isFinite(attackDamage)) {
+        weapon.attackDamage = attackDamage
+      }
+
+      const postureDamage = weaponData.postureDamage
+      if (postureDamage !== undefined && Number.isFinite(postureDamage)) {
+        weapon.postureDamage = postureDamage
+      }
+
+      const toughnessDamage = weaponData.toughnessDamage
+      if (toughnessDamage !== undefined && Number.isFinite(toughnessDamage)) {
+        weapon.toughnessDamage = toughnessDamage
+      }
+
+      if (weapon.weaponType === 'bow') {
+        const bowAmmo = weaponData.bowAmmo
+        if (bowAmmo !== undefined && Number.isFinite(bowAmmo)) {
+          const ammo = Math.max(0, bowAmmo)
+          weapon.bowAmmo = ammo
+          weapon.bowAmmoMax = Math.max(weapon.bowAmmoMax, ammo)
+        }
+      }
+    }
+  }
 
   // Obstacles are at -9.5, 9.5, 19.5
 

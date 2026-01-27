@@ -1,6 +1,8 @@
-import type { EnemyType } from './types'
+import type { EnemyType, WeaponType } from './types'
 
 export type MapObjectKind = 'ground' | 'obstacle'
+
+export type WeaponCategory = 'main' | 'secondary' | 'item'
 
 export interface EditorMapMeta {
   id: string
@@ -50,6 +52,18 @@ export interface MapEnemy {
   enemyType: EnemyType
 }
 
+export interface MapWeapon {
+  x: number
+  y: number
+  weaponType: WeaponType
+  category: WeaponCategory
+  sizeLevel: number
+  attackDamage?: number
+  postureDamage?: number
+  toughnessDamage?: number
+  bowAmmo?: number
+}
+
 export interface MapCamera {
   x: number
   y: number
@@ -65,6 +79,7 @@ export interface EditorMapData {
   camera: MapCamera
   shapes: MapPlacedShape[]
   enemies: MapEnemy[]
+  weapons?: MapWeapon[]
 }
 
 export interface StoredEditorMap {

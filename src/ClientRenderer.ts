@@ -1,6 +1,7 @@
 import type { AudioManager } from './AudioManager'
 import { BowTrajectoryCalculator } from './BowTrajectory'
 import { ParticleSystem } from './ParticleSystem'
+import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
 import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
@@ -706,28 +707,17 @@ export class ClientRenderer {
     if (weaponType === WEAPON_TYPES.ARROW) {
       this.drawArrowShape(wWidth, wHeight, isAttacking, bodyColor)
     } else if (weaponType === WEAPON_TYPES.BOW) {
-      const halfLen = wWidth / 2
-      const arcDepth = wHeight * 4
-      const lineWidth = Math.max(1, wHeight * 0.55)
+      renderWeaponShape(
+        this.ctx,
+        'bow',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking
+      )
+
       const drawRatio = Math.max(0, Math.min(1, bowDraw))
       const pullOffset = drawRatio * wWidth * 0.25
-      const stringWidth = Math.max(1, lineWidth * (1 - drawRatio * 0.5))
-
-      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
-      this.ctx.lineWidth = lineWidth
-
-      // Minimal bow: shallow arc + straight string with shared endpoints
-      this.ctx.beginPath()
-      this.ctx.moveTo(-halfLen, 0)
-      this.ctx.quadraticCurveTo(0, -arcDepth, halfLen, 0)
-      this.ctx.stroke()
-
-      this.ctx.beginPath()
-      this.ctx.lineWidth = stringWidth
-      this.ctx.moveTo(-halfLen, 0)
-      this.ctx.lineTo(0, pullOffset)
-      this.ctx.lineTo(halfLen, 0)
-      this.ctx.stroke()
 
       const shouldShowArrow =
         bowHasArrow && (bowDrawActive || (isInCombat && drawRatio <= 0))
@@ -744,33 +734,14 @@ export class ClientRenderer {
         )
       }
     } else {
-      this.ctx.beginPath()
-      const halfLen = wWidth / 2
-      const halfThick = wHeight / 2
-
-      // Draw custom shape: Flat base (left), Round tip (right)
-      // Top-Left
-      this.ctx.moveTo(-halfLen, -halfThick)
-      // Top-Right (start of arc)
-      this.ctx.lineTo(halfLen - halfThick, -halfThick)
-      // Tip Arc (Semicircle at +X end)
-      this.ctx.arc(halfLen - halfThick, 0, halfThick, -Math.PI / 2, Math.PI / 2)
-      // Bottom-Right (end of arc) is implied
-      // Bottom-Left
-      this.ctx.lineTo(-halfLen, halfThick)
-      // Close
-      this.ctx.closePath()
-
-      this.ctx.fillStyle = bodyColor
-      // Border matches body unless attacking
-      /* if (isBlocking) {
-        this.ctx.strokeStyle = '#FFFF00' // Yellow for blocking
-      } else { */
-      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
-      // }
-      this.ctx.lineWidth = 2
-      this.ctx.fill()
-      this.ctx.stroke()
+      renderWeaponShape(
+        this.ctx,
+        'sword',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking
+      )
     }
     this.ctx.restore()
   }

@@ -224,7 +224,7 @@
       .editor-panel-toggle {
         height: 28px;
         line-height: 28px;
-        font-size: 14px;
+        font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
         border: 1px solid rgba(255, 255, 255, 0.2);
@@ -243,7 +243,7 @@
         top: 12px;
         height: 30px;
         line-height: 30px;
-        font-size: 14px;
+        font-size: 12px;
         color: var(--ui-muted);
         background: rgba(0, 0, 0, 0.5);
         border: 1px solid rgba(255, 255, 255, 0.2);
@@ -273,14 +273,6 @@
         height: calc(100% - 40px);
         min-height: 0;
       }
-      .editor-object-panel-title {
-        font-size: 12px;
-        letter-spacing: 1px;
-        color: var(--ui-muted);
-        margin: 0 4px 8px;
-        opacity: 0.8;
-        user-select: none;
-      }
       .editor-object-tree {
         flex: 1;
         min-height: 0;
@@ -294,7 +286,7 @@
         width: 100%;
         height: 30px;
         line-height: 30px;
-        font-size: 13px;
+        font-size: 12px;
         color: var(--ui-muted);
         background: rgba(0, 0, 0, 0.18);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -324,7 +316,7 @@
         width: 100%;
         height: 30px;
         line-height: 30px;
-        font-size: 13px;
+        font-size: 12px;
         color: var(--ui-color);
         background: rgba(0, 0, 0, 0.5);
         border: 1px solid rgba(255, 255, 255, 0.3);
@@ -336,13 +328,13 @@
       .editor-object-item {
         position: relative;
         width: 100%;
-        height: 34px;
-        line-height: 34px;
-        font-size: 14px;
+        height: 30px;
+        line-height: 30px;
+        font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
         border: none;
-        padding: 0 12px;
+        padding: 0 8px;
         cursor: pointer;
         text-align: left;
         font-family: var(--ui-font);
@@ -352,18 +344,55 @@
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
+      .editor-object-item:disabled,
+      .editor-object-item.disabled {
+        color: #888888;
+        cursor: not-allowed;
+      }
+      .editor-object-item:disabled:hover,
+      .editor-object-item.disabled:hover {
+        color: #888888;
+        background: transparent;
+      }
       .editor-submenu {
         position: fixed;
         min-width: 170px;
-        padding: 10px;
+        padding: 6px;
         display: none;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
         background: rgba(0, 0, 0, 0.55);
         border: 1px solid rgba(255, 255, 255, 0.12);
         box-sizing: border-box;
         pointer-events: auto;
         z-index: 9;
+      }
+      .editor-submenu-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 6px 0 0;
+        margin-top: 4px;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .editor-submenu-group:first-child {
+        border-top: none;
+        padding-top: 0;
+        margin-top: 0;
+      }
+      .editor-submenu-group-title {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--ui-muted);
+        opacity: 0.9;
+        padding: 0 6px;
+        letter-spacing: 0.5px;
+        user-select: none;
+      }
+      .editor-submenu-group-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
       }
       .editor-submenu.is-visible {
         display: flex;
@@ -388,7 +417,7 @@
         width: 100%;
         height: 30px;
         line-height: 30px;
-        font-size: 13px;
+        font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
         border: none;
@@ -407,13 +436,13 @@
       }
       .editor-submenu-item {
         width: 100%;
-        height: 30px;
-        line-height: 30px;
-        font-size: 14px;
+        height: 26px;
+        line-height: 26px;
+        font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
         border: none;
-        padding: 0 10px;
+        padding: 0 6px;
         cursor: pointer;
         text-align: left;
         font-family: var(--ui-font);
@@ -581,7 +610,7 @@
       }
       .editor-modal-content h3 {
         margin: 0 0 30px 0;
-        font-size: 24px;
+        font-size: 12px;
         text-align: center;
         font-weight: bold;
       }
@@ -593,7 +622,7 @@
       }
       .editor-property-group label {
         width: 120px;
-        font-size: 14px;
+        font-size: 12px;
         color: var(--ui-muted);
         text-align: right;
       }
@@ -603,7 +632,7 @@
         background: rgba(255, 255, 255, 0.1);
         border: 1px solid var(--ui-muted);
         color: var(--ui-color);
-        font-size: 14px;
+        font-size: 12px;
         font-family: var(--ui-font);
         box-sizing: border-box;
       }
@@ -622,7 +651,7 @@
         width: 150px;
         height: 34px;
         line-height: 34px;
-        font-size: 16px;
+        font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
         border: none;
@@ -661,10 +690,6 @@
                   ></button>
                 </div>
                 <div id="editorObjectPanel" class="editor-object-panel">
-                  <div
-                    id="editorObjectPanelTitle"
-                    class="editor-object-panel-title"
-                  ></div>
                   <div id="editorObjectTree" class="editor-object-tree"></div>
                 </div>
               </div>
@@ -722,6 +747,41 @@
                   class="editor-submenu-item"
                   data-shape="polygon"
                 ></button>
+              </div>
+              <div id="editorWeaponMenu" class="editor-submenu">
+                <div class="editor-submenu-group" data-category="main">
+                  <div
+                    class="editor-submenu-group-title"
+                    data-category-title="main"
+                  ></div>
+                  <div class="editor-submenu-group-list">
+                    <button
+                      class="editor-submenu-item"
+                      data-weapon="sword"
+                      data-category="main"
+                    ></button>
+                  </div>
+                </div>
+                <div class="editor-submenu-group" data-category="secondary">
+                  <div
+                    class="editor-submenu-group-title"
+                    data-category-title="secondary"
+                  ></div>
+                  <div class="editor-submenu-group-list">
+                    <button
+                      class="editor-submenu-item"
+                      data-weapon="bow"
+                      data-category="secondary"
+                    ></button>
+                  </div>
+                </div>
+                <div class="editor-submenu-group" data-category="item">
+                  <div
+                    class="editor-submenu-group-title"
+                    data-category-title="item"
+                  ></div>
+                  <div class="editor-submenu-group-list"></div>
+                </div>
               </div>
               <div id="editorPolygonMenu" class="editor-context-menu">
                 <button

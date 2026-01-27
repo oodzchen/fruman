@@ -338,5 +338,6 @@ function buildDefaultMapData(
     camera: { x: 0, y: 0, zoom: 1 },
     shapes: [groundShape, ...obstacleShapes],
     enemies: [],
+    weapons: [],
   }
 }
