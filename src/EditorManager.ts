@@ -1,6 +1,7 @@
 import { fabric } from 'fabric'
 
 import { localizer } from './Localizer'
+import { DEFAULT_PLAYER_RADIUS } from './constants'
 
 const fabricControlsUtils = (
   fabric as unknown as {
@@ -32,11 +33,27 @@ type EditablePolygon = fabric.Polygon & {
   editorShape: 'ground-polygon'
 }
 
+type CameraFrame = fabric.Rect & {
+  editorShape: 'camera-frame'
+}
+
+type PlayerMarker = fabric.Group & {
+  editorShape: 'player-marker'
+}
+
 type ShapeResetData =
   | { kind: 'rect'; width: number; height: number }
   | { kind: 'circle'; radius: number }
   | { kind: 'triangle'; points: ReadonlyArray<readonly [number, number]> }
   | { kind: 'polygon'; points: ReadonlyArray<readonly [number, number]> }
+
+interface CameraViewData {
+  frame: CameraFrame
+  icon: fabric.Group
+  zoom: number
+  baseWidth: number
+  baseHeight: number
+}
 
 const POLYGON_POINT_POOL: fabric.Point[] = []
 
@@ -52,6 +69,16 @@ const releasePoint = (point: fabric.Point) => {
 }
 
 const GROUND_FILL_COLOR = 'rgba(107, 74, 43, 0.85)'
+const CAMERA_FRAME_STROKE = 'rgba(220, 220, 220, 0.75)'
+const CAMERA_FRAME_FILL = 'rgba(200, 200, 200, 0.06)'
+const CAMERA_FRAME_FILL_UNFOCUSED = 'rgba(0, 0, 0, 0)'
+const CAMERA_ICON_STROKE = 'rgba(230, 230, 230, 0.9)'
+const CAMERA_ICON_FILL = 'rgba(230, 230, 230, 0.18)'
+const EDITOR_PIXELS_PER_METER = 50
+const PLAYER_BODY_COLOR = '#F58025'
+const PLAYER_EYE_COLOR = '#000000'
+const DEBUG_EDITOR_MENU = false
+const OBSTACLE_FILL_COLOR = 'rgba(112, 64, 14, 0.85)'
 
 const GROUND_RECT_OPTIONS: fabric.IRectOptions = {
   width: 160,
@@ -66,9 +93,34 @@ const GROUND_RECT_OPTIONS: fabric.IRectOptions = {
   strokeUniform: true,
 }
 
+const OBSTACLE_RECT_OPTIONS: fabric.IRectOptions = {
+  width: 160,
+  height: 44,
+  fill: OBSTACLE_FILL_COLOR,
+  originX: 'center',
+  originY: 'center',
+  selectable: true,
+  hasControls: true,
+  lockScalingFlip: true,
+  objectCaching: false,
+  strokeUniform: true,
+}
+
 const GROUND_CIRCLE_OPTIONS: fabric.ICircleOptions = {
   radius: 60,
   fill: GROUND_FILL_COLOR,
+  originX: 'center',
+  originY: 'center',
+  selectable: true,
+  hasControls: true,
+  lockScalingFlip: true,
+  objectCaching: false,
+  strokeUniform: true,
+}
+
+const OBSTACLE_CIRCLE_OPTIONS: fabric.ICircleOptions = {
+  radius: 60,
+  fill: OBSTACLE_FILL_COLOR,
   originX: 'center',
   originY: 'center',
   selectable: true,
@@ -103,6 +155,17 @@ const GROUND_TRIANGLE_OPTIONS: fabric.IPolylineOptions = {
   strokeUniform: true,
 }
 
+const OBSTACLE_TRIANGLE_OPTIONS: fabric.IPolylineOptions = {
+  fill: OBSTACLE_FILL_COLOR,
+  originX: 'center',
+  originY: 'center',
+  selectable: true,
+  hasControls: true,
+  lockScalingFlip: true,
+  objectCaching: false,
+  strokeUniform: true,
+}
+
 const GROUND_EDITABLE_POLYGON_OPTIONS: fabric.IPolylineOptions = {
   fill: GROUND_FILL_COLOR,
   originX: 'center',
@@ -113,6 +176,40 @@ const GROUND_EDITABLE_POLYGON_OPTIONS: fabric.IPolylineOptions = {
   objectCaching: false,
   strokeUniform: true,
   perPixelTargetFind: false,
+}
+
+const OBSTACLE_EDITABLE_POLYGON_OPTIONS: fabric.IPolylineOptions = {
+  fill: OBSTACLE_FILL_COLOR,
+  originX: 'center',
+  originY: 'center',
+  selectable: true,
+  hasControls: true,
+  lockScalingFlip: true,
+  objectCaching: false,
+  strokeUniform: true,
+  perPixelTargetFind: false,
+}
+
+const CAMERA_FRAME_OPTIONS: fabric.IRectOptions = {
+  fill: CAMERA_FRAME_FILL,
+  stroke: CAMERA_FRAME_STROKE,
+  strokeWidth: 2,
+  strokeDashArray: [6, 6],
+  originX: 'center',
+  originY: 'center',
+  selectable: true,
+  hasControls: true,
+  lockScalingFlip: true,
+  lockRotation: true,
+  lockUniScaling: true,
+  centeredScaling: true,
+  objectCaching: false,
+  strokeUniform: true,
+  cornerStyle: 'circle',
+  cornerColor: 'rgba(230, 230, 230, 0.9)',
+  cornerStrokeColor: 'rgba(20, 20, 20, 0.4)',
+  cornerSize: 10,
+  transparentCorners: false,
 }
 
 const createTrianglePoints = () => {
@@ -139,8 +236,10 @@ export enum EditorView {
 }
 
 export enum ObjectType {
+  Player = 'player',
   Enemy = 'enemy',
   Weapon = 'weapon',
+  Camera = 'camera',
   Ground = 'ground',
   Obstacle = 'obstacle',
 }
@@ -158,21 +257,37 @@ interface PropertyField {
   defaultValue: string | number
 }
 
+interface EditorObjectData {
+  id: number
+  name: string
+  type: ObjectType
+  object: fabric.Object
+}
+
 export class EditorManager {
   private editorOverlay: HTMLDivElement
   private editorBackBtn: HTMLButtonElement
   private editorSidebar: HTMLDivElement
   private editorPanelCollapseBtn: HTMLButtonElement
   private editorPanelCollapsedBtn: HTMLButtonElement
+  private editorObjectPanel: HTMLDivElement
+  private editorObjectPanelTitle: HTMLDivElement
+  private editorObjectTree: HTMLDivElement
   private editorWorkspace: HTMLDivElement
   private editorCanvas: HTMLCanvasElement
   private gameCanvas: HTMLCanvasElement
   private editorMapListView: HTMLDivElement
   private editorMapList: HTMLDivElement
   private editorObjectItems: NodeListOf<HTMLButtonElement>
+  private objectTypeMenu: HTMLDivElement
+  private panelMenu: HTMLDivElement
+  private panelMenuAddBtn: HTMLButtonElement
   private groundMenuItem: HTMLButtonElement
   private groundSubmenu: HTMLDivElement
   private groundSubmenuItems: NodeListOf<HTMLButtonElement>
+  private obstacleMenuItem: HTMLButtonElement
+  private obstacleSubmenu: HTMLDivElement
+  private obstacleSubmenuItems: NodeListOf<HTMLButtonElement>
 
   private propertiesModal: HTMLDivElement
   private propertiesTitle: HTMLHeadingElement
@@ -192,6 +307,10 @@ export class EditorManager {
   private panelCollapsed = false
   private backgroundPattern: fabric.Pattern | null = null
   private backgroundImage: HTMLImageElement | null = null
+  private groundPatternImage: HTMLImageElement | null = null
+  private groundPatternMap = new Map<fabric.Object, fabric.Pattern>()
+  private obstaclePatternImage: HTMLImageElement | null = null
+  private obstaclePatternMap = new Map<fabric.Object, fabric.Pattern>()
   private isPanning = false
   private lastClientX = 0
   private lastClientY = 0
@@ -207,6 +326,8 @@ export class EditorManager {
     | 'reset'
     | 'square'
     | 'equilateral'
+    | 'zoom'
+    | 'rename'
   )[] = []
   private polygonMenuPolygon: EditablePolygon | null = null
   private polygonMenuTarget: fabric.Object | null = null
@@ -214,6 +335,27 @@ export class EditorManager {
   private polygonMenuInsertX = 0
   private polygonMenuInsertY = 0
   private shapeResetMap = new Map<fabric.Object, ShapeResetData>()
+  private cameraViews: CameraViewData[] = []
+  private cameraViewMap = new Map<fabric.Object, CameraViewData>()
+  private playerMarker: PlayerMarker | null = null
+  private editorObjects: EditorObjectData[] = []
+  private editorObjectMap = new Map<fabric.Object, EditorObjectData>()
+  private objectTypeCounts = new Map<ObjectType, number>()
+  private nextEditorObjectId = 1
+  private selectedEditorObjectId = -1
+  private renamingEditorObjectId = -1
+  private panelMenuX = 0
+  private panelMenuY = 0
+  private objectTypeMenuX = 0
+  private objectTypeMenuY = 0
+  private focusedEditorObject: fabric.Object | null = null
+  private dragObjectId = -1
+  private dragTargetId = -1
+  private dragInsertAfter = false
+  private dragPreviewId = -1
+  private dragPreviewAfter = false
+  private groundPatternTransformScratch: number[] = [1, 0, 0, 1, 0, 0]
+  private obstaclePatternTransformScratch: number[] = [1, 0, 0, 1, 0, 0]
 
   constructor() {
     const overlay = document.getElementById('editorOverlay')
@@ -221,6 +363,9 @@ export class EditorManager {
     const sidebar = document.getElementById('editorSidebar')
     const panelCollapseBtn = document.getElementById('editorPanelCollapse')
     const panelCollapsedBtn = document.getElementById('editorPanelCollapsed')
+    const objectPanel = document.getElementById('editorObjectPanel')
+    const objectPanelTitle = document.getElementById('editorObjectPanelTitle')
+    const objectTree = document.getElementById('editorObjectTree')
     const workspace = document.getElementById('editorWorkspace')
     const editorCanvas = document.getElementById('editorCanvas')
     const gameCanvas = document.getElementById('gameCanvas')
@@ -232,10 +377,18 @@ export class EditorManager {
     const groundMenu = document.querySelector<HTMLButtonElement>(
       '.editor-object-item[data-type="ground"]'
     )
+    const obstacleMenu = document.querySelector<HTMLButtonElement>(
+      '.editor-object-item[data-type="obstacle"]'
+    )
     const groundSubmenu = document.getElementById('editorGroundSubmenu')
     const groundSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorGroundSubmenu .editor-submenu-item'
     )
+    const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
+    const obstacleSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
+      '#editorObstacleSubmenu .editor-submenu-item'
+    )
+    const objectTypeMenu = document.getElementById('editorObjectTypeMenu')
 
     const modal = document.getElementById('editorPropertiesModal')
     const modalTitle = document.getElementById('editorPropertiesTitle')
@@ -243,6 +396,8 @@ export class EditorManager {
     const modalConfirm = document.getElementById('editorPropertiesConfirm')
     const modalCancel = document.getElementById('editorPropertiesCancel')
     const polygonMenu = document.getElementById('editorPolygonMenu')
+    const panelMenu = document.getElementById('editorPanelMenu')
+    const panelMenuAdd = document.getElementById('editorPanelMenuAdd')
     const polygonMenuPrimary = document.getElementById(
       'editorPolygonMenuPrimary'
     )
@@ -252,6 +407,9 @@ export class EditorManager {
     const polygonMenuTertiary = document.getElementById(
       'editorPolygonMenuTertiary'
     )
+    const polygonMenuQuaternary = document.getElementById(
+      'editorPolygonMenuQuaternary'
+    )
 
     if (
       !(overlay instanceof HTMLDivElement) ||
@@ -259,6 +417,9 @@ export class EditorManager {
       !(sidebar instanceof HTMLDivElement) ||
       !(panelCollapseBtn instanceof HTMLButtonElement) ||
       !(panelCollapsedBtn instanceof HTMLButtonElement) ||
+      !(objectPanel instanceof HTMLDivElement) ||
+      !(objectPanelTitle instanceof HTMLDivElement) ||
+      !(objectTree instanceof HTMLDivElement) ||
       !(workspace instanceof HTMLDivElement) ||
       !(editorCanvas instanceof HTMLCanvasElement) ||
       !(gameCanvas instanceof HTMLCanvasElement) ||
@@ -266,15 +427,21 @@ export class EditorManager {
       !(mapList instanceof HTMLDivElement) ||
       !(groundMenu instanceof HTMLButtonElement) ||
       !(groundSubmenu instanceof HTMLDivElement) ||
+      !(obstacleMenu instanceof HTMLButtonElement) ||
+      !(obstacleSubmenu instanceof HTMLDivElement) ||
       !(modal instanceof HTMLDivElement) ||
       !(modalTitle instanceof HTMLHeadingElement) ||
       !(modalForm instanceof HTMLDivElement) ||
       !(modalConfirm instanceof HTMLButtonElement) ||
       !(modalCancel instanceof HTMLButtonElement) ||
       !(polygonMenu instanceof HTMLDivElement) ||
+      !(panelMenu instanceof HTMLDivElement) ||
+      !(panelMenuAdd instanceof HTMLButtonElement) ||
+      !(objectTypeMenu instanceof HTMLDivElement) ||
       !(polygonMenuPrimary instanceof HTMLButtonElement) ||
       !(polygonMenuSecondary instanceof HTMLButtonElement) ||
-      !(polygonMenuTertiary instanceof HTMLButtonElement)
+      !(polygonMenuTertiary instanceof HTMLButtonElement) ||
+      !(polygonMenuQuaternary instanceof HTMLButtonElement)
     ) {
       throw new Error('Editor elements are missing.')
     }
@@ -284,15 +451,24 @@ export class EditorManager {
     this.editorSidebar = sidebar
     this.editorPanelCollapseBtn = panelCollapseBtn
     this.editorPanelCollapsedBtn = panelCollapsedBtn
+    this.editorObjectPanel = objectPanel
+    this.editorObjectPanelTitle = objectPanelTitle
+    this.editorObjectTree = objectTree
     this.editorWorkspace = workspace
     this.editorCanvas = editorCanvas
     this.gameCanvas = gameCanvas
     this.editorMapListView = mapListView
     this.editorMapList = mapList
     this.editorObjectItems = objectItems
+    this.objectTypeMenu = objectTypeMenu
+    this.panelMenu = panelMenu
+    this.panelMenuAddBtn = panelMenuAdd
     this.groundMenuItem = groundMenu
     this.groundSubmenu = groundSubmenu
     this.groundSubmenuItems = groundSubmenuItems
+    this.obstacleMenuItem = obstacleMenu
+    this.obstacleSubmenu = obstacleSubmenu
+    this.obstacleSubmenuItems = obstacleSubmenuItems
 
     this.propertiesModal = modal
     this.propertiesTitle = modalTitle
@@ -304,6 +480,7 @@ export class EditorManager {
       polygonMenuPrimary,
       polygonMenuSecondary,
       polygonMenuTertiary,
+      polygonMenuQuaternary,
     ]
 
     this.setupEventListeners()
@@ -333,10 +510,26 @@ export class EditorManager {
       })
     })
 
+    this.editorObjectTree.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null
+      const node = target?.closest<HTMLButtonElement>('.editor-object-node')
+      if (!node?.dataset.objectId) {
+        return
+      }
+      const objectId = Number.parseInt(node.dataset.objectId, 10)
+      this.focusEditorObjectById(objectId)
+    })
+
     this.groundSubmenuItems.forEach((item) => {
       item.addEventListener('click', () => {
         const shape = item.dataset.shape as GroundShapeType
         this.handleGroundShapeClick(shape)
+      })
+    })
+    this.obstacleSubmenuItems.forEach((item) => {
+      item.addEventListener('click', () => {
+        const shape = item.dataset.shape as GroundShapeType
+        this.handleObstacleShapeClick(shape)
       })
     })
 
@@ -359,6 +552,8 @@ export class EditorManager {
           | 'reset'
           | 'square'
           | 'equilateral'
+          | 'zoom'
+          | 'rename'
           | undefined
         if (!action) {
           return
@@ -370,10 +565,26 @@ export class EditorManager {
     document.addEventListener(
       'pointerdown',
       (event) => {
-        if (this.polygonMenu.contains(event.target as Node)) {
+        const target = event.target as Node
+        if (
+          this.polygonMenu.contains(target) ||
+          this.panelMenu.contains(target) ||
+          this.objectTypeMenu.contains(target) ||
+          this.groundSubmenu.contains(target) ||
+          this.obstacleSubmenu.contains(target)
+        ) {
           return
         }
+        if (DEBUG_EDITOR_MENU) {
+          console.log('[editor] global pointerdown hide menus', {
+            targetType: (event.target as HTMLElement | null)?.tagName ?? '',
+          })
+        }
         this.hidePolygonMenu()
+        this.hidePanelMenu()
+        this.hideObjectTypeMenu()
+        this.hideGroundSubmenu()
+        this.hideObstacleSubmenu()
       },
       true
     )
@@ -381,23 +592,33 @@ export class EditorManager {
     this.polygonMenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
-    this.polygonMenu.addEventListener('contextmenu', (event) => {
+
+    this.panelMenuAddBtn.addEventListener('pointerdown', (event) => {
       event.preventDefault()
+      event.stopPropagation()
+      this.hidePanelMenu()
+      this.showObjectTypeMenu(this.panelMenuX, this.panelMenuY)
+    })
+
+    this.panelMenu.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
+
+    this.objectTypeMenu.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
+
+    this.groundSubmenu.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
+    this.obstacleSubmenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
 
     document.addEventListener(
       'contextmenu',
       (event) => {
-        if (!this.visible || this.currentView !== EditorView.Editor) {
-          return
-        }
-        if (!this.editorOverlay.contains(event.target as Node)) {
-          return
-        }
-        event.preventDefault()
-        event.stopPropagation()
-        this.handleEditablePolygonContextMenuEvent(event)
+        this.routeEditorContextMenu(event)
       },
       true
     )
@@ -405,6 +626,10 @@ export class EditorManager {
 
   private updateLocalization() {
     this.editorBackBtn.textContent = localizer.t('editor_back_to_menu')
+    this.editorObjectPanelTitle.textContent = localizer.t(
+      'editor_object_panel_title'
+    )
+    this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')
 
     this.editorObjectItems.forEach((item) => {
       const type = item.dataset.type
@@ -428,6 +653,13 @@ export class EditorManager {
         item.textContent = localizer.t(`editor_ground_shape_${shape}`)
       }
     })
+    this.obstacleSubmenuItems.forEach((item) => {
+      const shape = item.dataset.shape
+      if (shape) {
+        item.textContent = localizer.t(`editor_ground_shape_${shape}`)
+      }
+    })
+    this.renderObjectTree()
   }
 
   private handleBack() {
@@ -446,18 +678,41 @@ export class EditorManager {
   }
 
   private handleObjectClick(type: ObjectType) {
+    this.hidePanelMenu()
     if (type === ObjectType.Ground) {
-      if (this.activeObjectType === ObjectType.Ground) {
-        this.hideGroundSubmenu()
-        this.setActiveObjectType(null)
-        return
-      }
       this.setActiveObjectType(ObjectType.Ground)
+      this.hideObstacleSubmenu()
       this.showGroundSubmenu()
+      return
+    }
+    if (type === ObjectType.Obstacle) {
+      this.setActiveObjectType(ObjectType.Obstacle)
+      this.hideGroundSubmenu()
+      this.showObstacleSubmenu()
+      return
+    }
+
+    if (type === ObjectType.Player) {
+      this.hideGroundSubmenu()
+      this.hideObstacleSubmenu()
+      this.hideObjectTypeMenu()
+      this.setActiveObjectType(type)
+      this.spawnPlayerMarker()
+      return
+    }
+
+    if (type === ObjectType.Camera) {
+      this.hideGroundSubmenu()
+      this.hideObstacleSubmenu()
+      this.hideObjectTypeMenu()
+      this.setActiveObjectType(type)
+      this.spawnCameraViewFrame()
       return
     }
 
     this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.hideObjectTypeMenu()
     this.setActiveObjectType(type)
     this.showPropertiesModal(type)
   }
@@ -471,7 +726,11 @@ export class EditorManager {
     this.editorSidebar.style.display = 'none'
     this.editorMapListView.style.display = 'flex'
     this.editorCanvas.style.display = 'none'
+    this.hidePanelMenu()
+    this.hideObjectTypeMenu()
     this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.hidePolygonMenu()
     this.setActiveObjectType(null)
     this.editorPanelCollapsedBtn.classList.remove('is-visible')
     this.renderMapList()
@@ -487,8 +746,13 @@ export class EditorManager {
       this.editorPanelCollapsedBtn.classList.remove('is-visible')
     }
     this.editorCanvas.style.display = 'block'
+    this.hidePanelMenu()
+    this.hideObjectTypeMenu()
+    this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
     this.ensureFabricCanvas()
     this.resizeEditorCanvas()
+    this.renderObjectTree()
   }
 
   private renderMapList() {
@@ -610,6 +874,677 @@ export class EditorManager {
     }
   }
 
+  private registerEditorObject(type: ObjectType, object: fabric.Object) {
+    const existing = this.editorObjectMap.get(object)
+    if (existing) {
+      return existing
+    }
+    const id = this.nextEditorObjectId
+    this.nextEditorObjectId += 1
+    const nextCount = (this.objectTypeCounts.get(type) ?? 0) + 1
+    this.objectTypeCounts.set(type, nextCount)
+    const typeLabel = localizer.t(`editor_object_${type}`)
+    const name = `${typeLabel}${nextCount}`
+    const data: EditorObjectData = { id, name, type, object }
+    this.editorObjects.push(data)
+    this.editorObjectMap.set(object, data)
+    this.applyEditorObjectStacking()
+    this.renderObjectTree()
+    return data
+  }
+
+  private unregisterEditorObject(object: fabric.Object) {
+    const data = this.editorObjectMap.get(object)
+    if (!data) {
+      return
+    }
+    this.editorObjectMap.delete(object)
+    const index = this.editorObjects.indexOf(data)
+    if (index !== -1) {
+      this.editorObjects.splice(index, 1)
+    }
+    if (this.selectedEditorObjectId === data.id) {
+      this.selectedEditorObjectId = -1
+    }
+    if (this.renamingEditorObjectId === data.id) {
+      this.renamingEditorObjectId = -1
+    }
+    if (this.focusedEditorObject === object) {
+      this.focusedEditorObject = null
+    }
+    this.groundPatternMap.delete(object)
+    this.obstaclePatternMap.delete(object)
+    this.applyEditorObjectStacking()
+    this.renderObjectTree()
+  }
+
+  // Apply stacking order based on the flat object-tree order: earlier = lower.
+  private applyEditorObjectStacking() {
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      return
+    }
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const obj = this.editorObjects[i].object
+      if (obj.canvas !== canvas) {
+        continue
+      }
+      canvas.moveTo(obj, i)
+    }
+    if (
+      this.focusedEditorObject &&
+      this.focusedEditorObject.canvas === canvas
+    ) {
+      this.bringFocusedObjectToFront(this.focusedEditorObject)
+    }
+    canvas.requestRenderAll()
+  }
+
+  private bringFocusedObjectToFront(object: fabric.Object) {
+    object.bringToFront()
+    if (this.isCameraFrame(object)) {
+      const data = this.cameraViewMap.get(object)
+      if (data) {
+        this.syncCameraIcon(data)
+        data.icon.bringToFront()
+      }
+    }
+  }
+
+  private getEditorObjectById(id: number) {
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const data = this.editorObjects[i]
+      if (data.id === id) {
+        return data
+      }
+    }
+    return null
+  }
+
+  private focusEditorObjectById(id: number) {
+    if (!this.fabricCanvas) {
+      return
+    }
+    const data = this.getEditorObjectById(id)
+    if (!data) {
+      return
+    }
+    this.fabricCanvas.setActiveObject(data.object)
+    this.handleCanvasSelection(data.object)
+    this.fabricCanvas.requestRenderAll()
+  }
+
+  private handleCanvasSelection(target: fabric.Object | null) {
+    const previousFocus = this.focusedEditorObject
+    const data = target ? (this.editorObjectMap.get(target) ?? null) : null
+    this.selectedEditorObjectId = data ? data.id : -1
+    if (
+      this.renamingEditorObjectId !== -1 &&
+      this.renamingEditorObjectId !== this.selectedEditorObjectId
+    ) {
+      this.renamingEditorObjectId = -1
+    }
+    if (previousFocus && previousFocus !== target) {
+      this.focusedEditorObject = null
+      this.applyEditorObjectStacking()
+    }
+    this.focusedEditorObject = target
+    this.applyEditorObjectStacking()
+    this.refreshCameraFocus(target)
+    this.renderObjectTree()
+  }
+
+  private renderObjectTree() {
+    this.editorObjectTree.innerHTML = ''
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const data = this.editorObjects[i]
+      if (data.id === this.renamingEditorObjectId) {
+        const input = document.createElement('input')
+        input.className = 'editor-object-rename-input'
+        input.value = data.name
+        input.dataset.objectId = String(data.id)
+        const commit = () => {
+          this.commitObjectRename(data.id, input.value)
+        }
+        input.addEventListener('blur', commit)
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+            return
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            this.cancelObjectRename()
+          }
+        })
+        this.editorObjectTree.appendChild(input)
+        input.focus()
+        input.select()
+        continue
+      }
+      const node = document.createElement('button')
+      node.type = 'button'
+      node.className = 'editor-object-node'
+      node.draggable = true
+      if (data.id === this.selectedEditorObjectId) {
+        node.classList.add('is-selected')
+      }
+      node.dataset.objectId = String(data.id)
+      node.textContent = data.name
+      node.addEventListener('dragstart', (event) => {
+        this.dragObjectId = data.id
+        this.dragTargetId = data.id
+        this.dragInsertAfter = false
+        this.clearDragPreview()
+        event.dataTransfer?.setData('text/plain', String(data.id))
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move'
+        }
+      })
+      node.addEventListener('dragover', (event) => {
+        if (this.dragObjectId === -1) {
+          return
+        }
+        event.preventDefault()
+        const rect = node.getBoundingClientRect()
+        const midY = rect.top + rect.height * 0.5
+        this.dragTargetId = data.id
+        this.dragInsertAfter = event.clientY >= midY
+        this.updateDragPreviewFromTarget(data.id, this.dragInsertAfter)
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'move'
+        }
+      })
+      node.addEventListener('drop', (event) => {
+        if (this.dragObjectId === -1) {
+          return
+        }
+        event.preventDefault()
+        this.reorderEditorObjects(
+          this.dragObjectId,
+          data.id,
+          this.dragInsertAfter
+        )
+        this.resetDragState()
+      })
+      node.addEventListener('dragend', () => {
+        this.resetDragState()
+      })
+      this.editorObjectTree.appendChild(node)
+    }
+  }
+
+  private updateDragPreviewFromTarget(targetId: number, insertAfter: boolean) {
+    if (targetId === this.dragObjectId) {
+      this.clearDragPreview()
+      return
+    }
+    const targetIndex = this.findEditorObjectIndexById(targetId)
+    if (targetIndex === -1) {
+      this.clearDragPreview()
+      return
+    }
+    // A target "before" is the same drop line as the previous item's "after".
+    let previewId = targetId
+    let previewAfter = insertAfter
+    if (!insertAfter && targetIndex > 0) {
+      previewId = this.editorObjects[targetIndex - 1].id
+      previewAfter = true
+    }
+    if (previewId === this.dragObjectId) {
+      this.clearDragPreview()
+      return
+    }
+    this.updateDragPreview(previewId, previewAfter)
+  }
+
+  private updateDragPreview(id: number, insertAfter: boolean) {
+    if (this.dragPreviewId === id && this.dragPreviewAfter === insertAfter) {
+      return
+    }
+    this.clearDragPreview()
+    const selector = `.editor-object-node[data-object-id="${id}"]`
+    const node =
+      this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
+    if (!node) {
+      return
+    }
+    this.dragPreviewId = id
+    this.dragPreviewAfter = insertAfter
+    if (insertAfter) {
+      node.classList.add('is-drop-after')
+    } else {
+      node.classList.add('is-drop-before')
+    }
+  }
+
+  private clearDragPreview() {
+    if (this.dragPreviewId === -1) {
+      return
+    }
+    const selector = `.editor-object-node[data-object-id="${this.dragPreviewId}"]`
+    const node =
+      this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
+    if (node) {
+      node.classList.remove('is-drop-before')
+      node.classList.remove('is-drop-after')
+    }
+    this.dragPreviewId = -1
+    this.dragPreviewAfter = false
+  }
+
+  private reorderEditorObjects(
+    dragId: number,
+    targetId: number,
+    insertAfter: boolean
+  ) {
+    if (dragId === targetId) {
+      return
+    }
+    const dragIndex = this.findEditorObjectIndexById(dragId)
+    const targetIndex = this.findEditorObjectIndexById(targetId)
+    if (dragIndex === -1 || targetIndex === -1) {
+      return
+    }
+    const dragData = this.editorObjects[dragIndex]
+    this.editorObjects.splice(dragIndex, 1)
+    let insertIndex = insertAfter ? targetIndex + 1 : targetIndex
+    if (dragIndex < targetIndex) {
+      insertIndex -= 1
+    }
+    if (insertIndex < 0) {
+      insertIndex = 0
+    }
+    if (insertIndex > this.editorObjects.length) {
+      insertIndex = this.editorObjects.length
+    }
+    this.editorObjects.splice(insertIndex, 0, dragData)
+    this.applyEditorObjectStacking()
+    this.renderObjectTree()
+  }
+
+  private findEditorObjectIndexById(id: number) {
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      if (this.editorObjects[i].id === id) {
+        return i
+      }
+    }
+    return -1
+  }
+
+  private resetDragState() {
+    this.clearDragPreview()
+    this.dragObjectId = -1
+    this.dragTargetId = -1
+    this.dragInsertAfter = false
+  }
+
+  private beginObjectRename(object: fabric.Object) {
+    const data = this.editorObjectMap.get(object)
+    if (!data) {
+      return
+    }
+    this.renamingEditorObjectId = data.id
+    this.renderObjectTree()
+  }
+
+  private commitObjectRename(id: number, value: string) {
+    const data = this.getEditorObjectById(id)
+    if (!data) {
+      this.renamingEditorObjectId = -1
+      this.renderObjectTree()
+      return
+    }
+    const trimmed = value.trim()
+    if (trimmed.length > 0) {
+      data.name = trimmed
+    }
+    this.renamingEditorObjectId = -1
+    this.renderObjectTree()
+  }
+
+  private cancelObjectRename() {
+    if (this.renamingEditorObjectId === -1) {
+      return
+    }
+    this.renamingEditorObjectId = -1
+    this.renderObjectTree()
+  }
+
+  // Centralized contextmenu routing avoids conflicts between local handlers.
+  private routeEditorContextMenu(event: MouseEvent) {
+    if (!this.visible || this.currentView !== EditorView.Editor) {
+      return
+    }
+    const targetNode = event.target as Node
+    if (!this.editorOverlay.contains(targetNode)) {
+      return
+    }
+    if (this.isInsideAnyMenu(targetNode)) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    if (this.editorObjectPanel.contains(targetNode)) {
+      this.handleObjectPanelContextMenuCore(event)
+      return
+    }
+    this.handleEditablePolygonContextMenuEvent(event)
+  }
+
+  private isInsideAnyMenu(targetNode: Node) {
+    return (
+      this.panelMenu.contains(targetNode) ||
+      this.objectTypeMenu.contains(targetNode) ||
+      this.groundSubmenu.contains(targetNode) ||
+      this.obstacleSubmenu.contains(targetNode) ||
+      this.polygonMenu.contains(targetNode)
+    )
+  }
+
+  private handleObjectPanelContextMenuCore(event: MouseEvent) {
+    const target = event.target as HTMLElement | null
+    const node = target?.closest<HTMLButtonElement>('.editor-object-node')
+    if (DEBUG_EDITOR_MENU) {
+      console.log('[editor] panel contextmenu', {
+        targetClass: target?.className ?? '',
+        hasNode: !!node,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      })
+    }
+    this.hideObjectTypeMenu()
+    if (node?.dataset.objectId) {
+      const objectId = Number.parseInt(node.dataset.objectId, 10)
+      this.focusEditorObjectById(objectId)
+      const data = this.getEditorObjectById(objectId)
+      if (data) {
+        this.showShapeContextMenu(data.object, event.clientX, event.clientY)
+        return
+      }
+    }
+    this.showPanelMenu(event.clientX, event.clientY)
+  }
+
+  private showPanelMenu(clientX: number, clientY: number) {
+    this.hidePolygonMenu()
+    this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.hideObjectTypeMenu()
+    this.panelMenuX = clientX
+    this.panelMenuY = clientY
+    this.panelMenu.style.left = `${clientX}px`
+    this.panelMenu.style.top = `${clientY}px`
+    this.panelMenu.classList.add('is-visible')
+    if (DEBUG_EDITOR_MENU) {
+      console.log('[editor] show panel menu', { clientX, clientY })
+    }
+  }
+
+  private hidePanelMenu() {
+    if (!this.panelMenu.classList.contains('is-visible')) {
+      return
+    }
+    this.panelMenu.classList.remove('is-visible')
+    if (DEBUG_EDITOR_MENU) {
+      console.log('[editor] hide panel menu')
+    }
+  }
+
+  private showObjectTypeMenu(clientX: number, clientY: number) {
+    this.hidePolygonMenu()
+    this.hidePanelMenu()
+    this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.objectTypeMenuX = clientX
+    this.objectTypeMenuY = clientY
+    this.objectTypeMenu.style.left = `${clientX}px`
+    this.objectTypeMenu.style.top = `${clientY}px`
+    this.objectTypeMenu.classList.add('is-visible')
+  }
+
+  private hideObjectTypeMenu() {
+    if (!this.objectTypeMenu.classList.contains('is-visible')) {
+      return
+    }
+    this.objectTypeMenu.classList.remove('is-visible')
+    this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+  }
+
+  private spawnPlayerMarker() {
+    this.ensureFabricCanvas()
+    if (!this.fabricCanvas) {
+      console.warn('[editor] Fabric canvas not ready')
+      return
+    }
+    if (this.playerMarker && this.playerMarker.canvas) {
+      this.fabricCanvas.setActiveObject(this.playerMarker)
+      this.handleCanvasSelection(this.playerMarker)
+      this.fabricCanvas.requestRenderAll()
+      return
+    }
+    const marker = this.createPlayerMarker()
+    const centerX = this.editorCanvas.width * 0.5
+    const centerY = this.editorCanvas.height * 0.5
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    this.playerMarker = marker
+    this.fabricCanvas.add(marker)
+    this.registerEditorObject(ObjectType.Player, marker)
+    this.fabricCanvas.setActiveObject(marker)
+    this.handleCanvasSelection(marker)
+    this.fabricCanvas.renderAll()
+  }
+
+  private createPlayerMarker(): PlayerMarker {
+    const radius = DEFAULT_PLAYER_RADIUS * EDITOR_PIXELS_PER_METER
+    const eyeRadius = 0.08 * EDITOR_PIXELS_PER_METER
+    const eyeOffsetX = radius * 0.5
+    const eyeOffsetY = -radius * 0.5
+    const body = new fabric.Circle({
+      radius,
+      fill: PLAYER_BODY_COLOR,
+      stroke: PLAYER_BODY_COLOR,
+      strokeWidth: 3,
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+    })
+    const eye = new fabric.Circle({
+      radius: eyeRadius,
+      fill: PLAYER_EYE_COLOR,
+      stroke: PLAYER_EYE_COLOR,
+      strokeWidth: 1,
+      originX: 'center',
+      originY: 'center',
+      left: eyeOffsetX,
+      top: eyeOffsetY,
+      objectCaching: false,
+    })
+    const group = new fabric.Group([body, eye], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    }) as PlayerMarker
+    group.editorShape = 'player-marker'
+    return group
+  }
+
+  private spawnCameraViewFrame() {
+    this.ensureFabricCanvas()
+    if (!this.fabricCanvas) {
+      console.warn('[editor] Fabric canvas not ready')
+      return
+    }
+
+    const frame = new fabric.Rect(CAMERA_FRAME_OPTIONS) as CameraFrame
+    frame.editorShape = 'camera-frame'
+    frame.setControlsVisibility({
+      mt: false,
+      mb: false,
+      ml: false,
+      mr: false,
+      mtr: false,
+    })
+
+    const icon = this.createCameraIcon()
+    const baseWidth = Math.min(
+      this.editorCanvas.width,
+      this.editorCanvas.height * 2
+    )
+    const baseHeight = baseWidth * 0.5
+    frame.width = baseWidth
+    frame.height = baseHeight
+    frame.scaleX = 1
+    frame.scaleY = 1
+    frame.fill = CAMERA_FRAME_FILL_UNFOCUSED
+    const centerX = this.editorCanvas.width * 0.5
+    const centerY = this.editorCanvas.height * 0.5
+    frame.left = centerX
+    frame.top = centerY
+    frame.setCoords()
+    icon.left = centerX
+    icon.top = centerY
+    icon.visible = false
+
+    const data: CameraViewData = {
+      frame,
+      icon,
+      zoom: 1,
+      baseWidth,
+      baseHeight,
+    }
+    this.cameraViews.push(data)
+    this.cameraViewMap.set(frame, data)
+    this.attachCameraFrameHandlers(data)
+
+    this.fabricCanvas.add(frame)
+    this.fabricCanvas.add(icon)
+    this.registerEditorObject(ObjectType.Camera, frame)
+    this.fabricCanvas.setActiveObject(frame)
+    this.handleCanvasSelection(frame)
+    this.refreshCameraFocus(frame)
+    this.fabricCanvas.renderAll()
+  }
+
+  private createCameraIcon(): fabric.Group {
+    const body = new fabric.Rect({
+      width: 18,
+      height: 12,
+      fill: CAMERA_ICON_FILL,
+      stroke: CAMERA_ICON_STROKE,
+      strokeWidth: 1,
+      originX: 'center',
+      originY: 'center',
+      rx: 2,
+      ry: 2,
+      objectCaching: false,
+    })
+    const lens = new fabric.Circle({
+      radius: 3,
+      fill: 'transparent',
+      stroke: CAMERA_ICON_STROKE,
+      strokeWidth: 1,
+      originX: 'center',
+      originY: 'center',
+      left: 2,
+      top: 0,
+      objectCaching: false,
+    })
+    const hood = new fabric.Triangle({
+      width: 6,
+      height: 6,
+      fill: CAMERA_ICON_FILL,
+      stroke: CAMERA_ICON_STROKE,
+      strokeWidth: 1,
+      originX: 'center',
+      originY: 'center',
+      left: 12,
+      top: 0,
+      angle: 90,
+      objectCaching: false,
+    })
+    const group = new fabric.Group([body, lens, hood], {
+      originX: 'center',
+      originY: 'center',
+      selectable: false,
+      evented: false,
+      hoverCursor: 'default',
+      objectCaching: false,
+    })
+    return group
+  }
+
+  private attachCameraFrameHandlers(data: CameraViewData) {
+    const handler = () => {
+      this.syncCameraIcon(data)
+    }
+    data.frame.on('moving', handler)
+    data.frame.on('scaling', () => {
+      this.applyCameraUniformScale(data)
+      this.updateCameraZoomFromFrame(data)
+      this.syncCameraIcon(data)
+    })
+    data.frame.on('modified', () => {
+      this.normalizeCameraFrameScale(data)
+      this.syncCameraIcon(data)
+    })
+  }
+
+  private syncCameraIcon(data: CameraViewData) {
+    const frame = data.frame
+    const icon = data.icon
+    icon.left = frame.left ?? 0
+    icon.top = frame.top ?? 0
+    icon.setCoords()
+  }
+
+  private updateCameraZoomFromFrame(data: CameraViewData) {
+    const frame = data.frame
+    const width = (frame.width ?? 0) * (frame.scaleX ?? 1)
+    if (width <= 0) {
+      return
+    }
+    const zoom = data.baseWidth / width
+    if (Number.isFinite(zoom) && zoom > 0) {
+      data.zoom = zoom
+    }
+  }
+
+  private normalizeCameraFrameScale(data: CameraViewData) {
+    const frame = data.frame
+    const width = (frame.width ?? 0) * (frame.scaleX ?? 1)
+    if (width <= 0) {
+      return
+    }
+    const zoom = data.baseWidth / width
+    if (!Number.isFinite(zoom) || zoom <= 0) {
+      return
+    }
+    data.zoom = zoom
+    frame.width = data.baseWidth / data.zoom
+    frame.height = data.baseHeight / data.zoom
+    frame.scaleX = 1
+    frame.scaleY = 1
+    frame.setCoords()
+  }
+
+  private applyCameraUniformScale(data: CameraViewData) {
+    const frame = data.frame
+    const scaleX = frame.scaleX ?? 1
+    frame.scaleY = scaleX
+  }
+
   private renderPropertiesForm(fields: PropertyField[]) {
     this.propertiesForm.innerHTML = ''
 
@@ -647,10 +1582,30 @@ export class EditorManager {
   }
 
   private positionGroundSubmenu() {
-    const sidebarRect = this.editorSidebar.getBoundingClientRect()
-    const itemRect = this.groundMenuItem.getBoundingClientRect()
-    const top = Math.max(0, itemRect.top - sidebarRect.top)
-    this.groundSubmenu.style.top = `${top}px`
+    this.positionShapeSubmenu(this.groundMenuItem, this.groundSubmenu)
+  }
+
+  private showObstacleSubmenu() {
+    this.positionObstacleSubmenu()
+    this.obstacleSubmenu.classList.add('is-visible')
+  }
+
+  private hideObstacleSubmenu() {
+    this.obstacleSubmenu.classList.remove('is-visible')
+  }
+
+  private positionObstacleSubmenu() {
+    this.positionShapeSubmenu(this.obstacleMenuItem, this.obstacleSubmenu)
+  }
+
+  private positionShapeSubmenu(
+    menuItem: HTMLButtonElement,
+    submenu: HTMLDivElement
+  ) {
+    const menuRect = this.objectTypeMenu.getBoundingClientRect()
+    const itemRect = menuItem.getBoundingClientRect()
+    submenu.style.left = `${menuRect.right + 6}px`
+    submenu.style.top = `${itemRect.top}px`
   }
 
   private handleGroundShapeClick(shape: GroundShapeType) {
@@ -712,13 +1667,179 @@ export class EditorManager {
       return
     }
 
+    this.applyGroundPatternToObject(shapeObject)
     shapeObject.left = centerX
     shapeObject.top = centerY
     shapeObject.setCoords()
     this.fabricCanvas.add(shapeObject)
+    this.registerEditorObject(ObjectType.Ground, shapeObject)
     this.fabricCanvas.setActiveObject(shapeObject)
+    this.handleCanvasSelection(shapeObject)
     this.fabricCanvas.renderAll()
     this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.hideObjectTypeMenu()
+  }
+
+  private handleObstacleShapeClick(shape: GroundShapeType) {
+    this.ensureFabricCanvas()
+    if (!this.fabricCanvas) {
+      console.warn('[editor] Fabric canvas not ready')
+      return
+    }
+
+    const centerX = this.editorCanvas.width * 0.5
+    const centerY = this.editorCanvas.height * 0.5
+    let shapeObject: fabric.Object | null = null
+
+    switch (shape) {
+      case 'rect':
+        shapeObject = new fabric.Rect(OBSTACLE_RECT_OPTIONS)
+        this.registerShapeResetData(shapeObject, {
+          kind: 'rect',
+          width: OBSTACLE_RECT_OPTIONS.width ?? 0,
+          height: OBSTACLE_RECT_OPTIONS.height ?? 0,
+        })
+        break
+      case 'circle':
+        shapeObject = new fabric.Circle(OBSTACLE_CIRCLE_OPTIONS)
+        this.registerShapeResetData(shapeObject, {
+          kind: 'circle',
+          radius: OBSTACLE_CIRCLE_OPTIONS.radius ?? 0,
+        })
+        break
+      case 'triangle':
+        shapeObject = new fabric.Polygon(
+          createTrianglePoints(),
+          OBSTACLE_TRIANGLE_OPTIONS
+        )
+        this.registerShapeResetData(shapeObject, {
+          kind: 'triangle',
+          points: TRIANGLE_POINT_DATA,
+        })
+        break
+      case 'polygon': {
+        const polygon = new fabric.Polygon(
+          createEditablePolygonPoints(),
+          OBSTACLE_EDITABLE_POLYGON_OPTIONS
+        )
+        this.setupEditablePolygon(polygon)
+        this.registerShapeResetData(polygon, {
+          kind: 'polygon',
+          points: POLYGON_POINT_DATA,
+        })
+        shapeObject = polygon
+        break
+      }
+      default:
+        break
+    }
+
+    if (!shapeObject) {
+      console.warn('[editor] shape object not created', shape)
+      return
+    }
+
+    this.applyObstaclePatternToObject(shapeObject)
+    shapeObject.left = centerX
+    shapeObject.top = centerY
+    shapeObject.setCoords()
+    this.fabricCanvas.add(shapeObject)
+    this.registerEditorObject(ObjectType.Obstacle, shapeObject)
+    this.fabricCanvas.setActiveObject(shapeObject)
+    this.handleCanvasSelection(shapeObject)
+    this.fabricCanvas.renderAll()
+    this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.hideObjectTypeMenu()
+  }
+
+  private applyGroundPatternToObject(object: fabric.Object) {
+    const image = this.getGroundPatternImage()
+    if (!image) {
+      return
+    }
+    const pattern = new fabric.Pattern({
+      source: image,
+      repeat: 'repeat',
+      patternTransform: [1, 0, 0, 1, 0, 0],
+    })
+    this.groundPatternMap.set(object, pattern)
+    object.set('fill', pattern)
+    this.updateGroundPatternTransform(object)
+    object.on('scaling', () => {
+      this.updateGroundPatternTransform(object)
+    })
+    object.on('modified', () => {
+      this.updateGroundPatternTransform(object)
+    })
+  }
+
+  private updateGroundPatternTransform(object: fabric.Object) {
+    const pattern = this.groundPatternMap.get(object)
+    if (!pattern) {
+      return
+    }
+    const scaleX = object.scaleX ?? 1
+    const scaleY = object.scaleY ?? 1
+    const invScaleX = scaleX !== 0 ? 1 / scaleX : 1
+    const invScaleY = scaleY !== 0 ? 1 / scaleY : 1
+    const transform =
+      pattern.patternTransform ?? this.groundPatternTransformScratch
+    transform[0] = invScaleX
+    transform[1] = 0
+    transform[2] = 0
+    transform[3] = invScaleY
+    transform[4] = 0
+    transform[5] = 0
+    pattern.patternTransform = transform
+    if (object.canvas) {
+      object.canvas.requestRenderAll()
+    }
+  }
+
+  private applyObstaclePatternToObject(object: fabric.Object) {
+    const image = this.getObstaclePatternImage()
+    if (!image) {
+      return
+    }
+    const pattern = new fabric.Pattern({
+      source: image,
+      repeat: 'repeat',
+      patternTransform: [1, 0, 0, 1, 0, 0],
+    })
+    this.obstaclePatternMap.set(object, pattern)
+    object.set('fill', pattern)
+    this.updateObstaclePatternTransform(object)
+    object.on('scaling', () => {
+      this.updateObstaclePatternTransform(object)
+    })
+    object.on('modified', () => {
+      this.updateObstaclePatternTransform(object)
+    })
+  }
+
+  private updateObstaclePatternTransform(object: fabric.Object) {
+    const pattern = this.obstaclePatternMap.get(object)
+    if (!pattern) {
+      return
+    }
+    const scaleX = object.scaleX ?? 1
+    const scaleY = object.scaleY ?? 1
+    const invScaleX = scaleX !== 0 ? 1 / scaleX : 1
+    const invScaleY = scaleY !== 0 ? 1 / scaleY : 1
+    const transform =
+      pattern.patternTransform ?? this.obstaclePatternTransformScratch
+    transform[0] = invScaleX
+    transform[1] = 0
+    transform[2] = 0
+    transform[3] = invScaleY
+    transform[4] = 0
+    transform[5] = 0
+    pattern.patternTransform = transform
+    if (object.canvas) {
+      object.canvas.requestRenderAll()
+    }
   }
 
   private setupEditablePolygon(polygon: fabric.Polygon) {
@@ -750,6 +1871,20 @@ export class EditorManager {
       evt.preventDefault()
       evt.stopPropagation()
     }
+  }
+
+  private isCameraFrame(object: fabric.Object | null): object is CameraFrame {
+    return (
+      object instanceof fabric.Rect &&
+      (object as CameraFrame).editorShape === 'camera-frame'
+    )
+  }
+
+  private isPlayerMarker(object: fabric.Object | null): object is PlayerMarker {
+    return (
+      object instanceof fabric.Group &&
+      (object as PlayerMarker).editorShape === 'player-marker'
+    )
   }
 
   private handleEditablePolygonContextMenu(opt: fabric.IEvent<MouseEvent>) {
@@ -855,6 +1990,12 @@ export class EditorManager {
   }
 
   private isDeletableShape(object: fabric.Object) {
+    if (this.isCameraFrame(object)) {
+      return true
+    }
+    if (this.isPlayerMarker(object)) {
+      return true
+    }
     return (
       object.type === 'rect' ||
       object.type === 'circle' ||
@@ -867,17 +2008,53 @@ export class EditorManager {
     clientX: number,
     clientY: number
   ) {
-    const actions: ('delete' | 'reset' | 'square' | 'equilateral')[] = [
-      'delete',
-      'reset',
-    ]
+    if (this.isCameraFrame(target)) {
+      this.showPolygonMenuWithActions(
+        ['zoom', 'reset', 'rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
+    if (this.isPlayerMarker(target)) {
+      this.showPolygonMenuWithActions(
+        ['rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
     if (target.type === 'rect') {
-      actions.push('square')
+      this.showPolygonMenuWithActions(
+        ['rename', 'reset', 'square', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
     }
     if (this.isTriangleShape(target)) {
-      actions.push('equilateral')
+      this.showPolygonMenuWithActions(
+        ['rename', 'reset', 'equilateral', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
     }
-    this.showPolygonMenuWithActions(actions, target, -1, clientX, clientY)
+    this.showPolygonMenuWithActions(
+      ['rename', 'reset', 'delete'],
+      target,
+      -1,
+      clientX,
+      clientY
+    )
   }
 
   private isTriangleShape(object: fabric.Object) {
@@ -1237,6 +2414,8 @@ export class EditorManager {
       | 'reset'
       | 'square'
       | 'equilateral'
+      | 'zoom'
+      | 'rename'
     )[],
     target: EditablePolygon | fabric.Object,
     index: number,
@@ -1269,7 +2448,15 @@ export class EditorManager {
   }
 
   private getPolygonMenuLabel(
-    action: 'add' | 'remove' | 'delete' | 'reset' | 'square' | 'equilateral'
+    action:
+      | 'add'
+      | 'remove'
+      | 'delete'
+      | 'reset'
+      | 'square'
+      | 'equilateral'
+      | 'zoom'
+      | 'rename'
   ) {
     switch (action) {
       case 'add':
@@ -1282,6 +2469,10 @@ export class EditorManager {
         return 'editor_polygon_menu_make_square'
       case 'equilateral':
         return 'editor_polygon_menu_make_equilateral'
+      case 'zoom':
+        return 'editor_camera_menu_zoom'
+      case 'rename':
+        return 'editor_object_menu_rename'
       default:
         return 'editor_polygon_menu_delete_shape'
     }
@@ -1299,7 +2490,15 @@ export class EditorManager {
   }
 
   private handlePolygonMenuAction(
-    action: 'add' | 'remove' | 'delete' | 'reset' | 'square' | 'equilateral'
+    action:
+      | 'add'
+      | 'remove'
+      | 'delete'
+      | 'reset'
+      | 'square'
+      | 'equilateral'
+      | 'zoom'
+      | 'rename'
   ) {
     const polygon = this.polygonMenuPolygon
     const target = this.polygonMenuTarget
@@ -1319,13 +2518,76 @@ export class EditorManager {
       if (canvas.getActiveObject() === target) {
         canvas.discardActiveObject()
       }
+      if (this.isCameraFrame(target)) {
+        this.removeCameraView(target)
+      }
+      if (this.isPlayerMarker(target)) {
+        this.removePlayerMarker(target)
+      }
+      this.unregisterEditorObject(target)
       canvas.remove(target)
       this.shapeResetMap.delete(target)
       canvas.requestRenderAll()
       this.hidePolygonMenu()
       return
     }
+    if (action === 'rename') {
+      this.beginObjectRename(target)
+      this.hidePolygonMenu()
+      return
+    }
+    if (action === 'zoom') {
+      if (!this.isCameraFrame(target)) {
+        this.hidePolygonMenu()
+        return
+      }
+      const data = this.cameraViewMap.get(target)
+      if (!data) {
+        this.hidePolygonMenu()
+        return
+      }
+      const input = window.prompt(
+        localizer.t('editor_camera_menu_zoom'),
+        data.zoom.toFixed(2)
+      )
+      if (input === null) {
+        this.hidePolygonMenu()
+        return
+      }
+      const value = Number.parseFloat(input)
+      if (!Number.isFinite(value) || value <= 0) {
+        this.hidePolygonMenu()
+        return
+      }
+      data.zoom = value
+      data.frame.width = data.baseWidth / data.zoom
+      data.frame.height = data.baseHeight / data.zoom
+      data.frame.scaleX = 1
+      data.frame.scaleY = 1
+      data.frame.setCoords()
+      this.syncCameraIcon(data)
+      canvas.requestRenderAll()
+      this.hidePolygonMenu()
+      return
+    }
     if (action === 'reset') {
+      if (this.isCameraFrame(target)) {
+        const data = this.cameraViewMap.get(target)
+        if (data) {
+          data.zoom = 1
+          data.frame.width = data.baseWidth
+          data.frame.height = data.baseHeight
+          data.frame.scaleX = 1
+          data.frame.scaleY = 1
+          data.frame.left = this.editorCanvas.width * 0.5
+          data.frame.top = this.editorCanvas.height * 0.5
+          data.frame.setCoords()
+          this.syncCameraIcon(data)
+        }
+        canvas.requestRenderAll()
+        this.hidePolygonMenu()
+        return
+      }
       this.resetShape(target)
       canvas.requestRenderAll()
       this.hidePolygonMenu()
@@ -1366,6 +2628,26 @@ export class EditorManager {
     this.refreshEditablePolygonControls(polygon)
     polygon.canvas.requestRenderAll()
     this.hidePolygonMenu()
+  }
+
+  private removePlayerMarker(marker: PlayerMarker) {
+    if (this.playerMarker === marker) {
+      this.playerMarker = null
+    }
+  }
+
+  private removeCameraView(frame: CameraFrame) {
+    const data = this.cameraViewMap.get(frame)
+    if (!data || !data.frame.canvas) {
+      return
+    }
+    const canvas = data.frame.canvas
+    canvas.remove(data.icon)
+    this.cameraViewMap.delete(frame)
+    const index = this.cameraViews.indexOf(data)
+    if (index !== -1) {
+      this.cameraViews.splice(index, 1)
+    }
   }
 
   private setLocalPointFromCanvas(
@@ -1669,8 +2951,37 @@ export class EditorManager {
       }
     })
 
+    this.fabricCanvas.on('selection:created', (opt) => {
+      this.handleCanvasSelection(opt.selected?.[0] ?? null)
+    })
+    this.fabricCanvas.on('selection:updated', (opt) => {
+      this.handleCanvasSelection(opt.selected?.[0] ?? null)
+    })
+    this.fabricCanvas.on('selection:cleared', () => {
+      this.handleCanvasSelection(null)
+    })
+
     this.resizeEditorCanvas()
     this.applyBackgroundPattern()
+  }
+
+  private refreshCameraFocus(target: fabric.Object | null) {
+    const focused = this.isCameraFrame(target) ? target : null
+    for (let i = 0; i < this.cameraViews.length; i++) {
+      const view = this.cameraViews[i]
+      const shouldShow = focused === view.frame
+      if (view.icon.visible !== shouldShow) {
+        view.icon.visible = shouldShow
+      }
+      const fill = shouldShow ? CAMERA_FRAME_FILL : CAMERA_FRAME_FILL_UNFOCUSED
+      if (view.frame.fill !== fill) {
+        view.frame.set('fill', fill)
+      }
+      if (shouldShow) {
+        this.syncCameraIcon(view)
+        view.icon.bringToFront()
+      }
+    }
   }
 
   private applyBackgroundPattern() {
@@ -1711,6 +3022,20 @@ export class EditorManager {
         this.backgroundImage.onload = applyPattern
       }
     }
+  }
+
+  private getGroundPatternImage() {
+    if (!this.groundPatternImage) {
+      this.groundPatternImage = this.createGroundPatternImage()
+    }
+    return this.groundPatternImage
+  }
+
+  private getObstaclePatternImage() {
+    if (!this.obstaclePatternImage) {
+      this.obstaclePatternImage = this.createObstaclePatternImage()
+    }
+    return this.obstaclePatternImage
   }
 
   private createBackgroundImage(): HTMLImageElement | null {
@@ -1763,12 +3088,114 @@ export class EditorManager {
     return image
   }
 
+  // Reuse the main-game ground texture pattern for editor ground shapes.
+  private createGroundPatternImage(): HTMLImageElement | null {
+    const size = 96
+    const patternCanvas = document.createElement('canvas')
+    patternCanvas.width = size
+    patternCanvas.height = size
+    const patternCtx = patternCanvas.getContext('2d')
+    if (!patternCtx) {
+      return null
+    }
+
+    patternCtx.fillStyle = '#826343'
+    patternCtx.fillRect(0, 0, size, size)
+
+    patternCtx.strokeStyle = '#a29f4f'
+    patternCtx.lineWidth = 1
+
+    const mid = size * 0.5
+    patternCtx.beginPath()
+    patternCtx.moveTo(0, mid)
+    patternCtx.lineTo(mid, 0)
+    patternCtx.lineTo(size, mid)
+    patternCtx.lineTo(mid, size)
+    patternCtx.closePath()
+    patternCtx.stroke()
+
+    patternCtx.beginPath()
+    patternCtx.moveTo(mid * 0.5, mid)
+    patternCtx.lineTo(mid, mid * 0.5)
+    patternCtx.lineTo(mid * 1.5, mid)
+    patternCtx.lineTo(mid, mid * 1.5)
+    patternCtx.closePath()
+    patternCtx.stroke()
+
+    const image = new Image()
+    image.src = patternCanvas.toDataURL('image/png')
+    image.onload = () => {
+      if (this.fabricCanvas) {
+        this.fabricCanvas.requestRenderAll()
+      }
+    }
+    return image
+  }
+
+  // Reuse the main-game obstacle texture pattern for editor obstacle shapes.
+  private createObstaclePatternImage(): HTMLImageElement | null {
+    const size = 88
+    const patternCanvas = document.createElement('canvas')
+    patternCanvas.width = size
+    patternCanvas.height = size
+    const patternCtx = patternCanvas.getContext('2d')
+    if (!patternCtx) {
+      return null
+    }
+
+    patternCtx.fillStyle = '#70400e'
+    patternCtx.fillRect(0, 0, size, size)
+
+    patternCtx.strokeStyle = '#d7a168'
+    patternCtx.lineWidth = 1
+
+    const radius = size * 0.25
+    const rowHeight = Math.sqrt(3) * radius
+
+    const drawHex = (cx: number, cy: number) => {
+      patternCtx.beginPath()
+      for (let i = 0; i < 6; i += 1) {
+        const angle = (Math.PI / 3) * i + Math.PI / 6
+        const x = cx + radius * Math.cos(angle)
+        const y = cy + radius * Math.sin(angle)
+        if (i === 0) {
+          patternCtx.moveTo(x, y)
+        } else {
+          patternCtx.lineTo(x, y)
+        }
+      }
+      patternCtx.closePath()
+      patternCtx.stroke()
+    }
+
+    for (let row = -1; row <= 2; row += 1) {
+      const y = row * rowHeight + rowHeight
+      for (let col = -1; col <= 2; col += 1) {
+        const xOffset = row % 2 === 0 ? 0 : radius
+        const x = col * radius * 2 + radius + xOffset
+        drawHex(x, y)
+      }
+    }
+
+    const image = new Image()
+    image.src = patternCanvas.toDataURL('image/png')
+    image.onload = () => {
+      if (this.fabricCanvas) {
+        this.fabricCanvas.requestRenderAll()
+      }
+    }
+    return image
+  }
+
   private setPanelCollapsed(collapsed: boolean) {
     this.panelCollapsed = collapsed
     if (collapsed) {
       this.editorSidebar.style.display = 'none'
       this.editorPanelCollapsedBtn.classList.add('is-visible')
+      this.hidePanelMenu()
+      this.hideObjectTypeMenu()
       this.hideGroundSubmenu()
+      this.hideObstacleSubmenu()
     } else {
       if (this.currentView === EditorView.Editor) {
         this.editorSidebar.style.display = 'block'
@@ -1813,8 +3240,17 @@ export class EditorManager {
     }
 
     this.resizeEditorCanvas()
-    if (this.groundSubmenu.classList.contains('is-visible')) {
+    if (
+      this.objectTypeMenu.classList.contains('is-visible') &&
+      this.groundSubmenu.classList.contains('is-visible')
+    ) {
       this.positionGroundSubmenu()
+    }
+    if (
+      this.objectTypeMenu.classList.contains('is-visible') &&
+      this.obstacleSubmenu.classList.contains('is-visible')
+    ) {
+      this.positionObstacleSubmenu()
     }
   }
 
@@ -1830,7 +3266,12 @@ export class EditorManager {
     this.visible = false
     this.editorOverlay.classList.remove('is-visible')
     this.hidePropertiesModal()
+    this.hidePanelMenu()
+    this.hideObjectTypeMenu()
     this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.hidePolygonMenu()
+    this.cancelObjectRename()
     this.setActiveObjectType(null)
     this.gameCanvas.style.visibility = 'visible'
   }

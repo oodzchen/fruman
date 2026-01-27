@@ -202,12 +202,12 @@
         overflow: hidden;
       }
       .editor-sidebar {
-        width: 100px;
+        width: 190px;
         position: absolute;
         left: 0;
         top: 0;
         bottom: 0;
-        padding: 24px 12px;
+        padding: 20px 12px;
         box-sizing: border-box;
         background: rgba(0, 0, 0, 0.35);
         border-right: 1px solid rgba(255, 255, 255, 0.08);
@@ -265,7 +265,73 @@
       .editor-object-list {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 6px;
+      }
+      .editor-object-panel {
+        display: flex;
+        flex-direction: column;
+        height: calc(100% - 40px);
+        min-height: 0;
+      }
+      .editor-object-panel-title {
+        font-size: 12px;
+        letter-spacing: 1px;
+        color: var(--ui-muted);
+        margin: 0 4px 8px;
+        opacity: 0.8;
+        user-select: none;
+      }
+      .editor-object-tree {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding-right: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .editor-object-node {
+        width: 100%;
+        height: 30px;
+        line-height: 30px;
+        font-size: 13px;
+        color: var(--ui-muted);
+        background: rgba(0, 0, 0, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 0 8px;
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-object-node:hover {
+        color: var(--ui-color);
+        border-color: rgba(255, 255, 255, 0.16);
+        background: rgba(120, 100, 60, 0.2);
+      }
+      .editor-object-node.is-selected {
+        color: var(--ui-color);
+        border-color: rgba(255, 255, 255, 0.28);
+        background: rgba(120, 100, 60, 0.32);
+      }
+      .editor-object-node.is-drop-before {
+        border-top: 2px solid rgba(240, 220, 180, 0.9);
+      }
+      .editor-object-node.is-drop-after {
+        border-bottom: 2px solid rgba(240, 220, 180, 0.9);
+      }
+      .editor-object-rename-input {
+        width: 100%;
+        height: 30px;
+        line-height: 30px;
+        font-size: 13px;
+        color: var(--ui-color);
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        padding: 0 8px;
+        outline: none;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
       }
       .editor-object-item {
         position: relative;
@@ -287,9 +353,8 @@
         background: var(--ui-highlight);
       }
       .editor-submenu {
-        position: absolute;
-        left: 100px;
-        min-width: 180px;
+        position: fixed;
+        min-width: 170px;
         padding: 10px;
         display: none;
         flex-direction: column;
@@ -298,7 +363,7 @@
         border: 1px solid rgba(255, 255, 255, 0.12);
         box-sizing: border-box;
         pointer-events: auto;
-        z-index: 4;
+        z-index: 9;
       }
       .editor-submenu.is-visible {
         display: flex;
@@ -541,11 +606,28 @@
                     class="editor-panel-toggle"
                   ></button>
                 </div>
+                <div id="editorObjectPanel" class="editor-object-panel">
+                  <div
+                    id="editorObjectPanelTitle"
+                    class="editor-object-panel-title"
+                  ></div>
+                  <div id="editorObjectTree" class="editor-object-tree"></div>
+                </div>
+              </div>
+              <div id="editorObjectTypeMenu" class="editor-submenu">
                 <div class="editor-object-list">
+                  <button
+                    class="editor-object-item"
+                    data-type="player"
+                  ></button>
                   <button class="editor-object-item" data-type="enemy"></button>
                   <button
                     class="editor-object-item"
                     data-type="weapon"
+                  ></button>
+                  <button
+                    class="editor-object-item"
+                    data-type="camera"
                   ></button>
                   <button
                     class="editor-object-item"
@@ -572,6 +654,21 @@
                   data-shape="polygon"
                 ></button>
               </div>
+              <div id="editorObstacleSubmenu" class="editor-submenu">
+                <button class="editor-submenu-item" data-shape="rect"></button>
+                <button
+                  class="editor-submenu-item"
+                  data-shape="triangle"
+                ></button>
+                <button
+                  class="editor-submenu-item"
+                  data-shape="circle"
+                ></button>
+                <button
+                  class="editor-submenu-item"
+                  data-shape="polygon"
+                ></button>
+              </div>
               <div id="editorPolygonMenu" class="editor-context-menu">
                 <button
                   id="editorPolygonMenuPrimary"
@@ -583,6 +680,16 @@
                 ></button>
                 <button
                   id="editorPolygonMenuTertiary"
+                  class="editor-context-menu-item"
+                ></button>
+                <button
+                  id="editorPolygonMenuQuaternary"
+                  class="editor-context-menu-item"
+                ></button>
+              </div>
+              <div id="editorPanelMenu" class="editor-context-menu">
+                <button
+                  id="editorPanelMenuAdd"
                   class="editor-context-menu-item"
                 ></button>
               </div>
