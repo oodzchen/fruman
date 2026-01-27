@@ -427,10 +427,8 @@ export class MovementSystem extends System {
         entity.weapon.attackPhase === 'recover')
 
     if (!isInAttackAction) {
-      if (entity.input.facingOverride !== null) {
-        entity.input.lastMoveDirection = entity.input.facingOverride
-      } else if (entity.input.lockedTargetId !== null) {
-        // 如果有锁定目标，始终面朝目标
+      if (entity.input.lockedTargetId !== null) {
+        // 有锁定目标时，优先面朝目标，避免被 facingOverride 抢占
         const lockedTargetId = entity.input.lockedTargetId
         let target: Entity | undefined
         if (this.entityLookup) {
@@ -447,6 +445,8 @@ export class MovementSystem extends System {
           const dx = target.transform.x - entity.transform.x
           entity.input.lastMoveDirection = dx >= 0 ? 1 : -1
         }
+      } else if (entity.input.facingOverride !== null) {
+        entity.input.lastMoveDirection = entity.input.facingOverride
       } else if (direction !== 0) {
         entity.input.lastMoveDirection = direction
       }
