@@ -1,3 +1,4 @@
+import { DialogManager } from './DialogManager'
 import { EditorManager } from './EditorManager'
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
@@ -111,6 +112,8 @@ const PARAM_CONFIGS: ParamConfig[] = [
 const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
+const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
+const dialogManager = new DialogManager(gameViewport)
 
 const setupDetailsState = (
   storedValues: Record<string, string>,
@@ -414,9 +417,13 @@ async function initialize() {
         // Handled by MenuManager internally
         break
       case MenuAction.Exit:
-        if (confirm(localizer.t('confirm_exit_game'))) {
-          window.close()
-        }
+        dialogManager
+          .confirm(localizer.t('confirm_exit_game'))
+          .then((confirmed) => {
+            if (confirmed) {
+              window.close()
+            }
+          })
         break
     }
   })

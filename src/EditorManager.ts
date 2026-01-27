@@ -1,5 +1,6 @@
 import { fabric } from 'fabric'
 
+import { DialogManager } from './DialogManager'
 import { localizer } from './Localizer'
 import { DEFAULT_PLAYER_RADIUS } from './constants'
 import type {
@@ -337,6 +338,7 @@ export class EditorManager {
   private propertiesCancelBtn: HTMLButtonElement
   private polygonMenu: HTMLDivElement
   private polygonMenuButtons: HTMLButtonElement[] = []
+  private dialogManager: DialogManager
 
   private visible = false
   private currentView: EditorView = EditorView.MapList
@@ -560,6 +562,8 @@ export class EditorManager {
       polygonMenuQuaternary,
     ]
 
+    this.dialogManager = new DialogManager(this.editorOverlay)
+
     this.setupEventListeners()
     this.updateLocalization()
 
@@ -761,7 +765,9 @@ export class EditorManager {
   }
 
   private async handleCreateMap() {
-    const nameInput = window.prompt(localizer.t('editor_create_map_prompt'))
+    const nameInput = await this.dialogManager.prompt(
+      localizer.t('editor_create_map_prompt')
+    )
     if (nameInput === null) {
       return
     }
@@ -775,7 +781,7 @@ export class EditorManager {
     const initialData = this.buildDefaultMapData()
     const meta = await createEditorMap(name, initialData)
     if (!meta) {
-      window.alert(localizer.t('editor_save_failed'))
+      await this.dialogManager.alert(localizer.t('editor_save_failed'))
       return
     }
 
@@ -969,7 +975,7 @@ export class EditorManager {
     }
   }
 
-  private handlePreview() {
+  private async handlePreview() {
     const data = this.serializeCurrentMapData()
     const meta = this.currentMapMeta ?? {
       id: 'preview',
@@ -978,7 +984,7 @@ export class EditorManager {
       updatedAt: Date.now(),
     }
     if (!this.onPreviewCallback) {
-      window.alert(localizer.t('editor_preview_failed'))
+      await this.dialogManager.alert(localizer.t('editor_preview_failed'))
       return
     }
     this.onPreviewCallback(meta, data)
@@ -992,12 +998,12 @@ export class EditorManager {
     }
     const savedMeta = await saveEditorMap(meta, data)
     if (!savedMeta) {
-      window.alert(localizer.t('editor_save_failed'))
+      await this.dialogManager.alert(localizer.t('editor_save_failed'))
       return
     }
     this.currentMapMeta = savedMeta
     this.refreshMapMetas()
-    window.alert(localizer.t('editor_save_success'))
+    await this.dialogManager.alert(localizer.t('editor_save_success'))
   }
 
   private async ensureMapMeta(
@@ -1006,7 +1012,9 @@ export class EditorManager {
     if (this.currentMapMeta) {
       return this.currentMapMeta
     }
-    const nameInput = window.prompt(localizer.t('editor_create_map_prompt'))
+    const nameInput = await this.dialogManager.prompt(
+      localizer.t('editor_create_map_prompt')
+    )
     if (nameInput === null) {
       return null
     }
@@ -1016,7 +1024,7 @@ export class EditorManager {
     }
     const created = await createEditorMap(name, data)
     if (!created) {
-      window.alert(localizer.t('editor_save_failed'))
+      await this.dialogManager.alert(localizer.t('editor_save_failed'))
       return null
     }
     this.currentMapMeta = created
@@ -3529,7 +3537,7 @@ export class EditorManager {
     this.polygonMenuPointIndex = -1
   }
 
-  private handlePolygonMenuAction(
+  private async handlePolygonMenuAction(
     action:
       | 'add'
       | 'remove'
@@ -3548,7 +3556,7 @@ export class EditorManager {
     }
     const canvas = target.canvas
     if (action === 'delete') {
-      const confirmed = window.confirm(
+      const confirmed = await this.dialogManager.confirm(
         localizer.t('editor_confirm_delete_shape')
       )
       if (!confirmed) {
@@ -3589,7 +3597,7 @@ export class EditorManager {
         this.hidePolygonMenu()
         return
       }
-      const input = window.prompt(
+      const input = await this.dialogManager.prompt(
         localizer.t('editor_camera_menu_zoom'),
         data.zoom.toFixed(2)
       )
