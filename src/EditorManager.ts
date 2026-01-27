@@ -1307,6 +1307,7 @@ export class EditorManager {
       this.hidePolygonMenu()
       return
     }
+    const canvas = target.canvas
     if (action === 'delete') {
       const confirmed = window.confirm(
         localizer.t('editor_confirm_delete_shape')
@@ -1315,30 +1316,30 @@ export class EditorManager {
         this.hidePolygonMenu()
         return
       }
-      if (target.canvas.getActiveObject() === target) {
-        target.canvas.discardActiveObject()
+      if (canvas.getActiveObject() === target) {
+        canvas.discardActiveObject()
       }
-      target.canvas.remove(target)
+      canvas.remove(target)
       this.shapeResetMap.delete(target)
-      target.canvas.requestRenderAll()
+      canvas.requestRenderAll()
       this.hidePolygonMenu()
       return
     }
     if (action === 'reset') {
       this.resetShape(target)
-      target.canvas.requestRenderAll()
+      canvas.requestRenderAll()
       this.hidePolygonMenu()
       return
     }
     if (action === 'square') {
       this.makeSquare(target)
-      target.canvas.requestRenderAll()
+      canvas.requestRenderAll()
       this.hidePolygonMenu()
       return
     }
     if (action === 'equilateral') {
       this.makeEquilateralTriangle(target)
-      target.canvas.requestRenderAll()
+      canvas.requestRenderAll()
       this.hidePolygonMenu()
       return
     }
