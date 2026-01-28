@@ -1,4 +1,11 @@
 import Box2DFactory from 'box2d3-wasm'
+import {
+  isSimple,
+  makeCCW,
+  quickDecomp,
+  removeCollinearPoints,
+  removeDuplicatePoints,
+} from 'poly-decomp-es'
 
 import {
   CATEGORY_GROUND,
@@ -126,6 +133,25 @@ let stateBuffer: Float32Array<ArrayBufferLike> = new Float32Array(
 const stateBufferViews: Float32Array[] = []
 let effectsCount = 0
 const SPARK_COLOR_INT = 0xfff4a8
+
+type DecompPoint = [number, number]
+type DecompPolygon = DecompPoint[]
+const decompPointPool: DecompPoint[] = []
+const decompScratchPolygon: DecompPolygon = []
+
+function acquireDecompPoint(x: number, y: number): DecompPoint {
+  const point = decompPointPool.pop() ?? [0, 0]
+  point[0] = x
+  point[1] = y
+  return point
+}
+
+function resetDecompScratchPolygon(): void {
+  for (let i = 0; i < decompScratchPolygon.length; i++) {
+    decompPointPool.push(decompScratchPolygon[i])
+  }
+  decompScratchPolygon.length = 0
+}
 
 // Helper for color parsing (simple cache)
 const colorCache = new Map<string, number>()
@@ -895,63 +921,161 @@ function registerPolygonShape(
   bodyDef.position.Set(centerX, centerY)
   const bodyId = b2CreateBody(worldId, bodyDef)
 
-  const localPoints: InstanceType<MainModule['b2Vec2']>[] = []
-  const vertices: { x: number; y: number }[] = []
-  const worldVertices: { x: number; y: number }[] = []
-  let minX = Number.POSITIVE_INFINITY
-  let maxX = Number.NEGATIVE_INFINITY
-  let minY = Number.POSITIVE_INFINITY
-  let maxY = Number.NEGATIVE_INFINITY
-  for (let i = 0; i < shape.points.length; i += 2) {
-    const worldX = shape.points[i]
-    const worldY = shape.points[i + 1]
-    const localX = worldX - centerX
-    const localY = worldY - centerY
-    vertices.push({ x: localX, y: localY })
-    worldVertices.push({ x: worldX, y: worldY })
-    if (localX < minX) minX = localX
-    if (localX > maxX) maxX = localX
-    if (localY < minY) minY = localY
-    if (localY > maxY) maxY = localY
-    localPoints.push(new b2Vec2(localX, localY))
-  }
-
-  const hull: b2Hull = b2ComputeHull(localPoints)
-  const polygon: b2Polygon = b2MakePolygon(hull, 0)
   const shapeDef = b2DefaultShapeDef()
   shapeDef.material.friction = friction
   shapeDef.material.restitution = 0
   shapeDef.filter.categoryBits = categoryBits
-  const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
-  if (categoryBits === CATEGORY_GROUND) {
-    groundShapeIds.push(shapeId)
+  resetDecompScratchPolygon()
+  for (let i = 0; i < shape.points.length; i += 2) {
+    const worldX = shape.points[i]
+    const worldY = shape.points[i + 1]
+    decompScratchPolygon.push(
+      acquireDecompPoint(worldX - centerX, worldY - centerY)
+    )
+  }
+  removeDuplicatePoints(decompScratchPolygon, 0.0001)
+  removeCollinearPoints(decompScratchPolygon, 0.0001)
+
+  if (decompScratchPolygon.length < 3) {
+    bodyDef.delete()
+    shapeDef.delete()
+    resetDecompScratchPolygon()
+    return
+  }
+
+  let convexPolygons: DecompPolygon[] | null = null
+  if (isSimple(decompScratchPolygon)) {
+    makeCCW(decompScratchPolygon)
+    convexPolygons = quickDecomp(decompScratchPolygon)
+  }
+
+  if (!convexPolygons || convexPolygons.length === 0) {
+    const localPoints: InstanceType<MainModule['b2Vec2']>[] = []
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    for (let i = 0; i < decompScratchPolygon.length; i++) {
+      const point = decompScratchPolygon[i]
+      const localX = point[0]
+      const localY = point[1]
+      if (localX < minX) minX = localX
+      if (localX > maxX) maxX = localX
+      if (localY < minY) minY = localY
+      if (localY > maxY) maxY = localY
+      localPoints.push(new b2Vec2(localX, localY))
+    }
+
+    const hull: b2Hull = b2ComputeHull(localPoints)
+    const polygon: b2Polygon = b2MakePolygon(hull, 0)
+    const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
+    if (categoryBits === CATEGORY_GROUND) {
+      groundShapeIds.push(shapeId)
+    }
+
+    bodyDef.delete()
+    shapeDef.delete()
+    hull.delete()
+    polygon.delete()
+    for (let i = 0; i < localPoints.length; i++) {
+      localPoints[i].delete()
+    }
+
+    if (shouldRegisterObstacle) {
+      const vertices: { x: number; y: number }[] = []
+      const worldVertices: { x: number; y: number }[] = []
+      for (let i = 0; i < decompScratchPolygon.length; i++) {
+        const point = decompScratchPolygon[i]
+        const localX = point[0]
+        const localY = point[1]
+        vertices.push({ x: localX, y: localY })
+        worldVertices.push({ x: centerX + localX, y: centerY + localY })
+      }
+      const halfWidth = Math.max(Math.abs(minX), Math.abs(maxX))
+      const halfHeight = Math.max(Math.abs(minY), Math.abs(maxY))
+      obstacles.push({
+        bodyId,
+        mainShapeId: shapeId,
+        capBodyId: bodyId,
+        capShapeId: shapeId,
+        centerX,
+        centerY,
+        width: halfWidth,
+        height: halfHeight,
+        vertices,
+        worldVertices,
+      })
+    }
+
+    resetDecompScratchPolygon()
+    return
+  }
+
+  for (let i = 0; i < convexPolygons.length; i++) {
+    const convex = convexPolygons[i]
+    if (convex.length < 3) {
+      continue
+    }
+    const localPoints: InstanceType<MainModule['b2Vec2']>[] = []
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    const vertices: { x: number; y: number }[] | null = shouldRegisterObstacle
+      ? []
+      : null
+    const worldVertices: { x: number; y: number }[] | null =
+      shouldRegisterObstacle ? [] : null
+    for (let j = 0; j < convex.length; j++) {
+      const point = convex[j]
+      const localX = point[0]
+      const localY = point[1]
+      if (localX < minX) minX = localX
+      if (localX > maxX) maxX = localX
+      if (localY < minY) minY = localY
+      if (localY > maxY) maxY = localY
+      localPoints.push(new b2Vec2(localX, localY))
+      if (vertices && worldVertices) {
+        vertices.push({ x: localX, y: localY })
+        worldVertices.push({ x: centerX + localX, y: centerY + localY })
+      }
+    }
+
+    const hull: b2Hull = b2ComputeHull(localPoints)
+    const polygon: b2Polygon = b2MakePolygon(hull, 0)
+    const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
+    if (categoryBits === CATEGORY_GROUND) {
+      groundShapeIds.push(shapeId)
+    }
+
+    hull.delete()
+    polygon.delete()
+    for (let j = 0; j < localPoints.length; j++) {
+      localPoints[j].delete()
+    }
+
+    if (!shouldRegisterObstacle || !vertices || !worldVertices) {
+      continue
+    }
+    const halfWidth = Math.max(Math.abs(minX), Math.abs(maxX))
+    const halfHeight = Math.max(Math.abs(minY), Math.abs(maxY))
+    obstacles.push({
+      bodyId,
+      mainShapeId: shapeId,
+      capBodyId: bodyId,
+      capShapeId: shapeId,
+      centerX,
+      centerY,
+      width: halfWidth,
+      height: halfHeight,
+      vertices,
+      worldVertices,
+    })
   }
 
   bodyDef.delete()
   shapeDef.delete()
-  hull.delete()
-  polygon.delete()
-  for (let i = 0; i < localPoints.length; i++) {
-    localPoints[i].delete()
-  }
-
-  if (!shouldRegisterObstacle) {
-    return
-  }
-  const halfWidth = Math.max(Math.abs(minX), Math.abs(maxX))
-  const halfHeight = Math.max(Math.abs(minY), Math.abs(maxY))
-  obstacles.push({
-    bodyId,
-    mainShapeId: shapeId,
-    capBodyId: bodyId,
-    capShapeId: shapeId,
-    centerX,
-    centerY,
-    width: halfWidth,
-    height: halfHeight,
-    vertices,
-    worldVertices,
-  })
+  resetDecompScratchPolygon()
 }
 
 function createObstacleCapRect(
