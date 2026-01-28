@@ -870,6 +870,14 @@ export class GameClient {
     this.worker.postMessage({ type: 'control', action: 'clear_map_preview' })
   }
 
+  isPreviewActive(): boolean {
+    return this.previewActive
+  }
+
+  reloadDefaultMap() {
+    this.worker.postMessage({ type: 'control', action: 'reload_default_map' })
+  }
+
   setPreviewExitHandler(callback: () => void) {
     this.onExitPreviewCallback = callback
   }

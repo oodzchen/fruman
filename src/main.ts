@@ -344,6 +344,9 @@ async function initialize() {
     game.start()
     game.setInputEnabled(true)
   })
+  editorManager.onDefaultMapChanged(() => {
+    game.reloadDefaultMap()
+  })
   game.setPreviewExitHandler(() => {
     game.stop()
     game.setInputEnabled(false)
@@ -381,27 +384,32 @@ async function initialize() {
       case MenuAction.NewGame:
         menuManager.hide()
         game.setEditorPreview(false)
-        game.clearMapPreview()
+        if (game.isPreviewActive()) {
+          game.clearMapPreview()
+        }
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.Continue:
         menuManager.hide()
         game.setEditorPreview(false)
-        game.clearMapPreview()
+        if (game.isPreviewActive()) {
+          game.clearMapPreview()
+        }
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.Resume:
         menuManager.hide()
         game.setEditorPreview(false)
-        game.clearMapPreview()
+        if (game.isPreviewActive()) {
+          game.clearMapPreview()
+        }
         game.start()
         game.setInputEnabled(true)
         break
       case MenuAction.MainMenu:
         game.clearMapPreview()
-        game.stop()
         game.setInputEnabled(false)
         game.setEditorPreview(false)
         menuManager.show(MenuMode.Start)

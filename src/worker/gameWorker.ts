@@ -103,6 +103,7 @@ let arrowPools: ArrowPools
 let groundShapeIds: b2ShapeId[] = []
 let activeMapData: EditorMapData | null = null
 let defaultMapData: EditorMapData | null = null
+let isMapPreview = false
 let obstacles: {
   bodyId: b2BodyId
   mainShapeId: b2ShapeId
@@ -313,6 +314,7 @@ async function init(width: number, height: number, ppm: number) {
   const defaultMapResult = await ensureDefaultMap(width, height, ppm)
   defaultMapData = defaultMapResult.data
   activeMapData = defaultMapData
+  isMapPreview = false
 
   ctx.postMessage({
     type: 'map_data',
@@ -379,6 +381,21 @@ async function init(width: number, height: number, ppm: number) {
   currentTime = 0
   clearInterval(loopInterval)
   loopInterval = setInterval(update, 1000 / TARGET_FPS)
+}
+
+async function reloadDefaultMap() {
+  if (canvasWidth <= 0 || canvasHeight <= 0 || pixelsPerMeter <= 0) {
+    return
+  }
+  const defaultMapResult = await ensureDefaultMap(
+    canvasWidth,
+    canvasHeight,
+    pixelsPerMeter
+  )
+  defaultMapData = defaultMapResult.data
+  if (!isMapPreview) {
+    activeMapData = defaultMapData
+  }
 }
 
 function initStateBuffers(): void {
@@ -2467,6 +2484,7 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       if (msg.action === 'restart') restart()
       if (msg.action === 'clear_map_preview') {
         activeMapData = defaultMapData
+        isMapPreview = false
         if (activeMapData) {
           ctx.postMessage({
             type: 'map_data',
@@ -2475,12 +2493,16 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
         }
         restart()
       }
+      if (msg.action === 'reload_default_map') {
+        void reloadDefaultMap()
+      }
       if (msg.action === 'update_param') {
         updateParam(msg.paramId, msg.value)
       }
       break
     case 'map_preview':
       activeMapData = msg.map
+      isMapPreview = true
       restart()
       break
   }

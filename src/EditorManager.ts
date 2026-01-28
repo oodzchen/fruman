@@ -23,6 +23,7 @@ import {
   listEditorMaps,
   loadEditorMapData,
   saveEditorMap,
+  saveEditorMapMeta,
 } from './storage'
 import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
 
@@ -391,6 +392,7 @@ interface EditorMap {
   name: string
   createdAt: number
   updatedAt: number
+  isDefault?: boolean
 }
 
 interface PropertyField {
@@ -432,6 +434,10 @@ export class EditorManager {
   private editorMapListItems: HTMLButtonElement[] = []
   private editorMapListSelectedIndex = 0
   private mapListBackIndex = 0
+  private mapListFocusId: string | null = null
+  private editorMapListMenu: HTMLDivElement
+  private editorMapRenameBtn: HTMLButtonElement
+  private editorMapDefaultBtn: HTMLButtonElement
   private editorActions: HTMLDivElement
   private editorPreviewBtn: HTMLButtonElement
   private editorSaveBtn: HTMLButtonElement
@@ -470,6 +476,7 @@ export class EditorManager {
   private currentMapMeta: EditorMapMeta | null = null
   private onBackToMenuCallback?: () => void
   private onPreviewCallback?: (meta: EditorMapMeta, data: EditorMapData) => void
+  private onDefaultMapChangedCallback?: (meta: EditorMapMeta) => void
   private fabricCanvas: fabric.Canvas | null = null
   private activeObjectType: ObjectType | null = null
   private handleResize: () => void
@@ -572,6 +579,9 @@ export class EditorManager {
     const mapListView = document.getElementById('editorMapListView')
     const mapList = document.getElementById('editorMapList')
     const actions = document.getElementById('editorActions')
+    const mapListMenu = document.getElementById('editorMapListMenu')
+    const mapRenameBtn = document.getElementById('editorMapRenameBtn')
+    const mapDefaultBtn = document.getElementById('editorMapDefaultBtn')
     const previewBtn = document.getElementById('editorPreviewBtn')
     const saveBtn = document.getElementById('editorSaveBtn')
     const objectItems = document.querySelectorAll<HTMLButtonElement>(
@@ -650,6 +660,9 @@ export class EditorManager {
       !(mapListView instanceof HTMLDivElement) ||
       !(mapList instanceof HTMLDivElement) ||
       !(actions instanceof HTMLDivElement) ||
+      !(mapListMenu instanceof HTMLDivElement) ||
+      !(mapRenameBtn instanceof HTMLButtonElement) ||
+      !(mapDefaultBtn instanceof HTMLButtonElement) ||
       !(previewBtn instanceof HTMLButtonElement) ||
       !(saveBtn instanceof HTMLButtonElement) ||
       !(groundMenu instanceof HTMLButtonElement) ||
@@ -692,6 +705,9 @@ export class EditorManager {
     this.editorMapListView = mapListView
     this.editorMapList = mapList
     this.editorActions = actions
+    this.editorMapListMenu = mapListMenu
+    this.editorMapRenameBtn = mapRenameBtn
+    this.editorMapDefaultBtn = mapDefaultBtn
     this.editorPreviewBtn = previewBtn
     this.editorSaveBtn = saveBtn
     this.editorObjectItems = objectItems
@@ -756,6 +772,14 @@ export class EditorManager {
 
     this.editorSaveBtn.addEventListener('click', () => {
       void this.handleSave()
+    })
+
+    this.editorMapRenameBtn.addEventListener('click', () => {
+      void this.handleRenameSelectedMap()
+    })
+
+    this.editorMapDefaultBtn.addEventListener('click', () => {
+      void this.handleSetDefaultSelectedMap()
     })
 
     this.editorPanelCollapseBtn.addEventListener('click', () => {
@@ -948,6 +972,8 @@ export class EditorManager {
     this.editorBackBtn.textContent = localizer.t('editor_back_to_menu')
     this.editorPreviewBtn.textContent = localizer.t('editor_preview')
     this.editorSaveBtn.textContent = localizer.t('editor_save')
+    this.editorMapRenameBtn.textContent = localizer.t('editor_map_rename')
+    this.editorMapDefaultBtn.textContent = localizer.t('editor_map_set_default')
     this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')
 
     this.editorObjectItems.forEach((item) => {
@@ -1295,6 +1321,7 @@ export class EditorManager {
       'is-selected',
       this.editorMapListSelectedIndex === this.mapListBackIndex
     )
+    this.updateMapListMenuVisibility()
   }
 
   private clearMapListSelection() {
@@ -1302,6 +1329,28 @@ export class EditorManager {
       this.editorMapListItems[i].classList.remove('is-selected')
     }
     this.editorBackBtn.classList.remove('is-selected')
+    this.editorMapListMenu.classList.remove('is-visible')
+  }
+
+  private getSelectedMapId(): string | null {
+    if (this.editorMapListSelectedIndex >= this.editorMapListItems.length) {
+      return null
+    }
+    const button = this.editorMapListItems[this.editorMapListSelectedIndex]
+    return button?.dataset.mapId ?? null
+  }
+
+  private updateMapListMenuVisibility() {
+    if (this.currentView !== EditorView.MapList) {
+      this.editorMapListMenu.classList.remove('is-visible')
+      return
+    }
+    const mapId = this.getSelectedMapId()
+    if (!mapId) {
+      this.editorMapListMenu.classList.remove('is-visible')
+      return
+    }
+    this.editorMapListMenu.classList.add('is-visible')
   }
 
   private getMapListNavCount(): number {
@@ -1600,9 +1649,13 @@ export class EditorManager {
     let index = 0
     for (let i = 0; i < this.maps.length; i++) {
       const map = this.maps[i]
+      const defaultTag = map.isDefault
+        ? ` ${localizer.t('editor_map_default_tag')}`
+        : ''
       const item = document.createElement('button')
       item.className = 'editor-map-item'
-      item.textContent = map.name
+      item.textContent = `${map.name}${defaultTag}`
+      item.dataset.mapId = map.id
       item.addEventListener('click', () => {
         this.loadMap(map.id)
       })
@@ -1631,16 +1684,94 @@ export class EditorManager {
     void this.loadMapData(mapId)
   }
 
+  private async handleRenameSelectedMap() {
+    const mapId = this.getSelectedMapId()
+    if (!mapId) {
+      return
+    }
+    const meta = this.findMapMeta(mapId)
+    if (!meta) {
+      return
+    }
+    const nextName = await this.dialogManager.prompt(
+      localizer.t('editor_map_rename_prompt'),
+      meta.name
+    )
+    if (nextName === null) {
+      return
+    }
+    const trimmed = nextName.trim()
+    if (trimmed.length === 0 || trimmed === meta.name) {
+      return
+    }
+    meta.name = trimmed
+    const saved = await saveEditorMapMeta(meta)
+    if (!saved) {
+      await this.dialogManager.alert(localizer.t('editor_save_failed'))
+      return
+    }
+    this.mapListFocusId = meta.id
+    this.refreshMapMetas()
+  }
+
+  private async handleSetDefaultSelectedMap() {
+    const mapId = this.getSelectedMapId()
+    if (!mapId) {
+      return
+    }
+    let changed = false
+    for (let i = 0; i < this.maps.length; i++) {
+      const meta = this.maps[i]
+      const shouldDefault = meta.id === mapId
+      if (meta.isDefault !== shouldDefault) {
+        meta.isDefault = shouldDefault
+        const saved = await saveEditorMapMeta(meta)
+        if (!saved) {
+          await this.dialogManager.alert(localizer.t('editor_save_failed'))
+          return
+        }
+        changed = true
+      }
+    }
+    if (!changed) {
+      return
+    }
+    this.mapListFocusId = mapId
+    this.refreshMapMetas()
+    const nextDefault = this.findMapMeta(mapId)
+    if (nextDefault && this.onDefaultMapChangedCallback) {
+      this.onDefaultMapChangedCallback(nextDefault)
+    }
+  }
+
   private refreshMapMetas() {
     listEditorMaps()
       .then((maps) => {
         this.maps = maps
         if (this.visible && this.currentView === EditorView.MapList) {
           this.renderMapList()
+          if (this.mapListFocusId) {
+            const focusIndex = this.findMapListIndexById(this.mapListFocusId)
+            this.mapListFocusId = null
+            if (focusIndex >= 0) {
+              this.setMapListSelectedIndex(focusIndex, false)
+              return
+            }
+          }
           this.setMapListSelectedIndex(0, true)
         }
       })
       .catch(() => {})
+  }
+
+  private findMapListIndexById(mapId: string): number {
+    for (let i = 0; i < this.editorMapListItems.length; i++) {
+      const button = this.editorMapListItems[i]
+      if (button.dataset.mapId === mapId) {
+        return i
+      }
+    }
+    return -1
   }
 
   private findMapMeta(mapId: string): EditorMapMeta | null {
@@ -6379,5 +6510,9 @@ export class EditorManager {
 
   onPreview(callback: (meta: EditorMapMeta, data: EditorMapData) => void) {
     this.onPreviewCallback = callback
+  }
+
+  onDefaultMapChanged(callback: (meta: EditorMapMeta) => void) {
+    this.onDefaultMapChangedCallback = callback
   }
 }

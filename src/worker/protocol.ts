@@ -65,7 +65,13 @@ export type WorkerBufferReleaseMessage = {
 
 export type WorkerControlMessage = {
   type: 'control'
-  action: 'stop' | 'start' | 'restart' | 'update_param' | 'clear_map_preview'
+  action:
+    | 'stop'
+    | 'start'
+    | 'restart'
+    | 'update_param'
+    | 'clear_map_preview'
+    | 'reload_default_map'
   paramId?: string
   value?: number
 }

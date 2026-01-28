@@ -197,6 +197,31 @@ export async function saveEditorMap(
   }
 }
 
+export async function saveEditorMapMeta(
+  meta: EditorMapMeta
+): Promise<EditorMapMeta | null> {
+  try {
+    const db = await openDB()
+    const nextMeta: EditorMapMeta = {
+      id: meta.id,
+      name: meta.name,
+      createdAt: meta.createdAt,
+      updatedAt: Date.now(),
+      isDefault: meta.isDefault,
+    }
+
+    return new Promise((resolve) => {
+      const tx = db.transaction(MAP_META_STORE, 'readwrite')
+      tx.objectStore(MAP_META_STORE).put(nextMeta)
+      tx.oncomplete = () => resolve(nextMeta)
+      tx.onerror = () => resolve(null)
+      tx.onabort = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function getDefaultMap(): Promise<{
   meta: EditorMapMeta
   data: EditorMapData

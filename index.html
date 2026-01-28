@@ -505,6 +505,12 @@
         z-index: 4;
         pointer-events: auto;
       }
+      .editor-map-actions {
+        display: none;
+      }
+      .editor-map-actions.is-visible {
+        display: flex;
+      }
       .editor-action-btn {
         height: 34px;
         line-height: 34px;
@@ -886,6 +892,19 @@
                     class="editor-action-btn"
                   ></button>
                   <button id="editorSaveBtn" class="editor-action-btn"></button>
+                </div>
+                <div
+                  id="editorMapListMenu"
+                  class="editor-actions editor-map-actions"
+                >
+                  <button
+                    id="editorMapRenameBtn"
+                    class="editor-action-btn"
+                  ></button>
+                  <button
+                    id="editorMapDefaultBtn"
+                    class="editor-action-btn"
+                  ></button>
                 </div>
               </div>
               <button
