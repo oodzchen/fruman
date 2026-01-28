@@ -2,6 +2,7 @@ import { fabric } from 'fabric'
 
 import { renderBody } from './BodyRenderer'
 import { DialogManager } from './DialogManager'
+import type { GameClient } from './GameClient'
 import { localizer } from './Localizer'
 import { renderWeapon } from './WeaponRenderer'
 import {
@@ -393,6 +394,7 @@ interface EditorMap {
   createdAt: number
   updatedAt: number
   isDefault?: boolean
+  thumbnail?: string
 }
 
 interface PropertyField {
@@ -474,6 +476,7 @@ export class EditorManager {
   private currentView: EditorView = EditorView.MapList
   private maps: EditorMap[] = []
   private currentMapMeta: EditorMapMeta | null = null
+  private gameClient: GameClient | null = null
   private onBackToMenuCallback?: () => void
   private onPreviewCallback?: (meta: EditorMapMeta, data: EditorMapData) => void
   private onDefaultMapChangedCallback?: (meta: EditorMapMeta) => void
@@ -1654,7 +1657,35 @@ export class EditorManager {
         : ''
       const item = document.createElement('button')
       item.className = 'editor-map-item'
-      item.textContent = `${map.name}${defaultTag}`
+
+      item.style.display = 'flex'
+      item.style.alignItems = 'center'
+
+      if (map.thumbnail) {
+        const img = document.createElement('img')
+        img.src = map.thumbnail
+        img.style.width = '60px'
+        img.style.height = '48px'
+        img.style.marginRight = '12px'
+        img.style.objectFit = 'cover'
+        img.style.borderRadius = '4px'
+        img.style.border = '1px solid rgba(255,255,255,0.2)'
+        item.appendChild(img)
+      } else {
+        const placeholder = document.createElement('div')
+        placeholder.style.width = '60px'
+        placeholder.style.height = '48px'
+        placeholder.style.marginRight = '12px'
+        placeholder.style.backgroundColor = 'rgba(0,0,0,0.2)'
+        placeholder.style.borderRadius = '4px'
+        placeholder.style.border = '1px dashed rgba(255,255,255,0.1)'
+        item.appendChild(placeholder)
+      }
+
+      const span = document.createElement('span')
+      span.textContent = `${map.name}${defaultTag}`
+      item.appendChild(span)
+
       item.dataset.mapId = map.id
       item.addEventListener('click', () => {
         this.loadMap(map.id)
@@ -1843,14 +1874,30 @@ export class EditorManager {
     if (!meta) {
       return
     }
-    const savedMeta = await saveEditorMap(meta, data)
-    if (!savedMeta) {
+
+    this.dialogManager.showLoading(localizer.t('editor_saving'))
+
+    try {
+      const thumbnail = await this.captureThumbnail()
+      if (thumbnail) {
+        meta.thumbnail = thumbnail
+      }
+
+      const savedMeta = await saveEditorMap(meta, data)
+      this.dialogManager.hideLoading()
+
+      if (!savedMeta) {
+        await this.dialogManager.alert(localizer.t('editor_save_failed'))
+        return
+      }
+      this.currentMapMeta = savedMeta
+      this.refreshMapMetas()
+      await this.dialogManager.alert(localizer.t('editor_save_success'))
+    } catch (error) {
+      this.dialogManager.hideLoading()
       await this.dialogManager.alert(localizer.t('editor_save_failed'))
-      return
+      console.error('[editor] save error', error)
     }
-    this.currentMapMeta = savedMeta
-    this.refreshMapMetas()
-    await this.dialogManager.alert(localizer.t('editor_save_success'))
   }
 
   private async ensureMapMeta(
@@ -6514,5 +6561,153 @@ export class EditorManager {
 
   onDefaultMapChanged(callback: (meta: EditorMapMeta) => void) {
     this.onDefaultMapChangedCallback = callback
+  }
+
+  setGameClient(client: GameClient) {
+    this.gameClient = client
+  }
+
+  private async captureThumbnail(): Promise<string | null> {
+    if (this.gameClient) {
+      return this.captureThumbnailFromPreview()
+    }
+    return this.captureThumbnailFromEditor()
+  }
+
+  private async captureThumbnailFromPreview(): Promise<string | null> {
+    if (!this.gameClient) {
+      return null
+    }
+
+    const data = this.serializeCurrentMapData()
+    const meta = this.currentMapMeta ?? {
+      id: 'preview',
+      name: 'preview',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+
+    this.gameCanvas.style.visibility = 'visible'
+
+    this.gameClient.applyMapPreview(data)
+    this.gameClient.start()
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    const snapshotDataUrl = this.gameCanvas.toDataURL('image/jpeg', 0.8)
+
+    this.gameClient.clearMapPreview()
+    this.gameCanvas.style.visibility = 'hidden'
+
+    if (!snapshotDataUrl) return null
+    return this.resizeThumbnail(snapshotDataUrl, 200, 160)
+  }
+
+  private async captureThumbnailFromEditor(): Promise<string | null> {
+    if (!this.fabricCanvas) {
+      return null
+    }
+
+    const originalTransform = this.fabricCanvas.viewportTransform?.slice()
+    const originalWidth = this.fabricCanvas.width ?? 800
+    const originalHeight = this.fabricCanvas.height ?? 600
+
+    let cameraFrame: CameraFrame | null = null
+    if (this.cameraViews.length > 0) {
+      cameraFrame = this.cameraViews[0].frame
+    }
+
+    this.fabricCanvas.discardActiveObject()
+    this.fabricCanvas.requestRenderAll()
+
+    let snapshotDataUrl = ''
+
+    if (cameraFrame && cameraFrame.width && cameraFrame.height) {
+      const wasVisible = cameraFrame.visible
+      const wasIconVisible = this.cameraViews[0].icon.visible
+      cameraFrame.visible = false
+      this.cameraViews[0].icon.visible = false
+
+      const frameWidth = (cameraFrame.width ?? 0) * (cameraFrame.scaleX ?? 1)
+      const frameHeight = (cameraFrame.height ?? 0) * (cameraFrame.scaleY ?? 1)
+
+      const scaleX = originalWidth / frameWidth
+      const scaleY = originalHeight / frameHeight
+      const scale = Math.min(scaleX, scaleY)
+
+      const centerX = cameraFrame.left ?? 0
+      const centerY = cameraFrame.top ?? 0
+
+      const tx = originalWidth / 2 - centerX * scale
+      const ty = originalHeight / 2 - centerY * scale
+
+      this.fabricCanvas.setViewportTransform([scale, 0, 0, scale, tx, ty])
+      this.fabricCanvas.renderAll()
+
+      snapshotDataUrl = this.fabricCanvas.toDataURL({
+        format: 'jpeg',
+        quality: 0.8,
+        multiplier: 1,
+      })
+
+      cameraFrame.visible = wasVisible
+      this.cameraViews[0].icon.visible = wasIconVisible
+    } else {
+      snapshotDataUrl = this.fabricCanvas.toDataURL({
+        format: 'jpeg',
+        quality: 0.8,
+      })
+    }
+
+    if (originalTransform) {
+      this.fabricCanvas.setViewportTransform(originalTransform)
+    }
+    this.fabricCanvas.renderAll()
+
+    if (!snapshotDataUrl) return null
+    return this.resizeThumbnail(snapshotDataUrl, 200, 160)
+  }
+
+  private resizeThumbnail(
+    dataUrl: string,
+    width: number,
+    height: number
+  ): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
+
+        const srcRatio = img.width / img.height
+        const dstRatio = width / height
+
+        let drawW = width
+        let drawH = height
+        let offsetX = 0
+        let offsetY = 0
+
+        if (srcRatio > dstRatio) {
+          drawH = height
+          drawW = height * srcRatio
+          offsetX = (width - drawW) / 2
+        } else {
+          drawW = width
+          drawH = width / srcRatio
+          offsetY = (height - drawH) / 2
+        }
+
+        ctx.drawImage(img, offsetX, offsetY, drawW, drawH)
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
+      }
+      img.onerror = () => resolve(dataUrl)
+      img.src = dataUrl
+    })
   }
 }

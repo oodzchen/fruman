@@ -81,6 +81,7 @@
   "editor_create_map_prompt": "Enter map name",
   "editor_save_success": "Map saved",
   "editor_save_failed": "Failed to save map",
+  "editor_saving": "Saving...",
   "editor_preview_failed": "Failed to preview map",
   "editor_btn_confirm": "Confirm",
   "editor_btn_cancel": "Cancel",

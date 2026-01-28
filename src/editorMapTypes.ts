@@ -10,6 +10,7 @@ export interface EditorMapMeta {
   createdAt: number
   updatedAt: number
   isDefault?: boolean
+  thumbnail?: string
 }
 
 export interface MapVector2 {

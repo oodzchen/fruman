@@ -10,6 +10,7 @@ export class DialogManager {
   private activeButtons: HTMLButtonElement[] = []
   private selectedButtonIndex = 0
   private isOpen = false
+  private isLoading = false
   private resolveCallback: ((value: boolean | string | null) => void) | null =
     null
   private boundHandleKeyDown: (event: KeyboardEvent) => void
@@ -73,6 +74,9 @@ export class DialogManager {
     this.boundHandleKeyDown = this.handleKeyDown.bind(this)
 
     this.overlay.addEventListener('click', () => {
+      if (this.isLoading) {
+        return
+      }
       this.close(false)
     })
   }
@@ -217,6 +221,11 @@ export class DialogManager {
 
   private handleKeyDown(event: KeyboardEvent) {
     if (!this.isOpen) {
+      return
+    }
+    if (this.isLoading) {
+      event.preventDefault()
+      event.stopPropagation()
       return
     }
     const key = event.key
@@ -442,5 +451,24 @@ export class DialogManager {
         }
       }, 100)
     })
+  }
+
+  showLoading(message: string): void {
+    if (this.isOpen) {
+      return
+    }
+    this.isLoading = true
+    this.messageBox.textContent = message
+    this.buttonsContainer.innerHTML = ''
+    this.activeButtons.length = 0
+    this.open()
+  }
+
+  hideLoading(): void {
+    if (!this.isLoading) {
+      return
+    }
+    this.isLoading = false
+    this.close(null)
   }
 }

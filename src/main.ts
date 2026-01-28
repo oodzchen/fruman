@@ -319,6 +319,7 @@ async function initialize() {
   console.table(paramLog)
 
   const editorManager = new EditorManager()
+  editorManager.setGameClient(game)
   editorManager.onBackToMenu(() => {
     game.setEditorPreview(false)
     game.clearMapPreview()

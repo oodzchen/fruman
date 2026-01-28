@@ -181,6 +181,7 @@ export async function saveEditorMap(
       createdAt: meta.createdAt,
       updatedAt: Date.now(),
       isDefault: meta.isDefault,
+      thumbnail: meta.thumbnail,
     }
     const dataRecord: StoredMapDataRecord = { id: meta.id, data }
 
@@ -208,6 +209,7 @@ export async function saveEditorMapMeta(
       createdAt: meta.createdAt,
       updatedAt: Date.now(),
       isDefault: meta.isDefault,
+      thumbnail: meta.thumbnail,
     }
 
     return new Promise((resolve) => {
