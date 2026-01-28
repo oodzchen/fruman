@@ -122,7 +122,12 @@ export class MovementSystem extends System {
     // 获取实时速度用于接触检测（关键：保证物理逻辑正确）
     const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
     const velY = vel.y
-    const isFallingOrStill = velY >= -0.1
+    const velX = vel.x
+    const slopeGroundVelocityMin = -2.5
+    const slopeMoveSpeedMin = 0.1
+    const isMovingAlongSurface = Math.abs(velX) >= slopeMoveSpeedMin
+    const isFallingOrStill =
+      velY >= -0.1 || (isMovingAlongSurface && velY >= slopeGroundVelocityMin)
     vel.delete()
     const capacity = b2Body_GetContactCapacity(entity.physics.bodyId)
     const contactData = b2Body_GetContactData(entity.physics.bodyId, capacity)
