@@ -203,8 +203,8 @@ export class MovementSystem extends System {
   ): void {
     if (!entity.physics || !entity.movement) return
 
-    const shouldSlide = touchingWall && !grounded
-    const targetFriction = shouldSlide
+    const shouldUseAirFriction = !grounded
+    const targetFriction = shouldUseAirFriction
       ? DEFAULT_WALL_SLIDE_FRICTION
       : entity.movement.bodyFriction
     if (entity.movement.currentFriction === targetFriction) return
@@ -580,7 +580,12 @@ export class MovementSystem extends System {
       b2Body_ApplyLinearImpulseToCenter,
       b2Body_SetLinearVelocity,
       b2Body_GetMass,
+      b2Shape_SetFriction,
     } = this.box2d
+
+    // 立即设置摩擦力为0，防止起跳第一帧若贴墙产生摩擦导致跳跃高度降低
+    b2Shape_SetFriction(entity.physics.shapeId, DEFAULT_WALL_SLIDE_FRICTION)
+    entity.movement.currentFriction = DEFAULT_WALL_SLIDE_FRICTION
 
     const mass = b2Body_GetMass(entity.physics.bodyId)
     const weightFactor = this.getWeightFactor(entity)
