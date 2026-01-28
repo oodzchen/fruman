@@ -108,21 +108,7 @@ export class DialogManager {
   }
 
   private applyButtonStyle(button: HTMLButtonElement, selected: boolean) {
-    const isPrimary = button.dataset.primary === '1'
-    button.dataset.selected = selected ? '1' : '0'
-    if (selected) {
-      button.style.color = '#ffffff'
-      button.style.background = 'rgba(120, 100, 60, 0.5)'
-      button.style.borderColor = 'rgba(255, 255, 255, 0.4)'
-      return
-    }
-    button.style.color = isPrimary ? '#ffffff' : '#aaaaaa'
-    button.style.background = isPrimary
-      ? 'rgba(120, 100, 60, 0.4)'
-      : 'transparent'
-    button.style.borderColor = isPrimary
-      ? 'rgba(255, 255, 255, 0.32)'
-      : 'rgba(255, 255, 255, 0.2)'
+    button.classList.toggle('is-selected', selected)
   }
 
   private setDialogButtons(buttons: HTMLButtonElement[]) {
@@ -287,28 +273,9 @@ export class DialogManager {
   ): HTMLButtonElement {
     const button = document.createElement('button')
     button.textContent = text
+    button.className = 'editor-action-btn'
     button.dataset.primary = isPrimary ? '1' : '0'
-    button.style.cssText = `
-      min-width: 100px;
-      height: 32px;
-      line-height: 32px;
-      font-size: 14px;
-      color: ${isPrimary ? '#ffffff' : '#aaaaaa'};
-      background: ${isPrimary ? 'rgba(120, 100, 60, 0.4)' : 'transparent'};
-      border: 1px solid ${isPrimary ? 'rgba(255, 255, 255, 0.32)' : 'rgba(255, 255, 255, 0.2)'};
-      padding: 0 16px;
-      cursor: pointer;
-      font-family: monospace;
-      box-sizing: border-box;
-    `
-
-    button.addEventListener('mouseenter', () => {
-      this.applyButtonStyle(button, true)
-    })
-
-    button.addEventListener('mouseleave', () => {
-      this.applyButtonStyle(button, button.dataset.selected === '1')
-    })
+    button.style.minWidth = '100px'
 
     button.addEventListener('click', onClick)
     return button
