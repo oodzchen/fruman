@@ -435,9 +435,14 @@ export class EditorManager {
   private editorMapList: HTMLDivElement
   private editorMapListItems: HTMLButtonElement[] = []
   private editorMapListSelectedIndex = 0
+  private lastSelectedMapIndex = -1
   private mapListBackIndex = 0
+  private mapListCreateMapIndex = -1
+  private mapListRenameMapIndex = -1
+  private mapListDefaultMapIndex = -1
   private mapListFocusId: string | null = null
   private editorMapListMenu: HTMLDivElement
+  private editorMapCreateBtn: HTMLButtonElement
   private editorMapRenameBtn: HTMLButtonElement
   private editorMapDefaultBtn: HTMLButtonElement
   private editorActions: HTMLDivElement
@@ -583,6 +588,7 @@ export class EditorManager {
     const mapList = document.getElementById('editorMapList')
     const actions = document.getElementById('editorActions')
     const mapListMenu = document.getElementById('editorMapListMenu')
+    const mapCreateBtn = document.getElementById('editorMapCreateBtn')
     const mapRenameBtn = document.getElementById('editorMapRenameBtn')
     const mapDefaultBtn = document.getElementById('editorMapDefaultBtn')
     const previewBtn = document.getElementById('editorPreviewBtn')
@@ -664,6 +670,7 @@ export class EditorManager {
       !(mapList instanceof HTMLDivElement) ||
       !(actions instanceof HTMLDivElement) ||
       !(mapListMenu instanceof HTMLDivElement) ||
+      !(mapCreateBtn instanceof HTMLButtonElement) ||
       !(mapRenameBtn instanceof HTMLButtonElement) ||
       !(mapDefaultBtn instanceof HTMLButtonElement) ||
       !(previewBtn instanceof HTMLButtonElement) ||
@@ -709,6 +716,7 @@ export class EditorManager {
     this.editorMapList = mapList
     this.editorActions = actions
     this.editorMapListMenu = mapListMenu
+    this.editorMapCreateBtn = mapCreateBtn
     this.editorMapRenameBtn = mapRenameBtn
     this.editorMapDefaultBtn = mapDefaultBtn
     this.editorPreviewBtn = previewBtn
@@ -775,6 +783,10 @@ export class EditorManager {
 
     this.editorSaveBtn.addEventListener('click', () => {
       void this.handleSave()
+    })
+
+    this.editorMapCreateBtn.addEventListener('click', () => {
+      void this.handleCreateMap()
     })
 
     this.editorMapRenameBtn.addEventListener('click', () => {
@@ -975,6 +987,7 @@ export class EditorManager {
     this.editorBackBtn.textContent = localizer.t('editor_back_to_menu')
     this.editorPreviewBtn.textContent = localizer.t('editor_preview')
     this.editorSaveBtn.textContent = localizer.t('editor_save')
+    this.editorMapCreateBtn.textContent = localizer.t('editor_create_map')
     this.editorMapRenameBtn.textContent = localizer.t('editor_map_rename')
     this.editorMapDefaultBtn.textContent = localizer.t('editor_map_set_default')
     this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')
@@ -1268,13 +1281,9 @@ export class EditorManager {
     }
     if (key === 'Enter' || key === ' ') {
       event.preventDefault()
-      if (this.editorMapListSelectedIndex === this.mapListBackIndex) {
-        this.handleBack()
-        return
-      }
-      const item = this.editorMapListItems[this.editorMapListSelectedIndex]
-      if (item) {
-        item.click()
+      const element = this.getMapListNavElement(this.editorMapListSelectedIndex)
+      if (element) {
+        element.click()
       }
       return
     }
@@ -1303,8 +1312,13 @@ export class EditorManager {
     if (this.editorMapListItems.length === 0) {
       return
     }
-    const maxIndex = this.mapListBackIndex
+    const maxIndex = this.mapListDefaultMapIndex
     const nextIndex = forceFirst ? 0 : Math.max(0, Math.min(index, maxIndex))
+
+    if (nextIndex < this.editorMapListItems.length) {
+      this.lastSelectedMapIndex = nextIndex
+    }
+
     if (nextIndex === this.editorMapListSelectedIndex) {
       this.applyMapListSelection()
       return
@@ -1317,14 +1331,35 @@ export class EditorManager {
     for (let i = 0; i < this.editorMapListItems.length; i++) {
       this.editorMapListItems[i].classList.toggle(
         'is-selected',
-        i === this.editorMapListSelectedIndex
+        i === this.lastSelectedMapIndex
       )
     }
     this.editorBackBtn.classList.toggle(
       'is-selected',
       this.editorMapListSelectedIndex === this.mapListBackIndex
     )
+    this.editorMapCreateBtn.classList.toggle(
+      'is-selected',
+      this.editorMapListSelectedIndex === this.mapListCreateMapIndex
+    )
+    this.editorMapRenameBtn.classList.toggle(
+      'is-selected',
+      this.editorMapListSelectedIndex === this.mapListRenameMapIndex
+    )
+    this.editorMapDefaultBtn.classList.toggle(
+      'is-selected',
+      this.editorMapListSelectedIndex === this.mapListDefaultMapIndex
+    )
     this.updateMapListMenuVisibility()
+
+    if (
+      this.editorMapListSelectedIndex >= 0 &&
+      this.editorMapListSelectedIndex < this.editorMapListItems.length
+    ) {
+      const selectedItem =
+        this.editorMapListItems[this.editorMapListSelectedIndex]
+      selectedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
   }
 
   private clearMapListSelection() {
@@ -1332,14 +1367,20 @@ export class EditorManager {
       this.editorMapListItems[i].classList.remove('is-selected')
     }
     this.editorBackBtn.classList.remove('is-selected')
+    this.editorMapCreateBtn.classList.remove('is-selected')
+    this.editorMapRenameBtn.classList.remove('is-selected')
+    this.editorMapDefaultBtn.classList.remove('is-selected')
     this.editorMapListMenu.classList.remove('is-visible')
   }
 
   private getSelectedMapId(): string | null {
-    if (this.editorMapListSelectedIndex >= this.editorMapListItems.length) {
+    if (
+      this.lastSelectedMapIndex < 0 ||
+      this.lastSelectedMapIndex >= this.editorMapListItems.length
+    ) {
       return null
     }
-    const button = this.editorMapListItems[this.editorMapListSelectedIndex]
+    const button = this.editorMapListItems[this.lastSelectedMapIndex]
     return button?.dataset.mapId ?? null
   }
 
@@ -1357,12 +1398,22 @@ export class EditorManager {
   }
 
   private getMapListNavCount(): number {
-    return this.editorMapListItems.length + 1
+    // Items + Back + Create + Rename + Default
+    return this.editorMapListItems.length + 4
   }
 
   private getMapListNavElement(index: number): HTMLButtonElement | null {
     if (index === this.mapListBackIndex) {
       return this.editorBackBtn
+    }
+    if (index === this.mapListCreateMapIndex) {
+      return this.editorMapCreateBtn
+    }
+    if (index === this.mapListRenameMapIndex) {
+      return this.editorMapRenameBtn
+    }
+    if (index === this.mapListDefaultMapIndex) {
+      return this.editorMapDefaultBtn
     }
     if (index < 0 || index >= this.editorMapListItems.length) {
       return null
@@ -1594,6 +1645,7 @@ export class EditorManager {
     this.editorMapListView.style.display = 'flex'
     this.editorCanvas.style.display = 'none'
     this.editorActions.style.display = 'none'
+    this.editorMapListMenu.style.display = 'flex'
     this.hidePanelMenu()
     this.hideObjectTypeMenu()
     this.hideGroundSubmenu()
@@ -1608,6 +1660,7 @@ export class EditorManager {
   private showEditorView() {
     this.currentView = EditorView.Editor
     this.editorMapListView.style.display = 'none'
+    this.editorMapListMenu.style.display = 'none'
     this.editorSidebar.style.display = this.panelCollapsed ? 'none' : 'block'
     this.editorActions.style.display = 'flex'
     if (this.panelCollapsed) {
@@ -1629,62 +1682,52 @@ export class EditorManager {
   private renderMapList() {
     this.editorMapList.innerHTML = ''
     this.editorMapListItems.length = 0
-    this.mapListBackIndex = 0
-
-    if (this.maps.length === 0) {
-      const createBtn = document.createElement('button')
-      createBtn.className = 'editor-map-item'
-      createBtn.textContent = `+ ${localizer.t('editor_create_map')}`
-      createBtn.addEventListener('click', () => {
-        void this.handleCreateMap()
-      })
-      createBtn.dataset.index = '0'
-      createBtn.addEventListener(
-        'mouseenter',
-        this.boundHandleMapListMouseEnter
-      )
-      this.editorMapList.appendChild(createBtn)
-      this.editorMapListItems.push(createBtn)
-      this.mapListBackIndex = this.editorMapListItems.length
-      return
-    }
 
     let index = 0
     for (let i = 0; i < this.maps.length; i++) {
       const map = this.maps[i]
-      const defaultTag = map.isDefault
-        ? ` ${localizer.t('editor_map_default_tag')}`
-        : ''
       const item = document.createElement('button')
       item.className = 'editor-map-item'
-
-      item.style.display = 'flex'
-      item.style.alignItems = 'center'
 
       if (map.thumbnail) {
         const img = document.createElement('img')
         img.src = map.thumbnail
-        img.style.width = '60px'
-        img.style.height = '48px'
-        img.style.marginRight = '12px'
+        img.style.width = '100px'
+        img.style.height = '80px'
         img.style.objectFit = 'cover'
         img.style.borderRadius = '4px'
         img.style.border = '1px solid rgba(255,255,255,0.2)'
+        img.style.flexShrink = '0'
         item.appendChild(img)
       } else {
         const placeholder = document.createElement('div')
-        placeholder.style.width = '60px'
-        placeholder.style.height = '48px'
-        placeholder.style.marginRight = '12px'
+        placeholder.style.width = '100px'
+        placeholder.style.height = '80px'
         placeholder.style.backgroundColor = 'rgba(0,0,0,0.2)'
         placeholder.style.borderRadius = '4px'
         placeholder.style.border = '1px dashed rgba(255,255,255,0.1)'
+        placeholder.style.flexShrink = '0'
         item.appendChild(placeholder)
       }
 
-      const span = document.createElement('span')
-      span.textContent = `${map.name}${defaultTag}`
-      item.appendChild(span)
+      const textContainer = document.createElement('div')
+      textContainer.style.display = 'flex'
+      textContainer.style.alignItems = 'center'
+      textContainer.style.gap = '8px'
+
+      const nameSpan = document.createElement('span')
+      nameSpan.textContent = map.name
+      textContainer.appendChild(nameSpan)
+
+      if (map.isDefault) {
+        const tagSpan = document.createElement('span')
+        tagSpan.textContent = localizer.t('editor_map_default_tag')
+        tagSpan.style.fontSize = '14px'
+        tagSpan.style.color = 'rgba(255, 255, 255, 0.4)'
+        textContainer.appendChild(tagSpan)
+      }
+
+      item.appendChild(textContainer)
 
       item.dataset.mapId = map.id
       item.addEventListener('click', () => {
@@ -1697,17 +1740,10 @@ export class EditorManager {
       index += 1
     }
 
-    const createBtn = document.createElement('button')
-    createBtn.className = 'editor-map-item'
-    createBtn.textContent = `+ ${localizer.t('editor_create_map')}`
-    createBtn.addEventListener('click', () => {
-      void this.handleCreateMap()
-    })
-    createBtn.dataset.index = String(index)
-    createBtn.addEventListener('mouseenter', this.boundHandleMapListMouseEnter)
-    this.editorMapList.appendChild(createBtn)
-    this.editorMapListItems.push(createBtn)
     this.mapListBackIndex = this.editorMapListItems.length
+    this.mapListCreateMapIndex = this.editorMapListItems.length + 1
+    this.mapListRenameMapIndex = this.editorMapListItems.length + 2
+    this.mapListDefaultMapIndex = this.editorMapListItems.length + 3
   }
 
   private loadMap(mapId: string) {

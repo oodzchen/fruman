@@ -17,6 +17,24 @@
         padding: 5px;
         overflow: hidden;
       }
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.5);
+      }
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.2);
+      }
       #gameContainer {
         display: flex;
         gap: 10px;
@@ -529,6 +547,11 @@
         background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.32);
       }
+      .editor-action-btn.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.32);
+      }
       .preview-exit-btn {
         position: absolute;
         left: 12px;
@@ -588,21 +611,30 @@
         flex-direction: column;
         align-items: center;
         gap: 10px;
+        max-height: 460px;
+        overflow: auto;
       }
       .editor-map-item {
         position: relative;
-        width: 300px;
-        height: 34px;
-        line-height: 34px;
+        width: 600px;
+        min-height: 34px;
         font-size: 20px;
         color: var(--ui-muted);
         background: transparent;
         border: none;
-        padding: 0 16px;
+        padding: 8px 16px;
         cursor: pointer;
-        text-align: center;
+        text-align: left;
         font-family: var(--ui-font);
         box-sizing: border-box;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+      }
+      .editor-map-item.create-btn {
+        justify-content: center;
       }
       .editor-map-item:hover {
         color: var(--ui-color);
@@ -897,6 +929,10 @@
                   id="editorMapListMenu"
                   class="editor-actions editor-map-actions"
                 >
+                  <button
+                    id="editorMapCreateBtn"
+                    class="editor-action-btn"
+                  ></button>
                   <button
                     id="editorMapRenameBtn"
                     class="editor-action-btn"
