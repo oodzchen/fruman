@@ -255,14 +255,18 @@ let lastVerticalUnlockTime = 0
 let initialPlayerScreenRatioY = 0.95 // Default to near bottom
 let verticalIdleTime = 0
 let verticalTransitionTargetRatio = 0.5
+let verticalTransitionIsUnlock = false
 
-const TRANSITION_DURATION = 3.0
+const TRANSITION_DURATION = 3
+const VERTICAL_TRANSITION_DURATION = 6
 const UNLOCK_COOLDOWN = 0.2
 const OUTSIDE_THIRD_RELOCK_DELAY = 0.15
 const CAMERA_FORWARD_OFFSET = 0.67 // 2/3 角色宽度前向偏移
 const VERTICAL_LOCK_SCREEN_RATIO = 0.5
-const VERTICAL_UNLOCK_DELAY = 3.0
+const VERTICAL_UNLOCK_DELAY = 3
 const VERTICAL_IDLE_SPEED = 0.1
+const VERTICAL_UNLOCK_FOLLOW_TIME_MS = 1800
+const VERTICAL_FOLLOW_LERP = 0.08
 
 // Reusable message object for sendState
 const stateMessage: WorkerStateMessage = {
@@ -1827,6 +1831,7 @@ function updateCamera(playerX: number) {
         verticalTransitionStartTime = currentTime
         verticalTransitionStartCameraY = camera.y
         verticalTransitionTargetRatio = VERTICAL_LOCK_SCREEN_RATIO
+        verticalTransitionIsUnlock = false
         verticalIdleTime = 0
       }
     }
@@ -1850,6 +1855,7 @@ function updateCamera(playerX: number) {
             verticalTransitionStartTime = currentTime
             verticalTransitionStartCameraY = camera.y
             verticalTransitionTargetRatio = initialPlayerScreenRatioY
+            verticalTransitionIsUnlock = true
             lastVerticalUnlockTime = currentTime
             verticalIdleTime = 0
           }
@@ -1873,7 +1879,7 @@ function updateCamera(playerX: number) {
 
       if (isVerticalTransitioning) {
         const elapsed = currentTime - verticalTransitionStartTime
-        const progress = Math.min(elapsed / TRANSITION_DURATION, 1)
+        const progress = Math.min(elapsed / VERTICAL_TRANSITION_DURATION, 1)
 
         if (progress >= 1) {
           isVerticalTransitioning = false
@@ -1892,10 +1898,14 @@ function updateCamera(playerX: number) {
     }
   }
 
-  // Vertical Interpolation (Slower)
+  // Vertical Interpolation (Time-based smoothing)
   const diffY = desiredCameraY - camera.y
+  const lerp =
+    isVerticalTransitioning && verticalTransitionIsUnlock
+      ? 1 - Math.exp((-TIME_STEP * 1000) / VERTICAL_UNLOCK_FOLLOW_TIME_MS)
+      : VERTICAL_FOLLOW_LERP
   if (Math.abs(diffY) > 0.001) {
-    camera.y += diffY * 0.08
+    camera.y += diffY * lerp
   } else {
     camera.y = desiredCameraY
   }
