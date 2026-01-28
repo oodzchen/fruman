@@ -98,11 +98,26 @@
         color: var(--ui-muted);
         background: transparent;
         border: none;
-        padding: 0;
+        padding: 0 12px;
         cursor: pointer;
         text-align: center;
         font-family: var(--ui-font);
         pointer-events: auto;
+      }
+      .menu-item.menu-item-back {
+        width: auto;
+        height: 34px;
+        line-height: 34px;
+        font-size: 14px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        text-align: center;
+      }
+      .menu-item.menu-item-back.is-selected,
+      .menu-item.menu-item-back:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.32);
       }
       .menu-item.is-selected {
         color: var(--ui-color);
@@ -298,13 +313,13 @@
       }
       .editor-object-node:hover {
         color: var(--ui-color);
-        border-color: rgba(255, 255, 255, 0.16);
-        background: rgba(120, 100, 60, 0.2);
+        border-color: rgba(255, 255, 255, 0.28);
+        background: var(--ui-highlight);
       }
       .editor-object-node.is-selected {
         color: var(--ui-color);
         border-color: rgba(255, 255, 255, 0.28);
-        background: rgba(120, 100, 60, 0.32);
+        background: var(--ui-highlight);
       }
       .editor-object-node.is-drop-before {
         border-top: 2px solid rgba(240, 220, 180, 0.9);
@@ -341,6 +356,10 @@
         box-sizing: border-box;
       }
       .editor-object-item:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-object-item.is-selected {
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
@@ -397,6 +416,17 @@
       .editor-submenu.is-visible {
         display: flex;
       }
+      .editor-submenu-back {
+        margin-top: 4px;
+        color: var(--ui-muted);
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-size: 14px;
+        height: 34px;
+        line-height: 34px;
+        padding: 0 12px;
+        text-align: center;
+      }
       .editor-context-menu {
         position: fixed;
         display: none;
@@ -432,7 +462,7 @@
       }
       .editor-context-menu-item:hover {
         color: var(--ui-color);
-        background: rgba(120, 100, 60, 0.35);
+        background: var(--ui-highlight);
       }
       .editor-submenu-item {
         width: 100%;
@@ -452,6 +482,15 @@
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
+      .editor-submenu-back:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.32);
+      }
+      .editor-submenu-item.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
       .editor-workspace {
         position: absolute;
         inset: 0;
@@ -467,7 +506,6 @@
         pointer-events: auto;
       }
       .editor-action-btn {
-        min-width: 96px;
         height: 34px;
         line-height: 34px;
         font-size: 14px;
@@ -482,14 +520,13 @@
       }
       .editor-action-btn:hover {
         color: var(--ui-color);
-        background: rgba(120, 100, 60, 0.4);
+        background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.32);
       }
       .preview-exit-btn {
         position: absolute;
         left: 12px;
         top: 12px;
-        min-width: 120px;
         height: 34px;
         line-height: 34px;
         font-size: 14px;
@@ -507,7 +544,7 @@
       }
       .preview-exit-btn:hover {
         color: var(--ui-color);
-        background: rgba(120, 100, 60, 0.45);
+        background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.34);
       }
       .editor-canvas {
@@ -565,20 +602,23 @@
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
+      .editor-map-item.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
       .editor-back-item {
         position: absolute;
         left: 12px;
         bottom: 12px;
-        width: 200px;
         height: 34px;
         line-height: 34px;
-        font-size: 16px;
+        font-size: 14px;
         color: var(--ui-muted);
-        background: transparent;
-        border: none;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         padding: 0 12px;
         cursor: pointer;
-        text-align: left;
+        text-align: center;
         font-family: var(--ui-font);
         pointer-events: auto;
         box-sizing: border-box;
@@ -587,6 +627,12 @@
       .editor-back-item:hover {
         color: var(--ui-color);
         background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.32);
+      }
+      .editor-back-item.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.32);
       }
       #editorPropertiesModal {
         position: absolute;
@@ -665,6 +711,10 @@
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
+      .editor-modal-btn.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
     </style>
   </head>
   <body>
@@ -716,6 +766,10 @@
                     class="editor-object-item"
                     data-type="obstacle"
                   ></button>
+                  <button
+                    class="editor-object-item editor-submenu-back"
+                    data-action="back"
+                  ></button>
                 </div>
               </div>
               <div id="editorGroundSubmenu" class="editor-submenu">
@@ -732,6 +786,10 @@
                   class="editor-submenu-item"
                   data-shape="polygon"
                 ></button>
+                <button
+                  class="editor-submenu-item editor-submenu-back"
+                  data-action="back"
+                ></button>
               </div>
               <div id="editorObstacleSubmenu" class="editor-submenu">
                 <button class="editor-submenu-item" data-shape="rect"></button>
@@ -746,6 +804,10 @@
                 <button
                   class="editor-submenu-item"
                   data-shape="polygon"
+                ></button>
+                <button
+                  class="editor-submenu-item editor-submenu-back"
+                  data-action="back"
                 ></button>
               </div>
               <div id="editorWeaponMenu" class="editor-submenu">
@@ -782,6 +844,10 @@
                   ></div>
                   <div class="editor-submenu-group-list"></div>
                 </div>
+                <button
+                  class="editor-submenu-item editor-submenu-back"
+                  data-action="back"
+                ></button>
               </div>
               <div id="editorPolygonMenu" class="editor-context-menu">
                 <button

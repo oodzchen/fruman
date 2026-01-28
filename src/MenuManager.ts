@@ -255,6 +255,7 @@ export class MenuManager {
     if (!item || !element) return
     const isSelected = index === this.selectedIndex
     element.classList.toggle('is-selected', isSelected)
+    element.classList.toggle('menu-item-back', item.action === MenuAction.Back)
     element.textContent = this.buildMenuItemText(item, isSelected)
   }
 

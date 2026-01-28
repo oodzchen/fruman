@@ -267,6 +267,9 @@ export class GameClient {
       const key = e.key.toLowerCase()
 
       if (key === 'escape') {
+        if (this.isEditorOverlayVisible()) {
+          return
+        }
         e.preventDefault()
         if (this.menuManager.isVisible()) {
           this.menuManager.hide()

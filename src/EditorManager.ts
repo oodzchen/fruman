@@ -378,6 +378,14 @@ export enum ObjectType {
   Obstacle = 'obstacle',
 }
 
+enum EditorSubmenuMode {
+  None = 'none',
+  Object = 'object',
+  Ground = 'ground',
+  Obstacle = 'obstacle',
+  Weapon = 'weapon',
+}
+
 interface EditorMap {
   id: string
   name: string
@@ -421,6 +429,9 @@ export class EditorManager {
   private gameCanvas: HTMLCanvasElement
   private editorMapListView: HTMLDivElement
   private editorMapList: HTMLDivElement
+  private editorMapListItems: HTMLButtonElement[] = []
+  private editorMapListSelectedIndex = 0
+  private mapListBackIndex = 0
   private editorActions: HTMLDivElement
   private editorPreviewBtn: HTMLButtonElement
   private editorSaveBtn: HTMLButtonElement
@@ -431,19 +442,24 @@ export class EditorManager {
   private groundMenuItem: HTMLButtonElement
   private groundSubmenu: HTMLDivElement
   private groundSubmenuItems: NodeListOf<HTMLButtonElement>
+  private groundSubmenuBackBtn: HTMLButtonElement
   private obstacleMenuItem: HTMLButtonElement
   private obstacleSubmenu: HTMLDivElement
   private obstacleSubmenuItems: NodeListOf<HTMLButtonElement>
+  private obstacleSubmenuBackBtn: HTMLButtonElement
   private weaponMenuItem: HTMLButtonElement
   private weaponMenu: HTMLDivElement
   private weaponGroupTitles: NodeListOf<HTMLDivElement>
   private weaponItems: NodeListOf<HTMLButtonElement>
+  private weaponMenuBackBtn: HTMLButtonElement
+  private objectTypeMenuBackBtn: HTMLButtonElement
 
   private propertiesModal: HTMLDivElement
   private propertiesTitle: HTMLHeadingElement
   private propertiesForm: HTMLDivElement
   private propertiesConfirmBtn: HTMLButtonElement
   private propertiesCancelBtn: HTMLButtonElement
+  private propertiesSelectedIndex = 0
   private polygonMenu: HTMLDivElement
   private polygonMenuButtons: HTMLButtonElement[] = []
   private dialogManager: DialogManager
@@ -506,6 +522,10 @@ export class EditorManager {
   private panelMenuY = 0
   private objectTypeMenuX = 0
   private objectTypeMenuY = 0
+  private editorMenuMode: EditorSubmenuMode = EditorSubmenuMode.None
+  private editorMenuSelectedIndex = 0
+  private boundHandleEditorMenuMouseEnter: (event: Event) => void
+  private boundHandleMapListMouseEnter: (event: Event) => void
   private focusedEditorObject: fabric.Object | null = null
   private dragObjectId = -1
   private dragTargetId = -1
@@ -567,9 +587,15 @@ export class EditorManager {
     const groundSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorGroundSubmenu .editor-submenu-item'
     )
+    const groundSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
+      '#editorGroundSubmenu .editor-submenu-item[data-action="back"]'
+    )
     const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
     const obstacleSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorObstacleSubmenu .editor-submenu-item'
+    )
+    const obstacleSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
+      '#editorObstacleSubmenu .editor-submenu-item[data-action="back"]'
     )
     const weaponMenu = document.querySelector<HTMLButtonElement>(
       '.editor-object-item[data-type="weapon"]'
@@ -581,7 +607,13 @@ export class EditorManager {
     const weaponItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorWeaponMenu .editor-submenu-item'
     )
+    const weaponMenuBackBtn = document.querySelector<HTMLButtonElement>(
+      '#editorWeaponMenu .editor-submenu-item[data-action="back"]'
+    )
     const objectTypeMenu = document.getElementById('editorObjectTypeMenu')
+    const objectTypeMenuBackBtn = document.querySelector<HTMLButtonElement>(
+      '#editorObjectTypeMenu .editor-object-item[data-action="back"]'
+    )
 
     const modal = document.getElementById('editorPropertiesModal')
     const modalTitle = document.getElementById('editorPropertiesTitle')
@@ -622,10 +654,13 @@ export class EditorManager {
       !(saveBtn instanceof HTMLButtonElement) ||
       !(groundMenu instanceof HTMLButtonElement) ||
       !(groundSubmenu instanceof HTMLDivElement) ||
+      !(groundSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(obstacleMenu instanceof HTMLButtonElement) ||
       !(obstacleSubmenu instanceof HTMLDivElement) ||
+      !(obstacleSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(weaponMenu instanceof HTMLButtonElement) ||
       !(weaponSubmenu instanceof HTMLDivElement) ||
+      !(weaponMenuBackBtn instanceof HTMLButtonElement) ||
       !(modal instanceof HTMLDivElement) ||
       !(modalTitle instanceof HTMLHeadingElement) ||
       !(modalForm instanceof HTMLDivElement) ||
@@ -635,6 +670,7 @@ export class EditorManager {
       !(panelMenu instanceof HTMLDivElement) ||
       !(panelMenuAdd instanceof HTMLButtonElement) ||
       !(objectTypeMenu instanceof HTMLDivElement) ||
+      !(objectTypeMenuBackBtn instanceof HTMLButtonElement) ||
       !(polygonMenuPrimary instanceof HTMLButtonElement) ||
       !(polygonMenuSecondary instanceof HTMLButtonElement) ||
       !(polygonMenuTertiary instanceof HTMLButtonElement) ||
@@ -665,13 +701,17 @@ export class EditorManager {
     this.groundMenuItem = groundMenu
     this.groundSubmenu = groundSubmenu
     this.groundSubmenuItems = groundSubmenuItems
+    this.groundSubmenuBackBtn = groundSubmenuBackBtn
     this.obstacleMenuItem = obstacleMenu
     this.obstacleSubmenu = obstacleSubmenu
     this.obstacleSubmenuItems = obstacleSubmenuItems
+    this.obstacleSubmenuBackBtn = obstacleSubmenuBackBtn
     this.weaponMenuItem = weaponMenu
     this.weaponMenu = weaponSubmenu
     this.weaponGroupTitles = weaponGroupTitles
     this.weaponItems = weaponItems
+    this.weaponMenuBackBtn = weaponMenuBackBtn
+    this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
 
     this.propertiesModal = modal
     this.propertiesTitle = modalTitle
@@ -687,6 +727,10 @@ export class EditorManager {
     ]
 
     this.dialogManager = new DialogManager(this.editorOverlay)
+    this.boundHandleEditorMenuMouseEnter =
+      this.handleEditorMenuItemMouseEnter.bind(this)
+    this.boundHandleMapListMouseEnter =
+      this.handleMapListItemMouseEnter.bind(this)
 
     this.setupEventListeners()
     this.updateLocalization()
@@ -698,6 +742,12 @@ export class EditorManager {
   private setupEventListeners() {
     this.editorBackBtn.addEventListener('click', () => {
       this.handleBack()
+    })
+    this.editorBackBtn.addEventListener('mouseenter', () => {
+      if (this.currentView !== EditorView.MapList) {
+        return
+      }
+      this.setMapListSelectedIndex(this.mapListBackIndex, false)
     })
 
     this.editorPreviewBtn.addEventListener('click', () => {
@@ -718,10 +768,19 @@ export class EditorManager {
 
     this.editorObjectItems.forEach((item) => {
       item.addEventListener('click', () => {
-        const type = item.dataset.type as ObjectType
+        const action = item.dataset.action
+        if (action === 'back') {
+          this.handleEditorMenuBack()
+          return
+        }
+        const type = item.dataset.type as ObjectType | undefined
+        if (!type) {
+          return
+        }
         this.handleObjectClick(type)
       })
     })
+    this.bindEditorMenuItems(this.editorObjectItems, EditorSubmenuMode.Object)
 
     this.editorObjectTree.addEventListener('click', (event) => {
       const target = event.target as HTMLElement | null
@@ -735,19 +794,45 @@ export class EditorManager {
 
     this.groundSubmenuItems.forEach((item) => {
       item.addEventListener('click', () => {
-        const shape = item.dataset.shape as GroundShapeType
+        const action = item.dataset.action
+        if (action === 'back') {
+          this.handleEditorMenuBack()
+          return
+        }
+        const shape = item.dataset.shape as GroundShapeType | undefined
+        if (!shape) {
+          return
+        }
         this.handleGroundShapeClick(shape)
       })
     })
     this.obstacleSubmenuItems.forEach((item) => {
       item.addEventListener('click', () => {
-        const shape = item.dataset.shape as GroundShapeType
+        const action = item.dataset.action
+        if (action === 'back') {
+          this.handleEditorMenuBack()
+          return
+        }
+        const shape = item.dataset.shape as GroundShapeType | undefined
+        if (!shape) {
+          return
+        }
         this.handleObstacleShapeClick(shape)
       })
     })
+    this.bindEditorMenuItems(this.groundSubmenuItems, EditorSubmenuMode.Ground)
+    this.bindEditorMenuItems(
+      this.obstacleSubmenuItems,
+      EditorSubmenuMode.Obstacle
+    )
 
     this.weaponItems.forEach((item) => {
       item.addEventListener('click', () => {
+        const action = item.dataset.action
+        if (action === 'back') {
+          this.handleEditorMenuBack()
+          return
+        }
         const weaponType = item.dataset.weapon as WeaponType | undefined
         const category = item.dataset.category as WeaponCategory | undefined
         if (!weaponType || !category) {
@@ -756,6 +841,7 @@ export class EditorManager {
         this.handleWeaponTypeClick(weaponType, category)
       })
     })
+    this.bindEditorMenuItems(this.weaponItems, EditorSubmenuMode.Weapon)
 
     this.propertiesConfirmBtn.addEventListener('click', () => {
       this.handlePropertiesConfirm()
@@ -852,6 +938,10 @@ export class EditorManager {
       },
       true
     )
+
+    window.addEventListener('keydown', (event) => {
+      this.handleEditorMenuKeyDown(event)
+    })
   }
 
   private updateLocalization() {
@@ -900,7 +990,451 @@ export class EditorManager {
         item.textContent = localizer.t(`editor_weapon_${weapon}`)
       }
     })
+    this.objectTypeMenuBackBtn.textContent = localizer.t('menu_back')
+    this.groundSubmenuBackBtn.textContent = localizer.t('menu_back')
+    this.obstacleSubmenuBackBtn.textContent = localizer.t('menu_back')
+    this.weaponMenuBackBtn.textContent = localizer.t('menu_back')
     this.renderObjectTree()
+  }
+
+  private bindEditorMenuItems(
+    items: NodeListOf<HTMLButtonElement>,
+    mode: EditorSubmenuMode
+  ) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      item.dataset.menuIndex = String(i)
+      item.dataset.menuMode = mode
+      item.addEventListener('mouseenter', this.boundHandleEditorMenuMouseEnter)
+    }
+  }
+
+  private handleEditorMenuItemMouseEnter(event: Event) {
+    if (!this.visible || this.currentView !== EditorView.Editor) {
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.None) {
+      return
+    }
+    const target = event.currentTarget
+    if (!(target instanceof HTMLButtonElement)) {
+      return
+    }
+    const mode = target.dataset.menuMode as EditorSubmenuMode | undefined
+    if (!mode || mode !== this.editorMenuMode) {
+      return
+    }
+    const index = Number.parseInt(target.dataset.menuIndex ?? '', 10)
+    if (!Number.isFinite(index)) {
+      return
+    }
+    this.setEditorMenuSelectedIndex(index)
+  }
+
+  private getEditorMenuItems(
+    mode: EditorSubmenuMode
+  ): NodeListOf<HTMLButtonElement> {
+    switch (mode) {
+      case EditorSubmenuMode.Object:
+        return this.editorObjectItems
+      case EditorSubmenuMode.Ground:
+        return this.groundSubmenuItems
+      case EditorSubmenuMode.Obstacle:
+        return this.obstacleSubmenuItems
+      case EditorSubmenuMode.Weapon:
+        return this.weaponItems
+      default:
+        return this.editorObjectItems
+    }
+  }
+
+  private clearEditorMenuSelection(mode: EditorSubmenuMode) {
+    if (mode === EditorSubmenuMode.None) {
+      return
+    }
+    const items = this.getEditorMenuItems(mode)
+    for (let i = 0; i < items.length; i++) {
+      items[i].classList.remove('is-selected')
+    }
+  }
+
+  private findFirstSelectableIndex(
+    items: NodeListOf<HTMLButtonElement>
+  ): number {
+    for (let i = 0; i < items.length; i++) {
+      if (!items[i].disabled) {
+        return i
+      }
+    }
+    return 0
+  }
+
+  private findNextSelectableIndex(
+    items: NodeListOf<HTMLButtonElement>,
+    startIndex: number,
+    delta: number
+  ): number {
+    if (items.length === 0) {
+      return 0
+    }
+    let index = startIndex
+    for (let i = 0; i < items.length; i++) {
+      index = (index + delta + items.length) % items.length
+      if (!items[index].disabled) {
+        return index
+      }
+    }
+    return startIndex
+  }
+
+  private setEditorMenuMode(mode: EditorSubmenuMode, resetIndex: boolean) {
+    if (this.editorMenuMode !== mode) {
+      this.clearEditorMenuSelection(this.editorMenuMode)
+      this.editorMenuMode = mode
+    }
+    if (mode === EditorSubmenuMode.None) {
+      return
+    }
+    const items = this.getEditorMenuItems(mode)
+    if (items.length === 0) {
+      return
+    }
+    if (resetIndex) {
+      this.clearEditorMenuSelection(mode)
+      this.editorMenuSelectedIndex = this.findFirstSelectableIndex(items)
+    } else if (this.editorMenuSelectedIndex >= items.length) {
+      this.editorMenuSelectedIndex = this.findFirstSelectableIndex(items)
+    }
+    this.applyEditorMenuSelection()
+  }
+
+  private applyEditorMenuSelection() {
+    if (this.editorMenuMode === EditorSubmenuMode.None) {
+      return
+    }
+    const items = this.getEditorMenuItems(this.editorMenuMode)
+    if (items.length === 0) {
+      return
+    }
+    this.clearEditorMenuSelection(this.editorMenuMode)
+    if (
+      this.editorMenuSelectedIndex >= items.length ||
+      items[this.editorMenuSelectedIndex].disabled
+    ) {
+      this.editorMenuSelectedIndex = this.findFirstSelectableIndex(items)
+    }
+    items[this.editorMenuSelectedIndex].classList.add('is-selected')
+  }
+
+  private setEditorMenuSelectedIndex(index: number) {
+    if (this.editorMenuMode === EditorSubmenuMode.None) {
+      return
+    }
+    const items = this.getEditorMenuItems(this.editorMenuMode)
+    if (index < 0 || index >= items.length) {
+      return
+    }
+    if (items[index].disabled) {
+      return
+    }
+    if (index === this.editorMenuSelectedIndex) {
+      return
+    }
+    const previousIndex = this.editorMenuSelectedIndex
+    this.editorMenuSelectedIndex = index
+    if (previousIndex >= 0 && previousIndex < items.length) {
+      items[previousIndex].classList.remove('is-selected')
+    }
+    items[index].classList.add('is-selected')
+  }
+
+  private handleEditorMenuKeyDown(event: KeyboardEvent) {
+    if (event.defaultPrevented) {
+      return
+    }
+    if (!this.visible || this.currentView !== EditorView.Editor) {
+      if (this.visible && this.currentView === EditorView.MapList) {
+        this.handleMapListKeyDown(event)
+      }
+      return
+    }
+    if (this.propertiesModal.classList.contains('is-visible')) {
+      this.handlePropertiesModalKeyDown(event)
+      return
+    }
+    const items = this.getEditorMenuItems(this.editorMenuMode)
+    if (this.editorMenuMode === EditorSubmenuMode.None) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        this.handleBack()
+      }
+      return
+    }
+    if (items.length === 0) {
+      return
+    }
+    const key = event.key
+    if (key === 'ArrowUp' || key === 'w') {
+      event.preventDefault()
+      const nextIndex = this.findNextSelectableIndex(
+        items,
+        this.editorMenuSelectedIndex,
+        -1
+      )
+      this.setEditorMenuSelectedIndex(nextIndex)
+      return
+    }
+    if (key === 'ArrowDown' || key === 's') {
+      event.preventDefault()
+      const nextIndex = this.findNextSelectableIndex(
+        items,
+        this.editorMenuSelectedIndex,
+        1
+      )
+      this.setEditorMenuSelectedIndex(nextIndex)
+      return
+    }
+    if (key === 'Enter' || key === ' ') {
+      event.preventDefault()
+      const item = items[this.editorMenuSelectedIndex]
+      if (item) {
+        this.handleEditorMenuConfirm(item)
+      }
+      return
+    }
+    if (key === 'Escape') {
+      event.preventDefault()
+      this.handleEditorMenuBack()
+    }
+  }
+
+  private handleMapListKeyDown(event: KeyboardEvent) {
+    if (this.editorMapListItems.length === 0) {
+      return
+    }
+    const key = event.key
+    if (key === 'ArrowUp' || key === 'w') {
+      event.preventDefault()
+      const nextIndex = this.findMapListDirectionalIndex(0, -1)
+      this.setMapListSelectedIndex(nextIndex, false)
+      return
+    }
+    if (key === 'ArrowDown' || key === 's') {
+      event.preventDefault()
+      const nextIndex = this.findMapListDirectionalIndex(0, 1)
+      this.setMapListSelectedIndex(nextIndex, false)
+      return
+    }
+    if (key === 'ArrowLeft' || key === 'a') {
+      event.preventDefault()
+      const nextIndex = this.findMapListDirectionalIndex(-1, 0)
+      this.setMapListSelectedIndex(nextIndex, false)
+      return
+    }
+    if (key === 'ArrowRight' || key === 'd') {
+      event.preventDefault()
+      const nextIndex = this.findMapListDirectionalIndex(1, 0)
+      this.setMapListSelectedIndex(nextIndex, false)
+      return
+    }
+    if (key === 'Enter' || key === ' ') {
+      event.preventDefault()
+      if (this.editorMapListSelectedIndex === this.mapListBackIndex) {
+        this.handleBack()
+        return
+      }
+      const item = this.editorMapListItems[this.editorMapListSelectedIndex]
+      if (item) {
+        item.click()
+      }
+      return
+    }
+    if (key === 'Escape') {
+      event.preventDefault()
+      this.handleBack()
+    }
+  }
+
+  private handleMapListItemMouseEnter(event: Event) {
+    if (!this.visible || this.currentView !== EditorView.MapList) {
+      return
+    }
+    const target = event.currentTarget
+    if (!(target instanceof HTMLButtonElement)) {
+      return
+    }
+    const index = Number.parseInt(target.dataset.index ?? '', 10)
+    if (!Number.isFinite(index)) {
+      return
+    }
+    this.setMapListSelectedIndex(index, false)
+  }
+
+  private setMapListSelectedIndex(index: number, forceFirst: boolean) {
+    if (this.editorMapListItems.length === 0) {
+      return
+    }
+    const maxIndex = this.mapListBackIndex
+    const nextIndex = forceFirst ? 0 : Math.max(0, Math.min(index, maxIndex))
+    if (nextIndex === this.editorMapListSelectedIndex) {
+      this.applyMapListSelection()
+      return
+    }
+    this.editorMapListSelectedIndex = nextIndex
+    this.applyMapListSelection()
+  }
+
+  private applyMapListSelection() {
+    for (let i = 0; i < this.editorMapListItems.length; i++) {
+      this.editorMapListItems[i].classList.toggle(
+        'is-selected',
+        i === this.editorMapListSelectedIndex
+      )
+    }
+    this.editorBackBtn.classList.toggle(
+      'is-selected',
+      this.editorMapListSelectedIndex === this.mapListBackIndex
+    )
+  }
+
+  private clearMapListSelection() {
+    for (let i = 0; i < this.editorMapListItems.length; i++) {
+      this.editorMapListItems[i].classList.remove('is-selected')
+    }
+    this.editorBackBtn.classList.remove('is-selected')
+  }
+
+  private getMapListNavCount(): number {
+    return this.editorMapListItems.length + 1
+  }
+
+  private getMapListNavElement(index: number): HTMLButtonElement | null {
+    if (index === this.mapListBackIndex) {
+      return this.editorBackBtn
+    }
+    if (index < 0 || index >= this.editorMapListItems.length) {
+      return null
+    }
+    return this.editorMapListItems[index]
+  }
+
+  private findMapListDirectionalIndex(dirX: number, dirY: number): number {
+    const count = this.getMapListNavCount()
+    const currentIndex = this.editorMapListSelectedIndex
+    const currentElement = this.getMapListNavElement(currentIndex)
+    if (!currentElement) {
+      return currentIndex
+    }
+    const currentRect = currentElement.getBoundingClientRect()
+    const currentLeft = Math.round(currentRect.left)
+    const currentTop = Math.round(currentRect.top)
+    const currentWidth = Math.round(currentRect.width)
+    const currentHeight = Math.round(currentRect.height)
+    const currentX = currentLeft + (currentWidth >> 1)
+    const currentY = currentTop + (currentHeight >> 1)
+
+    let bestIndex = currentIndex
+    let bestScore = Number.MAX_SAFE_INTEGER
+
+    for (let i = 0; i < count; i++) {
+      if (i === currentIndex) {
+        continue
+      }
+      const element = this.getMapListNavElement(i)
+      if (!element) {
+        continue
+      }
+      const rect = element.getBoundingClientRect()
+      const left = Math.round(rect.left)
+      const top = Math.round(rect.top)
+      const width = Math.round(rect.width)
+      const height = Math.round(rect.height)
+      const centerX = left + (width >> 1)
+      const centerY = top + (height >> 1)
+      const dx = centerX - currentX
+      const dy = centerY - currentY
+      const dot = dx * dirX + dy * dirY
+      if (dot <= 0) {
+        continue
+      }
+      const absDx = Math.abs(dx)
+      const absDy = Math.abs(dy)
+      const dist2 = dx * dx + dy * dy
+      const offAxis = dirY !== 0 ? absDx : absDy
+      const score = dist2 * 4 + offAxis * offAxis * 9
+      if (score < bestScore) {
+        bestScore = score
+        bestIndex = i
+      }
+    }
+    return bestIndex
+  }
+
+  private handleEditorMenuConfirm(item: HTMLButtonElement) {
+    if (item.disabled) {
+      return
+    }
+    const action = item.dataset.action
+    if (action === 'back') {
+      this.handleEditorMenuBack()
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Object) {
+      const type = item.dataset.type as ObjectType | undefined
+      if (type) {
+        this.handleObjectClick(type)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Ground) {
+      const shape = item.dataset.shape as GroundShapeType | undefined
+      if (shape) {
+        this.handleGroundShapeClick(shape)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Obstacle) {
+      const shape = item.dataset.shape as GroundShapeType | undefined
+      if (shape) {
+        this.handleObstacleShapeClick(shape)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
+      const weaponType = item.dataset.weapon as WeaponType | undefined
+      const category = item.dataset.category as WeaponCategory | undefined
+      if (weaponType && category) {
+        this.handleWeaponTypeClick(weaponType, category)
+      }
+    }
+  }
+
+  private handleEditorMenuBack() {
+    if (this.editorMenuMode === EditorSubmenuMode.Ground) {
+      this.hideGroundSubmenu()
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Obstacle) {
+      this.hideObstacleSubmenu()
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
+      this.hideWeaponMenu()
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Object) {
+      this.hideObjectTypeMenu()
+      this.setEditorMenuMode(EditorSubmenuMode.None, false)
+    }
   }
 
   private handleBack() {
@@ -1016,6 +1550,7 @@ export class EditorManager {
     this.setActiveObjectType(null)
     this.editorPanelCollapsedBtn.classList.remove('is-visible')
     this.renderMapList()
+    this.setMapListSelectedIndex(0, true)
   }
 
   private showEditorView() {
@@ -1036,10 +1571,13 @@ export class EditorManager {
     this.ensureFabricCanvas()
     this.resizeEditorCanvas()
     this.renderObjectTree()
+    this.clearMapListSelection()
   }
 
   private renderMapList() {
     this.editorMapList.innerHTML = ''
+    this.editorMapListItems.length = 0
+    this.mapListBackIndex = 0
 
     if (this.maps.length === 0) {
       const createBtn = document.createElement('button')
@@ -1048,19 +1586,32 @@ export class EditorManager {
       createBtn.addEventListener('click', () => {
         void this.handleCreateMap()
       })
+      createBtn.dataset.index = '0'
+      createBtn.addEventListener(
+        'mouseenter',
+        this.boundHandleMapListMouseEnter
+      )
       this.editorMapList.appendChild(createBtn)
+      this.editorMapListItems.push(createBtn)
+      this.mapListBackIndex = this.editorMapListItems.length
       return
     }
 
-    this.maps.forEach((map) => {
+    let index = 0
+    for (let i = 0; i < this.maps.length; i++) {
+      const map = this.maps[i]
       const item = document.createElement('button')
       item.className = 'editor-map-item'
       item.textContent = map.name
       item.addEventListener('click', () => {
         this.loadMap(map.id)
       })
+      item.dataset.index = String(index)
+      item.addEventListener('mouseenter', this.boundHandleMapListMouseEnter)
       this.editorMapList.appendChild(item)
-    })
+      this.editorMapListItems.push(item)
+      index += 1
+    }
 
     const createBtn = document.createElement('button')
     createBtn.className = 'editor-map-item'
@@ -1068,7 +1619,11 @@ export class EditorManager {
     createBtn.addEventListener('click', () => {
       void this.handleCreateMap()
     })
+    createBtn.dataset.index = String(index)
+    createBtn.addEventListener('mouseenter', this.boundHandleMapListMouseEnter)
     this.editorMapList.appendChild(createBtn)
+    this.editorMapListItems.push(createBtn)
+    this.mapListBackIndex = this.editorMapListItems.length
   }
 
   private loadMap(mapId: string) {
@@ -1082,6 +1637,7 @@ export class EditorManager {
         this.maps = maps
         if (this.visible && this.currentView === EditorView.MapList) {
           this.renderMapList()
+          this.setMapListSelectedIndex(0, true)
         }
       })
       .catch(() => {})
@@ -1637,11 +2193,80 @@ export class EditorManager {
     const fields = this.getPropertyFields(type)
     this.renderPropertiesForm(fields)
     this.propertiesModal.classList.add('is-visible')
+    this.propertiesSelectedIndex = 0
+    this.applyPropertiesModalSelection()
   }
 
   private hidePropertiesModal() {
     this.propertiesModal.classList.remove('is-visible')
     this.propertiesForm.innerHTML = ''
+    this.propertiesConfirmBtn.classList.remove('is-selected')
+    this.propertiesCancelBtn.classList.remove('is-selected')
+  }
+
+  private applyPropertiesModalSelection() {
+    this.propertiesConfirmBtn.classList.toggle(
+      'is-selected',
+      this.propertiesSelectedIndex === 0
+    )
+    this.propertiesCancelBtn.classList.toggle(
+      'is-selected',
+      this.propertiesSelectedIndex === 1
+    )
+  }
+
+  private setPropertiesSelectedIndex(index: number) {
+    this.propertiesSelectedIndex = index <= 0 ? 0 : 1
+    this.applyPropertiesModalSelection()
+    if (this.propertiesSelectedIndex === 0) {
+      this.propertiesConfirmBtn.focus()
+    } else {
+      this.propertiesCancelBtn.focus()
+    }
+  }
+
+  private handlePropertiesModalKeyDown(event: KeyboardEvent) {
+    const key = event.key
+    const target = event.target
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement
+    ) {
+      if (key === 'Escape') {
+        event.preventDefault()
+        this.hidePropertiesModal()
+      } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+        event.preventDefault()
+        const nextIndex = key === 'ArrowUp' ? 0 : 1
+        this.setPropertiesSelectedIndex(nextIndex)
+      }
+      return
+    }
+    if (
+      key === 'ArrowLeft' ||
+      key === 'ArrowRight' ||
+      key === 'ArrowUp' ||
+      key === 'ArrowDown'
+    ) {
+      event.preventDefault()
+      const nextIndex = this.propertiesSelectedIndex === 0 ? 1 : 0
+      this.setPropertiesSelectedIndex(nextIndex)
+      return
+    }
+    if (key === 'Enter' || key === ' ') {
+      event.preventDefault()
+      if (this.propertiesSelectedIndex === 0) {
+        this.handlePropertiesConfirm()
+      } else {
+        this.hidePropertiesModal()
+      }
+      return
+    }
+    if (key === 'Escape') {
+      event.preventDefault()
+      this.hidePropertiesModal()
+    }
   }
 
   private getPropertyFields(type: ObjectType): PropertyField[] {
@@ -2460,7 +3085,10 @@ export class EditorManager {
     this.objectTypeMenu.style.top = `${clientY}px`
 
     this.editorObjectItems.forEach((item) => {
-      const type = item.dataset.type as ObjectType
+      const type = item.dataset.type as ObjectType | undefined
+      if (!type) {
+        return
+      }
       if (type === ObjectType.Player || type === ObjectType.Camera) {
         if (this.hasObjectOfType(type)) {
           item.disabled = true
@@ -2473,6 +3101,7 @@ export class EditorManager {
     })
 
     this.objectTypeMenu.classList.add('is-visible')
+    this.setEditorMenuMode(EditorSubmenuMode.Object, true)
   }
 
   private hideObjectTypeMenu() {
@@ -2483,6 +3112,7 @@ export class EditorManager {
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideWeaponMenu()
+    this.setEditorMenuMode(EditorSubmenuMode.None, false)
   }
 
   private spawnPlayerMarker(spawn?: { x: number; y: number }) {
@@ -3031,10 +3661,18 @@ export class EditorManager {
   private showGroundSubmenu() {
     this.positionGroundSubmenu()
     this.groundSubmenu.classList.add('is-visible')
+    this.setEditorMenuMode(EditorSubmenuMode.Ground, true)
   }
 
   private hideGroundSubmenu() {
     this.groundSubmenu.classList.remove('is-visible')
+    if (this.editorMenuMode === EditorSubmenuMode.Ground) {
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      } else {
+        this.setEditorMenuMode(EditorSubmenuMode.None, false)
+      }
+    }
   }
 
   private positionGroundSubmenu() {
@@ -3044,19 +3682,35 @@ export class EditorManager {
   private showObstacleSubmenu() {
     this.positionObstacleSubmenu()
     this.obstacleSubmenu.classList.add('is-visible')
+    this.setEditorMenuMode(EditorSubmenuMode.Obstacle, true)
   }
 
   private hideObstacleSubmenu() {
     this.obstacleSubmenu.classList.remove('is-visible')
+    if (this.editorMenuMode === EditorSubmenuMode.Obstacle) {
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      } else {
+        this.setEditorMenuMode(EditorSubmenuMode.None, false)
+      }
+    }
   }
 
   private showWeaponMenu() {
     this.positionWeaponMenu()
     this.weaponMenu.classList.add('is-visible')
+    this.setEditorMenuMode(EditorSubmenuMode.Weapon, true)
   }
 
   private hideWeaponMenu() {
     this.weaponMenu.classList.remove('is-visible')
+    if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      } else {
+        this.setEditorMenuMode(EditorSubmenuMode.None, false)
+      }
+    }
   }
 
   private positionWeaponMenu() {
