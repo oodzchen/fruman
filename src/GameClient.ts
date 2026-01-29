@@ -47,6 +47,7 @@ export class GameClient {
   private mouseInside = false
   private inputEnabled = true
   private editorOverlay: HTMLDivElement | null = null
+  private previewActionsContainer: HTMLDivElement | null = null
   private previewExitBtn: HTMLButtonElement | null = null
   private previewPauseBtn: HTMLButtonElement | null = null
   private previewActive = false
@@ -105,6 +106,11 @@ export class GameClient {
     const editorOverlay = document.getElementById('editorOverlay')
     this.editorOverlay =
       editorOverlay instanceof HTMLDivElement ? editorOverlay : null
+
+    const previewActions = document.getElementById('previewActions')
+    this.previewActionsContainer =
+      previewActions instanceof HTMLDivElement ? previewActions : null
+
     const previewExitBtn = document.getElementById('previewExitBtn')
     this.previewExitBtn =
       previewExitBtn instanceof HTMLButtonElement ? previewExitBtn : null
@@ -712,14 +718,11 @@ export class GameClient {
   }
 
   private setPreviewExitVisible(visible: boolean) {
-    if (this.previewExitBtn) {
-      this.previewExitBtn.style.display = visible ? 'block' : 'none'
+    if (this.previewActionsContainer) {
+      this.previewActionsContainer.classList.toggle('is-visible', visible)
     }
-    if (this.previewPauseBtn) {
-      this.previewPauseBtn.style.display = visible ? 'block' : 'none'
-      if (visible) {
-        this.previewPauseBtn.textContent = localizer.t('ui_pause')
-      }
+    if (visible && this.previewPauseBtn) {
+      this.previewPauseBtn.textContent = localizer.t('ui_pause')
     }
   }
 

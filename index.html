@@ -298,7 +298,7 @@
       .editor-object-list {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 0;
       }
       .editor-object-panel {
         display: flex;
@@ -313,12 +313,12 @@
         padding-right: 4px;
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 0;
       }
       .editor-object-node {
         width: 100%;
-        height: 30px;
-        line-height: 30px;
+        height: 24px;
+        line-height: 24px;
         font-size: 12px;
         color: var(--ui-muted);
         background: rgba(0, 0, 0, 0.18);
@@ -347,8 +347,8 @@
       }
       .editor-object-rename-input {
         width: 100%;
-        height: 30px;
-        line-height: 30px;
+        height: 24px;
+        line-height: 24px;
         font-size: 12px;
         color: var(--ui-color);
         background: rgba(0, 0, 0, 0.5);
@@ -361,8 +361,8 @@
       .editor-object-item {
         position: relative;
         width: 100%;
-        height: 30px;
-        line-height: 30px;
+        height: 24px;
+        line-height: 24px;
         font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
@@ -397,7 +397,7 @@
         padding: 6px;
         display: none;
         flex-direction: column;
-        gap: 6px;
+        gap: 0;
         background: rgba(0, 0, 0, 0.55);
         border: 1px solid rgba(255, 255, 255, 0.12);
         box-sizing: border-box;
@@ -407,7 +407,7 @@
       .editor-submenu-group {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 0;
         padding: 6px 0 0;
         margin-top: 4px;
         border-top: 1px solid rgba(255, 255, 255, 0.12);
@@ -429,21 +429,13 @@
       .editor-submenu-group-list {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 0;
       }
       .editor-submenu.is-visible {
         display: flex;
       }
       .editor-submenu-back {
-        margin-top: 4px;
-        color: var(--ui-muted);
-        background: rgba(0, 0, 0, 0.45);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        font-size: 14px;
-        height: 34px;
-        line-height: 34px;
-        padding: 0 12px;
-        text-align: center;
+        display: none !important;
       }
       .editor-context-menu {
         position: fixed;
@@ -463,8 +455,8 @@
       }
       .editor-context-menu-item {
         width: 100%;
-        height: 30px;
-        line-height: 30px;
+        height: 24px;
+        line-height: 24px;
         font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
@@ -484,8 +476,8 @@
       }
       .editor-submenu-item {
         width: 100%;
-        height: 26px;
-        line-height: 26px;
+        height: 24px;
+        line-height: 24px;
         font-size: 12px;
         color: var(--ui-muted);
         background: transparent;
@@ -552,10 +544,19 @@
         background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.32);
       }
-      .preview-exit-btn {
+      .preview-actions {
         position: absolute;
         left: 12px;
         top: 12px;
+        display: none;
+        gap: 8px;
+        z-index: 5;
+        pointer-events: auto;
+      }
+      .preview-actions.is-visible {
+        display: flex;
+      }
+      .preview-btn {
         height: 34px;
         line-height: 34px;
         font-size: 14px;
@@ -567,11 +568,8 @@
         text-align: center;
         font-family: var(--ui-font);
         box-sizing: border-box;
-        z-index: 5;
-        pointer-events: auto;
-        display: none;
       }
-      .preview-exit-btn:hover {
+      .preview-btn:hover {
         color: var(--ui-color);
         background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.34);
@@ -686,8 +684,10 @@
               <div id="menuItems" class="menu-items"></div>
             </div>
           </div>
-          <button id="previewExitBtn" class="preview-exit-btn"></button>
-          <button id="previewPauseBtn" class="preview-exit-btn" style="top: 50px;"></button>
+          <div id="previewActions" class="preview-actions">
+            <button id="previewExitBtn" class="preview-btn"></button>
+            <button id="previewPauseBtn" class="preview-btn"></button>
+          </div>
           <div id="editorOverlay">
             <div class="editor-content">
               <div id="editorSidebar" class="editor-sidebar">

@@ -1105,36 +1105,46 @@ export class EditorManager {
     await this.mapListManager.handleCreateMap()
   }
 
+  private hideAllSubmenus() {
+    this.hideGroundSubmenu()
+    this.hideObstacleSubmenu()
+    this.hideWeaponMenu()
+    this.hideEnemySubmenu()
+  }
+
   // ========================================
   // OBJECT LIFECYCLE
   // ========================================
 
   private handleObjectClick(type: ObjectType) {
     this.hidePanelMenu()
+    
+    // Check if we are toggling the same menu?
+    // If so, maybe we want to close it?
+    // Current behavior seems to be "open or switch".
+    
     if (type === ObjectType.Ground) {
       this.setActiveObjectType(ObjectType.Ground)
-      this.hideObstacleSubmenu()
+      this.hideAllSubmenus()
       this.showGroundSubmenu()
       return
     }
     if (type === ObjectType.Obstacle) {
       this.setActiveObjectType(ObjectType.Obstacle)
-      this.hideGroundSubmenu()
+      this.hideAllSubmenus()
       this.showObstacleSubmenu()
       return
     }
 
     if (type === ObjectType.Weapon) {
       this.setActiveObjectType(ObjectType.Weapon)
-      this.hideGroundSubmenu()
-      this.hideObstacleSubmenu()
+      this.hideAllSubmenus()
       this.showWeaponMenu()
       return
     }
 
     if (type === ObjectType.Player) {
-      this.hideGroundSubmenu()
-      this.hideObstacleSubmenu()
+      this.hideAllSubmenus()
       this.hideObjectTypeMenu()
       this.setActiveObjectType(type)
       this.spawnPlayerMarker()
@@ -1142,8 +1152,7 @@ export class EditorManager {
     }
 
     if (type === ObjectType.Camera) {
-      this.hideGroundSubmenu()
-      this.hideObstacleSubmenu()
+      this.hideAllSubmenus()
       this.hideObjectTypeMenu()
       if (this.hasObjectOfType(ObjectType.Camera)) {
         return
@@ -1154,15 +1163,13 @@ export class EditorManager {
     }
 
     if (type === ObjectType.Enemy) {
-      this.hideGroundSubmenu()
-      this.hideObstacleSubmenu()
       this.setActiveObjectType(type)
+      this.hideAllSubmenus()
       this.showEnemySubmenu()
       return
     }
 
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
+    this.hideAllSubmenus()
     this.hideObjectTypeMenu()
     this.setActiveObjectType(type)
   }
@@ -1704,7 +1711,7 @@ export class EditorManager {
     }
     event.preventDefault()
     event.stopPropagation()
-    if (this.editorObjectPanel.contains(targetNode)) {
+    if (this.editorSidebar.contains(targetNode)) {
       this.handleObjectPanelContextMenuCore(event)
       return
     }
@@ -1790,9 +1797,8 @@ export class EditorManager {
     this.hideObjectTypeMenu()
     this.panelMenuX = clientX
     this.panelMenuY = clientY
-    this.panelMenu.style.left = `${clientX}px`
-    this.panelMenu.style.top = `${clientY}px`
     this.panelMenu.classList.add('is-visible')
+    this.adjustMenuPosition(this.panelMenu, clientX, clientY)
     if (DEBUG_EDITOR_MENU) {
       console.log('[editor] show panel menu', { clientX, clientY })
     }
@@ -1828,8 +1834,6 @@ export class EditorManager {
     this.hideEnemySubmenu()
     this.objectTypeMenuX = clientX
     this.objectTypeMenuY = clientY
-    this.objectTypeMenu.style.left = `${clientX}px`
-    this.objectTypeMenu.style.top = `${clientY}px`
 
     this.editorObjectItems.forEach((item) => {
       const type = item.dataset.type as ObjectType | undefined
@@ -1848,6 +1852,7 @@ export class EditorManager {
     })
 
     this.objectTypeMenu.classList.add('is-visible')
+    this.adjustMenuPosition(this.objectTypeMenu, clientX, clientY)
     this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
   }
 
@@ -2161,8 +2166,46 @@ export class EditorManager {
   ) {
     const menuRect = this.objectTypeMenu.getBoundingClientRect()
     const itemRect = menuItem.getBoundingClientRect()
-    submenu.style.left = `${menuRect.right + 6}px`
-    submenu.style.top = `${itemRect.top}px`
+    const x = menuRect.right + 6
+    const y = itemRect.top
+    this.adjustMenuPosition(submenu, x, y)
+  }
+
+  private adjustMenuPosition(menu: HTMLElement, x: number, y: number) {
+    // Ensure menu is visible for measurement
+    const wasVisible = menu.classList.contains('is-visible')
+    if (!wasVisible) {
+      menu.style.visibility = 'hidden'
+      menu.classList.add('is-visible')
+    }
+
+    // Set initial position to avoid wrapping issues before measurement
+    menu.style.left = `${x}px`
+    menu.style.top = `${y}px`
+
+    const rect = menu.getBoundingClientRect()
+    const viewportRect = this.editorWorkspace.getBoundingClientRect()
+
+    let newX = x
+    let newY = y
+
+    if (newX + rect.width > viewportRect.right) {
+      newX = viewportRect.right - rect.width - 4
+    }
+    if (newY + rect.height > viewportRect.bottom) {
+      newY = viewportRect.bottom - rect.height - 4
+    }
+
+    if (newX < viewportRect.left + 4) newX = viewportRect.left + 4
+    if (newY < viewportRect.top + 4) newY = viewportRect.top + 4
+
+    menu.style.left = `${newX}px`
+    menu.style.top = `${newY}px`
+
+    if (!wasVisible) {
+      menu.classList.remove('is-visible')
+      menu.style.visibility = ''
+    }
   }
 
   // ========================================
@@ -2656,9 +2699,8 @@ export class EditorManager {
       button.textContent = localizer.t(this.getPolygonMenuLabel(action))
       button.classList.remove('is-hidden')
     }
-    this.polygonMenu.style.left = `${clientX}px`
-    this.polygonMenu.style.top = `${clientY}px`
     this.polygonMenu.classList.add('is-visible')
+    this.adjustMenuPosition(this.polygonMenu, clientX, clientY)
   }
 
   private getPolygonMenuLabel(
