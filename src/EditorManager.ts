@@ -14,6 +14,7 @@ import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import { EditorMapListManager } from './editor/EditorMapListManager'
 import { EditorMapSerializer } from './editor/EditorMapSerializer'
 import { EditorObjectFactory } from './editor/EditorObjectFactory'
+import { EditorObjectTreeManager } from './editor/EditorObjectTreeManager'
 import {
   type EditablePolygon,
   EditorPolygonEditor,
@@ -313,6 +314,7 @@ export class EditorManager {
   private mapSerializer: EditorMapSerializer
   private propertiesPanel: EditorPropertiesPanel
   private mapListManager: EditorMapListManager
+  private objectTreeManager: EditorObjectTreeManager
 
   private visible = false
   private currentView: EditorView = EditorView.MapList
@@ -686,6 +688,35 @@ export class EditorManager {
 
     this.boundHandleEditorMenuMouseEnter =
       this.handleEditorMenuItemMouseEnter.bind(this)
+
+    this.objectTreeManager = new EditorObjectTreeManager({
+      editorObjectTree: this.editorObjectTree,
+      editorObjects: this.editorObjects,
+      renamingEditorObjectId: this.renamingEditorObjectId,
+      selectedEditorObjectId: this.selectedEditorObjectId,
+      dragObjectId: this.dragObjectId,
+      onRenameCommit: (id, value) => this.commitObjectRename(id, value),
+      onRenameCancel: () => this.cancelObjectRename(),
+      onDragStart: (id) => {
+        this.dragObjectId = id
+        this.dragTargetId = id
+        this.dragInsertAfter = false
+        this.updateObjectTreeContext()
+      },
+      onDragOver: (targetId, insertAfter) => {
+        this.dragTargetId = targetId
+        this.dragInsertAfter = insertAfter
+        // Note: dragObjectId is updated in onDragStart, but we need to keep context in sync
+        // if drag state changes. However, dragObjectId shouldn't change during drag over.
+      },
+      onDrop: (dragId, targetId, insertAfter) => {
+        this.reorderEditorObjects(dragId, targetId, insertAfter)
+        this.resetDragState()
+      },
+      onDragEnd: () => {
+        this.resetDragState()
+      },
+    })
 
     this.setupEventListeners()
     this.updateLocalization()
@@ -2032,144 +2063,18 @@ export class EditorManager {
     this.renderObjectTree()
   }
 
+  private updateObjectTreeContext() {
+    this.objectTreeManager.updateContext({
+      editorObjects: this.editorObjects,
+      renamingEditorObjectId: this.renamingEditorObjectId,
+      selectedEditorObjectId: this.selectedEditorObjectId,
+      dragObjectId: this.dragObjectId,
+    })
+  }
+
   private renderObjectTree() {
-    this.editorObjectTree.innerHTML = ''
-    for (let i = 0; i < this.editorObjects.length; i++) {
-      const data = this.editorObjects[i]
-      if (data.id === this.renamingEditorObjectId) {
-        const input = document.createElement('input')
-        input.className = 'editor-object-rename-input'
-        input.value = data.name
-        input.dataset.objectId = String(data.id)
-        const commit = () => {
-          this.commitObjectRename(data.id, input.value)
-        }
-        input.addEventListener('blur', commit)
-        input.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            commit()
-            return
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            this.cancelObjectRename()
-          }
-        })
-        this.editorObjectTree.appendChild(input)
-        input.focus()
-        input.select()
-        continue
-      }
-      const node = document.createElement('button')
-      node.type = 'button'
-      node.className = 'editor-object-node'
-      node.draggable = true
-      if (data.id === this.selectedEditorObjectId) {
-        node.classList.add('is-selected')
-      }
-      node.dataset.objectId = String(data.id)
-      node.textContent = data.name
-      node.addEventListener('dragstart', (event) => {
-        this.dragObjectId = data.id
-        this.dragTargetId = data.id
-        this.dragInsertAfter = false
-        this.clearDragPreview()
-        event.dataTransfer?.setData('text/plain', String(data.id))
-        if (event.dataTransfer) {
-          event.dataTransfer.effectAllowed = 'move'
-        }
-      })
-      node.addEventListener('dragover', (event) => {
-        if (this.dragObjectId === -1) {
-          return
-        }
-        event.preventDefault()
-        const rect = node.getBoundingClientRect()
-        const midY = rect.top + rect.height * 0.5
-        this.dragTargetId = data.id
-        this.dragInsertAfter = event.clientY >= midY
-        this.updateDragPreviewFromTarget(data.id, this.dragInsertAfter)
-        if (event.dataTransfer) {
-          event.dataTransfer.dropEffect = 'move'
-        }
-      })
-      node.addEventListener('drop', (event) => {
-        if (this.dragObjectId === -1) {
-          return
-        }
-        event.preventDefault()
-        this.reorderEditorObjects(
-          this.dragObjectId,
-          data.id,
-          this.dragInsertAfter
-        )
-        this.resetDragState()
-      })
-      node.addEventListener('dragend', () => {
-        this.resetDragState()
-      })
-      this.editorObjectTree.appendChild(node)
-    }
-  }
-
-  private updateDragPreviewFromTarget(targetId: number, insertAfter: boolean) {
-    if (targetId === this.dragObjectId) {
-      this.clearDragPreview()
-      return
-    }
-    const targetIndex = this.findEditorObjectIndexById(targetId)
-    if (targetIndex === -1) {
-      this.clearDragPreview()
-      return
-    }
-    // A target "before" is the same drop line as the previous item's "after".
-    let previewId = targetId
-    let previewAfter = insertAfter
-    if (!insertAfter && targetIndex > 0) {
-      previewId = this.editorObjects[targetIndex - 1].id
-      previewAfter = true
-    }
-    if (previewId === this.dragObjectId) {
-      this.clearDragPreview()
-      return
-    }
-    this.updateDragPreview(previewId, previewAfter)
-  }
-
-  private updateDragPreview(id: number, insertAfter: boolean) {
-    if (this.dragPreviewId === id && this.dragPreviewAfter === insertAfter) {
-      return
-    }
-    this.clearDragPreview()
-    const selector = `.editor-object-node[data-object-id="${id}"]`
-    const node =
-      this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
-    if (!node) {
-      return
-    }
-    this.dragPreviewId = id
-    this.dragPreviewAfter = insertAfter
-    if (insertAfter) {
-      node.classList.add('is-drop-after')
-    } else {
-      node.classList.add('is-drop-before')
-    }
-  }
-
-  private clearDragPreview() {
-    if (this.dragPreviewId === -1) {
-      return
-    }
-    const selector = `.editor-object-node[data-object-id="${this.dragPreviewId}"]`
-    const node =
-      this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
-    if (node) {
-      node.classList.remove('is-drop-before')
-      node.classList.remove('is-drop-after')
-    }
-    this.dragPreviewId = -1
-    this.dragPreviewAfter = false
+    this.updateObjectTreeContext()
+    this.objectTreeManager.renderObjectTree()
   }
 
   private reorderEditorObjects(
@@ -2212,10 +2117,11 @@ export class EditorManager {
   }
 
   private resetDragState() {
-    this.clearDragPreview()
+    this.objectTreeManager.resetDragState()
     this.dragObjectId = -1
     this.dragTargetId = -1
     this.dragInsertAfter = false
+    this.updateObjectTreeContext()
   }
 
   private beginObjectRename(object: fabric.Object) {
