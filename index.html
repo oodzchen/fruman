@@ -672,87 +672,6 @@
         background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.32);
       }
-      #editorPropertiesModal {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.8);
-        display: none;
-        z-index: 10;
-      }
-      #editorPropertiesModal.is-visible {
-        display: block;
-      }
-      .editor-modal-content {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        min-width: 400px;
-        max-width: 600px;
-        font-family: var(--ui-font);
-        color: var(--ui-color);
-      }
-      .editor-modal-content h3 {
-        margin: 0 0 30px 0;
-        font-size: 12px;
-        text-align: center;
-        font-weight: bold;
-      }
-      .editor-property-group {
-        margin-bottom: 15px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      .editor-property-group label {
-        width: 120px;
-        font-size: 12px;
-        color: var(--ui-muted);
-        text-align: right;
-      }
-      .editor-property-group input {
-        flex: 1;
-        padding: 6px 8px;
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid var(--ui-muted);
-        color: var(--ui-color);
-        font-size: 12px;
-        font-family: var(--ui-font);
-        box-sizing: border-box;
-      }
-      .editor-property-group input:focus {
-        outline: none;
-        border-color: var(--ui-color);
-        background: rgba(255, 255, 255, 0.15);
-      }
-      .editor-modal-actions {
-        display: flex;
-        gap: 20px;
-        justify-content: center;
-        margin-top: 30px;
-      }
-      .editor-modal-btn {
-        width: 150px;
-        height: 34px;
-        line-height: 34px;
-        font-size: 14px;
-        color: var(--ui-muted);
-        background: rgba(0, 0, 0, 0.45);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 0 12px;
-        cursor: pointer;
-        text-align: center;
-        font-family: var(--ui-font);
-        box-sizing: border-box;
-      }
-      .editor-modal-btn:hover {
-        color: var(--ui-color);
-        background: var(--ui-highlight);
-      }
-      .editor-modal-btn.is-selected {
-        color: var(--ui-color);
-        background: var(--ui-highlight);
-      }
     </style>
   </head>
   <body>
@@ -988,22 +907,6 @@
                 class="editor-panel-collapsed"
               ></button>
               <button id="editorBackBtn" class="editor-back-item"></button>
-            </div>
-            <div id="editorPropertiesModal">
-              <div class="editor-modal-content">
-                <h3 id="editorPropertiesTitle"></h3>
-                <div id="editorPropertiesForm"></div>
-                <div class="editor-modal-actions">
-                  <button
-                    id="editorPropertiesConfirm"
-                    class="editor-modal-btn"
-                  ></button>
-                  <button
-                    id="editorPropertiesCancel"
-                    class="editor-modal-btn"
-                  ></button>
-                </div>
-              </div>
             </div>
           </div>
         </div>

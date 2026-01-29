@@ -408,14 +408,6 @@ interface EditorMap {
   thumbnail?: string
 }
 
-interface PropertyField {
-  key: string
-  label: string
-  type: 'text' | 'number' | 'select'
-  defaultValue: string | number
-  options?: { label: string; value: string }[]
-}
-
 interface EditorObjectData {
   id: number
   name: string
@@ -482,13 +474,6 @@ export class EditorManager {
   private enemySubmenuItems: NodeListOf<HTMLButtonElement>
   private enemySubmenuBackBtn: HTMLButtonElement
   private objectTypeMenuBackBtn: HTMLButtonElement
-
-  private propertiesModal: HTMLDivElement
-  private propertiesTitle: HTMLHeadingElement
-  private propertiesForm: HTMLDivElement
-  private propertiesConfirmBtn: HTMLButtonElement
-  private propertiesCancelBtn: HTMLButtonElement
-  private propertiesSelectedIndex = 0
   private polygonMenu: HTMLDivElement
   private polygonMenuButtons: HTMLButtonElement[] = []
   private dialogManager: DialogManager
@@ -660,11 +645,6 @@ export class EditorManager {
       '#editorObjectTypeMenu .editor-object-item[data-action="back"]'
     )
 
-    const modal = document.getElementById('editorPropertiesModal')
-    const modalTitle = document.getElementById('editorPropertiesTitle')
-    const modalForm = document.getElementById('editorPropertiesForm')
-    const modalConfirm = document.getElementById('editorPropertiesConfirm')
-    const modalCancel = document.getElementById('editorPropertiesCancel')
     const polygonMenu = document.getElementById('editorPolygonMenu')
     const panelMenu = document.getElementById('editorPanelMenu')
     const panelMenuAdd = document.getElementById('editorPanelMenuAdd')
@@ -713,11 +693,6 @@ export class EditorManager {
       !(enemyMenu instanceof HTMLButtonElement) ||
       !(enemySubmenu instanceof HTMLDivElement) ||
       !(enemySubmenuBackBtn instanceof HTMLButtonElement) ||
-      !(modal instanceof HTMLDivElement) ||
-      !(modalTitle instanceof HTMLHeadingElement) ||
-      !(modalForm instanceof HTMLDivElement) ||
-      !(modalConfirm instanceof HTMLButtonElement) ||
-      !(modalCancel instanceof HTMLButtonElement) ||
       !(polygonMenu instanceof HTMLDivElement) ||
       !(panelMenu instanceof HTMLDivElement) ||
       !(panelMenuAdd instanceof HTMLButtonElement) ||
@@ -773,11 +748,6 @@ export class EditorManager {
     this.enemySubmenuBackBtn = enemySubmenuBackBtn
     this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
 
-    this.propertiesModal = modal
-    this.propertiesTitle = modalTitle
-    this.propertiesForm = modalForm
-    this.propertiesConfirmBtn = modalConfirm
-    this.propertiesCancelBtn = modalCancel
     this.polygonMenu = polygonMenu
     this.polygonMenuButtons = [
       polygonMenuPrimary,
@@ -933,14 +903,6 @@ export class EditorManager {
     })
     this.bindEditorMenuItems(this.enemySubmenuItems, EditorSubmenuMode.Enemy)
 
-    this.propertiesConfirmBtn.addEventListener('click', () => {
-      this.handlePropertiesConfirm()
-    })
-
-    this.propertiesCancelBtn.addEventListener('click', () => {
-      this.hidePropertiesModal()
-    })
-
     this.polygonMenuButtons.forEach((button) => {
       button.addEventListener('pointerdown', (event) => {
         event.preventDefault()
@@ -1056,9 +1018,6 @@ export class EditorManager {
       }
     })
 
-    this.propertiesTitle.textContent = localizer.t('editor_properties_title')
-    this.propertiesConfirmBtn.textContent = localizer.t('editor_btn_confirm')
-    this.propertiesCancelBtn.textContent = localizer.t('editor_btn_cancel')
     this.editorPanelCollapseBtn.textContent = localizer.t(
       'editor_panel_collapse'
     )
@@ -1269,10 +1228,6 @@ export class EditorManager {
       if (this.visible && this.currentView === EditorView.MapList) {
         this.handleMapListKeyDown(event)
       }
-      return
-    }
-    if (this.propertiesModal.classList.contains('is-visible')) {
-      this.handlePropertiesModalKeyDown(event)
       return
     }
     const items = this.getEditorMenuItems(this.editorMenuMode)
@@ -1718,116 +1673,6 @@ export class EditorManager {
     this.hideObstacleSubmenu()
     this.hideObjectTypeMenu()
     this.setActiveObjectType(type)
-    this.showPropertiesModal(type)
-  }
-
-  private handlePropertiesConfirm() {
-    if (this.selectedEditorObjectId === -1) {
-      this.hidePropertiesModal()
-      return
-    }
-
-    const data = this.getEditorObjectById(this.selectedEditorObjectId)
-    if (!data) {
-      this.hidePropertiesModal()
-      return
-    }
-
-    const formData = new FormData()
-    const inputs = this.propertiesForm.querySelectorAll('input, select')
-    inputs.forEach((input) => {
-      if (
-        input instanceof HTMLInputElement ||
-        input instanceof HTMLSelectElement
-      ) {
-        formData.append(input.name, input.value)
-      }
-    })
-
-    const name = formData.get('name') as string
-    if (name) {
-      this.commitObjectRename(data.id, name)
-    }
-
-    const xStr = formData.get('x')
-    const yStr = formData.get('y')
-    if (xStr && yStr) {
-      const x = Number.parseFloat(xStr as string)
-      const y = Number.parseFloat(yStr as string)
-      if (Number.isFinite(x) && Number.isFinite(y)) {
-        data.object.left = x * EDITOR_PIXELS_PER_METER
-        data.object.top = y * EDITOR_PIXELS_PER_METER
-        data.object.setCoords()
-      }
-    }
-
-    if (data.type === ObjectType.Enemy && this.isEnemyMarker(data.object)) {
-      const enemyData = this.enemyMarkerMap.get(data.object)
-      if (enemyData) {
-        const healthStr = formData.get('health')
-        const speedStr = formData.get('speed')
-        const radiusStr = formData.get('radius')
-        const colorStr = formData.get('color')
-        const mainWeapon = formData.get('mainWeapon') as WeaponType | null
-        const secondaryWeapon = formData.get('secondaryWeapon') as
-          | WeaponType
-          | 'none'
-          | null
-
-        if (healthStr) {
-          const health = Number.parseFloat(healthStr as string)
-          if (Number.isFinite(health) && health > 0) {
-            enemyData.maxHealth = health
-            enemyData.marker.maxHealth = health
-          }
-        }
-        if (speedStr) {
-          const speed = Number.parseFloat(speedStr as string)
-          if (Number.isFinite(speed) && speed >= 0) {
-            enemyData.moveSpeed = speed
-            enemyData.marker.moveSpeed = speed
-          }
-        }
-        if (radiusStr) {
-          const radius = Number.parseFloat(radiusStr as string)
-          if (Number.isFinite(radius) && radius > 0) {
-            enemyData.radius = radius
-            enemyData.marker.radius = radius
-          }
-        }
-        if (colorStr) {
-          const color = (colorStr as string).trim()
-          if (color.length > 0) {
-            enemyData.color = color
-            enemyData.marker.color = color
-          }
-        }
-        if (mainWeapon) {
-          enemyData.mainWeapon = mainWeapon
-          enemyData.marker.mainWeapon = mainWeapon
-        }
-        if (secondaryWeapon) {
-          enemyData.secondaryWeapon =
-            secondaryWeapon === 'none' ? undefined : secondaryWeapon
-          enemyData.marker.secondaryWeapon =
-            secondaryWeapon === 'none' ? undefined : secondaryWeapon
-        }
-        // Force update equipWeapon flag based on weapons presence
-        const hasMain = !!enemyData.mainWeapon
-        const hasSecondary = !!enemyData.secondaryWeapon
-        enemyData.equipWeapon = hasMain || hasSecondary
-        enemyData.marker.equipWeapon = enemyData.equipWeapon
-
-        this.updateEnemyMarkerVisual(
-          enemyData.marker,
-          enemyData.radius,
-          enemyData.color
-        )
-      }
-    }
-
-    this.fabricCanvas?.requestRenderAll()
-    this.hidePropertiesModal()
   }
 
   private showMapListView() {
@@ -1879,45 +1724,23 @@ export class EditorManager {
     let index = 0
     for (let i = 0; i < this.maps.length; i++) {
       const map = this.maps[i]
-      const item = document.createElement('button')
-      item.className = 'editor-map-item'
+      const item = EditorUIHelper.createMapListItem()
 
       if (map.thumbnail) {
-        const img = document.createElement('img')
-        img.src = map.thumbnail
-        img.style.width = '100px'
-        img.style.height = '80px'
-        img.style.objectFit = 'cover'
-        img.style.borderRadius = '4px'
-        img.style.border = '1px solid rgba(255,255,255,0.2)'
-        img.style.flexShrink = '0'
-        item.appendChild(img)
+        item.appendChild(EditorUIHelper.createMapThumbnailImage(map.thumbnail))
       } else {
-        const placeholder = document.createElement('div')
-        placeholder.style.width = '100px'
-        placeholder.style.height = '80px'
-        placeholder.style.backgroundColor = 'rgba(0,0,0,0.2)'
-        placeholder.style.borderRadius = '4px'
-        placeholder.style.border = '1px dashed rgba(255,255,255,0.1)'
-        placeholder.style.flexShrink = '0'
-        item.appendChild(placeholder)
+        item.appendChild(EditorUIHelper.createMapThumbnailPlaceholder())
       }
 
-      const textContainer = document.createElement('div')
-      textContainer.style.display = 'flex'
-      textContainer.style.alignItems = 'center'
-      textContainer.style.gap = '8px'
-
-      const nameSpan = document.createElement('span')
-      nameSpan.textContent = map.name
-      textContainer.appendChild(nameSpan)
+      const textContainer = EditorUIHelper.createMapListTextContainer()
+      textContainer.appendChild(EditorUIHelper.createMapListTitle(map.name))
 
       if (map.isDefault) {
-        const tagSpan = document.createElement('span')
-        tagSpan.textContent = localizer.t('editor_map_default_tag')
-        tagSpan.style.fontSize = '14px'
-        tagSpan.style.color = 'rgba(255, 255, 255, 0.4)'
-        textContainer.appendChild(tagSpan)
+        textContainer.appendChild(
+          EditorUIHelper.createMapListDefaultTag(
+            localizer.t('editor_map_default_tag')
+          )
+        )
       }
 
       item.appendChild(textContainer)
@@ -2627,222 +2450,6 @@ export class EditorManager {
       placed.objectKind === 'ground' ? ObjectType.Ground : ObjectType.Obstacle,
       polygon
     )
-  }
-
-  private showPropertiesModal(type: ObjectType) {
-    const fields = this.getPropertyFields(type)
-    this.renderPropertiesForm(fields)
-    this.propertiesModal.classList.add('is-visible')
-    this.propertiesSelectedIndex = 0
-    this.applyPropertiesModalSelection()
-  }
-
-  private hidePropertiesModal() {
-    this.propertiesModal.classList.remove('is-visible')
-    this.propertiesForm.innerHTML = ''
-    this.propertiesConfirmBtn.classList.remove('is-selected')
-    this.propertiesCancelBtn.classList.remove('is-selected')
-  }
-
-  private applyPropertiesModalSelection() {
-    this.propertiesConfirmBtn.classList.toggle(
-      'is-selected',
-      this.propertiesSelectedIndex === 0
-    )
-    this.propertiesCancelBtn.classList.toggle(
-      'is-selected',
-      this.propertiesSelectedIndex === 1
-    )
-  }
-
-  private setPropertiesSelectedIndex(index: number) {
-    this.propertiesSelectedIndex = index <= 0 ? 0 : 1
-    this.applyPropertiesModalSelection()
-    if (this.propertiesSelectedIndex === 0) {
-      this.propertiesConfirmBtn.focus()
-    } else {
-      this.propertiesCancelBtn.focus()
-    }
-  }
-
-  private handlePropertiesModalKeyDown(event: KeyboardEvent) {
-    const key = event.key
-    const target = event.target
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement
-    ) {
-      if (key === 'Escape') {
-        event.preventDefault()
-        this.hidePropertiesModal()
-      } else if (key === 'ArrowUp' || key === 'ArrowDown') {
-        event.preventDefault()
-        const nextIndex = key === 'ArrowUp' ? 0 : 1
-        this.setPropertiesSelectedIndex(nextIndex)
-      }
-      return
-    }
-    if (
-      key === 'ArrowLeft' ||
-      key === 'ArrowRight' ||
-      key === 'ArrowUp' ||
-      key === 'ArrowDown'
-    ) {
-      event.preventDefault()
-      const nextIndex = this.propertiesSelectedIndex === 0 ? 1 : 0
-      this.setPropertiesSelectedIndex(nextIndex)
-      return
-    }
-    if (key === 'Enter' || key === ' ') {
-      event.preventDefault()
-      if (this.propertiesSelectedIndex === 0) {
-        this.handlePropertiesConfirm()
-      } else {
-        this.hidePropertiesModal()
-      }
-      return
-    }
-    if (key === 'Escape') {
-      event.preventDefault()
-      this.hidePropertiesModal()
-    }
-  }
-
-  private getPropertyFields(type: ObjectType): PropertyField[] {
-    let currentData: EditorObjectData | null = null
-    if (this.selectedEditorObjectId !== -1) {
-      currentData = this.getEditorObjectById(this.selectedEditorObjectId)
-    }
-
-    const commonFields: PropertyField[] = [
-      {
-        key: 'name',
-        label: localizer.t('editor_prop_name'),
-        type: 'text',
-        defaultValue: currentData?.name ?? '',
-      },
-      {
-        key: 'x',
-        label: localizer.t('editor_prop_position_x'),
-        type: 'number',
-        defaultValue: currentData?.object?.left
-          ? (currentData.object.left * this.invPixelsPerMeter).toFixed(2)
-          : 0,
-      },
-      {
-        key: 'y',
-        label: localizer.t('editor_prop_position_y'),
-        type: 'number',
-        defaultValue: currentData?.object?.top
-          ? (currentData.object.top * this.invPixelsPerMeter).toFixed(2)
-          : 0,
-      },
-    ]
-
-    switch (type) {
-      case ObjectType.Enemy: {
-        let enemyData: EnemyMarkerData | null = null
-        if (currentData && this.isEnemyMarker(currentData.object)) {
-          enemyData = this.enemyMarkerMap.get(currentData.object) ?? null
-        }
-        return [
-          ...commonFields,
-          {
-            key: 'health',
-            label: localizer.t('editor_prop_health'),
-            type: 'number',
-            defaultValue: enemyData?.maxHealth ?? 100,
-          },
-          {
-            key: 'speed',
-            label: localizer.t('editor_prop_speed'),
-            type: 'number',
-            defaultValue: enemyData?.moveSpeed ?? 1,
-          },
-          {
-            key: 'radius',
-            label: localizer.t('editor_enemy_prop_radius'),
-            type: 'number',
-            defaultValue: enemyData?.radius ?? 0.5,
-          },
-          {
-            key: 'color',
-            label: localizer.t('editor_enemy_prop_color'),
-            type: 'text',
-            defaultValue: enemyData?.color ?? '#ffffff',
-          },
-          {
-            key: 'mainWeapon',
-            label: localizer.t('editor_weapon_category_main'),
-            type: 'select',
-            defaultValue: enemyData?.mainWeapon ?? 'sword',
-            options: [
-              { label: localizer.t('editor_weapon_none'), value: 'none' },
-              { label: localizer.t('editor_weapon_sword'), value: 'sword' },
-            ],
-          },
-          {
-            key: 'secondaryWeapon',
-            label: localizer.t('editor_weapon_category_secondary'),
-            type: 'select',
-            defaultValue: enemyData?.secondaryWeapon ?? 'none',
-            options: [
-              {
-                label: localizer.t('editor_weapon_category_item'),
-                value: 'none',
-              }, // Using "None" or similar label? Reusing 'item' label for now as "None" placeholder or just 'None'
-              { label: localizer.t('editor_weapon_bow'), value: 'bow' },
-            ],
-          },
-        ]
-      }
-      case ObjectType.Weapon: {
-        let weaponData: WeaponMarkerData | null = null
-        if (currentData && this.isWeaponMarker(currentData.object)) {
-          weaponData = this.weaponMarkerMap.get(currentData.object) ?? null
-        }
-        return [
-          ...commonFields,
-          {
-            key: 'damage',
-            label: localizer.t('editor_prop_damage'),
-            type: 'number',
-            defaultValue: weaponData?.attackDamage ?? 10,
-          },
-        ]
-      }
-      case ObjectType.Ground:
-      case ObjectType.Obstacle: {
-        let shapeReset: ShapeResetData | null = null
-        if (currentData) {
-          shapeReset = this.shapeResetMap.get(currentData.object) ?? null
-        }
-        return [
-          ...commonFields,
-          {
-            key: 'width',
-            label: localizer.t('editor_prop_width'),
-            type: 'number',
-            defaultValue:
-              shapeReset && shapeReset.kind === 'rect'
-                ? (shapeReset.width * this.invPixelsPerMeter).toFixed(2)
-                : 5,
-          },
-          {
-            key: 'height',
-            label: localizer.t('editor_prop_height'),
-            type: 'number',
-            defaultValue:
-              shapeReset && shapeReset.kind === 'rect'
-                ? (shapeReset.height * this.invPixelsPerMeter).toFixed(2)
-                : 0.5,
-          },
-        ]
-      }
-      default:
-        return commonFields
-    }
   }
 
   private registerEditorObject(type: ObjectType, object: fabric.Object) {
@@ -4188,47 +3795,6 @@ export class EditorManager {
     const frame = data.frame
     const scaleX = frame.scaleX ?? 1
     frame.scaleY = scaleX
-  }
-
-  private renderPropertiesForm(fields: PropertyField[]) {
-    this.propertiesForm.innerHTML = ''
-
-    fields.forEach((field) => {
-      const group = document.createElement('div')
-      group.className = 'editor-property-group'
-
-      const label = document.createElement('label')
-      label.textContent = field.label
-      label.htmlFor = `prop-${field.key}`
-
-      group.appendChild(label)
-
-      if (field.type === 'select' && field.options) {
-        const select = document.createElement('select')
-        select.id = `prop-${field.key}`
-        select.name = field.key
-
-        field.options.forEach((opt) => {
-          const option = document.createElement('option')
-          option.value = opt.value
-          option.textContent = opt.label
-          if (String(field.defaultValue) === opt.value) {
-            option.selected = true
-          }
-          select.appendChild(option)
-        })
-        group.appendChild(select)
-      } else {
-        const input = document.createElement('input')
-        input.type = field.type
-        input.id = `prop-${field.key}`
-        input.name = field.key
-        input.value = String(field.defaultValue)
-        group.appendChild(input)
-      }
-
-      this.propertiesForm.appendChild(group)
-    })
   }
 
   private setActiveObjectType(type: ObjectType | null) {
@@ -5914,27 +5480,6 @@ export class EditorManager {
     const template = WEAPON_TEMPLATES[marker.weaponType]
     const isBow = marker.weaponType === 'bow'
 
-    const modal = document.createElement('div')
-    modal.style.cssText = `
-      position: absolute;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.75);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10000;
-    `
-
-    const form = document.createElement('div')
-    form.style.cssText = `
-      background: rgba(0, 0, 0, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      padding: 24px;
-      min-width: 520px;
-      font-family: monospace;
-      color: #ffffff;
-    `
-
     const getSizeName = (level: number): string => {
       if (isBow) {
         return level === 1
@@ -5959,225 +5504,92 @@ export class EditorManager {
     const editorData = this.editorObjectMap.get(marker)
     const weaponCategoryName = localizer.t(`editor_weapon_${data.weaponType}`)
     const objectName = editorData?.name ?? ''
-    const title = document.createElement('h3')
-    title.textContent = `[${weaponCategoryName}] ${objectName}`
-    title.style.cssText = 'margin: 0 0 16px 0; font-size: 12px;'
-    form.appendChild(title)
-
-    const content = document.createElement('div')
-    content.style.cssText = 'display: flex; align-items: flex-start; gap: 16px;'
-    form.appendChild(content)
-
-    const leftPanel = document.createElement('div')
-    leftPanel.style.cssText = 'flex: 1; min-width: 0;'
-    content.appendChild(leftPanel)
-
-    const rightPanel = document.createElement('div')
-    rightPanel.style.cssText =
-      'width: 180px; padding: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.35); box-sizing: border-box;'
-    content.appendChild(rightPanel)
-
-    const previewCanvas = document.createElement('canvas')
-    previewCanvas.width = 160
-    previewCanvas.height = 160
-    previewCanvas.style.cssText =
-      'width: 160px; height: 160px; display: block; image-rendering: pixelated;'
-    rightPanel.appendChild(previewCanvas)
-    const previewCtx = previewCanvas.getContext('2d')
-
-    const sizeGroup = document.createElement('div')
-    sizeGroup.style.cssText =
-      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
-
-    const sizeLabel = document.createElement('label')
-    sizeLabel.textContent = localizer.t('editor_weapon_prop_size')
-    sizeLabel.style.cssText = 'width: 100px; font-size: 12px; flex-shrink: 0;'
-    sizeGroup.appendChild(sizeLabel)
-
-    const sizeSelect = document.createElement('select')
-    sizeSelect.style.cssText = `
-      flex: 0 0 200px;
-      width: 200px;
-      padding: 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-    `
-    for (let i = 1; i <= template.sizeMaxLevel; i++) {
-      const option = document.createElement('option')
-      option.value = String(i)
-      option.textContent = `${i} - ${getSizeName(i)}`
-      if (i === data.sizeLevel) {
-        option.selected = true
-      }
-      sizeSelect.appendChild(option)
-    }
-    sizeGroup.appendChild(sizeSelect)
-    leftPanel.appendChild(sizeGroup)
-
-    const attackGroup = document.createElement('div')
-    attackGroup.style.cssText =
-      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
-
-    const attackLabel = document.createElement('label')
-    attackLabel.textContent = localizer.t('editor_weapon_prop_attack_damage')
-    attackLabel.style.cssText = 'width: 100px; font-size: 12px; flex-shrink: 0;'
-    attackGroup.appendChild(attackLabel)
-
-    const attackInput = document.createElement('input')
-    attackInput.type = 'number'
-    attackInput.value = String(data.attackDamage)
-    attackInput.step = '0.1'
-    attackInput.min = '0'
-    attackInput.style.cssText = `
-      flex: 0 0 200px;
-      width: 200px;
-      padding: 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-      box-sizing: border-box;
-    `
-    attackGroup.appendChild(attackInput)
-    leftPanel.appendChild(attackGroup)
-
-    const postureGroup = document.createElement('div')
-    postureGroup.style.cssText =
-      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
-
-    const postureLabel = document.createElement('label')
-    postureLabel.textContent = localizer.t('editor_weapon_prop_posture_damage')
-    postureLabel.style.cssText =
-      'width: 100px; font-size: 12px; flex-shrink: 0;'
-    postureGroup.appendChild(postureLabel)
-
-    const postureInput = document.createElement('input')
-    postureInput.type = 'number'
-    postureInput.value = String(data.postureDamage)
-    postureInput.step = '0.1'
-    postureInput.min = '0'
-    postureInput.style.cssText = `
-      flex: 0 0 200px;
-      width: 200px;
-      padding: 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-      box-sizing: border-box;
-    `
-    postureGroup.appendChild(postureInput)
-    leftPanel.appendChild(postureGroup)
-
-    const toughnessGroup = document.createElement('div')
-    toughnessGroup.style.cssText =
-      'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
-
-    const toughnessLabel = document.createElement('label')
-    toughnessLabel.textContent = localizer.t(
-      'editor_weapon_prop_toughness_damage'
+    const dialog = EditorUIHelper.createPropertiesDialog(
+      `[${weaponCategoryName}] ${objectName}`
     )
-    toughnessLabel.style.cssText =
-      'width: 100px; font-size: 12px; flex-shrink: 0;'
-    toughnessGroup.appendChild(toughnessLabel)
+    const { leftPanel, previewCanvas, previewCtx, close, modal } = dialog
 
-    const toughnessInput = document.createElement('input')
-    toughnessInput.type = 'number'
-    toughnessInput.value = String(data.toughnessDamage)
-    toughnessInput.step = '0.1'
-    toughnessInput.min = '0'
-    toughnessInput.style.cssText = `
-      flex: 0 0 200px;
-      width: 200px;
-      padding: 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-      box-sizing: border-box;
-    `
-    toughnessGroup.appendChild(toughnessInput)
-    leftPanel.appendChild(toughnessGroup)
+    const sizeOptions: Array<{ value: string; label: string }> = []
+    for (let i = 1; i <= template.sizeMaxLevel; i++) {
+      sizeOptions.push({
+        value: String(i),
+        label: `${i} - ${getSizeName(i)}`,
+      })
+    }
+    const sizeRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_weapon_prop_size')
+    )
+    const sizeSelect = EditorUIHelper.createSelect({
+      options: sizeOptions,
+      selected: String(data.sizeLevel),
+    })
+    sizeRow.row.appendChild(sizeSelect)
+    leftPanel.appendChild(sizeRow.row)
+
+    const attackRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_weapon_prop_attack_damage')
+    )
+    const attackInput = EditorUIHelper.createNumberInput({
+      value: data.attackDamage,
+      min: '0',
+      step: '0.1',
+    })
+    attackRow.row.appendChild(attackInput)
+    leftPanel.appendChild(attackRow.row)
+
+    const postureRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_weapon_prop_posture_damage')
+    )
+    const postureInput = EditorUIHelper.createNumberInput({
+      value: data.postureDamage,
+      min: '0',
+      step: '0.1',
+    })
+    postureRow.row.appendChild(postureInput)
+    leftPanel.appendChild(postureRow.row)
+
+    const toughnessRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_weapon_prop_toughness_damage')
+    )
+    const toughnessInput = EditorUIHelper.createNumberInput({
+      value: data.toughnessDamage,
+      min: '0',
+      step: '0.1',
+    })
+    toughnessRow.row.appendChild(toughnessInput)
+    leftPanel.appendChild(toughnessRow.row)
 
     let bowAmmoInput: HTMLInputElement | null = null
     if (isBow) {
-      const ammoGroup = document.createElement('div')
-      ammoGroup.style.cssText =
-        'display: flex; align-items: center; gap: 12px; margin-bottom: 16px;'
-
-      const ammoLabel = document.createElement('label')
-      ammoLabel.textContent = localizer.t('editor_weapon_prop_bow_ammo')
-      ammoLabel.style.cssText = 'width: 100px; font-size: 12px; flex-shrink: 0;'
-      ammoGroup.appendChild(ammoLabel)
-
-      bowAmmoInput = document.createElement('input')
-      bowAmmoInput.type = 'number'
-      bowAmmoInput.value = String(data.bowAmmo ?? DEFAULT_BOW_AMMO_PLAYER)
-      bowAmmoInput.step = '1'
-      bowAmmoInput.min = '0'
-      bowAmmoInput.style.cssText = `
-        flex: 0 0 200px;
-        width: 200px;
-        padding: 8px;
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        color: #ffffff;
-        font-family: monospace;
-        font-size: 12px;
-        box-sizing: border-box;
-      `
-      ammoGroup.appendChild(bowAmmoInput)
-      leftPanel.appendChild(ammoGroup)
+      const ammoRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_weapon_prop_bow_ammo')
+      )
+      bowAmmoInput = EditorUIHelper.createNumberInput({
+        value: data.bowAmmo ?? DEFAULT_BOW_AMMO_PLAYER,
+        min: '0',
+        step: '1',
+      })
+      ammoRow.row.appendChild(bowAmmoInput)
+      leftPanel.appendChild(ammoRow.row)
     }
 
-    const buttons = document.createElement('div')
-    buttons.style.cssText = 'display: flex; gap: 8px; margin-top: 16px;'
-
-    const confirmBtn = document.createElement('button')
-    confirmBtn.textContent = localizer.t('editor_btn_confirm')
-    confirmBtn.style.cssText = `
-      flex: 1;
-      padding: 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-      cursor: pointer;
-    `
-    confirmBtn.addEventListener('mouseenter', () => {
-      confirmBtn.style.background = 'rgba(255, 255, 255, 0.2)'
-    })
-    confirmBtn.addEventListener('mouseleave', () => {
-      confirmBtn.style.background = 'rgba(255, 255, 255, 0.1)'
-    })
-
-    const cancelBtn = document.createElement('button')
-    cancelBtn.textContent = localizer.t('editor_btn_cancel')
-    cancelBtn.style.cssText = confirmBtn.style.cssText
-    cancelBtn.addEventListener('mouseenter', () => {
-      cancelBtn.style.background = 'rgba(255, 255, 255, 0.2)'
-    })
-    cancelBtn.addEventListener('mouseleave', () => {
-      cancelBtn.style.background = 'rgba(255, 255, 255, 0.1)'
-    })
-
-    buttons.appendChild(confirmBtn)
-    buttons.appendChild(cancelBtn)
-    leftPanel.appendChild(buttons)
-    modal.appendChild(form)
+    const buttonRow = EditorUIHelper.createButtonRow()
+    const confirmBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_confirm'),
+      { primary: true }
+    )
+    const cancelBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_cancel')
+    )
+    buttonRow.appendChild(confirmBtn)
+    buttonRow.appendChild(cancelBtn)
+    leftPanel.appendChild(buttonRow)
 
     const viewport = document.getElementById('gameViewport')
     if (!viewport) {
       return
     }
-    viewport.appendChild(modal)
+    dialog.show(viewport)
 
     const renderWeaponPreview = () => {
       if (!previewCtx) {
@@ -6228,9 +5640,7 @@ export class EditorManager {
 
     return new Promise<void>((resolve) => {
       const cleanup = () => {
-        if (modal.parentElement) {
-          modal.parentElement.removeChild(modal)
-        }
+        close()
         resolve()
       }
 
@@ -6956,7 +6366,6 @@ export class EditorManager {
   hide() {
     this.visible = false
     this.editorOverlay.classList.remove('is-visible')
-    this.hidePropertiesModal()
     this.hidePanelMenu()
     this.hideObjectTypeMenu()
     this.hideGroundSubmenu()

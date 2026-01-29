@@ -296,4 +296,55 @@ export class EditorUIHelper {
     `
     return input
   }
+
+  static createMapListItem(): HTMLButtonElement {
+    const item = document.createElement('button')
+    item.className = 'editor-map-item'
+    return item
+  }
+
+  static createMapThumbnailImage(src: string): HTMLImageElement {
+    const img = document.createElement('img')
+    img.src = src
+    img.style.width = '100px'
+    img.style.height = '80px'
+    img.style.objectFit = 'cover'
+    img.style.borderRadius = '4px'
+    img.style.border = '1px solid rgba(255,255,255,0.2)'
+    img.style.flexShrink = '0'
+    return img
+  }
+
+  static createMapThumbnailPlaceholder(): HTMLDivElement {
+    const placeholder = document.createElement('div')
+    placeholder.style.width = '100px'
+    placeholder.style.height = '80px'
+    placeholder.style.backgroundColor = 'rgba(0,0,0,0.2)'
+    placeholder.style.borderRadius = '4px'
+    placeholder.style.border = '1px dashed rgba(255,255,255,0.1)'
+    placeholder.style.flexShrink = '0'
+    return placeholder
+  }
+
+  static createMapListTextContainer(): HTMLDivElement {
+    const container = document.createElement('div')
+    container.style.display = 'flex'
+    container.style.alignItems = 'center'
+    container.style.gap = '8px'
+    return container
+  }
+
+  static createMapListTitle(text: string): HTMLSpanElement {
+    const nameSpan = document.createElement('span')
+    nameSpan.textContent = text
+    return nameSpan
+  }
+
+  static createMapListDefaultTag(text: string): HTMLSpanElement {
+    const tagSpan = document.createElement('span')
+    tagSpan.textContent = text
+    tagSpan.style.fontSize = '14px'
+    tagSpan.style.color = 'rgba(255, 255, 255, 0.4)'
+    return tagSpan
+  }
 }
