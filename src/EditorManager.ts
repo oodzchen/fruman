@@ -12,6 +12,7 @@ import {
 } from './constants'
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import { EditorMapSerializer } from './editor/EditorMapSerializer'
+import { EditorObjectFactory } from './editor/EditorObjectFactory'
 import {
   type EditablePolygon,
   EditorPolygonEditor,
@@ -478,6 +479,7 @@ export class EditorManager {
   private lastClientX = 0
   private lastClientY = 0
   private polygonEditor: EditorPolygonEditor
+  private objectFactory: EditorObjectFactory
   private polygonMenuActions: (
     | 'add'
     | 'remove'
@@ -736,6 +738,22 @@ export class EditorManager {
       isPanning: () => this.isPanning,
       acquirePoint,
       releasePoint,
+    })
+    this.objectFactory = new EditorObjectFactory({
+      pixelsPerMeter: EDITOR_PIXELS_PER_METER,
+      defaultPlayerRadius: DEFAULT_PLAYER_RADIUS,
+      playerBodyColor: PLAYER_BODY_COLOR,
+      playerEyeColor: PLAYER_EYE_COLOR,
+      enemyEyeColor: ENEMY_EYE_COLOR,
+      computeEnemyBodyRadiusPx,
+      computeWeaponRenderDimensions: (template, sizeLevel, ppm, isBow) =>
+        computeWeaponRenderDimensions(
+          template as WeaponTemplate,
+          sizeLevel,
+          ppm,
+          isBow
+        ),
+      renderWeapon,
     })
     this.mapSerializer = new EditorMapSerializer({
       getCanvas: () => this.editorCanvas,
@@ -2990,7 +3008,7 @@ export class EditorManager {
       this.fabricCanvas.requestRenderAll()
       return
     }
-    const marker = this.createPlayerMarker()
+    const marker = this.objectFactory.createPlayerMarker() as PlayerMarker
     marker.left = spawnX
     marker.top = spawnY
     marker.setCoords()
@@ -3000,45 +3018,6 @@ export class EditorManager {
     this.fabricCanvas.setActiveObject(marker)
     this.handleCanvasSelection(marker)
     this.fabricCanvas.renderAll()
-  }
-
-  private createPlayerMarker(): PlayerMarker {
-    const radius = DEFAULT_PLAYER_RADIUS * EDITOR_PIXELS_PER_METER
-    const eyeRadius = 0.08 * EDITOR_PIXELS_PER_METER
-    const eyeOffsetX = radius * 0.5
-    const eyeOffsetY = -radius * 0.5
-    const body = new fabric.Circle({
-      radius,
-      fill: PLAYER_BODY_COLOR,
-      stroke: PLAYER_BODY_COLOR,
-      strokeWidth: 3,
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-    })
-    const eye = new fabric.Circle({
-      radius: eyeRadius,
-      fill: PLAYER_EYE_COLOR,
-      stroke: PLAYER_EYE_COLOR,
-      strokeWidth: 1,
-      originX: 'center',
-      originY: 'center',
-      left: eyeOffsetX,
-      top: eyeOffsetY,
-      objectCaching: false,
-    })
-    const group = new fabric.Group([body, eye], {
-      originX: 'center',
-      originY: 'center',
-      selectable: true,
-      hasControls: false,
-      lockRotation: true,
-      lockScalingX: true,
-      lockScalingY: true,
-      objectCaching: false,
-    }) as PlayerMarker
-    group.editorShape = 'player-marker'
-    return group
   }
 
   private spawnEnemyMarker(
@@ -3086,7 +3065,12 @@ export class EditorManager {
       spawn?.y !== undefined
         ? spawn.y * EDITOR_PIXELS_PER_METER
         : this.editorCanvas.height * 0.5
-    const marker = this.createEnemyMarker(enemyType, radius, color, equipWeapon)
+    const marker = this.objectFactory.createEnemyMarker(
+      enemyType,
+      radius,
+      color,
+      equipWeapon
+    ) as EnemyMarker
     marker.radius = radius
     marker.moveSpeed = moveSpeed
     marker.attackDesire = attackDesire
@@ -3144,58 +3128,6 @@ export class EditorManager {
     this.fabricCanvas.renderAll()
   }
 
-  private createEnemyMarker(
-    enemyType: EnemyType,
-    radiusMeters: number,
-    color: string,
-    equipWeapon: boolean
-  ): EnemyMarker {
-    const radius = computeEnemyBodyRadiusPx(
-      radiusMeters,
-      EDITOR_PIXELS_PER_METER
-    )
-    const eyeRadius = 0.08 * EDITOR_PIXELS_PER_METER
-    const eyeOffsetX = radius * 0.5
-    const eyeOffsetY = -radius * 0.5
-    const body = new fabric.Circle({
-      radius,
-      fill: color,
-      stroke: color,
-      strokeWidth: 3,
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-    })
-    const eye = new fabric.Circle({
-      radius: eyeRadius,
-      fill: ENEMY_EYE_COLOR,
-      stroke: ENEMY_EYE_COLOR,
-      strokeWidth: 1,
-      originX: 'center',
-      originY: 'center',
-      left: eyeOffsetX,
-      top: eyeOffsetY,
-      objectCaching: false,
-    })
-    const group = new fabric.Group([body, eye], {
-      width: radius * 2,
-      height: radius * 2,
-      originX: 'center',
-      originY: 'center',
-      selectable: true,
-      hasControls: false,
-      lockRotation: true,
-      lockScalingX: true,
-      lockScalingY: true,
-      objectCaching: false,
-    }) as EnemyMarker
-    group.editorShape = 'enemy-marker'
-    group.enemyType = enemyType
-    group.color = color
-    group.equipWeapon = equipWeapon
-    return group
-  }
-
   private spawnWeaponMarker(
     weaponType: WeaponType,
     category: WeaponCategory,
@@ -3230,15 +3162,16 @@ export class EditorManager {
     const bowAmmo =
       spawn?.bowAmmo ??
       (weaponType === 'bow' ? DEFAULT_BOW_AMMO_PLAYER : undefined)
-    const marker = this.createWeaponMarker(
+    const marker = this.objectFactory.createWeaponMarker(
       weaponType,
       category,
       sizeLevel,
       attackDamage,
       postureDamage,
       toughnessDamage,
-      bowAmmo
-    )
+      bowAmmo,
+      template
+    ) as WeaponMarker
     marker.left = centerX
     marker.top = centerY
     marker.setCoords()
@@ -3259,79 +3192,6 @@ export class EditorManager {
     this.fabricCanvas.setActiveObject(marker)
     this.handleCanvasSelection(marker)
     this.fabricCanvas.renderAll()
-  }
-
-  private createWeaponMarker(
-    weaponType: WeaponType,
-    category: WeaponCategory,
-    sizeLevel: number,
-    attackDamage: number,
-    postureDamage: number,
-    toughnessDamage: number,
-    bowAmmo?: number
-  ): WeaponMarker {
-    const template = WEAPON_TEMPLATES[weaponType]
-    const color = '#b4bdc7'
-
-    const isBow = weaponType === 'bow'
-    const dims = computeWeaponRenderDimensions(
-      template,
-      sizeLevel,
-      EDITOR_PIXELS_PER_METER,
-      isBow
-    )
-    const renderType: WeaponShape['weaponRenderType'] = isBow ? 'bow' : 'sword'
-
-    const weaponShape = new (fabric.util.createClass(fabric.Object, {
-      type: 'customWeapon',
-      weaponType,
-      weaponWidthPx: dims.widthPx,
-      weaponHeightPx: dims.heightPx,
-      weaponBoundingWidthPx: dims.boundingWidthPx,
-      weaponBoundingHeightPx: dims.boundingHeightPx,
-      weaponRenderType: renderType,
-      initialize(options?: fabric.IObjectOptions) {
-        this.callSuper('initialize', options)
-        const self = this as WeaponShape
-        self.width = self.weaponBoundingWidthPx
-        self.height = self.weaponBoundingHeightPx
-        this.weaponType = weaponType
-      },
-      _render(ctx: CanvasRenderingContext2D) {
-        const self = this as WeaponShape
-        renderWeapon(
-          ctx,
-          self.weaponRenderType,
-          self.weaponWidthPx,
-          self.weaponHeightPx,
-          color,
-          false
-        )
-      },
-    }))({
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-    }) as WeaponShape
-
-    const group = new fabric.Group([weaponShape], {
-      originX: 'center',
-      originY: 'center',
-      selectable: true,
-      hasControls: false,
-      lockScalingX: true,
-      lockScalingY: true,
-      objectCaching: false,
-    }) as WeaponMarker
-    group.editorShape = 'weapon-marker'
-    group.weaponType = weaponType
-    group.category = category
-    group.sizeLevel = sizeLevel
-    group.attackDamage = attackDamage
-    group.postureDamage = postureDamage
-    group.toughnessDamage = toughnessDamage
-    group.bowAmmo = bowAmmo
-    return group
   }
 
   private spawnCameraViewFrame(camera?: EditorMapData['camera']) {
@@ -5153,61 +5013,22 @@ export class EditorManager {
     x: number,
     y: number
   ) {
-    const weaponType = config.weaponType
-    const isBow = weaponType === 'bow'
-    const category: WeaponCategory = isBow ? 'secondary' : 'main'
-    const template = WEAPON_TEMPLATES[weaponType]
-
-    const dims = computeWeaponRenderDimensions(
-      template,
-      config.sizeLevel,
-      EDITOR_PIXELS_PER_METER,
-      isBow
+    const result = this.objectFactory.createEnemyWeaponMarkerFromConfig(
+      config,
+      slot,
+      x,
+      y,
+      WEAPON_TEMPLATES
     )
-
-    const weaponShape = new fabric.Rect({
-      width: dims.boundingWidthPx,
-      height: dims.boundingHeightPx,
-      fill: 'transparent',
-      stroke: 'transparent',
-      strokeWidth: 0,
-    }) as unknown as WeaponShape
-
-    weaponShape.weaponWidthPx = dims.widthPx
-    weaponShape.weaponHeightPx = dims.heightPx
-    weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
-    weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
-    weaponShape.weaponRenderType = isBow ? 'bow' : 'sword'
-
-    const weaponMarker = new fabric.Group([weaponShape], {
-      left: x,
-      top: y,
-      selectable: false,
-      visible: false,
-    }) as WeaponMarker
-
-    weaponMarker.weaponType = weaponType
-    weaponMarker.sizeLevel = config.sizeLevel
-    weaponMarker.category = category
-
-    const weaponData: WeaponMarkerData = {
-      marker: weaponMarker,
-      weaponType,
-      category,
-      sizeLevel: config.sizeLevel,
-      attackDamage: config.attackDamage,
-      postureDamage: config.postureDamage,
-      toughnessDamage: config.toughnessDamage,
-      bowAmmo: config.bowAmmo,
-    }
-
+    const weaponMarker = result.weaponMarker as WeaponMarker
+    const weaponData = result.weaponData as WeaponMarkerData
     this.weaponMarkerMap.set(weaponMarker, weaponData)
 
     const markerKey =
       slot === 'main' ? 'mainWeaponMarker' : 'secondaryWeaponMarker'
     const weaponKey = slot === 'main' ? 'mainWeapon' : 'secondaryWeapon'
     enemyData[markerKey] = weaponMarker
-    enemyData[weaponKey] = weaponType
+    enemyData[weaponKey] = result.weaponType
   }
 
   private getOrCreateEnemyWeaponMarker(
@@ -5227,52 +5048,23 @@ export class EditorManager {
 
     if (!weaponMarker) {
       const template = WEAPON_TEMPLATES[weaponType]
-      const isBow = weaponType === 'bow'
-      const category: WeaponCategory = isBow ? 'secondary' : 'main'
-
-      const dims = computeWeaponRenderDimensions(
-        template,
-        template.sizeLevel,
-        EDITOR_PIXELS_PER_METER,
-        isBow
+      const result = this.objectFactory.createEnemyWeaponMarkerFromConfig(
+        {
+          weaponType,
+          sizeLevel: template.sizeLevel,
+          attackDamage: template.attackDamage,
+          postureDamage: template.postureDamage,
+          toughnessDamage: template.toughnessDamage,
+          bowAmmo: weaponType === 'bow' ? DEFAULT_BOW_AMMO_ENEMY : undefined,
+        },
+        slot,
+        enemyData.marker.left ?? 0,
+        enemyData.marker.top ?? 0,
+        WEAPON_TEMPLATES
       )
 
-      const weaponShape = new fabric.Rect({
-        width: dims.boundingWidthPx,
-        height: dims.boundingHeightPx,
-        fill: 'transparent',
-        stroke: 'transparent',
-        strokeWidth: 0,
-      }) as unknown as WeaponShape
-
-      weaponShape.weaponWidthPx = dims.widthPx
-      weaponShape.weaponHeightPx = dims.heightPx
-      weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
-      weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
-      weaponShape.weaponRenderType = isBow ? 'bow' : 'sword'
-
-      weaponMarker = new fabric.Group([weaponShape], {
-        left: enemyData.marker.left,
-        top: enemyData.marker.top,
-        selectable: false,
-        visible: false,
-      }) as WeaponMarker
-
-      weaponMarker.weaponType = weaponType
-      weaponMarker.sizeLevel = template.sizeLevel
-      weaponMarker.category = category
-
-      const weaponData: WeaponMarkerData = {
-        marker: weaponMarker,
-        weaponType,
-        category,
-        sizeLevel: template.sizeLevel,
-        attackDamage: template.attackDamage,
-        postureDamage: template.postureDamage,
-        toughnessDamage: template.toughnessDamage,
-        bowAmmo: isBow ? DEFAULT_BOW_AMMO_ENEMY : undefined,
-      }
-
+      weaponMarker = result.weaponMarker as WeaponMarker
+      const weaponData = result.weaponData as WeaponMarkerData
       this.weaponMarkerMap.set(weaponMarker, weaponData)
       enemyData[markerKey] = weaponMarker
     }
