@@ -11,6 +11,7 @@ import {
   WEAPON_TEMPLATES,
 } from './constants'
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
+import { EditorUIHelper } from './editor/EditorUIHelper'
 import type {
   EditorMapData,
   EditorMapMeta,
@@ -5504,198 +5505,125 @@ export class EditorManager {
       return
     }
 
-    const modal = document.createElement('div')
-    modal.style.cssText = `
-      position: absolute;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.75);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10000;
-    `
-
-    const form = document.createElement('div')
-    form.style.cssText = `
-      background: rgba(0, 0, 0, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      padding: 24px;
-      min-width: 520px;
-      font-family: monospace;
-      color: #ffffff;
-    `
-
     const editorData = this.editorObjectMap.get(marker)
     const enemyTypeLocal = localizer.t(`editor_enemy_${data.enemyType}`)
     const objectName = editorData?.name ?? ''
-    const title = document.createElement('h3')
-    title.textContent = `[${enemyTypeLocal}] ${objectName}`
-    title.style.cssText = 'margin: 0 0 16px 0; font-size: 12px;'
-    form.appendChild(title)
 
-    const content = document.createElement('div')
-    content.style.cssText = 'display: flex; align-items: flex-start; gap: 16px;'
-    form.appendChild(content)
+    const dialog = EditorUIHelper.createPropertiesDialog(
+      `[${enemyTypeLocal}] ${objectName}`
+    )
 
-    const leftPanel = document.createElement('div')
-    leftPanel.style.cssText = 'flex: 1; min-width: 0;'
-    content.appendChild(leftPanel)
+    const { leftPanel, previewCanvas, previewCtx, close, modal } = dialog
 
-    const rightPanel = document.createElement('div')
-    rightPanel.style.cssText =
-      'width: 180px; padding: 8px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.35); box-sizing: border-box;'
-    content.appendChild(rightPanel)
-
-    const previewCanvas = document.createElement('canvas')
-    previewCanvas.width = 160
-    previewCanvas.height = 160
-    previewCanvas.style.cssText =
-      'width: 160px; height: 160px; display: block; image-rendering: pixelated;'
-    rightPanel.appendChild(previewCanvas)
-    const previewCtx = previewCanvas.getContext('2d')
-
-    const buildRow = (labelText: string) => {
-      const row = document.createElement('div')
-      row.style.cssText =
-        'display: flex; align-items: center; gap: 12px; margin-bottom: 12px;'
-
-      const label = document.createElement('label')
-      label.textContent = labelText
-      label.style.cssText = 'width: 110px; font-size: 12px; flex-shrink: 0;'
-      row.appendChild(label)
-
-      return { row, label }
-    }
-
-    const radiusRow = buildRow(localizer.t('editor_enemy_prop_radius'))
-    const radiusInput = document.createElement('input')
-    radiusInput.type = 'number'
-    radiusInput.value = String(data.radius)
-    radiusInput.step = '0.1'
-    radiusInput.min = '0.1'
-    radiusInput.style.cssText = `
-      flex: 0 0 200px;
-      width: 200px;
-      padding: 6px 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-      box-sizing: border-box;
-    `
+    // Radius
+    const radiusRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_radius')
+    )
+    const radiusInput = EditorUIHelper.createNumberInput({
+      value: data.radius,
+      min: '0.1',
+      step: '0.1',
+    })
     radiusRow.row.appendChild(radiusInput)
     leftPanel.appendChild(radiusRow.row)
 
-    const speedRow = buildRow(localizer.t('editor_enemy_prop_move_speed'))
-    const speedInput = document.createElement('input')
-    speedInput.type = 'number'
-    speedInput.value = String(data.moveSpeed)
-    speedInput.step = '0.1'
-    speedInput.min = '0'
-    speedInput.style.cssText = radiusInput.style.cssText
+    // Move Speed
+    const speedRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_move_speed')
+    )
+    const speedInput = EditorUIHelper.createNumberInput({
+      value: data.moveSpeed,
+      min: '0',
+      step: '0.1',
+    })
     speedRow.row.appendChild(speedInput)
     leftPanel.appendChild(speedRow.row)
 
-    const desireRow = buildRow(localizer.t('editor_enemy_prop_attack_desire'))
-    const desireInput = document.createElement('input')
-    desireInput.type = 'number'
-    desireInput.value = String(data.attackDesire)
-    desireInput.step = '1'
-    desireInput.min = '0'
-    desireInput.max = '100'
-    desireInput.style.cssText = radiusInput.style.cssText
+    // Attack Desire
+    const desireRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_attack_desire')
+    )
+    const desireInput = EditorUIHelper.createNumberInput({
+      value: data.attackDesire,
+      min: '0',
+      max: '100',
+      step: '1',
+    })
     desireRow.row.appendChild(desireInput)
     leftPanel.appendChild(desireRow.row)
 
-    const parryRow = buildRow(localizer.t('editor_enemy_prop_parry'))
-    const parryInput = document.createElement('input')
-    parryInput.type = 'number'
-    parryInput.value = String(data.parryProficiency)
-    parryInput.step = '1'
-    parryInput.min = '0'
-    parryInput.max = '100'
-    parryInput.style.cssText = radiusInput.style.cssText
+    // Parry Proficiency
+    const parryRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_parry')
+    )
+    const parryInput = EditorUIHelper.createNumberInput({
+      value: data.parryProficiency,
+      min: '0',
+      max: '100',
+      step: '1',
+    })
     parryRow.row.appendChild(parryInput)
     leftPanel.appendChild(parryRow.row)
 
-    const patrolRow = buildRow(localizer.t('editor_enemy_prop_patrol_mode'))
-    const patrolSelect = document.createElement('select')
-    patrolSelect.style.cssText = `
-      flex: 0 0 200px;
-      width: 200px;
-      padding: 6px 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-    `
+    // Patrol Mode
+    const patrolRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_patrol_mode')
+    )
     const patrolModes: EnemyPatrolMode[] = ['patrol', 'guard']
-    for (let i = 0; i < patrolModes.length; i++) {
-      const mode = patrolModes[i]
-      const option = document.createElement('option')
-      option.value = mode
-      option.textContent = localizer.t(`editor_enemy_patrol_${mode}`)
-      if (mode === data.initialPatrolMode) {
-        option.selected = true
-      }
-      patrolSelect.appendChild(option)
-    }
+    const patrolSelect = EditorUIHelper.createSelect({
+      options: patrolModes.map((mode) => ({
+        value: mode,
+        label: localizer.t(`editor_enemy_patrol_${mode}`),
+      })),
+      selected: data.initialPatrolMode,
+    })
     patrolRow.row.appendChild(patrolSelect)
     leftPanel.appendChild(patrolRow.row)
 
-    const healthRow = buildRow(localizer.t('editor_enemy_prop_max_health'))
-    const healthInput = document.createElement('input')
-    healthInput.type = 'number'
-    healthInput.value = String(data.maxHealth)
-    healthInput.step = '1'
-    healthInput.min = '1'
-    healthInput.style.cssText = radiusInput.style.cssText
+    // Health
+    const healthRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_max_health')
+    )
+    const healthInput = EditorUIHelper.createNumberInput({
+      value: data.maxHealth,
+      min: '1',
+      step: '1',
+    })
     healthRow.row.appendChild(healthInput)
     leftPanel.appendChild(healthRow.row)
 
-    const postureRow = buildRow(localizer.t('editor_enemy_prop_max_posture'))
-    const postureInput = document.createElement('input')
-    postureInput.type = 'number'
-    postureInput.value = String(data.maxPosture)
-    postureInput.step = '1'
-    postureInput.min = '0'
-    postureInput.style.cssText = radiusInput.style.cssText
+    // Posture
+    const postureRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_max_posture')
+    )
+    const postureInput = EditorUIHelper.createNumberInput({
+      value: data.maxPosture,
+      min: '0',
+      step: '1',
+    })
     postureRow.row.appendChild(postureInput)
     leftPanel.appendChild(postureRow.row)
 
-    const toughnessRow = buildRow(
+    // Toughness
+    const toughnessRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_max_toughness')
     )
-    const toughnessInput = document.createElement('input')
-    toughnessInput.type = 'number'
-    toughnessInput.value = String(data.maxToughness)
-    toughnessInput.step = '1'
-    toughnessInput.min = '0'
-    toughnessInput.style.cssText = radiusInput.style.cssText
+    const toughnessInput = EditorUIHelper.createNumberInput({
+      value: data.maxToughness,
+      min: '0',
+      step: '1',
+    })
     toughnessRow.row.appendChild(toughnessInput)
     leftPanel.appendChild(toughnessRow.row)
 
-    const colorRow = buildRow(localizer.t('editor_enemy_prop_color'))
-    const colorInput = document.createElement('input')
-    colorInput.type = 'text'
-    colorInput.value = data.color
-    colorInput.style.cssText = radiusInput.style.cssText
+    // Color
+    const colorRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_color')
+    )
+    const colorInput = EditorUIHelper.createTextInput({ value: data.color })
     colorRow.row.appendChild(colorInput)
 
-    const colorPicker = document.createElement('input')
-    colorPicker.type = 'color'
-    colorPicker.value = data.color
-    colorPicker.style.cssText = `
-      width: 40px;
-      height: 26px;
-      padding: 0;
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      cursor: pointer;
-      box-sizing: border-box;
-    `
+    const colorPicker = EditorUIHelper.createColorInput(data.color)
     colorPicker.addEventListener('input', () => {
       colorInput.value = colorPicker.value
     })
@@ -5708,45 +5636,24 @@ export class EditorManager {
     colorRow.row.appendChild(colorPicker)
     leftPanel.appendChild(colorRow.row)
 
-    const mainWeaponRow = buildRow(localizer.t('editor_weapon_category_main'))
-    const mainWeaponSelect = document.createElement('select')
-    mainWeaponSelect.style.cssText = patrolSelect.style.cssText
-    const mainWeaponOptions: { label: string; value: string }[] = [
-      { label: localizer.t('editor_weapon_none'), value: 'none' },
-      { label: localizer.t('editor_weapon_sword'), value: 'sword' },
-    ]
-    for (let i = 0; i < mainWeaponOptions.length; i++) {
-      const opt = mainWeaponOptions[i]
-      const option = document.createElement('option')
-      option.value = opt.value
-      option.textContent = opt.label
-      if (opt.value === (data.mainWeapon ?? 'none')) {
-        option.selected = true
-      }
-      mainWeaponSelect.appendChild(option)
-    }
+    // Main Weapon
+    const mainWeaponRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_weapon_category_main')
+    )
+    const mainWeaponSelect = EditorUIHelper.createSelect({
+      options: [
+        { label: localizer.t('editor_weapon_none'), value: 'none' },
+        { label: localizer.t('editor_weapon_sword'), value: 'sword' },
+      ],
+      selected: data.mainWeapon ?? 'none',
+    })
     mainWeaponRow.row.appendChild(mainWeaponSelect)
 
-    const mainWeaponConfigBtn = document.createElement('button')
-    mainWeaponConfigBtn.textContent = localizer.t(
-      'editor_weapon_menu_properties'
+    const mainWeaponConfigBtn = EditorUIHelper.createButton(
+      localizer.t('editor_weapon_menu_properties')
     )
-    mainWeaponConfigBtn.style.cssText = `
-      padding: 6px 12px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 11px;
-      cursor: pointer;
-      margin-left: 8px;
-    `
-    mainWeaponConfigBtn.addEventListener('mouseenter', () => {
-      mainWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.2)'
-    })
-    mainWeaponConfigBtn.addEventListener('mouseleave', () => {
-      mainWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.1)'
-    })
+    mainWeaponConfigBtn.style.fontSize = '11px'
+    mainWeaponConfigBtn.style.marginLeft = '8px'
     mainWeaponConfigBtn.addEventListener('click', async () => {
       const weaponValue = mainWeaponSelect.value
       if (weaponValue && weaponValue !== 'none') {
@@ -5781,53 +5688,24 @@ export class EditorManager {
     )
     updateMainWeaponConfigBtnVisibility()
 
-    const secondaryWeaponRow = buildRow(
+    // Secondary Weapon
+    const secondaryWeaponRow = EditorUIHelper.createFormRow(
       localizer.t('editor_weapon_category_secondary')
     )
-    const secondaryWeaponSelect = document.createElement('select')
-    secondaryWeaponSelect.style.cssText = patrolSelect.style.cssText
-    const secondaryWeaponOptions: {
-      label: string
-      value: string
-    }[] = [
-      { label: localizer.t('editor_weapon_none'), value: 'none' },
-      { label: localizer.t('editor_weapon_bow'), value: 'bow' },
-    ]
-    for (let i = 0; i < secondaryWeaponOptions.length; i++) {
-      const opt = secondaryWeaponOptions[i]
-      const option = document.createElement('option')
-      option.value = opt.value
-      option.textContent = opt.label
-
-      const currentValue = data.secondaryWeapon ?? 'none'
-
-      if (opt.value === currentValue) {
-        option.selected = true
-      }
-      secondaryWeaponSelect.appendChild(option)
-    }
+    const secondaryWeaponSelect = EditorUIHelper.createSelect({
+      options: [
+        { label: localizer.t('editor_weapon_none'), value: 'none' },
+        { label: localizer.t('editor_weapon_bow'), value: 'bow' },
+      ],
+      selected: data.secondaryWeapon ?? 'none',
+    })
     secondaryWeaponRow.row.appendChild(secondaryWeaponSelect)
 
-    const secondaryWeaponConfigBtn = document.createElement('button')
-    secondaryWeaponConfigBtn.textContent = localizer.t(
-      'editor_weapon_menu_properties'
+    const secondaryWeaponConfigBtn = EditorUIHelper.createButton(
+      localizer.t('editor_weapon_menu_properties')
     )
-    secondaryWeaponConfigBtn.style.cssText = `
-      padding: 6px 12px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 11px;
-      cursor: pointer;
-      margin-left: 8px;
-    `
-    secondaryWeaponConfigBtn.addEventListener('mouseenter', () => {
-      secondaryWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.2)'
-    })
-    secondaryWeaponConfigBtn.addEventListener('mouseleave', () => {
-      secondaryWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.1)'
-    })
+    secondaryWeaponConfigBtn.style.fontSize = '11px'
+    secondaryWeaponConfigBtn.style.marginLeft = '8px'
     secondaryWeaponConfigBtn.addEventListener('click', async () => {
       const weaponValue = secondaryWeaponSelect.value
       if (weaponValue && weaponValue !== 'none') {
@@ -5862,57 +5740,20 @@ export class EditorManager {
     )
     updateSecondaryWeaponConfigBtnVisibility()
 
-    const buttons = document.createElement('div')
-    buttons.style.cssText = 'display: flex; gap: 8px; margin-top: 16px;'
+    // Buttons
+    const buttonRow = EditorUIHelper.createButtonRow()
+    const confirmBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_confirm'),
+      { primary: true }
+    )
+    const cancelBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_cancel')
+    )
+    buttonRow.appendChild(confirmBtn)
+    buttonRow.appendChild(cancelBtn)
+    leftPanel.appendChild(buttonRow)
 
-    const confirmBtn = document.createElement('button')
-    confirmBtn.textContent = localizer.t('editor_btn_confirm')
-    confirmBtn.style.cssText = `
-      flex: 1;
-      padding: 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      font-family: monospace;
-      font-size: 12px;
-      cursor: pointer;
-    `
-    confirmBtn.addEventListener('mouseenter', () => {
-      confirmBtn.style.background = 'rgba(255, 255, 255, 0.2)'
-    })
-    confirmBtn.addEventListener('mouseleave', () => {
-      confirmBtn.style.background = 'rgba(255, 255, 255, 0.1)'
-    })
-
-    const cancelBtn = document.createElement('button')
-    cancelBtn.textContent = localizer.t('editor_btn_cancel')
-    cancelBtn.style.cssText = confirmBtn.style.cssText
-    cancelBtn.addEventListener('mouseenter', () => {
-      cancelBtn.style.background = 'rgba(255, 255, 255, 0.2)'
-    })
-    cancelBtn.addEventListener('mouseleave', () => {
-      cancelBtn.style.background = 'rgba(255, 255, 255, 0.1)'
-    })
-
-    buttons.appendChild(confirmBtn)
-    buttons.appendChild(cancelBtn)
-    leftPanel.appendChild(buttons)
-    modal.appendChild(form)
-
-    const viewport = document.getElementById('gameViewport')
-    if (!viewport) {
-      return
-    }
-    viewport.appendChild(modal)
-
-    const closeModal = () => {
-      if (modal.parentElement) {
-        modal.parentElement.removeChild(modal)
-      }
-    }
-
-    cancelBtn.addEventListener('click', closeModal)
-
+    // Preview rendering
     const colorRegex = /^#[0-9a-fA-F]{6}$/
     const getValidColor = () => {
       const value = colorInput.value.trim()
@@ -5971,6 +5812,7 @@ export class EditorManager {
 
     renderEnemyPreview()
 
+    // Confirm handler
     confirmBtn.addEventListener('click', () => {
       const radius = Number.parseFloat(radiusInput.value)
       const moveSpeed = Number.parseFloat(speedInput.value)
@@ -6045,14 +5887,22 @@ export class EditorManager {
 
       this.updateEnemyMarkerVisual(marker, data.radius, data.color)
       this.fabricCanvas?.requestRenderAll()
-      closeModal()
+      close()
     })
+
+    cancelBtn.addEventListener('click', close)
 
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        closeModal()
+        close()
       }
     })
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return
+    }
+    dialog.show(viewport)
   }
 
   private async showWeaponPropertiesDialog(marker: WeaponMarker) {

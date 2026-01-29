@@ -1,4 +1,52 @@
 export class EditorUIHelper {
+  static createPropertiesDialog(title: string): {
+    modal: HTMLDivElement
+    form: HTMLDivElement
+    leftPanel: HTMLDivElement
+    rightPanel: HTMLDivElement
+    previewCanvas: HTMLCanvasElement
+    previewCtx: CanvasRenderingContext2D | null
+    close: () => void
+    show: (parent: HTMLElement) => void
+  } {
+    const { modal, close } = this.createModal()
+    const form = this.createFormContainer()
+    const titleEl = this.createFormTitle(title)
+    form.appendChild(titleEl)
+
+    const content = document.createElement('div')
+    content.style.cssText = 'display: flex; align-items: flex-start; gap: 16px;'
+    form.appendChild(content)
+
+    const leftPanel = document.createElement('div')
+    leftPanel.style.cssText = 'flex: 1; min-width: 0;'
+    content.appendChild(leftPanel)
+
+    const rightPanel = this.createPreviewPanel()
+    content.appendChild(rightPanel)
+
+    const previewCanvas = this.createPreviewCanvas()
+    rightPanel.appendChild(previewCanvas)
+    const previewCtx = previewCanvas.getContext('2d')
+
+    modal.appendChild(form)
+
+    const show = (parent: HTMLElement) => {
+      parent.appendChild(modal)
+    }
+
+    return {
+      modal,
+      form,
+      leftPanel,
+      rightPanel,
+      previewCanvas,
+      previewCtx,
+      close,
+      show,
+    }
+  }
+
   static createModal(options?: { zIndex?: number }): {
     modal: HTMLDivElement
     close: () => void
