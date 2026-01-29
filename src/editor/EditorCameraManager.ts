@@ -57,7 +57,6 @@ export class EditorCameraManager {
     this.context.ensureFabricCanvas()
     const canvas = this.context.fabricCanvas()
     if (!canvas) {
-      console.warn('[editor] Fabric canvas not ready')
       return
     }
 
@@ -235,21 +234,21 @@ export class EditorCameraManager {
     const scaleX = data.frame.scaleX ?? 1
     const scaleY = data.frame.scaleY ?? 1
     const avgScale = (scaleX + scaleY) * 0.5
-    const newZoom = 1 / avgScale
-    data.zoom = newZoom
+    const currentVisualWidth = (data.frame.width ?? 0) * avgScale
+    if (currentVisualWidth > 0) {
+      data.zoom = data.baseWidth / currentVisualWidth
+    }
   }
 
   private normalizeCameraFrameScale(data: CameraViewData): void {
-    const scaleX = data.frame.scaleX ?? 1
-    const scaleY = data.frame.scaleY ?? 1
-    const avgScale = (scaleX + scaleY) * 0.5
+    this.updateCameraZoomFromFrame(data)
     const newWidth = data.baseWidth / data.zoom
     const newHeight = data.baseHeight / data.zoom
     data.frame.set({
       width: newWidth,
       height: newHeight,
-      scaleX: avgScale,
-      scaleY: avgScale,
+      scaleX: 1,
+      scaleY: 1,
     })
     data.frame.setCoords()
   }

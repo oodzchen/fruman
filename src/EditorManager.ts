@@ -12,6 +12,7 @@ import {
 } from './constants'
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import { EditorCameraManager } from './editor/EditorCameraManager'
+import { EditorCanvasEventHandler } from './editor/EditorCanvasEventHandler'
 import {
   CAMERA_FRAME_FILL,
   CAMERA_FRAME_FILL_UNFOCUSED,
@@ -159,6 +160,7 @@ export class EditorManager {
   private menuNavigator: EditorMenuNavigator
   private shapeManager: EditorShapeManager
   private thumbnailCapture: EditorThumbnailCapture
+  private canvasEventHandler: EditorCanvasEventHandler
 
   private visible = false
   private currentView: EditorView = EditorView.MapList
@@ -215,10 +217,6 @@ export class EditorManager {
   private boundHandleEditorMenuMouseEnter: (event: Event) => void
   private focusedEditorObject: fabric.Object | null = null
   private dragObjectId = -1
-  private dragTargetId = -1
-  private dragInsertAfter = false
-  private dragPreviewId = -1
-  private dragPreviewAfter = false
   private readonly invPixelsPerMeter = 1 / EDITOR_PIXELS_PER_METER
   private snapManager!: EditorSnapManager
   private patternManager!: EditorPatternManager
@@ -439,7 +437,7 @@ export class EditorManager {
       clearEditorScene: () => this.clearEditorScene(),
       spawnPlayerMarker: (spawn) => this.spawnPlayerMarker(spawn),
       spawnCameraViewFrame: (camera) =>
-        this.cameraManager.spawnCameraViewFrame(camera),
+        this.cameraManager.spawnCameraViewFrame(camera, ObjectType.Camera),
       applyPlacedShapes: (shapes) => this.applyPlacedShapes(shapes),
       applyEnemies: (enemies) => this.applyEnemies(enemies),
       applyWeapons: (weapons) => this.applyWeapons(weapons),
@@ -516,15 +514,7 @@ export class EditorManager {
       onRenameCancel: () => this.cancelObjectRename(),
       onDragStart: (id) => {
         this.dragObjectId = id
-        this.dragTargetId = id
-        this.dragInsertAfter = false
         this.updateObjectTreeContext()
-      },
-      onDragOver: (targetId, insertAfter) => {
-        this.dragTargetId = targetId
-        this.dragInsertAfter = insertAfter
-        // Note: dragObjectId is updated in onDragStart, but we need to keep context in sync
-        // if drag state changes. However, dragObjectId shouldn't change during drag over.
       },
       onDrop: (dragId, targetId, insertAfter) => {
         this.reorderEditorObjects(dragId, targetId, insertAfter)
@@ -590,6 +580,31 @@ export class EditorManager {
       mapSerializer: this.mapSerializer,
       cameraManager: this.cameraManager,
       currentMapMeta: () => this.currentMapMeta,
+    })
+
+    this.canvasEventHandler = new EditorCanvasEventHandler({
+      fabricCanvas: () => this.fabricCanvas,
+      editorCanvas: this.editorCanvas,
+      editorOverlay: this.editorOverlay,
+      snapManager: this.snapManager,
+      editorObjectMap: this.editorObjectMap,
+      getIsPanning: () => this.isPanning,
+      setIsPanning: (value) => {
+        this.isPanning = value
+      },
+      getLastPanPosition: () => ({ x: this.lastClientX, y: this.lastClientY }),
+      setLastPanPosition: (x, y) => {
+        this.lastClientX = x
+        this.lastClientY = y
+      },
+      isVisible: () => this.visible,
+      getCurrentView: () => this.currentView,
+      hidePolygonMenu: () => this.hidePolygonMenu(),
+      handleEditablePolygonContextMenuEvent: (event) =>
+        this.handleEditablePolygonContextMenuEvent(event),
+      handleEditablePolygonPointerDown: (opt) =>
+        this.handleEditablePolygonPointerDown(opt as fabric.IEvent<MouseEvent>),
+      handleCanvasSelection: (object) => this.handleCanvasSelection(object),
     })
 
     this.setupEventListeners()
@@ -1130,8 +1145,11 @@ export class EditorManager {
       this.hideGroundSubmenu()
       this.hideObstacleSubmenu()
       this.hideObjectTypeMenu()
+      if (this.hasObjectOfType(ObjectType.Camera)) {
+        return
+      }
       this.setActiveObjectType(type)
-      this.cameraManager.spawnCameraViewFrame()
+      this.cameraManager.spawnCameraViewFrame(undefined, type)
       return
     }
 
@@ -1630,8 +1648,6 @@ export class EditorManager {
   private resetDragState() {
     this.objectTreeManager.resetDragState()
     this.dragObjectId = -1
-    this.dragTargetId = -1
-    this.dragInsertAfter = false
     this.updateObjectTreeContext()
   }
 
@@ -3031,131 +3047,15 @@ export class EditorManager {
 
     this.fabricCanvas = new fabric.Canvas(this.editorCanvas, {
       selection: true,
-
       preserveObjectStacking: true,
-
       enableRetinaScaling: false,
-
       backgroundVpt: true,
-
       fireMiddleClick: true,
     })
     this.fabricCanvas.uniformScaling = false
     this.fabricCanvas.uniScaleKey = 'shiftKey'
 
-    this.editorOverlay.addEventListener(
-      'contextmenu',
-      (event) => {
-        if (!this.visible || this.currentView !== EditorView.Editor) {
-          return
-        }
-        event.preventDefault()
-        event.stopPropagation()
-        if (this.editorCanvas.contains(event.target as Node)) {
-          this.handleEditablePolygonContextMenuEvent(event)
-        }
-      },
-      true
-    )
-
-    this.fabricCanvas.on('mouse:wheel', (opt) => {
-      const delta = opt.e.deltaY
-
-      let zoom = this.fabricCanvas!.getZoom()
-
-      zoom *= 0.999 ** delta
-
-      if (zoom > 20) zoom = 20
-
-      if (zoom < 0.1) zoom = 0.1
-
-      this.fabricCanvas!.zoomToPoint(
-        { x: opt.e.offsetX, y: opt.e.offsetY },
-        zoom
-      )
-
-      opt.e.preventDefault()
-
-      opt.e.stopPropagation()
-    })
-
-    this.fabricCanvas.on('mouse:down', (opt) => {
-      const evt = opt.e
-      if (evt.button === 1) {
-        // middle button
-        this.isPanning = true
-        this.fabricCanvas!.selection = false
-        this.lastClientX = evt.clientX
-        this.lastClientY = evt.clientY
-        this.fabricCanvas!.defaultCursor = 'grabbing'
-        evt.preventDefault()
-        evt.stopPropagation()
-        return
-      }
-      if (evt.button === 0) {
-        this.hidePolygonMenu()
-        if (opt.target && this.editorObjectMap.has(opt.target)) {
-          this.snapManager.prepareSnapCandidates(opt.target)
-        } else {
-          this.snapManager.clearSnapCandidates()
-        }
-        this.handleEditablePolygonPointerDown(opt)
-      }
-    })
-
-    this.fabricCanvas.on('mouse:move', (opt) => {
-      if (this.isPanning && opt.e) {
-        const e = opt.e
-        const vpt = this.fabricCanvas!.viewportTransform
-        if (vpt) {
-          vpt[4] += e.clientX - this.lastClientX
-          vpt[5] += e.clientY - this.lastClientY
-          this.fabricCanvas!.requestRenderAll()
-        }
-        this.lastClientX = e.clientX
-        this.lastClientY = e.clientY
-      }
-    })
-
-    this.fabricCanvas.on('mouse:up', (opt) => {
-      if (this.isPanning) {
-        this.isPanning = false
-        this.fabricCanvas!.selection = true
-        this.fabricCanvas!.defaultCursor = 'default'
-        const vpt = this.fabricCanvas!.viewportTransform
-        if (vpt) {
-          this.fabricCanvas!.setViewportTransform(vpt)
-        }
-      }
-      if (!this.isPanning) {
-        this.snapManager.hideSnapGuides()
-        this.snapManager.clearSnapCandidates()
-      }
-    })
-
-    this.fabricCanvas.on('object:moving', (opt) => {
-      const target = opt.target
-      if (!target || this.isPanning) {
-        return
-      }
-      this.snapManager.handleObjectMoving(target)
-    })
-    this.fabricCanvas.on('object:modified', () => {
-      this.snapManager.hideSnapGuides()
-      this.snapManager.clearSnapCandidates()
-    })
-
-    this.fabricCanvas.on('selection:created', (opt) => {
-      this.handleCanvasSelection(opt.selected?.[0] ?? null)
-    })
-    this.fabricCanvas.on('selection:updated', (opt) => {
-      this.handleCanvasSelection(opt.selected?.[0] ?? null)
-    })
-    this.fabricCanvas.on('selection:cleared', () => {
-      this.handleCanvasSelection(null)
-      this.snapManager.hideSnapGuides()
-      this.snapManager.clearSnapCandidates()
-    })
+    this.canvasEventHandler.attachEventListeners()
 
     this.resizeEditorCanvas()
     this.applyBackgroundPattern()

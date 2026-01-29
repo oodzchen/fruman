@@ -9,7 +9,6 @@ export interface EditorObjectTreeManagerContext {
   onRenameCommit: (id: number, value: string) => void
   onRenameCancel: () => void
   onDragStart: (id: number) => void
-  onDragOver: (targetId: number, insertAfter: boolean) => void
   onDrop: (dragId: number, targetId: number, insertAfter: boolean) => void
   onDragEnd: () => void
 }
@@ -86,7 +85,6 @@ export class EditorObjectTreeManager {
       const rect = node.getBoundingClientRect()
       const midY = rect.top + rect.height * 0.5
       const insertAfter = event.clientY >= midY
-      this.context.onDragOver(data.id, insertAfter)
       this.updateDragPreviewFromTarget(data.id, insertAfter)
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'move'
