@@ -4,6 +4,7 @@ import { localizer } from './Localizer'
 import { MenuManager, MenuMode } from './MenuManager'
 import type { EditorMapData } from './editorMapTypes'
 import { PatternCreator } from './renderer/PatternCreator'
+import { ShapeRenderer } from './renderer/ShapeRenderer'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
@@ -570,74 +571,18 @@ export class GameClient {
       return
     }
 
-    this.ctx.fillStyle = this.groundPattern ?? '#654321'
-    this.ctx.strokeStyle = '#000'
-    this.ctx.lineWidth = 2
-
-    for (let i = 0; i < this.currentMapData.shapes.length; i++) {
-      const placedShape = this.currentMapData.shapes[i]
-      if (placedShape.objectKind !== 'ground') {
-        continue
+    ShapeRenderer.drawShapes(
+      this.ctx,
+      this.currentMapData.shapes,
+      'ground',
+      this.pixelsPerMeter,
+      {
+        fillStyle: this.groundPattern ?? '#654321',
+        strokeStyle: '#000',
+        lineWidth: 2,
+        drawStroke: false,
       }
-
-      const shape = placedShape.shape
-      if (shape.kind === 'rect') {
-        const centerX = shape.center.x
-        const centerY = shape.center.y
-        const halfWidth = shape.halfWidth
-        const halfHeight = shape.halfHeight
-        const rotation = shape.rotationRad
-
-        this.ctx.save()
-        this.ctx.translate(
-          centerX * this.pixelsPerMeter,
-          centerY * this.pixelsPerMeter
-        )
-        this.ctx.rotate(rotation)
-        this.ctx.fillRect(
-          -halfWidth * this.pixelsPerMeter,
-          -halfHeight * this.pixelsPerMeter,
-          halfWidth * 2 * this.pixelsPerMeter,
-          halfHeight * 2 * this.pixelsPerMeter
-        )
-        this.ctx.restore()
-      } else if (shape.kind === 'circle') {
-        const centerX = shape.center.x
-        const centerY = shape.center.y
-        const radius = shape.radius
-
-        this.ctx.beginPath()
-        this.ctx.arc(
-          centerX * this.pixelsPerMeter,
-          centerY * this.pixelsPerMeter,
-          radius * this.pixelsPerMeter,
-          0,
-          Math.PI * 2
-        )
-        this.ctx.fill()
-      } else if (shape.kind === 'polygon') {
-        const points = shape.points
-
-        if (points.length < 6) {
-          continue
-        }
-
-        this.ctx.beginPath()
-        for (let j = 0; j < points.length; j += 2) {
-          const x = points[j]
-          const y = points[j + 1]
-          const px = x * this.pixelsPerMeter
-          const py = y * this.pixelsPerMeter
-          if (j === 0) {
-            this.ctx.moveTo(px, py)
-          } else {
-            this.ctx.lineTo(px, py)
-          }
-        }
-        this.ctx.closePath()
-        this.ctx.fill()
-      }
-    }
+    )
   }
 
   private drawObstacles() {
@@ -645,84 +590,18 @@ export class GameClient {
       return
     }
 
-    this.ctx.fillStyle = this.obstaclePattern ?? '#d2691e'
-    this.ctx.strokeStyle = '#000'
-    this.ctx.lineWidth = 2
-
-    for (let i = 0; i < this.currentMapData.shapes.length; i++) {
-      const placedShape = this.currentMapData.shapes[i]
-      if (placedShape.objectKind !== 'obstacle') {
-        continue
+    ShapeRenderer.drawShapes(
+      this.ctx,
+      this.currentMapData.shapes,
+      'obstacle',
+      this.pixelsPerMeter,
+      {
+        fillStyle: this.obstaclePattern ?? '#d2691e',
+        strokeStyle: '#000',
+        lineWidth: 2,
+        drawStroke: true,
       }
-
-      const shape = placedShape.shape
-      if (shape.kind === 'rect') {
-        const centerX = shape.center.x
-        const centerY = shape.center.y
-        const halfWidth = shape.halfWidth
-        const halfHeight = shape.halfHeight
-        const rotation = shape.rotationRad
-
-        this.ctx.save()
-        this.ctx.translate(
-          centerX * this.pixelsPerMeter,
-          centerY * this.pixelsPerMeter
-        )
-        this.ctx.rotate(rotation)
-        this.ctx.fillRect(
-          -halfWidth * this.pixelsPerMeter,
-          -halfHeight * this.pixelsPerMeter,
-          halfWidth * 2 * this.pixelsPerMeter,
-          halfHeight * 2 * this.pixelsPerMeter
-        )
-        this.ctx.strokeRect(
-          -halfWidth * this.pixelsPerMeter,
-          -halfHeight * this.pixelsPerMeter,
-          halfWidth * 2 * this.pixelsPerMeter,
-          halfHeight * 2 * this.pixelsPerMeter
-        )
-        this.ctx.restore()
-      } else if (shape.kind === 'circle') {
-        const centerX = shape.center.x
-        const centerY = shape.center.y
-        const radius = shape.radius
-
-        this.ctx.beginPath()
-        this.ctx.arc(
-          centerX * this.pixelsPerMeter,
-          centerY * this.pixelsPerMeter,
-          radius * this.pixelsPerMeter,
-          0,
-          Math.PI * 2
-        )
-        this.ctx.fill()
-        this.ctx.stroke()
-      } else if (shape.kind === 'polygon') {
-        const centerX = shape.center.x
-        const centerY = shape.center.y
-        const points = shape.points
-
-        if (points.length < 6) {
-          continue
-        }
-
-        this.ctx.beginPath()
-        for (let j = 0; j < points.length; j += 2) {
-          const x = points[j]
-          const y = points[j + 1]
-          const px = x * this.pixelsPerMeter
-          const py = y * this.pixelsPerMeter
-          if (j === 0) {
-            this.ctx.moveTo(px, py)
-          } else {
-            this.ctx.lineTo(px, py)
-          }
-        }
-        this.ctx.closePath()
-        this.ctx.fill()
-        this.ctx.stroke()
-      }
-    }
+    )
   }
 
   // Public Control API (Proxy to Worker)
