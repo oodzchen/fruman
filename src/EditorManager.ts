@@ -6,6 +6,7 @@ import type { GameClient } from './GameClient'
 import { localizer } from './Localizer'
 import { renderWeapon } from './WeaponRenderer'
 import {
+  DEFAULT_BOW_AMMO_ENEMY,
   DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_PLAYER_RADIUS,
   ENEMY_TEMPLATES,
@@ -15,6 +16,7 @@ import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import type {
   EditorMapData,
   EditorMapMeta,
+  MapEnemyWeapon,
   MapPlacedShape,
   MapWeapon,
   WeaponCategory,
@@ -79,6 +81,8 @@ type EnemyMarker = fabric.Group & {
   maxToughness: number
   color: string
   equipWeapon: boolean
+  mainWeapon?: WeaponType
+  secondaryWeapon?: WeaponType
 }
 
 type WeaponMarker = fabric.Group & {
@@ -127,6 +131,10 @@ interface EnemyMarkerData {
   maxToughness: number
   color: string
   equipWeapon: boolean
+  mainWeapon?: WeaponType
+  mainWeaponMarker?: WeaponMarker
+  secondaryWeapon?: WeaponType
+  secondaryWeaponMarker?: WeaponMarker
 }
 
 interface WeaponMarkerData {
@@ -386,6 +394,7 @@ enum EditorSubmenuMode {
   Ground = 'ground',
   Obstacle = 'obstacle',
   Weapon = 'weapon',
+  Enemy = 'enemy',
 }
 
 interface EditorMap {
@@ -400,8 +409,9 @@ interface EditorMap {
 interface PropertyField {
   key: string
   label: string
-  type: 'text' | 'number'
+  type: 'text' | 'number' | 'select'
   defaultValue: string | number
+  options?: { label: string; value: string }[]
 }
 
 interface EditorObjectData {
@@ -465,6 +475,10 @@ export class EditorManager {
   private weaponGroupTitles: NodeListOf<HTMLDivElement>
   private weaponItems: NodeListOf<HTMLButtonElement>
   private weaponMenuBackBtn: HTMLButtonElement
+  private enemyMenuItem: HTMLButtonElement
+  private enemySubmenu: HTMLDivElement
+  private enemySubmenuItems: NodeListOf<HTMLButtonElement>
+  private enemySubmenuBackBtn: HTMLButtonElement
   private objectTypeMenuBackBtn: HTMLButtonElement
 
   private propertiesModal: HTMLDivElement
@@ -629,6 +643,16 @@ export class EditorManager {
     const weaponMenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorWeaponMenu .editor-submenu-item[data-action="back"]'
     )
+    const enemyMenu = document.querySelector<HTMLButtonElement>(
+      '.editor-object-item[data-type="enemy"]'
+    )
+    const enemySubmenu = document.getElementById('editorEnemySubmenu')
+    const enemySubmenuItems = document.querySelectorAll<HTMLButtonElement>(
+      '#editorEnemySubmenu .editor-submenu-item'
+    )
+    const enemySubmenuBackBtn = document.querySelector<HTMLButtonElement>(
+      '#editorEnemySubmenu .editor-submenu-item[data-action="back"]'
+    )
     const objectTypeMenu = document.getElementById('editorObjectTypeMenu')
     const objectTypeMenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorObjectTypeMenu .editor-object-item[data-action="back"]'
@@ -684,6 +708,9 @@ export class EditorManager {
       !(weaponMenu instanceof HTMLButtonElement) ||
       !(weaponSubmenu instanceof HTMLDivElement) ||
       !(weaponMenuBackBtn instanceof HTMLButtonElement) ||
+      !(enemyMenu instanceof HTMLButtonElement) ||
+      !(enemySubmenu instanceof HTMLDivElement) ||
+      !(enemySubmenuBackBtn instanceof HTMLButtonElement) ||
       !(modal instanceof HTMLDivElement) ||
       !(modalTitle instanceof HTMLHeadingElement) ||
       !(modalForm instanceof HTMLDivElement) ||
@@ -738,6 +765,10 @@ export class EditorManager {
     this.weaponGroupTitles = weaponGroupTitles
     this.weaponItems = weaponItems
     this.weaponMenuBackBtn = weaponMenuBackBtn
+    this.enemyMenuItem = enemyMenu
+    this.enemySubmenu = enemySubmenu
+    this.enemySubmenuItems = enemySubmenuItems
+    this.enemySubmenuBackBtn = enemySubmenuBackBtn
     this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
 
     this.propertiesModal = modal
@@ -874,13 +905,31 @@ export class EditorManager {
         }
         const weaponType = item.dataset.weapon as WeaponType | undefined
         const category = item.dataset.category as WeaponCategory | undefined
+        const sizeStr = item.dataset.size
+        const size = sizeStr ? Number.parseInt(sizeStr, 10) : undefined
         if (!weaponType || !category) {
           return
         }
-        this.handleWeaponTypeClick(weaponType, category)
+        this.handleWeaponTypeClick(weaponType, category, size)
       })
     })
     this.bindEditorMenuItems(this.weaponItems, EditorSubmenuMode.Weapon)
+
+    this.enemySubmenuItems.forEach((item) => {
+      item.addEventListener('click', () => {
+        const action = item.dataset.action
+        if (action === 'back') {
+          this.handleEditorMenuBack()
+          return
+        }
+        const enemyType = item.dataset.enemy as EnemyType | undefined
+        if (!enemyType) {
+          return
+        }
+        this.handleEnemyTypeClick(enemyType)
+      })
+    })
+    this.bindEditorMenuItems(this.enemySubmenuItems, EditorSubmenuMode.Enemy)
 
     this.propertiesConfirmBtn.addEventListener('click', () => {
       this.handlePropertiesConfirm()
@@ -921,7 +970,8 @@ export class EditorManager {
           this.objectTypeMenu.contains(target) ||
           this.groundSubmenu.contains(target) ||
           this.obstacleSubmenu.contains(target) ||
-          this.weaponMenu.contains(target)
+          this.weaponMenu.contains(target) ||
+          this.enemySubmenu.contains(target)
         ) {
           return
         }
@@ -936,6 +986,7 @@ export class EditorManager {
         this.hideGroundSubmenu()
         this.hideObstacleSubmenu()
         this.hideWeaponMenu()
+        this.hideEnemySubmenu()
       },
       true
     )
@@ -967,6 +1018,10 @@ export class EditorManager {
     })
 
     this.weaponMenu.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
+
+    this.enemySubmenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
 
@@ -1028,14 +1083,26 @@ export class EditorManager {
     })
     this.weaponItems.forEach((item) => {
       const weapon = item.dataset.weapon
-      if (weapon) {
+      const sizeStr = item.dataset.size
+      if (weapon && sizeStr) {
+        item.textContent = localizer.t(
+          `editor_weapon_size_${weapon}_${sizeStr}`
+        )
+      } else if (weapon) {
         item.textContent = localizer.t(`editor_weapon_${weapon}`)
+      }
+    })
+    this.enemySubmenuItems.forEach((item) => {
+      const enemy = item.dataset.enemy
+      if (enemy) {
+        item.textContent = localizer.t(`editor_enemy_${enemy}`)
       }
     })
     this.objectTypeMenuBackBtn.textContent = localizer.t('menu_back')
     this.groundSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.obstacleSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.weaponMenuBackBtn.textContent = localizer.t('menu_back')
+    this.enemySubmenuBackBtn.textContent = localizer.t('menu_back')
     this.renderObjectTree()
   }
 
@@ -1085,6 +1152,8 @@ export class EditorManager {
         return this.obstacleSubmenuItems
       case EditorSubmenuMode.Weapon:
         return this.weaponItems
+      case EditorSubmenuMode.Enemy:
+        return this.enemySubmenuItems
       default:
         return this.editorObjectItems
     }
@@ -1506,8 +1575,17 @@ export class EditorManager {
     if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
       const weaponType = item.dataset.weapon as WeaponType | undefined
       const category = item.dataset.category as WeaponCategory | undefined
+      const sizeStr = item.dataset.size
+      const size = sizeStr ? Number.parseInt(sizeStr, 10) : undefined
       if (weaponType && category) {
-        this.handleWeaponTypeClick(weaponType, category)
+        this.handleWeaponTypeClick(weaponType, category, size)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Enemy) {
+      const enemyType = item.dataset.enemy as EnemyType | undefined
+      if (enemyType) {
+        this.handleEnemyTypeClick(enemyType)
       }
     }
   }
@@ -1529,6 +1607,13 @@ export class EditorManager {
     }
     if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
       this.hideWeaponMenu()
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      }
+      return
+    }
+    if (this.editorMenuMode === EditorSubmenuMode.Enemy) {
+      this.hideEnemySubmenu()
       if (this.objectTypeMenu.classList.contains('is-visible')) {
         this.setEditorMenuMode(EditorSubmenuMode.Object, true)
       }
@@ -1622,9 +1707,8 @@ export class EditorManager {
     if (type === ObjectType.Enemy) {
       this.hideGroundSubmenu()
       this.hideObstacleSubmenu()
-      this.hideObjectTypeMenu()
       this.setActiveObjectType(type)
-      this.spawnEnemyMarker()
+      this.showEnemySubmenu()
       return
     }
 
@@ -1636,6 +1720,111 @@ export class EditorManager {
   }
 
   private handlePropertiesConfirm() {
+    if (this.selectedEditorObjectId === -1) {
+      this.hidePropertiesModal()
+      return
+    }
+
+    const data = this.getEditorObjectById(this.selectedEditorObjectId)
+    if (!data) {
+      this.hidePropertiesModal()
+      return
+    }
+
+    const formData = new FormData()
+    const inputs = this.propertiesForm.querySelectorAll('input, select')
+    inputs.forEach((input) => {
+      if (
+        input instanceof HTMLInputElement ||
+        input instanceof HTMLSelectElement
+      ) {
+        formData.append(input.name, input.value)
+      }
+    })
+
+    const name = formData.get('name') as string
+    if (name) {
+      this.commitObjectRename(data.id, name)
+    }
+
+    const xStr = formData.get('x')
+    const yStr = formData.get('y')
+    if (xStr && yStr) {
+      const x = Number.parseFloat(xStr as string)
+      const y = Number.parseFloat(yStr as string)
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        data.object.left = x * EDITOR_PIXELS_PER_METER
+        data.object.top = y * EDITOR_PIXELS_PER_METER
+        data.object.setCoords()
+      }
+    }
+
+    if (data.type === ObjectType.Enemy && this.isEnemyMarker(data.object)) {
+      const enemyData = this.enemyMarkerMap.get(data.object)
+      if (enemyData) {
+        const healthStr = formData.get('health')
+        const speedStr = formData.get('speed')
+        const radiusStr = formData.get('radius')
+        const colorStr = formData.get('color')
+        const mainWeapon = formData.get('mainWeapon') as WeaponType | null
+        const secondaryWeapon = formData.get('secondaryWeapon') as
+          | WeaponType
+          | 'none'
+          | null
+
+        if (healthStr) {
+          const health = Number.parseFloat(healthStr as string)
+          if (Number.isFinite(health) && health > 0) {
+            enemyData.maxHealth = health
+            enemyData.marker.maxHealth = health
+          }
+        }
+        if (speedStr) {
+          const speed = Number.parseFloat(speedStr as string)
+          if (Number.isFinite(speed) && speed >= 0) {
+            enemyData.moveSpeed = speed
+            enemyData.marker.moveSpeed = speed
+          }
+        }
+        if (radiusStr) {
+          const radius = Number.parseFloat(radiusStr as string)
+          if (Number.isFinite(radius) && radius > 0) {
+            enemyData.radius = radius
+            enemyData.marker.radius = radius
+          }
+        }
+        if (colorStr) {
+          const color = (colorStr as string).trim()
+          if (color.length > 0) {
+            enemyData.color = color
+            enemyData.marker.color = color
+          }
+        }
+        if (mainWeapon) {
+          enemyData.mainWeapon = mainWeapon
+          enemyData.marker.mainWeapon = mainWeapon
+        }
+        if (secondaryWeapon) {
+          enemyData.secondaryWeapon =
+            secondaryWeapon === 'none' ? undefined : secondaryWeapon
+          enemyData.marker.secondaryWeapon =
+            secondaryWeapon === 'none' ? undefined : secondaryWeapon
+        }
+        // Force update equipWeapon flag based on weapons presence
+        const hasMain = !!enemyData.mainWeapon
+        const hasSecondary = !!enemyData.secondaryWeapon
+        enemyData.equipWeapon = hasMain || hasSecondary
+        enemyData.marker.equipWeapon = enemyData.equipWeapon
+
+        this.updateEnemyMarkerVisual(
+          enemyData.marker,
+          enemyData.radius,
+          enemyData.color
+        )
+      }
+    }
+
+    this.fabricCanvas?.requestRenderAll()
     this.hidePropertiesModal()
   }
 
@@ -1650,6 +1839,7 @@ export class EditorManager {
     this.hideObjectTypeMenu()
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
+    this.hideEnemySubmenu()
     this.hidePolygonMenu()
     this.setActiveObjectType(null)
     this.editorPanelCollapsedBtn.classList.remove('is-visible')
@@ -1673,6 +1863,7 @@ export class EditorManager {
     this.hideObjectTypeMenu()
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
+    this.hideEnemySubmenu()
     this.ensureFabricCanvas()
     this.resizeEditorCanvas()
     this.renderObjectTree()
@@ -2154,6 +2345,37 @@ export class EditorManager {
     for (let i = 0; i < this.enemyMarkers.length; i++) {
       const data = this.enemyMarkers[i]
       const marker = data.marker
+
+      let mainWeapon: MapEnemyWeapon | undefined
+      if (data.mainWeapon && data.mainWeaponMarker) {
+        const weaponData = this.weaponMarkerMap.get(data.mainWeaponMarker)
+        if (weaponData) {
+          mainWeapon = {
+            weaponType: weaponData.weaponType,
+            sizeLevel: weaponData.sizeLevel,
+            attackDamage: weaponData.attackDamage,
+            postureDamage: weaponData.postureDamage,
+            toughnessDamage: weaponData.toughnessDamage,
+            bowAmmo: weaponData.bowAmmo,
+          }
+        }
+      }
+
+      let secondaryWeapon: MapEnemyWeapon | undefined
+      if (data.secondaryWeapon && data.secondaryWeaponMarker) {
+        const weaponData = this.weaponMarkerMap.get(data.secondaryWeaponMarker)
+        if (weaponData) {
+          secondaryWeapon = {
+            weaponType: weaponData.weaponType,
+            sizeLevel: weaponData.sizeLevel,
+            attackDamage: weaponData.attackDamage,
+            postureDamage: weaponData.postureDamage,
+            toughnessDamage: weaponData.toughnessDamage,
+            bowAmmo: weaponData.bowAmmo,
+          }
+        }
+      }
+
       enemies.push({
         x: (marker.left ?? 0) * this.invPixelsPerMeter,
         y: (marker.top ?? 0) * this.invPixelsPerMeter,
@@ -2168,6 +2390,8 @@ export class EditorManager {
         maxToughness: data.maxToughness,
         color: data.color,
         equipWeapon: data.equipWeapon,
+        mainWeapon,
+        secondaryWeapon,
       })
     }
     return enemies
@@ -2484,71 +2708,136 @@ export class EditorManager {
   }
 
   private getPropertyFields(type: ObjectType): PropertyField[] {
+    let currentData: EditorObjectData | null = null
+    if (this.selectedEditorObjectId !== -1) {
+      currentData = this.getEditorObjectById(this.selectedEditorObjectId)
+    }
+
     const commonFields: PropertyField[] = [
       {
         key: 'name',
         label: localizer.t('editor_prop_name'),
         type: 'text',
-        defaultValue: '',
+        defaultValue: currentData?.name ?? '',
       },
       {
         key: 'x',
         label: localizer.t('editor_prop_position_x'),
         type: 'number',
-        defaultValue: 0,
+        defaultValue: currentData?.object?.left
+          ? (currentData.object.left * this.invPixelsPerMeter).toFixed(2)
+          : 0,
       },
       {
         key: 'y',
         label: localizer.t('editor_prop_position_y'),
         type: 'number',
-        defaultValue: 0,
+        defaultValue: currentData?.object?.top
+          ? (currentData.object.top * this.invPixelsPerMeter).toFixed(2)
+          : 0,
       },
     ]
 
     switch (type) {
-      case ObjectType.Enemy:
+      case ObjectType.Enemy: {
+        let enemyData: EnemyMarkerData | null = null
+        if (currentData && this.isEnemyMarker(currentData.object)) {
+          enemyData = this.enemyMarkerMap.get(currentData.object) ?? null
+        }
         return [
           ...commonFields,
           {
             key: 'health',
             label: localizer.t('editor_prop_health'),
             type: 'number',
-            defaultValue: 100,
+            defaultValue: enemyData?.maxHealth ?? 100,
           },
           {
             key: 'speed',
             label: localizer.t('editor_prop_speed'),
             type: 'number',
-            defaultValue: 1,
+            defaultValue: enemyData?.moveSpeed ?? 1,
+          },
+          {
+            key: 'radius',
+            label: localizer.t('editor_enemy_prop_radius'),
+            type: 'number',
+            defaultValue: enemyData?.radius ?? 0.5,
+          },
+          {
+            key: 'color',
+            label: localizer.t('editor_enemy_prop_color'),
+            type: 'text',
+            defaultValue: enemyData?.color ?? '#ffffff',
+          },
+          {
+            key: 'mainWeapon',
+            label: localizer.t('editor_weapon_category_main'),
+            type: 'select',
+            defaultValue: enemyData?.mainWeapon ?? 'sword',
+            options: [
+              { label: localizer.t('editor_weapon_none'), value: 'none' },
+              { label: localizer.t('editor_weapon_sword'), value: 'sword' },
+            ],
+          },
+          {
+            key: 'secondaryWeapon',
+            label: localizer.t('editor_weapon_category_secondary'),
+            type: 'select',
+            defaultValue: enemyData?.secondaryWeapon ?? 'none',
+            options: [
+              {
+                label: localizer.t('editor_weapon_category_item'),
+                value: 'none',
+              }, // Using "None" or similar label? Reusing 'item' label for now as "None" placeholder or just 'None'
+              { label: localizer.t('editor_weapon_bow'), value: 'bow' },
+            ],
           },
         ]
-      case ObjectType.Weapon:
+      }
+      case ObjectType.Weapon: {
+        let weaponData: WeaponMarkerData | null = null
+        if (currentData && this.isWeaponMarker(currentData.object)) {
+          weaponData = this.weaponMarkerMap.get(currentData.object) ?? null
+        }
         return [
           ...commonFields,
           {
             key: 'damage',
             label: localizer.t('editor_prop_damage'),
             type: 'number',
-            defaultValue: 10,
+            defaultValue: weaponData?.attackDamage ?? 10,
           },
         ]
+      }
       case ObjectType.Ground:
-      case ObjectType.Obstacle:
+      case ObjectType.Obstacle: {
+        let shapeReset: ShapeResetData | null = null
+        if (currentData) {
+          shapeReset = this.shapeResetMap.get(currentData.object) ?? null
+        }
         return [
           ...commonFields,
           {
             key: 'width',
             label: localizer.t('editor_prop_width'),
             type: 'number',
-            defaultValue: 5,
+            defaultValue:
+              shapeReset && shapeReset.kind === 'rect'
+                ? (shapeReset.width * this.invPixelsPerMeter).toFixed(2)
+                : 5,
           },
           {
             key: 'height',
             label: localizer.t('editor_prop_height'),
             type: 'number',
-            defaultValue: 0.5,
+            defaultValue:
+              shapeReset && shapeReset.kind === 'rect'
+                ? (shapeReset.height * this.invPixelsPerMeter).toFixed(2)
+                : 0.5,
           },
         ]
+      }
       default:
         return commonFields
     }
@@ -3224,6 +3513,33 @@ export class EditorManager {
     this.handleEditablePolygonContextMenuEvent(event)
   }
 
+  private showEnemySubmenu() {
+    this.positionEnemySubmenu()
+    this.enemySubmenu.classList.add('is-visible')
+    this.setEditorMenuMode(EditorSubmenuMode.Enemy, true)
+  }
+
+  private hideEnemySubmenu() {
+    this.enemySubmenu.classList.remove('is-visible')
+    if (this.editorMenuMode === EditorSubmenuMode.Enemy) {
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.setEditorMenuMode(EditorSubmenuMode.Object, true)
+      } else {
+        this.setEditorMenuMode(EditorSubmenuMode.None, false)
+      }
+    }
+  }
+
+  private positionEnemySubmenu() {
+    this.positionShapeSubmenu(this.enemyMenuItem, this.enemySubmenu)
+  }
+
+  private handleEnemyTypeClick(enemyType: EnemyType) {
+    this.spawnEnemyMarker(enemyType)
+    this.hideEnemySubmenu()
+    this.hideObjectTypeMenu()
+  }
+
   private isInsideAnyMenu(targetNode: Node) {
     return (
       this.panelMenu.contains(targetNode) ||
@@ -3231,6 +3547,7 @@ export class EditorManager {
       this.groundSubmenu.contains(targetNode) ||
       this.obstacleSubmenu.contains(targetNode) ||
       this.weaponMenu.contains(targetNode) ||
+      this.enemySubmenu.contains(targetNode) ||
       this.polygonMenu.contains(targetNode)
     )
   }
@@ -3263,6 +3580,7 @@ export class EditorManager {
     this.hidePolygonMenu()
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
+    this.hideEnemySubmenu()
     this.hideObjectTypeMenu()
     this.panelMenuX = clientX
     this.panelMenuY = clientY
@@ -3293,6 +3611,7 @@ export class EditorManager {
     this.hidePanelMenu()
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
+    this.hideEnemySubmenu()
     this.objectTypeMenuX = clientX
     this.objectTypeMenuY = clientY
     this.objectTypeMenu.style.left = `${clientX}px`
@@ -3326,6 +3645,7 @@ export class EditorManager {
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideWeaponMenu()
+    this.hideEnemySubmenu()
     this.setEditorMenuMode(EditorSubmenuMode.None, false)
   }
 
@@ -3418,6 +3738,8 @@ export class EditorManager {
       maxToughness?: number
       color?: string
       equipWeapon?: boolean
+      mainWeapon?: MapEnemyWeapon
+      secondaryWeapon?: MapEnemyWeapon
     }
   ) {
     this.ensureFabricCanvas()
@@ -3478,6 +3800,27 @@ export class EditorManager {
     }
     this.enemyMarkers.push(enemyData)
     this.enemyMarkerMap.set(marker, enemyData)
+
+    if (spawn?.mainWeapon) {
+      this.createEnemyWeaponFromConfig(
+        enemyData,
+        spawn.mainWeapon,
+        'main',
+        centerX,
+        centerY
+      )
+    }
+
+    if (spawn?.secondaryWeapon) {
+      this.createEnemyWeaponFromConfig(
+        enemyData,
+        spawn.secondaryWeapon,
+        'secondary',
+        centerX,
+        centerY
+      )
+    }
+
     this.fabricCanvas.setActiveObject(marker)
     this.handleCanvasSelection(marker)
     this.fabricCanvas.renderAll()
@@ -3539,8 +3882,8 @@ export class EditorManager {
     weaponType: WeaponType,
     category: WeaponCategory,
     spawn?: {
-      x: number
-      y: number
+      x?: number
+      y?: number
       sizeLevel?: number
       attackDamage?: number
       postureDamage?: number
@@ -3856,14 +4199,32 @@ export class EditorManager {
       label.textContent = field.label
       label.htmlFor = `prop-${field.key}`
 
-      const input = document.createElement('input')
-      input.type = field.type
-      input.id = `prop-${field.key}`
-      input.name = field.key
-      input.value = String(field.defaultValue)
-
       group.appendChild(label)
-      group.appendChild(input)
+
+      if (field.type === 'select' && field.options) {
+        const select = document.createElement('select')
+        select.id = `prop-${field.key}`
+        select.name = field.key
+
+        field.options.forEach((opt) => {
+          const option = document.createElement('option')
+          option.value = opt.value
+          option.textContent = opt.label
+          if (String(field.defaultValue) === opt.value) {
+            option.selected = true
+          }
+          select.appendChild(option)
+        })
+        group.appendChild(select)
+      } else {
+        const input = document.createElement('input')
+        input.type = field.type
+        input.id = `prop-${field.key}`
+        input.name = field.key
+        input.value = String(field.defaultValue)
+        group.appendChild(input)
+      }
+
       this.propertiesForm.appendChild(group)
     })
   }
@@ -4093,11 +4454,12 @@ export class EditorManager {
 
   private handleWeaponTypeClick(
     weaponType: WeaponType,
-    category: WeaponCategory
+    category: WeaponCategory,
+    sizeLevel?: number
   ) {
+    this.spawnWeaponMarker(weaponType, category, { sizeLevel })
     this.hideWeaponMenu()
     this.hideObjectTypeMenu()
-    this.spawnWeaponMarker(weaponType, category)
   }
 
   private applyGroundPatternToObject(object: fabric.Object) {
@@ -5162,8 +5524,11 @@ export class EditorManager {
       color: #ffffff;
     `
 
+    const editorData = this.editorObjectMap.get(marker)
+    const enemyTypeLocal = localizer.t(`editor_enemy_${data.enemyType}`)
+    const objectName = editorData?.name ?? ''
     const title = document.createElement('h3')
-    title.textContent = localizer.t('editor_weapon_menu_properties')
+    title.textContent = `[${enemyTypeLocal}] ${objectName}`
     title.style.cssText = 'margin: 0 0 16px 0; font-size: 12px;'
     form.appendChild(title)
 
@@ -5342,6 +5707,160 @@ export class EditorManager {
     colorRow.row.appendChild(colorPicker)
     leftPanel.appendChild(colorRow.row)
 
+    const mainWeaponRow = buildRow(localizer.t('editor_weapon_category_main'))
+    const mainWeaponSelect = document.createElement('select')
+    mainWeaponSelect.style.cssText = patrolSelect.style.cssText
+    const mainWeaponOptions: { label: string; value: string }[] = [
+      { label: localizer.t('editor_weapon_none'), value: 'none' },
+      { label: localizer.t('editor_weapon_sword'), value: 'sword' },
+    ]
+    for (let i = 0; i < mainWeaponOptions.length; i++) {
+      const opt = mainWeaponOptions[i]
+      const option = document.createElement('option')
+      option.value = opt.value
+      option.textContent = opt.label
+      if (opt.value === (data.mainWeapon ?? 'none')) {
+        option.selected = true
+      }
+      mainWeaponSelect.appendChild(option)
+    }
+    mainWeaponRow.row.appendChild(mainWeaponSelect)
+
+    const mainWeaponConfigBtn = document.createElement('button')
+    mainWeaponConfigBtn.textContent = localizer.t(
+      'editor_weapon_menu_properties'
+    )
+    mainWeaponConfigBtn.style.cssText = `
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 11px;
+      cursor: pointer;
+      margin-left: 8px;
+    `
+    mainWeaponConfigBtn.addEventListener('mouseenter', () => {
+      mainWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.2)'
+    })
+    mainWeaponConfigBtn.addEventListener('mouseleave', () => {
+      mainWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.1)'
+    })
+    mainWeaponConfigBtn.addEventListener('click', async () => {
+      const weaponValue = mainWeaponSelect.value
+      if (weaponValue && weaponValue !== 'none') {
+        const weaponMarker = this.getOrCreateEnemyWeaponMarker(
+          data,
+          weaponValue as WeaponType,
+          'main'
+        )
+        if (weaponMarker) {
+          await this.showWeaponPropertiesDialog(weaponMarker)
+        }
+      }
+    })
+    mainWeaponRow.row.appendChild(mainWeaponConfigBtn)
+    leftPanel.appendChild(mainWeaponRow.row)
+
+    const updateMainWeaponConfigBtnVisibility = () => {
+      const weaponType = mainWeaponSelect.value
+      mainWeaponConfigBtn.style.display =
+        weaponType && weaponType !== 'none' ? 'inline-block' : 'none'
+
+      if (weaponType === 'none' || !weaponType) {
+        if (data.mainWeaponMarker) {
+          this.weaponMarkerMap.delete(data.mainWeaponMarker)
+          data.mainWeaponMarker = undefined
+        }
+      }
+    }
+    mainWeaponSelect.addEventListener(
+      'change',
+      updateMainWeaponConfigBtnVisibility
+    )
+    updateMainWeaponConfigBtnVisibility()
+
+    const secondaryWeaponRow = buildRow(
+      localizer.t('editor_weapon_category_secondary')
+    )
+    const secondaryWeaponSelect = document.createElement('select')
+    secondaryWeaponSelect.style.cssText = patrolSelect.style.cssText
+    const secondaryWeaponOptions: {
+      label: string
+      value: string
+    }[] = [
+      { label: localizer.t('editor_weapon_none'), value: 'none' },
+      { label: localizer.t('editor_weapon_bow'), value: 'bow' },
+    ]
+    for (let i = 0; i < secondaryWeaponOptions.length; i++) {
+      const opt = secondaryWeaponOptions[i]
+      const option = document.createElement('option')
+      option.value = opt.value
+      option.textContent = opt.label
+
+      const currentValue = data.secondaryWeapon ?? 'none'
+
+      if (opt.value === currentValue) {
+        option.selected = true
+      }
+      secondaryWeaponSelect.appendChild(option)
+    }
+    secondaryWeaponRow.row.appendChild(secondaryWeaponSelect)
+
+    const secondaryWeaponConfigBtn = document.createElement('button')
+    secondaryWeaponConfigBtn.textContent = localizer.t(
+      'editor_weapon_menu_properties'
+    )
+    secondaryWeaponConfigBtn.style.cssText = `
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 11px;
+      cursor: pointer;
+      margin-left: 8px;
+    `
+    secondaryWeaponConfigBtn.addEventListener('mouseenter', () => {
+      secondaryWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.2)'
+    })
+    secondaryWeaponConfigBtn.addEventListener('mouseleave', () => {
+      secondaryWeaponConfigBtn.style.background = 'rgba(255, 255, 255, 0.1)'
+    })
+    secondaryWeaponConfigBtn.addEventListener('click', async () => {
+      const weaponValue = secondaryWeaponSelect.value
+      if (weaponValue && weaponValue !== 'none') {
+        const weaponMarker = this.getOrCreateEnemyWeaponMarker(
+          data,
+          weaponValue as WeaponType,
+          'secondary'
+        )
+        if (weaponMarker) {
+          await this.showWeaponPropertiesDialog(weaponMarker)
+        }
+      }
+    })
+    secondaryWeaponRow.row.appendChild(secondaryWeaponConfigBtn)
+    leftPanel.appendChild(secondaryWeaponRow.row)
+
+    const updateSecondaryWeaponConfigBtnVisibility = () => {
+      const weaponType = secondaryWeaponSelect.value
+      secondaryWeaponConfigBtn.style.display =
+        weaponType && weaponType !== 'none' ? 'inline-block' : 'none'
+
+      if (weaponType === 'none' || !weaponType) {
+        if (data.secondaryWeaponMarker) {
+          this.weaponMarkerMap.delete(data.secondaryWeaponMarker)
+          data.secondaryWeaponMarker = undefined
+        }
+      }
+    }
+    secondaryWeaponSelect.addEventListener(
+      'change',
+      updateSecondaryWeaponConfigBtnVisibility
+    )
+    updateSecondaryWeaponConfigBtnVisibility()
+
     const buttons = document.createElement('div')
     buttons.style.cssText = 'display: flex; gap: 8px; margin-top: 16px;'
 
@@ -5491,9 +6010,28 @@ export class EditorManager {
       data.maxPosture = maxPosture
       data.maxToughness = maxToughness
       data.color = color
-      data.equipWeapon = false
 
-      marker.enemyType = data.enemyType
+      const mainVal = mainWeaponSelect.value
+      if (mainVal === 'none') {
+        data.mainWeapon = undefined
+        marker.mainWeapon = undefined
+      } else {
+        data.mainWeapon = mainVal as WeaponType
+        marker.mainWeapon = data.mainWeapon
+      }
+
+      const secVal = secondaryWeaponSelect.value
+      if (secVal === 'none') {
+        data.secondaryWeapon = undefined
+        marker.secondaryWeapon = undefined
+      } else {
+        data.secondaryWeapon = secVal as WeaponType
+        marker.secondaryWeapon = data.secondaryWeapon
+      }
+
+      data.equipWeapon = !!data.mainWeapon || !!data.secondaryWeapon
+      marker.equipWeapon = data.equipWeapon
+
       marker.radius = radius
       marker.moveSpeed = moveSpeed
       marker.attackDesire = attackDesire
@@ -5502,9 +6040,9 @@ export class EditorManager {
       marker.maxHealth = maxHealth
       marker.maxPosture = maxPosture
       marker.maxToughness = maxToughness
-      marker.equipWeapon = false
-      this.updateEnemyMarkerVisual(marker, radius, color)
+      marker.color = color
 
+      this.updateEnemyMarkerVisual(marker, data.radius, data.color)
       this.fabricCanvas?.requestRenderAll()
       closeModal()
     })
@@ -5546,8 +6084,32 @@ export class EditorManager {
       color: #ffffff;
     `
 
+    const getSizeName = (level: number): string => {
+      if (isBow) {
+        return level === 1
+          ? localizer.t('editor_weapon_size_bow_1')
+          : localizer.t('editor_weapon_size_bow_2')
+      } else {
+        switch (level) {
+          case 1:
+            return localizer.t('editor_weapon_size_sword_1')
+          case 2:
+            return localizer.t('editor_weapon_size_sword_2')
+          case 3:
+            return localizer.t('editor_weapon_size_sword_3')
+          case 4:
+            return localizer.t('editor_weapon_size_sword_4')
+          default:
+            return String(level)
+        }
+      }
+    }
+
+    const editorData = this.editorObjectMap.get(marker)
+    const weaponCategoryName = localizer.t(`editor_weapon_${data.weaponType}`)
+    const objectName = editorData?.name ?? ''
     const title = document.createElement('h3')
-    title.textContent = localizer.t('editor_weapon_menu_properties')
+    title.textContent = `[${weaponCategoryName}] ${objectName}`
     title.style.cssText = 'margin: 0 0 16px 0; font-size: 12px;'
     form.appendChild(title)
 
@@ -5571,27 +6133,6 @@ export class EditorManager {
       'width: 160px; height: 160px; display: block; image-rendering: pixelated;'
     rightPanel.appendChild(previewCanvas)
     const previewCtx = previewCanvas.getContext('2d')
-
-    const getSizeName = (level: number): string => {
-      if (isBow) {
-        return level === 1
-          ? localizer.t('editor_weapon_size_bow_1')
-          : localizer.t('editor_weapon_size_bow_2')
-      } else {
-        switch (level) {
-          case 1:
-            return localizer.t('editor_weapon_size_sword_1')
-          case 2:
-            return localizer.t('editor_weapon_size_sword_2')
-          case 3:
-            return localizer.t('editor_weapon_size_sword_3')
-          case 4:
-            return localizer.t('editor_weapon_size_sword_4')
-          default:
-            return String(level)
-        }
-      }
-    }
 
     const sizeGroup = document.createElement('div')
     sizeGroup.style.cssText =
@@ -5890,6 +6431,140 @@ export class EditorManager {
         }
       })
     })
+  }
+
+  private createEnemyWeaponFromConfig(
+    enemyData: EnemyMarkerData,
+    config: MapEnemyWeapon,
+    slot: 'main' | 'secondary',
+    x: number,
+    y: number
+  ) {
+    const weaponType = config.weaponType
+    const isBow = weaponType === 'bow'
+    const category: WeaponCategory = isBow ? 'secondary' : 'main'
+    const template = WEAPON_TEMPLATES[weaponType]
+
+    const dims = computeWeaponRenderDimensions(
+      template,
+      config.sizeLevel,
+      EDITOR_PIXELS_PER_METER,
+      isBow
+    )
+
+    const weaponShape = new fabric.Rect({
+      width: dims.boundingWidthPx,
+      height: dims.boundingHeightPx,
+      fill: 'transparent',
+      stroke: 'transparent',
+      strokeWidth: 0,
+    }) as unknown as WeaponShape
+
+    weaponShape.weaponWidthPx = dims.widthPx
+    weaponShape.weaponHeightPx = dims.heightPx
+    weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
+    weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
+    weaponShape.weaponRenderType = isBow ? 'bow' : 'sword'
+
+    const weaponMarker = new fabric.Group([weaponShape], {
+      left: x,
+      top: y,
+      selectable: false,
+      visible: false,
+    }) as WeaponMarker
+
+    weaponMarker.weaponType = weaponType
+    weaponMarker.sizeLevel = config.sizeLevel
+    weaponMarker.category = category
+
+    const weaponData: WeaponMarkerData = {
+      marker: weaponMarker,
+      weaponType,
+      category,
+      sizeLevel: config.sizeLevel,
+      attackDamage: config.attackDamage,
+      postureDamage: config.postureDamage,
+      toughnessDamage: config.toughnessDamage,
+      bowAmmo: config.bowAmmo,
+    }
+
+    this.weaponMarkerMap.set(weaponMarker, weaponData)
+
+    const markerKey =
+      slot === 'main' ? 'mainWeaponMarker' : 'secondaryWeaponMarker'
+    const weaponKey = slot === 'main' ? 'mainWeapon' : 'secondaryWeapon'
+    enemyData[markerKey] = weaponMarker
+    enemyData[weaponKey] = weaponType
+  }
+
+  private getOrCreateEnemyWeaponMarker(
+    enemyData: EnemyMarkerData,
+    weaponType: WeaponType,
+    slot: 'main' | 'secondary'
+  ): WeaponMarker | null {
+    const markerKey =
+      slot === 'main' ? 'mainWeaponMarker' : 'secondaryWeaponMarker'
+    let weaponMarker = enemyData[markerKey]
+
+    if (weaponMarker && weaponMarker.weaponType !== weaponType) {
+      this.weaponMarkerMap.delete(weaponMarker)
+      weaponMarker = undefined
+      enemyData[markerKey] = undefined
+    }
+
+    if (!weaponMarker) {
+      const template = WEAPON_TEMPLATES[weaponType]
+      const isBow = weaponType === 'bow'
+      const category: WeaponCategory = isBow ? 'secondary' : 'main'
+
+      const dims = computeWeaponRenderDimensions(
+        template,
+        template.sizeLevel,
+        EDITOR_PIXELS_PER_METER,
+        isBow
+      )
+
+      const weaponShape = new fabric.Rect({
+        width: dims.boundingWidthPx,
+        height: dims.boundingHeightPx,
+        fill: 'transparent',
+        stroke: 'transparent',
+        strokeWidth: 0,
+      }) as unknown as WeaponShape
+
+      weaponShape.weaponWidthPx = dims.widthPx
+      weaponShape.weaponHeightPx = dims.heightPx
+      weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
+      weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
+      weaponShape.weaponRenderType = isBow ? 'bow' : 'sword'
+
+      weaponMarker = new fabric.Group([weaponShape], {
+        left: enemyData.marker.left,
+        top: enemyData.marker.top,
+        selectable: false,
+        visible: false,
+      }) as WeaponMarker
+
+      weaponMarker.weaponType = weaponType
+      weaponMarker.sizeLevel = template.sizeLevel
+      weaponMarker.category = category
+
+      const weaponData: WeaponMarkerData = {
+        marker: weaponMarker,
+        weaponType,
+        category,
+        sizeLevel: template.sizeLevel,
+        attackDamage: template.attackDamage,
+        postureDamage: template.postureDamage,
+        toughnessDamage: template.toughnessDamage,
+        bowAmmo: isBow ? DEFAULT_BOW_AMMO_ENEMY : undefined,
+      }
+
+      this.weaponMarkerMap.set(weaponMarker, weaponData)
+      enemyData[markerKey] = weaponMarker
+    }
+
+    return weaponMarker
   }
 
   private removeCameraView(frame: CameraFrame) {

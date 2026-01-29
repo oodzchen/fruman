@@ -89,8 +89,12 @@
   "editor_weapon_category_secondary": "副武器",
   "editor_weapon_category_item": "道具",
   "editor_weapon_sword": "剑",
+  "editor_weapon_shortSword": "短剑",
+  "editor_weapon_longSword": "长剑",
+  "editor_weapon_hammer": "战锤",
   "editor_weapon_bow": "弓",
-  "editor_weapon_menu_properties": "属性",
+  "editor_weapon_none": "无",
+  "editor_weapon_menu_properties": "属性设置",
   "editor_enemy_prop_radius": "半径",
   "editor_enemy_prop_move_speed": "移动速度",
   "editor_enemy_prop_attack_desire": "攻击欲望",
@@ -112,5 +116,9 @@
   "editor_weapon_size_sword_3": "大剑",
   "editor_weapon_size_sword_4": "巨剑",
   "editor_weapon_size_bow_1": "弓",
-  "editor_weapon_size_bow_2": "大弓"
+  "editor_weapon_size_bow_2": "大弓",
+  "editor_enemy_default": "普通敌人",
+  "editor_enemy_fast": "快速敌人",
+  "editor_enemy_large": "巨型敌人",
+  "editor_enemy_archer": "弓箭手"
 }

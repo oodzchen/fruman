@@ -47,6 +47,15 @@ export interface MapPlacedShape {
   shape: MapShape
 }
 
+export interface MapEnemyWeapon {
+  weaponType: WeaponType
+  sizeLevel: number
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
+  bowAmmo?: number
+}
+
 export interface MapEnemy {
   x: number
   y: number
@@ -61,6 +70,8 @@ export interface MapEnemy {
   maxToughness?: number
   color?: string
   equipWeapon?: boolean
+  mainWeapon?: MapEnemyWeapon
+  secondaryWeapon?: MapEnemyWeapon
 }
 
 export interface MapWeapon {
