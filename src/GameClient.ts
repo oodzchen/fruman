@@ -48,6 +48,7 @@ export class GameClient {
   private inputEnabled = true
   private editorOverlay: HTMLDivElement | null = null
   private previewExitBtn: HTMLButtonElement | null = null
+  private previewPauseBtn: HTMLButtonElement | null = null
   private previewActive = false
   private onExitPreviewCallback?: () => void
   private cameraDebug: CameraDebugData & { enabled: boolean } = {
@@ -111,6 +112,16 @@ export class GameClient {
       this.previewExitBtn.textContent = localizer.t('editor_exit_preview')
       this.previewExitBtn.addEventListener('click', () => {
         this.exitPreview()
+      })
+    }
+
+    const previewPauseBtn = document.getElementById('previewPauseBtn')
+    this.previewPauseBtn =
+      previewPauseBtn instanceof HTMLButtonElement ? previewPauseBtn : null
+    if (this.previewPauseBtn) {
+      this.previewPauseBtn.textContent = localizer.t('ui_pause')
+      this.previewPauseBtn.addEventListener('click', () => {
+        this.togglePreviewPause()
       })
     }
 
@@ -701,10 +712,30 @@ export class GameClient {
   }
 
   private setPreviewExitVisible(visible: boolean) {
-    if (!this.previewExitBtn) {
+    if (this.previewExitBtn) {
+      this.previewExitBtn.style.display = visible ? 'block' : 'none'
+    }
+    if (this.previewPauseBtn) {
+      this.previewPauseBtn.style.display = visible ? 'block' : 'none'
+      if (visible) {
+        this.previewPauseBtn.textContent = localizer.t('ui_pause')
+      }
+    }
+  }
+
+  private togglePreviewPause() {
+    if (!this.previewActive || !this.previewPauseBtn) {
       return
     }
-    this.previewExitBtn.style.display = visible ? 'block' : 'none'
+    if (this.inputEnabled) {
+      this.stop()
+      this.setInputEnabled(false)
+      this.previewPauseBtn.textContent = localizer.t('ui_resume')
+    } else {
+      this.start()
+      this.setInputEnabled(true)
+      this.previewPauseBtn.textContent = localizer.t('ui_pause')
+    }
   }
 
   private exitPreview() {
@@ -713,6 +744,7 @@ export class GameClient {
     }
     this.previewActive = false
     this.setPreviewExitVisible(false)
+    this.menuManager.hide() // Ensure menu is closed
     if (this.onExitPreviewCallback) {
       this.onExitPreviewCallback()
     }
