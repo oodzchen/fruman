@@ -439,7 +439,7 @@ async function initialize() {
 
   game.setOnFirstFrameRendered(() => {
     setTimeout(() => {
-      game.stop()
+      game.setInputEnabled(false)
       menuManager.show(MenuMode.Start)
     }, 800)
   })
