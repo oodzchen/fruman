@@ -11,6 +11,7 @@ import {
   WEAPON_TEMPLATES,
 } from './constants'
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
+import { EditorMapSerializer } from './editor/EditorMapSerializer'
 import { EditorUIHelper } from './editor/EditorUIHelper'
 import type {
   EditorMapData,
@@ -477,6 +478,7 @@ export class EditorManager {
   private polygonMenu: HTMLDivElement
   private polygonMenuButtons: HTMLButtonElement[] = []
   private dialogManager: DialogManager
+  private mapSerializer: EditorMapSerializer
 
   private visible = false
   private currentView: EditorView = EditorView.MapList
@@ -757,6 +759,32 @@ export class EditorManager {
     ]
 
     this.dialogManager = new DialogManager(this.editorOverlay)
+    this.mapSerializer = new EditorMapSerializer({
+      getCanvas: () => this.editorCanvas,
+      getInvPixelsPerMeter: () => this.invPixelsPerMeter,
+      getPixelsPerMeter: () => EDITOR_PIXELS_PER_METER,
+      getFabricCanvas: () => this.fabricCanvas,
+      ensureFabricCanvas: () => this.ensureFabricCanvas(),
+      resizeEditorCanvas: () => this.resizeEditorCanvas(),
+      clearEditorScene: () => this.clearEditorScene(),
+      spawnPlayerMarker: (spawn) => this.spawnPlayerMarker(spawn),
+      spawnCameraViewFrame: (camera) => this.spawnCameraViewFrame(camera),
+      applyPlacedShapes: (shapes) => this.applyPlacedShapes(shapes),
+      applyEnemies: (enemies) => this.applyEnemies(enemies),
+      applyWeapons: (weapons) => this.applyWeapons(weapons),
+      renderObjectTree: () => this.renderObjectTree(),
+      requestRenderAll: () => {
+        this.fabricCanvas?.requestRenderAll()
+      },
+      getPlayerMarker: () => this.playerMarker,
+      getCameraViews: () => this.cameraViews,
+      getEditorObjects: () => this.editorObjects,
+      getEnemyMarkers: () => this.enemyMarkers,
+      getWeaponMarkers: () => this.weaponMarkers,
+      getWeaponMarkerMap: () => this.weaponMarkerMap,
+      getPolygonScratchPoint: () => this.polygonScratchPoint,
+      applyTransform: this.applyTransform.bind(this),
+    })
     this.boundHandleEditorMenuMouseEnter =
       this.handleEditorMenuItemMouseEnter.bind(this)
     this.boundHandleMapListMouseEnter =
@@ -1607,7 +1635,7 @@ export class EditorManager {
 
     this.ensureFabricCanvas()
     this.resizeEditorCanvas()
-    const initialData = this.buildDefaultMapData()
+    const initialData = this.mapSerializer.buildDefaultMapData()
     const meta = await createEditorMap(name, initialData)
     if (!meta) {
       await this.dialogManager.alert(localizer.t('editor_save_failed'))
@@ -1617,7 +1645,7 @@ export class EditorManager {
     this.currentMapMeta = meta
     this.refreshMapMetas()
     this.showEditorView()
-    this.applyMapData(initialData)
+    this.mapSerializer.applyMapData(initialData)
   }
 
   private handleObjectClick(type: ObjectType) {
@@ -1881,31 +1909,12 @@ export class EditorManager {
         updatedAt: now,
       }
     }
-    const data = stored ?? this.buildDefaultMapData()
-    this.applyMapData(data)
-  }
-
-  private buildDefaultMapData(): EditorMapData {
-    const width = this.editorCanvas.width
-    const height = this.editorCanvas.height
-    const ppm = EDITOR_PIXELS_PER_METER
-    const spawnX = width * 0.5 * this.invPixelsPerMeter
-    const spawnY = Math.max(0.8, height * this.invPixelsPerMeter - 1.6)
-    return {
-      version: 1,
-      canvasWidth: width,
-      canvasHeight: height,
-      pixelsPerMeter: ppm,
-      playerSpawn: { x: spawnX, y: spawnY },
-      camera: { x: 0, y: 0, zoom: 1 },
-      shapes: [],
-      enemies: [],
-      weapons: [],
-    }
+    const data = stored ?? this.mapSerializer.buildDefaultMapData()
+    this.mapSerializer.applyMapData(data)
   }
 
   private async handlePreview() {
-    const data = this.serializeCurrentMapData()
+    const data = this.mapSerializer.serializeCurrentMapData()
     const meta = this.currentMapMeta ?? {
       id: 'preview',
       name: 'preview',
@@ -1920,7 +1929,7 @@ export class EditorManager {
   }
 
   private async handleSave() {
-    const data = this.serializeCurrentMapData()
+    const data = this.mapSerializer.serializeCurrentMapData()
     console.log('[editor] map data to save', data)
     const meta = await this.ensureMapMeta(data)
     if (!meta) {
@@ -1976,286 +1985,6 @@ export class EditorManager {
     this.currentMapMeta = created
     this.refreshMapMetas()
     return created
-  }
-
-  private serializeCurrentMapData(): EditorMapData {
-    const base = this.buildDefaultMapData()
-    const playerSpawn = this.serializePlayerSpawn(base)
-    const camera = this.serializeCamera(base)
-    const shapes: MapPlacedShape[] = []
-    this.serializeShapes(shapes)
-    const enemies = this.serializeEnemies()
-    const weapons = this.serializeWeapons()
-    return {
-      version: 1,
-      canvasWidth: base.canvasWidth,
-      canvasHeight: base.canvasHeight,
-      pixelsPerMeter: base.pixelsPerMeter,
-      playerSpawn,
-      camera,
-      shapes,
-      enemies,
-      weapons,
-    }
-  }
-
-  private serializePlayerSpawn(base: EditorMapData) {
-    const marker = this.playerMarker
-    if (!marker) {
-      return base.playerSpawn
-    }
-    const x = (marker.left ?? 0) * this.invPixelsPerMeter
-    const y = (marker.top ?? 0) * this.invPixelsPerMeter
-    return { x, y }
-  }
-
-  private serializeCamera(base: EditorMapData) {
-    if (this.cameraViews.length === 0) {
-      return base.camera
-    }
-    const data = this.cameraViews[0]
-    const frame = data.frame
-    const centerX = (frame.left ?? 0) * this.invPixelsPerMeter
-    const centerY = (frame.top ?? 0) * this.invPixelsPerMeter
-    const zoom = data.zoom > 0 ? data.zoom : 1
-    return this.computeCameraOffsetFromCenter(centerX, centerY, zoom)
-  }
-
-  private computeCameraOffsetFromCenter(
-    centerX: number,
-    centerY: number,
-    zoom: number
-  ) {
-    const invZoom = zoom > 0 ? 1 / zoom : 1
-    const canvasWidthMeters = this.editorCanvas.width * this.invPixelsPerMeter
-    const canvasHeightMeters = this.editorCanvas.height * this.invPixelsPerMeter
-    const anchorX = canvasWidthMeters * 0.5
-    const anchorY = canvasHeightMeters
-    const viewWidth = canvasWidthMeters * invZoom
-    const viewHeight = canvasHeightMeters * invZoom
-    const desiredLeft = centerX - viewWidth * 0.5
-    const desiredTop = centerY - viewHeight * 0.5
-    const cameraX = desiredLeft - anchorX * (1 - invZoom)
-    const cameraY = desiredTop - anchorY * (1 - invZoom)
-    return { x: cameraX, y: cameraY, zoom }
-  }
-
-  private computeCameraCenterFromOffset(camera: EditorMapData['camera']) {
-    const zoom = camera.zoom > 0 ? camera.zoom : 1
-    const invZoom = 1 / zoom
-    const canvasWidthMeters = this.editorCanvas.width * this.invPixelsPerMeter
-    const canvasHeightMeters = this.editorCanvas.height * this.invPixelsPerMeter
-    const anchorX = canvasWidthMeters * 0.5
-    const anchorY = canvasHeightMeters
-    const viewWidth = canvasWidthMeters * invZoom
-    const viewHeight = canvasHeightMeters * invZoom
-    const left = anchorX * (1 - invZoom) + camera.x
-    const top = anchorY * (1 - invZoom) + camera.y
-    const centerX = left + viewWidth * 0.5
-    const centerY = top + viewHeight * 0.5
-    return { centerX, centerY, zoom }
-  }
-
-  private serializeShapes(out: MapPlacedShape[]) {
-    for (let i = 0; i < this.editorObjects.length; i++) {
-      const data = this.editorObjects[i]
-      if (
-        data.type !== ObjectType.Ground &&
-        data.type !== ObjectType.Obstacle
-      ) {
-        continue
-      }
-      const placed = this.serializeShapeObject(data)
-      if (placed) {
-        out.push(placed)
-      }
-    }
-  }
-
-  private serializeShapeObject(data: EditorObjectData): MapPlacedShape | null {
-    const object = data.object
-    const objectKind = data.type === ObjectType.Ground ? 'ground' : 'obstacle'
-    if (object instanceof fabric.Rect) {
-      return this.serializeRectShape(objectKind, object)
-    }
-    if (object instanceof fabric.Circle) {
-      return this.serializeCircleShape(objectKind, object)
-    }
-    if (object instanceof fabric.Polygon) {
-      return this.serializePolygonShape(objectKind, object)
-    }
-    return null
-  }
-
-  private serializeRectShape(
-    objectKind: 'ground' | 'obstacle',
-    rect: fabric.Rect
-  ): MapPlacedShape {
-    const centerX = (rect.left ?? 0) * this.invPixelsPerMeter
-    const centerY = (rect.top ?? 0) * this.invPixelsPerMeter
-    const scaleX = rect.scaleX ?? 1
-    const scaleY = rect.scaleY ?? 1
-    const widthPx = (rect.width ?? 0) * scaleX
-    const heightPx = (rect.height ?? 0) * scaleY
-    const halfWidth = widthPx * this.invPixelsPerMeter * 0.5
-    const halfHeight = heightPx * this.invPixelsPerMeter * 0.5
-    const angleDeg = rect.angle ?? 0
-    const rotationRad = (angleDeg * Math.PI) / 180
-    return {
-      objectKind,
-      shape: {
-        kind: 'rect',
-        center: { x: centerX, y: centerY },
-        halfWidth,
-        halfHeight,
-        rotationRad,
-      },
-    }
-  }
-
-  private serializeCircleShape(
-    objectKind: 'ground' | 'obstacle',
-    circle: fabric.Circle
-  ): MapPlacedShape {
-    const centerX = (circle.left ?? 0) * this.invPixelsPerMeter
-    const centerY = (circle.top ?? 0) * this.invPixelsPerMeter
-    const scaleX = circle.scaleX ?? 1
-    const scaleY = circle.scaleY ?? 1
-    const radiusPx = (circle.radius ?? 0) * Math.max(scaleX, scaleY)
-    const radius = radiusPx * this.invPixelsPerMeter
-    return {
-      objectKind,
-      shape: {
-        kind: 'circle',
-        center: { x: centerX, y: centerY },
-        radius,
-      },
-    }
-  }
-
-  private serializePolygonShape(
-    objectKind: 'ground' | 'obstacle',
-    polygon: fabric.Polygon
-  ): MapPlacedShape | null {
-    if (!polygon.points || polygon.points.length < 3) {
-      return null
-    }
-    const centerX = (polygon.left ?? 0) * this.invPixelsPerMeter
-    const centerY = (polygon.top ?? 0) * this.invPixelsPerMeter
-    const matrix = polygon.calcTransformMatrix()
-    const pathOffset = polygon.pathOffset
-    const points: number[] = []
-    for (let i = 0; i < polygon.points.length; i++) {
-      const point = polygon.points[i]
-      const localX = point.x - pathOffset.x
-      const localY = point.y - pathOffset.y
-      this.applyTransform(localX, localY, matrix, this.polygonScratchPoint)
-      points.push(
-        this.polygonScratchPoint.x * this.invPixelsPerMeter,
-        this.polygonScratchPoint.y * this.invPixelsPerMeter
-      )
-    }
-    return {
-      objectKind,
-      shape: {
-        kind: 'polygon',
-        center: { x: centerX, y: centerY },
-        points,
-      },
-    }
-  }
-
-  private serializeEnemies() {
-    const enemies: EditorMapData['enemies'] = []
-    for (let i = 0; i < this.enemyMarkers.length; i++) {
-      const data = this.enemyMarkers[i]
-      const marker = data.marker
-
-      let mainWeapon: MapEnemyWeapon | undefined
-      if (data.mainWeapon && data.mainWeaponMarker) {
-        const weaponData = this.weaponMarkerMap.get(data.mainWeaponMarker)
-        if (weaponData) {
-          mainWeapon = {
-            weaponType: weaponData.weaponType,
-            sizeLevel: weaponData.sizeLevel,
-            attackDamage: weaponData.attackDamage,
-            postureDamage: weaponData.postureDamage,
-            toughnessDamage: weaponData.toughnessDamage,
-            bowAmmo: weaponData.bowAmmo,
-          }
-        }
-      }
-
-      let secondaryWeapon: MapEnemyWeapon | undefined
-      if (data.secondaryWeapon && data.secondaryWeaponMarker) {
-        const weaponData = this.weaponMarkerMap.get(data.secondaryWeaponMarker)
-        if (weaponData) {
-          secondaryWeapon = {
-            weaponType: weaponData.weaponType,
-            sizeLevel: weaponData.sizeLevel,
-            attackDamage: weaponData.attackDamage,
-            postureDamage: weaponData.postureDamage,
-            toughnessDamage: weaponData.toughnessDamage,
-            bowAmmo: weaponData.bowAmmo,
-          }
-        }
-      }
-
-      enemies.push({
-        x: (marker.left ?? 0) * this.invPixelsPerMeter,
-        y: (marker.top ?? 0) * this.invPixelsPerMeter,
-        enemyType: data.enemyType,
-        radius: data.radius,
-        moveSpeed: data.moveSpeed,
-        attackDesire: data.attackDesire,
-        parryProficiency: data.parryProficiency,
-        initialPatrolMode: data.initialPatrolMode,
-        maxHealth: data.maxHealth,
-        maxPosture: data.maxPosture,
-        maxToughness: data.maxToughness,
-        color: data.color,
-        equipWeapon: data.equipWeapon,
-        mainWeapon,
-        secondaryWeapon,
-      })
-    }
-    return enemies
-  }
-
-  private serializeWeapons() {
-    const weapons: EditorMapData['weapons'] = []
-    for (let i = 0; i < this.weaponMarkers.length; i++) {
-      const data = this.weaponMarkers[i]
-      const marker = data.marker
-      weapons.push({
-        x: (marker.left ?? 0) * this.invPixelsPerMeter,
-        y: (marker.top ?? 0) * this.invPixelsPerMeter,
-        weaponType: data.weaponType,
-        category: data.category,
-        sizeLevel: data.sizeLevel,
-        attackDamage: data.attackDamage,
-        postureDamage: data.postureDamage,
-        toughnessDamage: data.toughnessDamage,
-        bowAmmo: data.bowAmmo,
-      })
-    }
-    return weapons
-  }
-
-  private applyMapData(data: EditorMapData) {
-    this.ensureFabricCanvas()
-    if (!this.fabricCanvas) {
-      return
-    }
-    this.resizeEditorCanvas()
-    this.clearEditorScene()
-    this.spawnPlayerMarker(data.playerSpawn)
-    this.spawnCameraViewFrame(data.camera)
-    this.applyPlacedShapes(data.shapes)
-    this.applyEnemies(data.enemies)
-    this.applyWeapons(data.weapons)
-    this.renderObjectTree()
-    this.fabricCanvas.requestRenderAll()
   }
 
   private clearEditorScene() {
@@ -3652,7 +3381,7 @@ export class EditorManager {
     let centerX = this.editorCanvas.width * 0.5
     let centerY = this.editorCanvas.height * 0.5
     if (camera) {
-      const center = this.computeCameraCenterFromOffset(camera)
+      const center = this.mapSerializer.computeCameraCenterFromOffset(camera)
       zoom = center.zoom
       centerX = center.centerX * EDITOR_PIXELS_PER_METER
       centerY = center.centerY * EDITOR_PIXELS_PER_METER
@@ -6409,7 +6138,7 @@ export class EditorManager {
       return null
     }
 
-    const data = this.serializeCurrentMapData()
+    const data = this.mapSerializer.serializeCurrentMapData()
     const meta = this.currentMapMeta ?? {
       id: 'preview',
       name: 'preview',

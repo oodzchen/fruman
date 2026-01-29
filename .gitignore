@@ -149,3 +149,4 @@ vite.config.ts.timestamp-*
 .claude
 .gemini
 todo.txt
+REFACTORING.md
