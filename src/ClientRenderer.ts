@@ -1,8 +1,5 @@
 import type { AudioManager } from './AudioManager'
-import { renderBody } from './BodyRenderer'
 import { BowTrajectoryCalculator } from './BowTrajectory'
-import { ParticleSystem } from './ParticleSystem'
-import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
 import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
@@ -14,6 +11,9 @@ import {
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_WIDTH,
 } from './constants'
+import { renderBody } from './renderer/BodyRenderer'
+import { ParticleSystem } from './renderer/ParticleSystem'
+import { renderWeapon as renderWeaponShape } from './renderer/WeaponRenderer'
 import {
   ENTITY_STRIDE,
   FLAGS,

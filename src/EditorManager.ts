@@ -1,10 +1,8 @@
 import { fabric } from 'fabric'
 
-import { renderBody } from './BodyRenderer'
 import { DialogManager } from './DialogManager'
 import type { GameClient } from './GameClient'
 import { localizer } from './Localizer'
-import { renderWeapon } from './WeaponRenderer'
 import {
   DEFAULT_BOW_AMMO_ENEMY,
   DEFAULT_BOW_AMMO_PLAYER,
@@ -21,6 +19,9 @@ import type {
   MapWeapon,
   WeaponCategory,
 } from './editorMapTypes'
+import { renderBody } from './renderer/BodyRenderer'
+import { PatternCreator } from './renderer/PatternCreator'
+import { renderWeapon } from './renderer/WeaponRenderer'
 import {
   createEditorMap,
   listEditorMaps,
@@ -6944,7 +6945,7 @@ export class EditorManager {
     }
 
     if (!this.backgroundPattern && !this.backgroundImage) {
-      this.backgroundImage = this.createBackgroundImage()
+      this.backgroundImage = PatternCreator.createBackgroundImage()
     }
 
     if (this.backgroundPattern) {
@@ -6980,165 +6981,24 @@ export class EditorManager {
 
   private getGroundPatternImage() {
     if (!this.groundPatternImage) {
-      this.groundPatternImage = this.createGroundPatternImage()
+      this.groundPatternImage = PatternCreator.createGroundImage(() => {
+        if (this.fabricCanvas) {
+          this.fabricCanvas.requestRenderAll()
+        }
+      })
     }
     return this.groundPatternImage
   }
 
   private getObstaclePatternImage() {
     if (!this.obstaclePatternImage) {
-      this.obstaclePatternImage = this.createObstaclePatternImage()
+      this.obstaclePatternImage = PatternCreator.createObstacleImage(() => {
+        if (this.fabricCanvas) {
+          this.fabricCanvas.requestRenderAll()
+        }
+      })
     }
     return this.obstaclePatternImage
-  }
-
-  private createBackgroundImage(): HTMLImageElement | null {
-    const patternSize = 80
-    const patternCanvas = document.createElement('canvas')
-    patternCanvas.width = patternSize
-    patternCanvas.height = patternSize
-    const patternCtx = patternCanvas.getContext('2d')
-    if (!patternCtx) {
-      return null
-    }
-
-    patternCtx.fillStyle = '#0b0c0e'
-    patternCtx.fillRect(0, 0, patternSize, patternSize)
-
-    patternCtx.strokeStyle = '#394155'
-    patternCtx.lineWidth = 1
-
-    const drawTriangle = (
-      x1: number,
-      y1: number,
-      x2: number,
-      y2: number,
-      x3: number,
-      y3: number
-    ) => {
-      patternCtx.beginPath()
-      patternCtx.moveTo(x1, y1)
-      patternCtx.lineTo(x2, y2)
-      patternCtx.lineTo(x3, y3)
-      patternCtx.closePath()
-      patternCtx.stroke()
-    }
-
-    const halfSize = patternSize / 2
-    const height = (Math.sqrt(3) / 2) * halfSize
-
-    drawTriangle(0, height, halfSize, 0, halfSize, height)
-    drawTriangle(halfSize, 0, patternSize, height, halfSize, height)
-    drawTriangle(0, height, halfSize, height * 2, halfSize, height)
-    drawTriangle(halfSize, height * 2, patternSize, height, halfSize, height)
-
-    patternCtx.beginPath()
-    patternCtx.moveTo(0, height)
-    patternCtx.lineTo(patternSize, height)
-    patternCtx.stroke()
-
-    const image = new Image()
-    image.src = patternCanvas.toDataURL('image/png')
-    return image
-  }
-
-  // Reuse the main-game ground texture pattern for editor ground shapes.
-  private createGroundPatternImage(): HTMLImageElement | null {
-    const size = 96
-    const patternCanvas = document.createElement('canvas')
-    patternCanvas.width = size
-    patternCanvas.height = size
-    const patternCtx = patternCanvas.getContext('2d')
-    if (!patternCtx) {
-      return null
-    }
-
-    patternCtx.fillStyle = '#826343'
-    patternCtx.fillRect(0, 0, size, size)
-
-    patternCtx.strokeStyle = '#a29f4f'
-    patternCtx.lineWidth = 1
-
-    const mid = size * 0.5
-    patternCtx.beginPath()
-    patternCtx.moveTo(0, mid)
-    patternCtx.lineTo(mid, 0)
-    patternCtx.lineTo(size, mid)
-    patternCtx.lineTo(mid, size)
-    patternCtx.closePath()
-    patternCtx.stroke()
-
-    patternCtx.beginPath()
-    patternCtx.moveTo(mid * 0.5, mid)
-    patternCtx.lineTo(mid, mid * 0.5)
-    patternCtx.lineTo(mid * 1.5, mid)
-    patternCtx.lineTo(mid, mid * 1.5)
-    patternCtx.closePath()
-    patternCtx.stroke()
-
-    const image = new Image()
-    image.src = patternCanvas.toDataURL('image/png')
-    image.onload = () => {
-      if (this.fabricCanvas) {
-        this.fabricCanvas.requestRenderAll()
-      }
-    }
-    return image
-  }
-
-  // Reuse the main-game obstacle texture pattern for editor obstacle shapes.
-  private createObstaclePatternImage(): HTMLImageElement | null {
-    const size = 88
-    const patternCanvas = document.createElement('canvas')
-    patternCanvas.width = size
-    patternCanvas.height = size
-    const patternCtx = patternCanvas.getContext('2d')
-    if (!patternCtx) {
-      return null
-    }
-
-    patternCtx.fillStyle = '#70400e'
-    patternCtx.fillRect(0, 0, size, size)
-
-    patternCtx.strokeStyle = '#d7a168'
-    patternCtx.lineWidth = 1
-
-    const radius = size * 0.25
-    const rowHeight = Math.sqrt(3) * radius
-
-    const drawHex = (cx: number, cy: number) => {
-      patternCtx.beginPath()
-      for (let i = 0; i < 6; i += 1) {
-        const angle = (Math.PI / 3) * i + Math.PI / 6
-        const x = cx + radius * Math.cos(angle)
-        const y = cy + radius * Math.sin(angle)
-        if (i === 0) {
-          patternCtx.moveTo(x, y)
-        } else {
-          patternCtx.lineTo(x, y)
-        }
-      }
-      patternCtx.closePath()
-      patternCtx.stroke()
-    }
-
-    for (let row = -1; row <= 2; row += 1) {
-      const y = row * rowHeight + rowHeight
-      for (let col = -1; col <= 2; col += 1) {
-        const xOffset = row % 2 === 0 ? 0 : radius
-        const x = col * radius * 2 + radius + xOffset
-        drawHex(x, y)
-      }
-    }
-
-    const image = new Image()
-    image.src = patternCanvas.toDataURL('image/png')
-    image.onload = () => {
-      if (this.fabricCanvas) {
-        this.fabricCanvas.requestRenderAll()
-      }
-    }
-    return image
   }
 
   private setPanelCollapsed(collapsed: boolean) {
