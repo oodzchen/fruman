@@ -537,6 +537,7 @@ export class EditorManager {
     this.cameraManager = new EditorCameraManager({
       fabricCanvas: () => this.fabricCanvas,
       editorCanvas: this.editorCanvas,
+      getViewportCenter: () => this.getViewportCenter(),
       mapSerializer: this.mapSerializer,
       registerEditorObject: (type, obj) => this.registerEditorObject(type, obj),
       handleCanvasSelection: (obj) => this.handleCanvasSelection(obj),
@@ -1874,6 +1875,31 @@ export class EditorManager {
     this.menuNavigator.setMode(EditorSubmenuMode.None, false)
   }
 
+  private getViewportCenter(): { x: number; y: number } {
+    if (!this.fabricCanvas) {
+      return {
+        x: this.editorCanvas.width * 0.5,
+        y: this.editorCanvas.height * 0.5,
+      }
+    }
+    const vpt = this.fabricCanvas.viewportTransform
+    if (!vpt) {
+      return {
+        x: this.editorCanvas.width * 0.5,
+        y: this.editorCanvas.height * 0.5,
+      }
+    }
+    const inverted = fabric.util.invertTransform(vpt)
+    const centerPoint = fabric.util.transformPoint(
+      new fabric.Point(
+        this.editorCanvas.width / 2,
+        this.editorCanvas.height / 2
+      ),
+      inverted
+    )
+    return { x: centerPoint.x, y: centerPoint.y }
+  }
+
   // ========================================
   // MARKER MANAGEMENT
   // ========================================
@@ -1884,14 +1910,16 @@ export class EditorManager {
       console.warn('[editor] Fabric canvas not ready')
       return
     }
-    const spawnX =
-      spawn?.x !== undefined
-        ? spawn.x * EDITOR_PIXELS_PER_METER
-        : this.editorCanvas.width * 0.5
-    const spawnY =
-      spawn?.y !== undefined
-        ? spawn.y * EDITOR_PIXELS_PER_METER
-        : this.editorCanvas.height * 0.5
+    let spawnX: number
+    let spawnY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      spawnX = spawn.x * EDITOR_PIXELS_PER_METER
+      spawnY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.getViewportCenter()
+      spawnX = center.x
+      spawnY = center.y
+    }
     if (this.playerMarker && this.playerMarker.canvas) {
       this.playerMarker.left = spawnX
       this.playerMarker.top = spawnY
@@ -1951,14 +1979,16 @@ export class EditorManager {
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
     const color = spawn?.color ?? template.color
     const equipWeapon = spawn?.equipWeapon ?? false
-    const centerX =
-      spawn?.x !== undefined
-        ? spawn.x * EDITOR_PIXELS_PER_METER
-        : this.editorCanvas.width * 0.5
-    const centerY =
-      spawn?.y !== undefined
-        ? spawn.y * EDITOR_PIXELS_PER_METER
-        : this.editorCanvas.height * 0.5
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
     const marker = this.objectFactory.createEnemyMarker(
       enemyType,
       radius,
@@ -2040,14 +2070,16 @@ export class EditorManager {
       console.warn('[editor] Fabric canvas not ready')
       return
     }
-    const centerX =
-      spawn?.x !== undefined
-        ? spawn.x * EDITOR_PIXELS_PER_METER
-        : this.editorCanvas.width * 0.5
-    const centerY =
-      spawn?.y !== undefined
-        ? spawn.y * EDITOR_PIXELS_PER_METER
-        : this.editorCanvas.height * 0.5
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
     const template = WEAPON_DEFAULT_DATA[weaponType]
     const sizeLevel = spawn?.sizeLevel ?? template.sizeLevel
     const attackDamage = spawn?.attackDamage ?? template.attackDamage
@@ -2226,8 +2258,9 @@ export class EditorManager {
       return
     }
 
-    const centerX = this.editorCanvas.width * 0.5
-    const centerY = this.editorCanvas.height * 0.5
+    const center = this.getViewportCenter()
+    const centerX = center.x
+    const centerY = center.y
     let shapeObject: fabric.Object | null = null
 
     switch (shape) {
@@ -2299,8 +2332,9 @@ export class EditorManager {
       return
     }
 
-    const centerX = this.editorCanvas.width * 0.5
-    const centerY = this.editorCanvas.height * 0.5
+    const center = this.getViewportCenter()
+    const centerX = center.x
+    const centerY = center.y
     let shapeObject: fabric.Object | null = null
 
     switch (shape) {

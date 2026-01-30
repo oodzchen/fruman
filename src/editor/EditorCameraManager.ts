@@ -15,6 +15,7 @@ import type { ObjectType } from './types'
 interface EditorCameraManagerContext {
   fabricCanvas: () => fabric.Canvas | null
   editorCanvas: HTMLCanvasElement
+  getViewportCenter: () => { x: number; y: number }
   mapSerializer: {
     computeCameraCenterFromOffset: (camera: EditorMapData['camera']) => {
       zoom: number
@@ -77,8 +78,8 @@ export class EditorCameraManager {
     )
     const baseHeight = baseWidth * 0.5
     let zoom = 1
-    let centerX = this.context.editorCanvas.width * 0.5
-    let centerY = this.context.editorCanvas.height * 0.5
+    let centerX = 0
+    let centerY = 0
 
     if (camera) {
       const center =
@@ -86,6 +87,10 @@ export class EditorCameraManager {
       zoom = center.zoom
       centerX = center.centerX * EDITOR_PIXELS_PER_METER
       centerY = center.centerY * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.context.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
     }
 
     frame.width = baseWidth / zoom
