@@ -125,6 +125,7 @@ export class EditorManager {
   private onBackToMenuCallback?: () => void
   private onPreviewCallback?: (meta: EditorMapMeta, data: EditorMapData) => void
   private onDefaultMapChangedCallback?: (meta: EditorMapMeta) => void
+  private lastSavedHistoryId = 0
   private fabricCanvas: fabric.Canvas | null = null
   private activeObjectType: ObjectType | null = null
   private handleResize: () => void
@@ -380,6 +381,7 @@ export class EditorManager {
       onMapLoaded: (meta, data) => {
         this.currentMapMeta = meta
         this.historyManager.reset(data)
+        this.lastSavedHistoryId = this.historyManager.getCurrentEntryId()
       },
       onShowEditorView: () => this.showEditorView(),
       onBackToMenu: () => this.handleBack(),
@@ -635,6 +637,10 @@ export class EditorManager {
   }
 
   private handleBack() {
+    if (this.hasUnsavedChanges()) {
+      void this.confirmExitWithUnsavedChanges()
+      return
+    }
     if (this.currentView === EditorView.Editor) {
       this.showMapListView()
     } else {
@@ -755,35 +761,7 @@ export class EditorManager {
   }
 
   private async handleSave() {
-    const data = this.mapSerializer.serializeCurrentMapData()
-    const meta = await this.mapListManager.ensureMapMeta(data)
-    if (!meta) {
-      return
-    }
-
-    this.dialogManager.showLoading(localizer.t('editor_saving'))
-
-    try {
-      const thumbnail = await this.thumbnailCapture.capture()
-      if (thumbnail) {
-        meta.thumbnail = thumbnail
-      }
-
-      const savedMeta = await saveEditorMap(meta, data)
-      this.dialogManager.hideLoading()
-
-      if (!savedMeta) {
-        await this.dialogManager.alert(localizer.t('editor_save_failed'))
-        return
-      }
-      this.currentMapMeta = savedMeta
-      this.mapListManager.refreshMapMetas()
-      await this.dialogManager.alert(localizer.t('editor_save_success'))
-    } catch (error) {
-      this.dialogManager.hideLoading()
-      await this.dialogManager.alert(localizer.t('editor_save_failed'))
-      console.error('[editor] save error', error)
-    }
+    void this.saveCurrentMap()
   }
 
   private clearEditorScene() {
@@ -963,6 +941,70 @@ export class EditorManager {
 
   private captureHistorySnapshot() {
     this.historyManager.capture()
+  }
+
+  private hasUnsavedChanges(): boolean {
+    if (this.currentView !== EditorView.Editor) {
+      return false
+    }
+    return this.historyManager.getCurrentEntryId() !== this.lastSavedHistoryId
+  }
+
+  private async confirmExitWithUnsavedChanges() {
+    if (this.currentView !== EditorView.Editor) {
+      return
+    }
+    const result = await this.dialogManager.confirmWithCancel(
+      localizer.t('editor_confirm_exit_unsaved'),
+      localizer.t('editor_btn_save'),
+      localizer.t('editor_btn_discard'),
+      localizer.t('editor_btn_cancel')
+    )
+    if (result === 'dismiss') {
+      return
+    }
+    if (result === 'confirm') {
+      const saved = await this.saveCurrentMap()
+      if (!saved) {
+        return
+      }
+    }
+    this.showMapListView()
+  }
+
+  private async saveCurrentMap(): Promise<boolean> {
+    const data = this.mapSerializer.serializeCurrentMapData()
+    const meta = await this.mapListManager.ensureMapMeta(data)
+    if (!meta) {
+      return false
+    }
+
+    this.dialogManager.showLoading(localizer.t('editor_saving'))
+
+    try {
+      const thumbnail = await this.thumbnailCapture.capture()
+      if (thumbnail) {
+        meta.thumbnail = thumbnail
+      }
+
+      const savedMeta = await saveEditorMap(meta, data)
+      this.dialogManager.hideLoading()
+
+      if (!savedMeta) {
+        await this.dialogManager.alert(localizer.t('editor_save_failed'))
+        return false
+      }
+      this.currentMapMeta = savedMeta
+      this.lastSavedHistoryId = this.historyManager.getCurrentEntryId()
+      this.mapListManager.refreshMapMetas()
+      await this.dialogManager.alert(localizer.t('editor_save_success'))
+      return true
+    } catch (error) {
+      this.dialogManager.hideLoading()
+      await this.dialogManager.alert(localizer.t('editor_save_failed'))
+      console.error('[editor] save error', error)
+      return false
+    }
   }
 
   private getMapSnapshot(): EditorMapData {

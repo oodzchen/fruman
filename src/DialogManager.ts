@@ -338,6 +338,54 @@ export class DialogManager {
     })
   }
 
+  confirmWithCancel(
+    message: string,
+    confirmLabel: string,
+    cancelLabel: string,
+    dismissLabel: string
+  ): Promise<'confirm' | 'cancel' | 'dismiss'> {
+    return new Promise((resolve) => {
+      this.resolveCallback = (result) => {
+        if (
+          result === 'confirm' ||
+          result === 'cancel' ||
+          result === 'dismiss'
+        ) {
+          resolve(result)
+          return
+        }
+        resolve('dismiss')
+      }
+
+      this.messageBox.textContent = message
+      this.buttonsContainer.innerHTML = ''
+
+      const confirmButton = this.createButton(
+        confirmLabel,
+        () => {
+          this.close('confirm')
+        },
+        true
+      )
+
+      const cancelButton = this.createButton(cancelLabel, () => {
+        this.close('cancel')
+      })
+
+      const dismissButton = this.createButton(dismissLabel, () => {
+        this.close('dismiss')
+      })
+
+      this.buttonsContainer.appendChild(confirmButton)
+      this.buttonsContainer.appendChild(cancelButton)
+      this.buttonsContainer.appendChild(dismissButton)
+      this.setDialogButtons([confirmButton, cancelButton, dismissButton])
+      this.open()
+
+      setTimeout(() => confirmButton.focus(), 100)
+    })
+  }
+
   prompt(message: string, defaultValue = ''): Promise<string | null> {
     return new Promise((resolve) => {
       this.resolveCallback = (result) => {

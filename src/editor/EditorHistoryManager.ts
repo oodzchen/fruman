@@ -7,6 +7,7 @@ export interface EditorHistoryManagerContext {
 
 interface EditorHistoryEntry {
   data: EditorMapData
+  id: number
 }
 
 export class EditorHistoryManager {
@@ -16,6 +17,7 @@ export class EditorHistoryManager {
   private entryPool: EditorHistoryEntry[] = []
   private suspended = false
   private maxEntries: number
+  private nextEntryId = 1
 
   constructor(ctx: EditorHistoryManagerContext, maxEntries: number) {
     this.ctx = ctx
@@ -29,6 +31,11 @@ export class EditorHistoryManager {
   reset(data: EditorMapData) {
     this.clearStacks()
     this.pushUndoData(data)
+  }
+
+  getCurrentEntryId(): number {
+    const entry = this.undoStack[this.undoStack.length - 1]
+    return entry ? entry.id : 0
   }
 
   capture() {
@@ -110,9 +117,16 @@ export class EditorHistoryManager {
     const entry = this.entryPool.pop()
     if (entry) {
       entry.data = data
+      entry.id = this.nextEntryId
+      this.nextEntryId += 1
       return entry
     }
-    return { data }
+    const nextEntry: EditorHistoryEntry = {
+      data,
+      id: this.nextEntryId,
+    }
+    this.nextEntryId += 1
+    return nextEntry
   }
 
   private releaseEntry(entry: EditorHistoryEntry) {
