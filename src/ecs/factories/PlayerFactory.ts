@@ -2,6 +2,7 @@ import {
   CATEGORY_ENEMY,
   CATEGORY_PLAYER,
   CATEGORY_WEAPON,
+  CHARACTER_DEFAULT_DATA,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_BOW_AMMO_ENEMY,
@@ -31,7 +32,6 @@ import {
   DEFAULT_WEAPON_WIDTH,
   ENEMY_ALERT_RANGE_MULTIPLIER,
   ENEMY_DETECTION_RANGE,
-  ENEMY_TEMPLATES,
   MASK_ENEMY,
   MASK_PLAYER,
   MASK_WEAPON,
@@ -253,7 +253,12 @@ export function createEnemy(
   enemyType: EnemyType = 'default',
   options?: EnemySpawnConfig
 ): Entity {
-  const template = ENEMY_TEMPLATES[enemyType]
+  // Use default template if the specific type exists, otherwise fallback to default
+  const template =
+    enemyType in CHARACTER_DEFAULT_DATA
+      ? CHARACTER_DEFAULT_DATA[enemyType as keyof typeof CHARACTER_DEFAULT_DATA]
+      : CHARACTER_DEFAULT_DATA.default
+
   const hasOptions = options !== undefined
   const equipWeapon = options?.equipWeapon ?? (hasOptions ? false : true)
   const radius = options?.radius ?? template.radius
@@ -557,9 +562,13 @@ export function createEnemy(
 
         enemy.weapon.bowAmmo = activeSlot.bowAmmo
       }
-    }
 
-    enemy.weapon.isEquipped = true
+      enemy.weapon.isEquipped = activeSlot.hasWeapon
+    } else {
+      // No weapon slots component (shouldn't happen for enemies created here, but safe fallback)
+
+      enemy.weapon.isEquipped = false
+    }
     enemy.weapon.position = { x: followX, y: followY }
     enemy.weapon.visual = { ...equippedTransform }
     enemy.weapon.attackStartTransform = { ...equippedTransform }

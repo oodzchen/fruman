@@ -3150,6 +3150,7 @@ export class WeaponSystem extends System {
     if (!this.statsSystem) return
     if (!attacker.transform || !attacker.faction) return
     if (!weapon || !weapon.hitEntityIds) return
+    if (!weapon.isEquipped) return
 
     const weaponX = weapon.visual.x
     const weaponY = weapon.visual.y

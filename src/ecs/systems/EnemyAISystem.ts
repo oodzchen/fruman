@@ -1374,6 +1374,7 @@ export class EnemyAISystem extends System {
     ai: Entity['enemyAI']
   ): void {
     if (!entity.weapon || !entity.input || !ai) return
+    if (!entity.weapon.isEquipped) return
     if (!this.weaponSystem) return
     if (ai.comboSwingsDone >= ai.comboSwingTarget) return
 

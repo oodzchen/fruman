@@ -4,10 +4,10 @@ import { DialogManager } from './DialogManager'
 import type { GameClient } from './GameClient'
 import { localizer } from './Localizer'
 import {
+  CHARACTER_DEFAULT_DATA,
   DEFAULT_BOW_AMMO_ENEMY,
   DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_PLAYER_RADIUS,
-  ENEMY_TEMPLATES,
   WEAPON_DEFAULT_DATA,
 } from './constants'
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
@@ -1937,7 +1937,8 @@ export class EditorManager {
       console.warn('[editor] Fabric canvas not ready')
       return
     }
-    const template = ENEMY_TEMPLATES[enemyType]
+    const template =
+      CHARACTER_DEFAULT_DATA[enemyType] ?? CHARACTER_DEFAULT_DATA.default
     const radius = spawn?.radius ?? template.radius
     const moveSpeed = spawn?.moveSpeed ?? template.moveSpeed
     const attackDesire = spawn?.attackDesire ?? template.attackDesire
