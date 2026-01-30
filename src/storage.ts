@@ -224,6 +224,22 @@ export async function saveEditorMapMeta(
   }
 }
 
+export async function deleteEditorMap(mapId: string): Promise<boolean> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction([MAP_META_STORE, MAP_DATA_STORE], 'readwrite')
+      tx.objectStore(MAP_META_STORE).delete(mapId)
+      tx.objectStore(MAP_DATA_STORE).delete(mapId)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => resolve(false)
+      tx.onabort = () => resolve(false)
+    })
+  } catch {
+    return false
+  }
+}
+
 export async function getDefaultMap(): Promise<{
   meta: EditorMapMeta
   data: EditorMapData

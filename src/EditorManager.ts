@@ -124,6 +124,7 @@ export class EditorManager {
   private editorMapListMenu: HTMLDivElement
   private editorMapCreateBtn: HTMLButtonElement
   private editorMapRenameBtn: HTMLButtonElement
+  private editorMapDeleteBtn: HTMLButtonElement
   private editorMapDefaultBtn: HTMLButtonElement
   private editorActions: HTMLDivElement
   private editorPreviewBtn: HTMLButtonElement
@@ -238,6 +239,7 @@ export class EditorManager {
     const actions = document.getElementById('editorActions')
     const mapListMenu = document.getElementById('editorMapListMenu')
     const mapCreateBtn = document.getElementById('editorMapCreateBtn')
+    const mapDeleteBtn = document.getElementById('editorMapDeleteBtn')
     const mapRenameBtn = document.getElementById('editorMapRenameBtn')
     const mapDefaultBtn = document.getElementById('editorMapDefaultBtn')
     const previewBtn = document.getElementById('editorPreviewBtn')
@@ -325,6 +327,7 @@ export class EditorManager {
       !(actions instanceof HTMLDivElement) ||
       !(mapListMenu instanceof HTMLDivElement) ||
       !(mapCreateBtn instanceof HTMLButtonElement) ||
+      !(mapDeleteBtn instanceof HTMLButtonElement) ||
       !(mapRenameBtn instanceof HTMLButtonElement) ||
       !(mapDefaultBtn instanceof HTMLButtonElement) ||
       !(previewBtn instanceof HTMLButtonElement) ||
@@ -369,6 +372,7 @@ export class EditorManager {
     this.editorActions = actions
     this.editorMapListMenu = mapListMenu
     this.editorMapCreateBtn = mapCreateBtn
+    this.editorMapDeleteBtn = mapDeleteBtn
     this.editorMapRenameBtn = mapRenameBtn
     this.editorMapDefaultBtn = mapDefaultBtn
     this.editorPreviewBtn = previewBtn
@@ -478,6 +482,7 @@ export class EditorManager {
       editorBackBtn: this.editorBackBtn,
       editorMapCreateBtn: this.editorMapCreateBtn,
       editorMapRenameBtn: this.editorMapRenameBtn,
+      editorMapDeleteBtn: this.editorMapDeleteBtn,
       editorMapDefaultBtn: this.editorMapDefaultBtn,
       dialogManager: this.dialogManager,
       mapSerializer: this.mapSerializer,
@@ -834,6 +839,7 @@ export class EditorManager {
     this.editorPreviewBtn.textContent = localizer.t('editor_preview')
     this.editorSaveBtn.textContent = localizer.t('editor_save')
     this.editorMapCreateBtn.textContent = localizer.t('editor_create_map')
+    this.editorMapDeleteBtn.textContent = localizer.t('editor_map_delete')
     this.editorMapRenameBtn.textContent = localizer.t('editor_map_rename')
     this.editorMapDefaultBtn.textContent = localizer.t('editor_map_set_default')
     this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')

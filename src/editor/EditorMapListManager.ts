@@ -3,6 +3,7 @@ import { localizer } from '../Localizer'
 import type { EditorMapData, EditorMapMeta } from '../editorMapTypes'
 import {
   createEditorMap,
+  deleteEditorMap,
   listEditorMaps,
   loadEditorMapData,
   saveEditorMapMeta,
@@ -18,6 +19,7 @@ export interface EditorMapListManagerContext {
   editorBackBtn: HTMLButtonElement
   editorMapCreateBtn: HTMLButtonElement
   editorMapRenameBtn: HTMLButtonElement
+  editorMapDeleteBtn: HTMLButtonElement
   editorMapDefaultBtn: HTMLButtonElement
   dialogManager: DialogManager
   mapSerializer: EditorMapSerializer
@@ -36,6 +38,7 @@ export class EditorMapListManager {
   private mapListBackIndex = 0
   private mapListCreateMapIndex = -1
   private mapListRenameMapIndex = -1
+  private mapListDeleteMapIndex = -1
   private mapListDefaultMapIndex = -1
   private mapListFocusId: string | null = null
   private maps: EditorMap[] = []
@@ -62,6 +65,10 @@ export class EditorMapListManager {
 
     this.context.editorMapRenameBtn.addEventListener('click', () => {
       void this.handleRenameSelectedMap()
+    })
+
+    this.context.editorMapDeleteBtn.addEventListener('click', () => {
+      void this.handleDeleteSelectedMap()
     })
 
     this.context.editorMapDefaultBtn.addEventListener('click', () => {
@@ -166,6 +173,34 @@ export class EditorMapListManager {
       return
     }
     this.mapListFocusId = meta.id
+    this.refreshMapMetas()
+  }
+
+  public async handleDeleteSelectedMap() {
+    const mapId = this.getSelectedMapId()
+    if (!mapId) {
+      return
+    }
+    const meta = this.findMapMeta(mapId)
+    if (!meta) {
+      return
+    }
+    const confirmed = await this.context.dialogManager.confirm(
+      localizer.t('editor_map_delete_confirm').replace('{0}', meta.name)
+    )
+    if (!confirmed) {
+      return
+    }
+    const success = await deleteEditorMap(mapId)
+    if (!success) {
+      await this.context.dialogManager.alert(
+        localizer.t('editor_delete_failed')
+      )
+      return
+    }
+    if (this.currentMapMeta?.id === mapId) {
+      this.currentMapMeta = null
+    }
     this.refreshMapMetas()
   }
 
@@ -341,8 +376,9 @@ export class EditorMapListManager {
 
     this.mapListBackIndex = this.editorMapListItems.length
     this.mapListCreateMapIndex = this.editorMapListItems.length + 1
-    this.mapListRenameMapIndex = this.editorMapListItems.length + 2
-    this.mapListDefaultMapIndex = this.editorMapListItems.length + 3
+    this.mapListDeleteMapIndex = this.editorMapListItems.length + 2
+    this.mapListRenameMapIndex = this.editorMapListItems.length + 3
+    this.mapListDefaultMapIndex = this.editorMapListItems.length + 4
   }
 
   private handleMapListItemMouseEnter(event: Event) {
@@ -375,6 +411,10 @@ export class EditorMapListManager {
       'is-selected',
       this.editorMapListSelectedIndex === this.mapListCreateMapIndex
     )
+    this.context.editorMapDeleteBtn.classList.toggle(
+      'is-selected',
+      this.editorMapListSelectedIndex === this.mapListDeleteMapIndex
+    )
     this.context.editorMapRenameBtn.classList.toggle(
       'is-selected',
       this.editorMapListSelectedIndex === this.mapListRenameMapIndex
@@ -401,6 +441,7 @@ export class EditorMapListManager {
     }
     this.context.editorBackBtn.classList.remove('is-selected')
     this.context.editorMapCreateBtn.classList.remove('is-selected')
+    this.context.editorMapDeleteBtn.classList.remove('is-selected')
     this.context.editorMapRenameBtn.classList.remove('is-selected')
     this.context.editorMapDefaultBtn.classList.remove('is-selected')
     this.context.editorMapListMenu.classList.remove('is-visible')
@@ -431,7 +472,7 @@ export class EditorMapListManager {
   }
 
   private getMapListNavCount(): number {
-    return this.editorMapListItems.length + 4
+    return this.editorMapListItems.length + 5
   }
 
   private getMapListNavElement(index: number): HTMLButtonElement | null {
@@ -440,6 +481,9 @@ export class EditorMapListManager {
     }
     if (index === this.mapListCreateMapIndex) {
       return this.context.editorMapCreateBtn
+    }
+    if (index === this.mapListDeleteMapIndex) {
+      return this.context.editorMapDeleteBtn
     }
     if (index === this.mapListRenameMapIndex) {
       return this.context.editorMapRenameBtn
