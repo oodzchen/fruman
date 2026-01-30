@@ -111,6 +111,9 @@ export class MovementComponent extends Component {
   carryWeight = 0
   bodyFriction = DEFAULT_BODY_FRICTION
   currentFriction = DEFAULT_BODY_FRICTION
+  contactFriction = DEFAULT_BODY_FRICTION
+  hasContactFriction = false
+  hasSteepContact = false
 
   isSprinting = false
   lKeyHoldTime = 0
@@ -158,6 +161,9 @@ export class MovementComponent extends Component {
     this.carryWeight = 0
     this.bodyFriction = DEFAULT_BODY_FRICTION
     this.currentFriction = DEFAULT_BODY_FRICTION
+    this.contactFriction = DEFAULT_BODY_FRICTION
+    this.hasContactFriction = false
+    this.hasSteepContact = false
     this.isSprinting = false
     this.lKeyHoldTime = 0
     this.lKeyIsDown = false

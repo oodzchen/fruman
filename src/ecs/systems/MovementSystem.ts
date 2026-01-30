@@ -1,4 +1,6 @@
 import {
+  CATEGORY_GROUND,
+  CATEGORY_OBSTACLE,
   DEFAULT_GRAVITY,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
@@ -37,6 +39,7 @@ export class MovementSystem extends System {
   private tempVec2: InstanceType<MainModule['b2Vec2']>
   private currentDeltaTime = 0
   private currentTimeMs = 0
+  private readonly slopeNormalScale = 1024
 
   constructor(box2d: MainModule) {
     super()
@@ -107,6 +110,8 @@ export class MovementSystem extends System {
       b2Body_GetContactData,
       b2Body_GetContactCapacity,
       b2Body_GetLinearVelocity,
+      b2Shape_GetFilter,
+      b2Shape_GetFriction,
     } = this.box2d
 
     const now = this.currentTimeMs
@@ -136,6 +141,11 @@ export class MovementSystem extends System {
     let touchingWall = false
     let newWallDirection = 0
     const groundNormalMin = 0.2
+    let hasSteepSurface = false
+    let hasGroundSurface = false
+    let hasObstacleSurface = false
+    let groundSurfaceFriction = 0
+    let obstacleSurfaceFriction = 0
 
     for (let i = 0; i < contactData.length; i++) {
       const contact = contactData[i]
@@ -143,7 +153,46 @@ export class MovementSystem extends System {
       const absX = Math.abs(normal.x)
       const absY = Math.abs(normal.y)
 
-      if (absY > groundNormalMin && isFallingOrStill) {
+      const filterA = b2Shape_GetFilter(contact.shapeIdA)
+      const filterB = b2Shape_GetFilter(contact.shapeIdB)
+      const categoryA = filterA.categoryBits
+      const categoryB = filterB.categoryBits
+      const isGroundA = (categoryA & CATEGORY_GROUND) !== 0
+      const isGroundB = (categoryB & CATEGORY_GROUND) !== 0
+      const isObstacleA = (categoryA & CATEGORY_OBSTACLE) !== 0
+      const isObstacleB = (categoryB & CATEGORY_OBSTACLE) !== 0
+      let isSteepSurface = false
+      if (isGroundA || isGroundB || isObstacleA || isObstacleB) {
+        const normalX = (normal.x * this.slopeNormalScale) | 0
+        const normalY = (normal.y * this.slopeNormalScale) | 0
+        const absNormalX = normalX < 0 ? -normalX : normalX
+        const absNormalY = normalY < 0 ? -normalY : normalY
+        if (absNormalX > absNormalY) {
+          hasSteepSurface = true
+          isSteepSurface = true
+        } else if (isGroundA || isGroundB) {
+          hasGroundSurface = true
+          const groundShapeId = isGroundA ? contact.shapeIdA : contact.shapeIdB
+          const surfaceFriction = b2Shape_GetFriction(groundShapeId)
+          if (surfaceFriction > groundSurfaceFriction) {
+            groundSurfaceFriction = surfaceFriction
+          }
+        } else if (isObstacleA || isObstacleB) {
+          hasObstacleSurface = true
+          const obstacleShapeId = isObstacleA
+            ? contact.shapeIdA
+            : contact.shapeIdB
+          const surfaceFriction = b2Shape_GetFriction(obstacleShapeId)
+          if (surfaceFriction > obstacleSurfaceFriction) {
+            obstacleSurfaceFriction = surfaceFriction
+          }
+        }
+      }
+
+      if (isSteepSurface) {
+        touchingWall = true
+        newWallDirection = normal.x > 0 ? -1 : 1
+      } else if (absY > groundNormalMin && isFallingOrStill) {
         grounded = true
       } else if (absX > 0.7) {
         touchingWall = true
@@ -156,8 +205,22 @@ export class MovementSystem extends System {
     entity.movement.isGrounded = grounded
     entity.movement.isTouchingWall = touchingWall
     entity.movement.wasGrounded = grounded
+    if (hasSteepSurface) {
+      entity.movement.hasContactFriction = true
+      entity.movement.contactFriction = 0
+    } else if (hasGroundSurface) {
+      entity.movement.hasContactFriction = true
+      entity.movement.contactFriction = groundSurfaceFriction
+    } else if (hasObstacleSurface) {
+      entity.movement.hasContactFriction = true
+      entity.movement.contactFriction = obstacleSurfaceFriction
+    } else {
+      entity.movement.hasContactFriction = false
+      entity.movement.contactFriction = entity.movement.bodyFriction
+    }
+    entity.movement.hasSteepContact = hasSteepSurface
 
-    if (entity.movement.isTouchingWall && !entity.movement.isGrounded) {
+    if (entity.movement.isTouchingWall && !grounded) {
       entity.movement.wallDirection = newWallDirection
     } else {
       entity.movement.wallDirection = 0
@@ -206,7 +269,9 @@ export class MovementSystem extends System {
     const shouldUseAirFriction = !grounded
     const targetFriction = shouldUseAirFriction
       ? DEFAULT_WALL_SLIDE_FRICTION
-      : entity.movement.bodyFriction
+      : entity.movement.hasContactFriction
+        ? entity.movement.contactFriction
+        : entity.movement.bodyFriction
     if (entity.movement.currentFriction === targetFriction) return
 
     const { b2Shape_SetFriction } = this.box2d
@@ -467,6 +532,14 @@ export class MovementSystem extends System {
 
     // 地面攻击时锁定位移，空中攻击允许移动
     if (isInAttackAction && entity.movement.isGrounded) {
+      direction = 0
+    }
+
+    if (
+      entity.movement.hasSteepContact &&
+      direction !== 0 &&
+      direction === entity.movement.wallDirection
+    ) {
       direction = 0
     }
 
