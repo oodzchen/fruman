@@ -239,6 +239,7 @@ export interface EnemySpawnConfig {
   maxPosture?: number
   maxToughness?: number
   color?: string
+  facing?: number
   mainWeapon?: EnemyWeaponConfig
   secondaryWeapon?: EnemyWeaponConfig
 }
@@ -272,6 +273,7 @@ export function createEnemy(
   const maxPosture = options?.maxPosture ?? template.maxPosture
   const maxToughness = options?.maxToughness ?? template.maxToughness
   const color = options?.color ?? template.color
+  const facing = options?.facing ?? 1
   const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY, radius)
 
   // 重置敌人的脱战超时为10秒
@@ -292,6 +294,7 @@ export function createEnemy(
   ai.initialPatrolMode = initialPatrolMode
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
+  ai.lastFacing = facing as -1 | 1
   if (enemyType === 'archer') {
     ai.detectionRange = ENEMY_DETECTION_RANGE * 2
   }
@@ -307,6 +310,10 @@ export function createEnemy(
     ]
   }
   enemy.addComponent(ai)
+
+  if (enemy.input) {
+    enemy.input.lastMoveDirection = facing
+  }
 
   if (enemy.sensor) {
     enemy.sensor.radius = ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
@@ -334,7 +341,6 @@ export function createEnemy(
   }
 
   if (equipWeapon && enemy.weapon && enemy.transform) {
-    const facing = 1
     const followX = enemy.transform.x - facing * (radius + 0.2)
     const followY = enemy.transform.y + radius * -0.2
     const equippedTransform = {
@@ -588,8 +594,8 @@ export function createEnemy(
   }
 
   if (enemyType === 'archer' && enemy.input) {
-    enemy.input.lastMoveDirection = -1
-    enemy.input.facingOverride = -1
+    enemy.input.lastMoveDirection = facing
+    enemy.input.facingOverride = facing
   }
 
   return enemy

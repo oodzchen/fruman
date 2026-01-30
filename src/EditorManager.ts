@@ -470,8 +470,8 @@ export class EditorManager {
       requestRender: () => this.fabricCanvas?.requestRenderAll(),
       getOrCreateEnemyWeaponMarker: (d, w, s) =>
         this.getOrCreateEnemyWeaponMarker(d, w, s),
-      updateEnemyMarkerVisual: (m, r, c) =>
-        this.updateEnemyMarkerVisual(m, r, c),
+      updateEnemyMarkerVisual: (m, r, c, f) =>
+        this.updateEnemyMarkerVisual(m, r, c, f),
       updateWeaponMarkerVisual: (m, s) => this.updateWeaponMarkerVisual(m, s),
     })
 
@@ -1978,6 +1978,7 @@ export class EditorManager {
     const maxPosture = spawn?.maxPosture ?? template.maxPosture
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
     const color = spawn?.color ?? template.color
+    const facing = 1 // Default facing
     const equipWeapon = spawn?.equipWeapon ?? false
     let centerX: number
     let centerY: number
@@ -2004,6 +2005,7 @@ export class EditorManager {
     marker.maxPosture = maxPosture
     marker.maxToughness = maxToughness
     marker.color = color
+    marker.facing = facing
     marker.equipWeapon = equipWeapon
     marker.left = centerX
     marker.top = centerY
@@ -2022,6 +2024,7 @@ export class EditorManager {
       maxPosture,
       maxToughness,
       color,
+      facing,
       equipWeapon,
     }
     this.enemyMarkers.push(enemyData)
@@ -2987,7 +2990,8 @@ export class EditorManager {
   private updateEnemyMarkerVisual(
     marker: EnemyMarker,
     nextRadius: number,
-    nextColor: string
+    nextColor: string,
+    nextFacing: number
   ) {
     const body = marker.item(0)
     const eye = marker.item(1)
@@ -2996,7 +3000,8 @@ export class EditorManager {
       EDITOR_PIXELS_PER_METER
     )
     const eyeRadiusPx = 0.08 * EDITOR_PIXELS_PER_METER
-    const eyeOffsetX = bodyRadiusPx * 0.5
+    // Adjust eye offset based on facing
+    const eyeOffsetX = bodyRadiusPx * 0.5 * nextFacing
     const eyeOffsetY = -bodyRadiusPx * 0.5
 
     marker.scaleX = 1
@@ -3017,6 +3022,7 @@ export class EditorManager {
 
     marker.radius = nextRadius
     marker.color = nextColor
+    marker.facing = nextFacing
     marker.setCoords()
   }
 

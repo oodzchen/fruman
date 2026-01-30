@@ -34,6 +34,7 @@ export type EnemyMarker = fabric.Group & {
   maxPosture: number
   maxToughness: number
   color: string
+  facing: number // 1 for right, -1 for left
   equipWeapon: boolean
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
@@ -84,6 +85,7 @@ export interface EnemyMarkerData {
   maxPosture: number
   maxToughness: number
   color: string
+  facing: number
   equipWeapon: boolean
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker

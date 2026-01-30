@@ -69,6 +69,7 @@ export interface MapEnemy {
   maxPosture?: number
   maxToughness?: number
   color?: string
+  facing?: number
   equipWeapon?: boolean
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon

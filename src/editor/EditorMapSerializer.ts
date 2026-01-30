@@ -30,6 +30,7 @@ interface EnemyMarkerDataLike {
   maxPosture: number
   maxToughness: number
   color: string
+  facing: number
   equipWeapon: boolean
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
@@ -365,6 +366,7 @@ export class EditorMapSerializer {
         maxPosture: data.maxPosture,
         maxToughness: data.maxToughness,
         color: data.color,
+        facing: data.facing,
         equipWeapon: data.equipWeapon,
         mainWeapon,
         secondaryWeapon,

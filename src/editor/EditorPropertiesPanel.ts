@@ -33,7 +33,8 @@ export interface EditorPropertiesPanelContext {
   updateEnemyMarkerVisual: (
     marker: EnemyMarker,
     radiusMeters: number,
-    color: string
+    color: string,
+    facing: number
   ) => void
   updateWeaponMarkerVisual: (marker: WeaponMarker, sizeLevel: number) => void
 }
@@ -125,6 +126,20 @@ export class EditorPropertiesPanel {
     })
     patrolRow.row.appendChild(patrolSelect)
     leftPanel.appendChild(patrolRow.row)
+
+    // Facing
+    const facingRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_facing')
+    )
+    const facingSelect = EditorUIHelper.createSelect({
+      options: [
+        { value: '1', label: localizer.t('editor_enemy_facing_right') },
+        { value: '-1', label: localizer.t('editor_enemy_facing_left') },
+      ],
+      selected: String(data.facing ?? 1),
+    })
+    facingRow.row.appendChild(facingSelect)
+    leftPanel.appendChild(facingRow.row)
 
     // Health
     const healthRow = EditorUIHelper.createFormRow(
@@ -317,6 +332,7 @@ export class EditorPropertiesPanel {
           ? radiusMeters
           : data.radius
       const color = getValidColor()
+      const facing = Number.parseInt(facingSelect.value, 10)
 
       const centerX = previewCanvas.width * 0.5
       const centerY = previewCanvas.height * 0.58
@@ -327,17 +343,20 @@ export class EditorPropertiesPanel {
         centerY,
         radius,
         color,
-        pixelsPerMeter
+        pixelsPerMeter,
+        facing
       )
     }
 
     const updateEnemyVisualFromInputs = () => {
       const radiusMeters = Number.parseFloat(radiusInput.value)
+      const facing = Number.parseInt(facingSelect.value, 10)
       if (Number.isFinite(radiusMeters) && radiusMeters > 0) {
         this.context.updateEnemyMarkerVisual(
           marker,
           radiusMeters,
-          getValidColor()
+          getValidColor(),
+          facing
         )
         this.context.requestRender()
       } else {
@@ -359,6 +378,10 @@ export class EditorPropertiesPanel {
         updateEnemyVisualFromInputs()
       }
     })
+    facingSelect.addEventListener('change', () => {
+      updateEnemyVisualFromInputs()
+      renderEnemyPreview()
+    })
 
     renderEnemyPreview()
 
@@ -369,6 +392,7 @@ export class EditorPropertiesPanel {
       const attackDesire = Number.parseFloat(desireInput.value)
       const parryProficiency = Number.parseFloat(parryInput.value)
       const initialPatrolMode = patrolSelect.value as EnemyPatrolMode
+      const facing = Number.parseInt(facingSelect.value, 10)
       const maxHealth = Number.parseFloat(healthInput.value)
       const maxPosture = Number.parseFloat(postureInput.value)
       const maxToughness = Number.parseFloat(toughnessInput.value)
@@ -403,15 +427,12 @@ export class EditorPropertiesPanel {
       data.maxPosture = maxPosture
       data.maxToughness = maxToughness
       data.color = color
+      data.facing = facing
 
       const mainVal = mainWeaponSelect.value
       if (mainVal === 'none') {
         data.mainWeapon = undefined
         marker.mainWeapon = undefined
-        // If we remove the weapon, we might want to clean up the marker?
-        // But getOrCreate handles replacement. Manual cleanup might be needed if we want to be thorough,
-        // but EditorMapSerializer just ignores it if data.mainWeapon is undefined.
-        // However, keeping stale markers in memory is not ideal.
         if (data.mainWeaponMarker) {
           this.context.weaponMarkerMap.delete(data.mainWeaponMarker)
           data.mainWeaponMarker = undefined
@@ -450,8 +471,14 @@ export class EditorPropertiesPanel {
       marker.maxPosture = maxPosture
       marker.maxToughness = maxToughness
       marker.color = color
+      marker.facing = facing
 
-      this.context.updateEnemyMarkerVisual(marker, data.radius, data.color)
+      this.context.updateEnemyMarkerVisual(
+        marker,
+        data.radius,
+        data.color,
+        data.facing
+      )
       this.context.requestRender()
       close()
     })
