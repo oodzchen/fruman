@@ -79,6 +79,7 @@ export class EditorContextMenu {
           return
         }
         this.ctx.onAction(action)
+        this.hide()
       })
     })
 

@@ -3,7 +3,8 @@ import type { WeaponCategory } from '../editorMapTypes'
 import type { EnemyType, WeaponType } from '../types'
 import { DEBUG_EDITOR_MENU } from './EditorConstants'
 import { EditorMenuNavigator, EditorSubmenuMode } from './EditorMenuNavigator'
-import type { GroundShapeType, ObjectType } from './types'
+import { ObjectType } from './types'
+import type { GroundShapeType } from './types'
 
 export interface EditorMenuSystemContext {
   editorWorkspace: HTMLDivElement
@@ -203,6 +204,7 @@ export class EditorMenuSystem {
         }
         const type = item.dataset.type as ObjectType | undefined
         if (type) {
+          this.setObjectTypeHighlight(type)
           this.ctx.onObjectTypeSelected(type)
         }
       })
@@ -219,6 +221,7 @@ export class EditorMenuSystem {
         const shape = item.dataset.shape as GroundShapeType | undefined
         if (shape) {
           this.ctx.onGroundShapeSelected(shape)
+          this.hideObjectTypeMenu()
         }
       })
     })
@@ -234,6 +237,7 @@ export class EditorMenuSystem {
         const shape = item.dataset.shape as GroundShapeType | undefined
         if (shape) {
           this.ctx.onObstacleShapeSelected(shape)
+          this.hideObjectTypeMenu()
         }
       })
     })
@@ -252,6 +256,7 @@ export class EditorMenuSystem {
         const size = sizeStr ? Number.parseInt(sizeStr, 10) : undefined
         if (weaponType && category) {
           this.ctx.onWeaponSelected(weaponType, category, size)
+          this.hideObjectTypeMenu()
         }
       })
     })
@@ -267,6 +272,7 @@ export class EditorMenuSystem {
         const enemyType = item.dataset.enemy as EnemyType | undefined
         if (enemyType) {
           this.ctx.onEnemySelected(enemyType)
+          this.hideObjectTypeMenu()
         }
       })
     })
@@ -549,6 +555,7 @@ export class EditorMenuSystem {
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideEnemySubmenu()
+    this.setObjectTypeHighlight(null)
     this.objectTypeMenuX = clientX
     this.objectTypeMenuY = clientY
 
@@ -578,6 +585,7 @@ export class EditorMenuSystem {
       return
     }
     this.objectTypeMenu.classList.remove('is-visible')
+    this.setObjectTypeHighlight(null)
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideWeaponMenu()
@@ -593,6 +601,7 @@ export class EditorMenuSystem {
     this.positionGroundSubmenu()
     this.groundSubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Ground, true)
+    this.setObjectTypeHighlight(ObjectType.Ground)
   }
 
   hideGroundSubmenu() {
@@ -610,6 +619,7 @@ export class EditorMenuSystem {
     this.positionObstacleSubmenu()
     this.obstacleSubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Obstacle, true)
+    this.setObjectTypeHighlight(ObjectType.Obstacle)
   }
 
   hideObstacleSubmenu() {
@@ -627,6 +637,7 @@ export class EditorMenuSystem {
     this.positionWeaponMenu()
     this.weaponMenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Weapon, true)
+    this.setObjectTypeHighlight(ObjectType.Weapon)
   }
 
   hideWeaponMenu() {
@@ -644,6 +655,7 @@ export class EditorMenuSystem {
     this.positionEnemySubmenu()
     this.enemySubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Enemy, true)
+    this.setObjectTypeHighlight(ObjectType.Enemy)
   }
 
   hideEnemySubmenu() {
@@ -735,5 +747,16 @@ export class EditorMenuSystem {
       menu.classList.remove('is-visible')
       menu.style.visibility = ''
     }
+  }
+
+  private setObjectTypeHighlight(type: ObjectType | null) {
+    this.editorObjectItems.forEach((item) => {
+      const itemType = item.dataset.type as ObjectType | undefined
+      if (type && itemType === type) {
+        item.classList.add('is-selected')
+      } else {
+        item.classList.remove('is-selected')
+      }
+    })
   }
 }
