@@ -560,22 +560,15 @@ export class ClientRenderer {
       this.ctx.strokeStyle = HUD_ICON_COLOR
 
       if (weaponType === WEAPON_TYPES.BOW) {
-        const halfLen = iconWidth / 2
-        const arcDepth = iconHeight * 4
-        const lineWidth = Math.max(1, iconHeight * 0.55)
-
-        this.ctx.lineWidth = lineWidth
-        this.ctx.beginPath()
-        this.ctx.moveTo(-halfLen, 0)
-        this.ctx.quadraticCurveTo(0, -arcDepth, halfLen, 0)
-        this.ctx.stroke()
-
-        this.ctx.beginPath()
-        this.ctx.lineWidth = Math.max(1, lineWidth * 0.8)
-        this.ctx.moveTo(-halfLen, 0)
-        this.ctx.lineTo(0, 0)
-        this.ctx.lineTo(halfLen, 0)
-        this.ctx.stroke()
+        renderWeaponShape(
+          this.ctx,
+          'bow',
+          iconWidth,
+          iconHeight,
+          HUD_ICON_COLOR,
+          false,
+          0
+        )
 
         this.ctx.save()
         this.ctx.rotate(Math.PI / 6)

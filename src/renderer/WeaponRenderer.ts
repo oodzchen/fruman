@@ -53,12 +53,19 @@ function renderBow(
 ): void {
   const halfLen = width / 2
   const clampedDraw = Math.max(0, Math.min(1, drawRatio))
-  const arcDepth = height * (4 + clampedDraw * 2.5)
-  const bowLineWidth = Math.max(1, height * 0.55)
-  const stringLineWidth = 1.5
+  const drawScale = 1000
+  const drawScaled = Math.round(clampedDraw * drawScale)
+  const arcBase = 2400
+  const arcExtra = 1200
+  const arcScaled = arcBase + Math.round((arcExtra * drawScaled) / drawScale)
+  const arcDepth = Math.max(1, Math.floor((height * arcScaled) / drawScale))
+  const bowLineWidth = Math.max(1, Math.floor((height * 35) / 100))
+  const stringLineWidth = 2
 
   ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
   ctx.lineWidth = bowLineWidth
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
 
   // Bow body arc
   ctx.beginPath()
