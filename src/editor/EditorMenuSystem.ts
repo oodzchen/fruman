@@ -530,7 +530,7 @@ export class EditorMenuSystem {
     this.panelMenu.classList.add('is-visible')
     this.adjustMenuPosition(this.panelMenu, clientX, clientY)
     if (DEBUG_EDITOR_MENU) {
-      console.log('[editor] show panel menu', { clientX, clientY })
+      // console.log('[editor] show panel menu', { clientX, clientY })
     }
   }
 
@@ -540,7 +540,7 @@ export class EditorMenuSystem {
     }
     this.panelMenu.classList.remove('is-visible')
     if (DEBUG_EDITOR_MENU) {
-      console.log('[editor] hide panel menu')
+      // console.log('[editor] hide panel menu')
     }
   }
 

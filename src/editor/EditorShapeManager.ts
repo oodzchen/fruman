@@ -1,14 +1,35 @@
 import { fabric } from 'fabric'
 
+import {
+  GROUND_CIRCLE_OPTIONS,
+  GROUND_EDITABLE_POLYGON_OPTIONS,
+  GROUND_RECT_OPTIONS,
+  GROUND_TRIANGLE_OPTIONS,
+  OBSTACLE_CIRCLE_OPTIONS,
+  OBSTACLE_EDITABLE_POLYGON_OPTIONS,
+  OBSTACLE_RECT_OPTIONS,
+  OBSTACLE_TRIANGLE_OPTIONS,
+  POLYGON_POINT_DATA,
+  TRIANGLE_POINT_DATA,
+  createEditablePolygonPoints,
+  createTrianglePoints,
+} from './EditorConstants'
 import type {
   EditablePolygon,
   EditorPolygonEditor,
 } from './EditorPolygonEditor'
+import type { GroundShapeType, ObjectType } from './types'
 import type { ShapeResetData } from './types'
 
 interface EditorShapeManagerContext {
   polygonEditor: EditorPolygonEditor
   isEditablePolygon: (obj: fabric.Object) => obj is EditablePolygon
+  getCanvas: () => fabric.Canvas | null
+  getViewportCenter: () => { x: number; y: number }
+  applyGroundPatternToObject: (obj: fabric.Object) => void
+  applyObstaclePatternToObject: (obj: fabric.Object) => void
+  registerEditorObject: (type: ObjectType, object: fabric.Object) => void
+  handleCanvasSelection: (object: fabric.Object) => void
 }
 
 export class EditorShapeManager {
@@ -17,6 +38,107 @@ export class EditorShapeManager {
 
   constructor(ctx: EditorShapeManagerContext) {
     this.ctx = ctx
+  }
+
+  createGroundShape(shape: GroundShapeType) {
+    this.createShape(shape, 'ground')
+  }
+
+  createObstacleShape(shape: GroundShapeType) {
+    this.createShape(shape, 'obstacle')
+  }
+
+  private createShape(shape: GroundShapeType, type: 'ground' | 'obstacle') {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      // console.warn('[shape-manager] Fabric canvas not ready')
+      return
+    }
+
+    const center = this.ctx.getViewportCenter()
+    const centerX = center.x
+    const centerY = center.y
+    let shapeObject: fabric.Object | null = null
+
+    const isGround = type === 'ground'
+    const rectOptions = isGround ? GROUND_RECT_OPTIONS : OBSTACLE_RECT_OPTIONS
+    const circleOptions = isGround
+      ? GROUND_CIRCLE_OPTIONS
+      : OBSTACLE_CIRCLE_OPTIONS
+    const triangleOptions = isGround
+      ? GROUND_TRIANGLE_OPTIONS
+      : OBSTACLE_TRIANGLE_OPTIONS
+    const polygonOptions = isGround
+      ? GROUND_EDITABLE_POLYGON_OPTIONS
+      : OBSTACLE_EDITABLE_POLYGON_OPTIONS
+
+    // Hardcoded ObjectType values
+    const ObjectTypeGround = 'ground' as ObjectType
+    const ObjectTypeObstacle = 'obstacle' as ObjectType
+    const objectType = isGround ? ObjectTypeGround : ObjectTypeObstacle
+
+    switch (shape) {
+      case 'rect':
+        shapeObject = new fabric.Rect(rectOptions)
+        this.registerShapeResetData(shapeObject, {
+          kind: 'rect',
+          width: rectOptions.width ?? 0,
+          height: rectOptions.height ?? 0,
+        })
+        break
+      case 'circle':
+        shapeObject = new fabric.Circle(circleOptions)
+        this.registerShapeResetData(shapeObject, {
+          kind: 'circle',
+          radius: circleOptions.radius ?? 0,
+        })
+        break
+      case 'triangle':
+        shapeObject = new fabric.Polygon(
+          createTrianglePoints(),
+          triangleOptions
+        )
+        this.registerShapeResetData(shapeObject, {
+          kind: 'triangle',
+          points: TRIANGLE_POINT_DATA,
+        })
+        break
+      case 'polygon': {
+        const polygon = new fabric.Polygon(
+          createEditablePolygonPoints(),
+          polygonOptions
+        )
+        this.ctx.polygonEditor.setupEditablePolygon(polygon)
+        this.registerShapeResetData(polygon, {
+          kind: 'polygon',
+          points: POLYGON_POINT_DATA,
+        })
+        shapeObject = polygon
+        break
+      }
+      default:
+        break
+    }
+
+    if (!shapeObject) {
+      // console.warn('[shape-manager] shape object not created', shape)
+      return
+    }
+
+    if (isGround) {
+      this.ctx.applyGroundPatternToObject(shapeObject)
+    } else {
+      this.ctx.applyObstaclePatternToObject(shapeObject)
+    }
+
+    shapeObject.left = centerX
+    shapeObject.top = centerY
+    shapeObject.setCoords()
+    canvas.add(shapeObject)
+    this.ctx.registerEditorObject(objectType, shapeObject)
+    canvas.setActiveObject(shapeObject)
+    this.ctx.handleCanvasSelection(shapeObject)
+    canvas.renderAll()
   }
 
   registerShapeResetData(object: fabric.Object, data: ShapeResetData) {

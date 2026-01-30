@@ -9,6 +9,7 @@ import {
   CAMERA_ICON_STROKE,
   EDITOR_PIXELS_PER_METER,
 } from './EditorConstants'
+import { computeCameraCenterFromOffset } from './EditorCoordinateUtils'
 import type { CameraFrame, CameraViewData } from './types'
 import type { ObjectType } from './types'
 
@@ -16,13 +17,6 @@ interface EditorCameraManagerContext {
   fabricCanvas: () => fabric.Canvas | null
   editorCanvas: HTMLCanvasElement
   getViewportCenter: () => { x: number; y: number }
-  mapSerializer: {
-    computeCameraCenterFromOffset: (camera: EditorMapData['camera']) => {
-      zoom: number
-      centerX: number
-      centerY: number
-    }
-  }
   registerEditorObject: (type: ObjectType, object: fabric.Object) => void
   handleCanvasSelection: (object: fabric.Object | null) => void
   ensureFabricCanvas: () => void
@@ -82,8 +76,13 @@ export class EditorCameraManager {
     let centerY = 0
 
     if (camera) {
-      const center =
-        this.context.mapSerializer.computeCameraCenterFromOffset(camera)
+      const invPixelsPerMeter = 1 / EDITOR_PIXELS_PER_METER
+      const center = computeCameraCenterFromOffset(
+        camera,
+        this.context.editorCanvas.width,
+        this.context.editorCanvas.height,
+        invPixelsPerMeter
+      )
       zoom = center.zoom
       centerX = center.centerX * EDITOR_PIXELS_PER_METER
       centerY = center.centerY * EDITOR_PIXELS_PER_METER

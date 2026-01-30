@@ -4,9 +4,20 @@ import type {
   EditorMapData,
   MapEnemyWeapon,
   MapPlacedShape,
-  WeaponCategory,
 } from '../editorMapTypes'
-import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
+import {
+  GROUND_CIRCLE_OPTIONS,
+  GROUND_EDITABLE_POLYGON_OPTIONS,
+  GROUND_RECT_OPTIONS,
+  OBSTACLE_CIRCLE_OPTIONS,
+  OBSTACLE_EDITABLE_POLYGON_OPTIONS,
+  OBSTACLE_RECT_OPTIONS,
+  acquirePoint,
+} from './EditorConstants'
+import { computeCameraOffsetFromCenter } from './EditorCoordinateUtils'
+import type { EditorMarkerManager } from './EditorMarkerManager'
+import type { EditorShapeManager } from './EditorShapeManager'
+import type { ObjectType } from './types'
 
 interface EditorObjectLike {
   type: string
@@ -18,37 +29,6 @@ interface CameraViewLike {
   zoom: number
 }
 
-interface EnemyMarkerDataLike {
-  marker: fabric.Object
-  enemyType: EnemyType
-  radius: number
-  moveSpeed: number
-  attackDesire: number
-  parryProficiency: number
-  initialPatrolMode: EnemyPatrolMode
-  maxHealth: number
-  maxPosture: number
-  maxToughness: number
-  color: string
-  facing: number
-  equipWeapon: boolean
-  mainWeapon?: WeaponType
-  secondaryWeapon?: WeaponType
-  mainWeaponMarker?: fabric.Object
-  secondaryWeaponMarker?: fabric.Object
-}
-
-interface WeaponMarkerDataLike {
-  marker: fabric.Object
-  weaponType: WeaponType
-  category: WeaponCategory
-  sizeLevel: number
-  attackDamage: number
-  postureDamage: number
-  toughnessDamage: number
-  bowAmmo?: number
-}
-
 interface EditorMapSerializerContext {
   getCanvas: () => HTMLCanvasElement
   getInvPixelsPerMeter: () => number
@@ -57,19 +37,15 @@ interface EditorMapSerializerContext {
   ensureFabricCanvas: () => void
   resizeEditorCanvas: () => void
   clearEditorScene: () => void
-  spawnPlayerMarker: (spawn?: EditorMapData['playerSpawn']) => void
+
+  markerManager: EditorMarkerManager
+  shapeManager: EditorShapeManager
+
   spawnCameraViewFrame: (camera?: EditorMapData['camera']) => void
-  applyPlacedShapes: (shapes: EditorMapData['shapes']) => void
-  applyEnemies: (enemies: EditorMapData['enemies']) => void
-  applyWeapons: (weapons: EditorMapData['weapons']) => void
   renderObjectTree: () => void
   requestRenderAll: () => void
-  getPlayerMarker: () => fabric.Object | null
   getCameraViews: () => CameraViewLike[]
   getEditorObjects: () => EditorObjectLike[]
-  getEnemyMarkers: () => EnemyMarkerDataLike[]
-  getWeaponMarkers: () => WeaponMarkerDataLike[]
-  getWeaponMarkerMap: () => Map<fabric.Object, WeaponMarkerDataLike>
   getPolygonScratchPoint: () => fabric.Point
   applyTransform: (
     x: number,
@@ -77,6 +53,12 @@ interface EditorMapSerializerContext {
     matrix: number[],
     out: fabric.Point
   ) => void
+
+  // Dependencies for shape application
+  setupEditablePolygon: (polygon: fabric.Polygon) => void
+  registerEditorObject: (type: ObjectType, object: fabric.Object) => void
+  applyGroundPatternToObject: (obj: fabric.Object) => void
+  applyObstaclePatternToObject: (obj: fabric.Object) => void
 }
 
 export class EditorMapSerializer {
@@ -127,43 +109,6 @@ export class EditorMapSerializer {
     }
   }
 
-  computeCameraOffsetFromCenter(
-    centerX: number,
-    centerY: number,
-    zoom: number
-  ) {
-    const canvas = this.ctx.getCanvas()
-    const invZoom = zoom > 0 ? 1 / zoom : 1
-    const canvasWidthMeters = canvas.width * this.ctx.getInvPixelsPerMeter()
-    const canvasHeightMeters = canvas.height * this.ctx.getInvPixelsPerMeter()
-    const anchorX = canvasWidthMeters * 0.5
-    const anchorY = canvasHeightMeters
-    const viewWidth = canvasWidthMeters * invZoom
-    const viewHeight = canvasHeightMeters * invZoom
-    const desiredLeft = centerX - viewWidth * 0.5
-    const desiredTop = centerY - viewHeight * 0.5
-    const cameraX = desiredLeft - anchorX * (1 - invZoom)
-    const cameraY = desiredTop - anchorY * (1 - invZoom)
-    return { x: cameraX, y: cameraY, zoom }
-  }
-
-  computeCameraCenterFromOffset(camera: EditorMapData['camera']) {
-    const canvas = this.ctx.getCanvas()
-    const zoom = camera.zoom > 0 ? camera.zoom : 1
-    const invZoom = 1 / zoom
-    const canvasWidthMeters = canvas.width * this.ctx.getInvPixelsPerMeter()
-    const canvasHeightMeters = canvas.height * this.ctx.getInvPixelsPerMeter()
-    const anchorX = canvasWidthMeters * 0.5
-    const anchorY = canvasHeightMeters
-    const viewWidth = canvasWidthMeters * invZoom
-    const viewHeight = canvasHeightMeters * invZoom
-    const left = anchorX * (1 - invZoom) + camera.x
-    const top = anchorY * (1 - invZoom) + camera.y
-    const centerX = left + viewWidth * 0.5
-    const centerY = top + viewHeight * 0.5
-    return { centerX, centerY, zoom }
-  }
-
   applyMapData(data: EditorMapData) {
     this.ctx.ensureFabricCanvas()
     const canvas = this.ctx.getFabricCanvas()
@@ -172,17 +117,197 @@ export class EditorMapSerializer {
     }
     this.ctx.resizeEditorCanvas()
     this.ctx.clearEditorScene()
-    this.ctx.spawnPlayerMarker(data.playerSpawn)
+    this.ctx.markerManager.spawnPlayerMarker(data.playerSpawn)
     this.ctx.spawnCameraViewFrame(data.camera)
-    this.ctx.applyPlacedShapes(data.shapes)
-    this.ctx.applyEnemies(data.enemies)
-    this.ctx.applyWeapons(data.weapons)
+    this.applyPlacedShapes(data.shapes)
+    this.applyEnemies(data.enemies)
+    this.applyWeapons(data.weapons)
     this.ctx.renderObjectTree()
     this.ctx.requestRenderAll()
   }
 
+  private applyPlacedShapes(shapes: EditorMapData['shapes']) {
+    for (let i = 0; i < shapes.length; i++) {
+      const placed = shapes[i]
+      if (placed.shape.kind === 'rect') {
+        this.applyRectShape(placed)
+        continue
+      }
+      if (placed.shape.kind === 'circle') {
+        this.applyCircleShape(placed)
+        continue
+      }
+      this.applyPolygonShape(placed)
+    }
+  }
+
+  private applyRectShape(placed: MapPlacedShape) {
+    const shape = placed.shape
+    if (shape.kind !== 'rect') {
+      return
+    }
+    const pixelsPerMeter = this.ctx.getPixelsPerMeter()
+    const rectOptions =
+      placed.objectKind === 'ground'
+        ? GROUND_RECT_OPTIONS
+        : OBSTACLE_RECT_OPTIONS
+    const rect = new fabric.Rect(rectOptions)
+    const width = shape.halfWidth * pixelsPerMeter * 2
+    const height = shape.halfHeight * pixelsPerMeter * 2
+    rect.width = width
+    rect.height = height
+    rect.scaleX = 1
+    rect.scaleY = 1
+    rect.angle = (shape.rotationRad * 180) / Math.PI
+    rect.left = shape.center.x * pixelsPerMeter
+    rect.top = shape.center.y * pixelsPerMeter
+    rect.setCoords()
+    this.ctx.shapeManager.registerShapeResetData(rect, {
+      kind: 'rect',
+      width,
+      height,
+    })
+    if (placed.objectKind === 'ground') {
+      this.ctx.applyGroundPatternToObject(rect)
+    } else {
+      this.ctx.applyObstaclePatternToObject(rect)
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    canvas?.add(rect)
+
+    // Hardcoded ObjectType
+    const ObjectTypeGround = 'ground' as ObjectType
+    const ObjectTypeObstacle = 'obstacle' as ObjectType
+
+    this.ctx.registerEditorObject(
+      placed.objectKind === 'ground' ? ObjectTypeGround : ObjectTypeObstacle,
+      rect
+    )
+  }
+
+  private applyCircleShape(placed: MapPlacedShape) {
+    const shape = placed.shape
+    if (shape.kind !== 'circle') {
+      return
+    }
+    const pixelsPerMeter = this.ctx.getPixelsPerMeter()
+    const circleOptions =
+      placed.objectKind === 'ground'
+        ? GROUND_CIRCLE_OPTIONS
+        : OBSTACLE_CIRCLE_OPTIONS
+    const circle = new fabric.Circle(circleOptions)
+    const radius = shape.radius * pixelsPerMeter
+    circle.radius = radius
+    circle.scaleX = 1
+    circle.scaleY = 1
+    circle.left = shape.center.x * pixelsPerMeter
+    circle.top = shape.center.y * pixelsPerMeter
+    circle.setCoords()
+    this.ctx.shapeManager.registerShapeResetData(circle, {
+      kind: 'circle',
+      radius,
+    })
+    if (placed.objectKind === 'ground') {
+      this.ctx.applyGroundPatternToObject(circle)
+    } else {
+      this.ctx.applyObstaclePatternToObject(circle)
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    canvas?.add(circle)
+
+    // Hardcoded ObjectType
+    const ObjectTypeGround = 'ground' as ObjectType
+    const ObjectTypeObstacle = 'obstacle' as ObjectType
+
+    this.ctx.registerEditorObject(
+      placed.objectKind === 'ground' ? ObjectTypeGround : ObjectTypeObstacle,
+      circle
+    )
+  }
+
+  private applyPolygonShape(placed: MapPlacedShape) {
+    const shape = placed.shape
+    if (shape.kind !== 'polygon') {
+      return
+    }
+    const pixelsPerMeter = this.ctx.getPixelsPerMeter()
+    const centerXPx = shape.center.x * pixelsPerMeter
+    const centerYPx = shape.center.y * pixelsPerMeter
+    const localPoints: fabric.Point[] = []
+    const resetPoints: Array<readonly [number, number]> = []
+    for (let i = 0; i < shape.points.length; i += 2) {
+      const absX = shape.points[i] * pixelsPerMeter
+      const absY = shape.points[i + 1] * pixelsPerMeter
+      const localX = absX - centerXPx
+      const localY = absY - centerYPx
+      localPoints.push(acquirePoint(localX, localY))
+      resetPoints.push([localX, localY])
+    }
+    const options =
+      placed.objectKind === 'ground'
+        ? GROUND_EDITABLE_POLYGON_OPTIONS
+        : OBSTACLE_EDITABLE_POLYGON_OPTIONS
+    const polygon = new fabric.Polygon(localPoints, options)
+    this.ctx.setupEditablePolygon(polygon)
+    const offset = polygon.pathOffset
+    if (polygon.points) {
+      for (let i = 0; i < polygon.points.length; i++) {
+        const point = polygon.points[i]
+        point.x += offset.x
+        point.y += offset.y
+      }
+    }
+    polygon.left = centerXPx
+    polygon.top = centerYPx
+    polygon.scaleX = 1
+    polygon.scaleY = 1
+    polygon.angle = 0
+    polygon.setCoords()
+    this.ctx.shapeManager.registerShapeResetData(polygon, {
+      kind: 'polygon',
+      points: resetPoints,
+    })
+    if (placed.objectKind === 'ground') {
+      this.ctx.applyGroundPatternToObject(polygon)
+    } else {
+      this.ctx.applyObstaclePatternToObject(polygon)
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    canvas?.add(polygon)
+
+    // Hardcoded ObjectType
+    const ObjectTypeGround = 'ground' as ObjectType
+    const ObjectTypeObstacle = 'obstacle' as ObjectType
+
+    this.ctx.registerEditorObject(
+      placed.objectKind === 'ground' ? ObjectTypeGround : ObjectTypeObstacle,
+      polygon
+    )
+  }
+
+  private applyEnemies(enemies: EditorMapData['enemies']) {
+    for (let i = 0; i < enemies.length; i++) {
+      const enemy = enemies[i]
+      this.ctx.markerManager.spawnEnemyMarker(enemy.enemyType, enemy)
+    }
+  }
+
+  private applyWeapons(weapons: EditorMapData['weapons']) {
+    if (!weapons) {
+      return
+    }
+    for (let i = 0; i < weapons.length; i++) {
+      const weapon = weapons[i]
+      this.ctx.markerManager.spawnWeaponMarker(
+        weapon.weaponType,
+        weapon.category,
+        weapon
+      )
+    }
+  }
+
   private serializePlayerSpawn(base: EditorMapData) {
-    const marker = this.ctx.getPlayerMarker()
+    const marker = this.ctx.markerManager.getPlayerMarker()
     if (!marker) {
       return base.playerSpawn
     }
@@ -203,7 +328,15 @@ export class EditorMapSerializer {
     const centerX = (frame.left ?? 0) * invPixelsPerMeter
     const centerY = (frame.top ?? 0) * invPixelsPerMeter
     const zoom = data.zoom > 0 ? data.zoom : 1
-    return this.computeCameraOffsetFromCenter(centerX, centerY, zoom)
+    const canvas = this.ctx.getCanvas()
+    return computeCameraOffsetFromCenter(
+      centerX,
+      centerY,
+      zoom,
+      canvas.width,
+      canvas.height,
+      invPixelsPerMeter
+    )
   }
 
   private serializeShapes(out: MapPlacedShape[]) {
@@ -316,8 +449,8 @@ export class EditorMapSerializer {
 
   private serializeEnemies() {
     const enemies: EditorMapData['enemies'] = []
-    const enemyMarkers = this.ctx.getEnemyMarkers()
-    const weaponMarkerMap = this.ctx.getWeaponMarkerMap()
+    const enemyMarkers = this.ctx.markerManager.getEnemyMarkers()
+    const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     for (let i = 0; i < enemyMarkers.length; i++) {
       const data = enemyMarkers[i]
@@ -377,7 +510,7 @@ export class EditorMapSerializer {
 
   private serializeWeapons() {
     const weapons: EditorMapData['weapons'] = []
-    const weaponMarkers = this.ctx.getWeaponMarkers()
+    const weaponMarkers = this.ctx.markerManager.getWeaponMarkers()
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     for (let i = 0; i < weaponMarkers.length; i++) {
       const data = weaponMarkers[i]
