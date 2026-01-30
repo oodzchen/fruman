@@ -2,17 +2,22 @@ import { fabric } from 'fabric'
 
 import type { EditorObjectData } from './types'
 
-const SNAP_THRESHOLD_PX = 10
+const SNAP_ENTER_THRESHOLD_PX = 10
+const SNAP_EXIT_THRESHOLD_PX = 14
 const SNAP_GUIDE_COLOR = 'rgba(240, 220, 180, 0.75)'
-const SNAP_EVERY_N_FRAMES = 2
+const SNAP_EVERY_N_FRAMES = 1
+const SNAP_ANGLE_THRESHOLD_DEG = 8
+
+const SNAP_ANCHOR_LEFT = 0
+const SNAP_ANCHOR_RIGHT = 1
 
 interface SnapBounds {
-  left: number
-  right: number
-  top: number
-  bottom: number
-  centerX: number
-  centerY: number
+  minAxis: number
+  maxAxis: number
+  minPerp: number
+  maxPerp: number
+  centerAxis: number
+  centerPerp: number
 }
 
 interface EditorSnapManagerContext {
@@ -32,32 +37,121 @@ export class EditorSnapManager {
 
   private snapGuideVertical: fabric.Line | null = null
   private snapGuideHorizontal: fabric.Line | null = null
-  private snapCandidateBounds: SnapBounds[] = []
-  private snapBoundsPool: SnapBounds[] = []
+  private snapCandidateObjects: fabric.Object[] = []
 
   private snapBoundsScratchA: SnapBounds = {
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    centerX: 0,
-    centerY: 0,
+    minAxis: 0,
+    maxAxis: 0,
+    minPerp: 0,
+    maxPerp: 0,
+    centerAxis: 0,
+    centerPerp: 0,
   }
 
   private snapBoundsScratchB: SnapBounds = {
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    centerX: 0,
-    centerY: 0,
+    minAxis: 0,
+    maxAxis: 0,
+    minPerp: 0,
+    maxPerp: 0,
+    centerAxis: 0,
+    centerPerp: 0,
   }
 
   private snapActiveTarget: fabric.Object | null = null
   private snapFrameCounter = 0
+  private snapLockXActive = false
+  private snapLockYActive = false
+  private snapLockXAnchor = SNAP_ANCHOR_LEFT
+  private snapLockYAnchor = SNAP_ANCHOR_LEFT
+  private snapLockXValue = 0
+  private snapLockYValue = 0
+  private snapLockXGuide = false
+  private snapLockYGuide = false
 
   constructor(context: EditorSnapManagerContext) {
     this.context = context
+  }
+
+  private isStraightEdgeShape(object: fabric.Object): boolean {
+    return object.type === 'rect' || object.type === 'polygon'
+  }
+
+  private resetSnapState() {
+    this.hideSnapGuides()
+    this.clearSnapCandidates()
+  }
+
+  private normalizeAngleDeg(angle: number): number {
+    let value = Math.round(angle) % 180
+    if (value < 0) {
+      value += 180
+    }
+    return value
+  }
+
+  private isAngleAligned(a: number, b: number): boolean {
+    const angleA = this.normalizeAngleDeg(a)
+    const angleB = this.normalizeAngleDeg(b)
+    let delta = Math.abs(angleA - angleB)
+    if (delta > 90) {
+      delta = 180 - delta
+    }
+    return delta <= SNAP_ANGLE_THRESHOLD_DEG
+  }
+
+  private updateProjectedBoundsFromObject(
+    object: fabric.Object,
+    axisX: number,
+    axisY: number,
+    out: SnapBounds
+  ): boolean {
+    const coords = object.aCoords
+    if (!coords) {
+      return false
+    }
+    const perpX = -axisY
+    const perpY = axisX
+
+    const tl = coords.tl
+    let axis = tl.x * axisX + tl.y * axisY
+    let perp = tl.x * perpX + tl.y * perpY
+
+    let minAxis = axis
+    let maxAxis = axis
+    let minPerp = perp
+    let maxPerp = perp
+
+    const tr = coords.tr
+    axis = tr.x * axisX + tr.y * axisY
+    perp = tr.x * perpX + tr.y * perpY
+    if (axis < minAxis) minAxis = axis
+    if (axis > maxAxis) maxAxis = axis
+    if (perp < minPerp) minPerp = perp
+    if (perp > maxPerp) maxPerp = perp
+
+    const br = coords.br
+    axis = br.x * axisX + br.y * axisY
+    perp = br.x * perpX + br.y * perpY
+    if (axis < minAxis) minAxis = axis
+    if (axis > maxAxis) maxAxis = axis
+    if (perp < minPerp) minPerp = perp
+    if (perp > maxPerp) maxPerp = perp
+
+    const bl = coords.bl
+    axis = bl.x * axisX + bl.y * axisY
+    perp = bl.x * perpX + bl.y * perpY
+    if (axis < minAxis) minAxis = axis
+    if (axis > maxAxis) maxAxis = axis
+    if (perp < minPerp) minPerp = perp
+    if (perp > maxPerp) maxPerp = perp
+
+    out.minAxis = minAxis
+    out.maxAxis = maxAxis
+    out.minPerp = minPerp
+    out.maxPerp = maxPerp
+    out.centerAxis = (minAxis + maxAxis) * 0.5
+    out.centerPerp = (minPerp + maxPerp) * 0.5
+    return true
   }
 
   ensureSnapGuides(): void {
@@ -103,7 +197,19 @@ export class EditorSnapManager {
 
   handleObjectMoving(target: fabric.Object): void {
     const canvas = this.context.fabricCanvas()
-    if (!canvas || !this.context.editorObjectMap.has(target)) {
+    if (!canvas) {
+      return
+    }
+
+    const targetData = this.context.editorObjectMap.get(target)
+    if (
+      !targetData ||
+      (targetData.type !== 'ground' && targetData.type !== 'obstacle') ||
+      !this.isStraightEdgeShape(target)
+    ) {
+      if (this.snapActiveTarget) {
+        this.resetSnapState()
+      }
       return
     }
 
@@ -137,101 +243,228 @@ export class EditorSnapManager {
 
     target.setCoords()
     const targetBounds = this.snapBoundsScratchA
-    this.updateSnapBoundsFromObject(target, targetBounds)
+    const angleDeg = target.angle ?? 0
+    const angleRad = (angleDeg * Math.PI) / 180
+    const axisX = Math.cos(angleRad)
+    const axisY = Math.sin(angleRad)
+    const perpX = -axisY
+    const perpY = axisX
+    if (
+      !this.updateProjectedBoundsFromObject(target, axisX, axisY, targetBounds)
+    ) {
+      return
+    }
 
     let bestDx = 0
     let bestDy = 0
-    let bestAbsDx = SNAP_THRESHOLD_PX + 1
-    let bestAbsDy = SNAP_THRESHOLD_PX + 1
+    let bestAbsDx = SNAP_ENTER_THRESHOLD_PX + 1
+    let bestAbsDy = SNAP_ENTER_THRESHOLD_PX + 1
     let guideX: number | null = null
     let guideY: number | null = null
+    let bestAnchorX = SNAP_ANCHOR_LEFT
+    let bestAnchorY = SNAP_ANCHOR_LEFT
+    let bestValueX = 0
+    let bestValueY = 0
+    let bestGuideX = false
+    let bestGuideY = false
+    let bestEdgeAbsDx = SNAP_ENTER_THRESHOLD_PX + 1
+    let bestEdgeAbsDy = SNAP_ENTER_THRESHOLD_PX + 1
+    let bestEdgeDx = 0
+    let bestEdgeDy = 0
+    let bestEdgeAnchorX = SNAP_ANCHOR_LEFT
+    let bestEdgeAnchorY = SNAP_ANCHOR_LEFT
+    let bestEdgeValueX = 0
+    let bestEdgeValueY = 0
 
-    const candidates = this.snapCandidateBounds
-
-    for (let i = 0; i < candidates.length; i++) {
-      const otherBounds = candidates[i]
-
-      const dxLL = otherBounds.left - targetBounds.left
-      const dxLR = otherBounds.left - targetBounds.right
-      const dxRL = otherBounds.right - targetBounds.left
-      const dxRR = otherBounds.right - targetBounds.right
-      const dxCC = otherBounds.centerX - targetBounds.centerX
-
-      const dyTT = otherBounds.top - targetBounds.top
-      const dyTB = otherBounds.top - targetBounds.bottom
-      const dyBT = otherBounds.bottom - targetBounds.top
-      const dyBB = otherBounds.bottom - targetBounds.bottom
-      const dyCC = otherBounds.centerY - targetBounds.centerY
-
-      const absDxLL = Math.abs(dxLL)
-      if (absDxLL < bestAbsDx && absDxLL <= SNAP_THRESHOLD_PX) {
-        bestAbsDx = absDxLL
-        bestDx = dxLL
-        guideX = null
-      }
-      const absDxLR = Math.abs(dxLR)
-      if (absDxLR < bestAbsDx && absDxLR <= SNAP_THRESHOLD_PX) {
-        bestAbsDx = absDxLR
-        bestDx = dxLR
-        guideX = null
-      }
-      const absDxRL = Math.abs(dxRL)
-      if (absDxRL < bestAbsDx && absDxRL <= SNAP_THRESHOLD_PX) {
-        bestAbsDx = absDxRL
-        bestDx = dxRL
-        guideX = null
-      }
-      const absDxRR = Math.abs(dxRR)
-      if (absDxRR < bestAbsDx && absDxRR <= SNAP_THRESHOLD_PX) {
-        bestAbsDx = absDxRR
-        bestDx = dxRR
-        guideX = null
-      }
-      const absDxCC = Math.abs(dxCC)
-      if (absDxCC < bestAbsDx && absDxCC <= SNAP_THRESHOLD_PX) {
-        bestAbsDx = absDxCC
-        bestDx = dxCC
-        guideX = otherBounds.centerX
-      }
-
-      const absDyTT = Math.abs(dyTT)
-      if (absDyTT < bestAbsDy && absDyTT <= SNAP_THRESHOLD_PX) {
-        bestAbsDy = absDyTT
-        bestDy = dyTT
-        guideY = null
-      }
-      const absDyTB = Math.abs(dyTB)
-      if (absDyTB < bestAbsDy && absDyTB <= SNAP_THRESHOLD_PX) {
-        bestAbsDy = absDyTB
-        bestDy = dyTB
-        guideY = null
-      }
-      const absDyBT = Math.abs(dyBT)
-      if (absDyBT < bestAbsDy && absDyBT <= SNAP_THRESHOLD_PX) {
-        bestAbsDy = absDyBT
-        bestDy = dyBT
-        guideY = null
-      }
-      const absDyBB = Math.abs(dyBB)
-      if (absDyBB < bestAbsDy && absDyBB <= SNAP_THRESHOLD_PX) {
-        bestAbsDy = absDyBB
-        bestDy = dyBB
-        guideY = null
-      }
-      const absDyCC = Math.abs(dyCC)
-      if (absDyCC < bestAbsDy && absDyCC <= SNAP_THRESHOLD_PX) {
-        bestAbsDy = absDyCC
-        bestDy = dyCC
-        guideY = otherBounds.centerY
+    if (this.snapLockXActive) {
+      const anchorX =
+        this.snapLockXAnchor === SNAP_ANCHOR_LEFT
+          ? targetBounds.minAxis
+          : this.snapLockXAnchor === SNAP_ANCHOR_RIGHT
+            ? targetBounds.maxAxis
+            : targetBounds.centerAxis
+      const dx = this.snapLockXValue - anchorX
+      const absDx = Math.abs(dx)
+      if (absDx <= SNAP_EXIT_THRESHOLD_PX) {
+        bestDx = dx
+        bestAbsDx = absDx
+        guideX = this.snapLockXGuide ? this.snapLockXValue : null
+      } else {
+        this.snapLockXActive = false
       }
     }
 
-    if (bestAbsDx <= SNAP_THRESHOLD_PX || bestAbsDy <= SNAP_THRESHOLD_PX) {
+    if (this.snapLockYActive) {
+      const anchorY =
+        this.snapLockYAnchor === SNAP_ANCHOR_LEFT
+          ? targetBounds.minPerp
+          : this.snapLockYAnchor === SNAP_ANCHOR_RIGHT
+            ? targetBounds.maxPerp
+            : targetBounds.centerPerp
+      const dy = this.snapLockYValue - anchorY
+      const absDy = Math.abs(dy)
+      if (absDy <= SNAP_EXIT_THRESHOLD_PX) {
+        bestDy = dy
+        bestAbsDy = absDy
+        guideY = this.snapLockYGuide ? this.snapLockYValue : null
+      } else {
+        this.snapLockYActive = false
+      }
+    }
+
+    const candidates = this.snapCandidateObjects
+
+    if (!this.snapLockXActive || !this.snapLockYActive) {
+      for (let i = 0; i < candidates.length; i++) {
+        const other = candidates[i]
+        if (
+          !this.updateProjectedBoundsFromObject(
+            other,
+            axisX,
+            axisY,
+            this.snapBoundsScratchB
+          )
+        ) {
+          continue
+        }
+        const otherBounds = this.snapBoundsScratchB
+        const axisOverlap =
+          otherBounds.maxAxis + SNAP_ENTER_THRESHOLD_PX >=
+            targetBounds.minAxis &&
+          otherBounds.minAxis - SNAP_ENTER_THRESHOLD_PX <= targetBounds.maxAxis
+        const perpOverlap =
+          otherBounds.maxPerp + SNAP_ENTER_THRESHOLD_PX >=
+            targetBounds.minPerp &&
+          otherBounds.minPerp - SNAP_ENTER_THRESHOLD_PX <= targetBounds.maxPerp
+
+        if ((!this.snapLockXActive || this.snapLockXGuide) && perpOverlap) {
+          const dxLL = otherBounds.minAxis - targetBounds.minAxis
+          const absDxLL = Math.abs(dxLL)
+          if (absDxLL < bestEdgeAbsDx && absDxLL <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDx = absDxLL
+            bestEdgeDx = dxLL
+            bestEdgeAnchorX = SNAP_ANCHOR_LEFT
+            bestEdgeValueX = otherBounds.minAxis
+          }
+          const dxLR = otherBounds.minAxis - targetBounds.maxAxis
+          const absDxLR = Math.abs(dxLR)
+          if (absDxLR < bestEdgeAbsDx && absDxLR <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDx = absDxLR
+            bestEdgeDx = dxLR
+            bestEdgeAnchorX = SNAP_ANCHOR_RIGHT
+            bestEdgeValueX = otherBounds.minAxis
+          }
+          const dxRL = otherBounds.maxAxis - targetBounds.minAxis
+          const absDxRL = Math.abs(dxRL)
+          if (absDxRL < bestEdgeAbsDx && absDxRL <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDx = absDxRL
+            bestEdgeDx = dxRL
+            bestEdgeAnchorX = SNAP_ANCHOR_LEFT
+            bestEdgeValueX = otherBounds.maxAxis
+          }
+          const dxRR = otherBounds.maxAxis - targetBounds.maxAxis
+          const absDxRR = Math.abs(dxRR)
+          if (absDxRR < bestEdgeAbsDx && absDxRR <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDx = absDxRR
+            bestEdgeDx = dxRR
+            bestEdgeAnchorX = SNAP_ANCHOR_RIGHT
+            bestEdgeValueX = otherBounds.maxAxis
+          }
+          // center snap disabled
+        }
+
+        if ((!this.snapLockYActive || this.snapLockYGuide) && axisOverlap) {
+          const dyTT = otherBounds.minPerp - targetBounds.minPerp
+          const absDyTT = Math.abs(dyTT)
+          if (absDyTT < bestEdgeAbsDy && absDyTT <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDy = absDyTT
+            bestEdgeDy = dyTT
+            bestEdgeAnchorY = SNAP_ANCHOR_LEFT
+            bestEdgeValueY = otherBounds.minPerp
+          }
+          const dyTB = otherBounds.minPerp - targetBounds.maxPerp
+          const absDyTB = Math.abs(dyTB)
+          if (absDyTB < bestEdgeAbsDy && absDyTB <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDy = absDyTB
+            bestEdgeDy = dyTB
+            bestEdgeAnchorY = SNAP_ANCHOR_RIGHT
+            bestEdgeValueY = otherBounds.minPerp
+          }
+          const dyBT = otherBounds.maxPerp - targetBounds.minPerp
+          const absDyBT = Math.abs(dyBT)
+          if (absDyBT < bestEdgeAbsDy && absDyBT <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDy = absDyBT
+            bestEdgeDy = dyBT
+            bestEdgeAnchorY = SNAP_ANCHOR_LEFT
+            bestEdgeValueY = otherBounds.maxPerp
+          }
+          const dyBB = otherBounds.maxPerp - targetBounds.maxPerp
+          const absDyBB = Math.abs(dyBB)
+          if (absDyBB < bestEdgeAbsDy && absDyBB <= SNAP_ENTER_THRESHOLD_PX) {
+            bestEdgeAbsDy = absDyBB
+            bestEdgeDy = dyBB
+            bestEdgeAnchorY = SNAP_ANCHOR_RIGHT
+            bestEdgeValueY = otherBounds.maxPerp
+          }
+          // center snap disabled
+        }
+      }
+    }
+
+    if (!this.snapLockXActive) {
+      if (bestEdgeAbsDx <= SNAP_ENTER_THRESHOLD_PX) {
+        bestAbsDx = bestEdgeAbsDx
+        bestDx = bestEdgeDx
+        guideX = null
+        bestAnchorX = bestEdgeAnchorX
+        bestValueX = bestEdgeValueX
+        bestGuideX = false
+      }
+    }
+
+    if (!this.snapLockYActive) {
+      if (bestEdgeAbsDy <= SNAP_ENTER_THRESHOLD_PX) {
+        bestAbsDy = bestEdgeAbsDy
+        bestDy = bestEdgeDy
+        guideY = null
+        bestAnchorY = bestEdgeAnchorY
+        bestValueY = bestEdgeValueY
+        bestGuideY = false
+      }
+    }
+
+    if (
+      bestAbsDx <= SNAP_ENTER_THRESHOLD_PX ||
+      bestAbsDy <= SNAP_ENTER_THRESHOLD_PX ||
+      this.snapLockXActive ||
+      this.snapLockYActive
+    ) {
+      const moveX = axisX * bestDx + perpX * bestDy
+      const moveY = axisY * bestDx + perpY * bestDy
       target.set({
-        left: (target.left ?? 0) + bestDx,
-        top: (target.top ?? 0) + bestDy,
+        left: (target.left ?? 0) + moveX,
+        top: (target.top ?? 0) + moveY,
       })
       target.setCoords()
+    }
+
+    if (!this.snapLockXActive && bestAbsDx <= SNAP_ENTER_THRESHOLD_PX) {
+      this.snapLockXActive = true
+      this.snapLockXAnchor = bestAnchorX
+      this.snapLockXValue = bestValueX
+      this.snapLockXGuide = bestGuideX
+    }
+    if (!this.snapLockYActive && bestAbsDy <= SNAP_ENTER_THRESHOLD_PX) {
+      this.snapLockYActive = true
+      this.snapLockYAnchor = bestAnchorY
+      this.snapLockYValue = bestValueY
+      this.snapLockYGuide = bestGuideY
+    }
+
+    const angleNorm = this.normalizeAngleDeg(angleDeg)
+    if (angleNorm !== 0 && angleNorm !== 90) {
+      guideX = null
+      guideY = null
     }
 
     if (guideX !== null) {
@@ -273,28 +506,37 @@ export class EditorSnapManager {
 
     this.clearSnapCandidates()
     this.snapActiveTarget = target
+    const targetAngle = target.angle ?? 0
 
     const editorObjects = this.context.editorObjects()
     for (let i = 0; i < editorObjects.length; i++) {
-      const other = editorObjects[i].object
+      const data = editorObjects[i]
+      if (
+        (data.type !== 'ground' && data.type !== 'obstacle') ||
+        !this.isStraightEdgeShape(data.object)
+      ) {
+        continue
+      }
+      const other = data.object
       if (other === target || other.canvas !== canvas) {
         continue
       }
-
+      if (!this.isAngleAligned(targetAngle, other.angle ?? 0)) {
+        continue
+      }
       other.setCoords()
-      const bounds = this.acquireSnapBounds()
-      this.updateSnapBoundsFromObject(other, bounds)
-      this.snapCandidateBounds.push(bounds)
+      this.snapCandidateObjects.push(other)
     }
   }
 
   clearSnapCandidates(): void {
-    for (let i = 0; i < this.snapCandidateBounds.length; i++) {
-      this.releaseSnapBounds(this.snapCandidateBounds[i])
-    }
-    this.snapCandidateBounds.length = 0
+    this.snapCandidateObjects.length = 0
     this.snapActiveTarget = null
     this.snapFrameCounter = 0
+    this.snapLockXActive = false
+    this.snapLockYActive = false
+    this.snapLockXGuide = false
+    this.snapLockYGuide = false
   }
 
   resizeSnapGuides(): void {
@@ -362,60 +604,5 @@ export class EditorSnapManager {
     this.snapGuideHorizontal.bringToFront()
   }
 
-  private updateSnapBoundsFromObject(
-    object: fabric.Object,
-    out: SnapBounds
-  ): void {
-    const coords = object.aCoords
-    if (!coords) {
-      return
-    }
-
-    let minX = coords.tl.x
-    let maxX = coords.tl.x
-    let minY = coords.tl.y
-    let maxY = coords.tl.y
-
-    const tr = coords.tr
-    const br = coords.br
-    const bl = coords.bl
-
-    if (tr.x < minX) minX = tr.x
-    if (tr.x > maxX) maxX = tr.x
-    if (br.x < minX) minX = br.x
-    if (br.x > maxX) maxX = br.x
-    if (bl.x < minX) minX = bl.x
-    if (bl.x > maxX) maxX = bl.x
-
-    if (tr.y < minY) minY = tr.y
-    if (tr.y > maxY) maxY = tr.y
-    if (br.y < minY) minY = br.y
-    if (br.y > maxY) maxY = br.y
-    if (bl.y < minY) minY = bl.y
-    if (bl.y > maxY) maxY = bl.y
-
-    out.left = minX
-    out.right = maxX
-    out.top = minY
-    out.bottom = maxY
-    out.centerX = (minX + maxX) * 0.5
-    out.centerY = (minY + maxY) * 0.5
-  }
-
-  private acquireSnapBounds(): SnapBounds {
-    return (
-      this.snapBoundsPool.pop() ?? {
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0,
-        centerX: 0,
-        centerY: 0,
-      }
-    )
-  }
-
-  private releaseSnapBounds(bounds: SnapBounds): void {
-    this.snapBoundsPool.push(bounds)
-  }
+  // Bounds are computed per-frame in handleObjectMoving to avoid extra allocations.
 }
