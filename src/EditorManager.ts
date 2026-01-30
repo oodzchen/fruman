@@ -43,12 +43,11 @@ import {
   createTrianglePoints,
   releasePoint,
 } from './editor/EditorConstants'
+import type { ContextMenuAction } from './editor/EditorContextMenu'
+import { EditorContextMenu } from './editor/EditorContextMenu'
 import { EditorMapListManager } from './editor/EditorMapListManager'
 import { EditorMapSerializer } from './editor/EditorMapSerializer'
-import {
-  EditorMenuNavigator,
-  EditorSubmenuMode,
-} from './editor/EditorMenuNavigator'
+import { EditorMenuSystem } from './editor/EditorMenuSystem'
 import { EditorObjectFactory } from './editor/EditorObjectFactory'
 import { EditorObjectTreeManager } from './editor/EditorObjectTreeManager'
 import { EditorPatternManager } from './editor/EditorPatternManager'
@@ -63,9 +62,10 @@ import {
   renderEnemyPreviewToContext,
 } from './editor/EditorRenderUtils'
 import { EditorShapeManager } from './editor/EditorShapeManager'
+import { EditorSidebarManager } from './editor/EditorSidebarManager'
 import { EditorSnapManager } from './editor/EditorSnapManager'
 import { EditorThumbnailCapture } from './editor/EditorThumbnailCapture'
-import { EditorUIHelper } from './editor/EditorUIHelper'
+import { EditorToolbarManager } from './editor/EditorToolbarManager'
 import {
   type CameraFrame,
   type CameraViewData,
@@ -110,55 +110,18 @@ export enum EditorView {
 
 export class EditorManager {
   private editorOverlay: HTMLDivElement
-  private editorBackBtn: HTMLButtonElement
-  private editorSidebar: HTMLDivElement
-  private editorPanelCollapseBtn: HTMLButtonElement
-  private editorPanelCollapsedBtn: HTMLButtonElement
-  private editorObjectPanel: HTMLDivElement
-  private editorObjectTree: HTMLDivElement
   private editorWorkspace: HTMLDivElement
   private editorCanvas: HTMLCanvasElement
   private gameCanvas: HTMLCanvasElement
-  private editorMapListView: HTMLDivElement
-  private editorMapList: HTMLDivElement
-  private editorMapListMenu: HTMLDivElement
-  private editorMapCreateBtn: HTMLButtonElement
-  private editorMapRenameBtn: HTMLButtonElement
-  private editorMapDeleteBtn: HTMLButtonElement
-  private editorMapDefaultBtn: HTMLButtonElement
-  private editorActions: HTMLDivElement
-  private editorPreviewBtn: HTMLButtonElement
-  private editorSaveBtn: HTMLButtonElement
-  private editorObjectItems: NodeListOf<HTMLButtonElement>
-  private objectTypeMenu: HTMLDivElement
-  private panelMenu: HTMLDivElement
-  private panelMenuAddBtn: HTMLButtonElement
-  private groundMenuItem: HTMLButtonElement
-  private groundSubmenu: HTMLDivElement
-  private groundSubmenuItems: NodeListOf<HTMLButtonElement>
-  private groundSubmenuBackBtn: HTMLButtonElement
-  private obstacleMenuItem: HTMLButtonElement
-  private obstacleSubmenu: HTMLDivElement
-  private obstacleSubmenuItems: NodeListOf<HTMLButtonElement>
-  private obstacleSubmenuBackBtn: HTMLButtonElement
-  private weaponMenuItem: HTMLButtonElement
-  private weaponMenu: HTMLDivElement
-  private weaponGroupTitles: NodeListOf<HTMLDivElement>
-  private weaponItems: NodeListOf<HTMLButtonElement>
-  private weaponMenuBackBtn: HTMLButtonElement
-  private enemyMenuItem: HTMLButtonElement
-  private enemySubmenu: HTMLDivElement
-  private enemySubmenuItems: NodeListOf<HTMLButtonElement>
-  private enemySubmenuBackBtn: HTMLButtonElement
-  private objectTypeMenuBackBtn: HTMLButtonElement
-  private polygonMenu: HTMLDivElement
-  private polygonMenuButtons: HTMLButtonElement[] = []
+  private toolbarManager: EditorToolbarManager
+  private sidebarManager: EditorSidebarManager
   private dialogManager: DialogManager
   private mapSerializer: EditorMapSerializer
   private propertiesPanel: EditorPropertiesPanel
   private mapListManager: EditorMapListManager
   private objectTreeManager: EditorObjectTreeManager
-  private menuNavigator: EditorMenuNavigator
+  private menuSystem!: EditorMenuSystem
+  private contextMenu!: EditorContextMenu
   private shapeManager: EditorShapeManager
   private thumbnailCapture: EditorThumbnailCapture
   private canvasEventHandler: EditorCanvasEventHandler
@@ -182,22 +145,6 @@ export class EditorManager {
   private lastClientY = 0
   private polygonEditor: EditorPolygonEditor
   private objectFactory: EditorObjectFactory
-  private polygonMenuActions: (
-    | 'add'
-    | 'remove'
-    | 'delete'
-    | 'reset'
-    | 'square'
-    | 'equilateral'
-    | 'zoom'
-    | 'rename'
-    | 'properties'
-  )[] = []
-  private polygonMenuPolygon: EditablePolygon | null = null
-  private polygonMenuTarget: fabric.Object | null = null
-  private polygonMenuPointIndex = -1
-  private polygonMenuInsertX = 0
-  private polygonMenuInsertY = 0
   private playerMarker: PlayerMarker | null = null
   private enemyMarkers: EnemyMarkerData[] = []
   private weaponMarkers: WeaponMarkerData[] = []
@@ -209,13 +156,6 @@ export class EditorManager {
   private nextEditorObjectId = 1
   private selectedEditorObjectId = -1
   private renamingEditorObjectId = -1
-  private panelMenuX = 0
-  private panelMenuY = 0
-  private objectTypeMenuX = 0
-  private objectTypeMenuY = 0
-  private editorMenuMode: EditorSubmenuMode = EditorSubmenuMode.None
-  private editorMenuSelectedIndex = 0
-  private boundHandleEditorMenuMouseEnter: (event: Event) => void
   private focusedEditorObject: fabric.Object | null = null
   private dragObjectId = -1
   private readonly invPixelsPerMeter = 1 / EDITOR_PIXELS_PER_METER
@@ -225,188 +165,39 @@ export class EditorManager {
 
   constructor() {
     const overlay = document.getElementById('editorOverlay')
-    const backBtn = document.getElementById('editorBackBtn')
-    const sidebar = document.getElementById('editorSidebar')
-    const panelCollapseBtn = document.getElementById('editorPanelCollapse')
-    const panelCollapsedBtn = document.getElementById('editorPanelCollapsed')
-    const objectPanel = document.getElementById('editorObjectPanel')
-    const objectTree = document.getElementById('editorObjectTree')
     const workspace = document.getElementById('editorWorkspace')
     const editorCanvas = document.getElementById('editorCanvas')
     const gameCanvas = document.getElementById('gameCanvas')
-    const mapListView = document.getElementById('editorMapListView')
-    const mapList = document.getElementById('editorMapList')
-    const actions = document.getElementById('editorActions')
-    const mapListMenu = document.getElementById('editorMapListMenu')
-    const mapCreateBtn = document.getElementById('editorMapCreateBtn')
-    const mapDeleteBtn = document.getElementById('editorMapDeleteBtn')
-    const mapRenameBtn = document.getElementById('editorMapRenameBtn')
-    const mapDefaultBtn = document.getElementById('editorMapDefaultBtn')
-    const previewBtn = document.getElementById('editorPreviewBtn')
-    const saveBtn = document.getElementById('editorSaveBtn')
-    const objectItems = document.querySelectorAll<HTMLButtonElement>(
-      '.editor-object-item'
-    )
-    const groundMenu = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="ground"]'
-    )
-    const obstacleMenu = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="obstacle"]'
-    )
-    const groundSubmenu = document.getElementById('editorGroundSubmenu')
-    const groundSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorGroundSubmenu .editor-submenu-item'
-    )
-    const groundSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorGroundSubmenu .editor-submenu-item[data-action="back"]'
-    )
-    const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
-    const obstacleSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorObstacleSubmenu .editor-submenu-item'
-    )
-    const obstacleSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorObstacleSubmenu .editor-submenu-item[data-action="back"]'
-    )
-    const weaponMenu = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="weapon"]'
-    )
-    const weaponSubmenu = document.getElementById('editorWeaponMenu')
-    const weaponGroupTitles = document.querySelectorAll<HTMLDivElement>(
-      '#editorWeaponMenu .editor-submenu-group-title'
-    )
-    const weaponItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorWeaponMenu .editor-submenu-item'
-    )
-    const weaponMenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorWeaponMenu .editor-submenu-item[data-action="back"]'
-    )
-    const enemyMenu = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="enemy"]'
-    )
-    const enemySubmenu = document.getElementById('editorEnemySubmenu')
-    const enemySubmenuItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorEnemySubmenu .editor-submenu-item'
-    )
-    const enemySubmenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorEnemySubmenu .editor-submenu-item[data-action="back"]'
-    )
-    const objectTypeMenu = document.getElementById('editorObjectTypeMenu')
-    const objectTypeMenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorObjectTypeMenu .editor-object-item[data-action="back"]'
-    )
-
-    const polygonMenu = document.getElementById('editorPolygonMenu')
-    const panelMenu = document.getElementById('editorPanelMenu')
-    const panelMenuAdd = document.getElementById('editorPanelMenuAdd')
-    const polygonMenuPrimary = document.getElementById(
-      'editorPolygonMenuPrimary'
-    )
-    const polygonMenuSecondary = document.getElementById(
-      'editorPolygonMenuSecondary'
-    )
-    const polygonMenuTertiary = document.getElementById(
-      'editorPolygonMenuTertiary'
-    )
-    const polygonMenuQuaternary = document.getElementById(
-      'editorPolygonMenuQuaternary'
-    )
 
     if (
       !(overlay instanceof HTMLDivElement) ||
-      !(backBtn instanceof HTMLButtonElement) ||
-      !(sidebar instanceof HTMLDivElement) ||
-      !(panelCollapseBtn instanceof HTMLButtonElement) ||
-      !(panelCollapsedBtn instanceof HTMLButtonElement) ||
-      !(objectPanel instanceof HTMLDivElement) ||
-      !(objectTree instanceof HTMLDivElement) ||
       !(workspace instanceof HTMLDivElement) ||
       !(editorCanvas instanceof HTMLCanvasElement) ||
-      !(gameCanvas instanceof HTMLCanvasElement) ||
-      !(mapListView instanceof HTMLDivElement) ||
-      !(mapList instanceof HTMLDivElement) ||
-      !(actions instanceof HTMLDivElement) ||
-      !(mapListMenu instanceof HTMLDivElement) ||
-      !(mapCreateBtn instanceof HTMLButtonElement) ||
-      !(mapDeleteBtn instanceof HTMLButtonElement) ||
-      !(mapRenameBtn instanceof HTMLButtonElement) ||
-      !(mapDefaultBtn instanceof HTMLButtonElement) ||
-      !(previewBtn instanceof HTMLButtonElement) ||
-      !(saveBtn instanceof HTMLButtonElement) ||
-      !(groundMenu instanceof HTMLButtonElement) ||
-      !(groundSubmenu instanceof HTMLDivElement) ||
-      !(groundSubmenuBackBtn instanceof HTMLButtonElement) ||
-      !(obstacleMenu instanceof HTMLButtonElement) ||
-      !(obstacleSubmenu instanceof HTMLDivElement) ||
-      !(obstacleSubmenuBackBtn instanceof HTMLButtonElement) ||
-      !(weaponMenu instanceof HTMLButtonElement) ||
-      !(weaponSubmenu instanceof HTMLDivElement) ||
-      !(weaponMenuBackBtn instanceof HTMLButtonElement) ||
-      !(enemyMenu instanceof HTMLButtonElement) ||
-      !(enemySubmenu instanceof HTMLDivElement) ||
-      !(enemySubmenuBackBtn instanceof HTMLButtonElement) ||
-      !(polygonMenu instanceof HTMLDivElement) ||
-      !(panelMenu instanceof HTMLDivElement) ||
-      !(panelMenuAdd instanceof HTMLButtonElement) ||
-      !(objectTypeMenu instanceof HTMLDivElement) ||
-      !(objectTypeMenuBackBtn instanceof HTMLButtonElement) ||
-      !(polygonMenuPrimary instanceof HTMLButtonElement) ||
-      !(polygonMenuSecondary instanceof HTMLButtonElement) ||
-      !(polygonMenuTertiary instanceof HTMLButtonElement) ||
-      !(polygonMenuQuaternary instanceof HTMLButtonElement)
+      !(gameCanvas instanceof HTMLCanvasElement)
     ) {
       throw new Error('Editor elements are missing.')
     }
 
     this.editorOverlay = overlay
-    this.editorBackBtn = backBtn
-    this.editorSidebar = sidebar
-    this.editorPanelCollapseBtn = panelCollapseBtn
-    this.editorPanelCollapsedBtn = panelCollapsedBtn
-    this.editorObjectPanel = objectPanel
-    this.editorObjectTree = objectTree
     this.editorWorkspace = workspace
     this.editorCanvas = editorCanvas
     this.gameCanvas = gameCanvas
-    this.editorMapListView = mapListView
-    this.editorMapList = mapList
-    this.editorActions = actions
-    this.editorMapListMenu = mapListMenu
-    this.editorMapCreateBtn = mapCreateBtn
-    this.editorMapDeleteBtn = mapDeleteBtn
-    this.editorMapRenameBtn = mapRenameBtn
-    this.editorMapDefaultBtn = mapDefaultBtn
-    this.editorPreviewBtn = previewBtn
-    this.editorSaveBtn = saveBtn
-    this.editorObjectItems = objectItems
-    this.objectTypeMenu = objectTypeMenu
-    this.panelMenu = panelMenu
-    this.panelMenuAddBtn = panelMenuAdd
-    this.groundMenuItem = groundMenu
-    this.groundSubmenu = groundSubmenu
-    this.groundSubmenuItems = groundSubmenuItems
-    this.groundSubmenuBackBtn = groundSubmenuBackBtn
-    this.obstacleMenuItem = obstacleMenu
-    this.obstacleSubmenu = obstacleSubmenu
-    this.obstacleSubmenuItems = obstacleSubmenuItems
-    this.obstacleSubmenuBackBtn = obstacleSubmenuBackBtn
-    this.weaponMenuItem = weaponMenu
-    this.weaponMenu = weaponSubmenu
-    this.weaponGroupTitles = weaponGroupTitles
-    this.weaponItems = weaponItems
-    this.weaponMenuBackBtn = weaponMenuBackBtn
-    this.enemyMenuItem = enemyMenu
-    this.enemySubmenu = enemySubmenu
-    this.enemySubmenuItems = enemySubmenuItems
-    this.enemySubmenuBackBtn = enemySubmenuBackBtn
-    this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
 
-    this.polygonMenu = polygonMenu
-    this.polygonMenuButtons = [
-      polygonMenuPrimary,
-      polygonMenuSecondary,
-      polygonMenuTertiary,
-      polygonMenuQuaternary,
-    ]
+    this.toolbarManager = new EditorToolbarManager({
+      onBack: () => this.handleBack(),
+      onPreview: () => this.handlePreview(),
+      onSave: () => this.handleSave(),
+    })
+
+    this.sidebarManager = new EditorSidebarManager({
+      getCurrentView: () => this.currentView,
+      onCollapseChange: (collapsed) => {
+        this.panelCollapsed = collapsed
+        if (collapsed) {
+          this.menuSystem.hideAll()
+        }
+      },
+    })
 
     this.dialogManager = new DialogManager(this.editorOverlay)
     this.polygonEditor = new EditorPolygonEditor({
@@ -476,16 +267,9 @@ export class EditorManager {
     })
 
     this.mapListManager = new EditorMapListManager({
-      editorMapListView: this.editorMapListView,
-      editorMapList: this.editorMapList,
-      editorMapListMenu: this.editorMapListMenu,
-      editorBackBtn: this.editorBackBtn,
-      editorMapCreateBtn: this.editorMapCreateBtn,
-      editorMapRenameBtn: this.editorMapRenameBtn,
-      editorMapDeleteBtn: this.editorMapDeleteBtn,
-      editorMapDefaultBtn: this.editorMapDefaultBtn,
       dialogManager: this.dialogManager,
       mapSerializer: this.mapSerializer,
+      getBackBtn: () => this.toolbarManager.getBackBtn(),
       onMapLoaded: (meta, data) => {
         this.currentMapMeta = meta
         // Data application is handled in EditorMapListManager.loadMap but we might need to sync something here if needed.
@@ -506,11 +290,7 @@ export class EditorManager {
       },
     })
 
-    this.boundHandleEditorMenuMouseEnter =
-      this.handleEditorMenuItemMouseEnter.bind(this)
-
     this.objectTreeManager = new EditorObjectTreeManager({
-      editorObjectTree: this.editorObjectTree,
       editorObjects: this.editorObjects,
       renamingEditorObjectId: this.renamingEditorObjectId,
       selectedEditorObjectId: this.selectedEditorObjectId,
@@ -528,6 +308,7 @@ export class EditorManager {
       onDragEnd: () => {
         this.resetDragState()
       },
+      onObjectSelected: (id) => this.focusEditorObjectById(id),
     })
 
     this.patternManager = new EditorPatternManager({
@@ -562,16 +343,26 @@ export class EditorManager {
       cameraViewMap: this.cameraManager.getCameraViewMap(),
     })
 
-    this.menuNavigator = new EditorMenuNavigator({
-      getMenuItems: (mode) => this.getEditorMenuItems(mode),
-      getCurrentMode: () => this.editorMenuMode,
-      setCurrentMode: (mode) => {
-        this.editorMenuMode = mode
+    this.menuSystem = new EditorMenuSystem({
+      editorWorkspace: this.editorWorkspace,
+      hasObjectOfType: (type) => this.hasObjectOfType(type),
+      onObjectTypeSelected: (type) => this.handleObjectClick(type),
+      onGroundShapeSelected: (shape) => this.handleGroundShapeClick(shape),
+      onObstacleShapeSelected: (shape) => this.handleObstacleShapeClick(shape),
+      onWeaponSelected: (weaponType, category, size) =>
+        this.handleWeaponTypeClick(weaponType, category, size),
+      onEnemySelected: (enemyType) => this.handleEnemyTypeClick(enemyType),
+      onPanelMenuAdd: () => {
+        const pos = this.menuSystem.getPanelMenuPosition()
+        this.menuSystem.hidePanelMenu()
+        this.menuSystem.showObjectTypeMenu(pos.x, pos.y)
       },
-      getCurrentSelectedIndex: () => this.editorMenuSelectedIndex,
-      setCurrentSelectedIndex: (index) => {
-        this.editorMenuSelectedIndex = index
-      },
+    })
+
+    this.contextMenu = new EditorContextMenu({
+      editorWorkspace: this.editorWorkspace,
+      isEditablePolygon: (obj) => this.isEditablePolygon(obj),
+      onAction: (action) => this.handlePolygonMenuAction(action),
     })
 
     this.shapeManager = new EditorShapeManager({
@@ -605,7 +396,7 @@ export class EditorManager {
       },
       isVisible: () => this.visible,
       getCurrentView: () => this.currentView,
-      hidePolygonMenu: () => this.hidePolygonMenu(),
+      hidePolygonMenu: () => this.contextMenu.hide(),
       handleEditablePolygonContextMenuEvent: (event) =>
         this.handleEditablePolygonContextMenuEvent(event),
       handleEditablePolygonPointerDown: (opt) =>
@@ -621,154 +412,14 @@ export class EditorManager {
   }
 
   private setupEventListeners() {
-    this.editorBackBtn.addEventListener('click', () => {
-      this.handleBack()
-    })
-
-    this.editorPreviewBtn.addEventListener('click', () => {
-      this.handlePreview()
-    })
-
-    this.editorSaveBtn.addEventListener('click', () => {
-      void this.handleSave()
-    })
-
-    this.editorPanelCollapseBtn.addEventListener('click', () => {
-      this.setPanelCollapsed(true)
-    })
-
-    this.editorPanelCollapsedBtn.addEventListener('click', () => {
-      this.setPanelCollapsed(false)
-    })
-
-    this.editorObjectItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const action = item.dataset.action
-        if (action === 'back') {
-          this.handleEditorMenuBack()
-          return
-        }
-        const type = item.dataset.type as ObjectType | undefined
-        if (!type) {
-          return
-        }
-        this.handleObjectClick(type)
-      })
-    })
-    this.bindEditorMenuItems(this.editorObjectItems, EditorSubmenuMode.Object)
-
-    this.editorObjectTree.addEventListener('click', (event) => {
-      const target = event.target as HTMLElement | null
-      const node = target?.closest<HTMLButtonElement>('.editor-object-node')
-      if (!node?.dataset.objectId) {
-        return
-      }
-      const objectId = Number.parseInt(node.dataset.objectId, 10)
-      this.focusEditorObjectById(objectId)
-    })
-
-    this.groundSubmenuItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const action = item.dataset.action
-        if (action === 'back') {
-          this.handleEditorMenuBack()
-          return
-        }
-        const shape = item.dataset.shape as GroundShapeType | undefined
-        if (!shape) {
-          return
-        }
-        this.handleGroundShapeClick(shape)
-      })
-    })
-    this.obstacleSubmenuItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const action = item.dataset.action
-        if (action === 'back') {
-          this.handleEditorMenuBack()
-          return
-        }
-        const shape = item.dataset.shape as GroundShapeType | undefined
-        if (!shape) {
-          return
-        }
-        this.handleObstacleShapeClick(shape)
-      })
-    })
-    this.bindEditorMenuItems(this.groundSubmenuItems, EditorSubmenuMode.Ground)
-    this.bindEditorMenuItems(
-      this.obstacleSubmenuItems,
-      EditorSubmenuMode.Obstacle
-    )
-
-    this.weaponItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const action = item.dataset.action
-        if (action === 'back') {
-          this.handleEditorMenuBack()
-          return
-        }
-        const weaponType = item.dataset.weapon as WeaponType | undefined
-        const category = item.dataset.category as WeaponCategory | undefined
-        const sizeStr = item.dataset.size
-        const size = sizeStr ? Number.parseInt(sizeStr, 10) : undefined
-        if (!weaponType || !category) {
-          return
-        }
-        this.handleWeaponTypeClick(weaponType, category, size)
-      })
-    })
-    this.bindEditorMenuItems(this.weaponItems, EditorSubmenuMode.Weapon)
-
-    this.enemySubmenuItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const action = item.dataset.action
-        if (action === 'back') {
-          this.handleEditorMenuBack()
-          return
-        }
-        const enemyType = item.dataset.enemy as EnemyType | undefined
-        if (!enemyType) {
-          return
-        }
-        this.handleEnemyTypeClick(enemyType)
-      })
-    })
-    this.bindEditorMenuItems(this.enemySubmenuItems, EditorSubmenuMode.Enemy)
-
-    this.polygonMenuButtons.forEach((button) => {
-      button.addEventListener('pointerdown', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const action = button.dataset.action as
-          | 'add'
-          | 'remove'
-          | 'delete'
-          | 'reset'
-          | 'square'
-          | 'equilateral'
-          | 'zoom'
-          | 'rename'
-          | undefined
-        if (!action) {
-          return
-        }
-        this.handlePolygonMenuAction(action)
-      })
-    })
-
     document.addEventListener(
       'pointerdown',
       (event) => {
         const target = event.target as Node
         if (
-          this.polygonMenu.contains(target) ||
-          this.panelMenu.contains(target) ||
-          this.objectTypeMenu.contains(target) ||
-          this.groundSubmenu.contains(target) ||
-          this.obstacleSubmenu.contains(target) ||
-          this.weaponMenu.contains(target) ||
-          this.enemySubmenu.contains(target)
+          this.contextMenu.containsTarget(target) ||
+          this.menuSystem.containsTarget(target) ||
+          this.sidebarManager.containsTarget(target)
         ) {
           return
         }
@@ -777,50 +428,11 @@ export class EditorManager {
             targetType: (event.target as HTMLElement | null)?.tagName ?? '',
           })
         }
-        this.hidePolygonMenu()
-        this.hidePanelMenu()
-        this.hideObjectTypeMenu()
-        this.hideGroundSubmenu()
-        this.hideObstacleSubmenu()
-        this.hideWeaponMenu()
-        this.hideEnemySubmenu()
+        this.contextMenu.hide()
+        this.menuSystem.hideAll()
       },
       true
     )
-
-    this.polygonMenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
-
-    this.panelMenuAddBtn.addEventListener('pointerdown', (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      this.hidePanelMenu()
-      this.showObjectTypeMenu(this.panelMenuX, this.panelMenuY)
-    })
-
-    this.panelMenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
-
-    this.objectTypeMenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
-
-    this.groundSubmenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
-    this.obstacleSubmenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
-
-    this.weaponMenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
-
-    this.enemySubmenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
 
     document.addEventListener(
       'contextmenu',
@@ -831,269 +443,35 @@ export class EditorManager {
     )
 
     window.addEventListener('keydown', (event) => {
-      this.handleEditorMenuKeyDown(event)
+      this.handleKeyDown(event)
     })
   }
 
   private updateLocalization() {
-    this.editorBackBtn.textContent = localizer.t('editor_back_to_menu')
-    this.editorPreviewBtn.textContent = localizer.t('editor_preview')
-    this.editorSaveBtn.textContent = localizer.t('editor_save')
-    this.editorMapCreateBtn.textContent = localizer.t('editor_create_map')
-    this.editorMapDeleteBtn.textContent = localizer.t('editor_map_delete')
-    this.editorMapRenameBtn.textContent = localizer.t('editor_map_rename')
-    this.editorMapDefaultBtn.textContent = localizer.t('editor_map_set_default')
-    this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')
-
-    this.editorObjectItems.forEach((item) => {
-      const type = item.dataset.type
-      if (type) {
-        item.textContent = localizer.t(`editor_object_${type}`)
-      }
-    })
-
-    this.editorPanelCollapseBtn.textContent = localizer.t(
-      'editor_panel_collapse'
-    )
-    this.editorPanelCollapsedBtn.textContent = localizer.t(
-      'editor_panel_expand'
-    )
-    this.groundSubmenuItems.forEach((item) => {
-      const shape = item.dataset.shape
-      if (shape) {
-        item.textContent = localizer.t(`editor_ground_shape_${shape}`)
-      }
-    })
-    this.obstacleSubmenuItems.forEach((item) => {
-      const shape = item.dataset.shape
-      if (shape) {
-        item.textContent = localizer.t(`editor_ground_shape_${shape}`)
-      }
-    })
-    this.weaponGroupTitles.forEach((title) => {
-      const category = title.dataset.categoryTitle
-      if (category) {
-        title.textContent = localizer.t(`editor_weapon_category_${category}`)
-      }
-    })
-    this.weaponItems.forEach((item) => {
-      const weapon = item.dataset.weapon
-      const sizeStr = item.dataset.size
-      if (weapon && sizeStr) {
-        item.textContent = localizer.t(
-          `editor_weapon_size_${weapon}_${sizeStr}`
-        )
-      } else if (weapon) {
-        item.textContent = localizer.t(`editor_weapon_${weapon}`)
-      }
-    })
-    this.enemySubmenuItems.forEach((item) => {
-      const enemy = item.dataset.enemy
-      if (enemy) {
-        item.textContent = localizer.t(`editor_enemy_${enemy}`)
-      }
-    })
-    this.objectTypeMenuBackBtn.textContent = localizer.t('menu_back')
-    this.groundSubmenuBackBtn.textContent = localizer.t('menu_back')
-    this.obstacleSubmenuBackBtn.textContent = localizer.t('menu_back')
-    this.weaponMenuBackBtn.textContent = localizer.t('menu_back')
-    this.enemySubmenuBackBtn.textContent = localizer.t('menu_back')
+    this.toolbarManager.updateLocalization()
+    this.sidebarManager.updateLocalization()
+    this.mapListManager.updateLocalization()
+    this.menuSystem.updateLocalization()
     this.renderObjectTree()
   }
 
-  // ========================================
-  // MENU SYSTEM
-  // ========================================
-
-  private bindEditorMenuItems(
-    items: NodeListOf<HTMLButtonElement>,
-    mode: EditorSubmenuMode
-  ) {
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      item.dataset.menuIndex = String(i)
-      item.dataset.menuMode = mode
-      item.addEventListener('mouseenter', this.boundHandleEditorMenuMouseEnter)
-    }
-  }
-
-  private handleEditorMenuItemMouseEnter(event: Event) {
-    if (!this.visible || this.currentView !== EditorView.Editor) {
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.None) {
-      return
-    }
-    const target = event.currentTarget
-    if (!(target instanceof HTMLButtonElement)) {
-      return
-    }
-    const mode = target.dataset.menuMode as EditorSubmenuMode | undefined
-    if (!mode || mode !== this.editorMenuMode) {
-      return
-    }
-    const index = Number.parseInt(target.dataset.menuIndex ?? '', 10)
-    if (!Number.isFinite(index)) {
-      return
-    }
-    this.menuNavigator.setSelectedIndex(index)
-  }
-
-  private getEditorMenuItems(
-    mode: EditorSubmenuMode
-  ): NodeListOf<HTMLButtonElement> {
-    switch (mode) {
-      case EditorSubmenuMode.Object:
-        return this.editorObjectItems
-      case EditorSubmenuMode.Ground:
-        return this.groundSubmenuItems
-      case EditorSubmenuMode.Obstacle:
-        return this.obstacleSubmenuItems
-      case EditorSubmenuMode.Weapon:
-        return this.weaponItems
-      case EditorSubmenuMode.Enemy:
-        return this.enemySubmenuItems
-      default:
-        return this.editorObjectItems
-    }
-  }
-
-  private handleEditorMenuKeyDown(event: KeyboardEvent) {
+  private handleKeyDown(event: KeyboardEvent) {
     if (event.defaultPrevented) {
       return
     }
-    if (!this.visible || this.currentView !== EditorView.Editor) {
-      if (this.visible && this.currentView === EditorView.MapList) {
-        this.mapListManager.handleMapListKeyDown(event)
-      }
+    if (!this.visible) {
       return
     }
-    const items = this.getEditorMenuItems(this.editorMenuMode)
-    if (this.editorMenuMode === EditorSubmenuMode.None) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        this.handleBack()
-      }
+    if (this.currentView === EditorView.MapList) {
+      this.mapListManager.handleMapListKeyDown(event)
       return
     }
-    if (items.length === 0) {
+    if (this.menuSystem.handleKeyDown(event)) {
       return
     }
-    const key = event.key
-    if (key === 'ArrowUp' || key === 'w') {
+    if (event.key === 'Escape') {
       event.preventDefault()
-      const nextIndex = this.menuNavigator.findNextSelectableIndex(
-        items,
-        this.editorMenuSelectedIndex,
-        -1
-      )
-      this.menuNavigator.setSelectedIndex(nextIndex)
-      return
-    }
-    if (key === 'ArrowDown' || key === 's') {
-      event.preventDefault()
-      const nextIndex = this.menuNavigator.findNextSelectableIndex(
-        items,
-        this.editorMenuSelectedIndex,
-        1
-      )
-      this.menuNavigator.setSelectedIndex(nextIndex)
-      return
-    }
-    if (key === 'Enter' || key === ' ') {
-      event.preventDefault()
-      const item = items[this.editorMenuSelectedIndex]
-      if (item) {
-        this.handleEditorMenuConfirm(item)
-      }
-      return
-    }
-    if (key === 'Escape') {
-      event.preventDefault()
-      this.handleEditorMenuBack()
-    }
-  }
-
-  private handleEditorMenuConfirm(item: HTMLButtonElement) {
-    if (item.disabled) {
-      return
-    }
-    const action = item.dataset.action
-    if (action === 'back') {
-      this.handleEditorMenuBack()
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Object) {
-      const type = item.dataset.type as ObjectType | undefined
-      if (type) {
-        this.handleObjectClick(type)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Ground) {
-      const shape = item.dataset.shape as GroundShapeType | undefined
-      if (shape) {
-        this.handleGroundShapeClick(shape)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Obstacle) {
-      const shape = item.dataset.shape as GroundShapeType | undefined
-      if (shape) {
-        this.handleObstacleShapeClick(shape)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
-      const weaponType = item.dataset.weapon as WeaponType | undefined
-      const category = item.dataset.category as WeaponCategory | undefined
-      const sizeStr = item.dataset.size
-      const size = sizeStr ? Number.parseInt(sizeStr, 10) : undefined
-      if (weaponType && category) {
-        this.handleWeaponTypeClick(weaponType, category, size)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Enemy) {
-      const enemyType = item.dataset.enemy as EnemyType | undefined
-      if (enemyType) {
-        this.handleEnemyTypeClick(enemyType)
-      }
-    }
-  }
-
-  private handleEditorMenuBack() {
-    if (this.editorMenuMode === EditorSubmenuMode.Ground) {
-      this.hideGroundSubmenu()
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Obstacle) {
-      this.hideObstacleSubmenu()
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
-      this.hideWeaponMenu()
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Enemy) {
-      this.hideEnemySubmenu()
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      }
-      return
-    }
-    if (this.editorMenuMode === EditorSubmenuMode.Object) {
-      this.hideObjectTypeMenu()
-      this.menuNavigator.setMode(EditorSubmenuMode.None, false)
+      this.handleBack()
     }
   }
 
@@ -1113,10 +491,7 @@ export class EditorManager {
   }
 
   private hideAllSubmenus() {
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideWeaponMenu()
-    this.hideEnemySubmenu()
+    this.menuSystem.hideAllSubmenus()
   }
 
   // ========================================
@@ -1124,35 +499,31 @@ export class EditorManager {
   // ========================================
 
   private handleObjectClick(type: ObjectType) {
-    this.hidePanelMenu()
-
-    // Check if we are toggling the same menu?
-    // If so, maybe we want to close it?
-    // Current behavior seems to be "open or switch".
+    this.menuSystem.hidePanelMenu()
 
     if (type === ObjectType.Ground) {
       this.setActiveObjectType(ObjectType.Ground)
       this.hideAllSubmenus()
-      this.showGroundSubmenu()
+      this.menuSystem.showGroundSubmenu()
       return
     }
     if (type === ObjectType.Obstacle) {
       this.setActiveObjectType(ObjectType.Obstacle)
       this.hideAllSubmenus()
-      this.showObstacleSubmenu()
+      this.menuSystem.showObstacleSubmenu()
       return
     }
 
     if (type === ObjectType.Weapon) {
       this.setActiveObjectType(ObjectType.Weapon)
       this.hideAllSubmenus()
-      this.showWeaponMenu()
+      this.menuSystem.showWeaponMenu()
       return
     }
 
     if (type === ObjectType.Player) {
       this.hideAllSubmenus()
-      this.hideObjectTypeMenu()
+      this.menuSystem.hideObjectTypeMenu()
       this.setActiveObjectType(type)
       this.spawnPlayerMarker()
       return
@@ -1160,7 +531,7 @@ export class EditorManager {
 
     if (type === ObjectType.Camera) {
       this.hideAllSubmenus()
-      this.hideObjectTypeMenu()
+      this.menuSystem.hideObjectTypeMenu()
       if (this.hasObjectOfType(ObjectType.Camera)) {
         return
       }
@@ -1172,47 +543,33 @@ export class EditorManager {
     if (type === ObjectType.Enemy) {
       this.setActiveObjectType(type)
       this.hideAllSubmenus()
-      this.showEnemySubmenu()
+      this.menuSystem.showEnemySubmenu()
       return
     }
 
     this.hideAllSubmenus()
-    this.hideObjectTypeMenu()
+    this.menuSystem.hideObjectTypeMenu()
     this.setActiveObjectType(type)
   }
 
   private showMapListView() {
     this.currentView = EditorView.MapList
-    this.editorSidebar.style.display = 'none'
+    this.sidebarManager.hide()
     this.editorCanvas.style.display = 'none'
-    this.editorActions.style.display = 'none'
-    this.hidePanelMenu()
-    this.hideObjectTypeMenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideEnemySubmenu()
-    this.hidePolygonMenu()
+    this.toolbarManager.hide()
+    this.menuSystem.hideAll()
+    this.contextMenu.hide()
     this.setActiveObjectType(null)
-    this.editorPanelCollapsedBtn.classList.remove('is-visible')
     this.mapListManager.show()
   }
 
   private showEditorView() {
     this.currentView = EditorView.Editor
     this.mapListManager.hide()
-    this.editorSidebar.style.display = this.panelCollapsed ? 'none' : 'block'
-    this.editorActions.style.display = 'flex'
-    if (this.panelCollapsed) {
-      this.editorPanelCollapsedBtn.classList.add('is-visible')
-    } else {
-      this.editorPanelCollapsedBtn.classList.remove('is-visible')
-    }
+    this.sidebarManager.show()
+    this.toolbarManager.show()
     this.editorCanvas.style.display = 'block'
-    this.hidePanelMenu()
-    this.hideObjectTypeMenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideEnemySubmenu()
+    this.menuSystem.hideAll()
     this.ensureFabricCanvas()
     this.resizeEditorCanvas()
     this.renderObjectTree()
@@ -1718,32 +1075,11 @@ export class EditorManager {
     }
     event.preventDefault()
     event.stopPropagation()
-    if (this.editorSidebar.contains(targetNode)) {
+    if (this.sidebarManager.containsTarget(targetNode)) {
       this.handleObjectPanelContextMenuCore(event)
       return
     }
     this.handleEditablePolygonContextMenuEvent(event)
-  }
-
-  private showEnemySubmenu() {
-    this.positionEnemySubmenu()
-    this.enemySubmenu.classList.add('is-visible')
-    this.menuNavigator.setMode(EditorSubmenuMode.Enemy, true)
-  }
-
-  private hideEnemySubmenu() {
-    this.enemySubmenu.classList.remove('is-visible')
-    if (this.editorMenuMode === EditorSubmenuMode.Enemy) {
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      } else {
-        this.menuNavigator.setMode(EditorSubmenuMode.None, false)
-      }
-    }
-  }
-
-  private positionEnemySubmenu() {
-    this.positionShapeSubmenu(this.enemyMenuItem, this.enemySubmenu)
   }
 
   // ========================================
@@ -1752,8 +1088,8 @@ export class EditorManager {
 
   private handleEnemyTypeClick(enemyType: EnemyType) {
     this.spawnEnemyMarker(enemyType)
-    this.hideEnemySubmenu()
-    this.hideObjectTypeMenu()
+    this.menuSystem.hideEnemySubmenu()
+    this.menuSystem.hideObjectTypeMenu()
   }
 
   // ========================================
@@ -1762,13 +1098,8 @@ export class EditorManager {
 
   private isInsideAnyMenu(targetNode: Node) {
     return (
-      this.panelMenu.contains(targetNode) ||
-      this.objectTypeMenu.contains(targetNode) ||
-      this.groundSubmenu.contains(targetNode) ||
-      this.obstacleSubmenu.contains(targetNode) ||
-      this.weaponMenu.contains(targetNode) ||
-      this.enemySubmenu.contains(targetNode) ||
-      this.polygonMenu.contains(targetNode)
+      this.menuSystem.containsTarget(targetNode) ||
+      this.contextMenu.containsTarget(targetNode)
     )
   }
 
@@ -1783,7 +1114,7 @@ export class EditorManager {
         clientY: event.clientY,
       })
     }
-    this.hideObjectTypeMenu()
+    this.menuSystem.hideObjectTypeMenu()
     if (node?.dataset.objectId) {
       const objectId = Number.parseInt(node.dataset.objectId, 10)
       this.focusEditorObjectById(objectId)
@@ -1793,32 +1124,8 @@ export class EditorManager {
         return
       }
     }
-    this.showPanelMenu(event.clientX, event.clientY)
-  }
-
-  private showPanelMenu(clientX: number, clientY: number) {
-    this.hidePolygonMenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideEnemySubmenu()
-    this.hideObjectTypeMenu()
-    this.panelMenuX = clientX
-    this.panelMenuY = clientY
-    this.panelMenu.classList.add('is-visible')
-    this.adjustMenuPosition(this.panelMenu, clientX, clientY)
-    if (DEBUG_EDITOR_MENU) {
-      console.log('[editor] show panel menu', { clientX, clientY })
-    }
-  }
-
-  private hidePanelMenu() {
-    if (!this.panelMenu.classList.contains('is-visible')) {
-      return
-    }
-    this.panelMenu.classList.remove('is-visible')
-    if (DEBUG_EDITOR_MENU) {
-      console.log('[editor] hide panel menu')
-    }
+    this.contextMenu.hide()
+    this.menuSystem.showPanelMenu(event.clientX, event.clientY)
   }
 
   // ========================================
@@ -1827,52 +1134,6 @@ export class EditorManager {
 
   private hasObjectOfType(type: ObjectType): boolean {
     return this.editorObjects.some((obj) => obj.type === type)
-  }
-
-  // ========================================
-  // MENU SYSTEM
-  // ========================================
-
-  private showObjectTypeMenu(clientX: number, clientY: number) {
-    this.hidePolygonMenu()
-    this.hidePanelMenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideEnemySubmenu()
-    this.objectTypeMenuX = clientX
-    this.objectTypeMenuY = clientY
-
-    this.editorObjectItems.forEach((item) => {
-      const type = item.dataset.type as ObjectType | undefined
-      if (!type) {
-        return
-      }
-      if (type === ObjectType.Player || type === ObjectType.Camera) {
-        if (this.hasObjectOfType(type)) {
-          item.disabled = true
-          item.classList.add('disabled')
-        } else {
-          item.disabled = false
-          item.classList.remove('disabled')
-        }
-      }
-    })
-
-    this.objectTypeMenu.classList.add('is-visible')
-    this.adjustMenuPosition(this.objectTypeMenu, clientX, clientY)
-    this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-  }
-
-  private hideObjectTypeMenu() {
-    if (!this.objectTypeMenu.classList.contains('is-visible')) {
-      return
-    }
-    this.objectTypeMenu.classList.remove('is-visible')
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideWeaponMenu()
-    this.hideEnemySubmenu()
-    this.menuNavigator.setMode(EditorSubmenuMode.None, false)
   }
 
   private getViewportCenter(): { x: number; y: number } {
@@ -2140,121 +1401,6 @@ export class EditorManager {
   }
 
   // ========================================
-  // MENU SYSTEM
-  // ========================================
-
-  private showGroundSubmenu() {
-    this.positionGroundSubmenu()
-    this.groundSubmenu.classList.add('is-visible')
-    this.menuNavigator.setMode(EditorSubmenuMode.Ground, true)
-  }
-
-  private hideGroundSubmenu() {
-    this.groundSubmenu.classList.remove('is-visible')
-    if (this.editorMenuMode === EditorSubmenuMode.Ground) {
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      } else {
-        this.menuNavigator.setMode(EditorSubmenuMode.None, false)
-      }
-    }
-  }
-
-  private positionGroundSubmenu() {
-    this.positionShapeSubmenu(this.groundMenuItem, this.groundSubmenu)
-  }
-
-  private showObstacleSubmenu() {
-    this.positionObstacleSubmenu()
-    this.obstacleSubmenu.classList.add('is-visible')
-    this.menuNavigator.setMode(EditorSubmenuMode.Obstacle, true)
-  }
-
-  private hideObstacleSubmenu() {
-    this.obstacleSubmenu.classList.remove('is-visible')
-    if (this.editorMenuMode === EditorSubmenuMode.Obstacle) {
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      } else {
-        this.menuNavigator.setMode(EditorSubmenuMode.None, false)
-      }
-    }
-  }
-
-  private showWeaponMenu() {
-    this.positionWeaponMenu()
-    this.weaponMenu.classList.add('is-visible')
-    this.menuNavigator.setMode(EditorSubmenuMode.Weapon, true)
-  }
-
-  private hideWeaponMenu() {
-    this.weaponMenu.classList.remove('is-visible')
-    if (this.editorMenuMode === EditorSubmenuMode.Weapon) {
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      } else {
-        this.menuNavigator.setMode(EditorSubmenuMode.None, false)
-      }
-    }
-  }
-
-  private positionWeaponMenu() {
-    this.positionShapeSubmenu(this.weaponMenuItem, this.weaponMenu)
-  }
-
-  private positionObstacleSubmenu() {
-    this.positionShapeSubmenu(this.obstacleMenuItem, this.obstacleSubmenu)
-  }
-
-  private positionShapeSubmenu(
-    menuItem: HTMLButtonElement,
-    submenu: HTMLDivElement
-  ) {
-    const menuRect = this.objectTypeMenu.getBoundingClientRect()
-    const itemRect = menuItem.getBoundingClientRect()
-    const x = menuRect.right + 6
-    const y = itemRect.top
-    this.adjustMenuPosition(submenu, x, y)
-  }
-
-  private adjustMenuPosition(menu: HTMLElement, x: number, y: number) {
-    // Ensure menu is visible for measurement
-    const wasVisible = menu.classList.contains('is-visible')
-    if (!wasVisible) {
-      menu.style.visibility = 'hidden'
-      menu.classList.add('is-visible')
-    }
-
-    // Set initial position to avoid wrapping issues before measurement
-    menu.style.left = `${x}px`
-    menu.style.top = `${y}px`
-
-    const rect = menu.getBoundingClientRect()
-    const viewportRect = this.editorWorkspace.getBoundingClientRect()
-
-    let newX = x
-    let newY = y
-
-    if (newX + rect.width > viewportRect.right) {
-      newX = viewportRect.right - rect.width - 4
-    }
-    if (newY + rect.height > viewportRect.bottom) {
-      newY = viewportRect.bottom - rect.height - 4
-    }
-
-    if (newX < viewportRect.left + 4) newX = viewportRect.left + 4
-    if (newY < viewportRect.top + 4) newY = viewportRect.top + 4
-
-    menu.style.left = `${newX}px`
-    menu.style.top = `${newY}px`
-
-    if (!wasVisible) {
-      menu.classList.remove('is-visible')
-      menu.style.visibility = ''
-    }
-  }
-
-  // ========================================
   // SHAPE MANAGEMENT
   // ========================================
 
@@ -2327,9 +1473,8 @@ export class EditorManager {
     this.fabricCanvas.setActiveObject(shapeObject)
     this.handleCanvasSelection(shapeObject)
     this.fabricCanvas.renderAll()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideObjectTypeMenu()
+    this.menuSystem.hideAllSubmenus()
+    this.menuSystem.hideObjectTypeMenu()
   }
 
   private handleObstacleShapeClick(shape: GroundShapeType) {
@@ -2401,9 +1546,8 @@ export class EditorManager {
     this.fabricCanvas.setActiveObject(shapeObject)
     this.handleCanvasSelection(shapeObject)
     this.fabricCanvas.renderAll()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideObjectTypeMenu()
+    this.menuSystem.hideAllSubmenus()
+    this.menuSystem.hideObjectTypeMenu()
   }
 
   // ========================================
@@ -2416,8 +1560,8 @@ export class EditorManager {
     sizeLevel?: number
   ) {
     this.spawnWeaponMarker(weaponType, category, { sizeLevel })
-    this.hideWeaponMenu()
-    this.hideObjectTypeMenu()
+    this.menuSystem.hideWeaponMenu()
+    this.menuSystem.hideObjectTypeMenu()
   }
 
   // ========================================
@@ -2473,7 +1617,7 @@ export class EditorManager {
     if (!this.fabricCanvas) {
       return
     }
-    this.hidePolygonMenu()
+    this.contextMenu.hide()
     const evt = opt.e
     const target = opt.target ?? null
     this.handleEditablePolygonContextMenuCore(evt, target)
@@ -2483,7 +1627,7 @@ export class EditorManager {
     if (!this.fabricCanvas) {
       return
     }
-    this.hidePolygonMenu()
+    this.contextMenu.hide()
     const target = this.fabricCanvas.findTarget(event, false) ?? null
     const handled = this.handleEditablePolygonContextMenuCore(event, target)
     if (handled) {
@@ -2689,19 +1833,18 @@ export class EditorManager {
   // MENU SYSTEM
   // ========================================
 
-  private showPolygonMenu(
-    action: 'add' | 'remove' | 'delete',
-    polygon: EditablePolygon | fabric.Object,
+  private showPolygonMenuWithActions(
+    actions: ContextMenuAction[],
+    target: EditablePolygon | fabric.Object,
     index: number,
     clientX: number,
     clientY: number,
     insertX?: number,
     insertY?: number
   ) {
-    const actions = [action]
-    this.showPolygonMenuWithActions(
+    this.contextMenu.show(
       actions,
-      polygon,
+      target,
       index,
       clientX,
       clientY,
@@ -2710,108 +1853,11 @@ export class EditorManager {
     )
   }
 
-  private showPolygonMenuWithActions(
-    actions: (
-      | 'add'
-      | 'remove'
-      | 'delete'
-      | 'reset'
-      | 'square'
-      | 'equilateral'
-      | 'zoom'
-      | 'rename'
-      | 'properties'
-    )[],
-    target: EditablePolygon | fabric.Object,
-    index: number,
-    clientX: number,
-    clientY: number,
-    insertX?: number,
-    insertY?: number
-  ) {
-    this.polygonMenuActions = actions
-    this.polygonMenuPolygon = this.isEditablePolygon(target) ? target : null
-    this.polygonMenuTarget = target
-    this.polygonMenuPointIndex = index
-    this.polygonMenuInsertX = insertX ?? 0
-    this.polygonMenuInsertY = insertY ?? 0
-    for (let i = 0; i < this.polygonMenuButtons.length; i++) {
-      const button = this.polygonMenuButtons[i]
-      const action = this.polygonMenuActions[i]
-      if (!action) {
-        button.dataset.action = ''
-        button.classList.add('is-hidden')
-        continue
-      }
-      button.dataset.action = action
-      button.textContent = localizer.t(this.getPolygonMenuLabel(action))
-      button.classList.remove('is-hidden')
-    }
-    this.polygonMenu.classList.add('is-visible')
-    this.adjustMenuPosition(this.polygonMenu, clientX, clientY)
-  }
-
-  private getPolygonMenuLabel(
-    action:
-      | 'add'
-      | 'remove'
-      | 'delete'
-      | 'reset'
-      | 'square'
-      | 'equilateral'
-      | 'zoom'
-      | 'rename'
-      | 'properties'
-  ) {
-    switch (action) {
-      case 'add':
-        return 'editor_polygon_menu_add_point'
-      case 'remove':
-        return 'editor_polygon_menu_remove_point'
-      case 'reset':
-        return 'editor_polygon_menu_reset_shape'
-      case 'square':
-        return 'editor_polygon_menu_make_square'
-      case 'equilateral':
-        return 'editor_polygon_menu_make_equilateral'
-      case 'zoom':
-        return 'editor_camera_menu_zoom'
-      case 'rename':
-        return 'editor_object_menu_rename'
-      case 'properties':
-        return 'editor_weapon_menu_properties'
-      default:
-        return 'editor_polygon_menu_delete_shape'
-    }
-  }
-
-  private hidePolygonMenu() {
-    if (!this.polygonMenu.classList.contains('is-visible')) {
-      return
-    }
-    this.polygonMenu.classList.remove('is-visible')
-    this.polygonMenuActions.length = 0
-    this.polygonMenuPolygon = null
-    this.polygonMenuTarget = null
-    this.polygonMenuPointIndex = -1
-  }
-
-  private async handlePolygonMenuAction(
-    action:
-      | 'add'
-      | 'remove'
-      | 'delete'
-      | 'reset'
-      | 'square'
-      | 'equilateral'
-      | 'zoom'
-      | 'rename'
-      | 'properties'
-  ) {
-    const polygon = this.polygonMenuPolygon
-    const target = this.polygonMenuTarget
+  private async handlePolygonMenuAction(action: ContextMenuAction) {
+    const polygon = this.contextMenu.getPolygon()
+    const target = this.contextMenu.getTarget()
     if (!target || !target.canvas) {
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     const canvas = target.canvas
@@ -2821,7 +1867,7 @@ export class EditorManager {
       } else if (this.isEnemyMarker(target)) {
         await this.propertiesPanel.showEnemyPropertiesDialog(target)
       }
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     if (action === 'delete') {
@@ -2829,7 +1875,7 @@ export class EditorManager {
         localizer.t('editor_confirm_delete_shape')
       )
       if (!confirmed) {
-        this.hidePolygonMenu()
+        this.contextMenu.hide()
         return
       }
       if (canvas.getActiveObject() === target) {
@@ -2848,22 +1894,22 @@ export class EditorManager {
       canvas.remove(target)
       this.shapeManager.deleteShapeResetData(target)
       canvas.requestRenderAll()
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     if (action === 'rename') {
       this.beginObjectRename(target)
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     if (action === 'zoom') {
       if (!this.cameraManager.isCameraFrame(target)) {
-        this.hidePolygonMenu()
+        this.contextMenu.hide()
         return
       }
       const data = this.cameraManager.getCameraViewMap().get(target)
       if (!data) {
-        this.hidePolygonMenu()
+        this.contextMenu.hide()
         return
       }
       const input = await this.dialogManager.prompt(
@@ -2871,12 +1917,12 @@ export class EditorManager {
         data.zoom.toFixed(2)
       )
       if (input === null) {
-        this.hidePolygonMenu()
+        this.contextMenu.hide()
         return
       }
       const value = Number.parseFloat(input)
       if (!Number.isFinite(value) || value <= 0) {
-        this.hidePolygonMenu()
+        this.contextMenu.hide()
         return
       }
       data.zoom = value
@@ -2887,7 +1933,7 @@ export class EditorManager {
       data.frame.setCoords()
       this.cameraManager.syncCameraIcon(data)
       canvas.requestRenderAll()
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     if (action === 'reset') {
@@ -2905,52 +1951,52 @@ export class EditorManager {
           this.cameraManager.syncCameraIcon(data)
         }
         canvas.requestRenderAll()
-        this.hidePolygonMenu()
+        this.contextMenu.hide()
         return
       }
       this.shapeManager.resetShape(target)
       canvas.requestRenderAll()
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     if (action === 'square') {
       this.shapeManager.makeSquare(target)
       canvas.requestRenderAll()
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     if (action === 'equilateral') {
       this.shapeManager.makeEquilateralTriangle(target)
       canvas.requestRenderAll()
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
     if (!polygon || !polygon.points || !polygon.canvas) {
-      this.hidePolygonMenu()
+      this.contextMenu.hide()
       return
     }
+    const pointIndex = this.contextMenu.getPointIndex()
+    const insertX = this.contextMenu.getInsertX()
+    const insertY = this.contextMenu.getInsertY()
     if (action === 'add') {
       this.polygonEditor.insertPolygonPoint(
         polygon.points,
-        this.polygonMenuPointIndex,
-        this.polygonMenuInsertX,
-        this.polygonMenuInsertY
+        pointIndex,
+        insertX,
+        insertY
       )
     } else if (action === 'remove') {
       if (polygon.points.length <= 3) {
-        this.hidePolygonMenu()
+        this.contextMenu.hide()
         return
       }
-      this.polygonEditor.removePolygonPoint(
-        polygon.points,
-        this.polygonMenuPointIndex
-      )
+      this.polygonEditor.removePolygonPoint(polygon.points, pointIndex)
     }
     polygon.dirty = true
     this.polygonEditor.updateEditablePolygonBounds(polygon)
     this.polygonEditor.refreshEditablePolygonControls(polygon)
     polygon.canvas.requestRenderAll()
-    this.hidePolygonMenu()
+    this.contextMenu.hide()
   }
 
   // ========================================
@@ -3212,20 +2258,7 @@ export class EditorManager {
   // ========================================
 
   private setPanelCollapsed(collapsed: boolean) {
-    this.panelCollapsed = collapsed
-    if (collapsed) {
-      this.editorSidebar.style.display = 'none'
-      this.editorPanelCollapsedBtn.classList.add('is-visible')
-      this.hidePanelMenu()
-      this.hideObjectTypeMenu()
-      this.hideGroundSubmenu()
-      this.hideObstacleSubmenu()
-    } else {
-      if (this.currentView === EditorView.Editor) {
-        this.editorSidebar.style.display = 'block'
-      }
-      this.editorPanelCollapsedBtn.classList.remove('is-visible')
-    }
+    this.sidebarManager.setCollapsed(collapsed)
   }
 
   // ========================================
@@ -3269,18 +2302,7 @@ export class EditorManager {
     }
 
     this.resizeEditorCanvas()
-    if (
-      this.objectTypeMenu.classList.contains('is-visible') &&
-      this.groundSubmenu.classList.contains('is-visible')
-    ) {
-      this.positionGroundSubmenu()
-    }
-    if (
-      this.objectTypeMenu.classList.contains('is-visible') &&
-      this.obstacleSubmenu.classList.contains('is-visible')
-    ) {
-      this.positionObstacleSubmenu()
-    }
+    this.menuSystem.handleWindowResize()
   }
 
   show() {
@@ -3303,12 +2325,8 @@ export class EditorManager {
   hide() {
     this.visible = false
     this.editorOverlay.classList.remove('is-visible')
-    this.hidePanelMenu()
-    this.hideObjectTypeMenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
-    this.hideWeaponMenu()
-    this.hidePolygonMenu()
+    this.menuSystem.hideAll()
+    this.contextMenu.hide()
     this.cancelObjectRename()
     this.setActiveObjectType(null)
     this.gameCanvas.style.visibility = 'visible'

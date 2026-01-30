@@ -1,7 +1,6 @@
 import type { EditorObjectData } from './types'
 
 export interface EditorObjectTreeManagerContext {
-  editorObjectTree: HTMLDivElement
   editorObjects: EditorObjectData[]
   renamingEditorObjectId: number
   selectedEditorObjectId: number
@@ -11,19 +10,37 @@ export interface EditorObjectTreeManagerContext {
   onDragStart: (id: number) => void
   onDrop: (dragId: number, targetId: number, insertAfter: boolean) => void
   onDragEnd: () => void
+  onObjectSelected: (id: number) => void
 }
 
 export class EditorObjectTreeManager {
+  private editorObjectTree: HTMLDivElement
   private context: EditorObjectTreeManagerContext
   private dragPreviewId = -1
   private dragPreviewAfter = false
 
   constructor(context: EditorObjectTreeManagerContext) {
     this.context = context
+
+    const objectTree = document.getElementById('editorObjectTree')
+    if (!(objectTree instanceof HTMLDivElement)) {
+      throw new Error('Editor object tree element is missing.')
+    }
+    this.editorObjectTree = objectTree
+
+    this.editorObjectTree.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement | null
+      const node = target?.closest<HTMLButtonElement>('.editor-object-node')
+      if (!node?.dataset.objectId) {
+        return
+      }
+      const objectId = Number.parseInt(node.dataset.objectId, 10)
+      this.context.onObjectSelected(objectId)
+    })
   }
 
   public renderObjectTree() {
-    this.context.editorObjectTree.innerHTML = ''
+    this.editorObjectTree.innerHTML = ''
     for (let i = 0; i < this.context.editorObjects.length; i++) {
       const data = this.context.editorObjects[i]
       if (data.id === this.context.renamingEditorObjectId) {
@@ -54,7 +71,7 @@ export class EditorObjectTreeManager {
         this.context.onRenameCancel()
       }
     })
-    this.context.editorObjectTree.appendChild(input)
+    this.editorObjectTree.appendChild(input)
     input.focus()
     input.select()
   }
@@ -105,7 +122,7 @@ export class EditorObjectTreeManager {
       this.resetDragState()
       this.context.onDragEnd()
     })
-    this.context.editorObjectTree.appendChild(node)
+    this.editorObjectTree.appendChild(node)
   }
 
   public updateDragPreviewFromTarget(targetId: number, insertAfter: boolean) {
@@ -138,7 +155,7 @@ export class EditorObjectTreeManager {
     this.clearDragPreview()
     const selector = `.editor-object-node[data-object-id="${id}"]`
     const node =
-      this.context.editorObjectTree.querySelector<HTMLButtonElement>(selector)
+      this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
     if (!node) {
       return
     }
@@ -157,7 +174,7 @@ export class EditorObjectTreeManager {
     }
     const selector = `.editor-object-node[data-object-id="${this.dragPreviewId}"]`
     const node =
-      this.context.editorObjectTree.querySelector<HTMLButtonElement>(selector)
+      this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
     if (node) {
       node.classList.remove('is-drop-before')
       node.classList.remove('is-drop-after')
@@ -179,9 +196,7 @@ export class EditorObjectTreeManager {
     return -1
   }
 
-  public updateContext(
-    updates: Partial<Omit<EditorObjectTreeManagerContext, 'editorObjectTree'>>
-  ) {
+  public updateContext(updates: Partial<EditorObjectTreeManagerContext>) {
     Object.assign(this.context, updates)
   }
 }
