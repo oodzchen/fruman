@@ -1,7 +1,7 @@
 import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
-import { DEFAULT_BOW_AMMO_PLAYER, WEAPON_TEMPLATES } from '../constants'
+import { DEFAULT_BOW_AMMO_PLAYER, WEAPON_DEFAULT_DATA } from '../constants'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type { EnemyPatrolMode, WeaponType } from '../types'
 import type { EditorObjectFactory } from './EditorObjectFactory'
@@ -408,18 +408,34 @@ export class EditorPropertiesPanel {
       if (mainVal === 'none') {
         data.mainWeapon = undefined
         marker.mainWeapon = undefined
+        // If we remove the weapon, we might want to clean up the marker?
+        // But getOrCreate handles replacement. Manual cleanup might be needed if we want to be thorough,
+        // but EditorMapSerializer just ignores it if data.mainWeapon is undefined.
+        // However, keeping stale markers in memory is not ideal.
+        if (data.mainWeaponMarker) {
+          this.context.weaponMarkerMap.delete(data.mainWeaponMarker)
+          data.mainWeaponMarker = undefined
+        }
       } else {
-        data.mainWeapon = mainVal as WeaponType
+        const weaponType = mainVal as WeaponType
+        data.mainWeapon = weaponType
         marker.mainWeapon = data.mainWeapon
+        this.context.getOrCreateEnemyWeaponMarker(data, weaponType, 'main')
       }
 
       const secVal = secondaryWeaponSelect.value
       if (secVal === 'none') {
         data.secondaryWeapon = undefined
         marker.secondaryWeapon = undefined
+        if (data.secondaryWeaponMarker) {
+          this.context.weaponMarkerMap.delete(data.secondaryWeaponMarker)
+          data.secondaryWeaponMarker = undefined
+        }
       } else {
-        data.secondaryWeapon = secVal as WeaponType
+        const weaponType = secVal as WeaponType
+        data.secondaryWeapon = weaponType
         marker.secondaryWeapon = data.secondaryWeapon
+        this.context.getOrCreateEnemyWeaponMarker(data, weaponType, 'secondary')
       }
 
       data.equipWeapon = !!data.mainWeapon || !!data.secondaryWeapon
@@ -461,7 +477,7 @@ export class EditorPropertiesPanel {
       return
     }
 
-    const template = WEAPON_TEMPLATES[marker.weaponType]
+    const template = WEAPON_DEFAULT_DATA[marker.weaponType]
     const isBow = marker.weaponType === 'bow'
 
     const getSizeName = (level: number): string => {

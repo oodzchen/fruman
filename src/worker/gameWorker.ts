@@ -21,7 +21,7 @@ import {
   DEFAULT_PLAYER_RADIUS,
   ENEMY_HEARING_RANGE_MULTIPLIER,
   MASK_WEAPON,
-  WEAPON_TEMPLATES,
+  WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
 import { Faction } from '../ecs/Component'
@@ -1199,7 +1199,7 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         if (!isTemplateWeaponType(weaponType)) {
           continue
         }
-        const template = WEAPON_TEMPLATES[weaponType]
+        const template = WEAPON_DEFAULT_DATA[weaponType]
         applyWeaponSizeLevel(weapon, template, sizeLevel)
         resetWeaponPhysicsCircle(weaponEntity)
       }
@@ -1409,8 +1409,8 @@ function resetWeaponPhysicsCircle(entity: Entity): void {
 
 function isTemplateWeaponType(
   weaponType: string
-): weaponType is keyof typeof WEAPON_TEMPLATES {
-  return weaponType in WEAPON_TEMPLATES
+): weaponType is keyof typeof WEAPON_DEFAULT_DATA {
+  return weaponType in WEAPON_DEFAULT_DATA
 }
 
 function handleInput(

@@ -4,7 +4,7 @@ import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
-  WEAPON_TEMPLATES,
+  WEAPON_DEFAULT_DATA,
 } from './constants'
 import {
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
@@ -711,7 +711,8 @@ export class ClientRenderer {
       const shouldShowArrow =
         bowHasArrow && (bowDrawActive || (isInCombat && drawRatio <= 0))
       if (shouldShowArrow) {
-        const bowBaseWidthPx = WEAPON_TEMPLATES.bow.width * this.pixelsPerMeter
+        const bowBaseWidthPx =
+          WEAPON_DEFAULT_DATA.bow.width * this.pixelsPerMeter
         const bowScale =
           bowBaseWidthPx > 0 ? Math.max(0.5, wWidth / bowBaseWidthPx) : 1
         const arrowLen = BOW_ARROW_LENGTH * this.pixelsPerMeter * bowScale

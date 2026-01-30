@@ -1,9 +1,9 @@
-import { WEAPON_TEMPLATES } from '../constants'
+import { WEAPON_DEFAULT_DATA } from '../constants'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import { renderBody } from '../renderer/BodyRenderer'
 import type { WeaponType } from '../types'
 
-type WeaponTemplate = (typeof WEAPON_TEMPLATES)[WeaponType]
+type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
 
 export function computeEnemyBodyRadiusPx(
   radiusMeters: number,

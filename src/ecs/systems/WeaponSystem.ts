@@ -42,8 +42,8 @@ import {
   SOUND_DB_PARRY,
   SOUND_DB_SWORD_HIT_OBSTACLE,
   SOUND_DB_SWORD_SWING,
+  WEAPON_DEFAULT_DATA,
   WEAPON_DROP_DURATION_MS,
-  WEAPON_TEMPLATES,
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2BodyId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -1947,7 +1947,7 @@ export class WeaponSystem extends System {
     physics.bodyId = b2CreateBody(this.worldId, bodyDef)
 
     const arrowWeapon = this.arrowPools.acquireWeapon()
-    const bowTemplate = WEAPON_TEMPLATES.bow
+    const bowTemplate = WEAPON_DEFAULT_DATA.bow
     const bowBaseWidth = bowTemplate.width > 0 ? bowTemplate.width : 1
     const bowScale = Math.max(0.5, weapon.width / bowBaseWidth)
     const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9 * bowScale

@@ -8,7 +8,7 @@ import {
   DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_PLAYER_RADIUS,
   ENEMY_TEMPLATES,
-  WEAPON_TEMPLATES,
+  WEAPON_DEFAULT_DATA,
 } from './constants'
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import { EditorCameraManager } from './editor/EditorCameraManager'
@@ -101,7 +101,7 @@ import {
 } from './storage'
 import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
 
-type WeaponTemplate = (typeof WEAPON_TEMPLATES)[WeaponType]
+type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
 
 export enum EditorView {
   MapList,
@@ -1124,11 +1124,11 @@ export class EditorManager {
 
   private handleObjectClick(type: ObjectType) {
     this.hidePanelMenu()
-    
+
     // Check if we are toggling the same menu?
     // If so, maybe we want to close it?
     // Current behavior seems to be "open or switch".
-    
+
     if (type === ObjectType.Ground) {
       this.setActiveObjectType(ObjectType.Ground)
       this.hideAllSubmenus()
@@ -2047,7 +2047,7 @@ export class EditorManager {
       spawn?.y !== undefined
         ? spawn.y * EDITOR_PIXELS_PER_METER
         : this.editorCanvas.height * 0.5
-    const template = WEAPON_TEMPLATES[weaponType]
+    const template = WEAPON_DEFAULT_DATA[weaponType]
     const sizeLevel = spawn?.sizeLevel ?? template.sizeLevel
     const attackDamage = spawn?.attackDamage ?? template.attackDamage
     const postureDamage = spawn?.postureDamage ?? template.postureDamage
@@ -2994,7 +2994,7 @@ export class EditorManager {
       return
     }
     const shape = item as unknown as WeaponShape
-    const template = WEAPON_TEMPLATES[marker.weaponType]
+    const template = WEAPON_DEFAULT_DATA[marker.weaponType]
     const isBow = marker.weaponType === 'bow'
     const dims = computeWeaponRenderDimensions(
       template,
@@ -3029,7 +3029,7 @@ export class EditorManager {
       slot,
       centerX,
       centerY,
-      WEAPON_TEMPLATES
+      WEAPON_DEFAULT_DATA
     )
     const weaponMarker = result.weaponMarker as WeaponMarker
     const weaponData = result.weaponData as WeaponMarkerData
@@ -3055,7 +3055,7 @@ export class EditorManager {
     }
 
     if (!weaponMarker) {
-      const template = WEAPON_TEMPLATES[weaponType]
+      const template = WEAPON_DEFAULT_DATA[weaponType]
       const result = this.objectFactory.createEnemyWeaponMarkerFromConfig(
         {
           weaponType,
@@ -3068,7 +3068,7 @@ export class EditorManager {
         slot,
         enemyData.marker.left ?? 0,
         enemyData.marker.top ?? 0,
-        WEAPON_TEMPLATES
+        WEAPON_DEFAULT_DATA
       )
 
       weaponMarker = result.weaponMarker as WeaponMarker
