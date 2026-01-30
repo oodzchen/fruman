@@ -61,30 +61,31 @@ export class EditorPolygonEditor {
     this.refreshEditablePolygonControls(editablePolygon)
   }
 
-  handleEditablePolygonPointerDown(opt: fabric.IEvent<MouseEvent>) {
+  handleEditablePolygonPointerDown(opt: fabric.IEvent<MouseEvent>): boolean {
     const canvas = this.ctx.getCanvas()
     if (!canvas || this.ctx.isPanning()) {
-      return
+      return false
     }
     const evt = opt.e
     if (!evt.shiftKey && !evt.altKey) {
-      return
+      return false
     }
     const activeObject = canvas.getActiveObject()
     if (!this.isEditablePolygon(activeObject)) {
-      return
+      return false
     }
     if (evt.shiftKey) {
       this.addEditablePolygonPoint(activeObject, evt)
       evt.preventDefault()
       evt.stopPropagation()
-      return
+      return true
     }
     if (evt.altKey) {
       this.removeEditablePolygonPoint(activeObject, evt)
       evt.preventDefault()
       evt.stopPropagation()
     }
+    return true
   }
 
   isEditablePolygon(object: fabric.Object | null): object is EditablePolygon {

@@ -225,19 +225,22 @@ export class EditorObjectManager {
     this.ctx.renderObjectTree()
   }
 
-  commitObjectRename(id: number, value: string) {
+  commitObjectRename(id: number, value: string): boolean {
     const data = this.getEditorObjectById(id)
     if (!data) {
       this.renamingEditorObjectId = -1
       this.ctx.renderObjectTree()
-      return
+      return false
     }
     const trimmed = value.trim()
-    if (trimmed.length > 0) {
+    let changed = false
+    if (trimmed.length > 0 && trimmed !== data.name) {
       data.name = trimmed
+      changed = true
     }
     this.renamingEditorObjectId = -1
     this.ctx.renderObjectTree()
+    return changed
   }
 
   cancelObjectRename() {

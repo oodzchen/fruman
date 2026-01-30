@@ -20,6 +20,7 @@ import {
   CAMERA_ICON_STROKE,
   DEBUG_EDITOR_MENU,
   DEFAULT_ENEMY_TYPE,
+  EDITOR_HISTORY_MAX_ENTRIES,
   EDITOR_PIXELS_PER_METER,
   ENEMY_EYE_COLOR,
   PLAYER_BODY_COLOR,
@@ -29,6 +30,7 @@ import {
 } from './editor/EditorConstants'
 import type { ContextMenuAction } from './editor/EditorContextMenu'
 import { EditorContextMenu } from './editor/EditorContextMenu'
+import { EditorHistoryManager } from './editor/EditorHistoryManager'
 import { EditorMapListManager } from './editor/EditorMapListManager'
 import { EditorMapSerializer } from './editor/EditorMapSerializer'
 import { EditorMarkerManager } from './editor/EditorMarkerManager'
@@ -112,6 +114,7 @@ export class EditorManager {
   private markerManager: EditorMarkerManager
   private thumbnailCapture: EditorThumbnailCapture
   private canvasEventHandler: EditorCanvasEventHandler
+  private historyManager: EditorHistoryManager
 
   private visible = false
   private currentView: EditorView = EditorView.MapList
@@ -342,6 +345,15 @@ export class EditorManager {
         this.patternManager.applyObstaclePatternToObject(obj),
     })
 
+    this.historyManager = new EditorHistoryManager(
+      {
+        serializeCurrentMapData: () =>
+          this.mapSerializer.serializeCurrentMapData(),
+        applyMapData: (data) => this.mapSerializer.applyMapData(data),
+      },
+      EDITOR_HISTORY_MAX_ENTRIES
+    )
+
     this.propertiesPanel = new EditorPropertiesPanel({
       getFabricCanvas: () => this.fabricCanvas,
       weaponMarkerMap: this.markerManager.getWeaponMarkerMap(),
@@ -349,6 +361,9 @@ export class EditorManager {
       editorObjectMap: this.objectManager.getEditorObjectMap(),
       objectFactory: this.objectFactory,
       requestRender: () => this.fabricCanvas?.requestRenderAll(),
+      getMapSnapshot: () => this.getMapSnapshot(),
+      applyMapSnapshot: (data) => this.applyMapSnapshot(data),
+      onHistoryCapture: () => this.captureHistorySnapshot(),
       getOrCreateEnemyWeaponMarker: (d, w, s) =>
         this.markerManager.getOrCreateEnemyWeaponMarker(d, w, s),
       updateEnemyMarkerVisual: (m, r, c, f) =>
@@ -363,6 +378,7 @@ export class EditorManager {
       getBackBtn: () => this.toolbarManager.getBackBtn(),
       onMapLoaded: (meta, data) => {
         this.currentMapMeta = meta
+        this.historyManager.reset(data)
       },
       onShowEditorView: () => this.showEditorView(),
       onBackToMenu: () => this.handleBack(),
@@ -383,8 +399,12 @@ export class EditorManager {
       renamingEditorObjectId: this.objectManager.getRenamingEditorObjectId(),
       selectedEditorObjectId: this.objectManager.getSelectedEditorObjectId(),
       dragObjectId: this.objectManager.getDragId(),
-      onRenameCommit: (id, value) =>
-        this.objectManager.commitObjectRename(id, value),
+      onRenameCommit: (id, value) => {
+        const changed = this.objectManager.commitObjectRename(id, value)
+        if (changed) {
+          this.captureHistorySnapshot()
+        }
+      },
       onRenameCancel: () => this.objectManager.cancelObjectRename(),
       onDragStart: (id) => {
         this.objectManager.setDragId(id)
@@ -393,6 +413,7 @@ export class EditorManager {
       onDrop: (dragId, targetId, insertAfter) => {
         this.objectManager.reorderEditorObjects(dragId, targetId, insertAfter)
         this.resetDragState()
+        this.captureHistorySnapshot()
       },
       onDragEnd: () => {
         this.resetDragState()
@@ -426,16 +447,24 @@ export class EditorManager {
       editorWorkspace: this.editorWorkspace,
       hasObjectOfType: (type) => this.hasObjectOfType(type),
       onObjectTypeSelected: (type) => this.handleObjectClick(type),
-      onGroundShapeSelected: (shape) =>
-        this.shapeManager.createGroundShape(shape),
-      onObstacleShapeSelected: (shape) =>
-        this.shapeManager.createObstacleShape(shape),
-      onWeaponSelected: (weaponType, category, size) =>
+      onGroundShapeSelected: (shape) => {
+        this.shapeManager.createGroundShape(shape)
+        this.captureHistorySnapshot()
+      },
+      onObstacleShapeSelected: (shape) => {
+        this.shapeManager.createObstacleShape(shape)
+        this.captureHistorySnapshot()
+      },
+      onWeaponSelected: (weaponType, category, size) => {
         this.markerManager.spawnWeaponMarker(weaponType, category, {
           sizeLevel: size,
-        }),
-      onEnemySelected: (enemyType) =>
-        this.markerManager.spawnEnemyMarker(enemyType),
+        })
+        this.captureHistorySnapshot()
+      },
+      onEnemySelected: (enemyType) => {
+        this.markerManager.spawnEnemyMarker(enemyType)
+        this.captureHistorySnapshot()
+      },
       onPanelMenuAdd: () => {
         const pos = this.menuSystem.getPanelMenuPosition()
         this.menuSystem.hidePanelMenu()
@@ -484,6 +513,8 @@ export class EditorManager {
         this.handleEditablePolygonPointerDown(opt as fabric.IEvent<MouseEvent>),
       handleCanvasSelection: (object) =>
         this.objectManager.handleCanvasSelection(object),
+      onObjectModified: () => this.handleObjectModified(),
+      onPolygonEdited: () => this.captureHistorySnapshot(),
     })
 
     this.setupEventListeners()
@@ -540,7 +571,31 @@ export class EditorManager {
     if (event.defaultPrevented) {
       return
     }
+    const target = event.target
+    if (target instanceof HTMLInputElement) {
+      return
+    }
+    if (target instanceof HTMLTextAreaElement) {
+      return
+    }
+    if (target instanceof HTMLSelectElement) {
+      return
+    }
+    if (target instanceof HTMLElement && target.isContentEditable) {
+      return
+    }
     if (!this.visible) {
+      return
+    }
+    const key = event.key
+    const isModifier = event.ctrlKey || event.metaKey
+    if (isModifier && key.toLowerCase() === 'z') {
+      event.preventDefault()
+      if (event.shiftKey) {
+        this.handleRedo()
+      } else {
+        this.handleUndo()
+      }
       return
     }
     if (this.currentView === EditorView.MapList) {
@@ -550,7 +605,7 @@ export class EditorManager {
     if (this.menuSystem.handleKeyDown(event)) {
       return
     }
-    if (event.key === 'Escape') {
+    if (key === 'Escape') {
       event.preventDefault()
       this.handleBack()
     }
@@ -565,6 +620,20 @@ export class EditorManager {
         this.onBackToMenuCallback()
       }
     }
+  }
+
+  private handleUndo() {
+    if (this.currentView !== EditorView.Editor) {
+      return
+    }
+    this.historyManager.undo()
+  }
+
+  private handleRedo() {
+    if (this.currentView !== EditorView.Editor) {
+      return
+    }
+    this.historyManager.redo()
   }
 
   private async handleCreateMap() {
@@ -607,6 +676,7 @@ export class EditorManager {
       this.menuSystem.hideObjectTypeMenu()
       this.setActiveObjectType(type)
       this.markerManager.spawnPlayerMarker()
+      this.captureHistorySnapshot()
       return
     }
 
@@ -618,6 +688,7 @@ export class EditorManager {
       }
       this.setActiveObjectType(type)
       this.cameraManager.spawnCameraViewFrame(undefined, type)
+      this.captureHistorySnapshot()
       return
     }
 
@@ -854,8 +925,31 @@ export class EditorManager {
     this.polygonEditor.setupEditablePolygon(polygon)
   }
 
-  private handleEditablePolygonPointerDown(opt: fabric.IEvent<MouseEvent>) {
-    this.polygonEditor.handleEditablePolygonPointerDown(opt)
+  private handleEditablePolygonPointerDown(
+    opt: fabric.IEvent<MouseEvent>
+  ): boolean {
+    return this.polygonEditor.handleEditablePolygonPointerDown(opt)
+  }
+
+  private handleObjectModified() {
+    if (!this.visible || this.currentView !== EditorView.Editor) {
+      return
+    }
+    this.captureHistorySnapshot()
+  }
+
+  private captureHistorySnapshot() {
+    this.historyManager.capture()
+  }
+
+  private getMapSnapshot(): EditorMapData {
+    return this.mapSerializer.serializeCurrentMapData()
+  }
+
+  private applyMapSnapshot(data: EditorMapData) {
+    this.historyManager.setSuspended(true)
+    this.mapSerializer.applyMapData(data)
+    this.historyManager.setSuspended(false)
   }
 
   // ========================================
@@ -1144,6 +1238,7 @@ export class EditorManager {
       this.shapeManager.deleteShapeResetData(target)
       canvas.requestRenderAll()
       this.contextMenu.hide()
+      this.captureHistorySnapshot()
       return
     }
     if (action === 'rename') {
@@ -1183,6 +1278,7 @@ export class EditorManager {
       this.cameraManager.syncCameraIcon(data)
       canvas.requestRenderAll()
       this.contextMenu.hide()
+      this.captureHistorySnapshot()
       return
     }
     if (action === 'reset') {
@@ -1201,23 +1297,27 @@ export class EditorManager {
         }
         canvas.requestRenderAll()
         this.contextMenu.hide()
+        this.captureHistorySnapshot()
         return
       }
       this.shapeManager.resetShape(target)
       canvas.requestRenderAll()
       this.contextMenu.hide()
+      this.captureHistorySnapshot()
       return
     }
     if (action === 'square') {
       this.shapeManager.makeSquare(target)
       canvas.requestRenderAll()
       this.contextMenu.hide()
+      this.captureHistorySnapshot()
       return
     }
     if (action === 'equilateral') {
       this.shapeManager.makeEquilateralTriangle(target)
       canvas.requestRenderAll()
       this.contextMenu.hide()
+      this.captureHistorySnapshot()
       return
     }
     if (!polygon || !polygon.points || !polygon.canvas) {
@@ -1246,6 +1346,7 @@ export class EditorManager {
     this.polygonEditor.refreshEditablePolygonControls(polygon)
     polygon.canvas.requestRenderAll()
     this.contextMenu.hide()
+    this.captureHistorySnapshot()
   }
 
   // ========================================

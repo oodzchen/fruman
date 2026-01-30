@@ -2,6 +2,7 @@ import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
 import { DEFAULT_BOW_AMMO_PLAYER, WEAPON_DEFAULT_DATA } from '../constants'
+import type { EditorMapData } from '../editorMapTypes'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type { EnemyPatrolMode, WeaponType } from '../types'
 import type { EditorObjectFactory } from './EditorObjectFactory'
@@ -25,6 +26,9 @@ export interface EditorPropertiesPanelContext {
   editorObjectMap: Map<fabric.Object, EditorObjectData>
   objectFactory: EditorObjectFactory
   requestRender: () => void
+  getMapSnapshot: () => EditorMapData
+  applyMapSnapshot: (data: EditorMapData) => void
+  onHistoryCapture: () => void
   getOrCreateEnemyWeaponMarker: (
     enemyData: EnemyMarkerData,
     weaponType: WeaponType,
@@ -51,6 +55,8 @@ export class EditorPropertiesPanel {
     if (!data) {
       return
     }
+    const baseSnapshot = this.context.getMapSnapshot()
+    let committed = false
 
     const editorData = this.context.editorObjectMap.get(marker)
     const enemyTypeLocal = localizer.t(`editor_enemy_${data.enemyType}`)
@@ -480,14 +486,23 @@ export class EditorPropertiesPanel {
         data.facing
       )
       this.context.requestRender()
+      committed = true
+      this.context.onHistoryCapture()
       close()
     })
 
-    cancelBtn.addEventListener('click', close)
+    const closeDialog = () => {
+      if (!committed) {
+        this.context.applyMapSnapshot(baseSnapshot)
+      }
+      close()
+    }
+
+    cancelBtn.addEventListener('click', closeDialog)
 
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        close()
+        closeDialog()
       }
     })
 
@@ -503,6 +518,8 @@ export class EditorPropertiesPanel {
     if (!data) {
       return
     }
+    const baseSnapshot = this.context.getMapSnapshot()
+    let committed = false
 
     const template = WEAPON_DEFAULT_DATA[marker.weaponType]
     const isBow = marker.weaponType === 'bow'
@@ -667,6 +684,9 @@ export class EditorPropertiesPanel {
 
     return new Promise<void>((resolve) => {
       const cleanup = () => {
+        if (!committed) {
+          this.context.applyMapSnapshot(baseSnapshot)
+        }
         close()
         resolve()
       }
@@ -713,6 +733,8 @@ export class EditorPropertiesPanel {
 
         this.context.updateWeaponMarkerVisual(marker, sizeLevel)
         this.context.requestRender()
+        committed = true
+        this.context.onHistoryCapture()
         cleanup()
       })
 
