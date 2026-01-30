@@ -30,6 +30,7 @@ export const DEBUG_EDITOR_MENU = false
 export const DEFAULT_ENEMY_TYPE: EnemyType = 'default'
 
 export const EDITOR_HISTORY_MAX_ENTRIES = 60
+export const EDITOR_NUDGE_STEP_PX = 1
 
 // ========================================
 // 颜色常量

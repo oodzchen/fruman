@@ -21,6 +21,7 @@ import {
   DEBUG_EDITOR_MENU,
   DEFAULT_ENEMY_TYPE,
   EDITOR_HISTORY_MAX_ENTRIES,
+  EDITOR_NUDGE_STEP_PX,
   EDITOR_PIXELS_PER_METER,
   ENEMY_EYE_COLOR,
   PLAYER_BODY_COLOR,
@@ -605,6 +606,28 @@ export class EditorManager {
     if (this.menuSystem.handleKeyDown(event)) {
       return
     }
+    if (this.currentView === EditorView.Editor) {
+      if (key === 'ArrowUp') {
+        event.preventDefault()
+        this.nudgeSelectedObject(0, -EDITOR_NUDGE_STEP_PX)
+        return
+      }
+      if (key === 'ArrowDown') {
+        event.preventDefault()
+        this.nudgeSelectedObject(0, EDITOR_NUDGE_STEP_PX)
+        return
+      }
+      if (key === 'ArrowLeft') {
+        event.preventDefault()
+        this.nudgeSelectedObject(-EDITOR_NUDGE_STEP_PX, 0)
+        return
+      }
+      if (key === 'ArrowRight') {
+        event.preventDefault()
+        this.nudgeSelectedObject(EDITOR_NUDGE_STEP_PX, 0)
+        return
+      }
+    }
     if (key === 'Escape') {
       event.preventDefault()
       this.handleBack()
@@ -950,6 +973,35 @@ export class EditorManager {
     this.historyManager.setSuspended(true)
     this.mapSerializer.applyMapData(data)
     this.historyManager.setSuspended(false)
+  }
+
+  private nudgeSelectedObject(dx: number, dy: number) {
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      return
+    }
+    const active = canvas.getActiveObject()
+    if (!active || !this.objectManager.getEditorObjectMap().has(active)) {
+      return
+    }
+    const currentLeft = Math.round(active.left ?? 0)
+    const currentTop = Math.round(active.top ?? 0)
+    const nextLeft = currentLeft + dx
+    const nextTop = currentTop + dy
+    if (nextLeft === currentLeft && nextTop === currentTop) {
+      return
+    }
+    active.left = nextLeft
+    active.top = nextTop
+    active.setCoords()
+    if (this.cameraManager.isCameraFrame(active)) {
+      const data = this.cameraManager.getCameraViewMap().get(active)
+      if (data) {
+        this.cameraManager.syncCameraIcon(data)
+      }
+    }
+    canvas.requestRenderAll()
+    this.captureHistorySnapshot()
   }
 
   // ========================================
