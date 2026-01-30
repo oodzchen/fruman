@@ -418,8 +418,7 @@ export class EditorManager {
         const target = event.target as Node
         if (
           this.contextMenu.containsTarget(target) ||
-          this.menuSystem.containsTarget(target) ||
-          this.sidebarManager.containsTarget(target)
+          this.menuSystem.containsTarget(target)
         ) {
           return
         }
