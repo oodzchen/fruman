@@ -1955,6 +1955,7 @@ export class EditorManager {
       maxPosture?: number
       maxToughness?: number
       color?: string
+      facing?: number
       equipWeapon?: boolean
       mainWeapon?: MapEnemyWeapon
       secondaryWeapon?: MapEnemyWeapon
@@ -1978,7 +1979,7 @@ export class EditorManager {
     const maxPosture = spawn?.maxPosture ?? template.maxPosture
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
     const color = spawn?.color ?? template.color
-    const facing = 1 // Default facing
+    const facing = spawn?.facing ?? 1
     const equipWeapon = spawn?.equipWeapon ?? false
     let centerX: number
     let centerY: number
@@ -2012,6 +2013,7 @@ export class EditorManager {
     marker.setCoords()
     this.fabricCanvas.add(marker)
     this.registerEditorObject(ObjectType.Enemy, marker)
+    this.updateEnemyMarkerVisual(marker, radius, color, facing)
     const enemyData: EnemyMarkerData = {
       marker,
       enemyType,
@@ -2026,6 +2028,8 @@ export class EditorManager {
       color,
       facing,
       equipWeapon,
+      mainWeapon: spawn?.mainWeapon?.weaponType,
+      secondaryWeapon: spawn?.secondaryWeapon?.weaponType,
     }
     this.enemyMarkers.push(enemyData)
     this.enemyMarkerMap.set(marker, enemyData)
@@ -3077,7 +3081,9 @@ export class EditorManager {
     this.weaponMarkerMap.set(weaponMarker, weaponData)
     const markerKey =
       slot === 'main' ? 'mainWeaponMarker' : 'secondaryWeaponMarker'
+    const weaponKey = slot === 'main' ? 'mainWeapon' : 'secondaryWeapon'
     enemyData[markerKey] = weaponMarker
+    enemyData[weaponKey] = config.weaponType
   }
 
   private getOrCreateEnemyWeaponMarker(
@@ -3087,12 +3093,14 @@ export class EditorManager {
   ): WeaponMarker | null {
     const markerKey =
       slot === 'main' ? 'mainWeaponMarker' : 'secondaryWeaponMarker'
+    const weaponKey = slot === 'main' ? 'mainWeapon' : 'secondaryWeapon'
     let weaponMarker = enemyData[markerKey]
 
     if (weaponMarker && weaponMarker.weaponType !== weaponType) {
       this.weaponMarkerMap.delete(weaponMarker)
       weaponMarker = undefined
       enemyData[markerKey] = undefined
+      enemyData[weaponKey] = undefined
     }
 
     if (!weaponMarker) {
@@ -3116,6 +3124,7 @@ export class EditorManager {
       const weaponData = result.weaponData as WeaponMarkerData
       this.weaponMarkerMap.set(weaponMarker, weaponData)
       enemyData[markerKey] = weaponMarker
+      enemyData[weaponKey] = weaponType
     }
 
     return weaponMarker

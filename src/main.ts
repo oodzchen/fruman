@@ -316,7 +316,7 @@ async function initialize() {
       paramLog[localizer.t(config.label)] = result.getValue()
     }
   }
-  console.table(paramLog)
+  // console.table(paramLog)
 
   const editorManager = new EditorManager()
   editorManager.setGameClient(game)
