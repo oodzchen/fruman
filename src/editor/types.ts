@@ -38,6 +38,8 @@ export type EnemyMarker = fabric.Group & {
   equipWeapon: boolean
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
+  weaponBackShape?: WeaponShape
+  weaponFrontShape?: WeaponShape
 }
 
 export type WeaponMarker = fabric.Group & {

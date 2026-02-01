@@ -149,22 +149,66 @@ export class EditorObjectFactory {
       top: eyeOffsetY,
       objectCaching: false,
     })
-    const group = new fabric.Group([body, eye], {
-      width: radius * 2,
-      height: radius * 2,
+    const renderWeapon = this.renderWeapon
+    const weaponShapeClass = fabric.util.createClass(fabric.Object, {
+      type: 'customEnemyWeapon',
+      weaponWidthPx: 0,
+      weaponHeightPx: 0,
+      weaponBoundingWidthPx: 0,
+      weaponBoundingHeightPx: 0,
+      weaponRenderType: 'sword',
+      _render(ctx: CanvasRenderingContext2D) {
+        const self = this as WeaponShape
+        renderWeapon(
+          ctx,
+          self.weaponRenderType,
+          self.weaponWidthPx,
+          self.weaponHeightPx,
+          '#b4bdc7',
+          false
+        )
+      },
+    })
+
+    const weaponBackShape = new weaponShapeClass({
       originX: 'center',
       originY: 'center',
-      selectable: true,
-      hasControls: false,
-      lockRotation: true,
-      lockScalingX: true,
-      lockScalingY: true,
       objectCaching: false,
-    })
+      selectable: false,
+      visible: false,
+    }) as WeaponShape
+
+    const weaponFrontShape = new weaponShapeClass({
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+      selectable: false,
+      visible: false,
+    }) as WeaponShape
+
+    const group = new fabric.Group(
+      [weaponBackShape, body, weaponFrontShape, eye],
+      {
+        width: radius * 2,
+        height: radius * 2,
+        originX: 'center',
+        originY: 'center',
+        selectable: true,
+        hasControls: false,
+        lockRotation: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        objectCaching: false,
+      }
+    )
     ;(group as unknown as { editorShape: string }).editorShape = 'enemy-marker'
     ;(group as unknown as { enemyType: string }).enemyType = enemyType
     ;(group as unknown as { color: string }).color = color
     ;(group as unknown as { equipWeapon: boolean }).equipWeapon = equipWeapon
+    ;(group as unknown as { weaponBackShape: WeaponShape }).weaponBackShape =
+      weaponBackShape
+    ;(group as unknown as { weaponFrontShape: WeaponShape }).weaponFrontShape =
+      weaponFrontShape
     return group
   }
 

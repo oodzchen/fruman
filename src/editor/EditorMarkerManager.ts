@@ -6,6 +6,7 @@ import {
   DEFAULT_BOW_AMMO_PLAYER,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
+import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
 import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
 import { DEFAULT_ENEMY_TYPE, EDITOR_PIXELS_PER_METER } from './EditorConstants'
@@ -53,6 +54,8 @@ export class EditorMarkerManager {
   private weaponMarkers: WeaponMarkerData[] = []
   private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
+  private tempEnemyPos = { x: 0, y: 0 }
+  private tempWeaponTransform = { x: 0, y: 0, rotation: 0 }
 
   constructor(
     ctx: EditorMarkerManagerContext,
@@ -218,7 +221,8 @@ export class EditorMarkerManager {
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
     const color = spawn?.color ?? template.color
     const facing = spawn?.facing ?? 1
-    const equipWeapon = spawn?.equipWeapon ?? false
+    const equipWeapon =
+      spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
     let centerX: number
     let centerY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -255,7 +259,6 @@ export class EditorMarkerManager {
     marker.setCoords()
     canvas.add(marker)
     this.ctx.registerEditorObject(ObjectTypeEnemy, marker)
-    this.updateEnemyMarkerVisual(marker, radius, color, facing)
     const enemyData: EnemyMarkerData = {
       marker,
       enemyType,
@@ -296,6 +299,7 @@ export class EditorMarkerManager {
       )
     }
 
+    this.updateEnemyMarkerVisual(marker, radius, color, facing)
     canvas.setActiveObject(marker)
     this.ctx.handleCanvasSelection(marker)
     canvas.renderAll()
@@ -379,8 +383,8 @@ export class EditorMarkerManager {
     nextColor: string,
     nextFacing: number
   ) {
-    const body = marker.item(0)
-    const eye = marker.item(1)
+    const body = marker.item(1)
+    const eye = marker.item(3)
     const bodyRadiusPx = this.ctx.computeEnemyBodyRadiusPx(
       nextRadius,
       EDITOR_PIXELS_PER_METER
@@ -409,7 +413,102 @@ export class EditorMarkerManager {
     marker.radius = nextRadius
     marker.color = nextColor
     marker.facing = nextFacing
+    this.updateEnemyWeaponVisual(marker)
     marker.setCoords()
+  }
+
+  private updateEnemyWeaponVisual(marker: EnemyMarker) {
+    const weaponBackShape = marker.weaponBackShape
+    const weaponFrontShape = marker.weaponFrontShape
+    if (!weaponBackShape || !weaponFrontShape) {
+      return
+    }
+
+    const enemyData = this.enemyMarkerMap.get(marker)
+    if (!enemyData || !marker.equipWeapon) {
+      weaponBackShape.visible = false
+      weaponFrontShape.visible = false
+      return
+    }
+
+    const weaponMarker =
+      enemyData.mainWeaponMarker ?? enemyData.secondaryWeaponMarker
+    const weaponType =
+      enemyData.mainWeapon ?? enemyData.secondaryWeapon ?? undefined
+
+    if (!weaponType) {
+      weaponBackShape.visible = false
+      weaponFrontShape.visible = false
+      return
+    }
+
+    const template = WEAPON_DEFAULT_DATA[weaponType]
+    const weaponData = weaponMarker
+      ? this.weaponMarkerMap.get(weaponMarker)
+      : undefined
+    const sizeLevel = weaponData?.sizeLevel ?? template.sizeLevel
+    const isBow = weaponType === 'bow'
+    const dims = this.ctx.computeWeaponRenderDimensions(
+      template,
+      sizeLevel,
+      EDITOR_PIXELS_PER_METER,
+      isBow
+    )
+    const weaponWidthPx = Math.round(dims.widthPx)
+    const weaponHeightPx = Math.round(dims.heightPx)
+    const weaponBoundingWidthPx = Math.round(dims.boundingWidthPx)
+    const weaponBoundingHeightPx = Math.round(dims.boundingHeightPx)
+
+    weaponBackShape.weaponWidthPx = weaponWidthPx
+    weaponBackShape.weaponHeightPx = weaponHeightPx
+    weaponBackShape.weaponBoundingWidthPx = weaponBoundingWidthPx
+    weaponBackShape.weaponBoundingHeightPx = weaponBoundingHeightPx
+    weaponBackShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponBackShape.width = weaponBoundingWidthPx
+    weaponBackShape.height = weaponBoundingHeightPx
+
+    weaponFrontShape.weaponWidthPx = weaponWidthPx
+    weaponFrontShape.weaponHeightPx = weaponHeightPx
+    weaponFrontShape.weaponBoundingWidthPx = weaponBoundingWidthPx
+    weaponFrontShape.weaponBoundingHeightPx = weaponBoundingHeightPx
+    weaponFrontShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponFrontShape.width = weaponBoundingWidthPx
+    weaponFrontShape.height = weaponBoundingHeightPx
+
+    this.tempEnemyPos.x = 0
+    this.tempEnemyPos.y = 0
+    setWeaponBackTransform(
+      this.tempEnemyPos,
+      marker.facing,
+      this.tempWeaponTransform,
+      marker.radius,
+      weaponType
+    )
+
+    const weaponLeft = Math.round(
+      this.tempWeaponTransform.x * EDITOR_PIXELS_PER_METER
+    )
+    const weaponTop = Math.round(
+      this.tempWeaponTransform.y * EDITOR_PIXELS_PER_METER
+    )
+    const weaponAngle = Math.round(
+      (this.tempWeaponTransform.rotation * 180) / Math.PI
+    )
+
+    weaponBackShape.left = weaponLeft
+    weaponBackShape.top = weaponTop
+    weaponBackShape.angle = weaponAngle
+    weaponFrontShape.left = weaponLeft
+    weaponFrontShape.top = weaponTop
+    weaponFrontShape.angle = weaponAngle
+
+    if (marker.facing < 0) {
+      weaponBackShape.visible = true
+      weaponFrontShape.visible = false
+    } else {
+      weaponBackShape.visible = false
+      weaponFrontShape.visible = true
+    }
   }
 
   updateWeaponMarkerVisual(marker: WeaponMarker, nextSizeLevel: number) {
@@ -439,6 +538,26 @@ export class EditorMarkerManager {
     marker.width = dims.boundingWidthPx
     marker.height = dims.boundingHeightPx
     marker.setCoords()
+
+    let updatedEnemy = false
+    for (let i = 0; i < this.enemyMarkers.length; i++) {
+      const enemyData = this.enemyMarkers[i]
+      if (
+        enemyData.mainWeaponMarker === marker ||
+        enemyData.secondaryWeaponMarker === marker
+      ) {
+        this.updateEnemyMarkerVisual(
+          enemyData.marker,
+          enemyData.radius,
+          enemyData.color,
+          enemyData.facing
+        )
+        updatedEnemy = true
+      }
+    }
+    if (updatedEnemy) {
+      this.ctx.requestRender()
+    }
   }
 
   getOrCreateEnemyWeaponMarker(
