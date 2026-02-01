@@ -65,6 +65,7 @@ import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
+import { setWeaponBackTransform } from '../WeaponPoseUtils'
 import type { World } from '../World'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
@@ -881,7 +882,7 @@ export class WeaponSystem extends System {
         weapon.width
       )
     } else {
-      this.getBackTransform(
+      setWeaponBackTransform(
         playerPos,
         facing,
         weapon.visual,
@@ -1784,7 +1785,7 @@ export class WeaponSystem extends System {
       weapon.bowHasAim = false
       weapon.bowFreeAimReticleX = 0
       weapon.bowFreeAimReticleY = 0
-      this.getBackTransform(
+      setWeaponBackTransform(
         playerPos,
         facing,
         weapon.visual,
@@ -2331,7 +2332,7 @@ export class WeaponSystem extends System {
                   entity.weapon.width
                 )
               } else {
-                this.getBackTransform(
+                setWeaponBackTransform(
                   entity.transform,
                   facing,
                   entity.weapon.visual,
@@ -2420,7 +2421,7 @@ export class WeaponSystem extends System {
               entity.weapon.width
             )
           } else {
-            this.getBackTransform(
+            setWeaponBackTransform(
               entity.transform,
               newFacing,
               entity.weapon.visual,
@@ -2485,7 +2486,7 @@ export class WeaponSystem extends System {
               entity.weapon.width
             )
           } else {
-            this.getBackTransform(
+            setWeaponBackTransform(
               entity.transform,
               newFacing,
               entity.weapon.visual,
@@ -2785,24 +2786,6 @@ export class WeaponSystem extends System {
     weapon.attackElapsedMs = Math.max(weapon.attackElapsedMs, minimumElapsedMs)
   }
 
-  private getBackTransform(
-    playerPos: { x: number; y: number },
-    facing: number,
-    out: WeaponTransform,
-    radius: number,
-    weaponType: WeaponVisualType
-  ): void {
-    out.x = playerPos.x - facing * (radius + 0.2)
-    out.y = playerPos.y
-
-    if (weaponType === 'bow') {
-      out.rotation = facing === 1 ? -Math.PI / 2 : Math.PI / 2
-      return
-    }
-
-    out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-  }
-
   private getFrontTransform(
     playerPos: { x: number; y: number },
     facing: number,
@@ -2911,7 +2894,7 @@ export class WeaponSystem extends System {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     this.tempPlayerPos.x = entity.transform.x
     this.tempPlayerPos.y = entity.transform.y
-    this.getBackTransform(
+    setWeaponBackTransform(
       this.tempPlayerPos,
       facing,
       weapon.visual,

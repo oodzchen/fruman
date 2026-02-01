@@ -1,8 +1,19 @@
 import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
-import { DEFAULT_BOW_AMMO_PLAYER, WEAPON_DEFAULT_DATA } from '../constants'
+import {
+  DEFAULT_BOW_AMMO_ENEMY,
+  DEFAULT_BOW_AMMO_PLAYER,
+  WEAPON_DEFAULT_DATA,
+} from '../constants'
+import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
+import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type { EditorMapData } from '../editorMapTypes'
+import {
+  HUD_SLOT_SIZE,
+  HUD_SLOT_SPACING,
+  drawHudWeaponSlot,
+} from '../renderer/HudWeaponSlotRenderer'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type { EnemyPatrolMode, WeaponType } from '../types'
 import type { EditorObjectFactory } from './EditorObjectFactory'
@@ -66,7 +77,15 @@ export class EditorPropertiesPanel {
       `[${enemyTypeLocal}] ${objectName}`
     )
 
-    const { leftPanel, previewCanvas, previewCtx, close, modal } = dialog
+    const { leftPanel, rightPanel, previewCanvas, previewCtx, close, modal } =
+      dialog
+    const weaponSlotsCanvas = EditorUIHelper.createPreviewCanvas({
+      width: 160,
+      height: 64,
+    })
+    weaponSlotsCanvas.style.marginTop = '12px'
+    rightPanel.appendChild(weaponSlotsCanvas)
+    const weaponSlotsCtx = weaponSlotsCanvas.getContext('2d')
 
     // Radius
     const radiusRow = EditorUIHelper.createFormRow(
@@ -231,6 +250,7 @@ export class EditorPropertiesPanel {
         )
         if (weaponMarker) {
           await this.showWeaponPropertiesDialog(weaponMarker)
+          renderEnemyPreview()
         }
       }
     })
@@ -249,10 +269,11 @@ export class EditorPropertiesPanel {
         }
       }
     }
-    mainWeaponSelect.addEventListener(
-      'change',
-      updateMainWeaponConfigBtnVisibility
-    )
+    const handleMainWeaponChange = () => {
+      updateMainWeaponConfigBtnVisibility()
+      renderEnemyPreview()
+    }
+    mainWeaponSelect.addEventListener('change', handleMainWeaponChange)
     updateMainWeaponConfigBtnVisibility()
 
     // Secondary Weapon
@@ -283,6 +304,7 @@ export class EditorPropertiesPanel {
         )
         if (weaponMarker) {
           await this.showWeaponPropertiesDialog(weaponMarker)
+          renderEnemyPreview()
         }
       }
     })
@@ -301,9 +323,13 @@ export class EditorPropertiesPanel {
         }
       }
     }
+    const handleSecondaryWeaponChange = () => {
+      updateSecondaryWeaponConfigBtnVisibility()
+      renderEnemyPreview()
+    }
     secondaryWeaponSelect.addEventListener(
       'change',
-      updateSecondaryWeaponConfigBtnVisibility
+      handleSecondaryWeaponChange
     )
     updateSecondaryWeaponConfigBtnVisibility()
 
@@ -327,6 +353,146 @@ export class EditorPropertiesPanel {
       return colorRegex.test(value) ? value : data.color
     }
 
+    type WeaponSlotPreview = {
+      hasWeapon: boolean
+      weaponType: WeaponType
+      weaponWidth: number
+      weaponHeight: number
+      sizeLevel: number
+      sizeMaxLevel: number
+      ammo: number
+    }
+
+    const mainSlotPreview: WeaponSlotPreview = {
+      hasWeapon: false,
+      weaponType: 'sword',
+      weaponWidth: 0,
+      weaponHeight: 0,
+      sizeLevel: 0,
+      sizeMaxLevel: 0,
+      ammo: 0,
+    }
+
+    const secondarySlotPreview: WeaponSlotPreview = {
+      hasWeapon: false,
+      weaponType: 'sword',
+      weaponWidth: 0,
+      weaponHeight: 0,
+      sizeLevel: 0,
+      sizeMaxLevel: 0,
+      ammo: 0,
+    }
+
+    const previewPlayerPos = { x: 0, y: 0 }
+    const previewWeaponTransform = { x: 0, y: 0, rotation: 0 }
+    const weaponAmmoTextCache: string[] = []
+    const previewPixelsPerMeter = 60
+    const previewWeaponColor = '#b4bdc7'
+
+    const getAmmoText = (ammo: number): string => {
+      const cached = weaponAmmoTextCache[ammo]
+      if (cached) return cached
+      const text = String(ammo)
+      weaponAmmoTextCache[ammo] = text
+      return text
+    }
+
+    const resetWeaponSlotPreview = (slot: WeaponSlotPreview) => {
+      slot.hasWeapon = false
+      slot.weaponType = 'sword'
+      slot.weaponWidth = 0
+      slot.weaponHeight = 0
+      slot.sizeLevel = 0
+      slot.sizeMaxLevel = 0
+      slot.ammo = 0
+    }
+
+    const fillWeaponSlotPreview = (
+      slot: WeaponSlotPreview,
+      weaponValue: string,
+      marker: WeaponMarker | undefined
+    ) => {
+      if (!weaponValue || weaponValue === 'none') {
+        resetWeaponSlotPreview(slot)
+        return
+      }
+
+      const weaponType = weaponValue as WeaponType
+      const template = WEAPON_DEFAULT_DATA[weaponType]
+      const markerData = marker
+        ? this.context.weaponMarkerMap.get(marker)
+        : null
+      const markerMatches =
+        markerData && markerData.weaponType === weaponType ? markerData : null
+      const sizeLevel = markerMatches
+        ? markerMatches.sizeLevel
+        : template.sizeLevel
+      const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
+
+      slot.hasWeapon = true
+      slot.weaponType = weaponType
+      slot.weaponWidth = template.width * scaleFactor
+      slot.weaponHeight = template.height * scaleFactor
+      slot.sizeLevel = sizeLevel
+      slot.sizeMaxLevel = template.sizeMaxLevel
+      slot.ammo =
+        weaponType === 'bow'
+          ? (markerMatches?.bowAmmo ?? DEFAULT_BOW_AMMO_ENEMY)
+          : 0
+    }
+
+    const renderWeaponSlotsPreview = () => {
+      if (!weaponSlotsCtx) {
+        return
+      }
+
+      const canvasWidth = weaponSlotsCanvas.width
+      const canvasHeight = weaponSlotsCanvas.height
+      weaponSlotsCtx.clearRect(0, 0, canvasWidth, canvasHeight)
+
+      const totalWidth = HUD_SLOT_SIZE * 2 + HUD_SLOT_SPACING
+      const startX = Math.round((canvasWidth - totalWidth) / 2)
+      const slotY = Math.round((canvasHeight - HUD_SLOT_SIZE) / 2)
+      const secondaryX = startX + HUD_SLOT_SIZE + HUD_SLOT_SPACING
+
+      const mainAmmoValue = mainSlotPreview.ammo < 0 ? 0 : mainSlotPreview.ammo
+      const secondaryAmmoValue =
+        secondarySlotPreview.ammo < 0 ? 0 : secondarySlotPreview.ammo
+
+      drawHudWeaponSlot(
+        weaponSlotsCtx,
+        startX,
+        slotY,
+        HUD_SLOT_SIZE,
+        true,
+        mainSlotPreview.hasWeapon,
+        mainSlotPreview.weaponType === 'bow' ? 'bow' : 'sword',
+        mainSlotPreview.weaponWidth,
+        mainSlotPreview.weaponHeight,
+        mainSlotPreview.sizeLevel,
+        mainSlotPreview.sizeMaxLevel,
+        mainAmmoValue,
+        mainSlotPreview.weaponType === 'bow' ? getAmmoText(mainAmmoValue) : ''
+      )
+      drawHudWeaponSlot(
+        weaponSlotsCtx,
+        secondaryX,
+        slotY,
+        HUD_SLOT_SIZE,
+        false,
+        secondarySlotPreview.hasWeapon,
+        secondarySlotPreview.weaponType === 'bow' ? 'bow' : 'sword',
+        secondarySlotPreview.weaponWidth,
+        secondarySlotPreview.weaponHeight,
+        secondarySlotPreview.sizeLevel,
+        secondarySlotPreview.sizeMaxLevel,
+        secondaryAmmoValue,
+        secondarySlotPreview.weaponType === 'bow'
+          ? getAmmoText(secondaryAmmoValue)
+          : ''
+      )
+    }
+
     const renderEnemyPreview = () => {
       if (!previewCtx) {
         return
@@ -340,18 +506,80 @@ export class EditorPropertiesPanel {
       const color = getValidColor()
       const facing = Number.parseInt(facingSelect.value, 10)
 
-      const centerX = previewCanvas.width * 0.5
-      const centerY = previewCanvas.height * 0.58
-      const pixelsPerMeter = 60
+      fillWeaponSlotPreview(
+        mainSlotPreview,
+        mainWeaponSelect.value,
+        data.mainWeaponMarker
+      )
+      fillWeaponSlotPreview(
+        secondarySlotPreview,
+        secondaryWeaponSelect.value,
+        data.secondaryWeaponMarker
+      )
+
+      const centerX = Math.round(previewCanvas.width / 2)
+      const centerY = Math.round((previewCanvas.height * 58) / 100)
+      previewPlayerPos.x = centerX / previewPixelsPerMeter
+      previewPlayerPos.y = centerY / previewPixelsPerMeter
+
+      const renderMainWeapon = () => {
+        if (!mainSlotPreview.hasWeapon) {
+          return
+        }
+        setWeaponBackTransform(
+          previewPlayerPos,
+          facing,
+          previewWeaponTransform,
+          radius,
+          mainSlotPreview.weaponType
+        )
+        const weaponX = Math.round(
+          previewWeaponTransform.x * previewPixelsPerMeter
+        )
+        const weaponY = Math.round(
+          previewWeaponTransform.y * previewPixelsPerMeter
+        )
+        const weaponWidth = Math.round(
+          mainSlotPreview.weaponWidth * previewPixelsPerMeter
+        )
+        const weaponHeight = Math.round(
+          mainSlotPreview.weaponHeight * previewPixelsPerMeter
+        )
+        if (weaponWidth <= 0 || weaponHeight <= 0) {
+          return
+        }
+
+        previewCtx.save()
+        previewCtx.translate(weaponX, weaponY)
+        previewCtx.rotate(previewWeaponTransform.rotation)
+        renderWeapon(
+          previewCtx,
+          mainSlotPreview.weaponType === 'bow' ? 'bow' : 'sword',
+          weaponWidth,
+          weaponHeight,
+          previewWeaponColor,
+          false,
+          0
+        )
+        previewCtx.restore()
+      }
+
+      if (facing < 0) {
+        renderMainWeapon()
+      }
       renderEnemyPreviewToContext(
         previewCtx,
         centerX,
         centerY,
         radius,
         color,
-        pixelsPerMeter,
+        previewPixelsPerMeter,
         facing
       )
+      if (facing >= 0) {
+        renderMainWeapon()
+      }
+      renderWeaponSlotsPreview()
     }
 
     const updateEnemyVisualFromInputs = () => {
