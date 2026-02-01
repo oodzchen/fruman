@@ -20,6 +20,14 @@ export type CameraFrame = fabric.Rect & {
 
 export type PlayerMarker = fabric.Group & {
   editorShape: 'player-marker'
+  radius: number
+  maxHealth: number
+  maxPosture: number
+  maxToughness: number
+  color: string
+  facing: number
+  weaponBackShape?: WeaponShape
+  weaponFrontShape?: WeaponShape
 }
 
 export type EnemyMarker = fabric.Group & {
@@ -89,6 +97,21 @@ export interface EnemyMarkerData {
   color: string
   facing: number
   equipWeapon: boolean
+  mainWeapon?: WeaponType
+  mainWeaponMarker?: WeaponMarker
+  secondaryWeapon?: WeaponType
+  secondaryWeaponMarker?: WeaponMarker
+}
+
+export interface PlayerMarkerData {
+  marker: PlayerMarker
+  radius: number
+  moveSpeed: number
+  maxHealth: number
+  maxPosture: number
+  maxToughness: number
+  color: string
+  facing: number
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker
   secondaryWeapon?: WeaponType

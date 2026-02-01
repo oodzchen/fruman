@@ -93,6 +93,18 @@ export interface MapCamera {
   zoom: number
 }
 
+export interface MapPlayerProperties {
+  radius?: number
+  moveSpeed?: number
+  facing?: number
+  maxHealth?: number
+  maxPosture?: number
+  maxToughness?: number
+  color?: string
+  mainWeapon?: MapEnemyWeapon
+  secondaryWeapon?: MapEnemyWeapon
+}
+
 export interface EditorViewportState {
   zoomScaled: number
   offsetX: number
@@ -105,6 +117,7 @@ export interface EditorMapData {
   canvasHeight: number
   pixelsPerMeter: number
   playerSpawn: MapVector2
+  player?: MapPlayerProperties
   camera: MapCamera
   shapes: MapPlacedShape[]
   enemies: MapEnemy[]

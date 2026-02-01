@@ -14,11 +14,16 @@ import {
   DEBUG_DRAW_CAMERA,
   DEBUG_DRAW_SENSORS,
   DEBUG_DRAW_SOUND,
+  DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_CAMERA_ZOOM,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
+  DEFAULT_PLAYER_MAX_HEALTH,
+  DEFAULT_PLAYER_MAX_POSTURE,
+  DEFAULT_PLAYER_MAX_TOUGHNESS,
   DEFAULT_PLAYER_RADIUS,
+  DEFAULT_WEAPON_CORNER_RADIUS,
   ENEMY_HEARING_RANGE_MULTIPLIER,
   MASK_WEAPON,
   WEAPON_DEFAULT_DATA,
@@ -44,10 +49,15 @@ import { SoundSystem } from '../ecs/systems/SoundSystem'
 import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
-import type { EditorMapData, MapPlacedShape } from '../editorMapTypes'
+import type {
+  EditorMapData,
+  MapEnemyWeapon,
+  MapPlacedShape,
+} from '../editorMapTypes'
 import { ensureDefaultMap } from '../storage'
 import type {
   MainModule,
+  WeaponType,
   WeaponVisualType,
   b2BodyId,
   b2Hull,
@@ -1166,15 +1176,157 @@ function computeRectWorldVertices(
   return world
 }
 
+function applyWeaponSlotConfig(
+  slot: {
+    hasWeapon: boolean
+    weaponType: string
+    width: number
+    height: number
+    baseWidth: number
+    sizeLevel: number
+    sizeMaxLevel: number
+    cornerRadius: number
+    weight: number
+    attackDamage: number
+    postureDamage: number
+    toughnessDamage: number
+    bowAmmo: number
+    bowAmmoMax: number
+  },
+  config: MapEnemyWeapon | undefined,
+  defaultBowAmmo: number
+) {
+  if (!config) {
+    slot.hasWeapon = false
+    return
+  }
+
+  const template = WEAPON_DEFAULT_DATA[config.weaponType]
+  const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
+  const sizeLevel =
+    Number.isFinite(config.sizeLevel) && config.sizeLevel > 0
+      ? config.sizeLevel
+      : baseLevel
+  const scaleFactor = sizeLevel / baseLevel
+  slot.hasWeapon = true
+  slot.weaponType = config.weaponType
+  slot.width = template.width * scaleFactor
+  slot.height = template.height * scaleFactor
+  slot.baseWidth = template.width * scaleFactor
+  slot.sizeLevel = sizeLevel
+  slot.sizeMaxLevel = template.sizeMaxLevel
+  slot.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+  slot.weight = template.weight
+  slot.attackDamage = config.attackDamage
+  slot.postureDamage = config.postureDamage
+  slot.toughnessDamage = config.toughnessDamage
+  if (config.weaponType === 'bow') {
+    const ammo = config.bowAmmo ?? defaultBowAmmo
+    slot.bowAmmoMax = ammo
+    slot.bowAmmo = ammo
+  } else {
+    slot.bowAmmoMax = 0
+    slot.bowAmmo = 0
+  }
+}
+
 function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
+  const playerProps = map?.player
+  const playerRadius =
+    typeof playerProps?.radius === 'number' &&
+    Number.isFinite(playerProps.radius) &&
+    playerProps.radius > 0
+      ? playerProps.radius
+      : DEFAULT_PLAYER_RADIUS
   playerEntity = createPlayer(
     world,
     box2d,
     worldId,
     map ? map.playerSpawn.x : -12,
     map ? map.playerSpawn.y : groundY - 0.6,
-    groundY
+    groundY,
+    playerRadius
   )
+
+  if (playerEntity.stats && playerProps) {
+    const nextMaxHealth =
+      typeof playerProps.maxHealth === 'number' &&
+      Number.isFinite(playerProps.maxHealth) &&
+      playerProps.maxHealth > 0
+        ? playerProps.maxHealth
+        : DEFAULT_PLAYER_MAX_HEALTH
+    const nextMaxPosture =
+      typeof playerProps.maxPosture === 'number' &&
+      Number.isFinite(playerProps.maxPosture) &&
+      playerProps.maxPosture >= 0
+        ? playerProps.maxPosture
+        : DEFAULT_PLAYER_MAX_POSTURE
+    const nextMaxToughness =
+      typeof playerProps.maxToughness === 'number' &&
+      Number.isFinite(playerProps.maxToughness) &&
+      playerProps.maxToughness >= 0
+        ? playerProps.maxToughness
+        : DEFAULT_PLAYER_MAX_TOUGHNESS
+
+    playerEntity.stats.maxHealth = nextMaxHealth
+    playerEntity.stats.health = nextMaxHealth
+    playerEntity.stats.maxPosture = nextMaxPosture
+    playerEntity.stats.posture = nextMaxPosture
+    playerEntity.stats.maxToughness = nextMaxToughness
+    playerEntity.stats.toughness = nextMaxToughness
+  }
+
+  if (playerEntity.movement && playerProps) {
+    const nextMoveSpeed =
+      typeof playerProps.moveSpeed === 'number' &&
+      Number.isFinite(playerProps.moveSpeed) &&
+      playerProps.moveSpeed >= 0
+        ? playerProps.moveSpeed
+        : playerEntity.movement.moveSpeed
+    playerEntity.movement.moveSpeed = nextMoveSpeed
+  }
+
+  if (playerEntity.weapon && playerEntity.weaponSlots && playerProps) {
+    const weaponSlots = playerEntity.weaponSlots
+    applyWeaponSlotConfig(
+      weaponSlots.main,
+      playerProps.mainWeapon,
+      DEFAULT_BOW_AMMO_PLAYER
+    )
+    applyWeaponSlotConfig(
+      weaponSlots.secondary,
+      playerProps.secondaryWeapon,
+      DEFAULT_BOW_AMMO_PLAYER
+    )
+
+    if (weaponSlots.main.hasWeapon) {
+      weaponSlots.activeSlot = 'main'
+    } else if (weaponSlots.secondary.hasWeapon) {
+      weaponSlots.activeSlot = 'secondary'
+    }
+
+    const activeSlot =
+      weaponSlots.activeSlot === 'main'
+        ? weaponSlots.main
+        : weaponSlots.secondary
+
+    if (activeSlot.hasWeapon) {
+      const weaponType = activeSlot.weaponType as WeaponType
+      const template = WEAPON_DEFAULT_DATA[weaponType]
+      applyWeaponSizeLevel(playerEntity.weapon, template, activeSlot.sizeLevel)
+      playerEntity.weapon.sizeMaxLevel = activeSlot.sizeMaxLevel
+      playerEntity.weapon.cornerRadius = activeSlot.cornerRadius
+      playerEntity.weapon.weaponType = weaponType
+      playerEntity.weapon.attackDamage = activeSlot.attackDamage
+      playerEntity.weapon.postureDamage = activeSlot.postureDamage
+      playerEntity.weapon.toughnessDamage = activeSlot.toughnessDamage
+      playerEntity.weapon.bowAmmo = activeSlot.bowAmmo
+      playerEntity.weapon.bowAmmoMax = activeSlot.bowAmmoMax
+      playerEntity.weapon.isEquipped = true
+    } else {
+      playerEntity.weapon.isEquipped = false
+    }
+  }
 
   if (map?.weapons) {
     for (let i = 0; i < map.weapons.length; i++) {

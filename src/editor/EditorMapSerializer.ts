@@ -5,6 +5,7 @@ import type {
   MapEnemyWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
+import type { WeaponType } from '../types'
 import {
   GROUND_CIRCLE_OPTIONS,
   GROUND_EDITABLE_POLYGON_OPTIONS,
@@ -45,6 +46,19 @@ interface EditorMapSerializerContext {
   renderObjectTree: () => void
   requestRenderAll: () => void
   getCameraViews: () => CameraViewLike[]
+  getPlayerMarkerData: () => {
+    radius: number
+    moveSpeed: number
+    maxHealth: number
+    maxPosture: number
+    maxToughness: number
+    color: string
+    facing: number
+    mainWeapon?: WeaponType
+    mainWeaponMarker?: fabric.Object
+    secondaryWeapon?: WeaponType
+    secondaryWeaponMarker?: fabric.Object
+  } | null
   getEditorObjects: () => EditorObjectLike[]
   getPolygonScratchPoint: () => fabric.Point
   applyTransform: (
@@ -91,6 +105,7 @@ export class EditorMapSerializer {
   serializeCurrentMapData(): EditorMapData {
     const base = this.buildDefaultMapData()
     const playerSpawn = this.serializePlayerSpawn(base)
+    const player = this.serializePlayerProperties()
     const camera = this.serializeCamera(base)
     const shapes: MapPlacedShape[] = []
     this.serializeShapes(shapes)
@@ -102,6 +117,7 @@ export class EditorMapSerializer {
       canvasHeight: base.canvasHeight,
       pixelsPerMeter: base.pixelsPerMeter,
       playerSpawn,
+      player,
       camera,
       shapes,
       enemies,
@@ -117,7 +133,7 @@ export class EditorMapSerializer {
     }
     this.ctx.resizeEditorCanvas()
     this.ctx.clearEditorScene()
-    this.ctx.markerManager.spawnPlayerMarker(data.playerSpawn)
+    this.ctx.markerManager.spawnPlayerMarker(data.playerSpawn, data.player)
     this.ctx.spawnCameraViewFrame(data.camera)
     this.applyPlacedShapes(data.shapes)
     this.applyEnemies(data.enemies)
@@ -337,6 +353,55 @@ export class EditorMapSerializer {
       canvas.height,
       invPixelsPerMeter
     )
+  }
+
+  private serializePlayerProperties(): EditorMapData['player'] {
+    const data = this.ctx.getPlayerMarkerData()
+    if (!data) {
+      return undefined
+    }
+    const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
+    let mainWeapon: MapEnemyWeapon | undefined
+    if (data.mainWeapon && data.mainWeaponMarker) {
+      const weaponData = weaponMarkerMap.get(data.mainWeaponMarker)
+      if (weaponData) {
+        mainWeapon = {
+          weaponType: weaponData.weaponType,
+          sizeLevel: weaponData.sizeLevel,
+          attackDamage: weaponData.attackDamage,
+          postureDamage: weaponData.postureDamage,
+          toughnessDamage: weaponData.toughnessDamage,
+          bowAmmo: weaponData.bowAmmo,
+        }
+      }
+    }
+
+    let secondaryWeapon: MapEnemyWeapon | undefined
+    if (data.secondaryWeapon && data.secondaryWeaponMarker) {
+      const weaponData = weaponMarkerMap.get(data.secondaryWeaponMarker)
+      if (weaponData) {
+        secondaryWeapon = {
+          weaponType: weaponData.weaponType,
+          sizeLevel: weaponData.sizeLevel,
+          attackDamage: weaponData.attackDamage,
+          postureDamage: weaponData.postureDamage,
+          toughnessDamage: weaponData.toughnessDamage,
+          bowAmmo: weaponData.bowAmmo,
+        }
+      }
+    }
+
+    return {
+      radius: data.radius,
+      moveSpeed: data.moveSpeed,
+      maxHealth: data.maxHealth,
+      maxPosture: data.maxPosture,
+      maxToughness: data.maxToughness,
+      color: data.color,
+      facing: data.facing,
+      mainWeapon,
+      secondaryWeapon,
+    }
   }
 
   private serializeShapes(out: MapPlacedShape[]) {

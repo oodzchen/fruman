@@ -4,18 +4,32 @@ import {
   CHARACTER_DEFAULT_DATA,
   DEFAULT_BOW_AMMO_ENEMY,
   DEFAULT_BOW_AMMO_PLAYER,
+  DEFAULT_MOVE_SPEED,
+  DEFAULT_PLAYER_MAX_HEALTH,
+  DEFAULT_PLAYER_MAX_POSTURE,
+  DEFAULT_PLAYER_MAX_TOUGHNESS,
+  DEFAULT_PLAYER_RADIUS,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
-import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
+import type {
+  MapEnemyWeapon,
+  MapPlayerProperties,
+  WeaponCategory,
+} from '../editorMapTypes'
 import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
-import { DEFAULT_ENEMY_TYPE, EDITOR_PIXELS_PER_METER } from './EditorConstants'
+import {
+  DEFAULT_ENEMY_TYPE,
+  EDITOR_PIXELS_PER_METER,
+  PLAYER_BODY_COLOR,
+} from './EditorConstants'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import type {
   EnemyMarker,
   EnemyMarkerData,
   ObjectType,
   PlayerMarker,
+  PlayerMarkerData,
   WeaponMarker,
   WeaponMarkerData,
   WeaponShape,
@@ -50,6 +64,7 @@ export class EditorMarkerManager {
   private objectFactory: EditorObjectFactory
 
   private playerMarker: PlayerMarker | null = null
+  private playerMarkerData: PlayerMarkerData | null = null
   private enemyMarkers: EnemyMarkerData[] = []
   private weaponMarkers: WeaponMarkerData[] = []
   private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
@@ -67,6 +82,7 @@ export class EditorMarkerManager {
 
   clear() {
     this.playerMarker = null
+    this.playerMarkerData = null
     this.enemyMarkers.length = 0
     this.enemyMarkerMap.clear()
     this.weaponMarkers.length = 0
@@ -75,6 +91,10 @@ export class EditorMarkerManager {
 
   getPlayerMarker() {
     return this.playerMarker
+  }
+
+  getPlayerMarkerData() {
+    return this.playerMarkerData
   }
 
   getEnemyMarkers() {
@@ -117,6 +137,7 @@ export class EditorMarkerManager {
   removePlayerMarker(marker: fabric.Object) {
     if (this.playerMarker === marker) {
       this.playerMarker = null
+      this.playerMarkerData = null
     }
   }
 
@@ -142,12 +163,51 @@ export class EditorMarkerManager {
     }
   }
 
-  spawnPlayerMarker(spawn?: { x: number; y: number }) {
+  spawnPlayerMarker(
+    spawn?: { x: number; y: number },
+    data?: MapPlayerProperties
+  ) {
     const canvas = this.ctx.getCanvas()
     if (!canvas) {
       // console.warn('[marker-manager] Fabric canvas not ready')
       return
     }
+    const nextRadius =
+      typeof data?.radius === 'number' &&
+      Number.isFinite(data.radius) &&
+      data.radius > 0
+        ? data.radius
+        : DEFAULT_PLAYER_RADIUS
+    const nextMaxHealth =
+      typeof data?.maxHealth === 'number' &&
+      Number.isFinite(data.maxHealth) &&
+      data.maxHealth > 0
+        ? data.maxHealth
+        : DEFAULT_PLAYER_MAX_HEALTH
+    const nextMaxPosture =
+      typeof data?.maxPosture === 'number' &&
+      Number.isFinite(data.maxPosture) &&
+      data.maxPosture > 0
+        ? data.maxPosture
+        : DEFAULT_PLAYER_MAX_POSTURE
+    const nextMaxToughness =
+      typeof data?.maxToughness === 'number' &&
+      Number.isFinite(data.maxToughness) &&
+      data.maxToughness > 0
+        ? data.maxToughness
+        : DEFAULT_PLAYER_MAX_TOUGHNESS
+    const nextColor =
+      typeof data?.color === 'string' && data.color.length > 0
+        ? data.color
+        : PLAYER_BODY_COLOR
+    const nextFacing =
+      data?.facing === 1 || data?.facing === -1 ? data.facing : 1
+    const nextMoveSpeed =
+      typeof data?.moveSpeed === 'number' &&
+      Number.isFinite(data.moveSpeed) &&
+      data.moveSpeed >= 0
+        ? data.moveSpeed
+        : DEFAULT_MOVE_SPEED
     let spawnX: number
     let spawnY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -162,6 +222,21 @@ export class EditorMarkerManager {
       this.playerMarker.left = spawnX
       this.playerMarker.top = spawnY
       this.playerMarker.setCoords()
+      this.updatePlayerMarkerVisual(
+        this.playerMarker,
+        nextRadius,
+        nextColor,
+        nextFacing
+      )
+      if (this.playerMarkerData) {
+        this.playerMarkerData.radius = nextRadius
+        this.playerMarkerData.moveSpeed = nextMoveSpeed
+        this.playerMarkerData.maxHealth = nextMaxHealth
+        this.playerMarkerData.maxPosture = nextMaxPosture
+        this.playerMarkerData.maxToughness = nextMaxToughness
+        this.playerMarkerData.color = nextColor
+        this.playerMarkerData.facing = nextFacing
+      }
       canvas.setActiveObject(this.playerMarker)
       this.ctx.handleCanvasSelection(this.playerMarker)
       canvas.requestRenderAll()
@@ -174,12 +249,175 @@ export class EditorMarkerManager {
     marker.left = spawnX
     marker.top = spawnY
     marker.setCoords()
+    marker.radius = nextRadius
+    marker.maxHealth = nextMaxHealth
+    marker.maxPosture = nextMaxPosture
+    marker.maxToughness = nextMaxToughness
+    marker.color = nextColor
+    marker.facing = nextFacing
+    this.updatePlayerMarkerVisual(marker, nextRadius, nextColor, nextFacing)
     this.playerMarker = marker
+    this.playerMarkerData = {
+      marker,
+      radius: nextRadius,
+      moveSpeed: nextMoveSpeed,
+      maxHealth: nextMaxHealth,
+      maxPosture: nextMaxPosture,
+      maxToughness: nextMaxToughness,
+      color: nextColor,
+      facing: nextFacing,
+    }
+    if (data?.mainWeapon) {
+      this.createPlayerWeaponFromConfig(
+        this.playerMarkerData,
+        data.mainWeapon,
+        'main',
+        marker.left ?? 0,
+        marker.top ?? 0
+      )
+    }
+    if (data?.secondaryWeapon) {
+      this.createPlayerWeaponFromConfig(
+        this.playerMarkerData,
+        data.secondaryWeapon,
+        'secondary',
+        marker.left ?? 0,
+        marker.top ?? 0
+      )
+    }
+    this.updatePlayerMarkerVisual(marker, nextRadius, nextColor, nextFacing)
     canvas.add(marker)
     this.ctx.registerEditorObject(ObjectTypePlayer, marker)
     canvas.setActiveObject(marker)
     this.ctx.handleCanvasSelection(marker)
     canvas.renderAll()
+  }
+
+  updatePlayerMarkerVisual(
+    marker: PlayerMarker,
+    nextRadius: number,
+    nextColor: string,
+    nextFacing: number
+  ) {
+    const body = marker.item(1)
+    const eye = marker.item(3)
+    const bodyRadiusPx = nextRadius * EDITOR_PIXELS_PER_METER
+    const eyeRadiusPx = 0.08 * EDITOR_PIXELS_PER_METER
+    const eyeOffsetX = bodyRadiusPx * 0.5 * nextFacing
+    const eyeOffsetY = -bodyRadiusPx * 0.5
+
+    marker.scaleX = 1
+    marker.scaleY = 1
+    marker.width = bodyRadiusPx * 2
+    marker.height = bodyRadiusPx * 2
+
+    if (body instanceof fabric.Circle) {
+      body.set('radius', bodyRadiusPx)
+      body.set('fill', nextColor)
+      body.set('stroke', nextColor)
+    }
+    if (eye instanceof fabric.Circle) {
+      eye.set('radius', eyeRadiusPx)
+      eye.set('left', eyeOffsetX)
+      eye.set('top', eyeOffsetY)
+    }
+
+    marker.radius = nextRadius
+    marker.color = nextColor
+    marker.facing = nextFacing
+    this.updatePlayerWeaponVisual(marker)
+    marker.setCoords()
+  }
+
+  private updatePlayerWeaponVisual(marker: PlayerMarker) {
+    const weaponBackShape = marker.weaponBackShape
+    const weaponFrontShape = marker.weaponFrontShape
+    if (!weaponBackShape || !weaponFrontShape) {
+      return
+    }
+
+    const playerData = this.playerMarkerData
+    if (!playerData || playerData.marker !== marker) {
+      weaponBackShape.visible = false
+      weaponFrontShape.visible = false
+      return
+    }
+
+    const weaponMarker = playerData.mainWeaponMarker
+    const weaponType = playerData.mainWeapon
+    if (!weaponType) {
+      weaponBackShape.visible = false
+      weaponFrontShape.visible = false
+      return
+    }
+
+    const template = WEAPON_DEFAULT_DATA[weaponType]
+    const weaponData = weaponMarker
+      ? this.weaponMarkerMap.get(weaponMarker)
+      : undefined
+    const sizeLevel = weaponData?.sizeLevel ?? template.sizeLevel
+    const isBow = weaponType === 'bow'
+    const dims = this.ctx.computeWeaponRenderDimensions(
+      template,
+      sizeLevel,
+      EDITOR_PIXELS_PER_METER,
+      isBow
+    )
+    const weaponWidthPx = Math.round(dims.widthPx)
+    const weaponHeightPx = Math.round(dims.heightPx)
+    const weaponBoundingWidthPx = Math.round(dims.boundingWidthPx)
+    const weaponBoundingHeightPx = Math.round(dims.boundingHeightPx)
+
+    weaponBackShape.weaponWidthPx = weaponWidthPx
+    weaponBackShape.weaponHeightPx = weaponHeightPx
+    weaponBackShape.weaponBoundingWidthPx = weaponBoundingWidthPx
+    weaponBackShape.weaponBoundingHeightPx = weaponBoundingHeightPx
+    weaponBackShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponBackShape.width = weaponBoundingWidthPx
+    weaponBackShape.height = weaponBoundingHeightPx
+
+    weaponFrontShape.weaponWidthPx = weaponWidthPx
+    weaponFrontShape.weaponHeightPx = weaponHeightPx
+    weaponFrontShape.weaponBoundingWidthPx = weaponBoundingWidthPx
+    weaponFrontShape.weaponBoundingHeightPx = weaponBoundingHeightPx
+    weaponFrontShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponFrontShape.width = weaponBoundingWidthPx
+    weaponFrontShape.height = weaponBoundingHeightPx
+
+    this.tempEnemyPos.x = 0
+    this.tempEnemyPos.y = 0
+    setWeaponBackTransform(
+      this.tempEnemyPos,
+      marker.facing,
+      this.tempWeaponTransform,
+      marker.radius,
+      weaponType
+    )
+
+    const weaponLeft = Math.round(
+      this.tempWeaponTransform.x * EDITOR_PIXELS_PER_METER
+    )
+    const weaponTop = Math.round(
+      this.tempWeaponTransform.y * EDITOR_PIXELS_PER_METER
+    )
+    const weaponAngle = Math.round(
+      (this.tempWeaponTransform.rotation * 180) / Math.PI
+    )
+
+    weaponBackShape.left = weaponLeft
+    weaponBackShape.top = weaponTop
+    weaponBackShape.angle = weaponAngle
+    weaponFrontShape.left = weaponLeft
+    weaponFrontShape.top = weaponTop
+    weaponFrontShape.angle = weaponAngle
+
+    if (marker.facing < 0) {
+      weaponBackShape.visible = true
+      weaponFrontShape.visible = false
+    } else {
+      weaponBackShape.visible = false
+      weaponFrontShape.visible = true
+    }
   }
 
   spawnEnemyMarker(
@@ -558,6 +796,20 @@ export class EditorMarkerManager {
     if (updatedEnemy) {
       this.ctx.requestRender()
     }
+    const playerData = this.playerMarkerData
+    if (
+      playerData &&
+      (playerData.mainWeaponMarker === marker ||
+        playerData.secondaryWeaponMarker === marker)
+    ) {
+      this.updatePlayerMarkerVisual(
+        playerData.marker,
+        playerData.radius,
+        playerData.color,
+        playerData.facing
+      )
+      this.ctx.requestRender()
+    }
   }
 
   getOrCreateEnemyWeaponMarker(
@@ -604,6 +856,50 @@ export class EditorMarkerManager {
     return weaponMarker
   }
 
+  getOrCreatePlayerWeaponMarker(
+    playerData: PlayerMarkerData,
+    weaponType: WeaponType,
+    slot: 'main' | 'secondary'
+  ): WeaponMarker | null {
+    const markerKey =
+      slot === 'main' ? 'mainWeaponMarker' : 'secondaryWeaponMarker'
+    const weaponKey = slot === 'main' ? 'mainWeapon' : 'secondaryWeapon'
+    let weaponMarker = playerData[markerKey]
+
+    if (weaponMarker && weaponMarker.weaponType !== weaponType) {
+      this.weaponMarkerMap.delete(weaponMarker)
+      weaponMarker = undefined
+      playerData[markerKey] = undefined
+      playerData[weaponKey] = undefined
+    }
+
+    if (!weaponMarker) {
+      const template = WEAPON_DEFAULT_DATA[weaponType]
+      const result = this.objectFactory.createEnemyWeaponMarkerFromConfig(
+        {
+          weaponType,
+          sizeLevel: template.sizeLevel,
+          attackDamage: template.attackDamage,
+          postureDamage: template.postureDamage,
+          toughnessDamage: template.toughnessDamage,
+          bowAmmo: weaponType === 'bow' ? DEFAULT_BOW_AMMO_PLAYER : undefined,
+        },
+        slot,
+        playerData.marker.left ?? 0,
+        playerData.marker.top ?? 0,
+        WEAPON_DEFAULT_DATA
+      )
+
+      weaponMarker = result.weaponMarker as WeaponMarker
+      const weaponData = result.weaponData as WeaponMarkerData
+      this.weaponMarkerMap.set(weaponMarker, weaponData)
+      playerData[markerKey] = weaponMarker
+      playerData[weaponKey] = weaponType
+    }
+
+    return weaponMarker
+  }
+
   private createEnemyWeaponFromConfig(
     enemyData: EnemyMarkerData,
     config: MapEnemyWeapon,
@@ -630,6 +926,36 @@ export class EditorMarkerManager {
       enemyData.mainWeaponMarker = typedWeaponMarker
     } else {
       enemyData.secondaryWeaponMarker = typedWeaponMarker
+    }
+  }
+
+  private createPlayerWeaponFromConfig(
+    playerData: PlayerMarkerData,
+    config: MapEnemyWeapon,
+    slot: 'main' | 'secondary',
+    x: number,
+    y: number
+  ) {
+    const { weaponMarker, weaponData } =
+      this.objectFactory.createEnemyWeaponMarkerFromConfig(
+        config,
+        slot,
+        x,
+        y,
+        WEAPON_DEFAULT_DATA
+      )
+
+    const typedWeaponMarker = weaponMarker as WeaponMarker
+    const typedWeaponData = weaponData as WeaponMarkerData
+
+    this.weaponMarkerMap.set(typedWeaponMarker, typedWeaponData)
+
+    if (slot === 'main') {
+      playerData.mainWeaponMarker = typedWeaponMarker
+      playerData.mainWeapon = config.weaponType
+    } else {
+      playerData.secondaryWeaponMarker = typedWeaponMarker
+      playerData.secondaryWeapon = config.weaponType
     }
   }
 }

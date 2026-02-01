@@ -338,6 +338,7 @@ export class EditorManager {
         this.fabricCanvas?.requestRenderAll()
       },
       getCameraViews: () => this.cameraManager.getCameraViews(),
+      getPlayerMarkerData: () => this.markerManager.getPlayerMarkerData(),
       getEditorObjects: () => this.objectManager.getEditorObjects(),
       getPolygonScratchPoint: () => this.polygonEditor.getScratchPoint(),
       applyTransform: this.polygonEditor.applyTransform.bind(
@@ -365,6 +366,7 @@ export class EditorManager {
       getFabricCanvas: () => this.fabricCanvas,
       weaponMarkerMap: this.markerManager.getWeaponMarkerMap(),
       enemyMarkerMap: this.markerManager.getEnemyMarkerMap(),
+      playerMarkerData: () => this.markerManager.getPlayerMarkerData(),
       editorObjectMap: this.objectManager.getEditorObjectMap(),
       objectFactory: this.objectFactory,
       requestRender: () => this.fabricCanvas?.requestRenderAll(),
@@ -373,8 +375,12 @@ export class EditorManager {
       onHistoryCapture: () => this.captureHistorySnapshot(),
       getOrCreateEnemyWeaponMarker: (d, w, s) =>
         this.markerManager.getOrCreateEnemyWeaponMarker(d, w, s),
+      getOrCreatePlayerWeaponMarker: (d, w, s) =>
+        this.markerManager.getOrCreatePlayerWeaponMarker(d, w, s),
       updateEnemyMarkerVisual: (m, r, c, f) =>
         this.markerManager.updateEnemyMarkerVisual(m, r, c, f),
+      updatePlayerMarkerVisual: (m, r, c, f) =>
+        this.markerManager.updatePlayerMarkerVisual(m, r, c, f),
       updateWeaponMarkerVisual: (m, s) =>
         this.markerManager.updateWeaponMarkerVisual(m, s),
     })
@@ -1264,7 +1270,7 @@ export class EditorManager {
     }
     if (this.markerManager.isPlayerMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['rename', 'delete'],
+        ['properties', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -1365,6 +1371,8 @@ export class EditorManager {
     if (action === 'properties') {
       if (this.markerManager.isWeaponMarker(target)) {
         await this.propertiesPanel.showWeaponPropertiesDialog(target)
+      } else if (this.markerManager.isPlayerMarker(target)) {
+        await this.propertiesPanel.showPlayerPropertiesDialog(target)
       } else if (this.markerManager.isEnemyMarker(target)) {
         await this.propertiesPanel.showEnemyPropertiesDialog(target)
       }

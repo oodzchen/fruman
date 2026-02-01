@@ -26,14 +26,73 @@ import type {
   EditorObjectData,
   EnemyMarker,
   EnemyMarkerData,
+  PlayerMarker,
+  PlayerMarkerData,
   WeaponMarker,
   WeaponMarkerData,
 } from './types'
+
+type CharacterWeaponBinding = {
+  label: string
+  slot: 'main' | 'secondary'
+  options: Array<{ label: string; value: string }>
+  defaultBowAmmo: number
+  getWeaponType: () => WeaponType | undefined
+  setWeaponType: (weaponType: WeaponType | undefined) => void
+  getWeaponMarker: () => WeaponMarker | undefined
+  setWeaponMarker: (marker: WeaponMarker | undefined) => void
+  ensureWeaponMarker: (weaponType: WeaponType) => WeaponMarker | null
+}
+
+type CharacterDialogOptions = {
+  title: string
+  marker: EnemyMarker | PlayerMarker
+  data: {
+    radius: number
+    moveSpeed?: number
+    attackDesire?: number
+    parryProficiency?: number
+    initialPatrolMode?: EnemyPatrolMode
+    maxHealth: number
+    maxPosture: number
+    maxToughness: number
+    color: string
+    facing: number
+  }
+  showMoveSpeed: boolean
+  showAttackDesire: boolean
+  showParry: boolean
+  showPatrol: boolean
+  weaponBindings: CharacterWeaponBinding[]
+  updateMarkerVisual: (
+    marker: EnemyMarker | PlayerMarker,
+    radiusMeters: number,
+    color: string,
+    facing: number
+  ) => void
+  onCommit: (values: {
+    radius: number
+    moveSpeed?: number
+    attackDesire?: number
+    parryProficiency?: number
+    initialPatrolMode?: EnemyPatrolMode
+    facing: number
+    maxHealth: number
+    maxPosture: number
+    maxToughness: number
+    color: string
+    mainWeaponType?: WeaponType
+    mainWeaponMarker?: WeaponMarker
+    secondaryWeaponType?: WeaponType
+    secondaryWeaponMarker?: WeaponMarker
+  }) => void
+}
 
 export interface EditorPropertiesPanelContext {
   getFabricCanvas: () => fabric.Canvas | null
   weaponMarkerMap: Map<fabric.Object, WeaponMarkerData>
   enemyMarkerMap: Map<fabric.Object, EnemyMarkerData>
+  playerMarkerData: () => PlayerMarkerData | null
   editorObjectMap: Map<fabric.Object, EditorObjectData>
   objectFactory: EditorObjectFactory
   requestRender: () => void
@@ -45,8 +104,19 @@ export interface EditorPropertiesPanelContext {
     weaponType: WeaponType,
     slot: 'main' | 'secondary'
   ) => WeaponMarker | null
+  getOrCreatePlayerWeaponMarker: (
+    playerData: PlayerMarkerData,
+    weaponType: WeaponType,
+    slot: 'main' | 'secondary'
+  ) => WeaponMarker | null
   updateEnemyMarkerVisual: (
     marker: EnemyMarker,
+    radiusMeters: number,
+    color: string,
+    facing: number
+  ) => void
+  updatePlayerMarkerVisual: (
+    marker: PlayerMarker,
     radiusMeters: number,
     color: string,
     facing: number
@@ -61,21 +131,11 @@ export class EditorPropertiesPanel {
     this.context = context
   }
 
-  public async showEnemyPropertiesDialog(marker: EnemyMarker) {
-    const data = this.context.enemyMarkerMap.get(marker)
-    if (!data) {
-      return
-    }
+  private async showCharacterPropertiesDialog(options: CharacterDialogOptions) {
     const baseSnapshot = this.context.getMapSnapshot()
     let committed = false
 
-    const editorData = this.context.editorObjectMap.get(marker)
-    const enemyTypeLocal = localizer.t(`editor_enemy_${data.enemyType}`)
-    const objectName = editorData?.name ?? ''
-
-    const dialog = EditorUIHelper.createPropertiesDialog(
-      `[${enemyTypeLocal}] ${objectName}`
-    )
+    const dialog = EditorUIHelper.createPropertiesDialog(options.title)
 
     const { leftPanel, rightPanel, previewCanvas, previewCtx, close, modal } =
       dialog
@@ -84,7 +144,9 @@ export class EditorPropertiesPanel {
       height: 64,
     })
     weaponSlotsCanvas.style.marginTop = '12px'
-    rightPanel.appendChild(weaponSlotsCanvas)
+    if (options.weaponBindings.length > 0) {
+      rightPanel.appendChild(weaponSlotsCanvas)
+    }
     const weaponSlotsCtx = weaponSlotsCanvas.getContext('2d')
 
     // Radius
@@ -92,7 +154,7 @@ export class EditorPropertiesPanel {
       localizer.t('editor_enemy_prop_radius')
     )
     const radiusInput = EditorUIHelper.createNumberInput({
-      value: data.radius,
+      value: options.data.radius,
       min: '0.1',
       step: '0.1',
     })
@@ -100,57 +162,69 @@ export class EditorPropertiesPanel {
     leftPanel.appendChild(radiusRow.row)
 
     // Move Speed
-    const speedRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_enemy_prop_move_speed')
-    )
-    const speedInput = EditorUIHelper.createNumberInput({
-      value: data.moveSpeed,
-      min: '0',
-      step: '0.1',
-    })
-    speedRow.row.appendChild(speedInput)
-    leftPanel.appendChild(speedRow.row)
+    let speedInput: HTMLInputElement | null = null
+    if (options.showMoveSpeed) {
+      const speedRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_move_speed')
+      )
+      speedInput = EditorUIHelper.createNumberInput({
+        value: options.data.moveSpeed ?? 0,
+        min: '0',
+        step: '0.1',
+      })
+      speedRow.row.appendChild(speedInput)
+      leftPanel.appendChild(speedRow.row)
+    }
 
     // Attack Desire
-    const desireRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_enemy_prop_attack_desire')
-    )
-    const desireInput = EditorUIHelper.createNumberInput({
-      value: data.attackDesire,
-      min: '0',
-      max: '100',
-      step: '1',
-    })
-    desireRow.row.appendChild(desireInput)
-    leftPanel.appendChild(desireRow.row)
+    let desireInput: HTMLInputElement | null = null
+    if (options.showAttackDesire) {
+      const desireRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_attack_desire')
+      )
+      desireInput = EditorUIHelper.createNumberInput({
+        value: options.data.attackDesire ?? 0,
+        min: '0',
+        max: '100',
+        step: '1',
+      })
+      desireRow.row.appendChild(desireInput)
+      leftPanel.appendChild(desireRow.row)
+    }
 
     // Parry Proficiency
-    const parryRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_enemy_prop_parry')
-    )
-    const parryInput = EditorUIHelper.createNumberInput({
-      value: data.parryProficiency,
-      min: '0',
-      max: '100',
-      step: '1',
-    })
-    parryRow.row.appendChild(parryInput)
-    leftPanel.appendChild(parryRow.row)
+    let parryInput: HTMLInputElement | null = null
+    if (options.showParry) {
+      const parryRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_parry')
+      )
+      parryInput = EditorUIHelper.createNumberInput({
+        value: options.data.parryProficiency ?? 0,
+        min: '0',
+        max: '100',
+        step: '1',
+      })
+      parryRow.row.appendChild(parryInput)
+      leftPanel.appendChild(parryRow.row)
+    }
 
     // Patrol Mode
-    const patrolRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_enemy_prop_patrol_mode')
-    )
-    const patrolModes: EnemyPatrolMode[] = ['patrol', 'guard']
-    const patrolSelect = EditorUIHelper.createSelect({
-      options: patrolModes.map((mode) => ({
-        value: mode,
-        label: localizer.t(`editor_enemy_patrol_${mode}`),
-      })),
-      selected: data.initialPatrolMode,
-    })
-    patrolRow.row.appendChild(patrolSelect)
-    leftPanel.appendChild(patrolRow.row)
+    let patrolSelect: HTMLSelectElement | null = null
+    if (options.showPatrol) {
+      const patrolRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_patrol_mode')
+      )
+      const patrolModes: EnemyPatrolMode[] = ['patrol', 'guard']
+      patrolSelect = EditorUIHelper.createSelect({
+        options: patrolModes.map((mode) => ({
+          value: mode,
+          label: localizer.t(`editor_enemy_patrol_${mode}`),
+        })),
+        selected: options.data.initialPatrolMode,
+      })
+      patrolRow.row.appendChild(patrolSelect)
+      leftPanel.appendChild(patrolRow.row)
+    }
 
     // Facing
     const facingRow = EditorUIHelper.createFormRow(
@@ -161,7 +235,7 @@ export class EditorPropertiesPanel {
         { value: '1', label: localizer.t('editor_enemy_facing_right') },
         { value: '-1', label: localizer.t('editor_enemy_facing_left') },
       ],
-      selected: String(data.facing ?? 1),
+      selected: String(options.data.facing ?? 1),
     })
     facingRow.row.appendChild(facingSelect)
     leftPanel.appendChild(facingRow.row)
@@ -171,7 +245,7 @@ export class EditorPropertiesPanel {
       localizer.t('editor_enemy_prop_max_health')
     )
     const healthInput = EditorUIHelper.createNumberInput({
-      value: data.maxHealth,
+      value: options.data.maxHealth,
       min: '1',
       step: '1',
     })
@@ -183,7 +257,7 @@ export class EditorPropertiesPanel {
       localizer.t('editor_enemy_prop_max_posture')
     )
     const postureInput = EditorUIHelper.createNumberInput({
-      value: data.maxPosture,
+      value: options.data.maxPosture,
       min: '0',
       step: '1',
     })
@@ -195,7 +269,7 @@ export class EditorPropertiesPanel {
       localizer.t('editor_enemy_prop_max_toughness')
     )
     const toughnessInput = EditorUIHelper.createNumberInput({
-      value: data.maxToughness,
+      value: options.data.maxToughness,
       min: '0',
       step: '1',
     })
@@ -206,10 +280,12 @@ export class EditorPropertiesPanel {
     const colorRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_color')
     )
-    const colorInput = EditorUIHelper.createTextInput({ value: data.color })
+    const colorInput = EditorUIHelper.createTextInput({
+      value: options.data.color,
+    })
     colorRow.row.appendChild(colorInput)
 
-    const colorPicker = EditorUIHelper.createColorInput(data.color)
+    const colorPicker = EditorUIHelper.createColorInput(options.data.color)
     colorPicker.addEventListener('input', () => {
       colorInput.value = colorPicker.value
     })
@@ -222,116 +298,81 @@ export class EditorPropertiesPanel {
     colorRow.row.appendChild(colorPicker)
     leftPanel.appendChild(colorRow.row)
 
-    // Main Weapon
-    const mainWeaponRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_weapon_category_main')
-    )
-    const mainWeaponSelect = EditorUIHelper.createSelect({
-      options: [
-        { label: localizer.t('editor_weapon_none'), value: 'none' },
-        { label: localizer.t('editor_weapon_sword'), value: 'sword' },
-      ],
-      selected: data.mainWeapon ?? 'none',
-    })
-    mainWeaponRow.row.appendChild(mainWeaponSelect)
+    const mainBinding =
+      options.weaponBindings.find((binding) => binding.slot === 'main') ?? null
+    const secondaryBinding =
+      options.weaponBindings.find((binding) => binding.slot === 'secondary') ??
+      null
 
-    const mainWeaponConfigBtn = EditorUIHelper.createButton(
-      localizer.t('editor_weapon_menu_properties')
-    )
-    mainWeaponConfigBtn.style.fontSize = '11px'
-    mainWeaponConfigBtn.style.marginLeft = '8px'
-    mainWeaponConfigBtn.addEventListener('click', async () => {
-      const weaponValue = mainWeaponSelect.value
-      if (weaponValue && weaponValue !== 'none') {
-        const weaponMarker = this.context.getOrCreateEnemyWeaponMarker(
-          data,
-          weaponValue as WeaponType,
-          'main'
-        )
-        if (weaponMarker) {
-          await this.showWeaponPropertiesDialog(weaponMarker)
-          renderEnemyPreview()
+    const createWeaponRow = (binding: CharacterWeaponBinding) => {
+      const row = EditorUIHelper.createFormRow(binding.label)
+      const select = EditorUIHelper.createSelect({
+        options: binding.options,
+        selected: binding.getWeaponType() ?? 'none',
+      })
+      row.row.appendChild(select)
+
+      const configBtn = EditorUIHelper.createButton(
+        localizer.t('editor_weapon_menu_properties')
+      )
+      configBtn.style.fontSize = '11px'
+      configBtn.style.marginLeft = '8px'
+      configBtn.addEventListener('click', async () => {
+        const weaponValue = select.value
+        if (weaponValue && weaponValue !== 'none') {
+          const weaponMarker = binding.ensureWeaponMarker(
+            weaponValue as WeaponType
+          )
+          if (weaponMarker) {
+            await this.showWeaponPropertiesDialog(weaponMarker)
+            renderCharacterPreview()
+          }
         }
+      })
+      row.row.appendChild(configBtn)
+      leftPanel.appendChild(row.row)
+
+      const updateConfigBtnVisibility = () => {
+        const weaponType = select.value
+        configBtn.style.display =
+          weaponType && weaponType !== 'none' ? 'inline-block' : 'none'
       }
-    })
-    mainWeaponRow.row.appendChild(mainWeaponConfigBtn)
-    leftPanel.appendChild(mainWeaponRow.row)
 
-    const updateMainWeaponConfigBtnVisibility = () => {
-      const weaponType = mainWeaponSelect.value
-      mainWeaponConfigBtn.style.display =
-        weaponType && weaponType !== 'none' ? 'inline-block' : 'none'
-
-      if (weaponType === 'none' || !weaponType) {
-        if (data.mainWeaponMarker) {
-          this.context.weaponMarkerMap.delete(data.mainWeaponMarker)
-          data.mainWeaponMarker = undefined
+      select.addEventListener('change', () => {
+        const weaponType = select.value
+        if (weaponType && weaponType !== 'none') {
+          const weaponMarker = binding.ensureWeaponMarker(
+            weaponType as WeaponType
+          )
+          binding.setWeaponType(weaponType as WeaponType)
+          if (weaponMarker) {
+            binding.setWeaponMarker(weaponMarker)
+          }
+        } else {
+          const marker = binding.getWeaponMarker()
+          if (marker) {
+            this.context.weaponMarkerMap.delete(marker)
+          }
+          binding.setWeaponMarker(undefined)
+          binding.setWeaponType(undefined)
         }
-      }
+        updateConfigBtnVisibility()
+        updateCharacterVisualFromInputs()
+        renderCharacterPreview()
+      })
+      updateConfigBtnVisibility()
+      return select
     }
-    const handleMainWeaponChange = () => {
-      updateMainWeaponConfigBtnVisibility()
-      renderEnemyPreview()
+
+    let mainWeaponSelect: HTMLSelectElement | null = null
+    let secondaryWeaponSelect: HTMLSelectElement | null = null
+
+    if (mainBinding) {
+      mainWeaponSelect = createWeaponRow(mainBinding)
     }
-    mainWeaponSelect.addEventListener('change', handleMainWeaponChange)
-    updateMainWeaponConfigBtnVisibility()
-
-    // Secondary Weapon
-    const secondaryWeaponRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_weapon_category_secondary')
-    )
-    const secondaryWeaponSelect = EditorUIHelper.createSelect({
-      options: [
-        { label: localizer.t('editor_weapon_none'), value: 'none' },
-        { label: localizer.t('editor_weapon_bow'), value: 'bow' },
-      ],
-      selected: data.secondaryWeapon ?? 'none',
-    })
-    secondaryWeaponRow.row.appendChild(secondaryWeaponSelect)
-
-    const secondaryWeaponConfigBtn = EditorUIHelper.createButton(
-      localizer.t('editor_weapon_menu_properties')
-    )
-    secondaryWeaponConfigBtn.style.fontSize = '11px'
-    secondaryWeaponConfigBtn.style.marginLeft = '8px'
-    secondaryWeaponConfigBtn.addEventListener('click', async () => {
-      const weaponValue = secondaryWeaponSelect.value
-      if (weaponValue && weaponValue !== 'none') {
-        const weaponMarker = this.context.getOrCreateEnemyWeaponMarker(
-          data,
-          weaponValue as WeaponType,
-          'secondary'
-        )
-        if (weaponMarker) {
-          await this.showWeaponPropertiesDialog(weaponMarker)
-          renderEnemyPreview()
-        }
-      }
-    })
-    secondaryWeaponRow.row.appendChild(secondaryWeaponConfigBtn)
-    leftPanel.appendChild(secondaryWeaponRow.row)
-
-    const updateSecondaryWeaponConfigBtnVisibility = () => {
-      const weaponType = secondaryWeaponSelect.value
-      secondaryWeaponConfigBtn.style.display =
-        weaponType && weaponType !== 'none' ? 'inline-block' : 'none'
-
-      if (weaponType === 'none' || !weaponType) {
-        if (data.secondaryWeaponMarker) {
-          this.context.weaponMarkerMap.delete(data.secondaryWeaponMarker)
-          data.secondaryWeaponMarker = undefined
-        }
-      }
+    if (secondaryBinding) {
+      secondaryWeaponSelect = createWeaponRow(secondaryBinding)
     }
-    const handleSecondaryWeaponChange = () => {
-      updateSecondaryWeaponConfigBtnVisibility()
-      renderEnemyPreview()
-    }
-    secondaryWeaponSelect.addEventListener(
-      'change',
-      handleSecondaryWeaponChange
-    )
-    updateSecondaryWeaponConfigBtnVisibility()
 
     // Buttons
     const buttonRow = EditorUIHelper.createButtonRow()
@@ -350,7 +391,7 @@ export class EditorPropertiesPanel {
     const colorRegex = /^#[0-9a-fA-F]{6}$/
     const getValidColor = () => {
       const value = colorInput.value.trim()
-      return colorRegex.test(value) ? value : data.color
+      return colorRegex.test(value) ? value : options.data.color
     }
 
     type WeaponSlotPreview = {
@@ -410,7 +451,8 @@ export class EditorPropertiesPanel {
     const fillWeaponSlotPreview = (
       slot: WeaponSlotPreview,
       weaponValue: string,
-      marker: WeaponMarker | undefined
+      marker: WeaponMarker | undefined,
+      defaultBowAmmo: number
     ) => {
       if (!weaponValue || weaponValue === 'none') {
         resetWeaponSlotPreview(slot)
@@ -436,13 +478,11 @@ export class EditorPropertiesPanel {
       slot.sizeLevel = sizeLevel
       slot.sizeMaxLevel = template.sizeMaxLevel
       slot.ammo =
-        weaponType === 'bow'
-          ? (markerMatches?.bowAmmo ?? DEFAULT_BOW_AMMO_ENEMY)
-          : 0
+        weaponType === 'bow' ? (markerMatches?.bowAmmo ?? defaultBowAmmo) : 0
     }
 
     const renderWeaponSlotsPreview = () => {
-      if (!weaponSlotsCtx) {
+      if (!weaponSlotsCtx || options.weaponBindings.length === 0) {
         return
       }
 
@@ -493,7 +533,7 @@ export class EditorPropertiesPanel {
       )
     }
 
-    const renderEnemyPreview = () => {
+    const renderCharacterPreview = () => {
       if (!previewCtx) {
         return
       }
@@ -502,20 +542,32 @@ export class EditorPropertiesPanel {
       const radius =
         Number.isFinite(radiusMeters) && radiusMeters > 0
           ? radiusMeters
-          : data.radius
+          : options.data.radius
       const color = getValidColor()
       const facing = Number.parseInt(facingSelect.value, 10)
 
-      fillWeaponSlotPreview(
-        mainSlotPreview,
-        mainWeaponSelect.value,
-        data.mainWeaponMarker
-      )
-      fillWeaponSlotPreview(
-        secondarySlotPreview,
-        secondaryWeaponSelect.value,
-        data.secondaryWeaponMarker
-      )
+      if (options.weaponBindings.length > 0) {
+        if (mainBinding && mainWeaponSelect) {
+          fillWeaponSlotPreview(
+            mainSlotPreview,
+            mainWeaponSelect.value,
+            mainBinding.getWeaponMarker(),
+            mainBinding.defaultBowAmmo
+          )
+        } else {
+          resetWeaponSlotPreview(mainSlotPreview)
+        }
+        if (secondaryBinding && secondaryWeaponSelect) {
+          fillWeaponSlotPreview(
+            secondarySlotPreview,
+            secondaryWeaponSelect.value,
+            secondaryBinding.getWeaponMarker(),
+            secondaryBinding.defaultBowAmmo
+          )
+        } else {
+          resetWeaponSlotPreview(secondarySlotPreview)
+        }
+      }
 
       const centerX = Math.round(previewCanvas.width / 2)
       const centerY = Math.round((previewCanvas.height * 58) / 100)
@@ -582,65 +634,64 @@ export class EditorPropertiesPanel {
       renderWeaponSlotsPreview()
     }
 
-    const updateEnemyVisualFromInputs = () => {
+    const updateCharacterVisualFromInputs = () => {
       const radiusMeters = Number.parseFloat(radiusInput.value)
       const facing = Number.parseInt(facingSelect.value, 10)
       if (Number.isFinite(radiusMeters) && radiusMeters > 0) {
-        this.context.updateEnemyMarkerVisual(
-          marker,
+        options.updateMarkerVisual(
+          options.marker,
           radiusMeters,
           getValidColor(),
           facing
         )
         this.context.requestRender()
       } else {
-        renderEnemyPreview()
+        renderCharacterPreview()
       }
     }
 
     radiusInput.addEventListener('input', () => {
-      updateEnemyVisualFromInputs()
-      renderEnemyPreview()
+      updateCharacterVisualFromInputs()
+      renderCharacterPreview()
     })
     colorPicker.addEventListener('input', () => {
-      updateEnemyVisualFromInputs()
-      renderEnemyPreview()
+      updateCharacterVisualFromInputs()
+      renderCharacterPreview()
     })
     colorInput.addEventListener('input', () => {
-      renderEnemyPreview()
+      renderCharacterPreview()
       if (colorRegex.test(colorInput.value.trim())) {
-        updateEnemyVisualFromInputs()
+        updateCharacterVisualFromInputs()
       }
     })
     facingSelect.addEventListener('change', () => {
-      updateEnemyVisualFromInputs()
-      renderEnemyPreview()
+      updateCharacterVisualFromInputs()
+      renderCharacterPreview()
     })
 
-    renderEnemyPreview()
+    renderCharacterPreview()
 
-    // Confirm handler
     confirmBtn.addEventListener('click', () => {
       const radius = Number.parseFloat(radiusInput.value)
-      const moveSpeed = Number.parseFloat(speedInput.value)
-      const attackDesire = Number.parseFloat(desireInput.value)
-      const parryProficiency = Number.parseFloat(parryInput.value)
-      const initialPatrolMode = patrolSelect.value as EnemyPatrolMode
       const facing = Number.parseInt(facingSelect.value, 10)
       const maxHealth = Number.parseFloat(healthInput.value)
       const maxPosture = Number.parseFloat(postureInput.value)
       const maxToughness = Number.parseFloat(toughnessInput.value)
       const color = getValidColor()
+      const moveSpeed = speedInput ? Number.parseFloat(speedInput.value) : 0
+      const attackDesire = desireInput
+        ? Number.parseFloat(desireInput.value)
+        : 0
+      const parryProficiency = parryInput
+        ? Number.parseFloat(parryInput.value)
+        : 0
+      const initialPatrolMode = patrolSelect
+        ? (patrolSelect.value as EnemyPatrolMode)
+        : undefined
 
       if (
         !Number.isFinite(radius) ||
         radius <= 0 ||
-        !Number.isFinite(moveSpeed) ||
-        moveSpeed < 0 ||
-        !Number.isFinite(attackDesire) ||
-        attackDesire < 0 ||
-        !Number.isFinite(parryProficiency) ||
-        parryProficiency < 0 ||
         !Number.isFinite(maxHealth) ||
         maxHealth <= 0 ||
         !Number.isFinite(maxPosture) ||
@@ -651,68 +702,85 @@ export class EditorPropertiesPanel {
       ) {
         return
       }
-
-      data.radius = radius
-      data.moveSpeed = moveSpeed
-      data.attackDesire = attackDesire
-      data.parryProficiency = parryProficiency
-      data.initialPatrolMode = initialPatrolMode
-      data.maxHealth = maxHealth
-      data.maxPosture = maxPosture
-      data.maxToughness = maxToughness
-      data.color = color
-      data.facing = facing
-
-      const mainVal = mainWeaponSelect.value
-      if (mainVal === 'none') {
-        data.mainWeapon = undefined
-        marker.mainWeapon = undefined
-        if (data.mainWeaponMarker) {
-          this.context.weaponMarkerMap.delete(data.mainWeaponMarker)
-          data.mainWeaponMarker = undefined
+      if (options.showMoveSpeed) {
+        if (!Number.isFinite(moveSpeed) || moveSpeed < 0) {
+          return
         }
-      } else {
-        const weaponType = mainVal as WeaponType
-        data.mainWeapon = weaponType
-        marker.mainWeapon = data.mainWeapon
-        this.context.getOrCreateEnemyWeaponMarker(data, weaponType, 'main')
+      }
+      if (options.showAttackDesire) {
+        if (!Number.isFinite(attackDesire) || attackDesire < 0) {
+          return
+        }
+      }
+      if (options.showParry) {
+        if (!Number.isFinite(parryProficiency) || parryProficiency < 0) {
+          return
+        }
       }
 
-      const secVal = secondaryWeaponSelect.value
-      if (secVal === 'none') {
-        data.secondaryWeapon = undefined
-        marker.secondaryWeapon = undefined
-        if (data.secondaryWeaponMarker) {
-          this.context.weaponMarkerMap.delete(data.secondaryWeaponMarker)
-          data.secondaryWeaponMarker = undefined
+      let mainWeaponType: WeaponType | undefined
+      let mainWeaponMarker: WeaponMarker | undefined
+      if (mainBinding && mainWeaponSelect) {
+        const mainVal = mainWeaponSelect.value
+        if (mainVal && mainVal !== 'none') {
+          const weaponType = mainVal as WeaponType
+          mainWeaponType = weaponType
+          mainWeaponMarker =
+            mainBinding.ensureWeaponMarker(weaponType) ?? undefined
+          mainBinding.setWeaponType(weaponType)
+          if (mainWeaponMarker) {
+            mainBinding.setWeaponMarker(mainWeaponMarker)
+          }
+        } else {
+          const marker = mainBinding.getWeaponMarker()
+          if (marker) {
+            this.context.weaponMarkerMap.delete(marker)
+          }
+          mainBinding.setWeaponMarker(undefined)
+          mainBinding.setWeaponType(undefined)
         }
-      } else {
-        const weaponType = secVal as WeaponType
-        data.secondaryWeapon = weaponType
-        marker.secondaryWeapon = data.secondaryWeapon
-        this.context.getOrCreateEnemyWeaponMarker(data, weaponType, 'secondary')
       }
 
-      data.equipWeapon = !!data.mainWeapon || !!data.secondaryWeapon
-      marker.equipWeapon = data.equipWeapon
+      let secondaryWeaponType: WeaponType | undefined
+      let secondaryWeaponMarker: WeaponMarker | undefined
+      if (secondaryBinding && secondaryWeaponSelect) {
+        const secondaryVal = secondaryWeaponSelect.value
+        if (secondaryVal && secondaryVal !== 'none') {
+          const weaponType = secondaryVal as WeaponType
+          secondaryWeaponType = weaponType
+          secondaryWeaponMarker =
+            secondaryBinding.ensureWeaponMarker(weaponType) ?? undefined
+          secondaryBinding.setWeaponType(weaponType)
+          if (secondaryWeaponMarker) {
+            secondaryBinding.setWeaponMarker(secondaryWeaponMarker)
+          }
+        } else {
+          const marker = secondaryBinding.getWeaponMarker()
+          if (marker) {
+            this.context.weaponMarkerMap.delete(marker)
+          }
+          secondaryBinding.setWeaponMarker(undefined)
+          secondaryBinding.setWeaponType(undefined)
+        }
+      }
 
-      marker.radius = radius
-      marker.moveSpeed = moveSpeed
-      marker.attackDesire = attackDesire
-      marker.parryProficiency = parryProficiency
-      marker.initialPatrolMode = initialPatrolMode
-      marker.maxHealth = maxHealth
-      marker.maxPosture = maxPosture
-      marker.maxToughness = maxToughness
-      marker.color = color
-      marker.facing = facing
+      options.onCommit({
+        radius,
+        moveSpeed: options.showMoveSpeed ? moveSpeed : undefined,
+        attackDesire: options.showAttackDesire ? attackDesire : undefined,
+        parryProficiency: options.showParry ? parryProficiency : undefined,
+        initialPatrolMode: options.showPatrol ? initialPatrolMode : undefined,
+        facing,
+        maxHealth,
+        maxPosture,
+        maxToughness,
+        color,
+        mainWeaponType,
+        mainWeaponMarker,
+        secondaryWeaponType,
+        secondaryWeaponMarker,
+      })
 
-      this.context.updateEnemyMarkerVisual(
-        marker,
-        data.radius,
-        data.color,
-        data.facing
-      )
       this.context.requestRender()
       committed = true
       this.context.onHistoryCapture()
@@ -741,10 +809,224 @@ export class EditorPropertiesPanel {
     dialog.show(viewport)
   }
 
-  public async showWeaponPropertiesDialog(marker: WeaponMarker) {
-    const data = this.context.weaponMarkerMap.get(marker)
+  public async showEnemyPropertiesDialog(marker: EnemyMarker) {
+    const data = this.context.enemyMarkerMap.get(marker)
     if (!data) {
       return
+    }
+    const editorData = this.context.editorObjectMap.get(marker)
+    const enemyTypeLocal = localizer.t(`editor_enemy_${data.enemyType}`)
+    const objectName = editorData?.name ?? ''
+    const mainBinding: CharacterWeaponBinding = {
+      label: localizer.t('editor_weapon_category_main'),
+      slot: 'main',
+      options: [
+        { label: localizer.t('editor_weapon_none'), value: 'none' },
+        { label: localizer.t('editor_weapon_sword'), value: 'sword' },
+      ],
+      defaultBowAmmo: DEFAULT_BOW_AMMO_ENEMY,
+      getWeaponType: () => data.mainWeapon,
+      setWeaponType: (weaponType) => {
+        data.mainWeapon = weaponType
+        marker.mainWeapon = weaponType
+      },
+      getWeaponMarker: () => data.mainWeaponMarker,
+      setWeaponMarker: (weaponMarker) => {
+        data.mainWeaponMarker = weaponMarker
+      },
+      ensureWeaponMarker: (weaponType) =>
+        this.context.getOrCreateEnemyWeaponMarker(data, weaponType, 'main'),
+    }
+    const secondaryBinding: CharacterWeaponBinding = {
+      label: localizer.t('editor_weapon_category_secondary'),
+      slot: 'secondary',
+      options: [
+        { label: localizer.t('editor_weapon_none'), value: 'none' },
+        { label: localizer.t('editor_weapon_bow'), value: 'bow' },
+      ],
+      defaultBowAmmo: DEFAULT_BOW_AMMO_ENEMY,
+      getWeaponType: () => data.secondaryWeapon,
+      setWeaponType: (weaponType) => {
+        data.secondaryWeapon = weaponType
+        marker.secondaryWeapon = weaponType
+      },
+      getWeaponMarker: () => data.secondaryWeaponMarker,
+      setWeaponMarker: (weaponMarker) => {
+        data.secondaryWeaponMarker = weaponMarker
+      },
+      ensureWeaponMarker: (weaponType) =>
+        this.context.getOrCreateEnemyWeaponMarker(
+          data,
+          weaponType,
+          'secondary'
+        ),
+    }
+
+    await this.showCharacterPropertiesDialog({
+      title: `[${enemyTypeLocal}] ${objectName}`,
+      marker,
+      data,
+      showMoveSpeed: true,
+      showAttackDesire: true,
+      showParry: true,
+      showPatrol: true,
+      weaponBindings: [mainBinding, secondaryBinding],
+      updateMarkerVisual: (m, r, c, f) =>
+        this.context.updateEnemyMarkerVisual(m as EnemyMarker, r, c, f),
+      onCommit: (values) => {
+        data.radius = values.radius
+        data.moveSpeed = values.moveSpeed ?? data.moveSpeed
+        data.attackDesire = values.attackDesire ?? data.attackDesire
+        data.parryProficiency = values.parryProficiency ?? data.parryProficiency
+        data.initialPatrolMode =
+          values.initialPatrolMode ?? data.initialPatrolMode
+        data.maxHealth = values.maxHealth
+        data.maxPosture = values.maxPosture
+        data.maxToughness = values.maxToughness
+        data.color = values.color
+        data.facing = values.facing
+
+        data.mainWeapon = values.mainWeaponType
+        data.mainWeaponMarker = values.mainWeaponMarker
+        data.secondaryWeapon = values.secondaryWeaponType
+        data.secondaryWeaponMarker = values.secondaryWeaponMarker
+        data.equipWeapon = !!data.mainWeapon || !!data.secondaryWeapon
+
+        marker.radius = data.radius
+        marker.moveSpeed = data.moveSpeed
+        marker.attackDesire = data.attackDesire
+        marker.parryProficiency = data.parryProficiency
+        marker.initialPatrolMode = data.initialPatrolMode
+        marker.maxHealth = data.maxHealth
+        marker.maxPosture = data.maxPosture
+        marker.maxToughness = data.maxToughness
+        marker.color = data.color
+        marker.facing = data.facing
+        marker.equipWeapon = data.equipWeapon
+
+        this.context.updateEnemyMarkerVisual(
+          marker,
+          data.radius,
+          data.color,
+          data.facing
+        )
+      },
+    })
+  }
+
+  public async showPlayerPropertiesDialog(marker: PlayerMarker) {
+    const data = this.context.playerMarkerData()
+    if (!data || data.marker !== marker) {
+      return
+    }
+    const editorData = this.context.editorObjectMap.get(marker)
+    const objectName = editorData?.name ?? ''
+    const mainBinding: CharacterWeaponBinding = {
+      label: localizer.t('editor_weapon_category_main'),
+      slot: 'main',
+      options: [
+        { label: localizer.t('editor_weapon_none'), value: 'none' },
+        { label: localizer.t('editor_weapon_sword'), value: 'sword' },
+      ],
+      defaultBowAmmo: DEFAULT_BOW_AMMO_PLAYER,
+      getWeaponType: () => data.mainWeapon,
+      setWeaponType: (weaponType) => {
+        data.mainWeapon = weaponType
+      },
+      getWeaponMarker: () => data.mainWeaponMarker,
+      setWeaponMarker: (weaponMarker) => {
+        data.mainWeaponMarker = weaponMarker
+      },
+      ensureWeaponMarker: (weaponType) =>
+        this.context.getOrCreatePlayerWeaponMarker(data, weaponType, 'main'),
+    }
+    const secondaryBinding: CharacterWeaponBinding = {
+      label: localizer.t('editor_weapon_category_secondary'),
+      slot: 'secondary',
+      options: [
+        { label: localizer.t('editor_weapon_none'), value: 'none' },
+        { label: localizer.t('editor_weapon_bow'), value: 'bow' },
+      ],
+      defaultBowAmmo: DEFAULT_BOW_AMMO_PLAYER,
+      getWeaponType: () => data.secondaryWeapon,
+      setWeaponType: (weaponType) => {
+        data.secondaryWeapon = weaponType
+      },
+      getWeaponMarker: () => data.secondaryWeaponMarker,
+      setWeaponMarker: (weaponMarker) => {
+        data.secondaryWeaponMarker = weaponMarker
+      },
+      ensureWeaponMarker: (weaponType) =>
+        this.context.getOrCreatePlayerWeaponMarker(
+          data,
+          weaponType,
+          'secondary'
+        ),
+    }
+
+    await this.showCharacterPropertiesDialog({
+      title: `[${localizer.t('editor_object_player')}] ${objectName}`,
+      marker,
+      data,
+      showMoveSpeed: true,
+      showAttackDesire: false,
+      showParry: false,
+      showPatrol: false,
+      weaponBindings: [mainBinding, secondaryBinding],
+      updateMarkerVisual: (m, r, c, f) =>
+        this.context.updatePlayerMarkerVisual(m as PlayerMarker, r, c, f),
+      onCommit: (values) => {
+        data.radius = values.radius
+        data.moveSpeed = values.moveSpeed ?? data.moveSpeed
+        data.maxHealth = values.maxHealth
+        data.maxPosture = values.maxPosture
+        data.maxToughness = values.maxToughness
+        data.color = values.color
+        data.facing = values.facing
+
+        data.mainWeapon = values.mainWeaponType
+        data.mainWeaponMarker = values.mainWeaponMarker
+        data.secondaryWeapon = values.secondaryWeaponType
+        data.secondaryWeaponMarker = values.secondaryWeaponMarker
+
+        marker.radius = data.radius
+        marker.maxHealth = data.maxHealth
+        marker.maxPosture = data.maxPosture
+        marker.maxToughness = data.maxToughness
+        marker.color = data.color
+        marker.facing = data.facing
+
+        this.context.updatePlayerMarkerVisual(
+          marker,
+          data.radius,
+          data.color,
+          data.facing
+        )
+      },
+    })
+  }
+
+  public async showWeaponPropertiesDialog(marker: WeaponMarker) {
+    let data = this.context.weaponMarkerMap.get(marker)
+    if (!data) {
+      const weaponType = marker.weaponType
+      const template = WEAPON_DEFAULT_DATA[weaponType]
+      const category =
+        marker.category ?? (weaponType === 'bow' ? 'secondary' : 'main')
+      data = {
+        marker,
+        weaponType,
+        category,
+        sizeLevel: marker.sizeLevel ?? template.sizeLevel,
+        attackDamage: marker.attackDamage ?? template.attackDamage,
+        postureDamage: marker.postureDamage ?? template.postureDamage,
+        toughnessDamage: marker.toughnessDamage ?? template.toughnessDamage,
+        bowAmmo:
+          weaponType === 'bow'
+            ? (marker.bowAmmo ?? DEFAULT_BOW_AMMO_PLAYER)
+            : undefined,
+      }
+      this.context.weaponMarkerMap.set(marker, data)
     }
     const baseSnapshot = this.context.getMapSnapshot()
     let committed = false
