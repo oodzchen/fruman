@@ -93,6 +93,12 @@ export interface MapCamera {
   zoom: number
 }
 
+export interface EditorViewportState {
+  zoomScaled: number
+  offsetX: number
+  offsetY: number
+}
+
 export interface EditorMapData {
   version: 1
   canvasWidth: number

@@ -1,11 +1,16 @@
 import type { DialogManager } from '../DialogManager'
 import { localizer } from '../Localizer'
-import type { EditorMapData, EditorMapMeta } from '../editorMapTypes'
+import type {
+  EditorMapData,
+  EditorMapMeta,
+  EditorViewportState,
+} from '../editorMapTypes'
 import {
   createEditorMap,
   deleteEditorMap,
   listEditorMaps,
   loadEditorMapData,
+  loadEditorMapViewState,
   saveEditorMapMeta,
 } from '../storage'
 import type { EditorMapSerializer } from './EditorMapSerializer'
@@ -17,6 +22,7 @@ export interface EditorMapListManagerContext {
   mapSerializer: EditorMapSerializer
   getBackBtn: () => HTMLButtonElement
   onMapLoaded: (meta: EditorMapMeta, data: EditorMapData) => void
+  applyEditorViewportState: (state: EditorViewportState | null) => void
   onShowEditorView: () => void
   onBackToMenu: () => void
   onDefaultMapChanged: (meta: EditorMapMeta) => void
@@ -610,6 +616,7 @@ export class EditorMapListManager {
   private async loadMap(mapId: string) {
     this.context.onShowEditorView()
     const stored = await loadEditorMapData(mapId)
+    const viewState = await loadEditorMapViewState(mapId)
     const meta = this.findMapMeta(mapId)
     if (meta) {
       this.currentMapMeta = meta
@@ -624,6 +631,7 @@ export class EditorMapListManager {
     }
     const data = stored ?? this.context.mapSerializer.buildDefaultMapData()
     this.context.mapSerializer.applyMapData(data)
+    this.context.applyEditorViewportState(viewState)
     this.context.onMapLoaded(this.currentMapMeta, data)
   }
 }

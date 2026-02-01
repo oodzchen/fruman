@@ -1,13 +1,18 @@
-import type { EditorMapData, EditorMapMeta } from './editorMapTypes'
+import type {
+  EditorMapData,
+  EditorMapMeta,
+  EditorViewportState,
+} from './editorMapTypes'
 
 const DB_NAME = 'sl2d'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 const SETTINGS_STORE = 'settings'
 const SETTINGS_KEY = 'control-panel'
 
 const MAP_META_STORE = 'editor-map-meta'
 const MAP_DATA_STORE = 'editor-map-data'
+const MAP_VIEW_STORE = 'editor-map-view'
 
 let dbInstance: IDBDatabase | null = null
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -43,6 +48,10 @@ function openDB(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(MAP_DATA_STORE)) {
         db.createObjectStore(MAP_DATA_STORE, { keyPath: 'id' })
+      }
+
+      if (!db.objectStoreNames.contains(MAP_VIEW_STORE)) {
+        db.createObjectStore(MAP_VIEW_STORE, { keyPath: 'id' })
       }
     }
   })
@@ -83,6 +92,11 @@ export function saveStoredValues(values: Record<string, string>): void {
 interface StoredMapDataRecord {
   id: string
   data: EditorMapData
+}
+
+interface StoredMapViewRecord {
+  id: string
+  view: EditorViewportState
 }
 
 export async function listEditorMaps(): Promise<EditorMapMeta[]> {
@@ -127,6 +141,32 @@ export async function loadEditorMapData(
           return
         }
         resolve(result.data)
+      }
+
+      request.onerror = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function loadEditorMapViewState(
+  mapId: string
+): Promise<EditorViewportState | null> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(MAP_VIEW_STORE, 'readonly')
+      const store = tx.objectStore(MAP_VIEW_STORE)
+      const request = store.get(mapId)
+
+      request.onsuccess = () => {
+        const result = request.result as StoredMapViewRecord | undefined
+        if (!result || result.id !== mapId) {
+          resolve(null)
+          return
+        }
+        resolve(result.view)
       }
 
       request.onerror = () => resolve(null)
@@ -198,6 +238,25 @@ export async function saveEditorMap(
   }
 }
 
+export async function saveEditorMapViewState(
+  mapId: string,
+  view: EditorViewportState
+): Promise<boolean> {
+  try {
+    const db = await openDB()
+    const record: StoredMapViewRecord = { id: mapId, view }
+    return new Promise((resolve) => {
+      const tx = db.transaction(MAP_VIEW_STORE, 'readwrite')
+      tx.objectStore(MAP_VIEW_STORE).put(record)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => resolve(false)
+      tx.onabort = () => resolve(false)
+    })
+  } catch {
+    return false
+  }
+}
+
 export async function saveEditorMapMeta(
   meta: EditorMapMeta
 ): Promise<EditorMapMeta | null> {
@@ -228,9 +287,13 @@ export async function deleteEditorMap(mapId: string): Promise<boolean> {
   try {
     const db = await openDB()
     return new Promise((resolve) => {
-      const tx = db.transaction([MAP_META_STORE, MAP_DATA_STORE], 'readwrite')
+      const tx = db.transaction(
+        [MAP_META_STORE, MAP_DATA_STORE, MAP_VIEW_STORE],
+        'readwrite'
+      )
       tx.objectStore(MAP_META_STORE).delete(mapId)
       tx.objectStore(MAP_DATA_STORE).delete(mapId)
+      tx.objectStore(MAP_VIEW_STORE).delete(mapId)
       tx.oncomplete = () => resolve(true)
       tx.onerror = () => resolve(false)
       tx.onabort = () => resolve(false)

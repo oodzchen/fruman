@@ -23,6 +23,9 @@ import {
   EDITOR_HISTORY_MAX_ENTRIES,
   EDITOR_NUDGE_STEP_PX,
   EDITOR_PIXELS_PER_METER,
+  EDITOR_VIEW_MAX_ZOOM_SCALED,
+  EDITOR_VIEW_MIN_ZOOM_SCALED,
+  EDITOR_VIEW_ZOOM_SCALE,
   ENEMY_EYE_COLOR,
   PLAYER_BODY_COLOR,
   PLAYER_EYE_COLOR,
@@ -73,6 +76,7 @@ import {
 import type {
   EditorMapData,
   EditorMapMeta,
+  EditorViewportState,
   MapEnemyWeapon,
   MapPlacedShape,
   MapWeapon,
@@ -87,6 +91,7 @@ import {
   loadEditorMapData,
   saveEditorMap,
   saveEditorMapMeta,
+  saveEditorMapViewState,
 } from './storage'
 import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
 
@@ -383,6 +388,7 @@ export class EditorManager {
         this.historyManager.reset(data)
         this.lastSavedHistoryId = this.historyManager.getCurrentEntryId()
       },
+      applyEditorViewportState: (state) => this.applyEditorViewportState(state),
       onShowEditorView: () => this.showEditorView(),
       onBackToMenu: () => this.handleBack(),
       onDefaultMapChanged: (meta) => {
@@ -734,6 +740,9 @@ export class EditorManager {
   }
 
   private showMapListView() {
+    if (this.currentView === EditorView.Editor) {
+      this.persistEditorViewportState()
+    }
     this.currentView = EditorView.MapList
     this.sidebarManager.hide()
     this.editorCanvas.style.display = 'none'
@@ -757,6 +766,7 @@ export class EditorManager {
   }
 
   private async handlePreview() {
+    this.persistEditorViewportState()
     await this.mapListManager.handlePreview()
   }
 
@@ -836,6 +846,60 @@ export class EditorManager {
       inverted
     )
     return { x: centerPoint.x, y: centerPoint.y }
+  }
+
+  private getEditorViewportState(): EditorViewportState | null {
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      return null
+    }
+    const vpt = canvas.viewportTransform
+    if (!vpt) {
+      return null
+    }
+    const zoomScaled = Math.round(vpt[0] * EDITOR_VIEW_ZOOM_SCALE)
+    const offsetX = Math.round(vpt[4] ?? 0)
+    const offsetY = Math.round(vpt[5] ?? 0)
+    return {
+      zoomScaled: Math.min(
+        Math.max(zoomScaled, EDITOR_VIEW_MIN_ZOOM_SCALED),
+        EDITOR_VIEW_MAX_ZOOM_SCALED
+      ),
+      offsetX,
+      offsetY,
+    }
+  }
+
+  private applyEditorViewportState(state: EditorViewportState | null) {
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      return
+    }
+    const zoomScaled = state?.zoomScaled ?? EDITOR_VIEW_ZOOM_SCALE
+    const safeZoomScaled = Math.min(
+      Math.max(zoomScaled, EDITOR_VIEW_MIN_ZOOM_SCALED),
+      EDITOR_VIEW_MAX_ZOOM_SCALED
+    )
+    const zoom = safeZoomScaled / EDITOR_VIEW_ZOOM_SCALE
+    const offsetX = state?.offsetX ?? 0
+    const offsetY = state?.offsetY ?? 0
+    canvas.setViewportTransform([zoom, 0, 0, zoom, offsetX, offsetY])
+    canvas.requestRenderAll()
+  }
+
+  private persistEditorViewportState() {
+    if (this.currentView !== EditorView.Editor) {
+      return
+    }
+    const meta = this.currentMapMeta
+    if (!meta) {
+      return
+    }
+    const viewState = this.getEditorViewportState()
+    if (!viewState) {
+      return
+    }
+    void saveEditorMapViewState(meta.id, viewState)
   }
 
   // ========================================
