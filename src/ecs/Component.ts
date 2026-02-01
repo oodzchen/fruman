@@ -740,6 +740,7 @@ export class EnemyAIComponent extends Component {
   alertLastPaceSwitchTimestamp = 0
   alertNextPaceResumeTimestamp = 0
   alertChaseActive = false
+  lastAggressionCheckTimestamp = 0
   lastPosition = { x: 0, y: 0 }
   stuckTimer = 0
   stuckThreshold = 500
@@ -757,6 +758,7 @@ export class EnemyAIComponent extends Component {
   patrolState: 'moving' | 'waiting' = 'moving'
   patrolStuckTimer = 0
   enemyType: EnemyType = 'default'
+  isRedTapeActive = false
 
   reset(): void {
     this.attackDesire = DEFAULT_ENEMY_ATTACK_DESIRE
@@ -830,6 +832,7 @@ export class EnemyAIComponent extends Component {
     this.patrolState = 'moving'
     this.patrolStuckTimer = 0
     this.enemyType = 'default'
+    this.isRedTapeActive = false
   }
 
   getName(): string {

@@ -229,7 +229,7 @@ export const CHARACTER_DEFAULT_DATA = {
   default: {
     moveSpeed: 3.5,
     radius: 0.5,
-    attackDesire: 20,
+    attackDesire: 80,
     color: '#F58025',
     parryProficiency: 0,
     initialPatrolMode: 'patrol',
@@ -240,7 +240,7 @@ export const CHARACTER_DEFAULT_DATA = {
   archer: {
     moveSpeed: 3.5,
     radius: 0.5,
-    attackDesire: 5,
+    attackDesire: 30,
     color: '#8B4513',
     parryProficiency: 0,
     initialPatrolMode: 'guard',

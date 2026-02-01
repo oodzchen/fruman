@@ -75,6 +75,19 @@ export class EnemyAISystem extends System {
     const deltaMs = deltaTime > 0 ? deltaTime * 1000 : 0
     this.currentTimeMs += deltaMs
     const now = this.currentTimeMs
+
+    // Count active attackers (Red Tape System)
+    let activeAttackers = 0
+    for (const entity of entities) {
+      if (
+        entity.faction?.faction === Faction.Enemy &&
+        !entity.stats?.isDead &&
+        entity.enemyAI?.state === 'combo'
+      ) {
+        activeAttackers++
+      }
+    }
+
     for (const entity of entities) {
       if (!entity.transform || !entity.input || !entity.enemyAI) continue
       if (entity.faction?.faction !== Faction.Enemy) continue
@@ -104,6 +117,17 @@ export class EnemyAISystem extends System {
         ai.lastFacing = facing
       }
       const stableFacing = ai.lastFacing
+
+      // Red Tape System: High proficiency enemies wait their turn
+      ai.isRedTapeActive = false
+      if (
+        ai.parryProficiency > 50 &&
+        activeAttackers > 0 &&
+        ai.state !== 'combo'
+      ) {
+        ai.isRedTapeActive = true
+      }
+      const effectiveAttackDesire = ai.isRedTapeActive ? 0 : ai.attackDesire
 
       // 计算武器的有效攻击半径（与 WeaponSystem.getAttackRadius 相同逻辑）
       const weaponAttackRadius = this.getWeaponAttackRadius(entity)
@@ -136,6 +160,7 @@ export class EnemyAISystem extends System {
       this.updateProbeCycle(
         entity,
         ai,
+        effectiveAttackDesire,
         deltaMs,
         isEngaged,
         distance,
@@ -303,7 +328,7 @@ export class EnemyAISystem extends System {
         : ai.detectionRange
 
       if (
-        ai.attackDesire <= 0 ||
+        effectiveAttackDesire <= 0 ||
         distance > effectiveDetectionRange ||
         lostInterest ||
         shouldRetreatDueToDistance
@@ -460,6 +485,18 @@ export class EnemyAISystem extends System {
         }
 
         if (distance > weaponRange) {
+          if (now - ai.lastAggressionCheckTimestamp > 1000) {
+            ai.lastAggressionCheckTimestamp = now
+            const hesitationChance = Math.max(
+              0,
+              (100 - effectiveAttackDesire) / 100
+            )
+            if (Math.random() < hesitationChance * 0.8) {
+              this.startProbeState(entity, ai, effectiveAttackDesire)
+              continue
+            }
+          }
+
           entity.input.moveDirection = stableFacing
           if (entity.movement && hasCombatLineOfSight) {
             // 如果基础速度小于奔跑速度（人类奔跑速度），则尝试奔跑
@@ -573,10 +610,18 @@ export class EnemyAISystem extends System {
           weapon.attackPhase === 'idle' &&
           !weapon.attackQueued
         if (comboFinished) {
-          ai.state = 'retreat'
-          ai.retreatDirection = (ai.lastFacing === 1 ? -1 : 1) as -1 | 1
-          ai.retreatTargetDistance = weaponRange + ENEMY_RETREAT_EXTRA_DISTANCE
-          entity.input.moveDirection = ai.retreatDirection
+          const retreatChance = Math.max(0, (100 - effectiveAttackDesire) / 100)
+          if (Math.random() < retreatChance) {
+            ai.state = 'retreat'
+            ai.retreatDirection = (ai.lastFacing === 1 ? -1 : 1) as -1 | 1
+            ai.retreatTargetDistance =
+              weaponRange + ENEMY_RETREAT_EXTRA_DISTANCE
+            entity.input.moveDirection = ai.retreatDirection
+          } else {
+            ai.state = 'approach'
+            ai.comboSwingsDone = 0
+            entity.input.moveDirection = 0
+          }
         }
         continue
       }
@@ -1145,12 +1190,16 @@ export class EnemyAISystem extends System {
   private updateProbeCycle(
     entity: Entity,
     ai: EnemyAIComponent,
+    effectiveAttackDesire: number,
     deltaMs: number,
     isEngaged: boolean,
     distance: number,
     weaponRange: number
   ): void {
-    if (ai.parryProficiency < 50 || !isEngaged) {
+    if (
+      (ai.parryProficiency < 50 && effectiveAttackDesire >= 50) ||
+      !isEngaged
+    ) {
       if (ai.state === 'probe') {
         ai.state = 'approach'
         if (entity.movement) {
@@ -1181,14 +1230,17 @@ export class EnemyAISystem extends System {
       const probeBuffer = weaponRange * ENEMY_PROBE_RANGE_BUFFER_RATIO
       const maxDistance = probeTargetDistance + probeBuffer
       if (distance <= maxDistance) {
-        this.startProbeState(entity, ai)
+        if (effectiveAttackDesire >= 90) {
+          return
+        }
+        this.startProbeState(entity, ai, effectiveAttackDesire)
         return
       }
     }
 
     if (ai.state === 'probe') {
       if (ai.probeSwitchTimerMs <= 0) {
-        this.startProbeState(entity, ai)
+        this.startProbeState(entity, ai, effectiveAttackDesire)
         return
       }
 
@@ -1221,13 +1273,17 @@ export class EnemyAISystem extends System {
       return
     }
 
-    this.startProbeState(entity, ai)
+    this.startProbeState(entity, ai, effectiveAttackDesire)
   }
 
-  private startProbeState(entity: Entity, ai: EnemyAIComponent): void {
+  private startProbeState(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    effectiveAttackDesire: number
+  ): void {
     ai.state = 'probe'
     ai.probeHasTriggered = true
-    ai.probeSwitchTimerMs = this.getProbeDurationMs()
+    ai.probeSwitchTimerMs = this.getProbeDurationMs(effectiveAttackDesire)
     ai.probePaceTimerMs = 0
     ai.probePaceDirection = 1
     ai.probePaceMovedDistance = 0
@@ -1304,9 +1360,11 @@ export class EnemyAISystem extends System {
     entity.input.moveDirection = (facing * ai.probePaceDirection) as -1 | 1
   }
 
-  private getProbeDurationMs(): number {
+  private getProbeDurationMs(attackDesire: number): number {
+    // scale duration based on desire: 100 desire -> 0.2x duration, 0 desire -> 1.0x duration
+    const factor = Math.max(0.2, (100 - attackDesire) / 100)
     const range = ENEMY_PROBE_DURATION_MAX_MS - ENEMY_PROBE_DURATION_MIN_MS
-    return ENEMY_PROBE_DURATION_MIN_MS + Math.random() * range
+    return (ENEMY_PROBE_DURATION_MIN_MS + Math.random() * range) * factor
   }
 
   private handleObstacleJump(
