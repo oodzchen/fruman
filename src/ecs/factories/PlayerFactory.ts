@@ -240,6 +240,8 @@ export interface EnemySpawnConfig {
   maxToughness?: number
   color?: string
   facing?: number
+  debugNoDamage?: boolean
+  debugNoDeath?: boolean
   mainWeapon?: EnemyWeaponConfig
   secondaryWeapon?: EnemyWeaponConfig
 }
@@ -274,6 +276,8 @@ export function createEnemy(
   const maxToughness = options?.maxToughness ?? template.maxToughness
   const color = options?.color ?? template.color
   const facing = options?.facing ?? 1
+  const debugNoDamage = options?.debugNoDamage === true
+  const debugNoDeath = options?.debugNoDeath === true
   const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY, radius)
 
   // 重置敌人的脱战超时为10秒
@@ -285,6 +289,8 @@ export function createEnemy(
     enemy.stats.posture = maxPosture
     enemy.stats.maxToughness = maxToughness
     enemy.stats.toughness = maxToughness
+    enemy.stats.debugNoDamage = debugNoDamage
+    enemy.stats.debugNoDeath = debugNoDeath
   }
 
   const ai = new EnemyAIComponent()

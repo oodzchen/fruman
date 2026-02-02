@@ -1,8 +1,4 @@
 import {
-  DEBUG_LOCK_DEFAULT_ENEMY_HEALTH,
-  DEBUG_LOCK_PLAYER_HEALTH,
-  DEBUG_LOCK_PLAYER_POSTURE,
-  DEBUG_PLAYER_IMMORTALITY,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_DEATH_FLASH_DURATION,
@@ -29,7 +25,7 @@ import {
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
-import { Faction, PhysicsComponent } from '../Component'
+import { PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -579,21 +575,12 @@ export class StatsSystem extends System {
       }
     }
 
-    const isPlayer = entity.faction?.faction === Faction.Player
-    const isDefaultEnemy =
-      entity.faction?.faction === Faction.Enemy &&
-      entity.enemyAI?.enemyType === 'default'
-    if (isPlayer) {
-      if (DEBUG_LOCK_PLAYER_HEALTH) {
-        finalHealthDamage = 0
-      }
-      if (DEBUG_LOCK_PLAYER_POSTURE) {
-        finalPostureDamage = 0
-      }
+    if (entity.stats.debugNoDamage) {
+      finalHealthDamage = 0
+      finalPostureDamage = 0
+      finalToughnessDamage = 0
+      finalKnockback = 0
     }
-    // if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
-    //   finalHealthDamage = 0
-    // }
 
     entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)
     entity.stats.posture = Math.max(
@@ -707,15 +694,7 @@ export class StatsSystem extends System {
     }
 
     if (entity.stats.health === 0) {
-      if (isPlayer && DEBUG_PLAYER_IMMORTALITY) {
-        entity.stats.health = entity.stats.maxHealth
-        entity.stats.posture = entity.stats.maxPosture
-        entity.stats.toughness = entity.stats.maxToughness
-        // console.log('Player avoided death due to immortality debug flag')
-        return
-      }
-
-      if (isDefaultEnemy && DEBUG_LOCK_DEFAULT_ENEMY_HEALTH) {
+      if (entity.stats.debugNoDeath) {
         entity.stats.health = entity.stats.maxHealth
         entity.stats.posture = entity.stats.maxPosture
         entity.stats.toughness = entity.stats.maxToughness

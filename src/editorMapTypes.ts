@@ -70,6 +70,8 @@ export interface MapEnemy {
   maxToughness?: number
   color?: string
   facing?: number
+  debugNoDamage?: boolean
+  debugNoDeath?: boolean
   equipWeapon?: boolean
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon
@@ -101,6 +103,8 @@ export interface MapPlayerProperties {
   maxPosture?: number
   maxToughness?: number
   color?: string
+  debugNoDamage?: boolean
+  debugNoDeath?: boolean
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon
 }

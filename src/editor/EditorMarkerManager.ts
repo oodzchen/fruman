@@ -208,6 +208,8 @@ export class EditorMarkerManager {
       data.moveSpeed >= 0
         ? data.moveSpeed
         : DEFAULT_MOVE_SPEED
+    const nextDebugNoDamage = data?.debugNoDamage === true
+    const nextDebugNoDeath = data?.debugNoDeath === true
     let spawnX: number
     let spawnY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -236,7 +238,11 @@ export class EditorMarkerManager {
         this.playerMarkerData.maxToughness = nextMaxToughness
         this.playerMarkerData.color = nextColor
         this.playerMarkerData.facing = nextFacing
+        this.playerMarkerData.debugNoDamage = nextDebugNoDamage
+        this.playerMarkerData.debugNoDeath = nextDebugNoDeath
       }
+      this.playerMarker.debugNoDamage = nextDebugNoDamage
+      this.playerMarker.debugNoDeath = nextDebugNoDeath
       canvas.setActiveObject(this.playerMarker)
       this.ctx.handleCanvasSelection(this.playerMarker)
       canvas.requestRenderAll()
@@ -255,6 +261,8 @@ export class EditorMarkerManager {
     marker.maxToughness = nextMaxToughness
     marker.color = nextColor
     marker.facing = nextFacing
+    marker.debugNoDamage = nextDebugNoDamage
+    marker.debugNoDeath = nextDebugNoDeath
     this.updatePlayerMarkerVisual(marker, nextRadius, nextColor, nextFacing)
     this.playerMarker = marker
     this.playerMarkerData = {
@@ -266,6 +274,8 @@ export class EditorMarkerManager {
       maxToughness: nextMaxToughness,
       color: nextColor,
       facing: nextFacing,
+      debugNoDamage: nextDebugNoDamage,
+      debugNoDeath: nextDebugNoDeath,
     }
     if (data?.mainWeapon) {
       this.createPlayerWeaponFromConfig(
@@ -435,6 +445,8 @@ export class EditorMarkerManager {
       maxToughness?: number
       color?: string
       facing?: number
+      debugNoDamage?: boolean
+      debugNoDeath?: boolean
       equipWeapon?: boolean
       mainWeapon?: MapEnemyWeapon
       secondaryWeapon?: MapEnemyWeapon
@@ -459,6 +471,8 @@ export class EditorMarkerManager {
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
     const color = spawn?.color ?? template.color
     const facing = spawn?.facing ?? 1
+    const debugNoDamage = spawn?.debugNoDamage === true
+    const debugNoDeath = spawn?.debugNoDeath === true
     const equipWeapon =
       spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
     let centerX: number
@@ -491,6 +505,8 @@ export class EditorMarkerManager {
     marker.maxToughness = maxToughness
     marker.color = color
     marker.facing = facing
+    marker.debugNoDamage = debugNoDamage
+    marker.debugNoDeath = debugNoDeath
     marker.equipWeapon = equipWeapon
     marker.left = centerX
     marker.top = centerY
@@ -510,6 +526,8 @@ export class EditorMarkerManager {
       maxToughness,
       color,
       facing,
+      debugNoDamage,
+      debugNoDeath,
       equipWeapon,
       mainWeapon: spawn?.mainWeapon?.weaponType,
       secondaryWeapon: spawn?.secondaryWeapon?.weaponType,

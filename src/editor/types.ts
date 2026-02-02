@@ -26,6 +26,8 @@ export type PlayerMarker = fabric.Group & {
   maxToughness: number
   color: string
   facing: number
+  debugNoDamage: boolean
+  debugNoDeath: boolean
   weaponBackShape?: WeaponShape
   weaponFrontShape?: WeaponShape
 }
@@ -43,6 +45,8 @@ export type EnemyMarker = fabric.Group & {
   maxToughness: number
   color: string
   facing: number // 1 for right, -1 for left
+  debugNoDamage: boolean
+  debugNoDeath: boolean
   equipWeapon: boolean
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
@@ -96,6 +100,8 @@ export interface EnemyMarkerData {
   maxToughness: number
   color: string
   facing: number
+  debugNoDamage: boolean
+  debugNoDeath: boolean
   equipWeapon: boolean
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker
@@ -112,6 +118,8 @@ export interface PlayerMarkerData {
   maxToughness: number
   color: string
   facing: number
+  debugNoDamage: boolean
+  debugNoDeath: boolean
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker
   secondaryWeapon?: WeaponType

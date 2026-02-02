@@ -1067,6 +1067,9 @@ export class EditorManager {
       this.currentMapMeta = savedMeta
       this.lastSavedHistoryId = this.historyManager.getCurrentEntryId()
       this.mapListManager.refreshMapMetas()
+      if (savedMeta.isDefault && this.onDefaultMapChangedCallback) {
+        this.onDefaultMapChangedCallback(savedMeta)
+      }
       await this.dialogManager.alert(localizer.t('editor_save_success'))
       return true
     } catch (error) {

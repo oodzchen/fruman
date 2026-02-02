@@ -1264,6 +1264,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     playerEntity.stats.posture = nextMaxPosture
     playerEntity.stats.maxToughness = nextMaxToughness
     playerEntity.stats.toughness = nextMaxToughness
+    playerEntity.stats.debugNoDamage = playerProps.debugNoDamage === true
+    playerEntity.stats.debugNoDeath = playerProps.debugNoDeath === true
   }
 
   if (playerEntity.movement && playerProps) {

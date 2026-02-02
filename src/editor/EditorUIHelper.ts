@@ -4,6 +4,7 @@ export class EditorUIHelper {
     form: HTMLDivElement
     leftPanel: HTMLDivElement
     rightPanel: HTMLDivElement
+    footerPanel: HTMLDivElement
     previewCanvas: HTMLCanvasElement
     previewCtx: CanvasRenderingContext2D | null
     close: () => void
@@ -15,11 +16,26 @@ export class EditorUIHelper {
     form.appendChild(titleEl)
 
     const content = document.createElement('div')
-    content.style.cssText = 'display: flex; align-items: flex-start; gap: 16px;'
+    content.style.cssText = `
+      display: flex;
+      align-items: stretch;
+      gap: 16px;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    `
     form.appendChild(content)
 
     const leftPanel = document.createElement('div')
-    leftPanel.style.cssText = 'flex: 1; min-width: 0;'
+    leftPanel.style.cssText = `
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 8px;
+      box-sizing: border-box;
+    `
     content.appendChild(leftPanel)
 
     const rightPanel = this.createPreviewPanel()
@@ -29,10 +45,31 @@ export class EditorUIHelper {
     rightPanel.appendChild(previewCanvas)
     const previewCtx = previewCanvas.getContext('2d')
 
+    const footerPanel = document.createElement('div')
+    footerPanel.style.cssText = `
+      flex: 0 0 auto;
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+      padding-top: 4px;
+      padding-bottom: 2px;
+    `
+    form.appendChild(footerPanel)
+
     modal.appendChild(form)
+
+    const applyDialogMaxHeight = () => {
+      const modalRect = modal.getBoundingClientRect()
+      const fallbackHeight = window.innerHeight
+      const baseHeight =
+        modalRect.height > 0 ? modalRect.height : fallbackHeight
+      const maxHeightPx = Math.max(240, Math.floor(baseHeight - 32))
+      form.style.maxHeight = `${maxHeightPx}px`
+    }
 
     const show = (parent: HTMLElement) => {
       parent.appendChild(modal)
+      applyDialogMaxHeight()
     }
 
     return {
@@ -40,6 +77,7 @@ export class EditorUIHelper {
       form,
       leftPanel,
       rightPanel,
+      footerPanel,
       previewCanvas,
       previewCtx,
       close,
@@ -80,6 +118,10 @@ export class EditorUIHelper {
       min-width: ${options?.minWidth ?? '520px'};
       font-family: monospace;
       color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-sizing: border-box;
     `
     return form
   }

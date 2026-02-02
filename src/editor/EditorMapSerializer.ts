@@ -54,6 +54,8 @@ interface EditorMapSerializerContext {
     maxToughness: number
     color: string
     facing: number
+    debugNoDamage: boolean
+    debugNoDeath: boolean
     mainWeapon?: WeaponType
     mainWeaponMarker?: fabric.Object
     secondaryWeapon?: WeaponType
@@ -399,6 +401,8 @@ export class EditorMapSerializer {
       maxToughness: data.maxToughness,
       color: data.color,
       facing: data.facing,
+      debugNoDamage: data.debugNoDamage,
+      debugNoDeath: data.debugNoDeath,
       mainWeapon,
       secondaryWeapon,
     }
@@ -565,6 +569,8 @@ export class EditorMapSerializer {
         maxToughness: data.maxToughness,
         color: data.color,
         facing: data.facing,
+        debugNoDamage: data.debugNoDamage,
+        debugNoDeath: data.debugNoDeath,
         equipWeapon: data.equipWeapon,
         mainWeapon,
         secondaryWeapon,

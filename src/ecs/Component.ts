@@ -270,6 +270,8 @@ export class StatsComponent extends Component {
   maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
   toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
   toughnessRecoveryPerSecond = DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC
+  debugNoDamage = false
+  debugNoDeath = false
   isDead = false
   isVanished = false
   deathElapsedSec = 0
@@ -302,6 +304,8 @@ export class StatsComponent extends Component {
     this.maxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
     this.toughness = DEFAULT_PLAYER_MAX_TOUGHNESS
     this.toughnessRecoveryPerSecond = DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC
+    this.debugNoDamage = false
+    this.debugNoDeath = false
     this.isDead = false
     this.isVanished = false
     this.deathElapsedSec = 0

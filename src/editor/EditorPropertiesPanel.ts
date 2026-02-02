@@ -58,6 +58,8 @@ type CharacterDialogOptions = {
     maxToughness: number
     color: string
     facing: number
+    debugNoDamage: boolean
+    debugNoDeath: boolean
   }
   showMoveSpeed: boolean
   showAttackDesire: boolean
@@ -81,6 +83,8 @@ type CharacterDialogOptions = {
     maxPosture: number
     maxToughness: number
     color: string
+    debugNoDamage: boolean
+    debugNoDeath: boolean
     mainWeaponType?: WeaponType
     mainWeaponMarker?: WeaponMarker
     secondaryWeaponType?: WeaponType
@@ -137,8 +141,15 @@ export class EditorPropertiesPanel {
 
     const dialog = EditorUIHelper.createPropertiesDialog(options.title)
 
-    const { leftPanel, rightPanel, previewCanvas, previewCtx, close, modal } =
-      dialog
+    const {
+      leftPanel,
+      rightPanel,
+      footerPanel,
+      previewCanvas,
+      previewCtx,
+      close,
+      modal,
+    } = dialog
     const weaponSlotsCanvas = EditorUIHelper.createPreviewCanvas({
       width: 160,
       height: 64,
@@ -276,6 +287,32 @@ export class EditorPropertiesPanel {
     toughnessRow.row.appendChild(toughnessInput)
     leftPanel.appendChild(toughnessRow.row)
 
+    const debugNoDamageRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_debug_no_damage')
+    )
+    const debugNoDamageSelect = EditorUIHelper.createSelect({
+      options: [
+        { value: '0', label: localizer.t('editor_debug_switch_off') },
+        { value: '1', label: localizer.t('editor_debug_switch_on') },
+      ],
+      selected: options.data.debugNoDamage ? '1' : '0',
+    })
+    debugNoDamageRow.row.appendChild(debugNoDamageSelect)
+    leftPanel.appendChild(debugNoDamageRow.row)
+
+    const debugNoDeathRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_debug_no_death')
+    )
+    const debugNoDeathSelect = EditorUIHelper.createSelect({
+      options: [
+        { value: '0', label: localizer.t('editor_debug_switch_off') },
+        { value: '1', label: localizer.t('editor_debug_switch_on') },
+      ],
+      selected: options.data.debugNoDeath ? '1' : '0',
+    })
+    debugNoDeathRow.row.appendChild(debugNoDeathSelect)
+    leftPanel.appendChild(debugNoDeathRow.row)
+
     // Color
     const colorRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_color')
@@ -385,7 +422,7 @@ export class EditorPropertiesPanel {
     )
     buttonRow.appendChild(confirmBtn)
     buttonRow.appendChild(cancelBtn)
-    leftPanel.appendChild(buttonRow)
+    footerPanel.appendChild(buttonRow)
 
     // Preview rendering
     const colorRegex = /^#[0-9a-fA-F]{6}$/
@@ -677,6 +714,8 @@ export class EditorPropertiesPanel {
       const maxHealth = Number.parseFloat(healthInput.value)
       const maxPosture = Number.parseFloat(postureInput.value)
       const maxToughness = Number.parseFloat(toughnessInput.value)
+      const debugNoDamage = debugNoDamageSelect.value === '1'
+      const debugNoDeath = debugNoDeathSelect.value === '1'
       const color = getValidColor()
       const moveSpeed = speedInput ? Number.parseFloat(speedInput.value) : 0
       const attackDesire = desireInput
@@ -775,6 +814,8 @@ export class EditorPropertiesPanel {
         maxPosture,
         maxToughness,
         color,
+        debugNoDamage,
+        debugNoDeath,
         mainWeaponType,
         mainWeaponMarker,
         secondaryWeaponType,
@@ -885,6 +926,8 @@ export class EditorPropertiesPanel {
         data.maxToughness = values.maxToughness
         data.color = values.color
         data.facing = values.facing
+        data.debugNoDamage = values.debugNoDamage
+        data.debugNoDeath = values.debugNoDeath
 
         data.mainWeapon = values.mainWeaponType
         data.mainWeaponMarker = values.mainWeaponMarker
@@ -902,6 +945,8 @@ export class EditorPropertiesPanel {
         marker.maxToughness = data.maxToughness
         marker.color = data.color
         marker.facing = data.facing
+        marker.debugNoDamage = data.debugNoDamage
+        marker.debugNoDeath = data.debugNoDeath
         marker.equipWeapon = data.equipWeapon
 
         this.context.updateEnemyMarkerVisual(
@@ -983,6 +1028,8 @@ export class EditorPropertiesPanel {
         data.maxToughness = values.maxToughness
         data.color = values.color
         data.facing = values.facing
+        data.debugNoDamage = values.debugNoDamage
+        data.debugNoDeath = values.debugNoDeath
 
         data.mainWeapon = values.mainWeaponType
         data.mainWeaponMarker = values.mainWeaponMarker
@@ -995,6 +1042,8 @@ export class EditorPropertiesPanel {
         marker.maxToughness = data.maxToughness
         marker.color = data.color
         marker.facing = data.facing
+        marker.debugNoDamage = data.debugNoDamage
+        marker.debugNoDeath = data.debugNoDeath
 
         this.context.updatePlayerMarkerVisual(
           marker,
@@ -1061,7 +1110,8 @@ export class EditorPropertiesPanel {
     const dialog = EditorUIHelper.createPropertiesDialog(
       `[${weaponCategoryName}] ${objectName}`
     )
-    const { leftPanel, previewCanvas, previewCtx, close, modal } = dialog
+    const { leftPanel, footerPanel, previewCanvas, previewCtx, close, modal } =
+      dialog
 
     const sizeOptions: Array<{ value: string; label: string }> = []
     for (let i = 1; i <= template.sizeMaxLevel; i++) {
@@ -1137,7 +1187,7 @@ export class EditorPropertiesPanel {
     )
     buttonRow.appendChild(confirmBtn)
     buttonRow.appendChild(cancelBtn)
-    leftPanel.appendChild(buttonRow)
+    footerPanel.appendChild(buttonRow)
 
     const viewport = document.getElementById('gameViewport')
     if (!viewport) {
