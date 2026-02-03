@@ -349,6 +349,14 @@ export class GameClient {
 
     window.addEventListener('mousedown', (e) => {
       if (
+        e.button === 2 &&
+        !this.isEditorOverlayVisible() &&
+        (document.pointerLockElement === this.canvas ||
+          this.isPointInCanvas(e.clientX, e.clientY))
+      ) {
+        e.preventDefault()
+      }
+      if (
         this.menuManager.isVisible() ||
         !this.inputEnabled ||
         this.isEditorOverlayVisible()
@@ -369,6 +377,22 @@ export class GameClient {
       }
       this.mouseButtons.delete(e.button)
       this.sendInput()
+    })
+
+    window.addEventListener('blur', () => {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
+        return
+      }
+      this.resetInputState()
+    })
+
+    document.addEventListener('visibilitychange', () => {
+      if (this.menuManager.isVisible() || !this.inputEnabled) {
+        return
+      }
+      if (document.hidden) {
+        this.resetInputState()
+      }
     })
 
     this.canvas.addEventListener('mouseenter', () => {
@@ -411,13 +435,32 @@ export class GameClient {
       this.sendInput()
     })
 
-    // Prevent context menu on right click to allow for blocking
-    window.addEventListener('contextmenu', (e) => {
+    // Prevent context menu on right click inside game viewport to allow for blocking
+    this.canvas.addEventListener('contextmenu', (e) => {
       if (this.isEditorOverlayVisible()) {
         return
       }
       e.preventDefault()
     })
+
+    window.addEventListener(
+      'contextmenu',
+      (e) => {
+        if (this.isEditorOverlayVisible()) {
+          return
+        }
+        if (document.pointerLockElement === this.canvas) {
+          this.resetInputState()
+          e.preventDefault()
+          return
+        }
+        if (this.isPointInCanvas(e.clientX, e.clientY)) {
+          this.resetInputState()
+          e.preventDefault()
+        }
+      },
+      true
+    )
 
     this.canvas.addEventListener('wheel', (e) => {
       if (this.menuManager.isVisible() || !this.inputEnabled) {
@@ -456,6 +499,24 @@ export class GameClient {
 
   private isEditorOverlayVisible() {
     return this.editorOverlay?.classList.contains('is-visible') ?? false
+  }
+
+  private resetInputState() {
+    this.keys.clear()
+    this.mouseButtons.clear()
+    this.mouseCaptured = false
+    this.sendInput()
+  }
+
+  private isPointInCanvas(clientX: number, clientY: number) {
+    const rect = this.canvas.getBoundingClientRect()
+    const left = Math.floor(rect.left)
+    const right = Math.floor(rect.right)
+    const top = Math.floor(rect.top)
+    const bottom = Math.floor(rect.bottom)
+    return (
+      clientX >= left && clientX <= right && clientY >= top && clientY <= bottom
+    )
   }
 
   private renderLoop(timestamp?: number) {
