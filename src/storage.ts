@@ -542,6 +542,7 @@ export async function createSave(
       mapName,
       playerHealth: playerMaxHealth,
       playerMaxHealth,
+      thumbnail: undefined,
     }
 
     const initialSaveData: SaveData = {
@@ -603,6 +604,7 @@ export async function updateSave(saveData: SaveData): Promise<SaveMeta | null> {
       playTimeMs: saveData.playTimeMs,
       playerHealth: saveData.player.health,
       playerMaxHealth: saveData.player.maxHealth,
+      thumbnail: saveData.meta.thumbnail,
     }
 
     const updatedSaveData: SaveData = {

@@ -100,6 +100,7 @@ export class GameClient {
   private currentSaveId: string | null = null
   private currentSaveData: SaveData | null = null
   private pendingSaveResolve: ((meta: SaveData | null) => void) | null = null
+  private pendingSaveThumbnail: string | null = null
   private onEditorActionCallback?: () => void
   private onExitActionCallback?: () => Promise<boolean>
 
@@ -287,6 +288,8 @@ export class GameClient {
   private handleSaveResponse(msg: WorkerSaveResponseMessage): void {
     if (!this.currentSaveData) return
 
+    const nextThumbnail =
+      this.pendingSaveThumbnail ?? this.currentSaveData.meta.thumbnail
     const updatedSaveData: SaveData = {
       ...this.currentSaveData,
       playTimeMs: msg.playTimeMs,
@@ -295,9 +298,14 @@ export class GameClient {
       enemies: msg.enemies,
       groundWeapons: msg.groundWeapons,
       camera: msg.camera,
+      meta: {
+        ...this.currentSaveData.meta,
+        thumbnail: nextThumbnail ?? undefined,
+      },
     }
 
     this.currentSaveData = updatedSaveData
+    this.pendingSaveThumbnail = null
 
     saveManager.save(msg.saveId, updatedSaveData).then((meta) => {
       if (this.pendingSaveResolve) {
@@ -884,6 +892,7 @@ export class GameClient {
           break
         case MenuAction.SaveGame:
           this.dialogManager.showLoading(localizer.t('saving'))
+          this.pendingSaveThumbnail = await this.captureSaveThumbnail()
           const saveResult = await this.requestSave()
           this.dialogManager.hideLoading()
           if (saveResult) {
@@ -1024,9 +1033,61 @@ export class GameClient {
       setTimeout(() => {
         if (this.pendingSaveResolve === resolve) {
           this.pendingSaveResolve = null
+          this.pendingSaveThumbnail = null
           resolve(null)
         }
       }, 5000)
+    })
+  }
+
+  private async captureSaveThumbnail(): Promise<string | null> {
+    const snapshotDataUrl = this.canvas.toDataURL('image/jpeg', 0.8)
+    if (!snapshotDataUrl) {
+      return null
+    }
+    return this.resizeThumbnail(snapshotDataUrl, 200, 160)
+  }
+
+  private resizeThumbnail(
+    dataUrl: string,
+    width: number,
+    height: number
+  ): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
+
+        const srcRatio = img.width / img.height
+        const dstRatio = width / height
+
+        let drawW = width
+        let drawH = height
+        let offsetX = 0
+        let offsetY = 0
+
+        if (srcRatio > dstRatio) {
+          drawH = height
+          drawW = height * srcRatio
+          offsetX = (width - drawW) / 2
+        } else {
+          drawW = width
+          drawH = width / srcRatio
+          offsetY = (height - drawH) / 2
+        }
+
+        ctx.drawImage(img, offsetX, offsetY, drawW, drawH)
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
+      }
+      img.onerror = () => resolve(dataUrl)
+      img.src = dataUrl
     })
   }
 

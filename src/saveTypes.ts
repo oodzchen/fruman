@@ -19,6 +19,7 @@ export interface SaveMeta {
   mapName: string
   playerHealth: number
   playerMaxHealth: number
+  thumbnail?: string
 }
 
 export interface SaveWeaponSlotState {

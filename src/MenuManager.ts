@@ -413,6 +413,15 @@ export class MenuManager {
   private renderSaveItemContent(element: HTMLButtonElement, meta: SaveMeta) {
     element.innerHTML = ''
 
+    const thumb =
+      meta.thumbnail && meta.thumbnail.length > 0
+        ? this.createSaveThumbnailImage(meta.thumbnail)
+        : this.createSaveThumbnailPlaceholder()
+    element.appendChild(thumb)
+
+    const textContainer = document.createElement('div')
+    textContainer.className = 'save-item-text'
+
     const nameEl = document.createElement('span')
     nameEl.className = 'save-item-name'
     nameEl.textContent = meta.name
@@ -423,8 +432,22 @@ export class MenuManager {
     const lastPlayed = saveManager.formatLastPlayed(meta.updatedAt)
     infoEl.textContent = `${meta.mapName} · ${playTime} · ${lastPlayed}`
 
-    element.appendChild(nameEl)
-    element.appendChild(infoEl)
+    textContainer.appendChild(nameEl)
+    textContainer.appendChild(infoEl)
+    element.appendChild(textContainer)
+  }
+
+  private createSaveThumbnailImage(src: string): HTMLImageElement {
+    const img = document.createElement('img')
+    img.className = 'save-item-thumb'
+    img.src = src
+    return img
+  }
+
+  private createSaveThumbnailPlaceholder(): HTMLDivElement {
+    const placeholder = document.createElement('div')
+    placeholder.className = 'save-item-thumb save-item-thumb-placeholder'
+    return placeholder
   }
 
   private updateMenuTitle() {
