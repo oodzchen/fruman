@@ -3,7 +3,7 @@ import { EditorManager } from './EditorManager'
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
 import { Language, localizer } from './Localizer'
-import { MenuAction, MenuMode } from './MenuManager'
+import { MenuMode } from './MenuManager'
 import {
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
@@ -323,7 +323,7 @@ async function initialize() {
   editorManager.onBackToMenu(() => {
     game.setEditorPreview(false)
     game.clearMapPreview()
-    menuManager.show(MenuMode.Start)
+    void menuManager.showWithSaveRefresh(MenuMode.Start)
   })
   editorManager.onPreview((_meta, data) => {
     editorManager.hide()
@@ -380,67 +380,23 @@ async function initialize() {
   requestAnimationFrame(uiLoop)
 
   const menuManager = game.getMenuManager()
-  menuManager.onAction((action: MenuAction) => {
-    switch (action) {
-      case MenuAction.NewGame:
-        menuManager.hide()
-        game.setEditorPreview(false)
-        if (game.isPreviewActive()) {
-          game.clearMapPreview()
-        }
-        game.start()
-        game.setInputEnabled(true)
-        break
-      case MenuAction.Continue:
-        menuManager.hide()
-        game.setEditorPreview(false)
-        if (game.isPreviewActive()) {
-          game.clearMapPreview()
-        }
-        game.start()
-        game.setInputEnabled(true)
-        break
-      case MenuAction.Resume:
-        menuManager.hide()
-        game.setEditorPreview(false)
-        if (game.isPreviewActive()) {
-          game.clearMapPreview()
-        }
-        game.start()
-        game.setInputEnabled(true)
-        break
-      case MenuAction.MainMenu:
-        game.clearMapPreview()
-        game.setInputEnabled(false)
-        game.setEditorPreview(false)
-        menuManager.show(MenuMode.Start)
-        break
-      case MenuAction.Editor:
-        menuManager.hide()
-        game.stop()
-        game.setInputEnabled(false)
-        game.setEditorPreview(true)
-        editorManager.show()
-        break
-      case MenuAction.Settings:
-        // Handled by MenuManager internally
-        break
-      case MenuAction.Exit:
-        dialogManager
-          .confirm(localizer.t('confirm_exit_game'))
-          .then((confirmed) => {
-            if (confirmed) {
-              window.close()
-            }
-          })
-        break
-    }
+
+  game.setOnEditorAction(() => {
+    menuManager.hide()
+    game.stop()
+    game.setInputEnabled(false)
+    game.setEditorPreview(true)
+    editorManager.show()
+  })
+
+  game.setOnExitAction(async () => {
+    return dialogManager.confirm(localizer.t('confirm_exit_game'))
   })
 
   game.setOnFirstFrameRendered(() => {
     setTimeout(() => {
       game.setInputEnabled(false)
-      menuManager.show(MenuMode.Start)
+      void menuManager.showWithSaveRefresh(MenuMode.Start)
     }, 800)
   })
 }

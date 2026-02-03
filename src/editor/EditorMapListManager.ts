@@ -34,6 +34,7 @@ export class EditorMapListManager {
   private editorMapListView: HTMLDivElement
   private editorMapList: HTMLDivElement
   private editorMapListMenu: HTMLDivElement
+  private editorMapListTitle: HTMLDivElement
   private editorMapCreateBtn: HTMLButtonElement
   private editorMapRenameBtn: HTMLButtonElement
   private editorMapDeleteBtn: HTMLButtonElement
@@ -55,6 +56,7 @@ export class EditorMapListManager {
     this.context = context
 
     const mapListView = document.getElementById('editorMapListView')
+    const mapListTitle = document.getElementById('editorMapListTitle')
     const mapList = document.getElementById('editorMapList')
     const mapListMenu = document.getElementById('editorMapListMenu')
     const mapCreateBtn = document.getElementById('editorMapCreateBtn')
@@ -64,6 +66,7 @@ export class EditorMapListManager {
 
     if (
       !(mapListView instanceof HTMLDivElement) ||
+      !(mapListTitle instanceof HTMLDivElement) ||
       !(mapList instanceof HTMLDivElement) ||
       !(mapListMenu instanceof HTMLDivElement) ||
       !(mapCreateBtn instanceof HTMLButtonElement) ||
@@ -77,6 +80,7 @@ export class EditorMapListManager {
     this.editorMapListView = mapListView
     this.editorMapList = mapList
     this.editorMapListMenu = mapListMenu
+    this.editorMapListTitle = mapListTitle
     this.editorMapCreateBtn = mapCreateBtn
     this.editorMapRenameBtn = mapRenameBtn
     this.editorMapDeleteBtn = mapDeleteBtn
@@ -118,6 +122,7 @@ export class EditorMapListManager {
   public show() {
     this.editorMapListView.style.display = 'flex'
     this.editorMapListMenu.style.display = 'flex'
+    this.editorMapListTitle.textContent = localizer.t('editor_map_list_title')
     this.renderMapList()
     this.setMapListSelectedIndex(0, true)
   }

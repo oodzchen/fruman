@@ -1,15 +1,20 @@
 import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
+import { DialogManager } from './DialogManager'
 import { localizer } from './Localizer'
-import { MenuManager, MenuMode } from './MenuManager'
+import { MenuAction, MenuManager, MenuMode } from './MenuManager'
+import { saveManager } from './SaveManager'
 import type { EditorMapData } from './editorMapTypes'
 import { PatternCreator } from './renderer/PatternCreator'
 import { ShapeRenderer } from './renderer/ShapeRenderer'
+import type { SaveData } from './saveTypes'
+import { getDefaultMap } from './storage'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
   MainToWorkerMessage,
   WorkerInputMessage,
+  WorkerSaveResponseMessage,
   WorkerToMainMessage,
 } from './worker/protocol'
 
@@ -20,6 +25,7 @@ export class GameClient {
   private renderer: ClientRenderer
   private audioManager: AudioManager
   private menuManager: MenuManager
+  private dialogManager: DialogManager
   private pixelsPerMeter = 50
 
   private camera = { x: 0, y: 0 }
@@ -91,6 +97,12 @@ export class GameClient {
   private editorPreview = false
   private currentMapData: EditorMapData | null = null
 
+  private currentSaveId: string | null = null
+  private currentSaveData: SaveData | null = null
+  private pendingSaveResolve: ((meta: SaveData | null) => void) | null = null
+  private onEditorActionCallback?: () => void
+  private onExitActionCallback?: () => Promise<boolean>
+
   constructor(
     canvas: HTMLCanvasElement,
     ctx: CanvasRenderingContext2D,
@@ -102,6 +114,8 @@ export class GameClient {
     this.renderer = new ClientRenderer(ctx, this.pixelsPerMeter)
     this.audioManager = new AudioManager()
     this.menuManager = new MenuManager(canvas, menuOverlay)
+    const uiLayer = menuOverlay.parentElement as HTMLDivElement
+    this.dialogManager = new DialogManager(uiLayer)
     this.renderer.setAudioManager(this.audioManager)
     const editorOverlay = document.getElementById('editorOverlay')
     this.editorOverlay =
@@ -171,6 +185,8 @@ export class GameClient {
     this.audioManager.init().catch((error) => {
       console.error('Failed to initialize audio:', error)
     })
+
+    this.setupMenuActions()
 
     // Start Render Loop
     requestAnimationFrame(this.boundRenderLoop)
@@ -263,7 +279,32 @@ export class GameClient {
         this.targetZoom = msg.map.camera.zoom
         this.renderZoom = msg.map.camera.zoom
       }
+    } else if (msg.type === 'save_response') {
+      this.handleSaveResponse(msg)
     }
+  }
+
+  private handleSaveResponse(msg: WorkerSaveResponseMessage): void {
+    if (!this.currentSaveData) return
+
+    const updatedSaveData: SaveData = {
+      ...this.currentSaveData,
+      playTimeMs: msg.playTimeMs,
+      worldStateReady: true,
+      player: msg.player,
+      enemies: msg.enemies,
+      groundWeapons: msg.groundWeapons,
+      camera: msg.camera,
+    }
+
+    this.currentSaveData = updatedSaveData
+
+    saveManager.save(msg.saveId, updatedSaveData).then((meta) => {
+      if (this.pendingSaveResolve) {
+        this.pendingSaveResolve(meta ? updatedSaveData : null)
+        this.pendingSaveResolve = null
+      }
+    })
   }
 
   private releaseStateBuffer(buffer: ArrayBuffer | SharedArrayBuffer) {
@@ -808,9 +849,196 @@ export class GameClient {
     }
     this.previewActive = false
     this.setPreviewExitVisible(false)
-    this.menuManager.hide() // Ensure menu is closed
+    this.menuManager.hide()
     if (this.onExitPreviewCallback) {
       this.onExitPreviewCallback()
     }
+  }
+
+  async initSaveSystem(): Promise<void> {
+    await this.menuManager.initSaveState()
+    this.setupMenuActions()
+  }
+
+  private setupMenuActions(): void {
+    this.menuManager.onAction(async (action, saveId) => {
+      switch (action) {
+        case MenuAction.NewGame:
+          await this.startNewGame()
+          break
+        case MenuAction.Continue:
+          await this.continueGame()
+          break
+        case MenuAction.SaveListSelect:
+          if (saveId) {
+            await this.loadSaveById(saveId)
+          }
+          break
+        case MenuAction.SaveListNew:
+          await this.startNewGame()
+          break
+        case MenuAction.Resume:
+          this.menuManager.hide()
+          this.start()
+          this.inputEnabled = true
+          break
+        case MenuAction.SaveGame:
+          this.dialogManager.showLoading(localizer.t('saving'))
+          const saveResult = await this.requestSave()
+          this.dialogManager.hideLoading()
+          if (saveResult) {
+            await this.dialogManager.alert(localizer.t('save_success'))
+          } else {
+            await this.dialogManager.alert(localizer.t('save_failed'))
+          }
+          this.menuManager.hide()
+          this.start()
+          this.inputEnabled = true
+          break
+        case MenuAction.MainMenu:
+          if (this.currentSaveId) {
+            await this.requestSave()
+          }
+          this.clearMapPreview()
+          this.setEditorPreview(false)
+          this.inputEnabled = false
+          this.menuManager.hide()
+          void this.menuManager.showWithSaveRefresh(MenuMode.Start)
+          break
+        case MenuAction.Exit:
+          if (this.onExitActionCallback) {
+            const confirmed = await this.onExitActionCallback()
+            if (confirmed) {
+              window.close()
+            }
+          } else if (confirm(localizer.t('confirm_exit_game'))) {
+            window.close()
+          }
+          break
+        case MenuAction.Editor:
+          if (this.onEditorActionCallback) {
+            this.onEditorActionCallback()
+          }
+          break
+      }
+    })
+  }
+
+  private async startNewGame(): Promise<void> {
+    const defaultMap = await getDefaultMap()
+    if (!defaultMap) {
+      console.error('No default map found')
+      return
+    }
+
+    const saveCount = (await saveManager.listSaves()).length
+    const saveName = localizer
+      .t('save_default_name')
+      .replace('{0}', String(saveCount + 1))
+
+    const playerMaxHealth = defaultMap.data.player?.maxHealth ?? 20
+    const meta = await saveManager.createSave(
+      saveName,
+      defaultMap.meta.id,
+      defaultMap.meta.name,
+      defaultMap.data,
+      playerMaxHealth
+    )
+
+    if (!meta) {
+      console.error('Failed to create save')
+      return
+    }
+
+    const saveData = await saveManager.loadSave(meta.id)
+    if (!saveData) {
+      console.error('Failed to load newly created save')
+      return
+    }
+
+    this.currentSaveId = meta.id
+    this.currentSaveData = saveData
+
+    this.setEditorPreview(false)
+    if (this.previewActive) {
+      this.clearMapPreview()
+    }
+
+    this.worker.postMessage({
+      type: 'load_save',
+      saveData,
+    } as MainToWorkerMessage)
+
+    this.menuManager.hide()
+    this.start()
+    this.inputEnabled = true
+  }
+
+  private async continueGame(): Promise<void> {
+    const lastSaveId = await saveManager.getLastSaveId()
+    if (!lastSaveId) {
+      await this.startNewGame()
+      return
+    }
+
+    await this.loadSaveById(lastSaveId)
+  }
+
+  private async loadSaveById(saveId: string): Promise<void> {
+    const saveData = await saveManager.loadSave(saveId)
+    if (!saveData) {
+      console.error('Failed to load save:', saveId)
+      return
+    }
+
+    this.currentSaveId = saveId
+    this.currentSaveData = saveData
+
+    this.setEditorPreview(false)
+    if (this.previewActive) {
+      this.clearMapPreview()
+    }
+
+    this.worker.postMessage({
+      type: 'load_save',
+      saveData,
+    } as MainToWorkerMessage)
+
+    this.menuManager.hide()
+    this.start()
+    this.inputEnabled = true
+  }
+
+  requestSave(): Promise<SaveData | null> {
+    if (!this.currentSaveId || !this.currentSaveData) {
+      return Promise.resolve(null)
+    }
+
+    return new Promise((resolve) => {
+      this.pendingSaveResolve = resolve
+      this.worker.postMessage({
+        type: 'save_request',
+        saveId: this.currentSaveId,
+      } as MainToWorkerMessage)
+
+      setTimeout(() => {
+        if (this.pendingSaveResolve === resolve) {
+          this.pendingSaveResolve = null
+          resolve(null)
+        }
+      }, 5000)
+    })
+  }
+
+  getCurrentSaveId(): string | null {
+    return this.currentSaveId
+  }
+
+  setOnEditorAction(callback: () => void): void {
+    this.onEditorActionCallback = callback
+  }
+
+  setOnExitAction(callback: () => Promise<boolean>): void {
+    this.onExitActionCallback = callback
   }
 }

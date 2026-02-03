@@ -1,8 +1,11 @@
 {
   "title": "FRUMAN",
   "menu_new_game": "New Game",
+  "menu_continue": "Continue",
+  "menu_load_game": "Load Game",
   "menu_continue_game": "Continue Game",
   "menu_resume": "Resume",
+  "menu_save_game": "Save Game",
   "menu_editor": "Editor Mode",
   "menu_settings": "Settings",
   "menu_settings_language": "Language",
@@ -133,5 +136,14 @@
   "editor_enemy_default": "Default",
   "editor_enemy_fast": "Fast",
   "editor_enemy_large": "Large",
-  "editor_enemy_archer": "Archer"
+  "editor_enemy_archer": "Archer",
+  "save_list_title": "Save Files",
+  "save_list_empty": "No saves",
+  "save_list_new": "New Save",
+  "save_list_delete": "Delete",
+  "save_list_playtime": "Play Time",
+  "save_default_name": "Save {0}",
+  "saving": "Saving...",
+  "save_success": "Save successful",
+  "save_failed": "Save failed"
 }

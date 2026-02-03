@@ -294,6 +294,7 @@ export class StatsComponent extends Component {
   staggerDuration = 1000
   staggerAnimationPhase: 'none' | 'rotateBack' | 'prone' = 'none'
   staggerAnimationElapsed = 0
+  persistentId = ''
 
   reset(): void {
     this.maxHealth = DEFAULT_PLAYER_MAX_HEALTH
@@ -325,6 +326,7 @@ export class StatsComponent extends Component {
     this.staggerDuration = 1000
     this.staggerAnimationPhase = 'none'
     this.staggerAnimationElapsed = 0
+    this.persistentId = ''
   }
 
   getName(): string {
@@ -746,6 +748,7 @@ export class EnemyAIComponent extends Component {
   alertChaseActive = false
   lastAggressionCheckTimestamp = 0
   lastPosition = { x: 0, y: 0 }
+  mapSpawnIndex = -1
   stuckTimer = 0
   stuckThreshold = 500
   lastPositionUpdateTime = 0
@@ -819,8 +822,10 @@ export class EnemyAIComponent extends Component {
     this.alertLastPaceSwitchTimestamp = 0
     this.alertNextPaceResumeTimestamp = 0
     this.alertChaseActive = false
+    this.lastAggressionCheckTimestamp = 0
     this.lastPosition.x = 0
     this.lastPosition.y = 0
+    this.mapSpawnIndex = -1
     this.stuckTimer = 0
     this.stuckThreshold = 500
     this.lastPositionUpdateTime = 0

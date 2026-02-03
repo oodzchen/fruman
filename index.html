@@ -100,10 +100,86 @@
         white-space: nowrap;
         pointer-events: none;
       }
+      .menu-title.menu-title-compact {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 1px;
+      }
       .menu-items {
         position: absolute;
         inset: 0;
         pointer-events: none;
+      }
+      .menu-save-list-container {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 20px;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-sizing: border-box;
+        pointer-events: auto;
+        max-height: calc(100% - 140px);
+      }
+      .menu-save-list-title {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-align: center;
+      }
+      .menu-save-list {
+        position: relative;
+        display: block;
+        gap: 0;
+        max-height: calc(100% - 60px);
+        overflow: auto;
+      }
+      .menu-save-list .menu-item {
+        position: relative;
+        left: auto;
+        top: auto;
+        transform: none;
+        text-align: left;
+        margin: 0 auto;
+      }
+      .menu-save-list .menu-item.menu-item-save {
+        width: 600px;
+      }
+      .menu-item.menu-item-save-new {
+        position: absolute;
+        height: 34px;
+        line-height: 34px;
+        font-size: 14px;
+        color: var(--ui-muted);
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 0 12px;
+        cursor: pointer;
+        text-align: center;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+        width: auto;
+        right: 12px;
+        bottom: 12px;
+        left: auto;
+        transform: none;
+      }
+      .menu-item.menu-item-save-new:hover,
+      .menu-item.menu-item-save-new.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.32);
+      }
+      .menu-item.menu-item-back {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        transform: none;
       }
       .menu-item {
         position: absolute;
@@ -144,6 +220,32 @@
       .menu-item:focus-visible {
         outline: 1px solid #ffffff;
         outline-offset: 2px;
+      }
+      .menu-item.menu-item-save {
+        width: 600px;
+        min-height: 50px;
+        height: auto;
+        line-height: 1.4;
+        padding: 12px 16px;
+        text-align: left;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .menu-item.menu-item-save:hover,
+      .menu-item.menu-item-save.is-selected {
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+      .save-item-name {
+        font-size: 16px;
+        color: var(--ui-color);
+      }
+      .save-item-info {
+        font-size: 12px;
+        color: var(--ui-muted);
       }
       #info {
         color: #000;
@@ -603,12 +705,18 @@
         box-sizing: border-box;
         pointer-events: auto;
       }
+      .editor-map-list-title {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-align: center;
+      }
       .editor-map-list {
         position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 10px;
+        gap: 0;
         max-height: 460px;
         overflow: auto;
       }
@@ -875,6 +983,10 @@
                 <canvas id="editorCanvas" class="editor-canvas"></canvas>
                 <div id="editorMapListView" class="editor-map-list-view">
                   <div class="editor-map-list-container">
+                    <div
+                      id="editorMapListTitle"
+                      class="editor-map-list-title"
+                    ></div>
                     <div id="editorMapList" class="editor-map-list"></div>
                   </div>
                 </div>

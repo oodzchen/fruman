@@ -54,6 +54,13 @@ import type {
   MapEnemyWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
+import type {
+  SaveData,
+  SaveEnemyState,
+  SaveGroundWeaponState,
+  SavePlayerState,
+  SaveWeaponSlotState,
+} from '../saveTypes'
 import { ensureDefaultMap } from '../storage'
 import type {
   MainModule,
@@ -62,6 +69,7 @@ import type {
   b2BodyId,
   b2Hull,
   b2Polygon,
+  b2Rot,
   b2ShapeId,
 } from '../types'
 import {
@@ -86,6 +94,7 @@ import type {
   SoundListenerDebugData,
   SoundWaveDebugData,
   WorkerDebugMessage,
+  WorkerSaveResponseMessage,
   WorkerStateMessage,
 } from './protocol'
 
@@ -130,8 +139,16 @@ let obstacles: {
 
 let isPaused = false
 let loopInterval: ReturnType<typeof setInterval>
+
+let tempSetTransformVec: InstanceType<MainModule['b2Vec2']> | null = null
+let tempZeroVec: InstanceType<MainModule['b2Vec2']> | null = null
+let tempSetTransformRot: b2Rot | null = null
+
+const PLAYER_PERSISTENT_ID = 'player'
+let nextPersistentEnemyId = 1
 const TARGET_FPS = 60
 const TIME_STEP = 1 / TARGET_FPS
+let playTimeMs = 0
 
 const STATE_BUFFER_BYTES = STATE_BUFFER_FLOATS * Float32Array.BYTES_PER_ELEMENT
 const supportsSharedArrayBuffer =
@@ -1266,6 +1283,9 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     playerEntity.stats.toughness = nextMaxToughness
     playerEntity.stats.debugNoDamage = playerProps.debugNoDamage === true
     playerEntity.stats.debugNoDeath = playerProps.debugNoDeath === true
+    if (!playerEntity.stats.persistentId) {
+      playerEntity.stats.persistentId = PLAYER_PERSISTENT_ID
+    }
   }
 
   if (playerEntity.movement && playerProps) {
@@ -1454,6 +1474,14 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         enemy.enemyType,
         enemy
       )
+      if (created.enemyAI) {
+        created.enemyAI.mapSpawnIndex = i
+      }
+      if (created.stats && !created.stats.persistentId) {
+        const nextId = `enemy-${i + 1}`
+        created.stats.persistentId = nextId
+        syncEnemyIdCounter(nextId)
+      }
       if (!enemyEntity) {
         enemyEntity = created
       }
@@ -1725,6 +1753,7 @@ function handleInput(
 function fixedUpdate() {
   // Accumulate time using delta time
   currentTime += TIME_STEP
+  playTimeMs += Math.floor(TIME_STEP * 1000)
 
   // Update Zoom logic (smooth transition)
   const zoomDiff = targetZoom - zoom
@@ -2654,6 +2683,12 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       isMapPreview = true
       restart()
       break
+    case 'save_request':
+      exportGameState(msg.saveId)
+      break
+    case 'load_save':
+      loadFromSave(msg.saveData)
+      break
   }
 }
 
@@ -2740,6 +2775,781 @@ function updateParam(id?: string, value?: number) {
   if (id === 'jumpBufferWindow') {
     if (playerEntity.input) {
       playerEntity.input.inputBuffer.setDefaultBufferWindow(value)
+    }
+  }
+}
+
+function ensureTransformTemps(): void {
+  if (!box2d) return
+  if (!tempSetTransformVec) {
+    tempSetTransformVec = new box2d.b2Vec2(0, 0)
+  }
+  if (!tempZeroVec) {
+    tempZeroVec = new box2d.b2Vec2(0, 0)
+  }
+  if (!tempSetTransformRot) {
+    tempSetTransformRot = new box2d.b2Rot()
+    tempSetTransformRot.SetAngle(0)
+  }
+}
+
+function setEntityTransformFromSave(
+  entity: Entity,
+  x: number,
+  y: number
+): void {
+  if (!entity.transform) return
+  entity.transform.x = x
+  entity.transform.y = y
+
+  if (!entity.physics || !box2d) return
+
+  ensureTransformTemps()
+  if (!tempSetTransformVec || !tempZeroVec || !tempSetTransformRot) return
+
+  tempSetTransformVec.Set(x, y)
+  box2d.b2Body_SetTransform(
+    entity.physics.bodyId,
+    tempSetTransformVec,
+    tempSetTransformRot
+  )
+  box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, tempZeroVec)
+  entity.physics.posX = x
+  entity.physics.posY = y
+  entity.physics.prevX = x
+  entity.physics.prevY = y
+  entity.physics.velX = 0
+  entity.physics.velY = 0
+  entity.physics.hasPrev = true
+}
+
+function ensureEnemyPersistentId(entity: Entity): string {
+  if (!entity.stats) return ''
+  if (entity.stats.persistentId) {
+    return entity.stats.persistentId
+  }
+  const nextId = `enemy-${nextPersistentEnemyId}`
+  nextPersistentEnemyId += 1
+  entity.stats.persistentId = nextId
+  return nextId
+}
+
+function syncEnemyIdCounter(persistentId: string): void {
+  if (!persistentId.startsWith('enemy-')) return
+  const suffix = persistentId.slice(6)
+  const parsed = Number.parseInt(suffix, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return
+  if (parsed >= nextPersistentEnemyId) {
+    nextPersistentEnemyId = parsed + 1
+  }
+}
+
+function applyWeaponSlotState(
+  slot: {
+    hasWeapon: boolean
+    weaponType: WeaponVisualType
+    width: number
+    height: number
+    baseWidth: number
+    sizeLevel: number
+    sizeMaxLevel: number
+    cornerRadius: number
+    weight: number
+    attackDamage: number
+    postureDamage: number
+    toughnessDamage: number
+    bowAmmo: number
+    bowAmmoMax: number
+  },
+  state: SaveWeaponSlotState | null
+): void {
+  if (!state) {
+    slot.hasWeapon = false
+    return
+  }
+
+  slot.hasWeapon = true
+  slot.weaponType = state.weaponType
+  slot.sizeLevel = state.sizeLevel
+  if (state.width !== undefined) slot.width = state.width
+  if (state.height !== undefined) slot.height = state.height
+  if (state.baseWidth !== undefined) slot.baseWidth = state.baseWidth
+  if (state.sizeMaxLevel !== undefined) slot.sizeMaxLevel = state.sizeMaxLevel
+  if (state.cornerRadius !== undefined) slot.cornerRadius = state.cornerRadius
+  if (state.weight !== undefined) slot.weight = state.weight
+  slot.attackDamage = state.attackDamage
+  slot.postureDamage = state.postureDamage
+  slot.toughnessDamage = state.toughnessDamage
+  slot.bowAmmo = state.bowAmmo
+  slot.bowAmmoMax = state.bowAmmoMax
+}
+
+function syncActiveSlotFromWeapon(
+  weaponSlots: {
+    activeSlot: 'main' | 'secondary'
+    main: {
+      hasWeapon: boolean
+      weaponType: WeaponVisualType
+      width: number
+      height: number
+      baseWidth: number
+      sizeLevel: number
+      sizeMaxLevel: number
+      cornerRadius: number
+      weight: number
+      attackDamage: number
+      postureDamage: number
+      toughnessDamage: number
+      bowAmmo: number
+      bowAmmoMax: number
+    }
+    secondary: {
+      hasWeapon: boolean
+      weaponType: WeaponVisualType
+      width: number
+      height: number
+      baseWidth: number
+      sizeLevel: number
+      sizeMaxLevel: number
+      cornerRadius: number
+      weight: number
+      attackDamage: number
+      postureDamage: number
+      toughnessDamage: number
+      bowAmmo: number
+      bowAmmoMax: number
+    }
+  },
+  weapon: {
+    isEquipped: boolean
+    weaponType: WeaponVisualType
+    width: number
+    height: number
+    baseWidth: number
+    sizeLevel: number
+    sizeMaxLevel: number
+    cornerRadius: number
+    weight: number
+    attackDamage: number
+    postureDamage: number
+    toughnessDamage: number
+    bowAmmo: number
+    bowAmmoMax: number
+  }
+): void {
+  if (!weapon.isEquipped) return
+  const targetSlot =
+    weaponSlots.activeSlot === 'main' ? weaponSlots.main : weaponSlots.secondary
+  targetSlot.hasWeapon = true
+  targetSlot.weaponType = weapon.weaponType
+  targetSlot.width = weapon.baseWidth
+  targetSlot.height = weapon.height
+  targetSlot.baseWidth = weapon.baseWidth
+  targetSlot.sizeLevel = weapon.sizeLevel
+  targetSlot.sizeMaxLevel = weapon.sizeMaxLevel
+  targetSlot.cornerRadius = weapon.cornerRadius
+  targetSlot.weight = weapon.weight
+  targetSlot.attackDamage = weapon.attackDamage
+  targetSlot.postureDamage = weapon.postureDamage
+  targetSlot.toughnessDamage = weapon.toughnessDamage
+  targetSlot.bowAmmo = weapon.bowAmmo
+  targetSlot.bowAmmoMax = weapon.bowAmmoMax
+}
+
+function applyWeaponFromSlot(
+  weapon: {
+    sizeLevel: number
+    width: number
+    height: number
+    baseWidth: number
+    sizeMaxLevel: number
+    cornerRadius: number
+    weight: number
+    blockWidthStart: number
+    blockWidthTarget: number
+    weaponType: WeaponVisualType
+    attackDamage: number
+    postureDamage: number
+    toughnessDamage: number
+    bowAmmo: number
+    bowAmmoMax: number
+    isEquipped: boolean
+  },
+  slot: {
+    hasWeapon: boolean
+    weaponType: WeaponVisualType
+    sizeLevel: number
+    width: number
+    height: number
+    baseWidth: number
+    sizeMaxLevel: number
+    cornerRadius: number
+    weight: number
+    attackDamage: number
+    postureDamage: number
+    toughnessDamage: number
+    bowAmmo: number
+    bowAmmoMax: number
+  }
+): void {
+  if (!slot.hasWeapon) {
+    weapon.isEquipped = false
+    return
+  }
+
+  const weaponType = slot.weaponType
+  weapon.weaponType = weaponType
+  weapon.sizeLevel = slot.sizeLevel
+  weapon.attackDamage = slot.attackDamage
+  weapon.postureDamage = slot.postureDamage
+  weapon.toughnessDamage = slot.toughnessDamage
+  weapon.bowAmmo = slot.bowAmmo
+  weapon.bowAmmoMax = slot.bowAmmoMax
+  weapon.isEquipped = true
+
+  if (slot.width > 0) {
+    weapon.width = slot.width
+    weapon.height = slot.height
+    weapon.baseWidth = slot.baseWidth
+    weapon.blockWidthStart = slot.width
+    weapon.blockWidthTarget = slot.width
+  }
+  if (slot.sizeMaxLevel > 0) {
+    weapon.sizeMaxLevel = slot.sizeMaxLevel
+  }
+  if (slot.cornerRadius > 0) {
+    weapon.cornerRadius = slot.cornerRadius
+  }
+  if (slot.weight > 0) {
+    weapon.weight = slot.weight
+  }
+}
+
+function applyGroundWeaponState(
+  weapon: {
+    weaponType: WeaponVisualType
+    sizeLevel: number
+    width: number
+    height: number
+    baseWidth: number
+    sizeMaxLevel: number
+    cornerRadius: number
+    weight: number
+    blockWidthStart: number
+    blockWidthTarget: number
+    attackDamage: number
+    postureDamage: number
+    toughnessDamage: number
+    bowAmmo: number
+    bowAmmoMax: number
+    isEquipped: boolean
+    position: { x: number; y: number }
+    visual: { x: number; y: number; rotation: number }
+    attackStartTransform: { x: number; y: number; rotation: number }
+    swingStartTransform: { x: number; y: number; rotation: number }
+    swingEndTransform: { x: number; y: number; rotation: number }
+  },
+  state: SaveGroundWeaponState
+): void {
+  weapon.weaponType = state.weaponType
+  weapon.sizeLevel = state.sizeLevel
+  weapon.attackDamage = state.attackDamage
+  weapon.postureDamage = state.postureDamage
+  weapon.toughnessDamage = state.toughnessDamage
+  weapon.bowAmmo = state.bowAmmo
+  weapon.bowAmmoMax = state.bowAmmoMax
+  weapon.isEquipped = false
+
+  if (state.width !== undefined) {
+    weapon.width = state.width
+    weapon.blockWidthStart = state.width
+    weapon.blockWidthTarget = state.width
+  }
+  if (state.height !== undefined) {
+    weapon.height = state.height
+  }
+  if (state.baseWidth !== undefined) {
+    weapon.baseWidth = state.baseWidth
+  }
+  if (state.sizeMaxLevel !== undefined) {
+    weapon.sizeMaxLevel = state.sizeMaxLevel
+  }
+  if (state.cornerRadius !== undefined) {
+    weapon.cornerRadius = state.cornerRadius
+  }
+  if (state.weight !== undefined) {
+    weapon.weight = state.weight
+  }
+
+  weapon.position.x = state.position.x
+  weapon.position.y = state.position.y
+  weapon.visual.x = state.position.x
+  weapon.visual.y = state.position.y
+  weapon.attackStartTransform.x = state.position.x
+  weapon.attackStartTransform.y = state.position.y
+  weapon.swingStartTransform.x = state.position.x
+  weapon.swingStartTransform.y = state.position.y
+  weapon.swingEndTransform.x = state.position.x
+  weapon.swingEndTransform.y = state.position.y
+}
+
+function extractWeaponSlotState(
+  slot: {
+    hasWeapon: boolean
+    weaponType: string
+    sizeLevel: number
+    width: number
+    height: number
+    baseWidth: number
+    sizeMaxLevel: number
+    cornerRadius: number
+    weight: number
+    attackDamage: number
+    postureDamage: number
+    toughnessDamage: number
+    bowAmmo: number
+    bowAmmoMax: number
+  } | null
+): SaveWeaponSlotState | null {
+  if (!slot || !slot.hasWeapon) return null
+  return {
+    weaponType: slot.weaponType as SaveWeaponSlotState['weaponType'],
+    sizeLevel: slot.sizeLevel,
+    width: slot.width,
+    height: slot.height,
+    baseWidth: slot.baseWidth,
+    sizeMaxLevel: slot.sizeMaxLevel,
+    cornerRadius: slot.cornerRadius,
+    weight: slot.weight,
+    attackDamage: slot.attackDamage,
+    postureDamage: slot.postureDamage,
+    toughnessDamage: slot.toughnessDamage,
+    bowAmmo: slot.bowAmmo,
+    bowAmmoMax: slot.bowAmmoMax,
+  }
+}
+
+function extractPlayerState(): SavePlayerState {
+  const transform = playerEntity.transform
+  const stats = playerEntity.stats
+  const input = playerEntity.input
+  const weaponSlots = playerEntity.weaponSlots
+  const weapon = playerEntity.weapon
+
+  if (weaponSlots && weapon) {
+    syncActiveSlotFromWeapon(weaponSlots, weapon)
+  }
+
+  return {
+    id: stats?.persistentId ?? PLAYER_PERSISTENT_ID,
+    position: { x: transform?.x ?? 0, y: transform?.y ?? 0 },
+    facing: input?.lastMoveDirection ?? 1,
+    health: stats?.health ?? 100,
+    maxHealth: stats?.maxHealth ?? 100,
+    posture: stats?.posture ?? 100,
+    maxPosture: stats?.maxPosture ?? 100,
+    toughness: stats?.toughness ?? 100,
+    maxToughness: stats?.maxToughness ?? 100,
+    mainWeapon: weaponSlots ? extractWeaponSlotState(weaponSlots.main) : null,
+    secondaryWeapon: weaponSlots
+      ? extractWeaponSlotState(weaponSlots.secondary)
+      : null,
+    activeSlot: weaponSlots?.activeSlot ?? 'main',
+  }
+}
+
+function extractEnemiesState(): SaveEnemyState[] {
+  const enemies: SaveEnemyState[] = []
+  const entities = world.getEntities()
+
+  let spawnIndex = 0
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.enemyAI || !entity.faction) continue
+    if (entity.faction.faction !== Faction.Enemy) continue
+
+    const transform = entity.transform
+    const stats = entity.stats
+    const input = entity.input
+    const weaponSlots = entity.weaponSlots
+    const weapon = entity.weapon
+    const enemyAI = entity.enemyAI
+
+    if (weaponSlots && weapon) {
+      syncActiveSlotFromWeapon(weaponSlots, weapon)
+    }
+
+    const persistentId = stats ? ensureEnemyPersistentId(entity) : ''
+    const nextSpawnIndex =
+      enemyAI.mapSpawnIndex >= 0 ? enemyAI.mapSpawnIndex : spawnIndex
+    enemies.push({
+      spawnIndex: nextSpawnIndex,
+      id: persistentId || undefined,
+      enemyType: enemyAI.enemyType,
+      position: { x: transform?.x ?? 0, y: transform?.y ?? 0 },
+      facing: input?.lastMoveDirection ?? 1,
+      health: stats?.health ?? 100,
+      posture: stats?.posture ?? 100,
+      toughness: stats?.toughness ?? 100,
+      isDead: stats?.isDead ?? false,
+      isVanished: stats?.isVanished ?? false,
+      aiState: enemyAI.state,
+      currentWaypointIndex: enemyAI.currentWaypointIndex,
+      mainWeapon: weaponSlots ? extractWeaponSlotState(weaponSlots.main) : null,
+      secondaryWeapon: weaponSlots
+        ? extractWeaponSlotState(weaponSlots.secondary)
+        : null,
+      activeSlot: weaponSlots?.activeSlot ?? 'main',
+    })
+    if (enemyAI.mapSpawnIndex < 0) {
+      spawnIndex++
+    }
+  }
+
+  return enemies
+}
+
+function extractGroundWeaponsState(): SaveGroundWeaponState[] {
+  const weapons: SaveGroundWeaponState[] = []
+  const entities = world.getEntities()
+
+  let spawnIndex = 0
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.weapon || entity.faction) continue
+    if (entity.weapon.isEquipped) continue
+
+    const transform = entity.transform
+    const weapon = entity.weapon
+
+    weapons.push({
+      spawnIndex,
+      position: { x: transform?.x ?? 0, y: transform?.y ?? 0 },
+      weaponType: weapon.weaponType,
+      sizeLevel: weapon.sizeLevel,
+      width: weapon.width,
+      height: weapon.height,
+      baseWidth: weapon.baseWidth,
+      sizeMaxLevel: weapon.sizeMaxLevel,
+      cornerRadius: weapon.cornerRadius,
+      weight: weapon.weight,
+      attackDamage: weapon.attackDamage,
+      postureDamage: weapon.postureDamage,
+      toughnessDamage: weapon.toughnessDamage,
+      bowAmmo: weapon.bowAmmo,
+      bowAmmoMax: weapon.bowAmmoMax,
+    })
+    spawnIndex++
+  }
+
+  return weapons
+}
+
+function exportGameState(saveId: string): void {
+  if (!world || !playerEntity) return
+
+  const response: WorkerSaveResponseMessage = {
+    type: 'save_response',
+    saveId,
+    playTimeMs,
+    player: extractPlayerState(),
+    enemies: extractEnemiesState(),
+    groundWeapons: extractGroundWeaponsState(),
+    camera: { x: camera.x, y: camera.y, zoom },
+  }
+
+  ctx.postMessage(response)
+}
+
+function loadFromSave(saveData: SaveData): void {
+  if (!world || !box2d) return
+
+  playTimeMs = saveData.playTimeMs
+
+  activeMapData = saveData.mapData
+  isMapPreview = false
+
+  restart()
+
+  if (playerEntity && playerEntity.stats) {
+    const playerState = saveData.player
+
+    setEntityTransformFromSave(
+      playerEntity,
+      playerState.position.x,
+      playerState.position.y
+    )
+    playerEntity.stats.persistentId = playerState.id ?? PLAYER_PERSISTENT_ID
+    playerEntity.stats.health = playerState.health
+    playerEntity.stats.maxHealth = playerState.maxHealth
+    playerEntity.stats.posture = playerState.posture
+    playerEntity.stats.maxPosture = playerState.maxPosture
+    playerEntity.stats.toughness = playerState.toughness
+    playerEntity.stats.maxToughness = playerState.maxToughness
+
+    if (playerEntity.input) {
+      playerEntity.input.lastMoveDirection = playerState.facing
+    }
+
+    restorePlayerWeapons(saveData.player)
+  }
+
+  if (saveData.worldStateReady !== false) {
+    restoreEnemiesState(saveData.enemies)
+    restoreGroundWeaponsState(saveData.groundWeapons)
+  }
+
+  camera.x = saveData.camera.x
+  camera.y = saveData.camera.y
+  zoom = saveData.camera.zoom
+  targetZoom = saveData.camera.zoom
+
+  ctx.postMessage({
+    type: 'map_data',
+    map: activeMapData,
+  })
+}
+
+function restorePlayerWeapons(playerState: SaveData['player']): void {
+  if (!playerEntity || !playerEntity.weaponSlots || !playerEntity.weapon) return
+
+  const slots = playerEntity.weaponSlots
+
+  applyWeaponSlotState(slots.main, playerState.mainWeapon)
+  applyWeaponSlotState(slots.secondary, playerState.secondaryWeapon)
+
+  slots.activeSlot = playerState.activeSlot
+
+  const activeSlot = slots.activeSlot === 'main' ? slots.main : slots.secondary
+
+  if (activeSlot.hasWeapon) {
+    applyWeaponFromSlot(playerEntity.weapon, activeSlot)
+    if (activeSlot.width <= 0) {
+      const weaponType = activeSlot.weaponType as WeaponType
+      if (isTemplateWeaponType(weaponType)) {
+        const template = WEAPON_DEFAULT_DATA[weaponType]
+        applyWeaponSizeLevel(
+          playerEntity.weapon,
+          template,
+          activeSlot.sizeLevel
+        )
+      }
+    }
+  } else {
+    playerEntity.weapon.isEquipped = false
+  }
+}
+
+function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
+  if (!world || !box2d) return
+
+  const entities = world.getEntities()
+  const currentEnemies: Entity[] = []
+  const currentById = new Map<string, Entity>()
+  const currentWithoutId: Entity[] = []
+
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.enemyAI || !entity.faction) continue
+    if (entity.faction.faction !== Faction.Enemy) continue
+    currentEnemies.push(entity)
+    if (entity.stats?.persistentId) {
+      currentById.set(entity.stats.persistentId, entity)
+    } else {
+      currentWithoutId.push(entity)
+    }
+  }
+
+  const savedById = new Map<string, SaveEnemyState>()
+  const savedWithoutId: SaveEnemyState[] = []
+  for (let i = 0; i < enemiesState.length; i++) {
+    const savedState = enemiesState[i]
+    if (savedState.id) {
+      savedById.set(savedState.id, savedState)
+    } else {
+      savedWithoutId.push(savedState)
+    }
+  }
+
+  const usedEntities = new Set<Entity>()
+
+  const applyStateToEntity = (entity: Entity, savedState: SaveEnemyState) => {
+    setEntityTransformFromSave(
+      entity,
+      savedState.position.x,
+      savedState.position.y
+    )
+    if (entity.stats) {
+      entity.stats.health = savedState.health
+      entity.stats.posture = savedState.posture
+      entity.stats.toughness = savedState.toughness
+      entity.stats.isDead = savedState.isDead
+      entity.stats.isVanished = savedState.isVanished
+      if (savedState.id) {
+        entity.stats.persistentId = savedState.id
+        syncEnemyIdCounter(savedState.id)
+      } else {
+        ensureEnemyPersistentId(entity)
+      }
+    }
+
+    if (entity.input) {
+      entity.input.lastMoveDirection = savedState.facing
+    }
+
+    if (entity.enemyAI) {
+      entity.enemyAI.state = savedState.aiState
+      entity.enemyAI.currentWaypointIndex = savedState.currentWaypointIndex
+      entity.enemyAI.lastPosition.x = savedState.position.x
+      entity.enemyAI.lastPosition.y = savedState.position.y
+    }
+
+    if (entity.weaponSlots && entity.weapon) {
+      applyWeaponSlotState(entity.weaponSlots.main, savedState.mainWeapon)
+      applyWeaponSlotState(
+        entity.weaponSlots.secondary,
+        savedState.secondaryWeapon
+      )
+      entity.weaponSlots.activeSlot = savedState.activeSlot
+
+      const activeSlot =
+        entity.weaponSlots.activeSlot === 'main'
+          ? entity.weaponSlots.main
+          : entity.weaponSlots.secondary
+      applyWeaponFromSlot(entity.weapon, activeSlot)
+      if (activeSlot.hasWeapon && activeSlot.width <= 0) {
+        const weaponType = activeSlot.weaponType as WeaponType
+        if (isTemplateWeaponType(weaponType)) {
+          const template = WEAPON_DEFAULT_DATA[weaponType]
+          applyWeaponSizeLevel(entity.weapon, template, activeSlot.sizeLevel)
+        }
+      }
+    }
+
+    if (savedState.isDead || savedState.isVanished) {
+      if (entity.stats) {
+        entity.stats.isDead = true
+        entity.stats.isVanished = true
+      }
+      if (entity.render) {
+        entity.render.visible = false
+      }
+      if (entity.physics) {
+        const { b2DestroyBody } = box2d
+        b2DestroyBody(entity.physics.bodyId)
+        entity.removeComponent('Physics')
+      }
+    }
+    usedEntities.add(entity)
+  }
+
+  for (const [id, savedState] of savedById.entries()) {
+    const entity = currentById.get(id)
+    if (entity) {
+      applyStateToEntity(entity, savedState)
+      continue
+    }
+    const enemyType = savedState.enemyType ?? 'default'
+    const created = createEnemy(
+      world,
+      box2d,
+      worldId,
+      savedState.position.x,
+      savedState.position.y,
+      groundTopY,
+      enemyType
+    )
+    applyStateToEntity(created, savedState)
+  }
+
+  let fallbackIndex = 0
+  for (let i = 0; i < savedWithoutId.length; i++) {
+    const savedState = savedWithoutId[i]
+    if (fallbackIndex < currentWithoutId.length) {
+      const entity = currentWithoutId[fallbackIndex]
+      fallbackIndex += 1
+      applyStateToEntity(entity, savedState)
+      continue
+    }
+    const enemyType = savedState.enemyType ?? 'default'
+    const created = createEnemy(
+      world,
+      box2d,
+      worldId,
+      savedState.position.x,
+      savedState.position.y,
+      groundTopY,
+      enemyType
+    )
+    applyStateToEntity(created, savedState)
+  }
+
+  for (let i = 0; i < currentEnemies.length; i++) {
+    const entity = currentEnemies[i]
+    if (usedEntities.has(entity)) continue
+    if (entity.stats) {
+      entity.stats.isDead = true
+      entity.stats.isVanished = true
+    }
+    if (entity.render) {
+      entity.render.visible = false
+    }
+    if (entity.physics) {
+      const { b2DestroyBody } = box2d
+      b2DestroyBody(entity.physics.bodyId)
+      entity.removeComponent('Physics')
+    }
+  }
+}
+
+function restoreGroundWeaponsState(
+  groundWeaponsState: SaveGroundWeaponState[]
+): void {
+  if (!world) return
+
+  const entities = world.getEntities()
+  let spawnIndex = 0
+
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.weapon || entity.faction) continue
+    if (entity.weapon.isEquipped) continue
+
+    const savedState = groundWeaponsState[spawnIndex]
+    if (savedState) {
+      setEntityTransformFromSave(
+        entity,
+        savedState.position.x,
+        savedState.position.y
+      )
+      applyGroundWeaponState(entity.weapon, savedState)
+    } else {
+      spatialHash.removeEntity(entity)
+      world.destroyEntity(entity)
+    }
+    spawnIndex++
+  }
+
+  if (spawnIndex < groundWeaponsState.length && box2d) {
+    for (let i = spawnIndex; i < groundWeaponsState.length; i++) {
+      const savedState = groundWeaponsState[i]
+      const created = createWeapon(
+        world,
+        box2d,
+        worldId,
+        savedState.position.x,
+        savedState.position.y,
+        groundTopY,
+        savedState.weaponType as WeaponType
+      )
+      setEntityTransformFromSave(
+        created,
+        savedState.position.x,
+        savedState.position.y
+      )
+      if (created.weapon) {
+        applyGroundWeaponState(created.weapon, savedState)
+      }
     }
   }
 }

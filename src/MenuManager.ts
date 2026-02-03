@@ -1,4 +1,6 @@
 import { Language, localizer } from './Localizer'
+import { saveManager } from './SaveManager'
+import type { SaveMeta } from './saveTypes'
 
 export enum MenuAction {
   NewGame,
@@ -10,19 +12,27 @@ export enum MenuAction {
   MainMenu,
   Language,
   Back,
+  LoadGame,
+  SaveListSelect,
+  SaveListNew,
+  SaveListDelete,
+  SaveGame,
 }
 
 export enum MenuMode {
   Start,
   Pause,
   Settings,
+  SaveList,
 }
 
 interface MenuItem {
   label: string
   action: MenuAction
   y: number
-  value?: string // For dynamic values like "English"
+  value?: string
+  saveId?: string
+  saveMeta?: SaveMeta
 }
 
 export class MenuManager {
@@ -31,6 +41,9 @@ export class MenuManager {
   private uiLayer: HTMLDivElement
   private menuTitle: HTMLDivElement
   private menuItemsContainer: HTMLDivElement
+  private saveListContainer: HTMLDivElement
+  private saveListTitle: HTMLDivElement
+  private saveListList: HTMLDivElement
   private menuItemElements: HTMLButtonElement[] = []
   private activeItemCount = 0
   private visible = false
@@ -38,11 +51,14 @@ export class MenuManager {
   private previousMode: MenuMode = MenuMode.Start
   private menuItems: MenuItem[] = []
   private selectedIndex = 0
-  private onActionCallback?: (action: MenuAction) => void
+  private onActionCallback?: (action: MenuAction, saveId?: string) => void
   private animTime = 0
 
   private boundHandleItemMouseEnter: (event: Event) => void
   private boundHandleItemClick: (event: Event) => void
+
+  private hasSavesCache = false
+  private saveListCache: SaveMeta[] = []
 
   constructor(canvas: HTMLCanvasElement, menuOverlay: HTMLDivElement) {
     this.canvas = canvas
@@ -56,6 +72,15 @@ export class MenuManager {
     this.uiLayer = uiLayer
     this.menuTitle = title
     this.menuItemsContainer = items
+    this.saveListContainer = document.createElement('div')
+    this.saveListContainer.className = 'menu-save-list-container'
+    this.saveListTitle = document.createElement('div')
+    this.saveListTitle.className = 'menu-save-list-title'
+    this.saveListList = document.createElement('div')
+    this.saveListList.className = 'menu-save-list'
+    this.saveListContainer.appendChild(this.saveListTitle)
+    this.saveListContainer.appendChild(this.saveListList)
+    this.menuItemsContainer.appendChild(this.saveListContainer)
     this.boundHandleItemMouseEnter = this.handleItemMouseEnter.bind(this)
     this.boundHandleItemClick = this.handleItemClick.bind(this)
     this.menuOverlay.classList.remove('is-visible')
@@ -64,26 +89,91 @@ export class MenuManager {
     this.setupInput()
   }
 
+  async initSaveState(): Promise<void> {
+    this.hasSavesCache = await saveManager.hasSaves()
+    if (this.hasSavesCache) {
+      this.saveListCache = await saveManager.listSaves()
+    }
+  }
+
+  async refreshSaveList(): Promise<void> {
+    this.saveListCache = await saveManager.listSaves()
+    this.hasSavesCache = this.saveListCache.length > 0
+  }
+
   private initMenuItems() {
     const startY = this.canvas.height / 2 + 40
     const spacing = 35
     this.menuItems = []
 
     if (this.mode === MenuMode.Start) {
+      if (this.hasSavesCache) {
+        this.menuItems = [
+          {
+            label: localizer.t('menu_continue'),
+            action: MenuAction.Continue,
+            y: startY,
+          },
+          {
+            label: localizer.t('menu_load_game'),
+            action: MenuAction.LoadGame,
+            y: startY + spacing,
+          },
+          {
+            label: localizer.t('menu_editor'),
+            action: MenuAction.Editor,
+            y: startY + spacing * 2,
+          },
+          {
+            label: localizer.t('menu_settings'),
+            action: MenuAction.Settings,
+            y: startY + spacing * 3,
+          },
+          {
+            label: localizer.t('menu_exit'),
+            action: MenuAction.Exit,
+            y: startY + spacing * 4,
+          },
+        ]
+      } else {
+        this.menuItems = [
+          {
+            label: localizer.t('menu_new_game'),
+            action: MenuAction.NewGame,
+            y: startY,
+          },
+          {
+            label: localizer.t('menu_editor'),
+            action: MenuAction.Editor,
+            y: startY + spacing,
+          },
+          {
+            label: localizer.t('menu_settings'),
+            action: MenuAction.Settings,
+            y: startY + spacing * 2,
+          },
+          {
+            label: localizer.t('menu_exit'),
+            action: MenuAction.Exit,
+            y: startY + spacing * 3,
+          },
+        ]
+      }
+    } else if (this.mode === MenuMode.Pause) {
       this.menuItems = [
         {
-          label: localizer.t('menu_new_game'),
-          action: MenuAction.NewGame,
+          label: localizer.t('menu_resume'),
+          action: MenuAction.Resume,
           y: startY,
         },
         {
-          label: localizer.t('menu_continue_game'),
-          action: MenuAction.Continue,
+          label: localizer.t('menu_save_game'),
+          action: MenuAction.SaveGame,
           y: startY + spacing,
         },
         {
-          label: localizer.t('menu_editor'),
-          action: MenuAction.Editor,
+          label: localizer.t('menu_main_menu'),
+          action: MenuAction.MainMenu,
           y: startY + spacing * 2,
         },
         {
@@ -95,29 +185,6 @@ export class MenuManager {
           label: localizer.t('menu_exit'),
           action: MenuAction.Exit,
           y: startY + spacing * 4,
-        },
-      ]
-    } else if (this.mode === MenuMode.Pause) {
-      this.menuItems = [
-        {
-          label: localizer.t('menu_resume'),
-          action: MenuAction.Resume,
-          y: startY,
-        },
-        {
-          label: localizer.t('menu_main_menu'),
-          action: MenuAction.MainMenu,
-          y: startY + spacing,
-        },
-        {
-          label: localizer.t('menu_settings'),
-          action: MenuAction.Settings,
-          y: startY + spacing * 2,
-        },
-        {
-          label: localizer.t('menu_exit'),
-          action: MenuAction.Exit,
-          y: startY + spacing * 3,
         },
       ]
     } else if (this.mode === MenuMode.Settings) {
@@ -135,14 +202,69 @@ export class MenuManager {
         {
           label: localizer.t('menu_back'),
           action: MenuAction.Back,
-          y: startY + spacing * 2, // Extra spacing
+          y: startY + spacing * 2,
         },
       ]
+    } else if (this.mode === MenuMode.SaveList) {
+      this.initSaveListItems(startY, spacing)
     }
 
     if (this.selectedIndex >= this.menuItems.length) {
       this.selectedIndex = 0
     }
+  }
+
+  private initSaveListItems(startY: number, spacing: number) {
+    const saves = this.saveListCache
+    const saveItemSpacing = 60
+
+    if (saves.length === 0) {
+      this.menuItems = [
+        {
+          label: localizer.t('save_list_empty'),
+          action: MenuAction.SaveListSelect,
+          y: startY,
+        },
+        {
+          label: localizer.t('save_list_new'),
+          action: MenuAction.SaveListNew,
+          y: startY + spacing * 2,
+        },
+        {
+          label: localizer.t('menu_back'),
+          action: MenuAction.Back,
+          y: startY + spacing * 3,
+        },
+      ]
+      return
+    }
+
+    let y = startY
+    for (let i = 0; i < saves.length; i++) {
+      const save = saves[i]
+      this.menuItems.push({
+        label: save.name,
+        action: MenuAction.SaveListSelect,
+        y,
+        saveId: save.id,
+        saveMeta: save,
+      })
+      y += saveItemSpacing
+    }
+
+    y += spacing * 0.5
+    this.menuItems.push({
+      label: localizer.t('save_list_new'),
+      action: MenuAction.SaveListNew,
+      y,
+    })
+    y += spacing
+
+    this.menuItems.push({
+      label: localizer.t('menu_back'),
+      action: MenuAction.Back,
+      y,
+    })
   }
 
   private setupInput() {
@@ -155,7 +277,6 @@ export class MenuManager {
           (this.selectedIndex - 1 + this.menuItems.length) %
             this.menuItems.length
         )
-        // Reset animation time slightly for feedback? No, keep it smooth.
       } else if (e.key === 'ArrowDown' || e.key === 's') {
         e.preventDefault()
         this.setSelectedIndex((this.selectedIndex + 1) % this.menuItems.length)
@@ -175,15 +296,34 @@ export class MenuManager {
         e.preventDefault()
         this.selectMenuItem(this.selectedIndex)
       } else if (e.key === 'Escape') {
-        // Handle Back if in settings
-        if (this.mode === MenuMode.Settings) {
+        if (
+          this.mode === MenuMode.Settings ||
+          this.mode === MenuMode.SaveList
+        ) {
           e.preventDefault()
           this.show(this.previousMode, true)
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (this.mode === MenuMode.SaveList) {
+          const item = this.menuItems[this.selectedIndex]
+          if (item.action === MenuAction.SaveListSelect && item.saveId) {
+            e.preventDefault()
+            this.deleteSave(item.saveId)
+          }
         }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
+  }
+
+  private async deleteSave(saveId: string) {
+    const success = await saveManager.deleteSave(saveId)
+    if (success) {
+      await this.refreshSaveList()
+      this.initMenuItems()
+      this.syncMenuDom()
+    }
   }
 
   private async cycleLanguage(direction: number) {
@@ -194,7 +334,7 @@ export class MenuManager {
     if (newIndex < 0) newIndex += languages.length
 
     await localizer.setLanguage(languages[newIndex])
-    this.initMenuItems() // Refresh text
+    this.initMenuItems()
     this.syncMenuDom()
   }
 
@@ -254,25 +394,84 @@ export class MenuManager {
     const element = this.menuItemElements[index]
     if (!item || !element) return
     const isSelected = index === this.selectedIndex
+    const isSaveItem = item.action === MenuAction.SaveListSelect
     element.classList.toggle('is-selected', isSelected)
     element.classList.toggle('menu-item-back', item.action === MenuAction.Back)
-    element.textContent = this.buildMenuItemText(item, isSelected)
+    element.classList.toggle('menu-item-save', isSaveItem)
+    element.classList.toggle(
+      'menu-item-save-new',
+      item.action === MenuAction.SaveListNew && this.mode === MenuMode.SaveList
+    )
+
+    if (isSaveItem && item.saveMeta) {
+      this.renderSaveItemContent(element, item.saveMeta)
+    } else {
+      element.textContent = this.buildMenuItemText(item, isSelected)
+    }
+  }
+
+  private renderSaveItemContent(element: HTMLButtonElement, meta: SaveMeta) {
+    element.innerHTML = ''
+
+    const nameEl = document.createElement('span')
+    nameEl.className = 'save-item-name'
+    nameEl.textContent = meta.name
+
+    const infoEl = document.createElement('span')
+    infoEl.className = 'save-item-info'
+    const playTime = saveManager.formatPlayTime(meta.playTimeMs)
+    const lastPlayed = saveManager.formatLastPlayed(meta.updatedAt)
+    infoEl.textContent = `${meta.mapName} · ${playTime} · ${lastPlayed}`
+
+    element.appendChild(nameEl)
+    element.appendChild(infoEl)
   }
 
   private updateMenuTitle() {
-    this.menuTitle.textContent = localizer.t('title')
+    if (this.mode === MenuMode.SaveList) {
+      this.menuTitle.textContent = localizer.t('save_list_title')
+    } else {
+      this.menuTitle.textContent = localizer.t('title')
+    }
+    this.menuTitle.classList.toggle(
+      'menu-title-compact',
+      this.mode === MenuMode.SaveList
+    )
+    const isSaveList = this.mode === MenuMode.SaveList
+    this.menuTitle.style.display = isSaveList ? 'none' : ''
+    this.saveListContainer.style.display = isSaveList ? 'flex' : 'none'
+    if (isSaveList) {
+      this.saveListTitle.textContent = localizer.t('save_list_title')
+    }
   }
 
   private syncMenuDom() {
     this.updateMenuTitle()
     this.ensureMenuItemElements(this.menuItems.length)
     this.activeItemCount = this.menuItems.length
+    if (this.mode === MenuMode.SaveList) {
+      this.saveListList.innerHTML = ''
+    }
     for (let i = 0; i < this.menuItemElements.length; i++) {
       const element = this.menuItemElements[i]
+      const item = this.menuItems[i]
       if (i < this.activeItemCount) {
         element.style.display = ''
         element.dataset.index = String(i)
         this.updateMenuItemState(i)
+        if (this.mode === MenuMode.SaveList && item) {
+          element.style.top = ''
+          if (item.action === MenuAction.SaveListSelect) {
+            this.saveListList.appendChild(element)
+          } else {
+            this.menuItemsContainer.appendChild(element)
+          }
+        } else if (item) {
+          this.menuItemsContainer.appendChild(element)
+        }
+        if (item?.action === MenuAction.Back) {
+          element.style.top = ''
+        }
       } else {
         element.style.display = 'none'
         element.dataset.index = ''
@@ -286,6 +485,18 @@ export class MenuManager {
     this.selectedIndex = index
     this.updateMenuItemState(previousIndex)
     this.updateMenuItemState(index)
+    if (this.mode === MenuMode.SaveList) {
+      const item = this.menuItems[this.selectedIndex]
+      const element = this.menuItemElements[this.selectedIndex]
+      if (
+        item &&
+        element &&
+        item.action === MenuAction.SaveListSelect &&
+        element.scrollIntoView
+      ) {
+        element.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }
   }
 
   private selectMenuItem(index: number) {
@@ -297,20 +508,28 @@ export class MenuManager {
       return
     }
 
+    if (item.action === MenuAction.LoadGame) {
+      this.previousMode = this.mode
+      this.refreshSaveList().then(() => {
+        this.show(MenuMode.SaveList, true)
+      })
+      return
+    }
+
     if (item.action === MenuAction.Back) {
       this.show(this.previousMode, true)
       return
     }
 
     if (this.onActionCallback) {
-      this.onActionCallback(item.action)
+      this.onActionCallback(item.action, item.saveId)
     }
   }
+
   show(mode: MenuMode = MenuMode.Start, skipAnimation = false) {
     this.mode = mode
     this.visible = true
     this.selectedIndex = 0
-    // If skipping animation, fast forward to end state (300ms)
     this.animTime = skipAnimation ? 300 : 0
     this.initMenuItems()
     this.syncMenuDom()
@@ -318,6 +537,14 @@ export class MenuManager {
     this.menuOverlay.classList.add('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'false')
     this.render(0)
+  }
+
+  async showWithSaveRefresh(
+    mode: MenuMode = MenuMode.Start,
+    skipAnimation = false
+  ) {
+    await this.initSaveState()
+    this.show(mode, skipAnimation)
   }
 
   hide() {
@@ -331,7 +558,11 @@ export class MenuManager {
     return this.visible
   }
 
-  onAction(callback: (action: MenuAction) => void) {
+  getMode(): MenuMode {
+    return this.mode
+  }
+
+  onAction(callback: (action: MenuAction, saveId?: string) => void) {
     this.onActionCallback = callback
   }
 
@@ -340,27 +571,31 @@ export class MenuManager {
 
     const height = this.canvas.height
 
-    // Animation progress
-    this.animTime += deltaTime * 1000 // convert to ms
-    const duration = 300 // ms
+    this.animTime += deltaTime * 1000
+    const duration = 300
     const t = Math.min(1, this.animTime / duration)
     const ease = t
 
-    // Title Animation (From top)
     const titleTargetY = height / 2 - 150
     const titleStartY = -150
     const titleY = titleStartY + (titleTargetY - titleStartY) * ease
 
-    // Menu Items Animation (From bottom)
     const groupStartY = height / 2
     const currentGroupOffset = groupStartY * (1 - ease)
 
     this.menuTitle.style.top = `${titleY}px`
 
+    if (this.mode === MenuMode.SaveList) {
+      return
+    }
+
     for (let i = 0; i < this.menuItems.length; i++) {
       const item = this.menuItems[i]
       const element = this.menuItemElements[i]
       if (!element) continue
+      if (item.action === MenuAction.Back) {
+        continue
+      }
       const currentY = item.y + currentGroupOffset
       element.style.top = `${currentY}px`
     }

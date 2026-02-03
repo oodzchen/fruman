@@ -3,16 +3,21 @@ import type {
   EditorMapMeta,
   EditorViewportState,
 } from './editorMapTypes'
+import type { SaveData, SaveMeta } from './saveTypes'
 
 const DB_NAME = 'sl2d'
-const DB_VERSION = 3
+const DB_VERSION = 5
 
 const SETTINGS_STORE = 'settings'
 const SETTINGS_KEY = 'control-panel'
+const LAST_SAVE_KEY = 'last-save-id'
 
 const MAP_META_STORE = 'editor-map-meta'
 const MAP_DATA_STORE = 'editor-map-data'
 const MAP_VIEW_STORE = 'editor-map-view'
+
+const SAVE_META_STORE = 'save-meta'
+const SAVE_DATA_STORE = 'save-data'
 
 let dbInstance: IDBDatabase | null = null
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -52,6 +57,17 @@ function openDB(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(MAP_VIEW_STORE)) {
         db.createObjectStore(MAP_VIEW_STORE, { keyPath: 'id' })
+      }
+
+      if (!db.objectStoreNames.contains(SAVE_META_STORE)) {
+        const saveMetaStore = db.createObjectStore(SAVE_META_STORE, {
+          keyPath: 'id',
+        })
+        saveMetaStore.createIndex('updatedAt', 'updatedAt', { unique: false })
+      }
+
+      if (!db.objectStoreNames.contains(SAVE_DATA_STORE)) {
+        db.createObjectStore(SAVE_DATA_STORE, { keyPath: 'id' })
       }
     }
   })
@@ -445,5 +461,232 @@ function buildDefaultMapData(
     shapes: [groundShape, ...obstacleShapes],
     enemies: [],
     weapons: [],
+  }
+}
+
+interface StoredSaveDataRecord {
+  id: string
+  data: SaveData
+}
+
+export async function listSaves(): Promise<SaveMeta[]> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(SAVE_META_STORE, 'readonly')
+      const store = tx.objectStore(SAVE_META_STORE)
+      const index = store.index('updatedAt')
+      const request = index.openCursor(null, 'prev')
+
+      const results: SaveMeta[] = []
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (cursor) {
+          results.push(cursor.value as SaveMeta)
+          cursor.continue()
+        } else {
+          resolve(results)
+        }
+      }
+
+      request.onerror = () => resolve([])
+    })
+  } catch {
+    return []
+  }
+}
+
+export async function loadSaveData(saveId: string): Promise<SaveData | null> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(SAVE_DATA_STORE, 'readonly')
+      const store = tx.objectStore(SAVE_DATA_STORE)
+      const request = store.get(saveId)
+
+      request.onsuccess = () => {
+        const result = request.result as StoredSaveDataRecord | undefined
+        if (!result || result.id !== saveId) {
+          resolve(null)
+          return
+        }
+        resolve(result.data)
+      }
+
+      request.onerror = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function createSave(
+  name: string,
+  mapId: string,
+  mapName: string,
+  mapData: EditorMapData,
+  playerMaxHealth: number
+): Promise<SaveMeta | null> {
+  try {
+    const db = await openDB()
+    const now = Date.now()
+    const saveId = `save-${now.toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`
+
+    const meta: SaveMeta = {
+      id: saveId,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      playTimeMs: 0,
+      mapId,
+      mapName,
+      playerHealth: playerMaxHealth,
+      playerMaxHealth,
+    }
+
+    const initialSaveData: SaveData = {
+      version: 1,
+      meta,
+      mapId,
+      mapData,
+      playTimeMs: 0,
+      worldStateReady: false,
+      player: {
+        position: { x: mapData.playerSpawn.x, y: mapData.playerSpawn.y },
+        facing: 1,
+        health: playerMaxHealth,
+        maxHealth: playerMaxHealth,
+        posture: 100,
+        maxPosture: 100,
+        toughness: 100,
+        maxToughness: 100,
+        mainWeapon: null,
+        secondaryWeapon: null,
+        activeSlot: 'main',
+      },
+      enemies: [],
+      groundWeapons: [],
+      camera: {
+        x: mapData.camera.x,
+        y: mapData.camera.y,
+        zoom: mapData.camera.zoom,
+      },
+    }
+
+    const dataRecord: StoredSaveDataRecord = {
+      id: saveId,
+      data: initialSaveData,
+    }
+
+    return new Promise((resolve) => {
+      const tx = db.transaction([SAVE_META_STORE, SAVE_DATA_STORE], 'readwrite')
+      tx.objectStore(SAVE_META_STORE).put(meta)
+      tx.objectStore(SAVE_DATA_STORE).put(dataRecord)
+
+      tx.oncomplete = () => resolve(meta)
+      tx.onerror = () => resolve(null)
+      tx.onabort = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function updateSave(saveData: SaveData): Promise<SaveMeta | null> {
+  try {
+    const db = await openDB()
+    const now = Date.now()
+
+    const meta: SaveMeta = {
+      ...saveData.meta,
+      updatedAt: now,
+      playTimeMs: saveData.playTimeMs,
+      playerHealth: saveData.player.health,
+      playerMaxHealth: saveData.player.maxHealth,
+    }
+
+    const updatedSaveData: SaveData = {
+      ...saveData,
+      meta,
+    }
+
+    const dataRecord: StoredSaveDataRecord = {
+      id: saveData.meta.id,
+      data: updatedSaveData,
+    }
+
+    return new Promise((resolve) => {
+      const tx = db.transaction([SAVE_META_STORE, SAVE_DATA_STORE], 'readwrite')
+      tx.objectStore(SAVE_META_STORE).put(meta)
+      tx.objectStore(SAVE_DATA_STORE).put(dataRecord)
+
+      tx.oncomplete = () => resolve(meta)
+      tx.onerror = () => resolve(null)
+      tx.onabort = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function deleteSave(saveId: string): Promise<boolean> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction([SAVE_META_STORE, SAVE_DATA_STORE], 'readwrite')
+      tx.objectStore(SAVE_META_STORE).delete(saveId)
+      tx.objectStore(SAVE_DATA_STORE).delete(saveId)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => resolve(false)
+      tx.onabort = () => resolve(false)
+    })
+  } catch {
+    return false
+  }
+}
+
+export async function hasSaves(): Promise<boolean> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(SAVE_META_STORE, 'readonly')
+      const store = tx.objectStore(SAVE_META_STORE)
+      const request = store.count()
+
+      request.onsuccess = () => resolve(request.result > 0)
+      request.onerror = () => resolve(false)
+    })
+  } catch {
+    return false
+  }
+}
+
+export async function getLastSaveId(): Promise<string | null> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(SETTINGS_STORE, 'readonly')
+      const store = tx.objectStore(SETTINGS_STORE)
+      const request = store.get(LAST_SAVE_KEY)
+
+      request.onsuccess = () => {
+        const result = request.result as string | undefined
+        resolve(result ?? null)
+      }
+      request.onerror = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function setLastSaveId(saveId: string): Promise<void> {
+  try {
+    const db = await openDB()
+    const tx = db.transaction(SETTINGS_STORE, 'readwrite')
+    const store = tx.objectStore(SETTINGS_STORE)
+    store.put(saveId, LAST_SAVE_KEY)
+  } catch {
+    // Ignore errors
   }
 }

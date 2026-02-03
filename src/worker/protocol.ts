@@ -4,6 +4,12 @@ import type {
   WeaponComponent,
 } from '../ecs/Component'
 import type { EditorMapData } from '../editorMapTypes'
+import type {
+  SaveData,
+  SaveEnemyState,
+  SaveGroundWeaponState,
+  SavePlayerState,
+} from '../saveTypes'
 
 export type RenderEntity = {
   id: number
@@ -81,12 +87,24 @@ export type WorkerMapPreviewMessage = {
   map: EditorMapData
 }
 
+export type WorkerSaveRequestMessage = {
+  type: 'save_request'
+  saveId: string
+}
+
+export type WorkerLoadSaveMessage = {
+  type: 'load_save'
+  saveData: SaveData
+}
+
 export type MainToWorkerMessage =
   | WorkerInitMessage
   | WorkerInputMessage
   | WorkerBufferReleaseMessage
   | WorkerControlMessage
   | WorkerMapPreviewMessage
+  | WorkerSaveRequestMessage
+  | WorkerLoadSaveMessage
 
 export type WorkerStateMessage = {
   type: 'state'
@@ -153,7 +171,18 @@ export type WorkerMapDataMessage = {
   map: EditorMapData
 }
 
+export type WorkerSaveResponseMessage = {
+  type: 'save_response'
+  saveId: string
+  playTimeMs: number
+  player: SavePlayerState
+  enemies: SaveEnemyState[]
+  groundWeapons: SaveGroundWeaponState[]
+  camera: { x: number; y: number; zoom: number }
+}
+
 export type WorkerToMainMessage =
   | WorkerStateMessage
   | WorkerDebugMessage
   | WorkerMapDataMessage
+  | WorkerSaveResponseMessage
