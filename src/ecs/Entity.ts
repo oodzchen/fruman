@@ -4,6 +4,8 @@ import {
   CheckpointComponent,
   EnemyAIComponent,
   FactionComponent,
+  GrappleAnchorComponent,
+  GrappleComponent,
   InputComponent,
   MovementComponent,
   PhysicsComponent,
@@ -32,6 +34,8 @@ export class Entity {
   weaponSlots?: WeaponSlotsComponent
   arrow?: ArrowComponent
   checkpoint?: CheckpointComponent
+  grapple?: GrappleComponent
+  grappleAnchor?: GrappleAnchorComponent
   faction?: FactionComponent
   enemyAI?: EnemyAIComponent
   sensor?: SensorComponent
@@ -109,6 +113,8 @@ export class Entity {
     this.weaponSlots = undefined
     this.arrow = undefined
     this.checkpoint = undefined
+    this.grapple = undefined
+    this.grappleAnchor = undefined
     this.faction = undefined
     this.enemyAI = undefined
     this.sensor = undefined
@@ -145,6 +151,12 @@ export class Entity {
         break
       case 'Checkpoint':
         this.checkpoint = component as CheckpointComponent
+        break
+      case 'Grapple':
+        this.grapple = component as GrappleComponent
+        break
+      case 'GrappleAnchor':
+        this.grappleAnchor = component as GrappleAnchorComponent
         break
       case 'EnemyAI':
         this.enemyAI = component as EnemyAIComponent
@@ -189,6 +201,12 @@ export class Entity {
         break
       case 'Checkpoint':
         this.checkpoint = undefined
+        break
+      case 'Grapple':
+        this.grapple = undefined
+        break
+      case 'GrappleAnchor':
+        this.grappleAnchor = undefined
         break
       case 'EnemyAI':
         this.enemyAI = undefined

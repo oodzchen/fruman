@@ -6,6 +6,7 @@ import {
 } from '../constants'
 import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
 import type { WeaponType } from '../types'
+import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
 
 interface WeaponTemplateLike {
   width: number
@@ -35,7 +36,7 @@ interface EditorObjectFactoryOptions {
   ) => WeaponRenderDimensions
   renderWeapon: (
     ctx: CanvasRenderingContext2D,
-    type: 'sword' | 'bow',
+    type: 'sword' | 'bow' | 'hook',
     width: number,
     height: number,
     color: string,
@@ -49,7 +50,7 @@ type WeaponShape = fabric.Object & {
   weaponHeightPx: number
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
-  weaponRenderType: 'bow' | 'sword'
+  weaponRenderType: 'bow' | 'sword' | 'hook'
 }
 
 export class EditorObjectFactory {
@@ -216,6 +217,46 @@ export class EditorObjectFactory {
     return group
   }
 
+  createHookAnchorMarker() {
+    const radius = Math.round((this.pixelsPerMeter * 28) / 100)
+    const strokeWidth = Math.max(2, Math.round(radius * 0.18))
+    const dotRadius = Math.max(2, Math.round(radius * 0.18))
+
+    const ring = new fabric.Circle({
+      radius,
+      fill: 'transparent',
+      stroke: HOOK_ANCHOR_COLOR,
+      strokeWidth,
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+    })
+
+    const dot = new fabric.Circle({
+      radius: dotRadius,
+      fill: HOOK_ANCHOR_BORDER_COLOR,
+      stroke: HOOK_ANCHOR_BORDER_COLOR,
+      strokeWidth: 1,
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+    })
+
+    const group = new fabric.Group([ring, dot], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    })
+    ;(group as unknown as { editorShape: string }).editorShape =
+      'hook-anchor-marker'
+    return group
+  }
+
   createEnemyMarker(
     enemyType: string,
     radiusMeters: number,
@@ -330,7 +371,8 @@ export class EditorObjectFactory {
       this.pixelsPerMeter,
       isBow
     )
-    const renderType: WeaponShape['weaponRenderType'] = isBow ? 'bow' : 'sword'
+    const renderType: WeaponShape['weaponRenderType'] =
+      weaponType === 'hook' ? 'hook' : isBow ? 'bow' : 'sword'
     const renderWeapon = this.renderWeapon
 
     const weaponShape = new (fabric.util.createClass(fabric.Object, {
@@ -396,7 +438,8 @@ export class EditorObjectFactory {
   ) {
     const weaponType = config.weaponType
     const isBow = weaponType === 'bow'
-    const category: WeaponCategory = isBow ? 'secondary' : 'main'
+    const category: WeaponCategory =
+      weaponType === 'hook' ? 'item' : isBow ? 'secondary' : 'main'
     const template = templates[weaponType]
     const dims = this.computeWeaponRenderDimensions(
       template,
@@ -417,7 +460,8 @@ export class EditorObjectFactory {
     weaponShape.weaponHeightPx = dims.heightPx
     weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
     weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
-    weaponShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponShape.weaponRenderType =
+      weaponType === 'hook' ? 'hook' : isBow ? 'bow' : 'sword'
 
     const weaponMarker = new fabric.Group([weaponShape], {
       left: x,

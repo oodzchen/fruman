@@ -1,4 +1,4 @@
-export type WeaponRenderType = 'sword' | 'bow' | 'arrow'
+export type WeaponRenderType = 'sword' | 'bow' | 'arrow' | 'hook'
 
 export function renderWeapon(
   ctx: CanvasRenderingContext2D,
@@ -13,6 +13,8 @@ export function renderWeapon(
     renderArrow(ctx, width, height, color, isAttacking, 0)
   } else if (weaponType === 'bow') {
     renderBow(ctx, width, height, color, isAttacking, drawRatio)
+  } else if (weaponType === 'hook') {
+    renderHook(ctx, width, height, color, isAttacking)
   } else {
     renderSword(ctx, width, height, color, isAttacking)
   }
@@ -109,5 +111,43 @@ function renderArrow(
   ctx.lineTo(-headWidth / 2, tipY + headLen)
   ctx.moveTo(0, tipY)
   ctx.lineTo(headWidth / 2, tipY + headLen)
+  ctx.stroke()
+}
+
+function renderHook(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  color: string,
+  isAttacking: boolean
+): void {
+  const ringRadius = Math.max(3, Math.floor(Math.min(width, height) * 0.26))
+  const stroke = Math.max(2, Math.floor(ringRadius * 0.24))
+  const hookRadius = Math.max(3, Math.floor(ringRadius * 0.9))
+  const hookStart = Math.PI * 0.25
+  const hookEnd = Math.PI * 1.85
+  const stemLen = Math.max(3, Math.floor(ringRadius * 0.55))
+  const barHalf = Math.max(4, Math.floor(ringRadius * 0.8))
+
+  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.lineWidth = stroke
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+
+  // C-shape hook (close to a circle)
+  ctx.beginPath()
+  ctx.arc(0, 0, hookRadius, hookStart, hookEnd, false)
+  ctx.stroke()
+
+  // Stem down to hook top
+  ctx.beginPath()
+  ctx.moveTo(0, -hookRadius - stemLen)
+  ctx.lineTo(0, -hookRadius)
+  ctx.stroke()
+
+  // Top bar
+  ctx.beginPath()
+  ctx.moveTo(-barHalf, -hookRadius - stemLen)
+  ctx.lineTo(barHalf, -hookRadius - stemLen)
   ctx.stroke()
 }

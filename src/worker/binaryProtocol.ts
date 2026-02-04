@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 48
+export const ENTITY_STRIDE = 55
 
 export const OFFSETS = {
   ID: 0,
@@ -49,6 +49,13 @@ export const OFFSETS = {
   WEAPON_SLOT_SECONDARY_SIZE: 45,
   WEAPON_SLOT_MAIN_MAX: 46,
   WEAPON_SLOT_SECONDARY_MAX: 47,
+  GRAPPLE_ACTIVE: 48,
+  GRAPPLE_TARGET_X: 49,
+  GRAPPLE_TARGET_Y: 50,
+  GRAPPLE_START_X: 51,
+  GRAPPLE_START_Y: 52,
+  GRAPPLE_VX: 53,
+  GRAPPLE_VY: 54,
 }
 
 export const FLAGS = {
@@ -63,6 +70,9 @@ export const FLAGS = {
   WEAPON_BLOCKING: 256,
   HUD_VISIBLE: 512,
   CHECKPOINT: 1024,
+  GRAPPLE_READY: 2048,
+  GRAPPLE_ANCHOR: 4096,
+  GRAPPLE_ANCHOR_HIGHLIGHT: 8192,
 }
 
 export const WEAPON_TYPES = {
@@ -72,6 +82,7 @@ export const WEAPON_TYPES = {
   HAMMER: 3,
   BOW: 4,
   ARROW: 5,
+  HOOK: 6,
 } as const
 
 export const MAX_ENTITIES = 2000

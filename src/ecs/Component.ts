@@ -6,6 +6,8 @@ import {
   DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_ENEMY_ATTACK_DESIRE,
   DEFAULT_ENEMY_MOVE_SPEED,
+  DEFAULT_GRAPPLE_PULL_DURATION_MS,
+  DEFAULT_GRAPPLE_PULL_SPEED,
   DEFAULT_GRAVITY,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_POSTURE,
@@ -273,6 +275,52 @@ export class CheckpointComponent extends Component {
 
   getName(): string {
     return 'Checkpoint'
+  }
+}
+
+export class GrappleComponent extends Component {
+  hasGrapple = false
+  isPulling = false
+  startX = 0
+  startY = 0
+  targetX = 0
+  targetY = 0
+  velocityX = 0
+  velocityY = 0
+  pullSpeed = DEFAULT_GRAPPLE_PULL_SPEED
+  pullDurationMs = DEFAULT_GRAPPLE_PULL_DURATION_MS
+  pullElapsedMs = 0
+  cooldownEndTime = 0
+  moveLockEndTime = 0
+  retainAirMomentum = false
+
+  reset(): void {
+    this.hasGrapple = false
+    this.isPulling = false
+    this.startX = 0
+    this.startY = 0
+    this.targetX = 0
+    this.targetY = 0
+    this.velocityX = 0
+    this.velocityY = 0
+    this.pullSpeed = DEFAULT_GRAPPLE_PULL_SPEED
+    this.pullDurationMs = DEFAULT_GRAPPLE_PULL_DURATION_MS
+    this.pullElapsedMs = 0
+    this.cooldownEndTime = 0
+    this.moveLockEndTime = 0
+    this.retainAirMomentum = false
+  }
+
+  getName(): string {
+    return 'Grapple'
+  }
+}
+
+export class GrappleAnchorComponent extends Component {
+  reset(): void {}
+
+  getName(): string {
+    return 'GrappleAnchor'
   }
 }
 

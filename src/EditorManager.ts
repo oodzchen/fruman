@@ -236,6 +236,9 @@ export class EditorManager {
         if (this.markerManager.isWeaponMarker(obj)) {
           this.markerManager.removeWeaponMarker(obj)
         }
+        if (this.markerManager.isHookAnchorMarker(obj)) {
+          this.markerManager.removeHookAnchorMarker(obj)
+        }
         this.patternManager.deletePattern(obj)
       },
       onSelectionChanged: (obj) => {
@@ -468,6 +471,8 @@ export class EditorManager {
     this.menuSystem = new EditorMenuSystem({
       editorWorkspace: this.editorWorkspace,
       hasObjectOfType: (type) => this.hasObjectOfType(type),
+      hasWeaponType: (weaponType) =>
+        this.markerManager.hasWeaponType(weaponType),
       onObjectTypeSelected: (type) => this.handleObjectClick(type),
       onGroundShapeSelected: (shape) => {
         this.shapeManager.createGroundShape(shape)
@@ -756,6 +761,15 @@ export class EditorManager {
       this.menuSystem.hideObjectTypeMenu()
       this.setActiveObjectType(type)
       this.markerManager.spawnCheckpointMarker()
+      this.captureHistorySnapshot()
+      return
+    }
+
+    if (type === ObjectType.HookAnchor) {
+      this.hideAllSubmenus()
+      this.menuSystem.hideObjectTypeMenu()
+      this.setActiveObjectType(type)
+      this.markerManager.spawnHookAnchorMarker()
       this.captureHistorySnapshot()
       return
     }
@@ -1424,6 +1438,9 @@ export class EditorManager {
       }
       if (this.markerManager.isCheckpointMarker(target)) {
         this.markerManager.removeCheckpointMarker(target)
+      }
+      if (this.markerManager.isHookAnchorMarker(target)) {
+        this.markerManager.removeHookAnchorMarker(target)
       }
       this.objectManager.unregisterEditorObject(target)
       canvas.remove(target)

@@ -102,6 +102,7 @@ export class EditorMapSerializer {
       enemies: [],
       weapons: [],
       checkpoints: [],
+      hookAnchors: [],
     }
   }
 
@@ -115,6 +116,7 @@ export class EditorMapSerializer {
     const enemies = this.serializeEnemies()
     const weapons = this.serializeWeapons()
     const checkpoints = this.serializeCheckpoints()
+    const hookAnchors = this.serializeHookAnchors()
     return {
       version: 1,
       canvasWidth: base.canvasWidth,
@@ -127,6 +129,7 @@ export class EditorMapSerializer {
       enemies,
       weapons,
       checkpoints,
+      hookAnchors,
     }
   }
 
@@ -144,6 +147,7 @@ export class EditorMapSerializer {
     this.applyEnemies(data.enemies)
     this.applyWeapons(data.weapons)
     this.applyCheckpoints(data.checkpoints)
+    this.applyHookAnchors(data.hookAnchors)
     this.ctx.renderObjectTree()
     this.ctx.requestRenderAll()
   }
@@ -337,6 +341,15 @@ export class EditorMapSerializer {
     }
   }
 
+  private applyHookAnchors(anchors: EditorMapData['hookAnchors']) {
+    if (!anchors) {
+      return
+    }
+    for (let i = 0; i < anchors.length; i++) {
+      this.ctx.markerManager.spawnHookAnchorMarker(anchors[i])
+    }
+  }
+
   private serializePlayerSpawn(base: EditorMapData) {
     const marker = this.ctx.markerManager.getPlayerMarker()
     if (!marker) {
@@ -384,6 +397,22 @@ export class EditorMapSerializer {
       checkpoints.push({ x, y })
     }
     return checkpoints
+  }
+
+  private serializeHookAnchors(): EditorMapData['hookAnchors'] {
+    const markers = this.ctx.markerManager.getHookAnchorMarkers()
+    if (markers.length === 0) {
+      return []
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    const anchors: NonNullable<EditorMapData['hookAnchors']> = []
+    for (let i = 0; i < markers.length; i++) {
+      const marker = markers[i].marker
+      const x = (marker.left ?? 0) * invPixelsPerMeter
+      const y = (marker.top ?? 0) * invPixelsPerMeter
+      anchors.push({ x, y })
+    }
+    return anchors
   }
 
   private serializePlayerProperties(): EditorMapData['player'] {

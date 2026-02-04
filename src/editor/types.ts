@@ -9,6 +9,7 @@ export enum ObjectType {
   Weapon = 'weapon',
   Camera = 'camera',
   Checkpoint = 'checkpoint',
+  HookAnchor = 'hookAnchor',
   Ground = 'ground',
   Obstacle = 'obstacle',
 }
@@ -70,12 +71,16 @@ export type CheckpointMarker = fabric.Group & {
   editorShape: 'checkpoint-marker'
 }
 
+export type HookAnchorMarker = fabric.Group & {
+  editorShape: 'hook-anchor-marker'
+}
+
 export type WeaponShape = fabric.Object & {
   weaponWidthPx: number
   weaponHeightPx: number
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
-  weaponRenderType: 'sword' | 'bow'
+  weaponRenderType: 'sword' | 'bow' | 'hook'
 }
 
 export type ShapeResetData =
@@ -144,6 +149,10 @@ export interface WeaponMarkerData {
 
 export interface CheckpointMarkerData {
   marker: CheckpointMarker
+}
+
+export interface HookAnchorMarkerData {
+  marker: HookAnchorMarker
 }
 
 export interface EditorMap {

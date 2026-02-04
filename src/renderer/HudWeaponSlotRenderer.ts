@@ -27,7 +27,7 @@ export function drawHudWeaponSlot(
   size: number,
   isActive: boolean,
   hasWeapon: boolean,
-  weaponType: 'sword' | 'bow',
+  weaponType: 'sword' | 'bow' | 'hook',
   weaponWidth: number,
   weaponHeight: number,
   sizeLevel: number,
@@ -96,6 +96,16 @@ export function drawHudWeaponSlot(
         arrowLength * 0.5
       )
       ctx.restore()
+    } else if (weaponType === 'hook') {
+      renderWeaponShape(
+        ctx,
+        'hook',
+        iconWidth,
+        iconHeight,
+        HUD_ICON_COLOR,
+        false,
+        0
+      )
     } else {
       const halfLen = iconWidth / 2
       const halfThick = iconHeight / 2

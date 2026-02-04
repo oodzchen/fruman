@@ -82,6 +82,11 @@ export interface MapCheckpoint {
   y: number
 }
 
+export interface MapHookAnchor {
+  x: number
+  y: number
+}
+
 export interface MapWeapon {
   x: number
   y: number
@@ -132,6 +137,7 @@ export interface EditorMapData {
   enemies: MapEnemy[]
   weapons?: MapWeapon[]
   checkpoints?: MapCheckpoint[]
+  hookAnchors?: MapHookAnchor[]
 }
 
 export interface StoredEditorMap {

@@ -2296,6 +2296,16 @@ export class WeaponSystem extends System {
           continue // 还在冷却期内，跳过
         }
 
+        if (weaponEntity.weapon.weaponType === 'hook') {
+          if (entity.grapple && !entity.grapple.hasGrapple) {
+            entity.grapple.hasGrapple = true
+            entity.grapple.isPulling = false
+            entity.grapple.pullElapsedMs = 0
+            weaponEntity.weapon.isEquipped = true
+          }
+          continue
+        }
+
         if (weaponSlots) {
           const targetSlotId = this.getSlotForWeaponType(
             weaponEntity.weapon.weaponType

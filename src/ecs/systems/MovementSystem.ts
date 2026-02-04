@@ -315,9 +315,24 @@ export class MovementSystem extends System {
   private handleInput(entity: Entity): void {
     if (!entity.physics || !entity.movement || !entity.input) return
 
+    if (entity.grapple?.retainAirMomentum && entity.movement.isGrounded) {
+      entity.grapple.retainAirMomentum = false
+    }
+
     this.handleSprintAndRoll(entity)
 
     if (entity.movement.isRolling) {
+      return
+    }
+
+    if (entity.grapple?.isPulling) {
+      return
+    }
+    if (
+      entity.grapple &&
+      entity.grapple.moveLockEndTime > this.currentTimeMs &&
+      !entity.movement.isGrounded
+    ) {
       return
     }
 
@@ -545,6 +560,14 @@ export class MovementSystem extends System {
 
     if (direction !== 0 && this.isEnemyBlocking(entity, direction)) {
       direction = 0
+    }
+
+    if (
+      direction === 0 &&
+      !entity.movement.isGrounded &&
+      entity.grapple?.retainAirMomentum
+    ) {
+      return
     }
 
     const moveSpeedScale =

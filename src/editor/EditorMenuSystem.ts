@@ -9,6 +9,7 @@ import type { GroundShapeType } from './types'
 export interface EditorMenuSystemContext {
   editorWorkspace: HTMLDivElement
   hasObjectOfType: (type: ObjectType) => boolean
+  hasWeaponType: (weaponType: WeaponType) => boolean
   onObjectTypeSelected: (type: ObjectType) => void
   onGroundShapeSelected: (shape: GroundShapeType) => void
   onObstacleShapeSelected: (shape: GroundShapeType) => void
@@ -634,6 +635,18 @@ export class EditorMenuSystem {
   }
 
   showWeaponMenu() {
+    const hasHook = this.ctx.hasWeaponType('hook')
+    this.weaponItems.forEach((item) => {
+      if (item.dataset.weapon === 'hook') {
+        if (hasHook) {
+          item.disabled = true
+          item.classList.add('disabled')
+        } else {
+          item.disabled = false
+          item.classList.remove('disabled')
+        }
+      }
+    })
     this.positionWeaponMenu()
     this.weaponMenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Weapon, true)

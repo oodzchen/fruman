@@ -36,5 +36,11 @@ export interface WeaponTemplate {
   toughnessDamage: number
 }
 
-export type WeaponType = 'sword' | 'shortSword' | 'longSword' | 'hammer' | 'bow'
+export type WeaponType =
+  | 'sword'
+  | 'shortSword'
+  | 'longSword'
+  | 'hammer'
+  | 'bow'
+  | 'hook'
 export type WeaponVisualType = WeaponType | 'arrow'

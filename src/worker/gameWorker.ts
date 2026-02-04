@@ -19,15 +19,22 @@ import {
   DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_CAMERA_ZOOM,
   DEFAULT_CHECKPOINT_RENDER_RADIUS,
+  DEFAULT_GRAPPLE_ANCHOR_RENDER_RADIUS,
+  DEFAULT_GRAPPLE_RANGE,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
+  DEFAULT_PLAYER_FOV_RAD,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_POSTURE,
   DEFAULT_PLAYER_MAX_TOUGHNESS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_CORNER_RADIUS,
   ENEMY_HEARING_RANGE_MULTIPLIER,
+  GRAPPLE_ANCHOR_BORDER_COLOR,
+  GRAPPLE_ANCHOR_COLOR,
+  GRAPPLE_ANCHOR_HIGHLIGHT_BORDER_COLOR,
+  GRAPPLE_ANCHOR_HIGHLIGHT_COLOR,
   MASK_WEAPON,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
@@ -35,6 +42,7 @@ import { ArrowPools } from '../ecs/ArrowPools'
 import {
   CheckpointComponent,
   Faction,
+  GrappleAnchorComponent,
   RenderComponent,
   TransformComponent,
 } from '../ecs/Component'
@@ -51,6 +59,7 @@ import {
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { CheckpointSystem } from '../ecs/systems/CheckpointSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
+import { GrappleSystem } from '../ecs/systems/GrappleSystem'
 import { InteractionSystem } from '../ecs/systems/InteractionSystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
@@ -130,6 +139,7 @@ let soundSystem: SoundSystem
 let targetingSystem: TargetingSystem
 let interactionSystem: InteractionSystem
 let checkpointSystem: CheckpointSystem
+let grappleSystem: GrappleSystem
 let arrowPools: ArrowPools
 
 const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
@@ -220,6 +230,8 @@ function getWeaponTypeId(weaponType: WeaponVisualType | undefined): number {
       return WEAPON_TYPES.HAMMER
     case 'bow':
       return WEAPON_TYPES.BOW
+    case 'hook':
+      return WEAPON_TYPES.HOOK
     case 'arrow':
       return WEAPON_TYPES.ARROW
     case 'sword':
@@ -471,6 +483,8 @@ function registerComponents() {
   componentRegistry.registerComponent('Faction')
   componentRegistry.registerComponent('EnemyAI')
   componentRegistry.registerComponent('Checkpoint')
+  componentRegistry.registerComponent('Grapple')
+  componentRegistry.registerComponent('GrappleAnchor')
 }
 
 function initializeSystems() {
@@ -488,6 +502,7 @@ function initializeSystems() {
   enemyAISystem = new EnemyAISystem(box2d, worldId)
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
+  grappleSystem = new GrappleSystem(world, box2d)
   weaponSystem = new WeaponSystem(box2d, statsSystem)
   arrowSystem = new ArrowSystem(box2d, statsSystem)
   arrowPools = new ArrowPools()
@@ -514,6 +529,7 @@ function initializeSystems() {
   world.addSystem(soundSystem)
   world.addSystem(enemyAISystem)
   world.addSystem(movementSystem)
+  world.addSystem(grappleSystem)
   world.addSystem(physicsSystem)
   world.addSystem(weaponSystem)
   world.addSystem(arrowSystem)
@@ -753,6 +769,7 @@ function createEnvironment(): void {
   if (activeMapData) {
     createEnvironmentFromMap(activeMapData)
     createCheckpointsFromMap(activeMapData)
+    createGrappleAnchorsFromMap(activeMapData)
   } else {
     createGround()
     createObstacles()
@@ -799,6 +816,37 @@ function createCheckpointEntity(x: number, y: number): void {
 
   const checkpoint = new CheckpointComponent()
   entity.addComponent(checkpoint)
+}
+
+function createGrappleAnchorsFromMap(map: EditorMapData): void {
+  if (!world) return
+  const anchors = map.hookAnchors ?? []
+  for (let i = 0; i < anchors.length; i++) {
+    const anchor = anchors[i]
+    createGrappleAnchorEntity(anchor.x, anchor.y)
+  }
+  if (grappleSystem) {
+    grappleSystem.markAnchorsDirty()
+  }
+}
+
+function createGrappleAnchorEntity(x: number, y: number): void {
+  if (!world) return
+  const entity = world.createEntity()
+  const transform = new TransformComponent()
+  transform.x = x
+  transform.y = y
+  entity.addComponent(transform)
+
+  const render = new RenderComponent()
+  render.radius = DEFAULT_GRAPPLE_ANCHOR_RENDER_RADIUS
+  render.color = GRAPPLE_ANCHOR_COLOR
+  render.borderColor = GRAPPLE_ANCHOR_BORDER_COLOR
+  render.visible = true
+  entity.addComponent(render)
+
+  const anchor = new GrappleAnchorComponent()
+  entity.addComponent(anchor)
 }
 
 function createGroundShapeFromMap(placed: MapPlacedShape): void {
@@ -1735,10 +1783,8 @@ function handleInput(
       playerEntity.input.blockRequested = false
     }
 
-    // Middle click or Q for lock toggle
-    const lockToggleJustPressed =
-      (currKeys.has('q') && !prevKeys.has('q')) ||
-      (currMouseButtons.has(1) && !prevMouseButtons.has(1))
+    // Q for lock toggle
+    const lockToggleJustPressed = currKeys.has('q') && !prevKeys.has('q')
 
     if (lockToggleJustPressed && !isPlayerDead) {
       const dir = playerEntity.input.moveDirection
@@ -1765,6 +1811,14 @@ function handleInput(
 
     if (currKeys.has('e') && !prevKeys.has('e') && !isPlayerDead) {
       playerEntity.input.inputBuffer.bufferAction('interact')
+    }
+
+    const grappleJustPressed =
+      ((currKeys.has('r') && !prevKeys.has('r')) ||
+        (currMouseButtons.has(1) && !prevMouseButtons.has(1))) &&
+      !isPlayerDead
+    if (grappleJustPressed) {
+      playerEntity.input.inputBuffer.bufferAction('grapple')
     }
 
     if (currKeys.has('1') && !prevKeys.has('1') && !isPlayerDead) {
@@ -2390,6 +2444,32 @@ function sendState() {
   }
 
   const entities = world.getEntities()
+  let highlightAnchorId = -1
+  if (playerEntity?.transform && playerEntity.grapple?.hasGrapple) {
+    const playerX = playerEntity.transform.x
+    const playerY = playerEntity.transform.y
+    const facing = playerEntity.input?.lastMoveDirection ?? 1
+    const forwardX = facing >= 0 ? 1 : -1
+    const forwardY = 0
+    const cosHalfFov = Math.cos(DEFAULT_PLAYER_FOV_RAD * 0.5)
+    const rangeSq = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
+    let bestDistSq = rangeSq + 1
+    for (let i = 0; i < entities.length; i++) {
+      const entity = entities[i]
+      if (!entity.grappleAnchor || !entity.transform) continue
+      const dx = entity.transform.x - playerX
+      const dy = entity.transform.y - playerY
+      const distSq = dx * dx + dy * dy
+      if (distSq > rangeSq || distSq <= 0) continue
+      const invDist = 1 / Math.sqrt(distSq)
+      const dot = (dx * forwardX + dy * forwardY) * invDist
+      if (dot < cosHalfFov) continue
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq
+        highlightAnchorId = entity.id
+      }
+    }
+  }
   let count = 0
 
   for (const e of entities) {
@@ -2431,6 +2511,17 @@ function sendState() {
     if (hudVisibleTimer > 0) flags |= FLAGS.HUD_VISIBLE
     if (e.weapon?.isBlocking) flags |= FLAGS.WEAPON_BLOCKING
     if (e.checkpoint) flags |= FLAGS.CHECKPOINT
+    if (e.grapple?.hasGrapple) flags |= FLAGS.GRAPPLE_READY
+    if (e.grappleAnchor) flags |= FLAGS.GRAPPLE_ANCHOR
+    if (e.grappleAnchor && e.id === highlightAnchorId) {
+      flags |= FLAGS.GRAPPLE_ANCHOR_HIGHLIGHT
+      stateBuffer[offset + OFFSETS.COLOR] = parseColor(
+        GRAPPLE_ANCHOR_HIGHLIGHT_COLOR
+      )
+      stateBuffer[offset + OFFSETS.BORDER_COLOR] = parseColor(
+        GRAPPLE_ANCHOR_HIGHLIGHT_BORDER_COLOR
+      )
+    }
 
     stateBuffer[offset + OFFSETS.FLAGS] = flags
 
@@ -2469,6 +2560,24 @@ function sendState() {
         e.stats.hitShakeDirectionX
     } else {
       stateBuffer[offset + OFFSETS.STATS_HEALTH_MAX] = 0
+    }
+
+    if (e.grapple) {
+      stateBuffer[offset + OFFSETS.GRAPPLE_ACTIVE] = e.grapple.isPulling ? 1 : 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_TARGET_X] = e.grapple.targetX
+      stateBuffer[offset + OFFSETS.GRAPPLE_TARGET_Y] = e.grapple.targetY
+      stateBuffer[offset + OFFSETS.GRAPPLE_START_X] = e.grapple.startX
+      stateBuffer[offset + OFFSETS.GRAPPLE_START_Y] = e.grapple.startY
+      stateBuffer[offset + OFFSETS.GRAPPLE_VX] = e.grapple.velocityX
+      stateBuffer[offset + OFFSETS.GRAPPLE_VY] = e.grapple.velocityY
+    } else {
+      stateBuffer[offset + OFFSETS.GRAPPLE_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_TARGET_X] = 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_TARGET_Y] = 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_START_X] = 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_START_Y] = 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_VX] = 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_VY] = 0
     }
 
     // 独立武器实体（地面武器）：只要有weapon组件就显示
@@ -3208,6 +3317,7 @@ function extractPlayerState(): SavePlayerState {
   const input = playerEntity.input
   const weaponSlots = playerEntity.weaponSlots
   const weapon = playerEntity.weapon
+  const grapple = playerEntity.grapple
 
   if (weaponSlots && weapon) {
     syncActiveSlotFromWeapon(weaponSlots, weapon)
@@ -3223,6 +3333,7 @@ function extractPlayerState(): SavePlayerState {
     maxPosture: stats?.maxPosture ?? 100,
     toughness: stats?.toughness ?? 100,
     maxToughness: stats?.maxToughness ?? 100,
+    hasGrapple: grapple?.hasGrapple ?? false,
     mainWeapon: weaponSlots ? extractWeaponSlotState(weaponSlots.main) : null,
     secondaryWeapon: weaponSlots
       ? extractWeaponSlotState(weaponSlots.secondary)
@@ -3377,6 +3488,13 @@ function loadFromSave(saveData: SaveData): void {
 
     if (playerEntity.input) {
       playerEntity.input.lastMoveDirection = playerState.facing
+    }
+
+    if (playerEntity.grapple) {
+      playerEntity.grapple.hasGrapple = !!playerState.hasGrapple
+      playerEntity.grapple.isPulling = false
+      playerEntity.grapple.pullElapsedMs = 0
+      playerEntity.grapple.moveLockEndTime = 0
     }
 
     restorePlayerWeapons(saveData.player)

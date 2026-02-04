@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_JUMP_DURATION,
   DEFAULT_MAX_WALL_JUMPS,
   DEFAULT_MOVE_SPEED,
+  DEFAULT_PLAYER_FOV_RAD,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_POSTURE,
   DEFAULT_PLAYER_MAX_TOUGHNESS,
@@ -48,6 +49,7 @@ import {
   EnemyAIComponent,
   Faction,
   FactionComponent,
+  GrappleComponent,
   InputComponent,
   MovementComponent,
   PhysicsComponent,
@@ -158,6 +160,9 @@ export function createPlayer(
   input.inputBuffer.setDefaultBufferWindow(DEFAULT_JUMP_BUFFER_WINDOW)
   entity.addComponent(input)
 
+  const grapple = new GrappleComponent()
+  entity.addComponent(grapple)
+
   const stats = new StatsComponent()
   stats.maxHealth = DEFAULT_PLAYER_MAX_HEALTH
   stats.health = DEFAULT_PLAYER_MAX_HEALTH
@@ -178,7 +183,7 @@ export function createPlayer(
 
   const sensor = new SensorComponent()
   sensor.radius = ENEMY_DETECTION_RANGE
-  sensor.fov = (160 * Math.PI) / 180 // +/- 80 degrees
+  sensor.fov = DEFAULT_PLAYER_FOV_RAD // +/- 80 degrees
   entity.addComponent(sensor)
 
   // 玩家初始武器组件（默认为空，需要在地上拾取）

@@ -51,6 +51,8 @@ export const CAMERA_ICON_FILL = 'rgba(230, 230, 230, 0.18)'
 export const PLAYER_BODY_COLOR = '#FF7A1A'
 export const PLAYER_EYE_COLOR = '#000000'
 export const ENEMY_EYE_COLOR = '#000000'
+export const HOOK_ANCHOR_COLOR = '#c6b07a'
+export const HOOK_ANCHOR_BORDER_COLOR = '#6d5a3f'
 
 // ========================================
 // 形状配置

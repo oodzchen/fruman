@@ -15,6 +15,7 @@ import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type {
   MapCheckpoint,
   MapEnemyWeapon,
+  MapHookAnchor,
   MapPlayerProperties,
   WeaponCategory,
 } from '../editorMapTypes'
@@ -30,6 +31,8 @@ import type {
   CheckpointMarkerData,
   EnemyMarker,
   EnemyMarkerData,
+  HookAnchorMarker,
+  HookAnchorMarkerData,
   ObjectType,
   PlayerMarker,
   PlayerMarkerData,
@@ -71,9 +74,11 @@ export class EditorMarkerManager {
   private enemyMarkers: EnemyMarkerData[] = []
   private weaponMarkers: WeaponMarkerData[] = []
   private checkpointMarkers: CheckpointMarkerData[] = []
+  private hookAnchorMarkers: HookAnchorMarkerData[] = []
   private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
   private checkpointMarkerMap = new Map<fabric.Object, CheckpointMarkerData>()
+  private hookAnchorMarkerMap = new Map<fabric.Object, HookAnchorMarkerData>()
   private tempEnemyPos = { x: 0, y: 0 }
   private tempWeaponTransform = { x: 0, y: 0, rotation: 0 }
 
@@ -94,6 +99,8 @@ export class EditorMarkerManager {
     this.weaponMarkerMap.clear()
     this.checkpointMarkers.length = 0
     this.checkpointMarkerMap.clear()
+    this.hookAnchorMarkers.length = 0
+    this.hookAnchorMarkerMap.clear()
   }
 
   getPlayerMarker() {
@@ -112,8 +119,21 @@ export class EditorMarkerManager {
     return this.weaponMarkers
   }
 
+  hasWeaponType(weaponType: WeaponType): boolean {
+    for (let i = 0; i < this.weaponMarkers.length; i++) {
+      if (this.weaponMarkers[i].weaponType === weaponType) {
+        return true
+      }
+    }
+    return false
+  }
+
   getCheckpointMarkers() {
     return this.checkpointMarkers
+  }
+
+  getHookAnchorMarkers() {
+    return this.hookAnchorMarkers
   }
 
   getWeaponMarkerMap() {
@@ -122,6 +142,10 @@ export class EditorMarkerManager {
 
   getCheckpointMarkerMap() {
     return this.checkpointMarkerMap
+  }
+
+  getHookAnchorMarkerMap() {
+    return this.hookAnchorMarkerMap
   }
 
   getEnemyMarkerMap() {
@@ -153,6 +177,13 @@ export class EditorMarkerManager {
     return (
       object instanceof fabric.Group &&
       (object as CheckpointMarker).editorShape === 'checkpoint-marker'
+    )
+  }
+
+  isHookAnchorMarker(object: fabric.Object | null): object is HookAnchorMarker {
+    return (
+      object instanceof fabric.Group &&
+      (object as HookAnchorMarker).editorShape === 'hook-anchor-marker'
     )
   }
 
@@ -193,6 +224,17 @@ export class EditorMarkerManager {
         this.checkpointMarkers.splice(index, 1)
       }
       this.checkpointMarkerMap.delete(marker)
+    }
+  }
+
+  removeHookAnchorMarker(marker: fabric.Object) {
+    const data = this.hookAnchorMarkerMap.get(marker)
+    if (data) {
+      const index = this.hookAnchorMarkers.indexOf(data)
+      if (index !== -1) {
+        this.hookAnchorMarkers.splice(index, 1)
+      }
+      this.hookAnchorMarkerMap.delete(marker)
     }
   }
 
@@ -415,7 +457,7 @@ export class EditorMarkerManager {
     weaponBackShape.weaponHeightPx = weaponHeightPx
     weaponBackShape.weaponBoundingWidthPx = weaponBoundingWidthPx
     weaponBackShape.weaponBoundingHeightPx = weaponBoundingHeightPx
-    weaponBackShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponBackShape.weaponRenderType = this.getWeaponRenderType(weaponType)
     weaponBackShape.width = weaponBoundingWidthPx
     weaponBackShape.height = weaponBoundingHeightPx
 
@@ -423,7 +465,7 @@ export class EditorMarkerManager {
     weaponFrontShape.weaponHeightPx = weaponHeightPx
     weaponFrontShape.weaponBoundingWidthPx = weaponBoundingWidthPx
     weaponFrontShape.weaponBoundingHeightPx = weaponBoundingHeightPx
-    weaponFrontShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponFrontShape.weaponRenderType = this.getWeaponRenderType(weaponType)
     weaponFrontShape.width = weaponBoundingWidthPx
     weaponFrontShape.height = weaponBoundingHeightPx
 
@@ -607,6 +649,9 @@ export class EditorMarkerManager {
       bowAmmo?: number
     }
   ) {
+    if (weaponType === 'hook' && this.hasWeaponType('hook')) {
+      return
+    }
     const canvas = this.ctx.getCanvas()
     if (!canvas) {
       // console.warn('[marker-manager] Fabric canvas not ready')
@@ -699,6 +744,39 @@ export class EditorMarkerManager {
     canvas.renderAll()
   }
 
+  spawnHookAnchorMarker(spawn?: MapHookAnchor) {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return
+    }
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.ctx.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
+
+    const ObjectTypeHookAnchor = 'hookAnchor' as ObjectType
+
+    const marker =
+      this.objectFactory.createHookAnchorMarker() as HookAnchorMarker
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    canvas.add(marker)
+    this.ctx.registerEditorObject(ObjectTypeHookAnchor, marker)
+    const anchorData: HookAnchorMarkerData = { marker }
+    this.hookAnchorMarkers.push(anchorData)
+    this.hookAnchorMarkerMap.set(marker, anchorData)
+    canvas.setActiveObject(marker)
+    this.ctx.handleCanvasSelection(marker)
+    canvas.renderAll()
+  }
+
   updateEnemyMarkerVisual(
     marker: EnemyMarker,
     nextRadius: number,
@@ -785,7 +863,7 @@ export class EditorMarkerManager {
     weaponBackShape.weaponHeightPx = weaponHeightPx
     weaponBackShape.weaponBoundingWidthPx = weaponBoundingWidthPx
     weaponBackShape.weaponBoundingHeightPx = weaponBoundingHeightPx
-    weaponBackShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponBackShape.weaponRenderType = this.getWeaponRenderType(weaponType)
     weaponBackShape.width = weaponBoundingWidthPx
     weaponBackShape.height = weaponBoundingHeightPx
 
@@ -793,7 +871,7 @@ export class EditorMarkerManager {
     weaponFrontShape.weaponHeightPx = weaponHeightPx
     weaponFrontShape.weaponBoundingWidthPx = weaponBoundingWidthPx
     weaponFrontShape.weaponBoundingHeightPx = weaponBoundingHeightPx
-    weaponFrontShape.weaponRenderType = isBow ? 'bow' : 'sword'
+    weaponFrontShape.weaponRenderType = this.getWeaponRenderType(weaponType)
     weaponFrontShape.width = weaponBoundingWidthPx
     weaponFrontShape.height = weaponBoundingHeightPx
 
@@ -852,6 +930,7 @@ export class EditorMarkerManager {
     shape.weaponHeightPx = dims.heightPx
     shape.weaponBoundingWidthPx = dims.boundingWidthPx
     shape.weaponBoundingHeightPx = dims.boundingHeightPx
+    shape.weaponRenderType = this.getWeaponRenderType(marker.weaponType)
     shape.width = dims.boundingWidthPx
     shape.height = dims.boundingHeightPx
     shape.setCoords()
@@ -894,6 +973,18 @@ export class EditorMarkerManager {
       )
       this.ctx.requestRender()
     }
+  }
+
+  private getWeaponRenderType(
+    weaponType: WeaponType
+  ): WeaponShape['weaponRenderType'] {
+    if (weaponType === 'hook') {
+      return 'hook'
+    }
+    if (weaponType === 'bow') {
+      return 'bow'
+    }
+    return 'sword'
   }
 
   getOrCreateEnemyWeaponMarker(

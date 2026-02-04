@@ -48,6 +48,7 @@ export interface SavePlayerState {
   maxPosture: number
   toughness: number
   maxToughness: number
+  hasGrapple?: boolean
   mainWeapon: SaveWeaponSlotState | null
   secondaryWeapon: SaveWeaponSlotState | null
   activeSlot: 'main' | 'secondary'

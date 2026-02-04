@@ -135,6 +135,18 @@ export class EditorPropertiesPanel {
     this.context = context
   }
 
+  private getWeaponRenderType(
+    weaponType: WeaponType
+  ): 'sword' | 'bow' | 'hook' {
+    if (weaponType === 'hook') {
+      return 'hook'
+    }
+    if (weaponType === 'bow') {
+      return 'bow'
+    }
+    return 'sword'
+  }
+
   private async showCharacterPropertiesDialog(options: CharacterDialogOptions) {
     const baseSnapshot = this.context.getMapSnapshot()
     let committed = false
@@ -543,7 +555,7 @@ export class EditorPropertiesPanel {
         HUD_SLOT_SIZE,
         true,
         mainSlotPreview.hasWeapon,
-        mainSlotPreview.weaponType === 'bow' ? 'bow' : 'sword',
+        this.getWeaponRenderType(mainSlotPreview.weaponType),
         mainSlotPreview.weaponWidth,
         mainSlotPreview.weaponHeight,
         mainSlotPreview.sizeLevel,
@@ -558,7 +570,7 @@ export class EditorPropertiesPanel {
         HUD_SLOT_SIZE,
         false,
         secondarySlotPreview.hasWeapon,
-        secondarySlotPreview.weaponType === 'bow' ? 'bow' : 'sword',
+        this.getWeaponRenderType(secondarySlotPreview.weaponType),
         secondarySlotPreview.weaponWidth,
         secondarySlotPreview.weaponHeight,
         secondarySlotPreview.sizeLevel,
@@ -643,7 +655,7 @@ export class EditorPropertiesPanel {
         previewCtx.rotate(previewWeaponTransform.rotation)
         renderWeapon(
           previewCtx,
-          mainSlotPreview.weaponType === 'bow' ? 'bow' : 'sword',
+          this.getWeaponRenderType(mainSlotPreview.weaponType),
           weaponWidth,
           weaponHeight,
           previewWeaponColor,
@@ -1211,7 +1223,7 @@ export class EditorPropertiesPanel {
       )
       const centerX = previewCanvas.width * 0.5
       const centerY = previewCanvas.height * 0.6
-      const previewType = marker.weaponType === 'bow' ? 'bow' : 'sword'
+      const previewType = this.getWeaponRenderType(marker.weaponType)
       const previewColor = '#b4bdc7'
 
       previewCtx.save()

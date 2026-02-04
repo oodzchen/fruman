@@ -4,6 +4,7 @@ import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
+  GRAPPLE_ANCHOR_HIGHLIGHT_SCALE,
   WEAPON_DEFAULT_DATA,
 } from './constants'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
@@ -40,6 +41,8 @@ const DEBUG_DRAW_TRAJECTORY = false
 const RETICLE_EDGE_PX = 8
 const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
 const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
+const GRAPPLE_ICON_COLOR = '#c6b07a'
+const GRAPPLE_LINE_COLOR = '#d9c896'
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
@@ -170,6 +173,13 @@ export class ClientRenderer {
     let playerY = 0
     let playerDrawRatio = 0
     let playerDrawActive = false
+    let playerGrappleActive = false
+    let playerGrappleTargetX = 0
+    let playerGrappleTargetY = 0
+    let playerGrappleStartX = 0
+    let playerGrappleStartY = 0
+    let playerGrappleVx = 0
+    let playerGrappleVy = 0
     for (let i = 0; i < this.entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
@@ -182,8 +192,24 @@ export class ClientRenderer {
         playerY = buf[offset + OFFSETS.Y]
         playerDrawRatio = buf[offset + OFFSETS.WEAPON_DRAW]
         playerDrawActive = buf[offset + OFFSETS.WEAPON_DRAW_ACTIVE] === 1
+        playerGrappleActive = buf[offset + OFFSETS.GRAPPLE_ACTIVE] === 1
+        playerGrappleTargetX = buf[offset + OFFSETS.GRAPPLE_TARGET_X]
+        playerGrappleTargetY = buf[offset + OFFSETS.GRAPPLE_TARGET_Y]
+        playerGrappleStartX = buf[offset + OFFSETS.GRAPPLE_START_X]
+        playerGrappleStartY = buf[offset + OFFSETS.GRAPPLE_START_Y]
+        playerGrappleVx = buf[offset + OFFSETS.GRAPPLE_VX]
+        playerGrappleVy = buf[offset + OFFSETS.GRAPPLE_VY]
         break
       }
+    }
+
+    if (playerGrappleActive) {
+      this.drawGrappleLine(
+        playerX,
+        playerY,
+        playerGrappleTargetX,
+        playerGrappleTargetY
+      )
     }
 
     // Render Entities
@@ -313,6 +339,10 @@ export class ClientRenderer {
     flags: number,
     playerLockedTargetId: number
   ): void {
+    if (flags & FLAGS.GRAPPLE_ANCHOR) {
+      this.renderGrappleAnchor(buf, offset, flags)
+      return
+    }
     if (flags & FLAGS.CHECKPOINT) {
       this.renderCheckpoint(buf, offset, flags)
       return
@@ -425,6 +455,49 @@ export class ClientRenderer {
     this.ctx.restore()
   }
 
+  private renderGrappleAnchor(
+    buf: Float32Array,
+    offset: number,
+    flags: number
+  ): void {
+    const x = buf[offset + OFFSETS.X]
+    const y = buf[offset + OFFSETS.Y]
+    const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    const colorInt = buf[offset + OFFSETS.COLOR]
+    const borderColorInt = buf[offset + OFFSETS.BORDER_COLOR]
+
+    const shakeOffset = this.getHitShakeOffset(buf, offset)
+    const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
+    const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
+
+    const alpha = this.getDeathAlpha(buf, offset, flags)
+
+    const highlightScale =
+      flags & FLAGS.GRAPPLE_ANCHOR_HIGHLIGHT
+        ? GRAPPLE_ANCHOR_HIGHLIGHT_SCALE
+        : 1
+    const ringRadius = Math.max(3, Math.round(radius * 0.7 * highlightScale))
+    const strokeWidth = Math.max(2, Math.round(ringRadius * 0.18))
+    const dotRadius = Math.max(2, Math.round(ringRadius * 0.2))
+
+    this.ctx.save()
+    this.ctx.translate(centerX, centerY)
+    this.ctx.globalAlpha *= alpha
+
+    this.ctx.strokeStyle = this.getColorString(colorInt)
+    this.ctx.lineWidth = strokeWidth
+    this.ctx.beginPath()
+    this.ctx.arc(0, 0, ringRadius, 0, Math.PI * 2)
+    this.ctx.stroke()
+
+    this.ctx.fillStyle = this.getColorString(borderColorInt)
+    this.ctx.beginPath()
+    this.ctx.arc(0, 0, dotRadius, 0, Math.PI * 2)
+    this.ctx.fill()
+
+    this.ctx.restore()
+  }
+
   public renderPlayerUI(): void {
     const buf = this.stateBuffer
     let playerOffset = -1
@@ -496,7 +569,38 @@ export class ClientRenderer {
     void posture
     void maxPosture
 
+    if (flags & FLAGS.GRAPPLE_READY) {
+      const iconSize = 10
+      const iconX = startX + 6
+      const iconY = startY + barHeight + 8
+      this.renderGrappleIcon(iconX, iconY, iconSize)
+    }
+
     this.renderWeaponSlots(playerOffset)
+  }
+
+  private renderGrappleIcon(x: number, y: number, size: number): void {
+    this.ctx.save()
+    this.ctx.translate(x, y)
+    renderWeaponShape(this.ctx, 'hook', size, size, GRAPPLE_ICON_COLOR, false)
+    this.ctx.restore()
+  }
+
+  private drawGrappleLine(
+    startX: number,
+    startY: number,
+    targetX: number,
+    targetY: number
+  ): void {
+    const ctx = this.ctx
+    ctx.save()
+    ctx.strokeStyle = GRAPPLE_LINE_COLOR
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(startX * this.pixelsPerMeter, startY * this.pixelsPerMeter)
+    ctx.lineTo(targetX * this.pixelsPerMeter, targetY * this.pixelsPerMeter)
+    ctx.stroke()
+    ctx.restore()
   }
 
   private renderWeaponSlots(playerOffset: number): void {
@@ -530,9 +634,18 @@ export class ClientRenderer {
     const mainX = startX
     const secondaryX = startX + HUD_SLOT_SIZE + HUD_SLOT_SPACING
 
-    const mainWeaponKind = mainType === WEAPON_TYPES.BOW ? 'bow' : 'sword'
+    const mainWeaponKind =
+      mainType === WEAPON_TYPES.BOW
+        ? 'bow'
+        : mainType === WEAPON_TYPES.HOOK
+          ? 'hook'
+          : 'sword'
     const secondaryWeaponKind =
-      secondaryType === WEAPON_TYPES.BOW ? 'bow' : 'sword'
+      secondaryType === WEAPON_TYPES.BOW
+        ? 'bow'
+        : secondaryType === WEAPON_TYPES.HOOK
+          ? 'hook'
+          : 'sword'
     const mainAmmoValue = mainAmmo < 0 ? 0 : mainAmmo
     const secondaryAmmoValue = secondaryAmmo < 0 ? 0 : secondaryAmmo
 
@@ -634,6 +747,15 @@ export class ClientRenderer {
           arrowBase
         )
       }
+    } else if (weaponType === WEAPON_TYPES.HOOK) {
+      renderWeaponShape(
+        this.ctx,
+        'hook',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking
+      )
     } else {
       renderWeaponShape(
         this.ctx,

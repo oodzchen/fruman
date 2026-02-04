@@ -32,6 +32,7 @@ export const DEFAULT_PLAYER_POSTURE_RECOVERY_PER_SEC = 3
 export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 0.5
 // 角色韧性
 export const DEFAULT_PLAYER_MAX_TOUGHNESS = 6
+export const DEFAULT_PLAYER_FOV_RAD = (160 * Math.PI) / 180
 export const DEFAULT_SMALL_ENEMY_MAX_TOUGHNESS = 6
 export const DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS = 6
 export const DEFAULT_CHECKPOINT_RENDER_RADIUS = 1
@@ -40,6 +41,8 @@ export const CHECKPOINT_TREE_TOP_COLOR_INACTIVE = '#345A24'
 export const CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE = '#4A2F15'
 export const CHECKPOINT_TREE_TOP_COLOR_ACTIVE = '#4FAE2F'
 export const CHECKPOINT_TREE_TRUNK_COLOR_ACTIVE = '#7A4B1E'
+export const GRAPPLE_ANCHOR_COLOR = '#c6b07a'
+export const GRAPPLE_ANCHOR_BORDER_COLOR = '#6d5a3f'
 
 // 调试开关
 export const DEBUG_ANIMATION_SLOWDOWN = 1
@@ -125,6 +128,16 @@ export const DEFAULT_WEAPON_GROUND_ROTATION_RAD = (-25 * Math.PI) / 180
 
 // 武器拾取判定距离（米）
 export const DEFAULT_WEAPON_PICKUP_DISTANCE = 1.2
+export const DEFAULT_GRAPPLE_ANCHOR_RENDER_RADIUS = 0.2
+export const DEFAULT_GRAPPLE_RANGE = 8
+export const DEFAULT_GRAPPLE_PULL_SPEED = 12
+export const DEFAULT_GRAPPLE_PULL_DURATION_MS = 600
+export const DEFAULT_GRAPPLE_PULL_STOP_DISTANCE = 0.4
+export const DEFAULT_GRAPPLE_COOLDOWN_MS = 0
+export const DEFAULT_GRAPPLE_MOVE_LOCK_MS = 450
+export const GRAPPLE_ANCHOR_HIGHLIGHT_SCALE = 1.25
+export const GRAPPLE_ANCHOR_HIGHLIGHT_COLOR = '#ead9a6'
+export const GRAPPLE_ANCHOR_HIGHLIGHT_BORDER_COLOR = '#a78953'
 
 // 武器跟随玩家时的水平偏移量（米，乘以朝向后放在身后）
 export const DEFAULT_WEAPON_FOLLOW_OFFSET_X = 0.7
@@ -359,5 +372,15 @@ export const WEAPON_DEFAULT_DATA = {
     attackDamage: 2,
     postureDamage: 2,
     toughnessDamage: 1,
+  },
+  hook: {
+    width: 0.8,
+    height: 0.8,
+    sizeLevel: 1,
+    sizeMaxLevel: 1,
+    weight: 1,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
   },
 } as const
