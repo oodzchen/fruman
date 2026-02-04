@@ -246,13 +246,13 @@ export class InputComponent extends Component {
 
 export class RenderComponent extends Component {
   radius = 0.5
-  color = '#F58025'
+  color = '#FF7A1A'
   borderColor = '#FFD700'
   visible = true
 
   reset(): void {
     this.radius = 0.5
-    this.color = '#F58025'
+    this.color = '#FF7A1A'
     this.borderColor = '#FFD700'
     this.visible = true
   }

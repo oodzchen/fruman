@@ -48,7 +48,7 @@ export const CAMERA_FRAME_FILL_UNFOCUSED = 'rgba(0, 0, 0, 0)'
 export const CAMERA_ICON_STROKE = 'rgba(230, 230, 230, 0.9)'
 export const CAMERA_ICON_FILL = 'rgba(230, 230, 230, 0.18)'
 
-export const PLAYER_BODY_COLOR = '#F58025'
+export const PLAYER_BODY_COLOR = '#FF7A1A'
 export const PLAYER_EYE_COLOR = '#000000'
 export const ENEMY_EYE_COLOR = '#000000'
 

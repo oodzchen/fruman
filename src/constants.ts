@@ -27,13 +27,13 @@ export const DEFAULT_PLAYER_WEIGHT = 80
 
 // 角色生命与架势
 export const DEFAULT_PLAYER_MAX_HEALTH = 20
-export const DEFAULT_PLAYER_MAX_POSTURE = 20
+export const DEFAULT_PLAYER_MAX_POSTURE = 10
 export const DEFAULT_PLAYER_POSTURE_RECOVERY_PER_SEC = 3
 export const DEFAULT_PLAYER_TOUGHNESS_RECOVERY_PER_SEC = 0.5
 // 角色韧性
 export const DEFAULT_PLAYER_MAX_TOUGHNESS = 6
-export const DEFAULT_SMALL_ENEMY_MAX_TOUGHNESS = 3
-export const DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS = 18
+export const DEFAULT_SMALL_ENEMY_MAX_TOUGHNESS = 6
+export const DEFAULT_LARGE_ENEMY_MAX_TOUGHNESS = 6
 export const DEFAULT_CHECKPOINT_RENDER_RADIUS = 1
 export const DEFAULT_CHECKPOINT_ACTIVATION_RADIUS = 1
 export const CHECKPOINT_TREE_TOP_COLOR_INACTIVE = '#345A24'
@@ -232,23 +232,23 @@ export const CHARACTER_DEFAULT_DATA = {
     moveSpeed: 3.5,
     radius: 0.5,
     attackDesire: 80,
-    color: '#F58025',
+    color: '#b5835a',
     parryProficiency: 0,
     initialPatrolMode: 'patrol',
-    maxHealth: 100,
-    maxPosture: 100,
-    maxToughness: 100,
+    maxHealth: 20,
+    maxPosture: 10,
+    maxToughness: 6,
   },
   archer: {
     moveSpeed: 3.5,
     radius: 0.5,
     attackDesire: 30,
-    color: '#8B4513',
+    color: '#b5835a',
     parryProficiency: 0,
     initialPatrolMode: 'guard',
-    maxHealth: 80,
-    maxPosture: 80,
-    maxToughness: 80,
+    maxHealth: 20,
+    maxPosture: 10,
+    maxToughness: 6,
   },
 } as const
 
