@@ -1,3 +1,4 @@
+import { DEFAULT_CAMERA_ZOOM } from './constants'
 import type {
   EditorMapData,
   EditorMapMeta,
@@ -457,7 +458,7 @@ function buildDefaultMapData(
     canvasHeight,
     pixelsPerMeter,
     playerSpawn: { x: playerSpawnX, y: playerSpawnY },
-    camera: { x: 0, y: 0, zoom: 1 },
+    camera: { x: 0, y: 0, zoom: DEFAULT_CAMERA_ZOOM },
     shapes: [groundShape, ...obstacleShapes],
     enemies: [],
     weapons: [],

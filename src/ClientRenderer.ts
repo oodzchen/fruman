@@ -530,10 +530,30 @@ export class ClientRenderer {
     if (maxHealth <= 0) return
 
     // UI Configuration
+    const canvasWidth = this.ctx.canvas.width
+    const canvasHeight = this.ctx.canvas.height
+
+    // Weapon Slots Layout (Right side)
+    const weaponSlotSize = HUD_SLOT_SIZE
+    const weaponTotalWidth = weaponSlotSize * 2 + HUD_SLOT_SPACING
+    const slotY = canvasHeight - HUD_SLOT_MARGIN - weaponSlotSize
+
+    // Health Bar & Grapple Icon Layout (Left side)
     const startX = 16
     const barHeight = 12
-    const spacing = 6
-    const startY = this.ctx.canvas.height - (barHeight * 2 + spacing) - 14
+    const iconSize = 10
+    const iconGap = 6
+
+    // Calculate total height of left UI group (Bar + Gap + Icon)
+    const leftGroupHeight = barHeight + iconGap + iconSize
+
+    // Center left group vertically relative to right weapon slots
+    // slotY is top of weapon slots, weaponSlotSize is height
+    const weaponCenterY = slotY + weaponSlotSize / 2
+    const leftGroupStartY = weaponCenterY - leftGroupHeight / 2
+
+    // Start drawing
+    const startY = leftGroupStartY
 
     // Scale: 4 pixels per 1 unit of stats (increased by 1/3 from 3)
     const pixelsPerUnit = 4
@@ -570,9 +590,12 @@ export class ClientRenderer {
     void maxPosture
 
     if (flags & FLAGS.GRAPPLE_READY) {
-      const iconSize = 10
+      // Icon position
       const iconX = startX + 6
-      const iconY = startY + barHeight + 8
+      // iconY is center of icon.
+      // Top of icon should be at (startY + barHeight + iconGap)
+      // Center = Top + iconSize/2
+      const iconY = startY + barHeight + iconGap + iconSize / 2
       this.renderGrappleIcon(iconX, iconY, iconSize)
     }
 

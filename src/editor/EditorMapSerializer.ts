@@ -1,5 +1,6 @@
 import { fabric } from 'fabric'
 
+import { DEFAULT_CAMERA_ZOOM } from '../constants'
 import type {
   EditorMapData,
   MapEnemyWeapon,
@@ -97,7 +98,7 @@ export class EditorMapSerializer {
       canvasHeight: height,
       pixelsPerMeter: this.ctx.getPixelsPerMeter(),
       playerSpawn: { x: spawnX, y: spawnY },
-      camera: { x: 0, y: 0, zoom: 1 },
+      camera: { x: 0, y: 0, zoom: DEFAULT_CAMERA_ZOOM },
       shapes: [],
       enemies: [],
       weapons: [],

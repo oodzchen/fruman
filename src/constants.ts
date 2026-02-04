@@ -112,7 +112,7 @@ export const DEFAULT_GROUND_FRICTION = 1
 export const DEFAULT_OBSTACLE_FRICTION = 0
 
 // 镜头初始缩放倍数
-export const DEFAULT_CAMERA_ZOOM = 1
+export const DEFAULT_CAMERA_ZOOM = 0.8
 
 // 武器默认长度（米）
 export const DEFAULT_WEAPON_WIDTH = 1.2
