@@ -300,6 +300,7 @@ let needsReturnToCenter = false
 let lastUnlockTime = 0
 let currentTime = 0
 let outOfCenterTime = 0
+let horizontalForceCenterAfterEmergency = false
 
 // Vertical Camera State
 let isVerticalCameraLocked = false
@@ -317,6 +318,7 @@ const VERTICAL_TRANSITION_DURATION = 6
 const UNLOCK_COOLDOWN = 0.2
 const OUTSIDE_THIRD_RELOCK_DELAY = 0.15
 const CAMERA_FORWARD_OFFSET = 0.67 // 2/3 角色宽度前向偏移
+const HORIZONTAL_CENTER_UNLOCK_EPSILON_RATIO = 0.02
 const VERTICAL_LOCK_SCREEN_RATIO = 0.5
 const VERTICAL_FOLLOW_LERP = 0.08
 const VERTICAL_CENTER_UNLOCK_EPSILON_RATIO = 0.02
@@ -2030,27 +2032,33 @@ function updateCamera(playerX: number) {
         const currentDirection = vel.x > 0.05 ? 1 : vel.x < -0.05 ? -1 : 0
         vel.delete()
 
-        // Unlock if player stopped (and not transitioning)
-        if (speed < 0.1 && !isTransitioning) {
-          isCameraLocked = false
-          lastVelocityDirection = 0
-          needsReturnToCenter = true
-          lastUnlockTime = currentTime
-        }
-        // Unlock if player turned around (more sensitive detection)
-        else if (lastVelocityDirection !== 0 && currentDirection !== 0) {
-          if (lastVelocityDirection !== currentDirection) {
+        if (!horizontalForceCenterAfterEmergency) {
+          // Unlock if player stopped (and not transitioning)
+          if (speed < 0.1 && !isTransitioning) {
             isCameraLocked = false
-            isTransitioning = false
             lastVelocityDirection = 0
             needsReturnToCenter = true
             lastUnlockTime = currentTime
-          } else {
-            // Only update direction if still moving in same direction
+          }
+          // Unlock if player turned around (more sensitive detection)
+          else if (lastVelocityDirection !== 0 && currentDirection !== 0) {
+            if (lastVelocityDirection !== currentDirection) {
+              isCameraLocked = false
+              isTransitioning = false
+              lastVelocityDirection = 0
+              needsReturnToCenter = true
+              lastUnlockTime = currentTime
+            } else {
+              // Only update direction if still moving in same direction
+              lastVelocityDirection = currentDirection
+            }
+          } else if (currentDirection !== 0 && lastVelocityDirection === 0) {
+            // Initialize direction if starting to move
             lastVelocityDirection = currentDirection
           }
-        } else if (currentDirection !== 0 && lastVelocityDirection === 0) {
-          // Initialize direction if starting to move
+        } else if (speed < 0.1) {
+          lastVelocityDirection = 0
+        } else if (currentDirection !== 0) {
           lastVelocityDirection = currentDirection
         }
       }
@@ -2087,6 +2095,57 @@ function updateCamera(playerX: number) {
     camera.x += diffX * 0.15
   } else {
     camera.x = desiredCameraX
+  }
+
+  // Emergency Clamp: Prevent player from escaping viewport at high speed.
+  if (playerEntity && playerEntity.transform) {
+    const currentCameraX = camera.x
+    const playerScreenX =
+      centerX + ((playerX - currentCameraX) * pixelsPerMeter - centerX) * zoom
+    const leftLimit = canvasWidth / 3
+    const rightLimit = (2 * canvasWidth) / 3
+    let didEmergencyClamp = false
+
+    if (playerScreenX < leftLimit) {
+      const targetScreenX = leftLimit
+      camera.x =
+        playerX - ((targetScreenX - centerX) / zoom + centerX) / pixelsPerMeter
+      didEmergencyClamp = true
+    } else if (playerScreenX > rightLimit) {
+      const targetScreenX = rightLimit
+      camera.x =
+        playerX - ((targetScreenX - centerX) / zoom + centerX) / pixelsPerMeter
+      didEmergencyClamp = true
+    }
+
+    if (didEmergencyClamp) {
+      // After emergency catch-up, immediately hand off to slow center tracking.
+      isCameraLocked = true
+      isTransitioning = true
+      transitionStartTime = currentTime
+      transitionStartCameraX = camera.x
+      outOfCenterTime = 0
+      horizontalForceCenterAfterEmergency = true
+      needsReturnToCenter = false
+    }
+
+    if (
+      isCameraLocked &&
+      !isTransitioning &&
+      horizontalForceCenterAfterEmergency
+    ) {
+      const centerScreenX = 0.5 * canvasWidth
+      const centerDelta = Math.abs(playerScreenX - centerScreenX)
+      const centerEpsilon = HORIZONTAL_CENTER_UNLOCK_EPSILON_RATIO * canvasWidth
+      if (centerDelta <= centerEpsilon) {
+        isCameraLocked = false
+        lastUnlockTime = currentTime
+        outOfCenterTime = 0
+        horizontalForceCenterAfterEmergency = false
+        needsReturnToCenter = false
+        lastVelocityDirection = 0
+      }
+    }
   }
 
   // --- Vertical Logic ---
