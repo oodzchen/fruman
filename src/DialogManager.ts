@@ -95,6 +95,10 @@ export class DialogManager {
     this.inputTarget.focus(this.focusOptions)
   }
 
+  isDialogOpen(): boolean {
+    return this.isOpen
+  }
+
   private close(result: boolean | string | null): void {
     if (!this.isOpen) return
     this.isOpen = false

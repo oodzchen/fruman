@@ -45,7 +45,6 @@ export class MenuManager {
   private saveListTitle: HTMLDivElement
   private saveListList: HTMLDivElement
   private inputTarget: HTMLElement
-  private focusOptions: FocusOptions = { preventScroll: true }
   private menuItemElements: HTMLButtonElement[] = []
   private activeItemCount = 0
   private visible = false
@@ -280,6 +279,7 @@ export class MenuManager {
   private setupInput() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!this.visible) return
+      if (this.shouldIgnoreKeyEvent(e)) return
 
       if (e.key === 'ArrowUp' || e.key === 'w') {
         e.preventDefault()
@@ -325,6 +325,17 @@ export class MenuManager {
     }
 
     this.inputTarget.addEventListener('keydown', handleKeyDown, true)
+  }
+
+  private shouldIgnoreKeyEvent(e: KeyboardEvent): boolean {
+    const target = e.target
+    if (target instanceof HTMLInputElement) return true
+    if (target instanceof HTMLTextAreaElement) return true
+    if (target instanceof HTMLSelectElement) return true
+    if (target instanceof HTMLElement && target.isContentEditable) {
+      return true
+    }
+    return false
   }
 
   private async deleteSave(saveId: string) {
@@ -569,7 +580,6 @@ export class MenuManager {
     this.uiLayer.classList.add('is-interactive')
     this.menuOverlay.classList.add('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'false')
-    this.inputTarget.focus(this.focusOptions)
     this.render(0)
   }
 

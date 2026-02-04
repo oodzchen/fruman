@@ -86,7 +86,7 @@ export class GameClient {
   private boundHandleWorkerMessage: (
     e: MessageEvent<WorkerToMainMessage>
   ) => void
-  private boundFocusInputTarget: () => void
+  private boundHandleAutoFocusPointerDown: (event: PointerEvent) => void
   private focusOptions: FocusOptions = { preventScroll: true }
 
   // Static Environment (Mirrored from constants/logic)
@@ -163,7 +163,8 @@ export class GameClient {
     // Cache bound functions once
     this.boundRenderLoop = this.renderLoop.bind(this)
     this.boundHandleWorkerMessage = this.handleWorkerMessage.bind(this)
-    this.boundFocusInputTarget = this.focusInputTarget.bind(this)
+    this.boundHandleAutoFocusPointerDown =
+      this.handleAutoFocusPointerDown.bind(this)
 
     // Initialize Patterns
     onInitProgress?.(localizer.t('init_textures'))
@@ -400,11 +401,18 @@ export class GameClient {
     )
   }
   private setupInput() {
-    this.inputTarget.addEventListener('pointerdown', this.boundFocusInputTarget)
+    this.inputTarget.addEventListener(
+      'pointerdown',
+      this.boundHandleAutoFocusPointerDown,
+      true
+    )
 
     this.inputTarget.addEventListener(
       'keydown',
       (e) => {
+        if (this.shouldIgnoreKeyEvent(e)) {
+          return
+        }
         const key = e.key.toLowerCase()
 
         if (key === 'escape') {
@@ -465,6 +473,9 @@ export class GameClient {
     this.inputTarget.addEventListener(
       'keyup',
       (e) => {
+        if (this.shouldIgnoreKeyEvent(e)) {
+          return
+        }
         if (this.menuManager.isVisible() || !this.inputEnabled) {
           return
         }
@@ -506,44 +517,21 @@ export class GameClient {
       this.sendInput()
     })
 
-    window.addEventListener('blur', () => {
-      if (this.menuManager.isVisible() || !this.inputEnabled) {
-        return
-      }
-      this.resetInputState()
-    })
-
-    document.addEventListener('visibilitychange', () => {
-      if (this.menuManager.isVisible() || !this.inputEnabled) {
-        return
-      }
-      if (document.hidden) {
-        this.resetInputState()
-      }
-    })
-
-    this.canvas.addEventListener('mouseenter', () => {
+    this.inputTarget.addEventListener('mouseenter', () => {
       if (this.menuManager.isVisible() || !this.inputEnabled) return
       this.mouseInside = true
       this.mouseCaptured = true
       this.sendInput()
     })
 
-    this.canvas.addEventListener('mouseleave', () => {
+    this.inputTarget.addEventListener('mouseleave', () => {
       if (this.menuManager.isVisible() || !this.inputEnabled) return
       this.mouseInside = false
       this.mouseCaptured = false
       this.sendInput()
     })
 
-    document.addEventListener('pointerlockchange', () => {
-      if (this.menuManager.isVisible() || !this.inputEnabled) return
-      const isLocked = document.pointerLockElement === this.canvas
-      this.mouseCaptured = isLocked || this.mouseInside
-      this.sendInput()
-    })
-
-    this.canvas.addEventListener('mousemove', (e) => {
+    this.inputTarget.addEventListener('mousemove', (e) => {
       if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
@@ -555,19 +543,15 @@ export class GameClient {
         if (this.mouseX > this.canvas.width) this.mouseX = this.canvas.width
         if (this.mouseY > this.canvas.height) this.mouseY = this.canvas.height
       } else {
-        this.mouseX = e.offsetX
-        this.mouseY = e.offsetY
+        const rect = this.canvas.getBoundingClientRect()
+        const x = Math.floor(e.clientX - rect.left)
+        const y = Math.floor(e.clientY - rect.top)
+        this.mouseX = x < 0 ? 0 : x > this.canvas.width ? this.canvas.width : x
+        this.mouseY =
+          y < 0 ? 0 : y > this.canvas.height ? this.canvas.height : y
       }
       this.mouseCaptured = true
       this.sendInput()
-    })
-
-    // Prevent context menu on right click inside game viewport to allow for blocking
-    this.canvas.addEventListener('contextmenu', (e) => {
-      if (this.isEditorOverlayVisible()) {
-        return
-      }
-      e.preventDefault()
     })
 
     this.inputTarget.addEventListener(
@@ -589,7 +573,7 @@ export class GameClient {
       true
     )
 
-    this.canvas.addEventListener('wheel', (e) => {
+    this.inputTarget.addEventListener('wheel', (e) => {
       if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
@@ -601,6 +585,44 @@ export class GameClient {
       )
       this.sendInput()
     })
+  }
+
+  private handleAutoFocusPointerDown(event: PointerEvent) {
+    const target = event.target
+    if (this.shouldAllowTargetFocus(target)) {
+      return
+    }
+    if (document.activeElement !== this.inputTarget) {
+      event.preventDefault()
+      this.inputTarget.focus(this.focusOptions)
+    }
+  }
+
+  private shouldAllowTargetFocus(target: EventTarget | null): boolean {
+    if (this.dialogManager.isDialogOpen()) {
+      return true
+    }
+    if (target instanceof HTMLInputElement) return true
+    if (target instanceof HTMLTextAreaElement) return true
+    if (target instanceof HTMLSelectElement) return true
+    if (target instanceof HTMLElement && target.isContentEditable) {
+      return true
+    }
+    return false
+  }
+
+  private shouldIgnoreKeyEvent(e: KeyboardEvent): boolean {
+    if (this.dialogManager.isDialogOpen()) {
+      return true
+    }
+    const target = e.target
+    if (target instanceof HTMLInputElement) return true
+    if (target instanceof HTMLTextAreaElement) return true
+    if (target instanceof HTMLSelectElement) return true
+    if (target instanceof HTMLElement && target.isContentEditable) {
+      return true
+    }
+    return false
   }
 
   private sendInput() {
@@ -644,12 +666,6 @@ export class GameClient {
     return (
       clientX >= left && clientX <= right && clientY >= top && clientY <= bottom
     )
-  }
-
-  private focusInputTarget() {
-    if (document.activeElement !== this.inputTarget) {
-      this.inputTarget.focus(this.focusOptions)
-    }
   }
 
   private renderLoop(timestamp?: number) {
@@ -1105,7 +1121,6 @@ export class GameClient {
   private resumeGameInput() {
     this.start()
     this.inputEnabled = true
-    this.focusInputTarget()
   }
 
   requestSave(): Promise<SaveData | null> {

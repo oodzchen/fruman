@@ -114,6 +114,7 @@ const ctx = canvas.getContext('2d')!
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
 const dialogManager = new DialogManager(gameViewport, gameViewport)
+const focusOptions: FocusOptions = { preventScroll: true }
 
 const setupDetailsState = (
   storedValues: Record<string, string>,
@@ -241,6 +242,10 @@ async function initialize() {
       initManager.nextStep(step)
     }
   )
+  if (gameViewport.tabIndex < 0) {
+    gameViewport.tabIndex = 0
+  }
+  gameViewport.focus(focusOptions)
   // Initially disable input until game starts
   game.setInputEnabled(false)
 
