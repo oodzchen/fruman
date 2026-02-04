@@ -428,6 +428,9 @@ export class GameClient {
           }
           e.preventDefault()
           if (this.menuManager.isVisible()) {
+            if (this.menuManager.getMode() === MenuMode.Start) {
+              return
+            }
             this.menuManager.hide()
             this.resumeGameInput()
           } else {
@@ -595,6 +598,9 @@ export class GameClient {
   }
 
   private handleAutoFocusPointerDown(event: PointerEvent) {
+    if (!this.shouldForceGameFocus()) {
+      return
+    }
     const target = event.target
     if (this.shouldAllowTargetFocus(target)) {
       return
@@ -605,6 +611,9 @@ export class GameClient {
   }
 
   private handleAutoFocusIn(event: FocusEvent) {
+    if (!this.shouldForceGameFocus()) {
+      return
+    }
     const target = event.target
     if (this.shouldAllowTargetFocus(target)) {
       return
@@ -614,8 +623,34 @@ export class GameClient {
     }
   }
 
+  requestGameFocus() {
+    if (!this.shouldForceGameFocus()) {
+      return
+    }
+    if (document.activeElement !== this.inputTarget) {
+      this.inputTarget.focus(this.focusOptions)
+    }
+  }
+
   private shouldAllowTargetFocus(target: EventTarget | null): boolean {
-    return this.dialogManager.isDialogOpen()
+    if (this.dialogManager.isDialogOpen()) {
+      return true
+    }
+    if (target instanceof HTMLInputElement) return true
+    if (target instanceof HTMLTextAreaElement) return true
+    if (target instanceof HTMLSelectElement) return true
+    if (target instanceof HTMLElement && target.isContentEditable) {
+      return true
+    }
+    return false
+  }
+
+  private shouldForceGameFocus(): boolean {
+    if (!this.inputEnabled) return false
+    if (this.menuManager.isVisible()) return false
+    if (this.isEditorOverlayVisible()) return false
+    if (this.dialogManager.isDialogOpen()) return false
+    return true
   }
 
   private shouldIgnoreKeyEvent(e: KeyboardEvent): boolean {
@@ -1128,6 +1163,7 @@ export class GameClient {
   private resumeGameInput() {
     this.start()
     this.inputEnabled = true
+    this.requestGameFocus()
   }
 
   requestSave(): Promise<SaveData | null> {

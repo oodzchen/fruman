@@ -45,6 +45,7 @@ export class MenuManager {
   private saveListTitle: HTMLDivElement
   private saveListList: HTMLDivElement
   private inputTarget: HTMLElement
+  private focusOptions: FocusOptions = { preventScroll: true }
   private menuItemElements: HTMLButtonElement[] = []
   private activeItemCount = 0
   private visible = false
@@ -91,6 +92,9 @@ export class MenuManager {
     this.inputTarget = inputTarget
     if (this.inputTarget.tabIndex < 0) {
       this.inputTarget.tabIndex = 0
+    }
+    if (this.menuOverlay.tabIndex < 0) {
+      this.menuOverlay.tabIndex = 0
     }
     this.menuOverlay.classList.remove('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'true')
@@ -291,12 +295,24 @@ export class MenuManager {
         e.preventDefault()
         this.setSelectedIndex((this.selectedIndex + 1) % this.menuItems.length)
       } else if (e.key === 'ArrowLeft' || e.key === 'a') {
+        if (this.mode === MenuMode.SaveList) {
+          e.preventDefault()
+          const nextIndex = this.findSaveListDirectionalIndex(-1)
+          this.setSelectedIndex(nextIndex)
+          return
+        }
         const item = this.menuItems[this.selectedIndex]
         if (item.action === MenuAction.Language) {
           e.preventDefault()
           this.cycleLanguage(-1)
         }
       } else if (e.key === 'ArrowRight' || e.key === 'd') {
+        if (this.mode === MenuMode.SaveList) {
+          e.preventDefault()
+          const nextIndex = this.findSaveListDirectionalIndex(1)
+          this.setSelectedIndex(nextIndex)
+          return
+        }
         const item = this.menuItems[this.selectedIndex]
         if (item.action === MenuAction.Language) {
           e.preventDefault()
@@ -336,6 +352,55 @@ export class MenuManager {
       return true
     }
     return false
+  }
+
+  private findSaveListDirectionalIndex(directionX: number): number {
+    if (this.menuItems.length === 0) {
+      return this.selectedIndex
+    }
+    const currentElement = this.menuItemElements[this.selectedIndex]
+    if (!currentElement) {
+      return this.selectedIndex
+    }
+    const currentRect = currentElement.getBoundingClientRect()
+    const currentLeft = Math.round(currentRect.left)
+    const currentTop = Math.round(currentRect.top)
+    const currentWidth = Math.round(currentRect.width)
+    const currentHeight = Math.round(currentRect.height)
+    const currentCenterX = currentLeft + (currentWidth >> 1)
+    const currentCenterY = currentTop + (currentHeight >> 1)
+    let bestIndex = this.selectedIndex
+    let bestPrimary = Number.MAX_SAFE_INTEGER
+    let bestSecondary = Number.MAX_SAFE_INTEGER
+
+    for (let i = 0; i < this.menuItems.length; i++) {
+      if (i === this.selectedIndex) continue
+      const element = this.menuItemElements[i]
+      if (!element || element.style.display === 'none') continue
+      const rect = element.getBoundingClientRect()
+      const left = Math.round(rect.left)
+      const top = Math.round(rect.top)
+      const width = Math.round(rect.width)
+      const height = Math.round(rect.height)
+      const centerX = left + (width >> 1)
+      const centerY = top + (height >> 1)
+      const deltaX = centerX - currentCenterX
+      const deltaY = centerY - currentCenterY
+      if (directionX < 0 && deltaX >= 0) continue
+      if (directionX > 0 && deltaX <= 0) continue
+      const primary = Math.abs(deltaX)
+      const secondary = Math.abs(deltaY)
+      if (
+        primary < bestPrimary ||
+        (primary === bestPrimary && secondary < bestSecondary)
+      ) {
+        bestPrimary = primary
+        bestSecondary = secondary
+        bestIndex = i
+      }
+    }
+
+    return bestIndex
   }
 
   private async deleteSave(saveId: string) {
@@ -580,6 +645,7 @@ export class MenuManager {
     this.uiLayer.classList.add('is-interactive')
     this.menuOverlay.classList.add('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'false')
+    this.menuOverlay.focus(this.focusOptions)
     this.render(0)
   }
 
