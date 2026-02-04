@@ -77,6 +77,11 @@ export interface MapEnemy {
   secondaryWeapon?: MapEnemyWeapon
 }
 
+export interface MapCheckpoint {
+  x: number
+  y: number
+}
+
 export interface MapWeapon {
   x: number
   y: number
@@ -126,6 +131,7 @@ export interface EditorMapData {
   shapes: MapPlacedShape[]
   enemies: MapEnemy[]
   weapons?: MapWeapon[]
+  checkpoints?: MapCheckpoint[]
 }
 
 export interface StoredEditorMap {

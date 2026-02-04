@@ -461,6 +461,7 @@ function buildDefaultMapData(
     shapes: [groundShape, ...obstacleShapes],
     enemies: [],
     weapons: [],
+    checkpoints: [],
   }
 }
 

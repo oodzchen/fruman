@@ -62,6 +62,7 @@ export const FLAGS = {
   IN_COMBAT: 128,
   WEAPON_BLOCKING: 256,
   HUD_VISIBLE: 512,
+  CHECKPOINT: 1024,
 }
 
 export const WEAPON_TYPES = {

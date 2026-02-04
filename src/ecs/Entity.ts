@@ -1,6 +1,7 @@
 import type { Component } from './Component'
 import {
   ArrowComponent,
+  CheckpointComponent,
   EnemyAIComponent,
   FactionComponent,
   InputComponent,
@@ -30,6 +31,7 @@ export class Entity {
   weapon?: WeaponComponent
   weaponSlots?: WeaponSlotsComponent
   arrow?: ArrowComponent
+  checkpoint?: CheckpointComponent
   faction?: FactionComponent
   enemyAI?: EnemyAIComponent
   sensor?: SensorComponent
@@ -106,6 +108,7 @@ export class Entity {
     this.weapon = undefined
     this.weaponSlots = undefined
     this.arrow = undefined
+    this.checkpoint = undefined
     this.faction = undefined
     this.enemyAI = undefined
     this.sensor = undefined
@@ -139,6 +142,9 @@ export class Entity {
         break
       case 'Arrow':
         this.arrow = component as ArrowComponent
+        break
+      case 'Checkpoint':
+        this.checkpoint = component as CheckpointComponent
         break
       case 'EnemyAI':
         this.enemyAI = component as EnemyAIComponent
@@ -180,6 +186,9 @@ export class Entity {
         break
       case 'Arrow':
         this.arrow = undefined
+        break
+      case 'Checkpoint':
+        this.checkpoint = undefined
         break
       case 'EnemyAI':
         this.enemyAI = undefined

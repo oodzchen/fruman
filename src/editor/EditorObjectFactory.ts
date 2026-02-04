@@ -1,5 +1,9 @@
 import { fabric } from 'fabric'
 
+import {
+  CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+  CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+} from '../constants'
 import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
 import type { WeaponType } from '../types'
 
@@ -157,6 +161,58 @@ export class EditorObjectFactory {
       weaponBackShape
     ;(group as unknown as { weaponFrontShape: WeaponShape }).weaponFrontShape =
       weaponFrontShape
+    return group
+  }
+
+  createCheckpointMarker() {
+    const canopyRadiusX = this.pixelsPerMeter * 0.6
+    const canopyRadiusY = this.pixelsPerMeter * 0.4
+    const canopyOffsetY = -this.pixelsPerMeter * 0.35
+    const trunkHeight = this.pixelsPerMeter * 0.8
+    const trunkTopWidth = this.pixelsPerMeter * 0.2
+    const trunkBottomWidth = this.pixelsPerMeter * 0.35
+
+    const canopy = new fabric.Ellipse({
+      rx: canopyRadiusX,
+      ry: canopyRadiusY,
+      fill: CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+      stroke: CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+      strokeWidth: 2,
+      originX: 'center',
+      originY: 'center',
+      top: canopyOffsetY,
+      objectCaching: false,
+    })
+
+    const trunk = new fabric.Polygon(
+      [
+        { x: -trunkTopWidth, y: 0 },
+        { x: trunkTopWidth, y: 0 },
+        { x: trunkBottomWidth, y: trunkHeight },
+        { x: -trunkBottomWidth, y: trunkHeight },
+      ],
+      {
+        fill: CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+        stroke: CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+        strokeWidth: 1,
+        originX: 'center',
+        originY: 'top',
+        objectCaching: false,
+      }
+    )
+
+    const group = new fabric.Group([trunk, canopy], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    })
+    ;(group as unknown as { editorShape: string }).editorShape =
+      'checkpoint-marker'
     return group
   }
 

@@ -313,6 +313,11 @@ export class ClientRenderer {
     flags: number,
     playerLockedTargetId: number
   ): void {
+    if (flags & FLAGS.CHECKPOINT) {
+      this.renderCheckpoint(buf, offset, flags)
+      return
+    }
+
     const x = buf[offset + OFFSETS.X]
     const y = buf[offset + OFFSETS.Y]
     const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
@@ -365,6 +370,59 @@ export class ClientRenderer {
         buf[offset + OFFSETS.RADIUS]
       )
     }
+  }
+
+  private renderCheckpoint(
+    buf: Float32Array,
+    offset: number,
+    flags: number
+  ): void {
+    const x = buf[offset + OFFSETS.X]
+    const y = buf[offset + OFFSETS.Y]
+    const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    const colorInt = buf[offset + OFFSETS.COLOR]
+    const trunkColorInt = buf[offset + OFFSETS.BORDER_COLOR]
+
+    const shakeOffset = this.getHitShakeOffset(buf, offset)
+    const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
+    const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
+
+    const alpha = this.getDeathAlpha(buf, offset, flags)
+
+    this.ctx.save()
+    this.ctx.translate(centerX, centerY)
+    this.ctx.globalAlpha *= alpha
+
+    const canopyRadiusX = radius * 1.1
+    const canopyRadiusY = radius * 0.8
+    const canopyOffsetY = -radius * 0.6
+    const trunkHeight = radius * 1.2
+    const trunkTopWidth = radius * 0.6
+    const trunkBottomWidth = radius
+
+    this.ctx.fillStyle = this.getColorString(colorInt)
+    this.ctx.beginPath()
+    this.ctx.ellipse(
+      0,
+      canopyOffsetY,
+      canopyRadiusX,
+      canopyRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    this.ctx.fill()
+
+    this.ctx.fillStyle = this.getColorString(trunkColorInt)
+    this.ctx.beginPath()
+    this.ctx.moveTo(-trunkTopWidth, 0)
+    this.ctx.lineTo(trunkTopWidth, 0)
+    this.ctx.lineTo(trunkBottomWidth, trunkHeight)
+    this.ctx.lineTo(-trunkBottomWidth, trunkHeight)
+    this.ctx.closePath()
+    this.ctx.fill()
+
+    this.ctx.restore()
   }
 
   public renderPlayerUI(): void {

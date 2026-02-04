@@ -181,8 +181,18 @@ export type WorkerSaveResponseMessage = {
   camera: { x: number; y: number; zoom: number }
 }
 
+export type WorkerCheckpointActivatedMessage = {
+  type: 'checkpoint_activated'
+}
+
+export type WorkerPlayerDeadMessage = {
+  type: 'player_dead'
+}
+
 export type WorkerToMainMessage =
   | WorkerStateMessage
   | WorkerDebugMessage
   | WorkerMapDataMessage
   | WorkerSaveResponseMessage
+  | WorkerCheckpointActivatedMessage
+  | WorkerPlayerDeadMessage

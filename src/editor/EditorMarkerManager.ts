@@ -13,6 +13,7 @@ import {
 } from '../constants'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type {
+  MapCheckpoint,
   MapEnemyWeapon,
   MapPlayerProperties,
   WeaponCategory,
@@ -25,6 +26,8 @@ import {
 } from './EditorConstants'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import type {
+  CheckpointMarker,
+  CheckpointMarkerData,
   EnemyMarker,
   EnemyMarkerData,
   ObjectType,
@@ -67,8 +70,10 @@ export class EditorMarkerManager {
   private playerMarkerData: PlayerMarkerData | null = null
   private enemyMarkers: EnemyMarkerData[] = []
   private weaponMarkers: WeaponMarkerData[] = []
+  private checkpointMarkers: CheckpointMarkerData[] = []
   private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
+  private checkpointMarkerMap = new Map<fabric.Object, CheckpointMarkerData>()
   private tempEnemyPos = { x: 0, y: 0 }
   private tempWeaponTransform = { x: 0, y: 0, rotation: 0 }
 
@@ -87,6 +92,8 @@ export class EditorMarkerManager {
     this.enemyMarkerMap.clear()
     this.weaponMarkers.length = 0
     this.weaponMarkerMap.clear()
+    this.checkpointMarkers.length = 0
+    this.checkpointMarkerMap.clear()
   }
 
   getPlayerMarker() {
@@ -105,8 +112,16 @@ export class EditorMarkerManager {
     return this.weaponMarkers
   }
 
+  getCheckpointMarkers() {
+    return this.checkpointMarkers
+  }
+
   getWeaponMarkerMap() {
     return this.weaponMarkerMap
+  }
+
+  getCheckpointMarkerMap() {
+    return this.checkpointMarkerMap
   }
 
   getEnemyMarkerMap() {
@@ -131,6 +146,13 @@ export class EditorMarkerManager {
     return (
       object instanceof fabric.Group &&
       (object as WeaponMarker).editorShape === 'weapon-marker'
+    )
+  }
+
+  isCheckpointMarker(object: fabric.Object | null): object is CheckpointMarker {
+    return (
+      object instanceof fabric.Group &&
+      (object as CheckpointMarker).editorShape === 'checkpoint-marker'
     )
   }
 
@@ -160,6 +182,17 @@ export class EditorMarkerManager {
         this.weaponMarkers.splice(index, 1)
       }
       this.weaponMarkerMap.delete(marker)
+    }
+  }
+
+  removeCheckpointMarker(marker: fabric.Object) {
+    const data = this.checkpointMarkerMap.get(marker)
+    if (data) {
+      const index = this.checkpointMarkers.indexOf(data)
+      if (index !== -1) {
+        this.checkpointMarkers.splice(index, 1)
+      }
+      this.checkpointMarkerMap.delete(marker)
     }
   }
 
@@ -628,6 +661,39 @@ export class EditorMarkerManager {
     }
     this.weaponMarkers.push(weaponData)
     this.weaponMarkerMap.set(marker, weaponData)
+    canvas.setActiveObject(marker)
+    this.ctx.handleCanvasSelection(marker)
+    canvas.renderAll()
+  }
+
+  spawnCheckpointMarker(spawn?: MapCheckpoint) {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return
+    }
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.ctx.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
+
+    const ObjectTypeCheckpoint = 'checkpoint' as ObjectType
+
+    const marker =
+      this.objectFactory.createCheckpointMarker() as CheckpointMarker
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    canvas.add(marker)
+    this.ctx.registerEditorObject(ObjectTypeCheckpoint, marker)
+    const checkpointData: CheckpointMarkerData = { marker }
+    this.checkpointMarkers.push(checkpointData)
+    this.checkpointMarkerMap.set(marker, checkpointData)
     canvas.setActiveObject(marker)
     this.ctx.handleCanvasSelection(marker)
     canvas.renderAll()

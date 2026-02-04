@@ -8,6 +8,7 @@ export enum ObjectType {
   Enemy = 'enemy',
   Weapon = 'weapon',
   Camera = 'camera',
+  Checkpoint = 'checkpoint',
   Ground = 'ground',
   Obstacle = 'obstacle',
 }
@@ -63,6 +64,10 @@ export type WeaponMarker = fabric.Group & {
   postureDamage: number
   toughnessDamage: number
   bowAmmo?: number
+}
+
+export type CheckpointMarker = fabric.Group & {
+  editorShape: 'checkpoint-marker'
 }
 
 export type WeaponShape = fabric.Object & {
@@ -135,6 +140,10 @@ export interface WeaponMarkerData {
   postureDamage: number
   toughnessDamage: number
   bowAmmo?: number
+}
+
+export interface CheckpointMarkerData {
+  marker: CheckpointMarker
 }
 
 export interface EditorMap {

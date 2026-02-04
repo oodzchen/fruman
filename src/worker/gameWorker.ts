@@ -11,11 +11,14 @@ import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   CATEGORY_WEAPON,
+  CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+  CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
   DEBUG_DRAW_CAMERA,
   DEBUG_DRAW_SENSORS,
   DEBUG_DRAW_SOUND,
   DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_CAMERA_ZOOM,
+  DEFAULT_CHECKPOINT_RENDER_RADIUS,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_OBSTACLE_FRICTION,
@@ -29,7 +32,12 @@ import {
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
-import { Faction } from '../ecs/Component'
+import {
+  CheckpointComponent,
+  Faction,
+  RenderComponent,
+  TransformComponent,
+} from '../ecs/Component'
 import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
@@ -41,6 +49,7 @@ import {
   createWeapon,
 } from '../ecs/factories/PlayerFactory'
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
+import { CheckpointSystem } from '../ecs/systems/CheckpointSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { InteractionSystem } from '../ecs/systems/InteractionSystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
@@ -117,7 +126,11 @@ let enemyAISystem: EnemyAISystem
 let soundSystem: SoundSystem
 let targetingSystem: TargetingSystem
 let interactionSystem: InteractionSystem
+let checkpointSystem: CheckpointSystem
 let arrowPools: ArrowPools
+
+const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
+const playerDeadMessage = { type: 'player_dead' } as const
 
 let groundShapeIds: b2ShapeId[] = []
 let activeMapData: EditorMapData | null = null
@@ -454,12 +467,20 @@ function registerComponents() {
   componentRegistry.registerComponent('Arrow')
   componentRegistry.registerComponent('Faction')
   componentRegistry.registerComponent('EnemyAI')
+  componentRegistry.registerComponent('Checkpoint')
 }
 
 function initializeSystems() {
   statsSystem = new StatsSystem(box2d, worldId)
   statsSystem.setEffectsEmitter(effectsEmitter)
   statsSystem.setBloodEffectsEnabled(false)
+  checkpointSystem = new CheckpointSystem()
+  checkpointSystem.setCheckpointActivatedHandler(() => {
+    ctx.postMessage(checkpointActivatedMessage)
+  })
+  checkpointSystem.setPlayerDeadHandler(() => {
+    ctx.postMessage(playerDeadMessage)
+  })
   soundSystem = new SoundSystem()
   enemyAISystem = new EnemyAISystem(box2d, worldId)
   physicsSystem = new PhysicsSystem(box2d, worldId)
@@ -486,6 +507,7 @@ function initializeSystems() {
   // 关键：MovementSystem必须在PhysicsSystem之前执行
   // 这样施加的力才能在当前帧的b2World_Step中被处理
   world.addSystem(statsSystem)
+  world.addSystem(checkpointSystem)
   world.addSystem(soundSystem)
   world.addSystem(enemyAISystem)
   world.addSystem(movementSystem)
@@ -727,6 +749,7 @@ function createEnvironment(): void {
   obstacles = []
   if (activeMapData) {
     createEnvironmentFromMap(activeMapData)
+    createCheckpointsFromMap(activeMapData)
   } else {
     createGround()
     createObstacles()
@@ -745,6 +768,34 @@ function createEnvironmentFromMap(map: EditorMapData): void {
       createObstacleShapeFromMap(placed)
     }
   }
+}
+
+function createCheckpointsFromMap(map: EditorMapData): void {
+  if (!world) return
+  const checkpoints = map.checkpoints ?? []
+  for (let i = 0; i < checkpoints.length; i++) {
+    const checkpoint = checkpoints[i]
+    createCheckpointEntity(checkpoint.x, checkpoint.y)
+  }
+}
+
+function createCheckpointEntity(x: number, y: number): void {
+  if (!world) return
+  const entity = world.createEntity()
+  const transform = new TransformComponent()
+  transform.x = x
+  transform.y = y
+  entity.addComponent(transform)
+
+  const render = new RenderComponent()
+  render.radius = DEFAULT_CHECKPOINT_RENDER_RADIUS
+  render.color = CHECKPOINT_TREE_TOP_COLOR_INACTIVE
+  render.borderColor = CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE
+  render.visible = true
+  entity.addComponent(render)
+
+  const checkpoint = new CheckpointComponent()
+  entity.addComponent(checkpoint)
 }
 
 function createGroundShapeFromMap(placed: MapPlacedShape): void {
@@ -1491,6 +1542,24 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
   enemyAISystem.setPlayer(playerEntity)
   soundSystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)
+  checkpointSystem.setPlayer(playerEntity)
+  syncCheckpointDefaults(activeMapData)
+  checkpointSystem.setPlayer(playerEntity)
+  syncCheckpointDefaults(map)
+}
+
+function syncCheckpointDefaults(map: EditorMapData | null): void {
+  if (!world) return
+  if (map) {
+    checkpointSystem.setDefaultSpawn(map.playerSpawn.x, map.playerSpawn.y)
+  } else if (playerEntity?.transform) {
+    checkpointSystem.setDefaultSpawn(
+      playerEntity.transform.x,
+      playerEntity.transform.y
+    )
+  }
+
+  checkpointSystem.setActiveCheckpoint(null)
 }
 
 function applyMapCamera(map: EditorMapData): void {
@@ -2358,6 +2427,7 @@ function sendState() {
     const hudVisibleTimer = e.stats ? e.stats.hudVisibleTimer : 0
     if (hudVisibleTimer > 0) flags |= FLAGS.HUD_VISIBLE
     if (e.weapon?.isBlocking) flags |= FLAGS.WEAPON_BLOCKING
+    if (e.checkpoint) flags |= FLAGS.CHECKPOINT
 
     stateBuffer[offset + OFFSETS.FLAGS] = flags
 

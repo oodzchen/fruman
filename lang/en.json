@@ -48,6 +48,7 @@
   "editor_object_enemy": "Enemy",
   "editor_object_weapon": "Weapon",
   "editor_object_camera": "Camera",
+  "editor_object_checkpoint": "Checkpoint",
   "editor_object_ground": "Ground",
   "editor_object_obstacle": "Obstacle",
   "editor_panel_collapse": "Collapse",

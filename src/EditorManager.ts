@@ -751,6 +751,15 @@ export class EditorManager {
       return
     }
 
+    if (type === ObjectType.Checkpoint) {
+      this.hideAllSubmenus()
+      this.menuSystem.hideObjectTypeMenu()
+      this.setActiveObjectType(type)
+      this.markerManager.spawnCheckpointMarker()
+      this.captureHistorySnapshot()
+      return
+    }
+
     this.hideAllSubmenus()
     this.menuSystem.hideObjectTypeMenu()
     this.setActiveObjectType(type)
@@ -1412,6 +1421,9 @@ export class EditorManager {
       }
       if (this.markerManager.isEnemyMarker(target)) {
         this.markerManager.removeEnemyMarker(target)
+      }
+      if (this.markerManager.isCheckpointMarker(target)) {
+        this.markerManager.removeCheckpointMarker(target)
       }
       this.objectManager.unregisterEditorObject(target)
       canvas.remove(target)

@@ -1,6 +1,7 @@
 import { InputBuffer } from '../InputBuffer'
 import {
   DEFAULT_BODY_FRICTION,
+  DEFAULT_CHECKPOINT_ACTIVATION_RADIUS,
   DEFAULT_DEATH_FLASH_DURATION,
   DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_ENEMY_ATTACK_DESIRE,
@@ -258,6 +259,20 @@ export class RenderComponent extends Component {
 
   getName(): string {
     return 'Render'
+  }
+}
+
+export class CheckpointComponent extends Component {
+  isActive = false
+  activationRadius = DEFAULT_CHECKPOINT_ACTIVATION_RADIUS
+
+  reset(): void {
+    this.isActive = false
+    this.activationRadius = DEFAULT_CHECKPOINT_ACTIVATION_RADIUS
+  }
+
+  getName(): string {
+    return 'Checkpoint'
   }
 }
 

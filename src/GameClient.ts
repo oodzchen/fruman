@@ -104,6 +104,7 @@ export class GameClient {
   private currentSaveData: SaveData | null = null
   private pendingSaveResolve: ((meta: SaveData | null) => void) | null = null
   private pendingSaveThumbnail: string | null = null
+  private autoReloadPending = false
   private onEditorActionCallback?: () => void
   private onExitActionCallback?: () => Promise<boolean>
 
@@ -299,6 +300,10 @@ export class GameClient {
       }
     } else if (msg.type === 'save_response') {
       this.handleSaveResponse(msg)
+    } else if (msg.type === 'checkpoint_activated') {
+      void this.handleCheckpointAutosave()
+    } else if (msg.type === 'player_dead') {
+      void this.handleAutoReload()
     }
   }
 
@@ -330,6 +335,29 @@ export class GameClient {
         this.pendingSaveResolve = null
       }
     })
+  }
+
+  private async handleCheckpointAutosave(): Promise<void> {
+    if (!this.currentSaveId || !this.currentSaveData) {
+      return
+    }
+    if (this.pendingSaveResolve) {
+      return
+    }
+    this.pendingSaveThumbnail = await this.captureSaveThumbnail()
+    void this.requestSave()
+  }
+
+  private async handleAutoReload(): Promise<void> {
+    if (this.autoReloadPending) {
+      return
+    }
+    if (!this.currentSaveId) {
+      return
+    }
+    this.autoReloadPending = true
+    await this.loadSaveById(this.currentSaveId)
+    this.autoReloadPending = false
   }
 
   private releaseStateBuffer(buffer: ArrayBuffer | SharedArrayBuffer) {
