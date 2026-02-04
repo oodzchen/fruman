@@ -7,6 +7,8 @@ export class DialogManager {
   private messageBox: HTMLDivElement
   private inputBox: HTMLInputElement | null = null
   private buttonsContainer: HTMLDivElement
+  private inputTarget: HTMLElement
+  private focusOptions: FocusOptions = { preventScroll: true }
   private activeButtons: HTMLButtonElement[] = []
   private selectedButtonIndex = 0
   private isOpen = false
@@ -15,7 +17,7 @@ export class DialogManager {
     null
   private boundHandleKeyDown: (event: KeyboardEvent) => void
 
-  constructor(parentElement: HTMLElement) {
+  constructor(parentElement: HTMLElement, inputTarget?: HTMLElement) {
     this.container = document.createElement('div')
     this.container.style.cssText = `
       position: absolute;
@@ -72,6 +74,10 @@ export class DialogManager {
     this.container.appendChild(this.contentBox)
     parentElement.appendChild(this.container)
     this.boundHandleKeyDown = this.handleKeyDown.bind(this)
+    this.inputTarget = inputTarget ?? parentElement
+    if (this.inputTarget.tabIndex < 0) {
+      this.inputTarget.tabIndex = 0
+    }
 
     this.overlay.addEventListener('click', () => {
       if (this.isLoading) {
@@ -85,7 +91,8 @@ export class DialogManager {
     this.isOpen = true
     this.container.style.display = 'block'
     this.container.style.pointerEvents = 'auto'
-    window.addEventListener('keydown', this.boundHandleKeyDown, true)
+    this.inputTarget.addEventListener('keydown', this.boundHandleKeyDown, true)
+    this.inputTarget.focus(this.focusOptions)
   }
 
   private close(result: boolean | string | null): void {
@@ -93,7 +100,11 @@ export class DialogManager {
     this.isOpen = false
     this.container.style.display = 'none'
     this.container.style.pointerEvents = 'none'
-    window.removeEventListener('keydown', this.boundHandleKeyDown, true)
+    this.inputTarget.removeEventListener(
+      'keydown',
+      this.boundHandleKeyDown,
+      true
+    )
 
     if (this.inputBox) {
       this.inputBox.remove()

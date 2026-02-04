@@ -44,6 +44,8 @@ export class MenuManager {
   private saveListContainer: HTMLDivElement
   private saveListTitle: HTMLDivElement
   private saveListList: HTMLDivElement
+  private inputTarget: HTMLElement
+  private focusOptions: FocusOptions = { preventScroll: true }
   private menuItemElements: HTMLButtonElement[] = []
   private activeItemCount = 0
   private visible = false
@@ -60,7 +62,11 @@ export class MenuManager {
   private hasSavesCache = false
   private saveListCache: SaveMeta[] = []
 
-  constructor(canvas: HTMLCanvasElement, menuOverlay: HTMLDivElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    menuOverlay: HTMLDivElement,
+    inputTarget: HTMLElement
+  ) {
     this.canvas = canvas
     this.menuOverlay = menuOverlay
     const uiLayer = menuOverlay.parentElement
@@ -83,6 +89,10 @@ export class MenuManager {
     this.menuItemsContainer.appendChild(this.saveListContainer)
     this.boundHandleItemMouseEnter = this.handleItemMouseEnter.bind(this)
     this.boundHandleItemClick = this.handleItemClick.bind(this)
+    this.inputTarget = inputTarget
+    if (this.inputTarget.tabIndex < 0) {
+      this.inputTarget.tabIndex = 0
+    }
     this.menuOverlay.classList.remove('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'true')
     this.initMenuItems()
@@ -314,7 +324,7 @@ export class MenuManager {
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown)
+    this.inputTarget.addEventListener('keydown', handleKeyDown, true)
   }
 
   private async deleteSave(saveId: string) {
@@ -559,6 +569,7 @@ export class MenuManager {
     this.uiLayer.classList.add('is-interactive')
     this.menuOverlay.classList.add('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'false')
+    this.inputTarget.focus(this.focusOptions)
     this.render(0)
   }
 

@@ -143,6 +143,7 @@ export class EditorManager {
   private polygonEditor: EditorPolygonEditor
   private objectFactory: EditorObjectFactory
   private objectManager: EditorObjectManager
+  private focusOptions: FocusOptions = { preventScroll: true }
   // Markers are now managed by EditorMarkerManager
   // private playerMarker: PlayerMarker | null = null
   // private enemyMarkers: EnemyMarkerData[] = []
@@ -173,6 +174,9 @@ export class EditorManager {
     this.editorWorkspace = workspace
     this.editorCanvas = editorCanvas
     this.gameCanvas = gameCanvas
+    if (this.editorOverlay.tabIndex < 0) {
+      this.editorOverlay.tabIndex = 0
+    }
 
     this.toolbarManager = new EditorToolbarManager({
       onBack: () => this.handleBack(),
@@ -190,7 +194,10 @@ export class EditorManager {
       },
     })
 
-    this.dialogManager = new DialogManager(this.editorOverlay)
+    this.dialogManager = new DialogManager(
+      this.editorOverlay,
+      this.editorOverlay
+    )
     this.polygonEditor = new EditorPolygonEditor({
       getCanvas: () => this.fabricCanvas,
       isPanning: () => this.isPanning,
@@ -540,7 +547,7 @@ export class EditorManager {
   }
 
   private setupEventListeners() {
-    document.addEventListener(
+    this.editorOverlay.addEventListener(
       'pointerdown',
       (event) => {
         const target = event.target as Node
@@ -561,7 +568,7 @@ export class EditorManager {
       true
     )
 
-    document.addEventListener(
+    this.editorOverlay.addEventListener(
       'contextmenu',
       (event) => {
         this.routeEditorContextMenu(event)
@@ -569,9 +576,13 @@ export class EditorManager {
       true
     )
 
-    window.addEventListener('keydown', (event) => {
-      this.handleKeyDown(event)
-    })
+    this.editorOverlay.addEventListener(
+      'keydown',
+      (event) => {
+        this.handleKeyDown(event)
+      },
+      true
+    )
   }
 
   private updateLocalization() {
@@ -1644,6 +1655,7 @@ export class EditorManager {
     this.mapListManager.refreshMapMetas()
     this.showMapListView()
     this.editorOverlay.classList.add('is-visible')
+    this.editorOverlay.focus(this.focusOptions)
     this.updateLocalization()
     this.gameCanvas.style.visibility = 'hidden'
   }
@@ -1651,6 +1663,7 @@ export class EditorManager {
   showEditorForCurrentMap() {
     this.visible = true
     this.editorOverlay.classList.add('is-visible')
+    this.editorOverlay.focus(this.focusOptions)
     this.updateLocalization()
     this.showEditorView()
     this.gameCanvas.style.visibility = 'hidden'

@@ -113,7 +113,7 @@ const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
-const dialogManager = new DialogManager(gameViewport)
+const dialogManager = new DialogManager(gameViewport, gameViewport)
 
 const setupDetailsState = (
   storedValues: Record<string, string>,
@@ -232,9 +232,15 @@ async function initialize() {
   const applyControls: Array<() => void> = []
   setupDetailsState(storedValues, updateStoredValue)
 
-  const game = new GameClient(canvas, ctx, menuOverlay, (step: string) => {
-    initManager.nextStep(step)
-  })
+  const game = new GameClient(
+    canvas,
+    ctx,
+    menuOverlay,
+    gameViewport,
+    (step: string) => {
+      initManager.nextStep(step)
+    }
+  )
   // Initially disable input until game starts
   game.setInputEnabled(false)
 

@@ -53,6 +53,7 @@ export class GameClient {
   private mouseInside = false
   private inputEnabled = true
   private editorOverlay: HTMLDivElement | null = null
+  private inputTarget: HTMLElement
   private previewActionsContainer: HTMLDivElement | null = null
   private previewExitBtn: HTMLButtonElement | null = null
   private previewPauseBtn: HTMLButtonElement | null = null
@@ -85,6 +86,8 @@ export class GameClient {
   private boundHandleWorkerMessage: (
     e: MessageEvent<WorkerToMainMessage>
   ) => void
+  private boundFocusInputTarget: () => void
+  private focusOptions: FocusOptions = { preventScroll: true }
 
   // Static Environment (Mirrored from constants/logic)
   private groundPattern: CanvasPattern | null = null
@@ -108,15 +111,20 @@ export class GameClient {
     canvas: HTMLCanvasElement,
     ctx: CanvasRenderingContext2D,
     menuOverlay: HTMLDivElement,
+    inputTarget: HTMLElement,
     onInitProgress?: (step: string) => void
   ) {
     this.canvas = canvas
     this.ctx = ctx
     this.renderer = new ClientRenderer(ctx, this.pixelsPerMeter)
     this.audioManager = new AudioManager()
-    this.menuManager = new MenuManager(canvas, menuOverlay)
+    this.menuManager = new MenuManager(canvas, menuOverlay, inputTarget)
     const uiLayer = menuOverlay.parentElement as HTMLDivElement
-    this.dialogManager = new DialogManager(uiLayer)
+    this.inputTarget = inputTarget
+    if (this.inputTarget.tabIndex < 0) {
+      this.inputTarget.tabIndex = 0
+    }
+    this.dialogManager = new DialogManager(uiLayer, this.inputTarget)
     this.renderer.setAudioManager(this.audioManager)
     const editorOverlay = document.getElementById('editorOverlay')
     this.editorOverlay =
@@ -151,6 +159,7 @@ export class GameClient {
     // Cache bound functions once
     this.boundRenderLoop = this.renderLoop.bind(this)
     this.boundHandleWorkerMessage = this.handleWorkerMessage.bind(this)
+    this.boundFocusInputTarget = this.focusInputTarget.bind(this)
 
     // Initialize Patterns
     onInitProgress?.(localizer.t('init_textures'))
@@ -233,13 +242,21 @@ export class GameClient {
       if (hasUnlockedAudio) return
       hasUnlockedAudio = true
       this.audioManager.resumeContext()
-      window.removeEventListener('keydown', resume)
-      window.removeEventListener('pointerdown', resume)
-      window.removeEventListener('touchstart', resume)
+      this.inputTarget.removeEventListener('keydown', resume)
+      this.inputTarget.removeEventListener('pointerdown', resume)
+      this.inputTarget.removeEventListener('touchstart', resume)
     }
-    window.addEventListener('keydown', resume)
-    window.addEventListener('pointerdown', resume, passiveListenerOptions)
-    window.addEventListener('touchstart', resume, passiveListenerOptions)
+    this.inputTarget.addEventListener('keydown', resume)
+    this.inputTarget.addEventListener(
+      'pointerdown',
+      resume,
+      passiveListenerOptions
+    )
+    this.inputTarget.addEventListener(
+      'touchstart',
+      resume,
+      passiveListenerOptions
+    )
   }
 
   private handleWorkerMessage(e: MessageEvent<WorkerToMainMessage>) {
@@ -331,72 +348,81 @@ export class GameClient {
     )
   }
   private setupInput() {
-    window.addEventListener('keydown', (e) => {
-      const key = e.key.toLowerCase()
+    this.inputTarget.addEventListener('pointerdown', this.boundFocusInputTarget)
 
-      if (key === 'escape') {
-        if (this.isEditorOverlayVisible()) {
+    this.inputTarget.addEventListener(
+      'keydown',
+      (e) => {
+        const key = e.key.toLowerCase()
+
+        if (key === 'escape') {
+          if (this.isEditorOverlayVisible()) {
+            return
+          }
+          e.preventDefault()
+          if (this.menuManager.isVisible()) {
+            this.menuManager.hide()
+            this.resumeGameInput()
+          } else {
+            this.stop()
+            this.menuManager.show(MenuMode.Pause)
+            this.inputEnabled = false
+          }
           return
         }
-        e.preventDefault()
-        if (this.menuManager.isVisible()) {
-          this.menuManager.hide()
-          this.start()
-          this.inputEnabled = true
-        } else {
-          this.stop()
-          this.menuManager.show(MenuMode.Pause)
-          this.inputEnabled = false
+
+        if (this.menuManager.isVisible() || !this.inputEnabled) {
+          return
         }
-        return
-      }
 
-      if (this.menuManager.isVisible() || !this.inputEnabled) {
-        return
-      }
+        // Prevent browser default behavior for game keys (scrolling, tab switching, etc.)
+        if (
+          [
+            'arrowup',
+            'arrowdown',
+            'arrowleft',
+            'arrowright',
+            ' ',
+            'w',
+            'a',
+            's',
+            'd',
+          ].includes(key)
+        ) {
+          e.preventDefault()
+        }
 
-      // Prevent browser default behavior for game keys (scrolling, tab switching, etc.)
-      if (
-        [
-          'arrowup',
-          'arrowdown',
-          'arrowleft',
-          'arrowright',
-          ' ',
-          'w',
-          'a',
-          's',
-          'd',
-        ].includes(key)
-      ) {
-        e.preventDefault()
-      }
-
-      this.keys.add(key)
-      this.sendInput()
-
-      // Local Zoom control (immediate feedback)
-      if (e.key.toLowerCase() === 'i') {
-        this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
+        this.keys.add(key)
         this.sendInput()
-      } else if (e.key.toLowerCase() === 'o') {
-        this.targetZoom = Math.max(0.1, this.targetZoom - 0.2)
-        this.sendInput()
-      } else if (e.key.toLowerCase() === 'u') {
-        this.targetZoom = 1.0
-        this.sendInput()
-      }
-    })
 
-    window.addEventListener('keyup', (e) => {
-      if (this.menuManager.isVisible() || !this.inputEnabled) {
-        return
-      }
-      this.keys.delete(e.key.toLowerCase())
-      this.sendInput()
-    })
+        // Local Zoom control (immediate feedback)
+        if (e.key.toLowerCase() === 'i') {
+          this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
+          this.sendInput()
+        } else if (e.key.toLowerCase() === 'o') {
+          this.targetZoom = Math.max(0.1, this.targetZoom - 0.2)
+          this.sendInput()
+        } else if (e.key.toLowerCase() === 'u') {
+          this.targetZoom = 1.0
+          this.sendInput()
+        }
+      },
+      true
+    )
 
-    window.addEventListener('mousedown', (e) => {
+    this.inputTarget.addEventListener(
+      'keyup',
+      (e) => {
+        if (this.menuManager.isVisible() || !this.inputEnabled) {
+          return
+        }
+        this.keys.delete(e.key.toLowerCase())
+        this.sendInput()
+      },
+      true
+    )
+
+    this.inputTarget.addEventListener('mousedown', (e) => {
       if (
         e.button === 2 &&
         !this.isEditorOverlayVisible() &&
@@ -416,7 +442,7 @@ export class GameClient {
       this.sendInput()
     })
 
-    window.addEventListener('mouseup', (e) => {
+    this.inputTarget.addEventListener('mouseup', (e) => {
       if (
         this.menuManager.isVisible() ||
         !this.inputEnabled ||
@@ -492,7 +518,7 @@ export class GameClient {
       e.preventDefault()
     })
 
-    window.addEventListener(
+    this.inputTarget.addEventListener(
       'contextmenu',
       (e) => {
         if (this.isEditorOverlayVisible()) {
@@ -566,6 +592,12 @@ export class GameClient {
     return (
       clientX >= left && clientX <= right && clientY >= top && clientY <= bottom
     )
+  }
+
+  private focusInputTarget() {
+    if (document.activeElement !== this.inputTarget) {
+      this.inputTarget.focus(this.focusOptions)
+    }
   }
 
   private renderLoop(timestamp?: number) {
@@ -887,8 +919,7 @@ export class GameClient {
           break
         case MenuAction.Resume:
           this.menuManager.hide()
-          this.start()
-          this.inputEnabled = true
+          this.resumeGameInput()
           break
         case MenuAction.SaveGame:
           this.dialogManager.showLoading(localizer.t('saving'))
@@ -901,8 +932,7 @@ export class GameClient {
             await this.dialogManager.alert(localizer.t('save_failed'))
           }
           this.menuManager.hide()
-          this.start()
-          this.inputEnabled = true
+          this.resumeGameInput()
           break
         case MenuAction.MainMenu:
           if (this.currentSaveId) {
@@ -979,8 +1009,7 @@ export class GameClient {
     } as MainToWorkerMessage)
 
     this.menuManager.hide()
-    this.start()
-    this.inputEnabled = true
+    this.resumeGameInput()
   }
 
   private async continueGame(): Promise<void> {
@@ -1014,8 +1043,13 @@ export class GameClient {
     } as MainToWorkerMessage)
 
     this.menuManager.hide()
+    this.resumeGameInput()
+  }
+
+  private resumeGameInput() {
     this.start()
     this.inputEnabled = true
+    this.focusInputTarget()
   }
 
   requestSave(): Promise<SaveData | null> {
