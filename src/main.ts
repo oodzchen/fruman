@@ -355,6 +355,7 @@ async function initialize() {
     applyControls.forEach((apply) => apply())
     game.start()
     game.setInputEnabled(true)
+    gameViewport.focus(focusOptions)
   })
   editorManager.onDefaultMapChanged(() => {
     game.reloadDefaultMap()

@@ -592,23 +592,14 @@ export class GameClient {
     if (this.shouldAllowTargetFocus(target)) {
       return
     }
+    event.preventDefault()
     if (document.activeElement !== this.inputTarget) {
-      event.preventDefault()
       this.inputTarget.focus(this.focusOptions)
     }
   }
 
   private shouldAllowTargetFocus(target: EventTarget | null): boolean {
-    if (this.dialogManager.isDialogOpen()) {
-      return true
-    }
-    if (target instanceof HTMLInputElement) return true
-    if (target instanceof HTMLTextAreaElement) return true
-    if (target instanceof HTMLSelectElement) return true
-    if (target instanceof HTMLElement && target.isContentEditable) {
-      return true
-    }
-    return false
+    return this.dialogManager.isDialogOpen()
   }
 
   private shouldIgnoreKeyEvent(e: KeyboardEvent): boolean {
