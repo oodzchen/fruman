@@ -1,8 +1,12 @@
 import {
+  DEFAULT_GRAPPLE_ENEMY_COOLDOWN_MS,
+  DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS,
   DEFAULT_GRAPPLE_PULL_STOP_DISTANCE,
   DEFAULT_GRAPPLE_RANGE,
   DEFAULT_GRAVITY,
   DEFAULT_PLAYER_FOV_RAD,
+  DEFAULT_PLAYER_RADIUS,
+  DEFAULT_WEAPON_ATTACK_RADIUS,
 } from '../../constants'
 import type { MainModule, b2Vec2 } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
@@ -11,6 +15,10 @@ import { System } from '../System'
 import type { World } from '../World'
 
 export class GrappleSystem extends System {
+  private readonly pullModeAnchor = 0
+  private readonly pullModeEnemy = 1
+  private readonly pullModePlayerLinear = 2
+  private readonly pullModePlayerArc = 3
   private world: World
   private box2d: MainModule
   private tempVec: b2Vec2
@@ -64,6 +72,8 @@ export class GrappleSystem extends System {
       if (!grapple.hasGrapple) {
         grapple.isPulling = false
         grapple.retainAirMomentum = false
+        grapple.pullMode = this.pullModeAnchor
+        grapple.targetEntityId = -1
         continue
       }
 
@@ -87,27 +97,79 @@ export class GrappleSystem extends System {
         continue
       }
 
-      const canUse = !entity.isStunned() && this.anchorEntities.length > 0
+      if (this.currentTimeMs < grapple.cooldownEndTime) {
+        inputBuffer.clearAction('grapple')
+        continue
+      }
+
+      const canUse = !entity.isStunned()
 
       if (canUse) {
-        const facing =
-          entity.input.lastMoveDirection !== 0
-            ? entity.input.lastMoveDirection
-            : 1
-        if (
-          this.findAnchorTarget(
-            entity.transform.x,
-            entity.transform.y,
-            facing,
-            this.tempTarget
-          )
-        ) {
-          grapple.targetX = this.tempTarget.x
-          grapple.targetY = this.tempTarget.y
-          grapple.pullElapsedMs = 0
-          grapple.isPulling = true
-          grapple.cooldownEndTime = this.currentTimeMs
-          this.applyGrappleImpulse(entity, grapple)
+        const lockedTargetId = entity.input.lockedTargetId
+        if (lockedTargetId !== null) {
+          const lockedTarget = this.getEntityById(lockedTargetId)
+          if (
+            lockedTarget &&
+            lockedTarget.id !== entity.id &&
+            lockedTarget.transform &&
+            lockedTarget.physics &&
+            lockedTarget.stats &&
+            !lockedTarget.stats.isDead
+          ) {
+            const dx = lockedTarget.transform.x - entity.transform.x
+            const dy = lockedTarget.transform.y - entity.transform.y
+            const distSq = dx * dx + dy * dy
+            if (distSq <= this.rangeSq) {
+              const playerToughness = entity.stats?.toughness ?? 0
+              const targetToughness = lockedTarget.stats.toughness
+              const desiredDistance = this.getAttackDistance(
+                entity,
+                lockedTarget
+              )
+              grapple.targetX = lockedTarget.transform.x
+              grapple.targetY = lockedTarget.transform.y
+              grapple.targetEntityId = lockedTarget.id
+              grapple.pullElapsedMs = 0
+              grapple.isPulling = true
+              grapple.cooldownEndTime = this.currentTimeMs
+              grapple.desiredDistanceSq = desiredDistance * desiredDistance
+              if (targetToughness <= playerToughness) {
+                grapple.pullMode = this.pullModeEnemy
+                this.applyEnemyStun(lockedTarget, grapple.pullDurationMs)
+              } else {
+                const isGrounded = lockedTarget.movement?.isGrounded ?? false
+                grapple.pullMode = isGrounded
+                  ? this.pullModePlayerLinear
+                  : this.pullModePlayerArc
+                if (grapple.pullMode === this.pullModePlayerArc) {
+                  this.applyGrappleImpulse(entity, grapple)
+                }
+              }
+            }
+          }
+        } else if (this.anchorEntities.length > 0) {
+          const facing =
+            entity.input.lastMoveDirection !== 0
+              ? entity.input.lastMoveDirection
+              : 1
+          if (
+            this.findAnchorTarget(
+              entity.transform.x,
+              entity.transform.y,
+              facing,
+              this.tempTarget
+            )
+          ) {
+            grapple.targetX = this.tempTarget.x
+            grapple.targetY = this.tempTarget.y
+            grapple.targetEntityId = -1
+            grapple.pullMode = this.pullModeAnchor
+            grapple.desiredDistanceSq = 0
+            grapple.pullElapsedMs = 0
+            grapple.isPulling = true
+            grapple.cooldownEndTime = this.currentTimeMs
+            this.applyGrappleImpulse(entity, grapple)
+          }
         }
       }
 
@@ -176,11 +238,57 @@ export class GrappleSystem extends System {
     }
 
     grapple.pullElapsedMs += deltaMs
+    if (grapple.targetEntityId >= 0) {
+      const targetEntity = this.getEntityById(grapple.targetEntityId)
+      if (!targetEntity || !targetEntity.transform) {
+        this.stopPull(grapple, false)
+        return
+      }
+      grapple.targetX = targetEntity.transform.x
+      grapple.targetY = targetEntity.transform.y
+    }
     const dx = grapple.targetX - entity.transform.x
     const dy = grapple.targetY - entity.transform.y
     const distSq = dx * dx + dy * dy
     const radius = entity.render?.radius ?? 0.5
     const clearance = radius + 0.1
+
+    if (grapple.pullMode === this.pullModeEnemy) {
+      const targetEntity = this.getEntityById(grapple.targetEntityId)
+      if (!targetEntity || !targetEntity.transform || !targetEntity.physics) {
+        this.stopPull(grapple, false)
+        return
+      }
+      if (grapple.pullElapsedMs >= grapple.pullDurationMs) {
+        this.stopLinearMotion(targetEntity)
+        this.stopPull(grapple, false)
+        this.applyEnemyStun(targetEntity, DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS)
+        return
+      }
+      if (distSq <= grapple.desiredDistanceSq) {
+        this.stopLinearMotion(targetEntity)
+        this.stopPull(grapple, true)
+        this.applyEnemyStun(targetEntity, DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS)
+        return
+      }
+      this.applyLinearPull(targetEntity, entity, grapple.pullSpeed)
+      return
+    }
+
+    if (grapple.pullMode === this.pullModePlayerLinear) {
+      if (grapple.pullElapsedMs >= grapple.pullDurationMs) {
+        this.stopLinearMotion(entity)
+        this.stopPull(grapple, false)
+        return
+      }
+      if (distSq <= grapple.desiredDistanceSq) {
+        this.stopLinearMotion(entity)
+        this.stopPull(grapple, true)
+        return
+      }
+      this.applyLinearPull(entity, null, grapple.pullSpeed)
+      return
+    }
 
     if (
       distSq <= this.stopDistanceSq ||
@@ -201,10 +309,87 @@ export class GrappleSystem extends System {
   ): void {
     grapple.isPulling = false
     grapple.moveLockEndTime = 0
-    grapple.retainAirMomentum = true
-    if (allowImmediateRetry) {
+    if (
+      grapple.pullMode === this.pullModeAnchor ||
+      grapple.pullMode === this.pullModePlayerArc ||
+      grapple.pullMode === this.pullModePlayerLinear
+    ) {
+      grapple.retainAirMomentum = true
+    }
+    if (grapple.pullMode === this.pullModeEnemy) {
+      grapple.cooldownEndTime =
+        this.currentTimeMs + DEFAULT_GRAPPLE_ENEMY_COOLDOWN_MS
+    } else if (allowImmediateRetry) {
       grapple.cooldownEndTime = this.currentTimeMs
     }
+    grapple.pullMode = this.pullModeAnchor
+    grapple.targetEntityId = -1
+    grapple.desiredDistanceSq = 0
+  }
+
+  private applyLinearPull(
+    entity: Entity,
+    target: Entity | null,
+    speed: number
+  ): void {
+    if (!entity.physics || !entity.transform) {
+      return
+    }
+    let targetX = 0
+    let targetY = 0
+    if (target && target.transform) {
+      targetX = target.transform.x
+      targetY = target.transform.y
+    } else if (entity.grapple) {
+      targetX = entity.grapple.targetX
+      targetY = entity.grapple.targetY
+    } else {
+      return
+    }
+    const dx = targetX - entity.transform.x
+    const dy = targetY - entity.transform.y
+    const distSq = dx * dx + dy * dy
+    if (distSq <= 0) return
+    const invDist = 1 / Math.sqrt(distSq)
+    this.tempVec.x = dx * invDist * speed
+    this.tempVec.y = dy * invDist * speed
+    this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+  }
+
+  private stopLinearMotion(entity: Entity): void {
+    if (!entity.physics) return
+    this.tempVec.x = 0
+    this.tempVec.y = 0
+    this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+  }
+
+  private getEntityById(id: number): Entity | null {
+    const entities = this.world.getEntities()
+    for (let i = 0; i < entities.length; i++) {
+      const entity = entities[i]
+      if (entity.id === id) {
+        return entity
+      }
+    }
+    return null
+  }
+
+  private getAttackDistance(attacker: Entity, target: Entity): number {
+    const attackerRadius = attacker.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const weaponWidth = attacker.weapon?.width ?? 0
+    if (attacker.weapon?.weaponType !== undefined) {
+      return attackerRadius + weaponWidth / 2 + targetRadius
+    }
+    return DEFAULT_WEAPON_ATTACK_RADIUS + targetRadius
+  }
+
+  private applyEnemyStun(entity: Entity, durationMs: number): void {
+    if (!entity.movement) return
+    if (durationMs <= 0) return
+    entity.movement.knockbackDuration = durationMs
+    entity.movement.knockbackElapsedTime = 0
+    entity.movement.knockbackEndTime = this.currentTimeMs + durationMs
   }
 
   private applyGrappleImpulse(

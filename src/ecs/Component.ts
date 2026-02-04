@@ -290,6 +290,9 @@ export class GrappleComponent extends Component {
   pullSpeed = DEFAULT_GRAPPLE_PULL_SPEED
   pullDurationMs = DEFAULT_GRAPPLE_PULL_DURATION_MS
   pullElapsedMs = 0
+  targetEntityId = -1
+  pullMode = 0
+  desiredDistanceSq = 0
   cooldownEndTime = 0
   moveLockEndTime = 0
   retainAirMomentum = false
@@ -306,6 +309,9 @@ export class GrappleComponent extends Component {
     this.pullSpeed = DEFAULT_GRAPPLE_PULL_SPEED
     this.pullDurationMs = DEFAULT_GRAPPLE_PULL_DURATION_MS
     this.pullElapsedMs = 0
+    this.targetEntityId = -1
+    this.pullMode = 0
+    this.desiredDistanceSq = 0
     this.cooldownEndTime = 0
     this.moveLockEndTime = 0
     this.retainAirMomentum = false
