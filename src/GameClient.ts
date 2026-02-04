@@ -87,6 +87,7 @@ export class GameClient {
     e: MessageEvent<WorkerToMainMessage>
   ) => void
   private boundHandleAutoFocusPointerDown: (event: PointerEvent) => void
+  private boundHandleAutoFocusIn: (event: FocusEvent) => void
   private focusOptions: FocusOptions = { preventScroll: true }
 
   // Static Environment (Mirrored from constants/logic)
@@ -165,6 +166,7 @@ export class GameClient {
     this.boundHandleWorkerMessage = this.handleWorkerMessage.bind(this)
     this.boundHandleAutoFocusPointerDown =
       this.handleAutoFocusPointerDown.bind(this)
+    this.boundHandleAutoFocusIn = this.handleAutoFocusIn.bind(this)
 
     // Initialize Patterns
     onInitProgress?.(localizer.t('init_textures'))
@@ -406,6 +408,11 @@ export class GameClient {
       this.boundHandleAutoFocusPointerDown,
       true
     )
+    this.inputTarget.addEventListener(
+      'focusin',
+      this.boundHandleAutoFocusIn,
+      true
+    )
 
     this.inputTarget.addEventListener(
       'keydown',
@@ -592,8 +599,17 @@ export class GameClient {
     if (this.shouldAllowTargetFocus(target)) {
       return
     }
-    event.preventDefault()
     if (document.activeElement !== this.inputTarget) {
+      this.inputTarget.focus(this.focusOptions)
+    }
+  }
+
+  private handleAutoFocusIn(event: FocusEvent) {
+    const target = event.target
+    if (this.shouldAllowTargetFocus(target)) {
+      return
+    }
+    if (target !== this.inputTarget) {
       this.inputTarget.focus(this.focusOptions)
     }
   }
