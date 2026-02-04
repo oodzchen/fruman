@@ -4,6 +4,7 @@ import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
+  DEFAULT_PLAYER_RADIUS,
   GRAPPLE_ANCHOR_HIGHLIGHT_SCALE,
   WEAPON_DEFAULT_DATA,
 } from './constants'
@@ -74,6 +75,10 @@ export class ClientRenderer {
   private soundWaveDebugData: SoundWaveDebugData[] = []
   private soundListenerDebugData: SoundListenerDebugData[] = []
   private ammoTextCache: string[] = []
+  private grappleLineActive = false
+  private grappleLineAutoHideRemainingMs = 0
+  private grappleLineStartedClose = false
+  private grappleLineHidden = false
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
@@ -159,7 +164,7 @@ export class ClientRenderer {
     return str
   }
 
-  render() {
+  render(deltaMs: number) {
     if (this.entityCount === 0 && !this.particleSystem.hasActiveParticles())
       return
     const buf = this.stateBuffer
@@ -203,7 +208,62 @@ export class ClientRenderer {
       }
     }
 
+    let shouldDrawGrappleLine = false
     if (playerGrappleActive) {
+      const playerPxX = Math.round(playerX * this.pixelsPerMeter)
+      const playerPxY = Math.round(playerY * this.pixelsPerMeter)
+      const targetPxX = Math.round(playerGrappleTargetX * this.pixelsPerMeter)
+      const targetPxY = Math.round(playerGrappleTargetY * this.pixelsPerMeter)
+      const dx = targetPxX - playerPxX
+      const dy = targetPxY - playerPxY
+      const distSq = dx * dx + dy * dy
+      const diameterPx = Math.round(
+        DEFAULT_PLAYER_RADIUS * 2 * this.pixelsPerMeter
+      )
+      const thresholdSq = diameterPx * diameterPx
+      const isClose = distSq <= thresholdSq
+
+      if (!this.grappleLineActive) {
+        if (isClose) {
+          this.grappleLineAutoHideRemainingMs = 500
+          this.grappleLineStartedClose = true
+          this.grappleLineHidden = false
+        } else {
+          this.grappleLineAutoHideRemainingMs = 0
+          this.grappleLineStartedClose = false
+          this.grappleLineHidden = false
+        }
+      }
+
+      if (this.grappleLineAutoHideRemainingMs > 0) {
+        this.grappleLineAutoHideRemainingMs =
+          this.grappleLineAutoHideRemainingMs > deltaMs
+            ? this.grappleLineAutoHideRemainingMs - deltaMs
+            : 0
+        shouldDrawGrappleLine = true
+      } else if (this.grappleLineStartedClose) {
+        this.grappleLineHidden = true
+      }
+
+      if (!this.grappleLineHidden && !this.grappleLineStartedClose && isClose) {
+        this.grappleLineHidden = true
+      }
+
+      if (
+        !this.grappleLineHidden &&
+        this.grappleLineAutoHideRemainingMs === 0
+      ) {
+        shouldDrawGrappleLine = true
+      }
+      this.grappleLineActive = true
+    } else {
+      this.grappleLineActive = false
+      this.grappleLineAutoHideRemainingMs = 0
+      this.grappleLineStartedClose = false
+      this.grappleLineHidden = false
+    }
+
+    if (shouldDrawGrappleLine) {
       this.drawGrappleLine(
         playerX,
         playerY,

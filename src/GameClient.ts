@@ -787,7 +787,8 @@ export class GameClient {
 
     // Draw Entities
     // Renderer now handles data internally via binary buffer
-    this.renderer.render()
+    const deltaMs = Math.max(0, (deltaTime * 1000) | 0)
+    this.renderer.render(deltaMs)
 
     this.ctx.restore()
 
