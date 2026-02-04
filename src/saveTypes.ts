@@ -89,6 +89,11 @@ export interface SaveGroundWeaponState {
   bowAmmoMax: number
 }
 
+export interface SaveCheckpointState {
+  x: number
+  y: number
+}
+
 export interface SaveData {
   version: 1
   meta: SaveMeta
@@ -96,6 +101,7 @@ export interface SaveData {
   mapData: EditorMapData
   playTimeMs: number
   worldStateReady: boolean
+  activeCheckpoint?: SaveCheckpointState | null
   player: SavePlayerState
   enemies: SaveEnemyState[]
   groundWeapons: SaveGroundWeaponState[]

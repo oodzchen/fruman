@@ -5,6 +5,7 @@ import type {
 } from '../ecs/Component'
 import type { EditorMapData } from '../editorMapTypes'
 import type {
+  SaveCheckpointState,
   SaveData,
   SaveEnemyState,
   SaveGroundWeaponState,
@@ -175,6 +176,7 @@ export type WorkerSaveResponseMessage = {
   type: 'save_response'
   saveId: string
   playTimeMs: number
+  activeCheckpoint: SaveCheckpointState | null
   player: SavePlayerState
   enemies: SaveEnemyState[]
   groundWeapons: SaveGroundWeaponState[]

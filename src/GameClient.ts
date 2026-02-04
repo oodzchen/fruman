@@ -104,6 +104,9 @@ export class GameClient {
   private currentSaveData: SaveData | null = null
   private pendingSaveResolve: ((meta: SaveData | null) => void) | null = null
   private pendingSaveThumbnail: string | null = null
+  private pendingCheckpointAutosave = false
+  private pendingCheckpointCapture = false
+  private pendingCheckpointCaptureAfterState = false
   private autoReloadPending = false
   private onEditorActionCallback?: () => void
   private onExitActionCallback?: () => Promise<boolean>
@@ -272,6 +275,10 @@ export class GameClient {
       this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
       this.releaseStateBuffer(msg.entitiesBuffer)
       this.hasReceivedFirstState = true
+      if (this.pendingCheckpointCaptureAfterState) {
+        this.pendingCheckpointCaptureAfterState = false
+        this.pendingCheckpointCapture = true
+      }
     } else if (msg.type === 'debug') {
       this.renderer.setSensorDebugData(msg.sensors)
       this.renderer.setSoundDebugData(msg.soundWaves, msg.soundListeners)
@@ -316,6 +323,7 @@ export class GameClient {
       ...this.currentSaveData,
       playTimeMs: msg.playTimeMs,
       worldStateReady: true,
+      activeCheckpoint: msg.activeCheckpoint,
       player: msg.player,
       enemies: msg.enemies,
       groundWeapons: msg.groundWeapons,
@@ -337,15 +345,18 @@ export class GameClient {
     })
   }
 
-  private async handleCheckpointAutosave(): Promise<void> {
+  private handleCheckpointAutosave(): void {
     if (!this.currentSaveId || !this.currentSaveData) {
       return
     }
     if (this.pendingSaveResolve) {
       return
     }
-    this.pendingSaveThumbnail = await this.captureSaveThumbnail()
-    void this.requestSave()
+    if (this.pendingCheckpointAutosave) {
+      return
+    }
+    this.pendingCheckpointAutosave = true
+    this.pendingCheckpointCaptureAfterState = true
   }
 
   private async handleAutoReload(): Promise<void> {
@@ -358,6 +369,19 @@ export class GameClient {
     this.autoReloadPending = true
     await this.loadSaveById(this.currentSaveId)
     this.autoReloadPending = false
+  }
+
+  private async captureCheckpointAutosave(): Promise<void> {
+    if (!this.pendingCheckpointAutosave) {
+      return
+    }
+    if (this.pendingSaveResolve) {
+      this.pendingCheckpointAutosave = false
+      return
+    }
+    this.pendingSaveThumbnail = await this.captureSaveThumbnail()
+    await this.requestSave()
+    this.pendingCheckpointAutosave = false
   }
 
   private releaseStateBuffer(buffer: ArrayBuffer | SharedArrayBuffer) {
@@ -650,6 +674,10 @@ export class GameClient {
       this.renderer.update(deltaTime)
     }
     this.render(deltaTime)
+    if (this.pendingCheckpointCapture) {
+      this.pendingCheckpointCapture = false
+      void this.captureCheckpointAutosave()
+    }
 
     if (
       !this.isFirstFrameRendered &&

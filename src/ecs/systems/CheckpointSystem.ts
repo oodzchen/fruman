@@ -52,7 +52,7 @@ export class CheckpointSystem extends System {
     this.onPlayerDead = handler
   }
 
-  setActiveCheckpoint(entity: Entity | null): void {
+  setActiveCheckpoint(entity: Entity | null, notify = true): void {
     if (this.activeCheckpoint === entity) {
       return
     }
@@ -74,12 +74,21 @@ export class CheckpointSystem extends System {
       this.activeCheckpointX = entity.transform.x
       this.activeCheckpointY = entity.transform.y
       this.hasActiveCheckpoint = true
-      if (this.onCheckpointActivated) {
+      if (this.onCheckpointActivated && notify) {
         this.onCheckpointActivated(entity)
       }
     } else {
       this.hasActiveCheckpoint = false
     }
+  }
+
+  readActiveCheckpointPosition(out: { x: number; y: number }): boolean {
+    if (!this.hasActiveCheckpoint) {
+      return false
+    }
+    out.x = this.activeCheckpointX
+    out.y = this.activeCheckpointY
+    return true
   }
 
   update(entities: Entity[], _deltaTime: number): void {

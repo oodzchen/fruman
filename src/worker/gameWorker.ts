@@ -64,6 +64,7 @@ import type {
   MapPlacedShape,
 } from '../editorMapTypes'
 import type {
+  SaveCheckpointState,
   SaveData,
   SaveEnemyState,
   SaveGroundWeaponState,
@@ -109,6 +110,8 @@ import type {
 
 // Worker global scope
 const ctx: Worker = self as unknown as Worker
+
+const activeCheckpointSavePosition: SaveCheckpointState = { x: 0, y: 0 }
 
 let box2d: MainModule
 let worldId: ReturnType<MainModule['b2CreateWorld']>
@@ -3318,10 +3321,13 @@ function extractGroundWeaponsState(): SaveGroundWeaponState[] {
 function exportGameState(saveId: string): void {
   if (!world || !playerEntity) return
 
+  const activeCheckpoint = readActiveCheckpointForSave()
+
   const response: WorkerSaveResponseMessage = {
     type: 'save_response',
     saveId,
     playTimeMs,
+    activeCheckpoint,
     player: extractPlayerState(),
     enemies: extractEnemiesState(),
     groundWeapons: extractGroundWeaponsState(),
@@ -3329,6 +3335,18 @@ function exportGameState(saveId: string): void {
   }
 
   ctx.postMessage(response)
+}
+
+function readActiveCheckpointForSave(): SaveCheckpointState | null {
+  if (!checkpointSystem) {
+    return null
+  }
+  if (
+    !checkpointSystem.readActiveCheckpointPosition(activeCheckpointSavePosition)
+  ) {
+    return null
+  }
+  return activeCheckpointSavePosition
 }
 
 function loadFromSave(saveData: SaveData): void {
@@ -3369,6 +3387,8 @@ function loadFromSave(saveData: SaveData): void {
     restoreGroundWeaponsState(saveData.groundWeapons)
   }
 
+  restoreActiveCheckpointFromSave(saveData)
+
   camera.x = saveData.camera.x
   camera.y = saveData.camera.y
   zoom = saveData.camera.zoom
@@ -3378,6 +3398,25 @@ function loadFromSave(saveData: SaveData): void {
     type: 'map_data',
     map: activeMapData,
   })
+}
+
+function restoreActiveCheckpointFromSave(saveData: SaveData): void {
+  if (!world) return
+  const savedCheckpoint = saveData.activeCheckpoint
+  if (!savedCheckpoint) return
+
+  const entities = world.getEntities()
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.checkpoint || !entity.transform) continue
+    if (
+      entity.transform.x === savedCheckpoint.x &&
+      entity.transform.y === savedCheckpoint.y
+    ) {
+      checkpointSystem.setActiveCheckpoint(entity, false)
+      break
+    }
+  }
 }
 
 function restorePlayerWeapons(playerState: SaveData['player']): void {

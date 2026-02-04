@@ -553,6 +553,7 @@ export async function createSave(
       mapData,
       playTimeMs: 0,
       worldStateReady: false,
+      activeCheckpoint: null,
       player: {
         position: { x: mapData.playerSpawn.x, y: mapData.playerSpawn.y },
         facing: 1,
