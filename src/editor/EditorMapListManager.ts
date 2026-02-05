@@ -23,6 +23,7 @@ export interface EditorMapListManagerContext {
   getBackBtn: () => HTMLButtonElement
   onMapLoaded: (meta: EditorMapMeta, data: EditorMapData) => void
   applyEditorViewportState: (state: EditorViewportState | null) => void
+  applyEditorTreeData: (data: EditorMapData) => void
   onShowEditorView: () => void
   onBackToMenu: () => void
   onDefaultMapChanged: (meta: EditorMapMeta) => void
@@ -636,6 +637,7 @@ export class EditorMapListManager {
     }
     const data = stored ?? this.context.mapSerializer.buildDefaultMapData()
     this.context.mapSerializer.applyMapData(data)
+    this.context.applyEditorTreeData(data)
     this.context.applyEditorViewportState(viewState)
     this.context.onMapLoaded(this.currentMapMeta, data)
   }

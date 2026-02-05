@@ -44,6 +44,7 @@
   "editor_object_list_title": "Objects",
   "editor_object_panel_title": "",
   "editor_panel_add_object": "Add Object",
+  "editor_object_group": "Empty Group",
   "editor_object_player": "Player",
   "editor_object_enemy": "Enemy",
   "editor_object_weapon": "Weapon Item",

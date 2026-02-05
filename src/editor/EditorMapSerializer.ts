@@ -3,6 +3,8 @@ import { fabric } from 'fabric'
 import { DEFAULT_CAMERA_ZOOM } from '../constants'
 import type {
   EditorMapData,
+  EditorTreeData,
+  EditorTreeNode,
   MapEnemyWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
@@ -22,7 +24,10 @@ import type { EditorShapeManager } from './EditorShapeManager'
 import type { ObjectType } from './types'
 
 interface EditorObjectLike {
-  type: string
+  id: number
+  name: string
+  parentId: number | null
+  type: ObjectType
   object: fabric.Object
 }
 
@@ -113,11 +118,23 @@ export class EditorMapSerializer {
     const player = this.serializePlayerProperties()
     const camera = this.serializeCamera(base)
     const shapes: MapPlacedShape[] = []
-    this.serializeShapes(shapes)
-    const enemies = this.serializeEnemies()
-    const weapons = this.serializeWeapons()
-    const checkpoints = this.serializeCheckpoints()
-    const hookAnchors = this.serializeHookAnchors()
+    const shapeIndexMap = new Map<fabric.Object, number>()
+    this.serializeShapes(shapes, shapeIndexMap)
+    const enemyIndexMap = new Map<fabric.Object, number>()
+    const enemies = this.serializeEnemies(enemyIndexMap)
+    const weaponIndexMap = new Map<fabric.Object, number>()
+    const weapons = this.serializeWeapons(weaponIndexMap)
+    const checkpointIndexMap = new Map<fabric.Object, number>()
+    const checkpoints = this.serializeCheckpoints(checkpointIndexMap)
+    const hookAnchorIndexMap = new Map<fabric.Object, number>()
+    const hookAnchors = this.serializeHookAnchors(hookAnchorIndexMap)
+    const editorTree = this.serializeEditorTree({
+      shapeIndexMap,
+      enemyIndexMap,
+      weaponIndexMap,
+      checkpointIndexMap,
+      hookAnchorIndexMap,
+    })
     return {
       version: 1,
       canvasWidth: base.canvasWidth,
@@ -131,6 +148,7 @@ export class EditorMapSerializer {
       weapons,
       checkpoints,
       hookAnchors,
+      editorTree: editorTree ?? undefined,
     }
   }
 
@@ -384,7 +402,9 @@ export class EditorMapSerializer {
     )
   }
 
-  private serializeCheckpoints(): EditorMapData['checkpoints'] {
+  private serializeCheckpoints(
+    indexMap?: Map<fabric.Object, number>
+  ): EditorMapData['checkpoints'] {
     const markers = this.ctx.markerManager.getCheckpointMarkers()
     if (markers.length === 0) {
       return []
@@ -395,12 +415,17 @@ export class EditorMapSerializer {
       const marker = markers[i].marker
       const x = (marker.left ?? 0) * invPixelsPerMeter
       const y = (marker.top ?? 0) * invPixelsPerMeter
+      if (indexMap) {
+        indexMap.set(marker, checkpoints.length)
+      }
       checkpoints.push({ x, y })
     }
     return checkpoints
   }
 
-  private serializeHookAnchors(): EditorMapData['hookAnchors'] {
+  private serializeHookAnchors(
+    indexMap?: Map<fabric.Object, number>
+  ): EditorMapData['hookAnchors'] {
     const markers = this.ctx.markerManager.getHookAnchorMarkers()
     if (markers.length === 0) {
       return []
@@ -411,9 +436,99 @@ export class EditorMapSerializer {
       const marker = markers[i].marker
       const x = (marker.left ?? 0) * invPixelsPerMeter
       const y = (marker.top ?? 0) * invPixelsPerMeter
+      if (indexMap) {
+        indexMap.set(marker, anchors.length)
+      }
       anchors.push({ x, y })
     }
     return anchors
+  }
+
+  private serializeEditorTree(data: {
+    shapeIndexMap: Map<fabric.Object, number>
+    enemyIndexMap: Map<fabric.Object, number>
+    weaponIndexMap: Map<fabric.Object, number>
+    checkpointIndexMap: Map<fabric.Object, number>
+    hookAnchorIndexMap: Map<fabric.Object, number>
+  }): EditorTreeData | null {
+    const editorObjects = this.ctx.getEditorObjects()
+    if (editorObjects.length === 0) {
+      return null
+    }
+    const nodes: EditorTreeNode[] = []
+    const parents: number[] = []
+    const idToIndex = new Map<number, number>()
+    const playerMarker = this.ctx.markerManager.getPlayerMarker()
+    const cameraViews = this.ctx.getCameraViews()
+    const cameraFrame = cameraViews.length > 0 ? cameraViews[0].frame : null
+
+    for (let i = 0; i < editorObjects.length; i++) {
+      const dataItem = editorObjects[i]
+      const node: EditorTreeNode = {
+        type: dataItem.type,
+        name: dataItem.name,
+      }
+      if (dataItem.type === 'ground' || dataItem.type === 'obstacle') {
+        const index = data.shapeIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+        node.objectKind = dataItem.type === 'ground' ? 'ground' : 'obstacle'
+      } else if (dataItem.type === 'enemy') {
+        const index = data.enemyIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'weapon') {
+        const index = data.weaponIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'checkpoint') {
+        const index = data.checkpointIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'hookAnchor') {
+        const index = data.hookAnchorIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'player') {
+        if (!playerMarker || dataItem.object !== playerMarker) {
+          return null
+        }
+      } else if (dataItem.type === 'camera') {
+        if (!cameraFrame || dataItem.object !== cameraFrame) {
+          return null
+        }
+      }
+
+      const nodeIndex = nodes.length
+      nodes.push(node)
+      parents.push(-1)
+      idToIndex.set(dataItem.id, nodeIndex)
+    }
+
+    for (let i = 0; i < editorObjects.length; i++) {
+      const dataItem = editorObjects[i]
+      if (dataItem.parentId === null) {
+        continue
+      }
+      const nodeIndex = idToIndex.get(dataItem.id)
+      const parentIndex = idToIndex.get(dataItem.parentId)
+      if (nodeIndex === undefined || parentIndex === undefined) {
+        continue
+      }
+      parents[nodeIndex] = parentIndex
+    }
+
+    return { nodes, parents }
   }
 
   private serializePlayerProperties(): EditorMapData['player'] {
@@ -467,7 +582,10 @@ export class EditorMapSerializer {
     }
   }
 
-  private serializeShapes(out: MapPlacedShape[]) {
+  private serializeShapes(
+    out: MapPlacedShape[],
+    indexMap?: Map<fabric.Object, number>
+  ) {
     const editorObjects = this.ctx.getEditorObjects()
     for (let i = 0; i < editorObjects.length; i++) {
       const data = editorObjects[i]
@@ -476,6 +594,9 @@ export class EditorMapSerializer {
       }
       const placed = this.serializeShapeObject(data)
       if (placed) {
+        if (indexMap) {
+          indexMap.set(data.object, out.length)
+        }
         out.push(placed)
       }
     }
@@ -575,7 +696,7 @@ export class EditorMapSerializer {
     }
   }
 
-  private serializeEnemies() {
+  private serializeEnemies(indexMap?: Map<fabric.Object, number>) {
     const enemies: EditorMapData['enemies'] = []
     const enemyMarkers = this.ctx.markerManager.getEnemyMarkers()
     const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
@@ -614,6 +735,9 @@ export class EditorMapSerializer {
         }
       }
 
+      if (indexMap) {
+        indexMap.set(marker, enemies.length)
+      }
       enemies.push({
         x: (marker.left ?? 0) * invPixelsPerMeter,
         y: (marker.top ?? 0) * invPixelsPerMeter,
@@ -638,13 +762,16 @@ export class EditorMapSerializer {
     return enemies
   }
 
-  private serializeWeapons() {
+  private serializeWeapons(indexMap?: Map<fabric.Object, number>) {
     const weapons: EditorMapData['weapons'] = []
     const weaponMarkers = this.ctx.markerManager.getWeaponMarkers()
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     for (let i = 0; i < weaponMarkers.length; i++) {
       const data = weaponMarkers[i]
       const marker = data.marker
+      if (indexMap) {
+        indexMap.set(marker, weapons.length)
+      }
       weapons.push({
         x: (marker.left ?? 0) * invPixelsPerMeter,
         y: (marker.top ?? 0) * invPixelsPerMeter,

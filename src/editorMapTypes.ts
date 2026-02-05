@@ -4,6 +4,29 @@ export type MapObjectKind = 'ground' | 'obstacle'
 
 export type WeaponCategory = 'main' | 'secondary' | 'item'
 
+export type EditorTreeObjectType =
+  | 'group'
+  | 'player'
+  | 'enemy'
+  | 'weapon'
+  | 'camera'
+  | 'checkpoint'
+  | 'hookAnchor'
+  | 'ground'
+  | 'obstacle'
+
+export interface EditorTreeNode {
+  type: EditorTreeObjectType
+  index?: number
+  objectKind?: MapObjectKind
+  name?: string
+}
+
+export interface EditorTreeData {
+  nodes: EditorTreeNode[]
+  parents: number[]
+}
+
 export interface EditorMapMeta {
   id: string
   name: string
@@ -138,6 +161,7 @@ export interface EditorMapData {
   weapons?: MapWeapon[]
   checkpoints?: MapCheckpoint[]
   hookAnchors?: MapHookAnchor[]
+  editorTree?: EditorTreeData
 }
 
 export interface StoredEditorMap {

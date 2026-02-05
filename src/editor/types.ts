@@ -4,6 +4,7 @@ import type { WeaponCategory } from '../editorMapTypes'
 import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
 
 export enum ObjectType {
+  Group = 'group',
   Player = 'player',
   Enemy = 'enemy',
   Weapon = 'weapon',
@@ -169,4 +170,5 @@ export interface EditorObjectData {
   name: string
   type: ObjectType
   object: fabric.Object
+  parentId: number | null
 }

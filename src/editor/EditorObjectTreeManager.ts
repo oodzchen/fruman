@@ -8,9 +8,17 @@ export interface EditorObjectTreeManagerContext {
   onRenameCommit: (id: number, value: string) => void
   onRenameCancel: () => void
   onDragStart: (id: number) => void
-  onDrop: (dragId: number, targetId: number, insertAfter: boolean) => void
+  onDropReorder: (
+    dragId: number,
+    targetId: number,
+    insertAfter: boolean,
+    targetParentId: number | null
+  ) => void
+  onDropToParent: (dragId: number, parentId: number) => void
+  onDropToRoot: (dragId: number) => void
   onDragEnd: () => void
-  onObjectSelected: (id: number) => void
+  onObjectSelected: (id: number, mode: 'replace' | 'toggle' | 'range') => void
+  selectedEditorObjectIds: number[]
 }
 
 export class EditorObjectTreeManager {
@@ -18,6 +26,8 @@ export class EditorObjectTreeManager {
   private context: EditorObjectTreeManagerContext
   private dragPreviewId = -1
   private dragPreviewAfter = false
+  private dragParentPreviewId = -1
+  private groupOpenMap = new Map<number, boolean>()
 
   constructor(context: EditorObjectTreeManagerContext) {
     this.context = context
@@ -35,19 +45,89 @@ export class EditorObjectTreeManager {
         return
       }
       const objectId = Number.parseInt(node.dataset.objectId, 10)
-      this.context.onObjectSelected(objectId)
+      const isToggle = event.ctrlKey || event.metaKey
+      const isRange = event.shiftKey
+      this.context.onObjectSelected(
+        objectId,
+        isRange ? 'range' : isToggle ? 'toggle' : 'replace'
+      )
+    })
+
+    this.editorObjectTree.addEventListener('dragover', (event) => {
+      if (this.context.dragObjectId === -1) {
+        return
+      }
+      const target = event.target as HTMLElement | null
+      if (
+        target?.closest('.editor-object-node') ||
+        target?.closest('.editor-object-children')
+      ) {
+        return
+      }
+      event.preventDefault()
+      this.clearDragPreview()
+      this.clearParentPreview()
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
+      }
+    })
+
+    this.editorObjectTree.addEventListener('drop', (event) => {
+      if (this.context.dragObjectId === -1) {
+        return
+      }
+      const target = event.target as HTMLElement | null
+      if (
+        target?.closest('.editor-object-node') ||
+        target?.closest('.editor-object-children')
+      ) {
+        return
+      }
+      event.preventDefault()
+      if (this.dragParentPreviewId !== -1) {
+        this.context.onDropToParent(
+          this.context.dragObjectId,
+          this.dragParentPreviewId
+        )
+      } else if (this.dragPreviewId !== -1) {
+        const targetIndex = this.findEditorObjectIndexById(this.dragPreviewId)
+        const targetParentId =
+          targetIndex !== -1
+            ? this.context.editorObjects[targetIndex].parentId
+            : null
+        this.context.onDropReorder(
+          this.context.dragObjectId,
+          this.dragPreviewId,
+          this.dragPreviewAfter,
+          targetParentId
+        )
+      } else {
+        this.context.onDropToRoot(this.context.dragObjectId)
+      }
+      this.resetDragState()
     })
   }
 
   public renderObjectTree() {
     this.editorObjectTree.innerHTML = ''
+    const childrenMap = new Map<number, EditorObjectData[]>()
+    const roots: EditorObjectData[] = []
     for (let i = 0; i < this.context.editorObjects.length; i++) {
       const data = this.context.editorObjects[i]
-      if (data.id === this.context.renamingEditorObjectId) {
-        this.renderRenameInput(data)
+      if (data.parentId === null) {
+        roots.push(data)
         continue
       }
-      this.renderObjectNode(data)
+      const parentList = childrenMap.get(data.parentId)
+      if (parentList) {
+        parentList.push(data)
+      } else {
+        childrenMap.set(data.parentId, [data])
+      }
+    }
+
+    for (let i = 0; i < roots.length; i++) {
+      this.renderObjectNode(roots[i], childrenMap, this.editorObjectTree)
     }
   }
 
@@ -71,17 +151,117 @@ export class EditorObjectTreeManager {
         this.context.onRenameCancel()
       }
     })
-    this.editorObjectTree.appendChild(input)
-    input.focus()
-    input.select()
+    return input
   }
 
-  private renderObjectNode(data: EditorObjectData) {
+  private renderObjectNode(
+    data: EditorObjectData,
+    childrenMap: Map<number, EditorObjectData[]>,
+    container: HTMLElement
+  ) {
+    const children = childrenMap.get(data.id) ?? []
+    const isRenaming = data.id === this.context.renamingEditorObjectId
+    if (children.length > 0) {
+      const details = document.createElement('details')
+      details.className = 'editor-object-group'
+      details.open = this.groupOpenMap.get(data.id) ?? true
+      details.addEventListener('toggle', () => {
+        this.groupOpenMap.set(data.id, details.open)
+      })
+      const summary = document.createElement('summary')
+      const toggle = document.createElement('button')
+      toggle.type = 'button'
+      toggle.className = 'editor-object-toggle'
+      toggle.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        details.open = !details.open
+        this.groupOpenMap.set(data.id, details.open)
+      })
+      summary.appendChild(toggle)
+      if (isRenaming) {
+        summary.appendChild(this.renderRenameInput(data))
+      } else {
+        summary.appendChild(this.createObjectNodeButton(data))
+      }
+      details.appendChild(summary)
+
+      const childContainer = document.createElement('div')
+      childContainer.className = 'editor-object-children'
+      childContainer.dataset.parentId = String(data.id)
+      childContainer.addEventListener('dragover', (event) => {
+        if (this.context.dragObjectId === -1) {
+          return
+        }
+        const target = event.target as HTMLElement | null
+        if (target?.closest('.editor-object-node')) {
+          return
+        }
+        event.preventDefault()
+        this.clearDragPreview()
+        if (this.dragParentPreviewId !== data.id) {
+          this.clearParentPreview()
+          this.dragParentPreviewId = data.id
+          const selector = `.editor-object-node[data-object-id="${data.id}"]`
+          const node =
+            this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
+          if (node) {
+            node.classList.add('is-drop-parent')
+          }
+        }
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'move'
+        }
+      })
+      childContainer.addEventListener('dragleave', () => {
+        this.clearParentPreview()
+      })
+      childContainer.addEventListener('drop', (event) => {
+        if (this.context.dragObjectId === -1) {
+          return
+        }
+        const target = event.target as HTMLElement | null
+        if (target?.closest('.editor-object-node')) {
+          return
+        }
+        event.preventDefault()
+        this.context.onDropToParent(this.context.dragObjectId, data.id)
+        this.resetDragState()
+      })
+
+      for (let i = 0; i < children.length; i++) {
+        this.renderObjectNode(children[i], childrenMap, childContainer)
+      }
+
+      details.appendChild(childContainer)
+      container.appendChild(details)
+      if (isRenaming) {
+        const input = summary.querySelector<HTMLInputElement>(
+          '.editor-object-rename-input'
+        )
+        input?.focus()
+        input?.select()
+      }
+      return
+    }
+
+    if (isRenaming) {
+      const input = this.renderRenameInput(data)
+      container.appendChild(input)
+      input.focus()
+      input.select()
+      return
+    }
+
+    container.appendChild(this.createObjectNodeButton(data))
+  }
+
+  private createObjectNodeButton(data: EditorObjectData) {
     const node = document.createElement('button')
     node.type = 'button'
     node.className = 'editor-object-node'
     node.draggable = true
-    if (data.id === this.context.selectedEditorObjectId) {
+    if (this.context.selectedEditorObjectIds.includes(data.id)) {
       node.classList.add('is-selected')
     }
     node.dataset.objectId = String(data.id)
@@ -100,9 +280,18 @@ export class EditorObjectTreeManager {
       }
       event.preventDefault()
       const rect = node.getBoundingClientRect()
-      const midY = rect.top + rect.height * 0.5
-      const insertAfter = event.clientY >= midY
-      this.updateDragPreviewFromTarget(data.id, insertAfter)
+      const upper = rect.top + rect.height * 0.3
+      const lower = rect.top + rect.height * 0.7
+      if (event.clientY > upper && event.clientY < lower) {
+        this.clearDragPreview()
+        this.clearParentPreview()
+        this.dragParentPreviewId = data.id
+        node.classList.add('is-drop-parent')
+      } else {
+        this.clearParentPreview()
+        const insertAfter = event.clientY >= rect.top + rect.height * 0.5
+        this.updateDragPreviewFromTarget(data.id, insertAfter)
+      }
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'move'
       }
@@ -113,16 +302,26 @@ export class EditorObjectTreeManager {
       }
       event.preventDefault()
       const rect = node.getBoundingClientRect()
-      const midY = rect.top + rect.height * 0.5
-      const insertAfter = event.clientY >= midY
-      this.context.onDrop(this.context.dragObjectId, data.id, insertAfter)
+      const upper = rect.top + rect.height * 0.3
+      const lower = rect.top + rect.height * 0.7
+      if (event.clientY > upper && event.clientY < lower) {
+        this.context.onDropToParent(this.context.dragObjectId, data.id)
+      } else {
+        const insertAfter = event.clientY >= rect.top + rect.height * 0.5
+        this.context.onDropReorder(
+          this.context.dragObjectId,
+          data.id,
+          insertAfter,
+          data.parentId
+        )
+      }
       this.resetDragState()
     })
     node.addEventListener('dragend', () => {
       this.resetDragState()
       this.context.onDragEnd()
     })
-    this.editorObjectTree.appendChild(node)
+    return node
   }
 
   public updateDragPreviewFromTarget(targetId: number, insertAfter: boolean) {
@@ -183,8 +382,22 @@ export class EditorObjectTreeManager {
     this.dragPreviewAfter = false
   }
 
+  private clearParentPreview() {
+    if (this.dragParentPreviewId === -1) {
+      return
+    }
+    const selector = `.editor-object-node[data-object-id="${this.dragParentPreviewId}"]`
+    const node =
+      this.editorObjectTree.querySelector<HTMLButtonElement>(selector)
+    if (node) {
+      node.classList.remove('is-drop-parent')
+    }
+    this.dragParentPreviewId = -1
+  }
+
   public resetDragState() {
     this.clearDragPreview()
+    this.clearParentPreview()
   }
 
   private findEditorObjectIndexById(id: number) {

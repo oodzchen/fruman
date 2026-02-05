@@ -44,6 +44,7 @@
   "editor_object_list_title": "对象列表",
   "editor_object_panel_title": "",
   "editor_panel_add_object": "添加对象",
+  "editor_object_group": "空对象",
   "editor_object_player": "玩家",
   "editor_object_enemy": "敌人",
   "editor_object_weapon": "武器道具",

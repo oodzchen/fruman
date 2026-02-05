@@ -1,7 +1,8 @@
 import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
-import type { EditorObjectData, ObjectType } from './types'
+import { ObjectType } from './types'
+import type { EditorObjectData } from './types'
 
 export interface EditorObjectManagerContext {
   fabricCanvas: () => fabric.Canvas | null
@@ -18,8 +19,10 @@ export class EditorObjectManager {
   private objectTypeCounts = new Map<ObjectType, number>()
   private nextEditorObjectId = 1
   private selectedEditorObjectId = -1
+  private selectedEditorObjectIds: number[] = []
   private renamingEditorObjectId = -1
   private focusedEditorObject: fabric.Object | null = null
+  private treeReorderScratch: EditorObjectData[] = []
 
   constructor(ctx: EditorObjectManagerContext) {
     this.ctx = ctx
@@ -37,8 +40,73 @@ export class EditorObjectManager {
     return this.selectedEditorObjectId
   }
 
+  getSelectedEditorObjectIds() {
+    return this.selectedEditorObjectIds
+  }
+
   getRenamingEditorObjectId() {
     return this.renamingEditorObjectId
+  }
+
+  fillTreeSnapshot(order: number[], parentIds: number[]) {
+    const count = this.editorObjects.length
+    order.length = count
+    parentIds.length = count
+    for (let i = 0; i < count; i++) {
+      const data = this.editorObjects[i]
+      order[i] = data.id
+      parentIds[i] = data.parentId ?? -1
+    }
+  }
+
+  applyTreeSnapshot(order: number[], parentIds: number[]): boolean {
+    const count = this.editorObjects.length
+    if (order.length !== count || parentIds.length !== count) {
+      return false
+    }
+
+    for (let i = 0; i < count; i++) {
+      if (!this.getEditorObjectById(order[i])) {
+        return false
+      }
+    }
+
+    for (let i = 0; i < count; i++) {
+      const obj = this.editorObjects[i].object
+      if (obj.group) {
+        this.detachObjectFromGroup(obj)
+      }
+    }
+
+    const scratch = this.treeReorderScratch
+    scratch.length = 0
+    for (let i = 0; i < count; i++) {
+      const data = this.getEditorObjectById(order[i])
+      if (!data) {
+        return false
+      }
+      const parentId = parentIds[i] === -1 ? null : parentIds[i]
+      data.parentId = parentId
+      if (parentId !== null) {
+        const parentData = this.getEditorObjectById(parentId)
+        if (parentData?.type === ObjectType.Group) {
+          this.attachObjectToGroup(data.object, parentData.object)
+        } else {
+          this.detachObjectFromGroup(data.object)
+        }
+      } else {
+        this.detachObjectFromGroup(data.object)
+      }
+      scratch.push(data)
+    }
+
+    this.editorObjects.length = 0
+    for (let i = 0; i < scratch.length; i++) {
+      this.editorObjects.push(scratch[i])
+    }
+    this.applyEditorObjectStacking()
+    this.ctx.renderObjectTree()
+    return true
   }
 
   getDragObjectId() {
@@ -74,7 +142,7 @@ export class EditorObjectManager {
     this.objectTypeCounts.set(type, nextCount)
     const typeLabel = localizer.t(`editor_object_${type}`)
     const name = `${typeLabel}${nextCount}`
-    const data: EditorObjectData = { id, name, type, object }
+    const data: EditorObjectData = { id, name, type, object, parentId: null }
     this.editorObjects.push(data)
     this.editorObjectMap.set(object, data)
     this.applyEditorObjectStacking()
@@ -91,6 +159,9 @@ export class EditorObjectManager {
     // Notify external managers to clean up their specific data (camera, markers, patterns)
     this.ctx.onObjectRemoved(object)
 
+    if (data.type === ObjectType.Group) {
+      this.detachGroupChildren(data.id, object)
+    }
     this.editorObjectMap.delete(object)
     const index = this.editorObjects.indexOf(data)
     if (index !== -1) {
@@ -156,28 +227,52 @@ export class EditorObjectManager {
       return
     }
     canvas.setActiveObject(data.object)
-    this.handleCanvasSelection(data.object)
+    this.handleCanvasSelection([data.object])
     canvas.requestRenderAll()
   }
 
-  handleCanvasSelection(target: fabric.Object | null) {
+  handleCanvasSelection(targets: fabric.Object[]) {
     const previousFocus = this.focusedEditorObject
-    const data = target ? (this.editorObjectMap.get(target) ?? null) : null
-    this.selectedEditorObjectId = data ? data.id : -1
+    const nextIds: number[] = []
+    let nextFocus: fabric.Object | null = null
+    for (let i = 0; i < targets.length; i++) {
+      const data = this.editorObjectMap.get(targets[i])
+      if (!data) {
+        continue
+      }
+      nextIds.push(data.id)
+      if (!nextFocus) {
+        nextFocus = data.object
+      }
+    }
+    this.selectedEditorObjectIds = nextIds
+    this.selectedEditorObjectId = nextIds.length > 0 ? nextIds[0] : -1
     if (
       this.renamingEditorObjectId !== -1 &&
       this.renamingEditorObjectId !== this.selectedEditorObjectId
     ) {
       this.renamingEditorObjectId = -1
     }
-    if (previousFocus && previousFocus !== target) {
+    if (previousFocus && previousFocus !== nextFocus) {
       this.focusedEditorObject = null
       this.applyEditorObjectStacking()
     }
-    this.focusedEditorObject = target
+    this.focusedEditorObject = nextFocus
     this.applyEditorObjectStacking()
 
-    this.ctx.onSelectionChanged(target)
+    this.ctx.onSelectionChanged(nextFocus)
+    this.ctx.renderObjectTree()
+  }
+
+  setSelectedIds(ids: number[]) {
+    this.selectedEditorObjectIds = ids
+    this.selectedEditorObjectId = ids.length > 0 ? ids[0] : -1
+    if (
+      this.renamingEditorObjectId !== -1 &&
+      !ids.includes(this.renamingEditorObjectId)
+    ) {
+      this.renamingEditorObjectId = -1
+    }
     this.ctx.renderObjectTree()
   }
 
@@ -205,6 +300,98 @@ export class EditorObjectManager {
     this.editorObjects.splice(insertIndex, 0, dragData)
     this.applyEditorObjectStacking()
     this.ctx.renderObjectTree()
+  }
+
+  reorderEditorObjectsWithinParent(
+    dragId: number,
+    targetId: number,
+    insertAfter: boolean,
+    parentId: number | null
+  ) {
+    if (dragId === targetId) {
+      return
+    }
+    const dragIndex = this.findEditorObjectIndexById(dragId)
+    const targetIndex = this.findEditorObjectIndexById(targetId)
+    if (dragIndex === -1 || targetIndex === -1) {
+      return
+    }
+    const dragData = this.editorObjects[dragIndex]
+    const targetData = this.editorObjects[targetIndex]
+    if (targetData.parentId !== parentId) {
+      return
+    }
+    this.editorObjects.splice(dragIndex, 1)
+    const targetIndexAfter =
+      dragIndex < targetIndex ? targetIndex - 1 : targetIndex
+
+    const siblingIndices: number[] = []
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      if (this.editorObjects[i].parentId === parentId) {
+        siblingIndices.push(i)
+      }
+    }
+    const targetPos = siblingIndices.indexOf(targetIndexAfter)
+    if (targetPos === -1) {
+      return
+    }
+
+    let insertPos = insertAfter ? targetPos + 1 : targetPos
+    if (insertPos < 0) {
+      insertPos = 0
+    }
+    if (insertPos > siblingIndices.length) {
+      insertPos = siblingIndices.length
+    }
+
+    let insertIndex = this.editorObjects.length
+    if (siblingIndices.length === 0) {
+      insertIndex = Math.min(targetIndexAfter, this.editorObjects.length)
+    } else if (insertPos === siblingIndices.length) {
+      const lastIndex = siblingIndices[siblingIndices.length - 1]
+      insertIndex = Math.min(lastIndex + 1, this.editorObjects.length)
+    } else {
+      insertIndex = siblingIndices[insertPos]
+    }
+
+    this.editorObjects.splice(insertIndex, 0, dragData)
+    this.applyEditorObjectStacking()
+    this.ctx.renderObjectTree()
+  }
+
+  setParent(childId: number, parentId: number | null): boolean {
+    if (childId === parentId) {
+      return false
+    }
+    const childData = this.getEditorObjectById(childId)
+    if (!childData) {
+      return false
+    }
+    if (childData.parentId === parentId) {
+      return false
+    }
+    if (parentId !== null) {
+      const parentData = this.getEditorObjectById(parentId)
+      if (!parentData) {
+        return false
+      }
+      if (this.isDescendant(parentId, childId)) {
+        return false
+      }
+      if (parentData.type === ObjectType.Group) {
+        this.attachObjectToGroup(childData.object, parentData.object)
+      } else {
+        this.detachObjectFromGroup(childData.object)
+      }
+      childData.parentId = parentId
+      this.moveDataAfterParent(childData, parentData)
+    } else {
+      this.detachObjectFromGroup(childData.object)
+      childData.parentId = null
+    }
+    this.applyEditorObjectStacking()
+    this.ctx.renderObjectTree()
+    return true
   }
 
   findEditorObjectIndexById(id: number) {
@@ -267,8 +454,89 @@ export class EditorObjectManager {
     this.objectTypeCounts.clear()
     this.nextEditorObjectId = 1
     this.selectedEditorObjectId = -1
+    this.selectedEditorObjectIds.length = 0
     this.renamingEditorObjectId = -1
     this.focusedEditorObject = null
     this.dragObjectId = -1
+  }
+
+  private isDescendant(candidateId: number, ancestorId: number): boolean {
+    let current = this.getEditorObjectById(candidateId)
+    while (current && current.parentId !== null) {
+      if (current.parentId === ancestorId) {
+        return true
+      }
+      current = this.getEditorObjectById(current.parentId)
+    }
+    return false
+  }
+
+  private attachObjectToGroup(
+    child: fabric.Object,
+    parent: fabric.Object
+  ): void {
+    if (!(parent instanceof fabric.Group)) {
+      return
+    }
+    parent.subTargetCheck = true
+    if (child.group) {
+      child.group.removeWithUpdate(child)
+    } else if (child.canvas) {
+      child.canvas.remove(child)
+    }
+    parent.addWithUpdate(child)
+  }
+
+  private detachObjectFromGroup(child: fabric.Object): void {
+    const canvas = this.ctx.fabricCanvas()
+    if (child.group) {
+      const parent = child.group
+      parent.removeWithUpdate(child)
+      if (canvas && child.canvas !== canvas) {
+        canvas.add(child)
+      }
+      child.setCoords()
+    }
+  }
+
+  private detachGroupChildren(
+    groupId: number,
+    groupObject: fabric.Object
+  ): void {
+    const canvas = this.ctx.fabricCanvas()
+    if (!(groupObject instanceof fabric.Group) || !canvas) {
+      return
+    }
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const data = this.editorObjects[i]
+      if (data.parentId !== groupId) {
+        continue
+      }
+      data.parentId = null
+      if (data.object.group === groupObject) {
+        groupObject.removeWithUpdate(data.object)
+        if (data.object.canvas !== canvas) {
+          canvas.add(data.object)
+        }
+        data.object.setCoords()
+      }
+    }
+  }
+
+  private moveDataAfterParent(
+    childData: EditorObjectData,
+    parentData: EditorObjectData
+  ) {
+    const childIndex = this.editorObjects.indexOf(childData)
+    const parentIndex = this.editorObjects.indexOf(parentData)
+    if (childIndex === -1 || parentIndex === -1) {
+      return
+    }
+    if (childIndex > parentIndex) {
+      return
+    }
+    this.editorObjects.splice(childIndex, 1)
+    const insertIndex = Math.min(parentIndex + 1, this.editorObjects.length)
+    this.editorObjects.splice(insertIndex, 0, childData)
   }
 }

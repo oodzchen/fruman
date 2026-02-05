@@ -19,7 +19,7 @@ interface EditorCanvasEventHandlerContext {
   hidePolygonMenu: () => void
   handleEditablePolygonContextMenuEvent: (event: MouseEvent) => void
   handleEditablePolygonPointerDown: (opt: fabric.IEvent<Event>) => boolean
-  handleCanvasSelection: (object: fabric.Object | null) => void
+  handleCanvasSelection: (objects: fabric.Object[]) => void
   onObjectModified: () => void
   onPolygonEdited: () => void
 }
@@ -177,18 +177,18 @@ export class EditorCanvasEventHandler {
     const selectedObjects = (
       opt as fabric.IEvent<Event> & { selected?: fabric.Object[] }
     ).selected
-    this.ctx.handleCanvasSelection(selectedObjects?.[0] ?? null)
+    this.ctx.handleCanvasSelection(selectedObjects ?? [])
   }
 
   private handleSelectionUpdated = (opt: fabric.IEvent<Event>) => {
     const selectedObjects = (
       opt as fabric.IEvent<Event> & { selected?: fabric.Object[] }
     ).selected
-    this.ctx.handleCanvasSelection(selectedObjects?.[0] ?? null)
+    this.ctx.handleCanvasSelection(selectedObjects ?? [])
   }
 
   private handleSelectionCleared = () => {
-    this.ctx.handleCanvasSelection(null)
+    this.ctx.handleCanvasSelection([])
     this.ctx.snapManager.hideSnapGuides()
     this.ctx.snapManager.clearSnapCandidates()
   }

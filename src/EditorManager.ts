@@ -99,6 +99,12 @@ import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
 
+interface EditorTreeHistoryEntry {
+  order: number[]
+  parentIds: number[]
+  id: number
+}
+
 export enum EditorView {
   MapList,
   Editor,
@@ -134,6 +140,11 @@ export class EditorManager {
   private onPreviewCallback?: (meta: EditorMapMeta, data: EditorMapData) => void
   private onDefaultMapChangedCallback?: (meta: EditorMapMeta) => void
   private lastSavedHistoryId = 0
+  private treeUndoStack: EditorTreeHistoryEntry[] = []
+  private treeRedoStack: EditorTreeHistoryEntry[] = []
+  private treeEntryPool: EditorTreeHistoryEntry[] = []
+  private treeNextEntryId = 1
+  private lastHistoryWasTree = false
   private fabricCanvas: fabric.Canvas | null = null
   private activeObjectType: ObjectType | null = null
   private handleResize: () => void
@@ -143,6 +154,8 @@ export class EditorManager {
   private isPanning = false
   private lastClientX = 0
   private lastClientY = 0
+  private objectTreeAnchorId = -1
+  private dragSelectionIds: number[] = []
   private panelMenuSpawnX = 0
   private panelMenuSpawnY = 0
   private panelMenuSpawnValid = false
@@ -273,7 +286,7 @@ export class EditorManager {
           this.objectManager.registerEditorObject(type, obj),
 
         handleCanvasSelection: (obj) =>
-          this.objectManager.handleCanvasSelection(obj),
+          this.objectManager.handleCanvasSelection(obj ? [obj] : []),
 
         computeEnemyBodyRadiusPx,
 
@@ -317,7 +330,7 @@ export class EditorManager {
         this.objectManager.registerEditorObject(type, obj),
 
       handleCanvasSelection: (obj) =>
-        this.objectManager.handleCanvasSelection(obj),
+        this.objectManager.handleCanvasSelection(obj ? [obj] : []),
     })
 
     this.cameraManager = new EditorCameraManager({
@@ -331,7 +344,7 @@ export class EditorManager {
         this.objectManager.registerEditorObject(type, obj),
 
       handleCanvasSelection: (obj) =>
-        this.objectManager.handleCanvasSelection(obj),
+        this.objectManager.handleCanvasSelection(obj ? [obj] : []),
 
       ensureFabricCanvas: () => this.ensureFabricCanvas(),
     })
@@ -390,7 +403,7 @@ export class EditorManager {
       objectManager: this.objectManager,
       polygonEditor: this.polygonEditor,
       handleCanvasSelection: (obj) =>
-        this.objectManager.handleCanvasSelection(obj),
+        this.objectManager.handleCanvasSelection(obj ? [obj] : []),
       isEditablePolygon: (obj) => this.isEditablePolygon(obj),
       hasObjectOfType: (type) => this.hasObjectOfType(type),
     })
@@ -426,8 +439,10 @@ export class EditorManager {
         this.currentMapMeta = meta
         this.historyManager.reset(data)
         this.lastSavedHistoryId = this.historyManager.getCurrentEntryId()
+        this.resetTreeHistory()
       },
       applyEditorViewportState: (state) => this.applyEditorViewportState(state),
+      applyEditorTreeData: (data) => this.applyEditorTreeData(data),
       onShowEditorView: () => this.showEditorView(),
       onBackToMenu: () => this.handleBack(),
       onDefaultMapChanged: (meta) => {
@@ -446,6 +461,7 @@ export class EditorManager {
       editorObjects: this.objectManager.getEditorObjects(),
       renamingEditorObjectId: this.objectManager.getRenamingEditorObjectId(),
       selectedEditorObjectId: this.objectManager.getSelectedEditorObjectId(),
+      selectedEditorObjectIds: this.objectManager.getSelectedEditorObjectIds(),
       dragObjectId: this.objectManager.getDragId(),
       onRenameCommit: (id, value) => {
         const changed = this.objectManager.commitObjectRename(id, value)
@@ -455,18 +471,63 @@ export class EditorManager {
       },
       onRenameCancel: () => this.objectManager.cancelObjectRename(),
       onDragStart: (id) => {
+        this.dragSelectionIds = this.getDragSelectionIds(id)
         this.objectManager.setDragId(id)
         this.updateObjectTreeContext()
       },
-      onDrop: (dragId, targetId, insertAfter) => {
-        this.objectManager.reorderEditorObjects(dragId, targetId, insertAfter)
+      onDropReorder: (dragId, targetId, insertAfter, targetParentId) => {
+        const dragIds = this.getDragSelectionIds(dragId)
+        if (dragIds.includes(targetId)) {
+          this.resetDragState()
+          return
+        }
+        for (let i = 0; i < dragIds.length; i++) {
+          this.objectManager.setParent(dragIds[i], targetParentId)
+        }
+        let currentTargetId = targetId
+        const ordered = insertAfter ? dragIds : [...dragIds].reverse()
+        for (let i = 0; i < ordered.length; i++) {
+          this.objectManager.reorderEditorObjectsWithinParent(
+            ordered[i],
+            currentTargetId,
+            insertAfter,
+            targetParentId
+          )
+          if (insertAfter) {
+            currentTargetId = ordered[i]
+          }
+        }
         this.resetDragState()
-        this.captureHistorySnapshot()
+        this.captureTreeHistory()
+      },
+      onDropToParent: (dragId, parentId) => {
+        const dragIds = this.getDragSelectionIds(dragId)
+        let changed = false
+        for (let i = 0; i < dragIds.length; i++) {
+          const updated = this.objectManager.setParent(dragIds[i], parentId)
+          changed = changed || updated
+        }
+        this.resetDragState()
+        if (changed) {
+          this.captureTreeHistory()
+        }
+      },
+      onDropToRoot: (dragId) => {
+        const dragIds = this.getDragSelectionIds(dragId)
+        let changed = false
+        for (let i = 0; i < dragIds.length; i++) {
+          const updated = this.objectManager.setParent(dragIds[i], null)
+          changed = changed || updated
+        }
+        this.resetDragState()
+        if (changed) {
+          this.captureTreeHistory()
+        }
       },
       onDragEnd: () => {
         this.resetDragState()
       },
-      onObjectSelected: (id) => this.objectManager.focusEditorObjectById(id),
+      onObjectSelected: (id, mode) => this.handleObjectTreeSelection(id, mode),
     })
 
     // PatternManager initialized earlier
@@ -600,8 +661,8 @@ export class EditorManager {
         this.handleEditablePolygonContextMenuEvent(event),
       handleEditablePolygonPointerDown: (opt) =>
         this.handleEditablePolygonPointerDown(opt as fabric.IEvent<MouseEvent>),
-      handleCanvasSelection: (object) =>
-        this.objectManager.handleCanvasSelection(object),
+      handleCanvasSelection: (objects) =>
+        this.objectManager.handleCanvasSelection(objects),
       onObjectModified: () => this.handleObjectModified(),
       onPolygonEdited: () => this.captureHistorySnapshot(),
     })
@@ -645,6 +706,14 @@ export class EditorManager {
     )
 
     this.editorOverlay.addEventListener(
+      'keydown',
+      (event) => {
+        this.handleKeyDown(event)
+      },
+      true
+    )
+
+    window.addEventListener(
       'keydown',
       (event) => {
         this.handleKeyDown(event)
@@ -765,6 +834,10 @@ export class EditorManager {
     if (this.currentView !== EditorView.Editor) {
       return
     }
+    if (this.undoTreeHistory()) {
+      return
+    }
+    this.lastHistoryWasTree = false
     this.historyManager.undo()
   }
 
@@ -772,6 +845,10 @@ export class EditorManager {
     if (this.currentView !== EditorView.Editor) {
       return
     }
+    if (this.redoTreeHistory()) {
+      return
+    }
+    this.lastHistoryWasTree = false
     this.historyManager.redo()
   }
 
@@ -789,6 +866,26 @@ export class EditorManager {
 
   private handleObjectClick(type: ObjectType) {
     this.menuSystem.hidePanelMenu()
+
+    if (type === ObjectType.Group) {
+      this.hideAllSubmenus()
+      this.menuSystem.hideObjectTypeMenu()
+      this.setActiveObjectType(type)
+      const spawn = this.consumePanelMenuSpawn()
+      const group = this.createEmptyGroup(
+        spawn?.x ?? this.getViewportCenter().x,
+        spawn?.y ?? this.getViewportCenter().y
+      )
+      if (group) {
+        this.fabricCanvas?.add(group)
+        this.objectManager.registerEditorObject(type, group)
+        this.fabricCanvas?.setActiveObject(group)
+        this.objectManager.handleCanvasSelection([group])
+        this.fabricCanvas?.requestRenderAll()
+        this.captureHistorySnapshot()
+      }
+      return
+    }
 
     if (type === ObjectType.Ground) {
       this.setActiveObjectType(ObjectType.Ground)
@@ -972,6 +1069,7 @@ export class EditorManager {
       editorObjects: this.objectManager.getEditorObjects(),
       renamingEditorObjectId: this.objectManager.getRenamingEditorObjectId(),
       selectedEditorObjectId: this.objectManager.getSelectedEditorObjectId(),
+      selectedEditorObjectIds: this.objectManager.getSelectedEditorObjectIds(),
       dragObjectId: this.objectManager.getDragId(),
     })
   }
@@ -979,6 +1077,105 @@ export class EditorManager {
   private renderObjectTree() {
     this.updateObjectTreeContext()
     this.objectTreeManager.renderObjectTree()
+  }
+
+  private handleObjectTreeSelection(
+    id: number,
+    mode: 'replace' | 'toggle' | 'range'
+  ) {
+    const selected = this.objectManager.getSelectedEditorObjectIds()
+    let nextSelection: number[] = []
+    if (mode === 'replace') {
+      nextSelection = [id]
+      this.objectTreeAnchorId = id
+    } else if (mode === 'toggle') {
+      if (selected.includes(id)) {
+        nextSelection = selected.filter((value) => value !== id)
+      } else {
+        nextSelection = [...selected, id]
+      }
+      this.objectTreeAnchorId = id
+    } else {
+      const anchorId =
+        this.objectTreeAnchorId === -1 ? id : this.objectTreeAnchorId
+      nextSelection = this.collectRangeSelection(anchorId, id)
+    }
+
+    this.objectManager.setSelectedIds(nextSelection)
+    this.applyCanvasSelectionFromIds(nextSelection)
+  }
+
+  private collectRangeSelection(anchorId: number, targetId: number) {
+    const objects = this.objectManager.getEditorObjects()
+    let anchorIndex = -1
+    let targetIndex = -1
+    for (let i = 0; i < objects.length; i++) {
+      const id = objects[i].id
+      if (id === anchorId) {
+        anchorIndex = i
+      }
+      if (id === targetId) {
+        targetIndex = i
+      }
+    }
+    if (anchorIndex === -1 || targetIndex === -1) {
+      return [targetId]
+    }
+    const start = Math.min(anchorIndex, targetIndex)
+    const end = Math.max(anchorIndex, targetIndex)
+    const result: number[] = []
+    for (let i = start; i <= end; i++) {
+      result.push(objects[i].id)
+    }
+    return result
+  }
+
+  private applyCanvasSelectionFromIds(ids: number[]) {
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      return
+    }
+    if (ids.length === 0) {
+      canvas.discardActiveObject()
+      canvas.requestRenderAll()
+      return
+    }
+    const objects: fabric.Object[] = []
+    for (let i = 0; i < ids.length; i++) {
+      const data = this.objectManager.getEditorObjectById(ids[i])
+      if (data?.object && data.object.canvas === canvas) {
+        objects.push(data.object)
+      }
+    }
+    if (objects.length === 0) {
+      canvas.discardActiveObject()
+      canvas.requestRenderAll()
+      return
+    }
+    if (objects.length === 1) {
+      canvas.setActiveObject(objects[0])
+      this.objectManager.handleCanvasSelection(objects)
+      canvas.requestRenderAll()
+      return
+    }
+    const selection = new fabric.ActiveSelection(objects, { canvas })
+    canvas.setActiveObject(selection)
+    this.objectManager.handleCanvasSelection(objects)
+    canvas.requestRenderAll()
+  }
+
+  private getDragSelectionIds(primaryId: number) {
+    if (
+      this.dragSelectionIds.length > 0 &&
+      this.dragSelectionIds.includes(primaryId)
+    ) {
+      return this.dragSelectionIds
+    }
+    const selected = this.objectManager.getSelectedEditorObjectIds()
+    if (selected.includes(primaryId) && selected.length > 1) {
+      return selected
+    }
+    return [primaryId]
   }
 
   private hasObjectOfType(type: ObjectType): boolean {
@@ -1192,7 +1389,127 @@ export class EditorManager {
   }
 
   private captureHistorySnapshot() {
+    this.lastHistoryWasTree = false
     this.historyManager.capture()
+  }
+
+  private acquireTreeEntry(): EditorTreeHistoryEntry {
+    const entry = this.treeEntryPool.pop()
+    if (entry) {
+      entry.id = this.treeNextEntryId
+      this.treeNextEntryId += 1
+      return entry
+    }
+    const nextEntry: EditorTreeHistoryEntry = {
+      order: [],
+      parentIds: [],
+      id: this.treeNextEntryId,
+    }
+    this.treeNextEntryId += 1
+    return nextEntry
+  }
+
+  private releaseTreeEntry(entry: EditorTreeHistoryEntry) {
+    entry.order.length = 0
+    entry.parentIds.length = 0
+    this.treeEntryPool.push(entry)
+  }
+
+  private pushTreeUndoSnapshot() {
+    const entry = this.acquireTreeEntry()
+    this.objectManager.fillTreeSnapshot(entry.order, entry.parentIds)
+    this.treeUndoStack.push(entry)
+    if (this.treeUndoStack.length > EDITOR_HISTORY_MAX_ENTRIES) {
+      const removed = this.treeUndoStack.shift()
+      if (removed) {
+        this.releaseTreeEntry(removed)
+      }
+    }
+  }
+
+  private clearTreeRedoStack() {
+    while (this.treeRedoStack.length > 0) {
+      const entry = this.treeRedoStack.pop()
+      if (entry) {
+        this.releaseTreeEntry(entry)
+      }
+    }
+  }
+
+  private clearTreeStacks() {
+    while (this.treeUndoStack.length > 0) {
+      const entry = this.treeUndoStack.pop()
+      if (entry) {
+        this.releaseTreeEntry(entry)
+      }
+    }
+    this.clearTreeRedoStack()
+  }
+
+  private captureTreeHistory() {
+    this.pushTreeUndoSnapshot()
+    this.clearTreeRedoStack()
+    this.lastHistoryWasTree = true
+  }
+
+  private resetTreeHistory() {
+    this.clearTreeStacks()
+    this.pushTreeUndoSnapshot()
+    this.lastHistoryWasTree = false
+  }
+
+  private undoTreeHistory(): boolean {
+    if (!this.lastHistoryWasTree) {
+      return false
+    }
+    if (this.treeUndoStack.length <= 1) {
+      return false
+    }
+    const current = this.treeUndoStack.pop()
+    if (!current) {
+      return false
+    }
+    this.treeRedoStack.push(current)
+    const previous = this.treeUndoStack[this.treeUndoStack.length - 1]
+    if (!previous) {
+      return false
+    }
+    const applied = this.objectManager.applyTreeSnapshot(
+      previous.order,
+      previous.parentIds
+    )
+    if (!applied) {
+      return false
+    }
+    this.applyCanvasSelectionFromIds(
+      this.objectManager.getSelectedEditorObjectIds()
+    )
+    return true
+  }
+
+  private redoTreeHistory(): boolean {
+    if (!this.lastHistoryWasTree) {
+      return false
+    }
+    if (this.treeRedoStack.length === 0) {
+      return false
+    }
+    const entry = this.treeRedoStack.pop()
+    if (!entry) {
+      return false
+    }
+    this.treeUndoStack.push(entry)
+    const applied = this.objectManager.applyTreeSnapshot(
+      entry.order,
+      entry.parentIds
+    )
+    if (!applied) {
+      return false
+    }
+    this.applyCanvasSelectionFromIds(
+      this.objectManager.getSelectedEditorObjectIds()
+    )
+    return true
   }
 
   private hasUnsavedChanges(): boolean {
@@ -1270,6 +1587,120 @@ export class EditorManager {
     this.historyManager.setSuspended(true)
     this.mapSerializer.applyMapData(data)
     this.historyManager.setSuspended(false)
+    this.applyEditorTreeData(data)
+    this.resetTreeHistory()
+  }
+
+  private applyEditorTreeData(data: EditorMapData) {
+    const tree = data.editorTree
+    if (!tree || tree.nodes.length === 0) {
+      return
+    }
+    if (tree.nodes.length !== tree.parents.length) {
+      return
+    }
+    const editorObjects = this.objectManager.getEditorObjects()
+    if (editorObjects.length === 0) {
+      return
+    }
+
+    const shapeObjects: EditorObjectData[] = []
+    const enemyObjects: EditorObjectData[] = []
+    const weaponObjects: EditorObjectData[] = []
+    const checkpointObjects: EditorObjectData[] = []
+    const hookAnchorObjects: EditorObjectData[] = []
+    let playerObject: EditorObjectData | null = null
+    let cameraObject: EditorObjectData | null = null
+
+    for (let i = 0; i < editorObjects.length; i++) {
+      const dataItem = editorObjects[i]
+      if (
+        dataItem.type === ObjectType.Ground ||
+        dataItem.type === ObjectType.Obstacle
+      ) {
+        shapeObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.Enemy) {
+        enemyObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.Weapon) {
+        weaponObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.Checkpoint) {
+        checkpointObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.HookAnchor) {
+        hookAnchorObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.Player) {
+        playerObject = dataItem
+      } else if (dataItem.type === ObjectType.Camera) {
+        cameraObject = dataItem
+      }
+    }
+
+    const resolved: EditorObjectData[] = []
+    for (let i = 0; i < tree.nodes.length; i++) {
+      const node = tree.nodes[i]
+      let resolvedData: EditorObjectData | null = null
+      if (node.type === 'group') {
+        const group = this.createEmptyGroup(0, 0)
+        if (group) {
+          this.fabricCanvas?.add(group)
+          resolvedData = this.objectManager.registerEditorObject(
+            ObjectType.Group,
+            group
+          )
+        }
+      } else if (node.type === 'ground' || node.type === 'obstacle') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < shapeObjects.length ? shapeObjects[index] : null
+      } else if (node.type === 'enemy') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < enemyObjects.length ? enemyObjects[index] : null
+      } else if (node.type === 'weapon') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < weaponObjects.length
+            ? weaponObjects[index]
+            : null
+      } else if (node.type === 'checkpoint') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < checkpointObjects.length
+            ? checkpointObjects[index]
+            : null
+      } else if (node.type === 'hookAnchor') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < hookAnchorObjects.length
+            ? hookAnchorObjects[index]
+            : null
+      } else if (node.type === 'player') {
+        resolvedData = playerObject
+      } else if (node.type === 'camera') {
+        resolvedData = cameraObject
+      }
+
+      if (!resolvedData) {
+        return
+      }
+      if (node.name && node.name.length > 0) {
+        resolvedData.name = node.name
+      }
+      resolved.push(resolvedData)
+    }
+
+    const order: number[] = new Array(resolved.length)
+    const parentIds: number[] = new Array(resolved.length)
+    for (let i = 0; i < resolved.length; i++) {
+      order[i] = resolved[i].id
+      parentIds[i] = -1
+    }
+    for (let i = 0; i < tree.parents.length; i++) {
+      const parentIndex = tree.parents[i]
+      if (parentIndex >= 0 && parentIndex < resolved.length) {
+        parentIds[i] = resolved[parentIndex].id
+      }
+    }
+    this.objectManager.applyTreeSnapshot(order, parentIds)
   }
 
   private nudgeSelectedObject(dx: number, dy: number) {
@@ -1439,6 +1870,9 @@ export class EditorManager {
     if (this.markerManager.isHookAnchorMarker(object)) {
       return true
     }
+    if (this.isGroupObject(object)) {
+      return true
+    }
     return (
       object.type === 'rect' ||
       object.type === 'circle' ||
@@ -1488,6 +1922,16 @@ export class EditorManager {
     if (this.markerManager.isWeaponMarker(target)) {
       this.showPolygonMenuWithActions(
         ['copy', 'paste', 'properties', 'rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
+    if (this.isGroupObject(target)) {
+      this.showPolygonMenuWithActions(
+        ['copy', 'paste', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -1551,6 +1995,30 @@ export class EditorManager {
   private isTriangleShape(object: fabric.Object) {
     const data = this.shapeManager.getShapeResetData(object)
     return data?.kind === 'triangle'
+  }
+
+  private isGroupObject(object: fabric.Object) {
+    const data = this.objectManager.getEditorObjectMap().get(object)
+    return data?.type === ObjectType.Group
+  }
+
+  private createEmptyGroup(centerX: number, centerY: number) {
+    const group = new fabric.Group([], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+      subTargetCheck: true,
+    })
+    group.left = centerX
+    group.top = centerY
+    group.setCoords()
+    ;(group as unknown as { editorShape: string }).editorShape = 'editor-group'
+    return group
   }
 
   // ========================================
