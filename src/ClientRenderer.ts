@@ -4,6 +4,8 @@ import {
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
+  DEATH_CROSS_DURATION_MS,
+  DEATH_PRE_SPLATTER_PAUSE_MS,
   DEFAULT_PLAYER_RADIUS,
   GRAPPLE_ANCHOR_HIGHLIGHT_SCALE,
   WEAPON_DEFAULT_DATA,
@@ -444,6 +446,8 @@ export class ClientRenderer {
     }
 
     this.ctx.restore()
+
+    this.renderDeathCross(buf, offset, flags, centerX, centerY, radius)
 
     // Status Bars
     const maxHealth = buf[offset + OFFSETS.STATS_HEALTH_MAX]
@@ -962,12 +966,62 @@ export class ClientRenderer {
   }
 
   private getDeathAlpha(
-    _buf: Float32Array,
-    _offset: number,
+    buf: Float32Array,
+    offset: number,
     flags: number
   ): number {
     if (!(flags & FLAGS.DEAD)) return 1
+    if (flags & FLAGS.VANISHED) return 0
+    const elapsedMs = buf[offset + OFFSETS.STATS_DEATH_ELAPSED] * 1000
+    if (elapsedMs < DEATH_CROSS_DURATION_MS) {
+      return 1
+    }
     return 0
+  }
+
+  private renderDeathCross(
+    buf: Float32Array,
+    offset: number,
+    flags: number,
+    centerX: number,
+    centerY: number,
+    radius: number
+  ): void {
+    if (!(flags & FLAGS.DEAD)) return
+    if (flags & FLAGS.VANISHED) return
+    if (radius <= 0) return
+
+    const elapsedMs = buf[offset + OFFSETS.STATS_DEATH_ELAPSED] * 1000
+    const crossElapsedMs = elapsedMs
+    if (crossElapsedMs <= 0 || crossElapsedMs > DEATH_CROSS_DURATION_MS) {
+      return
+    }
+
+    const radiusInt = Math.max(1, Math.floor(radius))
+    const lineWidth = Math.max(2, Math.floor((radiusInt * 18) / 100))
+    const maxRadiusInner = Math.max(0, radiusInt - Math.ceil(lineWidth / 2))
+    const maxLength = Math.floor((maxRadiusInner * 707) / 1000)
+    const length = Math.floor(
+      (maxLength * crossElapsedMs) / DEATH_CROSS_DURATION_MS
+    )
+    if (length <= 0) return
+    const alphaScaled =
+      maxLength > 0 ? Math.floor((length * 1000) / maxLength) : 0
+    const alpha = alphaScaled / 1000
+
+    this.ctx.save()
+    this.ctx.translate(centerX, centerY)
+    this.ctx.strokeStyle = '#FFFFFF'
+    this.ctx.lineWidth = lineWidth
+    this.ctx.lineCap = 'round'
+    this.ctx.globalAlpha *= alpha
+    this.ctx.beginPath()
+    this.ctx.moveTo(-length, -length)
+    this.ctx.lineTo(length, length)
+    this.ctx.moveTo(-length, length)
+    this.ctx.lineTo(length, -length)
+    this.ctx.stroke()
+    this.ctx.restore()
   }
 
   private getHitShakeOffset(

@@ -247,7 +247,16 @@ function queueEffect(
   color: number,
   radius: number
 ): void {
-  if (effectsCount >= MAX_EFFECTS) return
+  if (effectsCount >= MAX_EFFECTS) {
+    if (type !== EFFECT_TYPES.SOUND) return
+    const base = EFFECTS_BASE_OFFSET + (MAX_EFFECTS - 1) * EFFECT_STRIDE
+    stateBuffer[base + EFFECT_OFFSETS.TYPE] = type
+    stateBuffer[base + EFFECT_OFFSETS.X] = x
+    stateBuffer[base + EFFECT_OFFSETS.Y] = y
+    stateBuffer[base + EFFECT_OFFSETS.COLOR] = color
+    stateBuffer[base + EFFECT_OFFSETS.RADIUS] = radius
+    return
+  }
   const base = EFFECTS_BASE_OFFSET + effectsCount * EFFECT_STRIDE
   stateBuffer[base + EFFECT_OFFSETS.TYPE] = type
   stateBuffer[base + EFFECT_OFFSETS.X] = x

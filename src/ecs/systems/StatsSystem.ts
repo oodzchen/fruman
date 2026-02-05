@@ -1,4 +1,6 @@
 import {
+  DEATH_CROSS_DURATION_MS,
+  DEATH_PRE_SPLATTER_PAUSE_MS,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_DEATH_FLASH_DURATION,
@@ -68,16 +70,40 @@ export class StatsSystem extends System {
     this.currentDeltaTime = deltaTime
     const deltaSeconds = deltaTime > 0 ? deltaTime : 0
     const deltaMs = deltaSeconds * 1000
+    const deltaMsInt = deltaMs > 0 ? Math.round(deltaMs) : 0
     this.currentTimeMs += deltaMs
     for (const entity of entities) {
       if (!entity.stats) continue
       if (entity.stats.isDead) {
         if (!entity.stats.isVanished) {
-          entity.stats.deathElapsedSec += deltaSeconds
-          const totalDuration =
-            entity.stats.deathFlashDurationSec +
-            entity.stats.deathFlattenDurationSec
-          if (entity.stats.deathElapsedSec >= totalDuration) {
+          entity.stats.deathElapsedMs += deltaMsInt
+          entity.stats.deathElapsedSec = entity.stats.deathElapsedMs / 1000
+
+          if (
+            !entity.stats.deathEffectTriggered &&
+            entity.stats.deathElapsedMs >= DEATH_CROSS_DURATION_MS
+          ) {
+            entity.stats.deathEffectTriggered = true
+            if (entity.render && entity.transform && this.effectsEmitter) {
+              const colorInt = this.parseColor(entity.render.color)
+              const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
+              this.effectsEmitter.emitDeath(
+                entity.transform.x,
+                entity.transform.y,
+                colorInt,
+                radius
+              )
+            }
+            this.playSound(SOUND_IDS.DEATH_SPLASH)
+          }
+
+          const totalDurationMs =
+            Math.round(
+              (entity.stats.deathFlashDurationSec +
+                entity.stats.deathFlattenDurationSec) *
+                1000
+            ) + DEATH_CROSS_DURATION_MS
+          if (entity.stats.deathElapsedMs >= totalDurationMs) {
             entity.stats.isVanished = true
             if (entity.render) {
               entity.render.visible = false
@@ -582,6 +608,7 @@ export class StatsSystem extends System {
       finalKnockback = 0
     }
 
+    const healthBefore = entity.stats.health
     entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)
     entity.stats.posture = Math.max(
       0,
@@ -592,6 +619,8 @@ export class StatsSystem extends System {
       0,
       entity.stats.toughness - finalToughnessDamage
     )
+    const isLethalHit =
+      finalHealthDamage > 0 && healthBefore > 0 && entity.stats.health === 0
     const toughnessBroken = toughnessBefore > 0 && entity.stats.toughness <= 0
     const isInHitStun = !!(
       entity.movement &&
@@ -630,10 +659,14 @@ export class StatsSystem extends System {
           const colorInt = this.parseColor(entity.render.color)
           this.effectsEmitter.emitBlood(hitX, hitY, colorInt)
         }
-        this.playSound(SOUND_IDS.BODY_HIT)
+        this.playSound(
+          isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT
+        )
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       } else if (toughnessBroken) {
-        this.playSound(SOUND_IDS.BODY_HIT)
+        this.playSound(
+          isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT
+        )
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       }
 
@@ -705,18 +738,10 @@ export class StatsSystem extends System {
       entity.stats.isDead = true
       entity.stats.isVanished = false
       entity.stats.deathElapsedSec = 0
+      entity.stats.deathElapsedMs = 0
       entity.stats.deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
       entity.stats.deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
-      if (entity.render && entity.transform && this.effectsEmitter) {
-        const colorInt = this.parseColor(entity.render.color)
-        const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
-        this.effectsEmitter.emitDeath(
-          entity.transform.x,
-          entity.transform.y,
-          colorInt,
-          radius
-        )
-      }
+      entity.stats.deathEffectTriggered = false
       if (entity.render) {
         entity.render.visible = true
       }
@@ -748,6 +773,8 @@ export class StatsSystem extends System {
     entity.stats.isDead = false
     entity.stats.isVanished = false
     entity.stats.deathElapsedSec = 0
+    entity.stats.deathElapsedMs = 0
+    entity.stats.deathEffectTriggered = false
     if (entity.render) {
       entity.render.visible = true
     }

@@ -344,8 +344,10 @@ export class StatsComponent extends Component {
   isDead = false
   isVanished = false
   deathElapsedSec = 0
+  deathElapsedMs = 0
   deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
   deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
+  deathEffectTriggered = false
 
   hitShakeElapsedMs = 0
   hitShakeDurationMs = 0
@@ -379,8 +381,10 @@ export class StatsComponent extends Component {
     this.isDead = false
     this.isVanished = false
     this.deathElapsedSec = 0
+    this.deathElapsedMs = 0
     this.deathFlashDurationSec = DEFAULT_DEATH_FLASH_DURATION
     this.deathFlattenDurationSec = DEFAULT_DEATH_FLATTEN_DURATION
+    this.deathEffectTriggered = false
     this.hitShakeElapsedMs = 0
     this.hitShakeDurationMs = 0
     this.hitShakeIntensity = 0

@@ -24,6 +24,8 @@ export const SOUND_IDS = {
   SWORD_HIT_OBSTACLE: 4,
   SWORD_BLOCK: 5,
   BOW_SNAP: 6,
+  DEATH_SPLASH: 7,
+  BODY_HIT_SHARP: 8,
 } as const
 
 export const MAX_EFFECTS = 256

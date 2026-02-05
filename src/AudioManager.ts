@@ -38,6 +38,14 @@ export class AudioManager {
         'audios/Weapon Broad Sword Hit Metal Deflect 01.wav'
       ),
       this.loadSound(SOUND_IDS.BOW_SNAP, 'audios/Weapon Bow Snap 01.wav'),
+      this.loadSound(
+        SOUND_IDS.DEATH_SPLASH,
+        'audios/Liquid Mud Dropped Wet Splash Hard 03.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.BODY_HIT_SHARP,
+        'audios/Weapon Staff Hit Body Fast 02-sharp.wav'
+      ),
     ])
   }
 
