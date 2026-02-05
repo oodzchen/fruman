@@ -504,6 +504,9 @@ function initializeSystems() {
   statsSystem.setBloodEffectsEnabled(false)
   checkpointSystem = new CheckpointSystem()
   checkpointSystem.setCheckpointActivatedHandler(() => {
+    if (isMapPreview) {
+      return
+    }
     ctx.postMessage(checkpointActivatedMessage)
   })
   checkpointSystem.setPlayerDeadHandler(() => {
@@ -3498,6 +3501,9 @@ function extractGroundWeaponsState(): SaveGroundWeaponState[] {
 }
 
 function exportGameState(saveId: string): void {
+  if (isMapPreview) {
+    return
+  }
   if (!world || !playerEntity) return
 
   const activeCheckpoint = readActiveCheckpointForSave()
