@@ -9,6 +9,7 @@ import {
   DEFAULT_WEAPON_ATTACK_RADIUS,
 } from '../../constants'
 import type { MainModule, b2Vec2 } from '../../types'
+import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -133,6 +134,7 @@ export class GrappleSystem extends System {
               grapple.isPulling = true
               grapple.cooldownEndTime = this.currentTimeMs
               grapple.desiredDistanceSq = desiredDistance * desiredDistance
+              this.triggerEnemyAggro(entity, lockedTarget)
               if (targetToughness <= playerToughness) {
                 grapple.pullMode = this.pullModeEnemy
                 this.applyEnemyStun(lockedTarget, grapple.pullDurationMs)
@@ -390,6 +392,32 @@ export class GrappleSystem extends System {
     entity.movement.knockbackDuration = durationMs
     entity.movement.knockbackElapsedTime = 0
     entity.movement.knockbackEndTime = this.currentTimeMs + durationMs
+  }
+
+  private triggerEnemyAggro(attacker: Entity, target: Entity): void {
+    if (target.faction?.faction !== Faction.Enemy) return
+    if (!target.enemyAI || !target.input) return
+    if (target.stats?.isDead) return
+
+    target.enemyAI.alertChaseActive = true
+    target.enemyAI.alertTimeRemainingMs = 0
+    target.enemyAI.state = 'approach'
+    target.enemyAI.targetLostTimer = 0
+    if (attacker.transform && target.transform) {
+      const dx = attacker.transform.x - target.transform.x
+      target.enemyAI.forcedChaseDirection = dx >= 0 ? 1 : -1
+      target.enemyAI.forcedChaseDistanceRemaining =
+        target.enemyAI.detectionRange * 2
+      target.enemyAI.forcedChaseLastX = target.transform.x
+    }
+
+    target.input.lockedTargetId = attacker.id
+    target.input.lockLostTimer = 0
+
+    if (target.stats) {
+      target.stats.isInCombat = true
+      target.stats.combatExitTimer = 0
+    }
   }
 
   private applyGrappleImpulse(
