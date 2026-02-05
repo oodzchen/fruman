@@ -2302,6 +2302,7 @@ export class WeaponSystem extends System {
             entity.grapple.isPulling = false
             entity.grapple.pullElapsedMs = 0
             weaponEntity.weapon.isEquipped = true
+            this.showHud(entity)
           }
           continue
         }
@@ -2316,6 +2317,7 @@ export class WeaponSystem extends System {
           if (!targetSlot.hasWeapon) {
             this.copyWeaponToSlot(targetSlot, weaponEntity.weapon)
             weaponEntity.weapon.isEquipped = true
+            this.showHud(entity)
 
             if (!entity.weapon.isEquipped) {
               weaponSlots.activeSlot = targetSlotId
@@ -2396,6 +2398,7 @@ export class WeaponSystem extends System {
             entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
             entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
             this.resetWeaponForSwap(entity.weapon)
+            this.showHud(entity)
           }
           return true // 替换武器，已消费互动键
         }
@@ -2442,6 +2445,7 @@ export class WeaponSystem extends System {
 
           // 标记武器实体为已拾取（会在后续清理）
           weaponEntity.weapon.isEquipped = true
+          this.showHud(entity)
           return false // 自动拾取，未消费互动键
         }
 
@@ -2507,6 +2511,7 @@ export class WeaponSystem extends System {
 
           // 标记武器实体为已拾取（会在后续清理）
           weaponEntity.weapon.isEquipped = true
+          this.showHud(entity)
           return true // 替换武器，已消费互动键
         }
       }
@@ -2514,6 +2519,11 @@ export class WeaponSystem extends System {
 
     // 没有可拾取的武器，未消费互动键
     return false
+  }
+
+  private showHud(entity: Entity): void {
+    if (!entity.stats) return
+    entity.stats.hudVisibleTimer = entity.stats.combatExitTimeout
   }
 
   dropWeaponsOnDeath(entity: Entity): void {
