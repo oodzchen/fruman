@@ -20,6 +20,7 @@ export interface EditorMenuSystemContext {
   ) => void
   onEnemySelected: (enemyType: EnemyType) => void
   onPanelMenuAdd: () => void
+  onPanelMenuPaste: () => void
 }
 
 export class EditorMenuSystem {
@@ -28,6 +29,7 @@ export class EditorMenuSystem {
   private objectTypeMenu: HTMLDivElement
   private panelMenu: HTMLDivElement
   private panelMenuAddBtn: HTMLButtonElement
+  private panelMenuPasteBtn: HTMLButtonElement
   private groundSubmenu: HTMLDivElement
   private obstacleSubmenu: HTMLDivElement
   private weaponMenu: HTMLDivElement
@@ -63,6 +65,7 @@ export class EditorMenuSystem {
 
     const objectTypeMenu = document.getElementById('editorObjectTypeMenu')
     const panelMenu = document.getElementById('editorPanelMenu')
+    const panelMenuPaste = document.getElementById('editorPanelMenuPaste')
     const panelMenuAdd = document.getElementById('editorPanelMenuAdd')
     const groundSubmenu = document.getElementById('editorGroundSubmenu')
     const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
@@ -120,6 +123,7 @@ export class EditorMenuSystem {
     if (
       !(objectTypeMenu instanceof HTMLDivElement) ||
       !(panelMenu instanceof HTMLDivElement) ||
+      !(panelMenuPaste instanceof HTMLButtonElement) ||
       !(panelMenuAdd instanceof HTMLButtonElement) ||
       !(groundSubmenu instanceof HTMLDivElement) ||
       !(obstacleSubmenu instanceof HTMLDivElement) ||
@@ -140,6 +144,7 @@ export class EditorMenuSystem {
 
     this.objectTypeMenu = objectTypeMenu
     this.panelMenu = panelMenu
+    this.panelMenuPasteBtn = panelMenuPaste
     this.panelMenuAddBtn = panelMenuAdd
     this.groundSubmenu = groundSubmenu
     this.obstacleSubmenu = obstacleSubmenu
@@ -285,6 +290,15 @@ export class EditorMenuSystem {
       this.ctx.onPanelMenuAdd()
     })
 
+    this.panelMenuPasteBtn.addEventListener('pointerdown', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (this.panelMenuPasteBtn.disabled) {
+        return
+      }
+      this.ctx.onPanelMenuPaste()
+    })
+
     this.panelMenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
@@ -389,6 +403,7 @@ export class EditorMenuSystem {
 
   updateLocalization() {
     this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')
+    this.panelMenuPasteBtn.textContent = localizer.t('editor_object_menu_paste')
 
     this.editorObjectItems.forEach((item) => {
       const type = item.dataset.type
@@ -539,6 +554,10 @@ export class EditorMenuSystem {
     if (DEBUG_EDITOR_MENU) {
       // console.log('[editor] show panel menu', { clientX, clientY })
     }
+  }
+
+  setPanelMenuPasteEnabled(enabled: boolean) {
+    this.panelMenuPasteBtn.disabled = !enabled
   }
 
   hidePanelMenu() {

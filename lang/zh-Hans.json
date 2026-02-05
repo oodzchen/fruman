@@ -66,6 +66,8 @@
   "editor_polygon_menu_make_equilateral": "正三角形",
   "editor_camera_menu_zoom": "缩放",
   "editor_object_menu_rename": "重命名",
+  "editor_object_menu_copy": "复制",
+  "editor_object_menu_paste": "粘贴",
   "editor_confirm_delete_shape": "确认删除该对象？",
   "editor_map_rename": "重命名",
   "editor_map_delete": "删除",

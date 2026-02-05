@@ -13,11 +13,15 @@ export type ContextMenuAction =
   | 'zoom'
   | 'rename'
   | 'properties'
+  | 'copy'
+  | 'paste'
 
 export interface EditorContextMenuContext {
   editorWorkspace: HTMLDivElement
   isEditablePolygon: (object: fabric.Object) => boolean
   onAction: (action: ContextMenuAction) => void
+  canPaste: () => boolean
+  canCopy: (target: fabric.Object) => boolean
 }
 
 export class EditorContextMenu {
@@ -47,13 +51,19 @@ export class EditorContextMenu {
     const polygonMenuQuaternary = document.getElementById(
       'editorPolygonMenuQuaternary'
     )
+    const polygonMenuQuinary = document.getElementById(
+      'editorPolygonMenuQuinary'
+    )
+    const polygonMenuSenary = document.getElementById('editorPolygonMenuSenary')
 
     if (
       !(polygonMenu instanceof HTMLDivElement) ||
       !(polygonMenuPrimary instanceof HTMLButtonElement) ||
       !(polygonMenuSecondary instanceof HTMLButtonElement) ||
       !(polygonMenuTertiary instanceof HTMLButtonElement) ||
-      !(polygonMenuQuaternary instanceof HTMLButtonElement)
+      !(polygonMenuQuaternary instanceof HTMLButtonElement) ||
+      !(polygonMenuQuinary instanceof HTMLButtonElement) ||
+      !(polygonMenuSenary instanceof HTMLButtonElement)
     ) {
       throw new Error('EditorContextMenu: required elements not found')
     }
@@ -64,6 +74,8 @@ export class EditorContextMenu {
       polygonMenuSecondary,
       polygonMenuTertiary,
       polygonMenuQuaternary,
+      polygonMenuQuinary,
+      polygonMenuSenary,
     ]
 
     this.setupEventListeners()
@@ -76,6 +88,9 @@ export class EditorContextMenu {
         event.stopPropagation()
         const action = button.dataset.action as ContextMenuAction | undefined
         if (!action) {
+          return
+        }
+        if (button.disabled) {
           return
         }
         this.ctx.onAction(action)
@@ -131,12 +146,24 @@ export class EditorContextMenu {
       const action = this.actions[i]
       if (!action) {
         button.dataset.action = ''
+        button.disabled = false
+        button.classList.remove('disabled')
         button.classList.add('is-hidden')
         continue
       }
       button.dataset.action = action
       button.textContent = localizer.t(this.getLabel(action))
       button.classList.remove('is-hidden')
+      const isPasteDisabled = action === 'paste' && !this.ctx.canPaste()
+      const isCopyDisabled =
+        action === 'copy' && !!this.target && !this.ctx.canCopy(this.target)
+      if (isPasteDisabled || isCopyDisabled) {
+        button.disabled = true
+        button.classList.add('disabled')
+        continue
+      }
+      button.disabled = false
+      button.classList.remove('disabled')
     }
 
     this.polygonMenu.classList.add('is-visible')
@@ -180,6 +207,10 @@ export class EditorContextMenu {
         return 'editor_object_menu_rename'
       case 'properties':
         return 'editor_weapon_menu_properties'
+      case 'copy':
+        return 'editor_object_menu_copy'
+      case 'paste':
+        return 'editor_object_menu_paste'
       default:
         return 'editor_polygon_menu_delete_shape'
     }

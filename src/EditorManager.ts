@@ -11,6 +11,7 @@ import {
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import { EditorCameraManager } from './editor/EditorCameraManager'
 import { EditorCanvasEventHandler } from './editor/EditorCanvasEventHandler'
+import { EditorClipboardManager } from './editor/EditorClipboardManager'
 import {
   CAMERA_FRAME_FILL,
   CAMERA_FRAME_FILL_UNFOCUSED,
@@ -34,6 +35,7 @@ import {
 } from './editor/EditorConstants'
 import type { ContextMenuAction } from './editor/EditorContextMenu'
 import { EditorContextMenu } from './editor/EditorContextMenu'
+import { computeCameraOffsetFromCenter } from './editor/EditorCoordinateUtils'
 import { EditorHistoryManager } from './editor/EditorHistoryManager'
 import { EditorMapListManager } from './editor/EditorMapListManager'
 import { EditorMapSerializer } from './editor/EditorMapSerializer'
@@ -121,6 +123,7 @@ export class EditorManager {
   private thumbnailCapture: EditorThumbnailCapture
   private canvasEventHandler: EditorCanvasEventHandler
   private historyManager: EditorHistoryManager
+  private clipboardManager: EditorClipboardManager
 
   private visible = false
   private currentView: EditorView = EditorView.MapList
@@ -140,6 +143,10 @@ export class EditorManager {
   private isPanning = false
   private lastClientX = 0
   private lastClientY = 0
+  private panelMenuSpawnX = 0
+  private panelMenuSpawnY = 0
+  private panelMenuSpawnValid = false
+  private panelMenuSpawnScratch = { x: 0, y: 0 }
   private polygonEditor: EditorPolygonEditor
   private objectFactory: EditorObjectFactory
   private objectManager: EditorObjectManager
@@ -372,6 +379,22 @@ export class EditorManager {
       EDITOR_HISTORY_MAX_ENTRIES
     )
 
+    this.clipboardManager = new EditorClipboardManager({
+      getCanvas: () => this.fabricCanvas,
+      getInvPixelsPerMeter: () => this.invPixelsPerMeter,
+      editorCanvas: this.editorCanvas,
+      markerManager: this.markerManager,
+      shapeManager: this.shapeManager,
+      cameraManager: this.cameraManager,
+      patternManager: this.patternManager,
+      objectManager: this.objectManager,
+      polygonEditor: this.polygonEditor,
+      handleCanvasSelection: (obj) =>
+        this.objectManager.handleCanvasSelection(obj),
+      isEditablePolygon: (obj) => this.isEditablePolygon(obj),
+      hasObjectOfType: (type) => this.hasObjectOfType(type),
+    })
+
     this.propertiesPanel = new EditorPropertiesPanel({
       getFabricCanvas: () => this.fabricCanvas,
       weaponMarkerMap: this.markerManager.getWeaponMarkerMap(),
@@ -475,21 +498,48 @@ export class EditorManager {
         this.markerManager.hasWeaponType(weaponType),
       onObjectTypeSelected: (type) => this.handleObjectClick(type),
       onGroundShapeSelected: (shape) => {
-        this.shapeManager.createGroundShape(shape)
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.shapeManager.createGroundShape(shape, spawn.x, spawn.y)
+        } else {
+          this.shapeManager.createGroundShape(shape)
+        }
         this.captureHistorySnapshot()
       },
       onObstacleShapeSelected: (shape) => {
-        this.shapeManager.createObstacleShape(shape)
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.shapeManager.createObstacleShape(shape, spawn.x, spawn.y)
+        } else {
+          this.shapeManager.createObstacleShape(shape)
+        }
         this.captureHistorySnapshot()
       },
       onWeaponSelected: (weaponType, category, size) => {
-        this.markerManager.spawnWeaponMarker(weaponType, category, {
-          sizeLevel: size,
-        })
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.markerManager.spawnWeaponMarker(weaponType, category, {
+            x: spawn.x * this.invPixelsPerMeter,
+            y: spawn.y * this.invPixelsPerMeter,
+            sizeLevel: size,
+          })
+        } else {
+          this.markerManager.spawnWeaponMarker(weaponType, category, {
+            sizeLevel: size,
+          })
+        }
         this.captureHistorySnapshot()
       },
       onEnemySelected: (enemyType) => {
-        this.markerManager.spawnEnemyMarker(enemyType)
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.markerManager.spawnEnemyMarker(enemyType, {
+            x: spawn.x * this.invPixelsPerMeter,
+            y: spawn.y * this.invPixelsPerMeter,
+          })
+        } else {
+          this.markerManager.spawnEnemyMarker(enemyType)
+        }
         this.captureHistorySnapshot()
       },
       onPanelMenuAdd: () => {
@@ -497,12 +547,24 @@ export class EditorManager {
         this.menuSystem.hidePanelMenu()
         this.menuSystem.showObjectTypeMenu(pos.x, pos.y)
       },
+      onPanelMenuPaste: () => {
+        const spawn = this.consumePanelMenuSpawn()
+        const pasted = spawn
+          ? this.clipboardManager.pasteAt(spawn.x, spawn.y)
+          : this.clipboardManager.paste()
+        this.menuSystem.hidePanelMenu()
+        if (pasted) {
+          this.captureHistorySnapshot()
+        }
+      },
     })
 
     this.contextMenu = new EditorContextMenu({
       editorWorkspace: this.editorWorkspace,
       isEditablePolygon: (obj) => this.isEditablePolygon(obj),
       onAction: (action) => this.handlePolygonMenuAction(action),
+      canPaste: () => this.clipboardManager.hasData(),
+      canCopy: (target) => this.clipboardManager.canCopy(target),
     })
 
     // ShapeManager initialized earlier
@@ -567,6 +629,7 @@ export class EditorManager {
             targetType: (event.target as HTMLElement | null)?.tagName ?? '',
           })
         }
+        this.clearPanelMenuSpawn()
         this.contextMenu.hide()
         this.menuSystem.hideAll()
       },
@@ -632,6 +695,25 @@ export class EditorManager {
     if (this.currentView === EditorView.MapList) {
       this.mapListManager.handleMapListKeyDown(event)
       return
+    }
+    if (this.currentView === EditorView.Editor && isModifier) {
+      const lowered = key.toLowerCase()
+      if (lowered === 'c') {
+        event.preventDefault()
+        const active = this.fabricCanvas?.getActiveObject() ?? null
+        if (active && this.clipboardManager.canCopy(active)) {
+          this.clipboardManager.copy(active)
+        }
+        return
+      }
+      if (lowered === 'v') {
+        event.preventDefault()
+        const pasted = this.clipboardManager.paste()
+        if (pasted) {
+          this.captureHistorySnapshot()
+        }
+        return
+      }
     }
     if (this.menuSystem.handleKeyDown(event)) {
       return
@@ -732,7 +814,15 @@ export class EditorManager {
       this.hideAllSubmenus()
       this.menuSystem.hideObjectTypeMenu()
       this.setActiveObjectType(type)
-      this.markerManager.spawnPlayerMarker()
+      const spawn = this.consumePanelMenuSpawn()
+      if (spawn) {
+        this.markerManager.spawnPlayerMarker({
+          x: spawn.x * this.invPixelsPerMeter,
+          y: spawn.y * this.invPixelsPerMeter,
+        })
+      } else {
+        this.markerManager.spawnPlayerMarker()
+      }
       this.captureHistorySnapshot()
       return
     }
@@ -744,7 +834,23 @@ export class EditorManager {
         return
       }
       this.setActiveObjectType(type)
-      this.cameraManager.spawnCameraViewFrame(undefined, type)
+      const spawn = this.consumePanelMenuSpawn()
+      if (spawn) {
+        const invPixelsPerMeter = this.invPixelsPerMeter
+        const centerX = spawn.x * invPixelsPerMeter
+        const centerY = spawn.y * invPixelsPerMeter
+        const camera = computeCameraOffsetFromCenter(
+          centerX,
+          centerY,
+          1,
+          this.editorCanvas.width,
+          this.editorCanvas.height,
+          invPixelsPerMeter
+        )
+        this.cameraManager.spawnCameraViewFrame(camera, type)
+      } else {
+        this.cameraManager.spawnCameraViewFrame(undefined, type)
+      }
       this.captureHistorySnapshot()
       return
     }
@@ -760,7 +866,15 @@ export class EditorManager {
       this.hideAllSubmenus()
       this.menuSystem.hideObjectTypeMenu()
       this.setActiveObjectType(type)
-      this.markerManager.spawnCheckpointMarker()
+      const spawn = this.consumePanelMenuSpawn()
+      if (spawn) {
+        this.markerManager.spawnCheckpointMarker({
+          x: spawn.x * this.invPixelsPerMeter,
+          y: spawn.y * this.invPixelsPerMeter,
+        })
+      } else {
+        this.markerManager.spawnCheckpointMarker()
+      }
       this.captureHistorySnapshot()
       return
     }
@@ -769,7 +883,15 @@ export class EditorManager {
       this.hideAllSubmenus()
       this.menuSystem.hideObjectTypeMenu()
       this.setActiveObjectType(type)
-      this.markerManager.spawnHookAnchorMarker()
+      const spawn = this.consumePanelMenuSpawn()
+      if (spawn) {
+        this.markerManager.spawnHookAnchorMarker({
+          x: spawn.x * this.invPixelsPerMeter,
+          y: spawn.y * this.invPixelsPerMeter,
+        })
+      } else {
+        this.markerManager.spawnHookAnchorMarker()
+      }
       this.captureHistorySnapshot()
       return
     }
@@ -979,6 +1101,30 @@ export class EditorManager {
     )
   }
 
+  private setPanelMenuSpawnFromEvent(event: MouseEvent) {
+    if (!this.fabricCanvas) {
+      return
+    }
+    const pointer = this.fabricCanvas.getPointer(event)
+    this.panelMenuSpawnX = Math.round(pointer.x)
+    this.panelMenuSpawnY = Math.round(pointer.y)
+    this.panelMenuSpawnValid = true
+  }
+
+  private clearPanelMenuSpawn() {
+    this.panelMenuSpawnValid = false
+  }
+
+  private consumePanelMenuSpawn() {
+    if (!this.panelMenuSpawnValid) {
+      return null
+    }
+    this.panelMenuSpawnValid = false
+    this.panelMenuSpawnScratch.x = this.panelMenuSpawnX
+    this.panelMenuSpawnScratch.y = this.panelMenuSpawnY
+    return this.panelMenuSpawnScratch
+  }
+
   private handleObjectPanelContextMenuCore(event: MouseEvent) {
     const target = event.target as HTMLElement | null
     const node = target?.closest<HTMLButtonElement>('.editor-object-node')
@@ -1001,6 +1147,8 @@ export class EditorManager {
       }
     }
     this.contextMenu.hide()
+    this.clearPanelMenuSpawn()
+    this.menuSystem.setPanelMenuPasteEnabled(this.clipboardManager.hasData())
     this.menuSystem.showPanelMenu(event.clientX, event.clientY)
   }
 
@@ -1179,6 +1327,12 @@ export class EditorManager {
     }
     if (target && this.isDeletableShape(target)) {
       this.showShapeContextMenu(target, event.clientX, event.clientY)
+      return
+    }
+    if (!target) {
+      this.setPanelMenuSpawnFromEvent(event)
+      this.menuSystem.setPanelMenuPasteEnabled(this.clipboardManager.hasData())
+      this.menuSystem.showPanelMenu(event.clientX, event.clientY)
     }
   }
 
@@ -1279,6 +1433,12 @@ export class EditorManager {
     if (this.markerManager.isWeaponMarker(object)) {
       return true
     }
+    if (this.markerManager.isCheckpointMarker(object)) {
+      return true
+    }
+    if (this.markerManager.isHookAnchorMarker(object)) {
+      return true
+    }
     return (
       object.type === 'rect' ||
       object.type === 'circle' ||
@@ -1297,7 +1457,7 @@ export class EditorManager {
   ) {
     if (this.cameraManager.isCameraFrame(target)) {
       this.showPolygonMenuWithActions(
-        ['zoom', 'reset', 'rename', 'delete'],
+        ['copy', 'paste', 'zoom', 'reset', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -1307,7 +1467,7 @@ export class EditorManager {
     }
     if (this.markerManager.isPlayerMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['properties', 'rename', 'delete'],
+        ['copy', 'paste', 'properties', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -1317,7 +1477,7 @@ export class EditorManager {
     }
     if (this.markerManager.isEnemyMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['properties', 'rename', 'delete'],
+        ['copy', 'paste', 'properties', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -1327,7 +1487,27 @@ export class EditorManager {
     }
     if (this.markerManager.isWeaponMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['properties', 'rename', 'delete'],
+        ['copy', 'paste', 'properties', 'rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
+    if (this.markerManager.isCheckpointMarker(target)) {
+      this.showPolygonMenuWithActions(
+        ['copy', 'paste', 'rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
+    if (this.markerManager.isHookAnchorMarker(target)) {
+      this.showPolygonMenuWithActions(
+        ['copy', 'paste', 'rename', 'delete'],
         target,
         -1,
         clientX,
@@ -1337,7 +1517,7 @@ export class EditorManager {
     }
     if (target.type === 'rect') {
       this.showPolygonMenuWithActions(
-        ['rename', 'reset', 'square', 'delete'],
+        ['copy', 'paste', 'rename', 'reset', 'square', 'delete'],
         target,
         -1,
         clientX,
@@ -1347,7 +1527,7 @@ export class EditorManager {
     }
     if (this.isTriangleShape(target)) {
       this.showPolygonMenuWithActions(
-        ['rename', 'reset', 'equilateral', 'delete'],
+        ['copy', 'paste', 'rename', 'reset', 'equilateral', 'delete'],
         target,
         -1,
         clientX,
@@ -1356,7 +1536,7 @@ export class EditorManager {
       return
     }
     this.showPolygonMenuWithActions(
-      ['rename', 'reset', 'delete'],
+      ['copy', 'paste', 'rename', 'reset', 'delete'],
       target,
       -1,
       clientX,
@@ -1405,6 +1585,23 @@ export class EditorManager {
       return
     }
     const canvas = target.canvas
+    if (action === 'copy') {
+      if (!this.clipboardManager.canCopy(target)) {
+        this.contextMenu.hide()
+        return
+      }
+      this.clipboardManager.copy(target)
+      this.contextMenu.hide()
+      return
+    }
+    if (action === 'paste') {
+      const pasted = this.clipboardManager.paste()
+      this.contextMenu.hide()
+      if (pasted) {
+        this.captureHistorySnapshot()
+      }
+      return
+    }
     if (action === 'properties') {
       if (this.markerManager.isWeaponMarker(target)) {
         await this.propertiesPanel.showWeaponPropertiesDialog(target)

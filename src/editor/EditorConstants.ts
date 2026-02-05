@@ -31,6 +31,7 @@ export const DEFAULT_ENEMY_TYPE: EnemyType = 'default'
 
 export const EDITOR_HISTORY_MAX_ENTRIES = 60
 export const EDITOR_NUDGE_STEP_PX = 1
+export const EDITOR_CLIPBOARD_PASTE_OFFSET_PX = 14
 export const EDITOR_VIEW_ZOOM_SCALE = 1000
 export const EDITOR_VIEW_MIN_ZOOM_SCALED = 100
 export const EDITOR_VIEW_MAX_ZOOM_SCALED = 20000

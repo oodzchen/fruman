@@ -40,15 +40,28 @@ export class EditorShapeManager {
     this.ctx = ctx
   }
 
-  createGroundShape(shape: GroundShapeType) {
-    this.createShape(shape, 'ground')
+  createGroundShape(
+    shape: GroundShapeType,
+    centerX?: number,
+    centerY?: number
+  ) {
+    this.createShape(shape, 'ground', centerX, centerY)
   }
 
-  createObstacleShape(shape: GroundShapeType) {
-    this.createShape(shape, 'obstacle')
+  createObstacleShape(
+    shape: GroundShapeType,
+    centerX?: number,
+    centerY?: number
+  ) {
+    this.createShape(shape, 'obstacle', centerX, centerY)
   }
 
-  private createShape(shape: GroundShapeType, type: 'ground' | 'obstacle') {
+  private createShape(
+    shape: GroundShapeType,
+    type: 'ground' | 'obstacle',
+    centerX?: number,
+    centerY?: number
+  ) {
     const canvas = this.ctx.getCanvas()
     if (!canvas) {
       // console.warn('[shape-manager] Fabric canvas not ready')
@@ -56,8 +69,8 @@ export class EditorShapeManager {
     }
 
     const center = this.ctx.getViewportCenter()
-    const centerX = center.x
-    const centerY = center.y
+    const resolvedX = centerX ?? center.x
+    const resolvedY = centerY ?? center.y
     let shapeObject: fabric.Object | null = null
 
     const isGround = type === 'ground'
@@ -131,8 +144,8 @@ export class EditorShapeManager {
       this.ctx.applyObstaclePatternToObject(shapeObject)
     }
 
-    shapeObject.left = centerX
-    shapeObject.top = centerY
+    shapeObject.left = resolvedX
+    shapeObject.top = resolvedY
     shapeObject.setCoords()
     canvas.add(shapeObject)
     this.ctx.registerEditorObject(objectType, shapeObject)
