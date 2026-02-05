@@ -23,6 +23,7 @@ export class EditorObjectManager {
   private renamingEditorObjectId = -1
   private focusedEditorObject: fabric.Object | null = null
   private treeReorderScratch: EditorObjectData[] = []
+  private dragObjectId = -1
 
   constructor(ctx: EditorObjectManagerContext) {
     this.ctx = ctx
@@ -46,6 +47,14 @@ export class EditorObjectManager {
 
   getRenamingEditorObjectId() {
     return this.renamingEditorObjectId
+  }
+
+  getDragId() {
+    return this.dragObjectId
+  }
+
+  setDragId(id: number) {
+    this.dragObjectId = id
   }
 
   fillTreeSnapshot(order: number[], parentIds: number[]) {
@@ -89,7 +98,7 @@ export class EditorObjectManager {
       data.parentId = parentId
       if (parentId !== null) {
         const parentData = this.getEditorObjectById(parentId)
-        if (parentData?.type === ObjectType.Group) {
+        if (parentData?.type === ObjectType.Empty) {
           this.attachObjectToGroup(data.object, parentData.object)
         } else {
           this.detachObjectFromGroup(data.object)
@@ -107,24 +116,6 @@ export class EditorObjectManager {
     this.applyEditorObjectStacking()
     this.ctx.renderObjectTree()
     return true
-  }
-
-  getDragObjectId() {
-    // EditorObjectManager doesn't seem to manage dragObjectId in the original code,
-    // it was in EditorManager. But it makes sense to be here?
-    // In EditorManager it was: private dragObjectId = -1
-    // And passed to EditorObjectTreeManager.
-    // I should probably manage it here if I move reorder logic.
-    return -1 // Placeholder if I don't move state yet, but I should.
-  }
-
-  // I'll add dragObjectId state management here too.
-  private dragObjectId = -1
-  getDragId() {
-    return this.dragObjectId
-  }
-  setDragId(id: number) {
-    this.dragObjectId = id
   }
 
   hasObjectOfType(type: ObjectType): boolean {
@@ -156,10 +147,9 @@ export class EditorObjectManager {
       return
     }
 
-    // Notify external managers to clean up their specific data (camera, markers, patterns)
     this.ctx.onObjectRemoved(object)
 
-    if (data.type === ObjectType.Group) {
+    if (data.type === ObjectType.Empty) {
       this.detachGroupChildren(data.id, object)
     }
     this.editorObjectMap.delete(object)
@@ -276,122 +266,116 @@ export class EditorObjectManager {
     this.ctx.renderObjectTree()
   }
 
-  reorderEditorObjects(dragId: number, targetId: number, insertAfter: boolean) {
-    if (dragId === targetId) {
-      return
+  moveObjects(
+    ids: number[],
+    targetId: number | null,
+    position: 'before' | 'after' | 'inside'
+  ): boolean {
+    if (ids.length === 0) {
+      return false
     }
-    const dragIndex = this.findEditorObjectIndexById(dragId)
-    const targetIndex = this.findEditorObjectIndexById(targetId)
-    if (dragIndex === -1 || targetIndex === -1) {
-      return
-    }
-    const dragData = this.editorObjects[dragIndex]
-    this.editorObjects.splice(dragIndex, 1)
-    let insertIndex = insertAfter ? targetIndex + 1 : targetIndex
-    if (dragIndex < targetIndex) {
-      insertIndex -= 1
-    }
-    if (insertIndex < 0) {
-      insertIndex = 0
-    }
-    if (insertIndex > this.editorObjects.length) {
-      insertIndex = this.editorObjects.length
-    }
-    this.editorObjects.splice(insertIndex, 0, dragData)
-    this.applyEditorObjectStacking()
-    this.ctx.renderObjectTree()
-  }
 
-  reorderEditorObjectsWithinParent(
-    dragId: number,
-    targetId: number,
-    insertAfter: boolean,
-    parentId: number | null
-  ) {
-    if (dragId === targetId) {
-      return
-    }
-    const dragIndex = this.findEditorObjectIndexById(dragId)
-    const targetIndex = this.findEditorObjectIndexById(targetId)
-    if (dragIndex === -1 || targetIndex === -1) {
-      return
-    }
-    const dragData = this.editorObjects[dragIndex]
-    const targetData = this.editorObjects[targetIndex]
-    if (targetData.parentId !== parentId) {
-      return
-    }
-    this.editorObjects.splice(dragIndex, 1)
-    const targetIndexAfter =
-      dragIndex < targetIndex ? targetIndex - 1 : targetIndex
-
-    const siblingIndices: number[] = []
-    for (let i = 0; i < this.editorObjects.length; i++) {
-      if (this.editorObjects[i].parentId === parentId) {
-        siblingIndices.push(i)
+    const movingData: EditorObjectData[] = []
+    const movingIds = new Set<number>()
+    for (const id of ids) {
+      const data = this.getEditorObjectById(id)
+      if (data) {
+        movingData.push(data)
+        movingIds.add(id)
       }
     }
-    const targetPos = siblingIndices.indexOf(targetIndexAfter)
-    if (targetPos === -1) {
-      return
-    }
 
-    let insertPos = insertAfter ? targetPos + 1 : targetPos
-    if (insertPos < 0) {
-      insertPos = 0
-    }
-    if (insertPos > siblingIndices.length) {
-      insertPos = siblingIndices.length
-    }
-
-    let insertIndex = this.editorObjects.length
-    if (siblingIndices.length === 0) {
-      insertIndex = Math.min(targetIndexAfter, this.editorObjects.length)
-    } else if (insertPos === siblingIndices.length) {
-      const lastIndex = siblingIndices[siblingIndices.length - 1]
-      insertIndex = Math.min(lastIndex + 1, this.editorObjects.length)
-    } else {
-      insertIndex = siblingIndices[insertPos]
-    }
-
-    this.editorObjects.splice(insertIndex, 0, dragData)
-    this.applyEditorObjectStacking()
-    this.ctx.renderObjectTree()
-  }
-
-  setParent(childId: number, parentId: number | null): boolean {
-    if (childId === parentId) {
+    if (movingData.length === 0) {
       return false
     }
-    const childData = this.getEditorObjectById(childId)
-    if (!childData) {
-      return false
-    }
-    if (childData.parentId === parentId) {
-      return false
-    }
-    if (parentId !== null) {
-      const parentData = this.getEditorObjectById(parentId)
-      if (!parentData) {
+
+    let newParentId: number | null = null
+    if (targetId !== null) {
+      const targetData = this.getEditorObjectById(targetId)
+      if (!targetData) {
         return false
       }
-      if (this.isDescendant(parentId, childId)) {
-        return false
+
+      for (const data of movingData) {
+        if (data.id === targetId || this.isDescendant(targetId, data.id)) {
+          return false
+        }
       }
-      if (parentData.type === ObjectType.Group) {
-        this.attachObjectToGroup(childData.object, parentData.object)
+
+      if (position === 'inside') {
+        newParentId = targetId
       } else {
-        this.detachObjectFromGroup(childData.object)
+        newParentId = targetData.parentId
       }
-      childData.parentId = parentId
-      this.moveDataAfterParent(childData, parentData)
     } else {
-      this.detachObjectFromGroup(childData.object)
-      childData.parentId = null
+      newParentId = null
     }
+
+    const extracted: EditorObjectData[] = []
+    const remaining: EditorObjectData[] = []
+    for (const data of this.editorObjects) {
+      if (movingIds.has(data.id)) {
+        extracted.push(data)
+      } else {
+        remaining.push(data)
+      }
+    }
+
+    for (const data of extracted) {
+      const oldParentId = data.parentId
+      if (oldParentId !== newParentId) {
+        data.parentId = newParentId
+        if (newParentId !== null) {
+          const parentData = this.getEditorObjectById(newParentId)
+          if (parentData?.type === ObjectType.Empty) {
+            this.attachObjectToGroup(data.object, parentData.object)
+          } else {
+            this.detachObjectFromGroup(data.object)
+          }
+        } else {
+          this.detachObjectFromGroup(data.object)
+        }
+      }
+    }
+
+    let insertIndex = -1
+    if (targetId === null) {
+      insertIndex = remaining.length
+    } else {
+      const targetInData = remaining.find((d) => d.id === targetId)
+      if (targetInData) {
+        const idx = remaining.indexOf(targetInData)
+        if (position === 'before') {
+          insertIndex = idx
+        } else if (position === 'after') {
+          insertIndex = idx + 1
+        } else {
+          // 'inside' - place after target and its current children in the flat list
+          let lastChildIdx = idx
+          for (let i = idx + 1; i < remaining.length; i++) {
+            if (this.isDescendant(remaining[i].id, targetId)) {
+              lastChildIdx = i
+            } else {
+              break
+            }
+          }
+          insertIndex = lastChildIdx + 1
+        }
+      } else {
+        insertIndex = remaining.length
+      }
+    }
+
+    remaining.splice(insertIndex, 0, ...extracted)
+    this.editorObjects = remaining
+
     this.applyEditorObjectStacking()
     this.ctx.renderObjectTree()
     return true
+  }
+
+  setParent(childId: number, parentId: number | null): boolean {
+    return this.moveObjects([childId], parentId, 'inside')
   }
 
   findEditorObjectIndexById(id: number) {
@@ -521,22 +505,5 @@ export class EditorObjectManager {
         data.object.setCoords()
       }
     }
-  }
-
-  private moveDataAfterParent(
-    childData: EditorObjectData,
-    parentData: EditorObjectData
-  ) {
-    const childIndex = this.editorObjects.indexOf(childData)
-    const parentIndex = this.editorObjects.indexOf(parentData)
-    if (childIndex === -1 || parentIndex === -1) {
-      return
-    }
-    if (childIndex > parentIndex) {
-      return
-    }
-    this.editorObjects.splice(childIndex, 1)
-    const insertIndex = Math.min(parentIndex + 1, this.editorObjects.length)
-    this.editorObjects.splice(insertIndex, 0, childData)
   }
 }

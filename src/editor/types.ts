@@ -4,7 +4,7 @@ import type { WeaponCategory } from '../editorMapTypes'
 import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
 
 export enum ObjectType {
-  Group = 'group',
+  Empty = 'empty',
   Player = 'player',
   Enemy = 'enemy',
   Weapon = 'weapon',

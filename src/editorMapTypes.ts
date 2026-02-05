@@ -5,7 +5,7 @@ export type MapObjectKind = 'ground' | 'obstacle'
 export type WeaponCategory = 'main' | 'secondary' | 'item'
 
 export type EditorTreeObjectType =
-  | 'group'
+  | 'empty'
   | 'player'
   | 'enemy'
   | 'weapon'

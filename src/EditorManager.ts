@@ -475,38 +475,25 @@ export class EditorManager {
         this.objectManager.setDragId(id)
         this.updateObjectTreeContext()
       },
-      onDropReorder: (dragId, targetId, insertAfter, targetParentId) => {
+      onDropReorder: (dragId, targetId, insertAfter) => {
         const dragIds = this.getDragSelectionIds(dragId)
-        if (dragIds.includes(targetId)) {
-          this.resetDragState()
-          return
-        }
-        for (let i = 0; i < dragIds.length; i++) {
-          this.objectManager.setParent(dragIds[i], targetParentId)
-        }
-        let currentTargetId = targetId
-        const ordered = insertAfter ? dragIds : [...dragIds].reverse()
-        for (let i = 0; i < ordered.length; i++) {
-          this.objectManager.reorderEditorObjectsWithinParent(
-            ordered[i],
-            currentTargetId,
-            insertAfter,
-            targetParentId
-          )
-          if (insertAfter) {
-            currentTargetId = ordered[i]
-          }
-        }
+        const changed = this.objectManager.moveObjects(
+          dragIds,
+          targetId,
+          insertAfter ? 'after' : 'before'
+        )
         this.resetDragState()
-        this.captureTreeHistory()
+        if (changed) {
+          this.captureTreeHistory()
+        }
       },
       onDropToParent: (dragId, parentId) => {
         const dragIds = this.getDragSelectionIds(dragId)
-        let changed = false
-        for (let i = 0; i < dragIds.length; i++) {
-          const updated = this.objectManager.setParent(dragIds[i], parentId)
-          changed = changed || updated
-        }
+        const changed = this.objectManager.moveObjects(
+          dragIds,
+          parentId,
+          'inside'
+        )
         this.resetDragState()
         if (changed) {
           this.captureTreeHistory()
@@ -514,11 +501,7 @@ export class EditorManager {
       },
       onDropToRoot: (dragId) => {
         const dragIds = this.getDragSelectionIds(dragId)
-        let changed = false
-        for (let i = 0; i < dragIds.length; i++) {
-          const updated = this.objectManager.setParent(dragIds[i], null)
-          changed = changed || updated
-        }
+        const changed = this.objectManager.moveObjects(dragIds, null, 'after')
         this.resetDragState()
         if (changed) {
           this.captureTreeHistory()
@@ -867,12 +850,12 @@ export class EditorManager {
   private handleObjectClick(type: ObjectType) {
     this.menuSystem.hidePanelMenu()
 
-    if (type === ObjectType.Group) {
+    if (type === ObjectType.Empty) {
       this.hideAllSubmenus()
       this.menuSystem.hideObjectTypeMenu()
       this.setActiveObjectType(type)
       const spawn = this.consumePanelMenuSpawn()
-      const group = this.createEmptyGroup(
+      const group = this.createEmptyNode(
         spawn?.x ?? this.getViewportCenter().x,
         spawn?.y ?? this.getViewportCenter().y
       )
@@ -1638,12 +1621,12 @@ export class EditorManager {
     for (let i = 0; i < tree.nodes.length; i++) {
       const node = tree.nodes[i]
       let resolvedData: EditorObjectData | null = null
-      if (node.type === 'group') {
-        const group = this.createEmptyGroup(0, 0)
+      if (node.type === 'empty') {
+        const group = this.createEmptyNode(0, 0)
         if (group) {
           this.fabricCanvas?.add(group)
           resolvedData = this.objectManager.registerEditorObject(
-            ObjectType.Group,
+            ObjectType.Empty,
             group
           )
         }
@@ -1870,7 +1853,7 @@ export class EditorManager {
     if (this.markerManager.isHookAnchorMarker(object)) {
       return true
     }
-    if (this.isGroupObject(object)) {
+    if (this.isEmptyObject(object)) {
       return true
     }
     return (
@@ -1929,7 +1912,7 @@ export class EditorManager {
       )
       return
     }
-    if (this.isGroupObject(target)) {
+    if (this.isEmptyObject(target)) {
       this.showPolygonMenuWithActions(
         ['copy', 'paste', 'rename', 'delete'],
         target,
@@ -1997,12 +1980,12 @@ export class EditorManager {
     return data?.kind === 'triangle'
   }
 
-  private isGroupObject(object: fabric.Object) {
+  private isEmptyObject(object: fabric.Object) {
     const data = this.objectManager.getEditorObjectMap().get(object)
-    return data?.type === ObjectType.Group
+    return data?.type === ObjectType.Empty
   }
 
-  private createEmptyGroup(centerX: number, centerY: number) {
+  private createEmptyNode(centerX: number, centerY: number) {
     const group = new fabric.Group([], {
       originX: 'center',
       originY: 'center',
@@ -2017,7 +2000,7 @@ export class EditorManager {
     group.left = centerX
     group.top = centerY
     group.setCoords()
-    ;(group as unknown as { editorShape: string }).editorShape = 'editor-group'
+    ;(group as unknown as { editorShape: string }).editorShape = 'editor-empty'
     return group
   }
 

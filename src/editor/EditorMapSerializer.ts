@@ -5,6 +5,7 @@ import type {
   EditorMapData,
   EditorTreeData,
   EditorTreeNode,
+  EditorTreeObjectType,
   MapEnemyWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
@@ -465,7 +466,7 @@ export class EditorMapSerializer {
     for (let i = 0; i < editorObjects.length; i++) {
       const dataItem = editorObjects[i]
       const node: EditorTreeNode = {
-        type: dataItem.type,
+        type: dataItem.type as EditorTreeObjectType,
         name: dataItem.name,
       }
       if (dataItem.type === 'ground' || dataItem.type === 'obstacle') {
