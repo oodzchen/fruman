@@ -504,8 +504,8 @@ export class EditorClipboardManager {
       polygon.scaleX = this.shapeScaleX
       polygon.scaleY = this.shapeScaleY
       polygon.angle = this.shapeAngle
-      polygon.left = this.pasteBaseLeft + offset
-      polygon.top = this.pasteBaseTop + offset
+      polygon.left = this.pasteBaseLeft + offset + polygon.pathOffset.x
+      polygon.top = this.pasteBaseTop + offset + polygon.pathOffset.y
       polygon.setCoords()
       shapeObject = polygon
     }

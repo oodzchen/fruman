@@ -295,16 +295,8 @@ export class EditorMapSerializer {
         : OBSTACLE_EDITABLE_POLYGON_OPTIONS
     const polygon = new fabric.Polygon(localPoints, options)
     this.ctx.setupEditablePolygon(polygon)
-    const offset = polygon.pathOffset
-    if (polygon.points) {
-      for (let i = 0; i < polygon.points.length; i++) {
-        const point = polygon.points[i]
-        point.x += offset.x
-        point.y += offset.y
-      }
-    }
-    polygon.left = centerXPx
-    polygon.top = centerYPx
+    polygon.left = centerXPx + polygon.pathOffset.x
+    polygon.top = centerYPx + polygon.pathOffset.y
     polygon.scaleX = 1
     polygon.scaleY = 1
     polygon.angle = 0

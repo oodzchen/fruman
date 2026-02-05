@@ -85,6 +85,13 @@ export class EditorCanvasEventHandler {
 
     canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom)
 
+    canvas.calcOffset()
+    canvas.forEachObject((obj) => {
+      if (obj.visible) {
+        obj.setCoords()
+      }
+    })
+
     opt.e.preventDefault()
     opt.e.stopPropagation()
   }
@@ -152,6 +159,12 @@ export class EditorCanvasEventHandler {
       if (vpt) {
         canvas.setViewportTransform(vpt)
       }
+      canvas.calcOffset()
+      canvas.forEachObject((obj) => {
+        if (obj.visible) {
+          obj.setCoords()
+        }
+      })
     }
     if (!this.ctx.getIsPanning()) {
       this.ctx.snapManager.hideSnapGuides()

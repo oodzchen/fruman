@@ -106,6 +106,7 @@ export class EditorObjectManager {
       } else {
         this.detachObjectFromGroup(data.object)
       }
+      data.object.setCoords()
       scratch.push(data)
     }
 
@@ -176,12 +177,16 @@ export class EditorObjectManager {
     if (!canvas) {
       return
     }
+    // Only move top-level objects on the canvas.
+    // Children within groups are managed by their parent group's internal stacking.
+    let canvasIndex = 0
     for (let i = 0; i < this.editorObjects.length; i++) {
-      const obj = this.editorObjects[i].object
-      if (obj.canvas !== canvas) {
+      const data = this.editorObjects[i]
+      const obj = data.object
+      if (data.parentId !== null || obj.canvas !== canvas) {
         continue
       }
-      canvas.moveTo(obj, i)
+      canvas.moveTo(obj, canvasIndex++)
     }
     if (
       this.focusedEditorObject &&
@@ -336,6 +341,7 @@ export class EditorObjectManager {
           this.detachObjectFromGroup(data.object)
         }
       }
+      data.object.setCoords()
     }
 
     let insertIndex = -1
@@ -469,6 +475,7 @@ export class EditorObjectManager {
       child.canvas.remove(child)
     }
     parent.addWithUpdate(child)
+    parent.setCoords()
   }
 
   private detachObjectFromGroup(child: fabric.Object): void {
@@ -480,6 +487,7 @@ export class EditorObjectManager {
         canvas.add(child)
       }
       child.setCoords()
+      parent.setCoords()
     }
   }
 

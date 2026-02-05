@@ -1,4 +1,3 @@
-import { ObjectType } from './types'
 import type { EditorObjectData } from './types'
 
 export interface EditorObjectTreeManagerContext {
