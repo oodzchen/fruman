@@ -31,6 +31,8 @@ export class GrappleSystem extends System {
   private rangeSq = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
   private stopDistanceSq =
     DEFAULT_GRAPPLE_PULL_STOP_DISTANCE * DEFAULT_GRAPPLE_PULL_STOP_DISTANCE
+  private ropeHideDistanceSq =
+    DEFAULT_PLAYER_RADIUS * 2 * (DEFAULT_PLAYER_RADIUS * 2)
 
   constructor(world: World, box2d: MainModule) {
     super()
@@ -289,6 +291,14 @@ export class GrappleSystem extends System {
         return
       }
       this.applyLinearPull(entity, null, grapple.pullSpeed)
+      return
+    }
+
+    if (
+      grapple.pullMode === this.pullModeAnchor &&
+      distSq <= this.ropeHideDistanceSq
+    ) {
+      this.stopPull(grapple, true)
       return
     }
 
