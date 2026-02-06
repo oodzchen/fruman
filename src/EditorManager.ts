@@ -1995,7 +1995,6 @@ export class EditorManager {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-      subTargetCheck: true,
     })
     group.left = centerX
     group.top = centerY

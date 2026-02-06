@@ -96,16 +96,7 @@ export class EditorObjectManager {
       }
       const parentId = parentIds[i] === -1 ? null : parentIds[i]
       data.parentId = parentId
-      if (parentId !== null) {
-        const parentData = this.getEditorObjectById(parentId)
-        if (parentData?.type === ObjectType.Empty) {
-          this.attachObjectToGroup(data.object, parentData.object)
-        } else {
-          this.detachObjectFromGroup(data.object)
-        }
-      } else {
-        this.detachObjectFromGroup(data.object)
-      }
+      this.detachObjectFromGroup(data.object)
       data.object.setCoords()
       scratch.push(data)
     }
@@ -151,7 +142,7 @@ export class EditorObjectManager {
     this.ctx.onObjectRemoved(object)
 
     if (data.type === ObjectType.Empty) {
-      this.detachGroupChildren(data.id, object)
+      this.orphanChildren(data.id)
     }
     this.editorObjectMap.delete(object)
     const index = this.editorObjects.indexOf(data)
@@ -183,7 +174,7 @@ export class EditorObjectManager {
     for (let i = 0; i < this.editorObjects.length; i++) {
       const data = this.editorObjects[i]
       const obj = data.object
-      if (data.parentId !== null || obj.canvas !== canvas) {
+      if (obj.canvas !== canvas) {
         continue
       }
       canvas.moveTo(obj, canvasIndex++)
@@ -330,16 +321,7 @@ export class EditorObjectManager {
       const oldParentId = data.parentId
       if (oldParentId !== newParentId) {
         data.parentId = newParentId
-        if (newParentId !== null) {
-          const parentData = this.getEditorObjectById(newParentId)
-          if (parentData?.type === ObjectType.Empty) {
-            this.attachObjectToGroup(data.object, parentData.object)
-          } else {
-            this.detachObjectFromGroup(data.object)
-          }
-        } else {
-          this.detachObjectFromGroup(data.object)
-        }
+        this.detachObjectFromGroup(data.object)
       }
       data.object.setCoords()
     }
@@ -461,23 +443,6 @@ export class EditorObjectManager {
     return false
   }
 
-  private attachObjectToGroup(
-    child: fabric.Object,
-    parent: fabric.Object
-  ): void {
-    if (!(parent instanceof fabric.Group)) {
-      return
-    }
-    parent.subTargetCheck = true
-    if (child.group) {
-      child.group.removeWithUpdate(child)
-    } else if (child.canvas) {
-      child.canvas.remove(child)
-    }
-    parent.addWithUpdate(child)
-    parent.setCoords()
-  }
-
   private detachObjectFromGroup(child: fabric.Object): void {
     const canvas = this.ctx.fabricCanvas()
     if (child.group) {
@@ -491,26 +456,11 @@ export class EditorObjectManager {
     }
   }
 
-  private detachGroupChildren(
-    groupId: number,
-    groupObject: fabric.Object
-  ): void {
-    const canvas = this.ctx.fabricCanvas()
-    if (!(groupObject instanceof fabric.Group) || !canvas) {
-      return
-    }
+  private orphanChildren(parentId: number): void {
     for (let i = 0; i < this.editorObjects.length; i++) {
       const data = this.editorObjects[i]
-      if (data.parentId !== groupId) {
-        continue
-      }
-      data.parentId = null
-      if (data.object.group === groupObject) {
-        groupObject.removeWithUpdate(data.object)
-        if (data.object.canvas !== canvas) {
-          canvas.add(data.object)
-        }
-        data.object.setCoords()
+      if (data.parentId === parentId) {
+        data.parentId = null
       }
     }
   }
