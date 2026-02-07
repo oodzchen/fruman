@@ -714,7 +714,13 @@ export class EditorManager {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
+    if (this.dialogManager.consumeBlockedPostCloseKey(event)) {
+      return
+    }
     if (event.defaultPrevented) {
+      return
+    }
+    if (this.dialogManager.isDialogOpen()) {
       return
     }
     const target = event.target

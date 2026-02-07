@@ -16,6 +16,16 @@ export class DialogManager {
   private resolveCallback: ((value: boolean | string | null) => void) | null =
     null
   private boundHandleKeyDown: (event: KeyboardEvent) => void
+  private boundHandleKeyUp: (event: KeyboardEvent) => void
+  private holdToConfirmButton: HTMLButtonElement | null = null
+  private holdProgressFill: HTMLSpanElement | null = null
+  private holdConfirmDurationMs = 0
+  private holdConfirmActive = false
+  private holdConfirmCompleted = false
+  private holdConfirmKey: 'Enter' | ' ' | null = null
+  private blockedPostCloseKey: 'Enter' | ' ' | null = null
+  private boundHandlePostCloseKeyDown: (event: KeyboardEvent) => void
+  private boundHandlePostCloseKeyUp: (event: KeyboardEvent) => void
 
   constructor(parentElement: HTMLElement, inputTarget?: HTMLElement) {
     this.container = document.createElement('div')
@@ -74,6 +84,9 @@ export class DialogManager {
     this.container.appendChild(this.contentBox)
     parentElement.appendChild(this.container)
     this.boundHandleKeyDown = this.handleKeyDown.bind(this)
+    this.boundHandleKeyUp = this.handleKeyUp.bind(this)
+    this.boundHandlePostCloseKeyDown = this.handlePostCloseKeyDown.bind(this)
+    this.boundHandlePostCloseKeyUp = this.handlePostCloseKeyUp.bind(this)
     this.inputTarget = inputTarget ?? parentElement
     if (this.inputTarget.tabIndex < 0) {
       this.inputTarget.tabIndex = 0
@@ -92,6 +105,7 @@ export class DialogManager {
     this.container.style.display = 'block'
     this.container.style.pointerEvents = 'auto'
     this.inputTarget.addEventListener('keydown', this.boundHandleKeyDown, true)
+    this.inputTarget.addEventListener('keyup', this.boundHandleKeyUp, true)
     this.inputTarget.focus(this.focusOptions)
   }
 
@@ -109,6 +123,13 @@ export class DialogManager {
       this.boundHandleKeyDown,
       true
     )
+    this.inputTarget.removeEventListener('keyup', this.boundHandleKeyUp, true)
+    this.cancelHoldToConfirm()
+    this.holdToConfirmButton = null
+    this.holdProgressFill = null
+    this.holdConfirmDurationMs = 0
+    this.holdConfirmCompleted = false
+    this.holdConfirmKey = null
 
     if (this.inputBox) {
       this.inputBox.remove()
@@ -151,6 +172,9 @@ export class DialogManager {
       this.selectedButtonIndex = this.activeButtons.length - 1
     } else {
       this.selectedButtonIndex = index
+    }
+    if (this.holdConfirmActive) {
+      this.cancelHoldToConfirm()
     }
     this.applyDialogButtonSelection()
     this.activeButtons[this.selectedButtonIndex].focus()
@@ -248,7 +272,13 @@ export class DialogManager {
       }
       event.preventDefault()
       event.stopPropagation()
-      this.activeButtons[this.selectedButtonIndex].click()
+      const selectedButton = this.activeButtons[this.selectedButtonIndex]
+      if (selectedButton.dataset.holdConfirm === '1') {
+        this.holdConfirmKey = key
+        this.startHoldToConfirm()
+        return
+      }
+      selectedButton.click()
       return
     }
     if (
@@ -281,6 +311,86 @@ export class DialogManager {
     }
   }
 
+  private handleKeyUp(event: KeyboardEvent) {
+    if (!this.isOpen) {
+      return
+    }
+    if (!this.holdConfirmActive) {
+      return
+    }
+    const key = event.key
+    if (this.holdConfirmKey !== key) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    this.holdConfirmKey = null
+    this.cancelHoldToConfirm()
+  }
+
+  private handlePostCloseKeyDown(event: KeyboardEvent) {
+    if (!this.blockedPostCloseKey) {
+      return
+    }
+    if (event.key !== this.blockedPostCloseKey) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  private handlePostCloseKeyUp(event: KeyboardEvent) {
+    if (!this.blockedPostCloseKey) {
+      return
+    }
+    if (event.key !== this.blockedPostCloseKey) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    this.clearPostCloseKeyBlock()
+  }
+
+  private blockKeyUntilRelease(key: 'Enter' | ' '): void {
+    this.blockedPostCloseKey = key
+    this.inputTarget.addEventListener(
+      'keydown',
+      this.boundHandlePostCloseKeyDown,
+      true
+    )
+    this.inputTarget.addEventListener(
+      'keyup',
+      this.boundHandlePostCloseKeyUp,
+      true
+    )
+  }
+
+  private clearPostCloseKeyBlock(): void {
+    this.blockedPostCloseKey = null
+    this.inputTarget.removeEventListener(
+      'keydown',
+      this.boundHandlePostCloseKeyDown,
+      true
+    )
+    this.inputTarget.removeEventListener(
+      'keyup',
+      this.boundHandlePostCloseKeyUp,
+      true
+    )
+  }
+
+  consumeBlockedPostCloseKey(event: KeyboardEvent): boolean {
+    if (!this.blockedPostCloseKey) {
+      return false
+    }
+    if (event.key !== this.blockedPostCloseKey) {
+      return false
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    return true
+  }
+
   private createButton(
     text: string,
     onClick: () => void,
@@ -294,6 +404,152 @@ export class DialogManager {
 
     button.addEventListener('click', onClick)
     return button
+  }
+
+  private createHoldToConfirmButton(
+    text: string,
+    durationMs: number
+  ): HTMLButtonElement {
+    const button = this.createButton(text, () => {}, true)
+    button.classList.add('editor-action-btn-danger')
+    button.dataset.holdConfirm = '1'
+    button.style.position = 'relative'
+    button.style.overflow = 'hidden'
+
+    const fill = document.createElement('span')
+    fill.style.cssText = `
+      position: absolute;
+      inset: 0;
+      background: rgba(70, 16, 16, 0.72);
+      transform-origin: left center;
+      transform: scaleX(0);
+      pointer-events: none;
+      z-index: 0;
+    `
+
+    const label = document.createElement('span')
+    label.textContent = text
+    label.style.cssText = `
+      position: relative;
+      z-index: 1;
+    `
+
+    button.textContent = ''
+    button.appendChild(fill)
+    button.appendChild(label)
+
+    this.holdToConfirmButton = button
+    this.holdProgressFill = fill
+    this.holdConfirmDurationMs = durationMs
+
+    button.addEventListener('transitionend', (event) => {
+      if (event.target !== fill || event.propertyName !== 'transform') {
+        return
+      }
+      if (!this.holdConfirmActive || this.holdConfirmCompleted) {
+        return
+      }
+      this.holdConfirmCompleted = true
+      this.holdConfirmActive = false
+      if (this.holdConfirmKey) {
+        this.blockKeyUntilRelease(this.holdConfirmKey)
+      }
+      this.close(true)
+    })
+
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+    })
+
+    button.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) {
+        return
+      }
+      event.preventDefault()
+      this.startHoldToConfirm()
+    })
+
+    button.addEventListener('pointerup', () => {
+      this.cancelHoldToConfirm()
+    })
+
+    button.addEventListener('pointercancel', () => {
+      this.cancelHoldToConfirm()
+    })
+
+    button.addEventListener('pointerleave', () => {
+      this.cancelHoldToConfirm()
+    })
+
+    button.addEventListener('blur', () => {
+      this.cancelHoldToConfirm()
+    })
+
+    return button
+  }
+
+  private startHoldToConfirm(): void {
+    if (
+      !this.holdToConfirmButton ||
+      !this.holdProgressFill ||
+      this.holdConfirmCompleted
+    ) {
+      return
+    }
+    if (this.holdConfirmActive) {
+      return
+    }
+    this.holdConfirmActive = true
+    this.holdToConfirmButton.dataset.holding = '1'
+    this.holdProgressFill.style.transitionProperty = 'transform'
+    this.holdProgressFill.style.transitionDuration = `${this.holdConfirmDurationMs}ms`
+    this.holdProgressFill.style.transitionTimingFunction = 'linear'
+    this.holdProgressFill.style.transform = 'scaleX(1)'
+  }
+
+  private cancelHoldToConfirm(): void {
+    if (!this.holdToConfirmButton || !this.holdProgressFill) {
+      return
+    }
+    if (!this.holdConfirmActive) {
+      return
+    }
+    this.holdConfirmActive = false
+    this.holdToConfirmButton.dataset.holding = '0'
+    this.holdProgressFill.style.transitionProperty = 'transform'
+    this.holdProgressFill.style.transitionDuration = '180ms'
+    this.holdProgressFill.style.transitionTimingFunction = 'ease-out'
+    this.holdProgressFill.style.transform = 'scaleX(0)'
+  }
+
+  confirmHoldToDelete(message: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.resolveCallback = (result) => {
+        resolve(result === true)
+      }
+
+      this.messageBox.textContent = message
+      this.buttonsContainer.innerHTML = ''
+
+      const cancelButton = this.createButton(
+        localizer.t('editor_btn_cancel'),
+        () => {
+          this.close(false)
+        }
+      )
+
+      const holdDeleteButton = this.createHoldToConfirmButton(
+        localizer.t('editor_btn_hold_delete'),
+        3000
+      )
+
+      this.buttonsContainer.appendChild(cancelButton)
+      this.buttonsContainer.appendChild(holdDeleteButton)
+      this.setDialogButtons([cancelButton, holdDeleteButton])
+      this.open()
+      cancelButton.focus()
+    })
   }
 
   alert(message: string): Promise<void> {

@@ -97,6 +97,7 @@
   "editor_preview_failed": "地图预览失败",
   "editor_btn_confirm": "确定",
   "editor_btn_cancel": "取消",
+  "editor_btn_hold_delete": "长按3秒删除",
   "editor_btn_save": "保存",
   "editor_btn_discard": "不保存",
   "editor_weapon_category_main": "主武器",

@@ -97,6 +97,7 @@
   "editor_preview_failed": "Failed to preview map",
   "editor_btn_confirm": "Confirm",
   "editor_btn_cancel": "Cancel",
+  "editor_btn_hold_delete": "Hold 3s to Delete",
   "editor_btn_save": "Save",
   "editor_btn_discard": "Don't Save",
   "editor_weapon_category_main": "Main Weapon",

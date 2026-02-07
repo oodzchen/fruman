@@ -730,6 +730,24 @@
         background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.32);
       }
+      .editor-action-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .editor-action-btn-danger {
+        color: #d98b8b;
+        border-color: rgba(190, 68, 68, 0.8);
+      }
+      .editor-action-btn-danger:hover {
+        color: #ffd0d0;
+        background: var(--ui-highlight);
+        border-color: rgba(245, 92, 92, 0.95);
+      }
+      .editor-action-btn-danger.is-selected {
+        color: #ffd0d0;
+        background: var(--ui-highlight);
+        border-color: rgba(245, 92, 92, 0.95);
+      }
       .preview-actions {
         position: absolute;
         left: 12px;
@@ -1118,7 +1136,7 @@
                   ></button>
                   <button
                     id="editorMapDeleteBtn"
-                    class="editor-action-btn"
+                    class="editor-action-btn editor-action-btn-danger"
                   ></button>
                   <button
                     id="editorMapRenameBtn"

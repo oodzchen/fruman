@@ -226,7 +226,10 @@ export class EditorMapListManager {
     if (!meta) {
       return
     }
-    const confirmed = await this.context.dialogManager.confirm(
+    if (meta.isDefault) {
+      return
+    }
+    const confirmed = await this.context.dialogManager.confirmHoldToDelete(
       localizer.t('editor_map_delete_confirm').replace('{0}', meta.name)
     )
     if (!confirmed) {
@@ -345,6 +348,7 @@ export class EditorMapListManager {
     }
     if (key === 'Enter' || key === ' ') {
       event.preventDefault()
+      event.stopPropagation()
       const element = this.getMapListNavElement(this.editorMapListSelectedIndex)
       if (element) {
         element.click()
@@ -473,6 +477,7 @@ export class EditorMapListManager {
       this.editorMapListSelectedIndex === this.mapListDefaultMapIndex
     )
     this.updateMapListMenuVisibility()
+    this.updateMapActionStates()
 
     if (
       this.editorMapListSelectedIndex >= 0 &&
@@ -495,6 +500,7 @@ export class EditorMapListManager {
     this.editorMapRenameBtn.classList.remove('is-selected')
     this.editorMapDefaultBtn.classList.remove('is-selected')
     this.editorMapListMenu.classList.remove('is-visible')
+    this.updateMapActionStates()
   }
 
   private getSelectedMapId(): string | null {
@@ -519,6 +525,12 @@ export class EditorMapListManager {
       return
     }
     this.editorMapListMenu.classList.add('is-visible')
+  }
+
+  private updateMapActionStates() {
+    const mapId = this.getSelectedMapId()
+    const selectedMeta = mapId ? this.findMapMeta(mapId) : null
+    this.editorMapDeleteBtn.disabled = selectedMeta?.isDefault === true
   }
 
   private getMapListNavCount(): number {
