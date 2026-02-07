@@ -148,6 +148,8 @@
   "save_list_empty": "No saves",
   "save_list_new": "New Save",
   "save_list_delete": "Delete",
+  "save_list_delete_confirm": "Are you sure you want to delete save '{0}'?",
+  "save_delete_failed": "Failed to delete save",
   "save_list_playtime": "Play Time",
   "save_default_name": "Save {0}",
   "saving": "Saving...",

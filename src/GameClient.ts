@@ -130,6 +130,7 @@ export class GameClient {
       this.inputTarget.tabIndex = 0
     }
     this.dialogManager = new DialogManager(uiLayer, this.inputTarget)
+    this.menuManager.setDialogManager(this.dialogManager)
     this.renderer.setAudioManager(this.audioManager)
     const editorOverlay = document.getElementById('editorOverlay')
     this.editorOverlay =

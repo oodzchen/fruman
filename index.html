@@ -150,8 +150,26 @@
       .menu-save-list .menu-item.menu-item-save {
         width: 600px;
       }
-      .menu-item.menu-item-save-new {
+      .menu-save-actions {
         position: absolute;
+        right: 12px;
+        bottom: 12px;
+        display: none;
+        gap: 8px;
+        pointer-events: auto;
+        z-index: 4;
+      }
+      .menu-save-actions.is-visible {
+        display: flex;
+      }
+      .menu-save-actions .menu-item {
+        position: relative;
+        left: auto;
+        top: auto;
+        transform: none;
+      }
+      .menu-item.menu-item-save-new {
+        position: relative;
         height: 34px;
         line-height: 34px;
         font-size: 14px;
@@ -164,16 +182,41 @@
         font-family: var(--ui-font);
         box-sizing: border-box;
         width: auto;
-        right: 12px;
-        bottom: 12px;
-        left: auto;
         transform: none;
+        left: auto;
+      }
+      .menu-item.menu-item-save-delete {
+        position: relative;
+        height: 34px;
+        line-height: 34px;
+        font-size: 14px;
+        color: #d98b8b;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(190, 68, 68, 0.8);
+        padding: 0 12px;
+        cursor: pointer;
+        text-align: center;
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+        width: auto;
+        transform: none;
+        left: auto;
       }
       .menu-item.menu-item-save-new:hover,
       .menu-item.menu-item-save-new.is-selected {
         color: var(--ui-color);
         background: var(--ui-highlight);
         border-color: rgba(255, 255, 255, 0.32);
+      }
+      .menu-item.menu-item-save-delete:hover,
+      .menu-item.menu-item-save-delete.is-selected {
+        color: #ffd0d0;
+        background: var(--ui-highlight);
+        border-color: rgba(245, 92, 92, 0.95);
+      }
+      .menu-item.menu-item-save-delete:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
       .menu-item.menu-item-back {
         position: absolute;
@@ -1131,12 +1174,12 @@
                   class="editor-actions editor-map-actions"
                 >
                   <button
-                    id="editorMapCreateBtn"
-                    class="editor-action-btn"
-                  ></button>
-                  <button
                     id="editorMapDeleteBtn"
                     class="editor-action-btn editor-action-btn-danger"
+                  ></button>
+                  <button
+                    id="editorMapCreateBtn"
+                    class="editor-action-btn"
                   ></button>
                   <button
                     id="editorMapRenameBtn"

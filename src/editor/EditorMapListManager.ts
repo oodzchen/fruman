@@ -1,4 +1,5 @@
 import type { DialogManager } from '../DialogManager'
+import { findDirectionalIndex } from '../DirectionalNav'
 import { localizer } from '../Localizer'
 import type {
   EditorMapData,
@@ -346,18 +347,25 @@ export class EditorMapListManager {
       this.setMapListSelectedIndex(nextIndex, false)
       return
     }
-    if (key === 'Enter' || key === ' ') {
-      event.preventDefault()
-      event.stopPropagation()
-      const element = this.getMapListNavElement(this.editorMapListSelectedIndex)
-      if (element) {
-        element.click()
-      }
-      return
-    }
     if (key === 'Escape') {
       event.preventDefault()
       this.context.onBackToMenu()
+    }
+  }
+
+  public handleMapListKeyUp(event: KeyboardEvent) {
+    if (this.editorMapListItems.length === 0) {
+      return
+    }
+    const key = event.key
+    if (key !== 'Enter' && key !== ' ') {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const element = this.getMapListNavElement(this.editorMapListSelectedIndex)
+    if (element) {
+      element.click()
     }
   }
 
@@ -427,8 +435,8 @@ export class EditorMapListManager {
     }
 
     this.mapListBackIndex = this.editorMapListItems.length
-    this.mapListCreateMapIndex = this.editorMapListItems.length + 1
-    this.mapListDeleteMapIndex = this.editorMapListItems.length + 2
+    this.mapListDeleteMapIndex = this.editorMapListItems.length + 1
+    this.mapListCreateMapIndex = this.editorMapListItems.length + 2
     this.mapListRenameMapIndex = this.editorMapListItems.length + 3
     this.mapListDefaultMapIndex = this.editorMapListItems.length + 4
   }
@@ -541,11 +549,11 @@ export class EditorMapListManager {
     if (index === this.mapListBackIndex) {
       return this.context.getBackBtn()
     }
-    if (index === this.mapListCreateMapIndex) {
-      return this.editorMapCreateBtn
-    }
     if (index === this.mapListDeleteMapIndex) {
       return this.editorMapDeleteBtn
+    }
+    if (index === this.mapListCreateMapIndex) {
+      return this.editorMapCreateBtn
     }
     if (index === this.mapListRenameMapIndex) {
       return this.editorMapRenameBtn
@@ -560,55 +568,13 @@ export class EditorMapListManager {
   }
 
   private findMapListDirectionalIndex(dirX: number, dirY: number): number {
-    const count = this.getMapListNavCount()
-    const currentIndex = this.editorMapListSelectedIndex
-    const currentElement = this.getMapListNavElement(currentIndex)
-    if (!currentElement) {
-      return currentIndex
-    }
-    const currentRect = currentElement.getBoundingClientRect()
-    const currentLeft = Math.round(currentRect.left)
-    const currentTop = Math.round(currentRect.top)
-    const currentWidth = Math.round(currentRect.width)
-    const currentHeight = Math.round(currentRect.height)
-    const currentX = currentLeft + (currentWidth >> 1)
-    const currentY = currentTop + (currentHeight >> 1)
-
-    let bestIndex = currentIndex
-    let bestScore = Number.MAX_SAFE_INTEGER
-
-    for (let i = 0; i < count; i++) {
-      if (i === currentIndex) {
-        continue
-      }
-      const element = this.getMapListNavElement(i)
-      if (!element) {
-        continue
-      }
-      const rect = element.getBoundingClientRect()
-      const left = Math.round(rect.left)
-      const top = Math.round(rect.top)
-      const width = Math.round(rect.width)
-      const height = Math.round(rect.height)
-      const centerX = left + (width >> 1)
-      const centerY = top + (height >> 1)
-      const dx = centerX - currentX
-      const dy = centerY - currentY
-      const dot = dx * dirX + dy * dirY
-      if (dot <= 0) {
-        continue
-      }
-      const absDx = Math.abs(dx)
-      const absDy = Math.abs(dy)
-      const dist2 = dx * dx + dy * dy
-      const offAxis = dirY !== 0 ? absDx : absDy
-      const score = dist2 * 4 + offAxis * offAxis * 9
-      if (score < bestScore) {
-        bestScore = score
-        bestIndex = i
-      }
-    }
-    return bestIndex
+    return findDirectionalIndex(
+      this.editorMapListSelectedIndex,
+      this.getMapListNavCount(),
+      (index) => this.getMapListNavElement(index),
+      dirX,
+      dirY
+    )
   }
 
   private findMapListIndexById(mapId: string): number {

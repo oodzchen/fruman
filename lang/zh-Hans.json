@@ -148,6 +148,8 @@
   "save_list_empty": "暂无存档",
   "save_list_new": "新建存档",
   "save_list_delete": "删除",
+  "save_list_delete_confirm": "确定删除存档'{0}'？",
+  "save_delete_failed": "存档删除失败",
   "save_list_playtime": "游玩时间",
   "save_default_name": "存档 {0}",
   "saving": "保存中...",

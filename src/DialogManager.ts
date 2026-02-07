@@ -1,3 +1,4 @@
+import { findDirectionalIndex } from './DirectionalNav'
 import { localizer } from './Localizer'
 
 export class DialogManager {
@@ -20,12 +21,15 @@ export class DialogManager {
   private holdToConfirmButton: HTMLButtonElement | null = null
   private holdProgressFill: HTMLSpanElement | null = null
   private holdConfirmDurationMs = 0
+  private holdConfirmStartMs = 0
   private holdConfirmActive = false
   private holdConfirmCompleted = false
   private holdConfirmKey: 'Enter' | ' ' | null = null
   private blockedPostCloseKey: 'Enter' | ' ' | null = null
   private boundHandlePostCloseKeyDown: (event: KeyboardEvent) => void
   private boundHandlePostCloseKeyUp: (event: KeyboardEvent) => void
+  private boundHandlePostClosePointerDown: () => void
+  private boundHandlePostCloseWindowBlur: () => void
 
   constructor(parentElement: HTMLElement, inputTarget?: HTMLElement) {
     this.container = document.createElement('div')
@@ -87,6 +91,10 @@ export class DialogManager {
     this.boundHandleKeyUp = this.handleKeyUp.bind(this)
     this.boundHandlePostCloseKeyDown = this.handlePostCloseKeyDown.bind(this)
     this.boundHandlePostCloseKeyUp = this.handlePostCloseKeyUp.bind(this)
+    this.boundHandlePostClosePointerDown =
+      this.handlePostClosePointerDown.bind(this)
+    this.boundHandlePostCloseWindowBlur =
+      this.handlePostCloseWindowBlur.bind(this)
     this.inputTarget = inputTarget ?? parentElement
     if (this.inputTarget.tabIndex < 0) {
       this.inputTarget.tabIndex = 0
@@ -128,6 +136,7 @@ export class DialogManager {
     this.holdToConfirmButton = null
     this.holdProgressFill = null
     this.holdConfirmDurationMs = 0
+    this.holdConfirmStartMs = 0
     this.holdConfirmCompleted = false
     this.holdConfirmKey = null
 
@@ -181,67 +190,13 @@ export class DialogManager {
   }
 
   private findDirectionalButtonIndex(dirX: number, dirY: number): number {
-    if (this.activeButtons.length === 0) {
-      return this.selectedButtonIndex
-    }
-    const currentButton = this.activeButtons[this.selectedButtonIndex]
-    const currentRect = currentButton.getBoundingClientRect()
-    const currentLeft = Math.round(currentRect.left)
-    const currentTop = Math.round(currentRect.top)
-    const currentWidth = Math.round(currentRect.width)
-    const currentHeight = Math.round(currentRect.height)
-    const currentX = currentLeft + (currentWidth >> 1)
-    const currentY = currentTop + (currentHeight >> 1)
-
-    let bestIndex = this.selectedButtonIndex
-    let bestScore = Number.MAX_SAFE_INTEGER
-
-    for (let i = 0; i < this.activeButtons.length; i++) {
-      if (i === this.selectedButtonIndex) {
-        continue
-      }
-      const button = this.activeButtons[i]
-      const rect = button.getBoundingClientRect()
-      const left = Math.round(rect.left)
-      const top = Math.round(rect.top)
-      const width = Math.round(rect.width)
-      const height = Math.round(rect.height)
-      const centerX = left + (width >> 1)
-      const centerY = top + (height >> 1)
-      const dx = centerX - currentX
-      const dy = centerY - currentY
-      if (dirY !== 0) {
-        if (dy === 0 || dy * dirY <= 0) {
-          continue
-        }
-        const absDy = Math.abs(dy)
-        const absDx = Math.abs(dx)
-        if (absDy < absDx) {
-          continue
-        }
-        const score = absDy * absDy * 4 + absDx * absDx
-        if (score < bestScore) {
-          bestScore = score
-          bestIndex = i
-        }
-      } else if (dirX !== 0) {
-        if (dx === 0 || dx * dirX <= 0) {
-          continue
-        }
-        const absDx = Math.abs(dx)
-        const absDy = Math.abs(dy)
-        if (absDx < absDy) {
-          continue
-        }
-        const score = absDx * absDx * 4 + absDy * absDy
-        if (score < bestScore) {
-          bestScore = score
-          bestIndex = i
-        }
-      }
-    }
-
-    return bestIndex
+    return findDirectionalIndex(
+      this.selectedButtonIndex,
+      this.activeButtons.length,
+      (index) => this.activeButtons[index] ?? null,
+      dirX,
+      dirY
+    )
   }
 
   private handleKeyDown(event: KeyboardEvent) {
@@ -324,6 +279,12 @@ export class DialogManager {
     }
     event.preventDefault()
     event.stopPropagation()
+    const shouldComplete = this.hasHoldToConfirmElapsed()
+    if (shouldComplete) {
+      this.completeHoldToConfirm(false)
+      this.holdConfirmKey = null
+      return
+    }
     this.holdConfirmKey = null
     this.cancelHoldToConfirm()
   }
@@ -353,30 +314,42 @@ export class DialogManager {
 
   private blockKeyUntilRelease(key: 'Enter' | ' '): void {
     this.blockedPostCloseKey = key
-    this.inputTarget.addEventListener(
-      'keydown',
-      this.boundHandlePostCloseKeyDown,
+    window.addEventListener('keydown', this.boundHandlePostCloseKeyDown, true)
+    window.addEventListener('keyup', this.boundHandlePostCloseKeyUp, true)
+    window.addEventListener(
+      'pointerdown',
+      this.boundHandlePostClosePointerDown,
       true
     )
-    this.inputTarget.addEventListener(
-      'keyup',
-      this.boundHandlePostCloseKeyUp,
-      true
-    )
+    window.addEventListener('blur', this.boundHandlePostCloseWindowBlur, true)
   }
 
   private clearPostCloseKeyBlock(): void {
     this.blockedPostCloseKey = null
-    this.inputTarget.removeEventListener(
+    window.removeEventListener(
       'keydown',
       this.boundHandlePostCloseKeyDown,
       true
     )
-    this.inputTarget.removeEventListener(
-      'keyup',
-      this.boundHandlePostCloseKeyUp,
+    window.removeEventListener('keyup', this.boundHandlePostCloseKeyUp, true)
+    window.removeEventListener(
+      'pointerdown',
+      this.boundHandlePostClosePointerDown,
       true
     )
+    window.removeEventListener(
+      'blur',
+      this.boundHandlePostCloseWindowBlur,
+      true
+    )
+  }
+
+  private handlePostClosePointerDown(): void {
+    this.clearPostCloseKeyBlock()
+  }
+
+  private handlePostCloseWindowBlur(): void {
+    this.clearPostCloseKeyBlock()
   }
 
   consumeBlockedPostCloseKey(event: KeyboardEvent): boolean {
@@ -388,7 +361,14 @@ export class DialogManager {
     }
     event.preventDefault()
     event.stopPropagation()
+    if (event.type === 'keyup') {
+      this.clearPostCloseKeyBlock()
+    }
     return true
+  }
+
+  resetPostCloseKeyBlock(): void {
+    this.clearPostCloseKeyBlock()
   }
 
   private createButton(
@@ -449,12 +429,7 @@ export class DialogManager {
       if (!this.holdConfirmActive || this.holdConfirmCompleted) {
         return
       }
-      this.holdConfirmCompleted = true
-      this.holdConfirmActive = false
-      if (this.holdConfirmKey) {
-        this.blockKeyUntilRelease(this.holdConfirmKey)
-      }
-      this.close(true)
+      // Progress finished, but we wait for user to release the key/button
     })
 
     button.addEventListener('click', (event) => {
@@ -471,7 +446,11 @@ export class DialogManager {
     })
 
     button.addEventListener('pointerup', () => {
-      this.cancelHoldToConfirm()
+      if (this.holdConfirmActive && this.hasHoldToConfirmElapsed()) {
+        this.completeHoldToConfirm(false)
+      } else {
+        this.cancelHoldToConfirm()
+      }
     })
 
     button.addEventListener('pointercancel', () => {
@@ -501,6 +480,7 @@ export class DialogManager {
       return
     }
     this.holdConfirmActive = true
+    this.holdConfirmStartMs = Math.round(performance.now())
     this.holdToConfirmButton.dataset.holding = '1'
     this.holdProgressFill.style.transitionProperty = 'transform'
     this.holdProgressFill.style.transitionDuration = `${this.holdConfirmDurationMs}ms`
@@ -516,11 +496,43 @@ export class DialogManager {
       return
     }
     this.holdConfirmActive = false
+    this.holdConfirmStartMs = 0
     this.holdToConfirmButton.dataset.holding = '0'
     this.holdProgressFill.style.transitionProperty = 'transform'
     this.holdProgressFill.style.transitionDuration = '180ms'
     this.holdProgressFill.style.transitionTimingFunction = 'ease-out'
     this.holdProgressFill.style.transform = 'scaleX(0)'
+  }
+
+  private hasHoldToConfirmElapsed(): boolean {
+    if (!this.holdConfirmActive) {
+      return false
+    }
+    if (this.holdConfirmDurationMs <= 0) {
+      return false
+    }
+    if (this.holdConfirmStartMs <= 0) {
+      return false
+    }
+    const nowMs = Math.round(performance.now())
+    const elapsedMs = nowMs - this.holdConfirmStartMs
+    return elapsedMs >= this.holdConfirmDurationMs
+  }
+
+  private completeHoldToConfirm(blockHeldKeyUntilRelease: boolean): void {
+    if (this.holdConfirmCompleted) {
+      return
+    }
+    this.holdConfirmCompleted = true
+    this.holdConfirmActive = false
+    this.holdConfirmStartMs = 0
+    if (this.holdToConfirmButton) {
+      this.holdToConfirmButton.dataset.holding = '0'
+    }
+    if (blockHeldKeyUntilRelease && this.holdConfirmKey) {
+      this.blockKeyUntilRelease(this.holdConfirmKey)
+    }
+    this.close(true)
   }
 
   confirmHoldToDelete(message: string): Promise<boolean> {
@@ -548,7 +560,7 @@ export class DialogManager {
       this.buttonsContainer.appendChild(holdDeleteButton)
       this.setDialogButtons([cancelButton, holdDeleteButton])
       this.open()
-      cancelButton.focus()
+      this.setSelectedButtonIndex(1)
     })
   }
 

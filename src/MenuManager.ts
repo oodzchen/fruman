@@ -1,3 +1,5 @@
+import { DialogManager } from './DialogManager'
+import { findDirectionalIndex } from './DirectionalNav'
 import { Language, localizer } from './Localizer'
 import { saveManager } from './SaveManager'
 import type { SaveMeta } from './saveTypes'
@@ -44,6 +46,7 @@ export class MenuManager {
   private saveListContainer: HTMLDivElement
   private saveListTitle: HTMLDivElement
   private saveListList: HTMLDivElement
+  private saveListActions: HTMLDivElement
   private inputTarget: HTMLElement
   private focusOptions: FocusOptions = { preventScroll: true }
   private menuItemElements: HTMLButtonElement[] = []
@@ -61,6 +64,8 @@ export class MenuManager {
 
   private hasSavesCache = false
   private saveListCache: SaveMeta[] = []
+  private dialogManager: DialogManager | null = null
+  private lastSelectedSaveIndex = -1
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -84,8 +89,11 @@ export class MenuManager {
     this.saveListTitle.className = 'menu-save-list-title'
     this.saveListList = document.createElement('div')
     this.saveListList.className = 'menu-save-list'
+    this.saveListActions = document.createElement('div')
+    this.saveListActions.className = 'menu-save-actions'
     this.saveListContainer.appendChild(this.saveListTitle)
     this.saveListContainer.appendChild(this.saveListList)
+    this.menuItemsContainer.appendChild(this.saveListActions)
     this.menuItemsContainer.appendChild(this.saveListContainer)
     this.boundHandleItemMouseEnter = this.handleItemMouseEnter.bind(this)
     this.boundHandleItemClick = this.handleItemClick.bind(this)
@@ -112,6 +120,10 @@ export class MenuManager {
   async refreshSaveList(): Promise<void> {
     this.saveListCache = await saveManager.listSaves()
     this.hasSavesCache = this.saveListCache.length > 0
+  }
+
+  setDialogManager(dialogManager: DialogManager): void {
+    this.dialogManager = dialogManager
   }
 
   private initMenuItems() {
@@ -231,12 +243,18 @@ export class MenuManager {
     const saves = this.saveListCache
     const saveItemSpacing = 60
 
+    this.lastSelectedSaveIndex = -1
     if (saves.length === 0) {
       this.menuItems = [
         {
           label: localizer.t('save_list_empty'),
           action: MenuAction.SaveListSelect,
           y: startY,
+        },
+        {
+          label: localizer.t('save_list_delete'),
+          action: MenuAction.SaveListDelete,
+          y: startY + spacing * 2,
         },
         {
           label: localizer.t('save_list_new'),
@@ -264,8 +282,16 @@ export class MenuManager {
       })
       y += saveItemSpacing
     }
+    this.lastSelectedSaveIndex = 0
 
     y += spacing * 0.5
+    this.menuItems.push({
+      label: localizer.t('save_list_delete'),
+      action: MenuAction.SaveListDelete,
+      y,
+    })
+    y += spacing
+
     this.menuItems.push({
       label: localizer.t('save_list_new'),
       action: MenuAction.SaveListNew,
@@ -283,21 +309,32 @@ export class MenuManager {
   private setupInput() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!this.visible) return
+      if (this.dialogManager?.consumeBlockedPostCloseKey(e)) return
       if (this.shouldIgnoreKeyEvent(e)) return
 
       if (e.key === 'ArrowUp' || e.key === 'w') {
         e.preventDefault()
+        if (this.mode === MenuMode.SaveList) {
+          const nextIndex = this.findSaveListDirectionalIndex(0, -1)
+          this.setSelectedIndex(nextIndex)
+          return
+        }
         this.setSelectedIndex(
           (this.selectedIndex - 1 + this.menuItems.length) %
             this.menuItems.length
         )
       } else if (e.key === 'ArrowDown' || e.key === 's') {
         e.preventDefault()
+        if (this.mode === MenuMode.SaveList) {
+          const nextIndex = this.findSaveListDirectionalIndex(0, 1)
+          this.setSelectedIndex(nextIndex)
+          return
+        }
         this.setSelectedIndex((this.selectedIndex + 1) % this.menuItems.length)
       } else if (e.key === 'ArrowLeft' || e.key === 'a') {
         if (this.mode === MenuMode.SaveList) {
           e.preventDefault()
-          const nextIndex = this.findSaveListDirectionalIndex(-1)
+          const nextIndex = this.findSaveListDirectionalIndex(-1, 0)
           this.setSelectedIndex(nextIndex)
           return
         }
@@ -309,7 +346,7 @@ export class MenuManager {
       } else if (e.key === 'ArrowRight' || e.key === 'd') {
         if (this.mode === MenuMode.SaveList) {
           e.preventDefault()
-          const nextIndex = this.findSaveListDirectionalIndex(1)
+          const nextIndex = this.findSaveListDirectionalIndex(1, 0)
           this.setSelectedIndex(nextIndex)
           return
         }
@@ -318,9 +355,6 @@ export class MenuManager {
           e.preventDefault()
           this.cycleLanguage(1)
         }
-      } else if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault()
-        this.selectMenuItem(this.selectedIndex)
       } else if (e.key === 'Escape') {
         if (
           this.mode === MenuMode.Settings ||
@@ -329,21 +363,33 @@ export class MenuManager {
           e.preventDefault()
           this.show(this.previousMode, true)
         }
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!this.visible) return
+      if (this.dialogManager?.consumeBlockedPostCloseKey(e)) return
+      if (this.shouldIgnoreKeyEvent(e)) return
+
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        this.selectMenuItem(this.selectedIndex)
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (this.mode === MenuMode.SaveList) {
-          const item = this.menuItems[this.selectedIndex]
-          if (item.action === MenuAction.SaveListSelect && item.saveId) {
-            e.preventDefault()
-            this.deleteSave(item.saveId)
-          }
+          const saveId = this.getSelectedSaveId()
+          if (!saveId) return
+          e.preventDefault()
+          void this.handleDeleteSelectedSave()
         }
       }
     }
 
-    this.inputTarget.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('keyup', handleKeyUp, true)
   }
 
   private shouldIgnoreKeyEvent(e: KeyboardEvent): boolean {
+    if (this.dialogManager?.isDialogOpen()) return true
     const target = e.target
     if (target instanceof HTMLInputElement) return true
     if (target instanceof HTMLTextAreaElement) return true
@@ -354,53 +400,23 @@ export class MenuManager {
     return false
   }
 
-  private findSaveListDirectionalIndex(directionX: number): number {
-    if (this.menuItems.length === 0) {
-      return this.selectedIndex
-    }
-    const currentElement = this.menuItemElements[this.selectedIndex]
-    if (!currentElement) {
-      return this.selectedIndex
-    }
-    const currentRect = currentElement.getBoundingClientRect()
-    const currentLeft = Math.round(currentRect.left)
-    const currentTop = Math.round(currentRect.top)
-    const currentWidth = Math.round(currentRect.width)
-    const currentHeight = Math.round(currentRect.height)
-    const currentCenterX = currentLeft + (currentWidth >> 1)
-    const currentCenterY = currentTop + (currentHeight >> 1)
-    let bestIndex = this.selectedIndex
-    let bestPrimary = Number.MAX_SAFE_INTEGER
-    let bestSecondary = Number.MAX_SAFE_INTEGER
-
-    for (let i = 0; i < this.menuItems.length; i++) {
-      if (i === this.selectedIndex) continue
-      const element = this.menuItemElements[i]
-      if (!element || element.style.display === 'none') continue
-      const rect = element.getBoundingClientRect()
-      const left = Math.round(rect.left)
-      const top = Math.round(rect.top)
-      const width = Math.round(rect.width)
-      const height = Math.round(rect.height)
-      const centerX = left + (width >> 1)
-      const centerY = top + (height >> 1)
-      const deltaX = centerX - currentCenterX
-      const deltaY = centerY - currentCenterY
-      if (directionX < 0 && deltaX >= 0) continue
-      if (directionX > 0 && deltaX <= 0) continue
-      const primary = Math.abs(deltaX)
-      const secondary = Math.abs(deltaY)
-      if (
-        primary < bestPrimary ||
-        (primary === bestPrimary && secondary < bestSecondary)
-      ) {
-        bestPrimary = primary
-        bestSecondary = secondary
-        bestIndex = i
-      }
-    }
-
-    return bestIndex
+  private findSaveListDirectionalIndex(
+    directionX: number,
+    directionY: number
+  ): number {
+    return findDirectionalIndex(
+      this.selectedIndex,
+      this.menuItems.length,
+      (index) => {
+        const element = this.menuItemElements[index]
+        if (!element || element.style.display === 'none') {
+          return null
+        }
+        return element
+      },
+      directionX,
+      directionY
+    )
   }
 
   private async deleteSave(saveId: string) {
@@ -409,7 +425,38 @@ export class MenuManager {
       await this.refreshSaveList()
       this.initMenuItems()
       this.syncMenuDom()
+      return
     }
+    if (this.dialogManager) {
+      await this.dialogManager.alert(localizer.t('save_delete_failed'))
+    }
+  }
+
+  private getSelectedSaveId(): string | null {
+    if (this.lastSelectedSaveIndex < 0) {
+      return null
+    }
+    const item = this.menuItems[this.lastSelectedSaveIndex]
+    if (!item || item.action !== MenuAction.SaveListSelect || !item.saveId) {
+      return null
+    }
+    return item.saveId
+  }
+
+  private async handleDeleteSelectedSave() {
+    const saveId = this.getSelectedSaveId()
+    if (!saveId) return
+    const item = this.menuItems[this.lastSelectedSaveIndex]
+    const saveName = item?.saveMeta?.name ?? ''
+    if (this.dialogManager) {
+      const confirmed = await this.dialogManager.confirmHoldToDelete(
+        localizer.t('save_list_delete_confirm').replace('{0}', saveName)
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+    await this.deleteSave(saveId)
   }
 
   private async cycleLanguage(direction: number) {
@@ -479,8 +526,13 @@ export class MenuManager {
     const item = this.menuItems[index]
     const element = this.menuItemElements[index]
     if (!item || !element) return
-    const isSelected = index === this.selectedIndex
     const isSaveItem = item.action === MenuAction.SaveListSelect
+    const isSelected =
+      this.mode === MenuMode.SaveList && isSaveItem
+        ? this.lastSelectedSaveIndex >= 0
+          ? index === this.lastSelectedSaveIndex
+          : index === this.selectedIndex
+        : index === this.selectedIndex
     element.classList.toggle('is-selected', isSelected)
     element.classList.toggle('menu-item-back', item.action === MenuAction.Back)
     element.classList.toggle('menu-item-save', isSaveItem)
@@ -488,6 +540,15 @@ export class MenuManager {
       'menu-item-save-new',
       item.action === MenuAction.SaveListNew && this.mode === MenuMode.SaveList
     )
+    element.classList.toggle(
+      'menu-item-save-delete',
+      item.action === MenuAction.SaveListDelete &&
+        this.mode === MenuMode.SaveList
+    )
+    element.disabled =
+      item.action === MenuAction.SaveListDelete &&
+      this.mode === MenuMode.SaveList &&
+      this.lastSelectedSaveIndex < 0
 
     if (isSaveItem && item.saveMeta) {
       this.renderSaveItemContent(element, item.saveMeta)
@@ -549,6 +610,7 @@ export class MenuManager {
     const isSaveList = this.mode === MenuMode.SaveList
     this.menuTitle.style.display = isSaveList ? 'none' : ''
     this.saveListContainer.style.display = isSaveList ? 'flex' : 'none'
+    this.saveListActions.classList.toggle('is-visible', isSaveList)
     if (isSaveList) {
       this.saveListTitle.textContent = localizer.t('save_list_title')
     }
@@ -560,6 +622,7 @@ export class MenuManager {
     this.activeItemCount = this.menuItems.length
     if (this.mode === MenuMode.SaveList) {
       this.saveListList.innerHTML = ''
+      this.saveListActions.innerHTML = ''
     }
     for (let i = 0; i < this.menuItemElements.length; i++) {
       const element = this.menuItemElements[i]
@@ -572,6 +635,11 @@ export class MenuManager {
           element.style.top = ''
           if (item.action === MenuAction.SaveListSelect) {
             this.saveListList.appendChild(element)
+          } else if (
+            item.action === MenuAction.SaveListNew ||
+            item.action === MenuAction.SaveListDelete
+          ) {
+            this.saveListActions.appendChild(element)
           } else {
             this.menuItemsContainer.appendChild(element)
           }
@@ -586,14 +654,48 @@ export class MenuManager {
         element.dataset.index = ''
       }
     }
+    if (
+      this.mode === MenuMode.SaveList &&
+      this.lastSelectedSaveIndex >= 0 &&
+      this.lastSelectedSaveIndex < this.menuItems.length
+    ) {
+      this.updateMenuItemState(this.lastSelectedSaveIndex)
+    }
   }
 
   private setSelectedIndex(index: number) {
     if (index === this.selectedIndex) return
     const previousIndex = this.selectedIndex
+    const previousSaveSelectedIndex = this.lastSelectedSaveIndex
     this.selectedIndex = index
+    const selected = this.menuItems[index]
+    if (
+      this.mode === MenuMode.SaveList &&
+      selected?.action === MenuAction.SaveListSelect
+    ) {
+      this.lastSelectedSaveIndex = index
+    }
     this.updateMenuItemState(previousIndex)
+    if (
+      this.mode === MenuMode.SaveList &&
+      previousSaveSelectedIndex >= 0 &&
+      previousSaveSelectedIndex !== this.lastSelectedSaveIndex
+    ) {
+      this.updateMenuItemState(previousSaveSelectedIndex)
+    }
     this.updateMenuItemState(index)
+    if (
+      this.mode === MenuMode.SaveList &&
+      previousIndex !== this.lastSelectedSaveIndex
+    ) {
+      this.updateMenuItemState(this.lastSelectedSaveIndex)
+    }
+    if (this.mode === MenuMode.SaveList) {
+      const deleteIndex = this.findMenuItemIndex(MenuAction.SaveListDelete)
+      if (deleteIndex >= 0) {
+        this.updateMenuItemState(deleteIndex)
+      }
+    }
     if (this.mode === MenuMode.SaveList) {
       const item = this.menuItems[this.selectedIndex]
       const element = this.menuItemElements[this.selectedIndex]
@@ -630,17 +732,37 @@ export class MenuManager {
       return
     }
 
+    if (item.action === MenuAction.SaveListDelete) {
+      void this.handleDeleteSelectedSave()
+      return
+    }
+
     if (this.onActionCallback) {
       this.onActionCallback(item.action, item.saveId)
     }
   }
 
+  private findMenuItemIndex(action: MenuAction): number {
+    for (let i = 0; i < this.menuItems.length; i++) {
+      if (this.menuItems[i].action === action) {
+        return i
+      }
+    }
+    return -1
+  }
+
   show(mode: MenuMode = MenuMode.Start, skipAnimation = false) {
+    if (mode === MenuMode.SaveList) {
+      this.dialogManager?.resetPostCloseKeyBlock()
+    }
     this.mode = mode
     this.visible = true
     this.selectedIndex = 0
     this.animTime = skipAnimation ? 300 : 0
     this.initMenuItems()
+    if (mode === MenuMode.SaveList && this.lastSelectedSaveIndex >= 0) {
+      this.selectedIndex = this.lastSelectedSaveIndex
+    }
     this.syncMenuDom()
     this.uiLayer.classList.add('is-interactive')
     this.menuOverlay.classList.add('is-visible')

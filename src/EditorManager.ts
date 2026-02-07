@@ -695,11 +695,25 @@ export class EditorManager {
       },
       true
     )
+    this.editorOverlay.addEventListener(
+      'keyup',
+      (event) => {
+        this.handleKeyUp(event)
+      },
+      true
+    )
 
     window.addEventListener(
       'keydown',
       (event) => {
         this.handleKeyDown(event)
+      },
+      true
+    )
+    window.addEventListener(
+      'keyup',
+      (event) => {
+        this.handleKeyUp(event)
       },
       true
     )
@@ -801,6 +815,37 @@ export class EditorManager {
     if (key === 'Escape') {
       event.preventDefault()
       this.handleBack()
+    }
+  }
+
+  private handleKeyUp(event: KeyboardEvent) {
+    if (this.dialogManager.consumeBlockedPostCloseKey(event)) {
+      return
+    }
+    if (event.defaultPrevented) {
+      return
+    }
+    if (this.dialogManager.isDialogOpen()) {
+      return
+    }
+    const target = event.target
+    if (target instanceof HTMLInputElement) {
+      return
+    }
+    if (target instanceof HTMLTextAreaElement) {
+      return
+    }
+    if (target instanceof HTMLSelectElement) {
+      return
+    }
+    if (target instanceof HTMLElement && target.isContentEditable) {
+      return
+    }
+    if (!this.visible) {
+      return
+    }
+    if (this.currentView === EditorView.MapList) {
+      this.mapListManager.handleMapListKeyUp(event)
     }
   }
 
