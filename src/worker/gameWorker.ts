@@ -526,6 +526,7 @@ function initializeSystems() {
   enemyAISystem.setWeaponSystem(weaponSystem)
   movementSystem.setSoundSystem(soundSystem)
   movementSystem.setStatsSystem(statsSystem)
+  grappleSystem.setStatsSystem(statsSystem)
   weaponSystem.setSoundSystem(soundSystem)
   arrowSystem.setSoundSystem(soundSystem)
   interactionSystem.setWeaponSystem(weaponSystem)

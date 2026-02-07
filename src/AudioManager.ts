@@ -46,6 +46,10 @@ export class AudioManager {
         SOUND_IDS.BODY_HIT_SHARP,
         'audios/Weapon Staff Hit Body Fast 02-sharp.wav'
       ),
+      this.loadSound(
+        SOUND_IDS.GRAPPLE_PULL_START,
+        'audios/floraphonic-swing-whoosh-in-room-7-234261.wav'
+      ),
     ])
   }
 

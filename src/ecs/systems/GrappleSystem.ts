@@ -9,11 +9,13 @@ import {
   DEFAULT_WEAPON_ATTACK_RADIUS,
 } from '../../constants'
 import type { MainModule, b2Vec2 } from '../../types'
+import { SOUND_IDS } from '../../worker/effectsProtocol'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 import type { World } from '../World'
+import type { StatsSystem } from './StatsSystem'
 
 export class GrappleSystem extends System {
   private readonly pullModeAnchor = 0
@@ -27,6 +29,7 @@ export class GrappleSystem extends System {
   private anchorsDirty = true
   private anchorEntities: Entity[] = []
   private tempTarget = { x: 0, y: 0 }
+  private statsSystem?: StatsSystem
   private cosHalfFov = Math.cos(DEFAULT_PLAYER_FOV_RAD * 0.5)
   private rangeSq = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
   private stopDistanceSq =
@@ -54,6 +57,10 @@ export class GrappleSystem extends System {
 
   markAnchorsDirty(): void {
     this.anchorsDirty = true
+  }
+
+  setStatsSystem(statsSystem: StatsSystem): void {
+    this.statsSystem = statsSystem
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -136,6 +143,7 @@ export class GrappleSystem extends System {
               grapple.isPulling = true
               grapple.cooldownEndTime = this.currentTimeMs
               grapple.desiredDistanceSq = desiredDistance * desiredDistance
+              this.statsSystem?.playSound(SOUND_IDS.GRAPPLE_PULL_START)
               this.triggerEnemyAggro(entity, lockedTarget)
               if (targetToughness <= playerToughness) {
                 grapple.pullMode = this.pullModeEnemy
@@ -172,6 +180,7 @@ export class GrappleSystem extends System {
             grapple.pullElapsedMs = 0
             grapple.isPulling = true
             grapple.cooldownEndTime = this.currentTimeMs
+            this.statsSystem?.playSound(SOUND_IDS.GRAPPLE_PULL_START)
             this.applyGrappleImpulse(entity, grapple)
           }
         }

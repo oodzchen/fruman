@@ -26,6 +26,7 @@ export const SOUND_IDS = {
   BOW_SNAP: 6,
   DEATH_SPLASH: 7,
   BODY_HIT_SHARP: 8,
+  GRAPPLE_PULL_START: 9,
 } as const
 
 export const MAX_EFFECTS = 256
