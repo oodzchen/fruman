@@ -2532,8 +2532,12 @@ function sendState() {
     const cosHalfFov = Math.cos(DEFAULT_PLAYER_FOV_RAD * 0.5)
     const rangeSq = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
     const isTethering = playerEntity.grapple.isTethering
-    const currentTargetX = isTethering ? playerEntity.grapple.targetX : undefined
-    const currentTargetY = isTethering ? playerEntity.grapple.targetY : undefined
+    const currentTargetX = isTethering
+      ? playerEntity.grapple.targetX
+      : undefined
+    const currentTargetY = isTethering
+      ? playerEntity.grapple.targetY
+      : undefined
     let bestDistSq = rangeSq + 1
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i]

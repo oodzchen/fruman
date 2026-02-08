@@ -432,6 +432,10 @@ export class GameClient {
             return
           }
           e.preventDefault()
+          if (this.previewActive) {
+            this.togglePreviewPause()
+            return
+          }
           if (this.menuManager.isVisible()) {
             if (this.menuManager.getMode() === MenuMode.Start) {
               return

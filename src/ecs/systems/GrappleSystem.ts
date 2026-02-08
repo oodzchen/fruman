@@ -292,8 +292,12 @@ export class GrappleSystem extends System {
             entity.input.lastMoveDirection !== 0
               ? entity.input.lastMoveDirection
               : 1
-          const currentTargetX = grapple.isTethering ? grapple.targetX : undefined
-          const currentTargetY = grapple.isTethering ? grapple.targetY : undefined
+          const currentTargetX = grapple.isTethering
+            ? grapple.targetX
+            : undefined
+          const currentTargetY = grapple.isTethering
+            ? grapple.targetY
+            : undefined
           if (
             this.findAnchorTarget(
               entity.transform.x,
@@ -1055,7 +1059,9 @@ export class GrappleSystem extends System {
       return
     }
 
-    const currentVel = this.box2d.b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const currentVel = this.box2d.b2Body_GetLinearVelocity(
+      entity.physics.bodyId
+    )
     const currentVx = currentVel.x
     const currentVy = currentVel.y
     currentVel.delete()
@@ -1088,7 +1094,12 @@ export class GrappleSystem extends System {
     grapple: NonNullable<Entity['grapple']>,
     deltaMs: number
   ): void {
-    if (!entity.physics || !entity.transform || !entity.input || !entity.movement) {
+    if (
+      !entity.physics ||
+      !entity.transform ||
+      !entity.input ||
+      !entity.movement
+    ) {
       return
     }
 
@@ -1103,7 +1114,9 @@ export class GrappleSystem extends System {
 
     entity.input.lastMoveDirection = moveDir
 
-    const currentVel = this.box2d.b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const currentVel = this.box2d.b2Body_GetLinearVelocity(
+      entity.physics.bodyId
+    )
     const currentVx = currentVel.x
     const currentVy = currentVel.y
     currentVel.delete()
@@ -1132,7 +1145,9 @@ export class GrappleSystem extends System {
 
     const isSameDirection = moveDir === horizontalSwingDir
     const mass = this.box2d.b2Body_GetMass(entity.physics.bodyId)
-    const swingForce = isSameDirection ? this.swingForce : -this.swingForce * 0.67
+    const swingForce = isSameDirection
+      ? this.swingForce
+      : -this.swingForce * 0.67
     const deltaTime = deltaMs / 1000
 
     const forceX = tangentX * swingDir * swingForce * mass * deltaTime
@@ -1140,6 +1155,10 @@ export class GrappleSystem extends System {
 
     this.tempVec.x = forceX
     this.tempVec.y = forceY
-    this.box2d.b2Body_ApplyForceToCenter(entity.physics.bodyId, this.tempVec, true)
+    this.box2d.b2Body_ApplyForceToCenter(
+      entity.physics.bodyId,
+      this.tempVec,
+      true
+    )
   }
 }
