@@ -8,6 +8,11 @@ import {
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_CAMERA_ZOOM,
+  DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO,
+  DEFAULT_GRAPPLE_ROPE_DENSITY,
+  DEFAULT_GRAPPLE_ROPE_HERTZ,
+  DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING,
+  DEFAULT_GRAPPLE_SWING_FORCE,
   DEFAULT_GROUND_FRICTION,
   DEFAULT_JUMP_BUFFER_WINDOW,
   DEFAULT_JUMP_FORCE,
@@ -106,6 +111,36 @@ const PARAM_CONFIGS: ParamConfig[] = [
     numberId: 'cameraZoomNum',
     label: 'param_camera_zoom',
     defaultValue: DEFAULT_CAMERA_ZOOM,
+  },
+  {
+    id: 'ropeDensity',
+    numberId: 'ropeDensityNum',
+    label: 'param_rope_density',
+    defaultValue: DEFAULT_GRAPPLE_ROPE_DENSITY,
+  },
+  {
+    id: 'ropeLinearDamping',
+    numberId: 'ropeLinearDampingNum',
+    label: 'param_rope_linear_damping',
+    defaultValue: DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING,
+  },
+  {
+    id: 'ropeHertz',
+    numberId: 'ropeHertzNum',
+    label: 'param_rope_hertz',
+    defaultValue: DEFAULT_GRAPPLE_ROPE_HERTZ,
+  },
+  {
+    id: 'ropeDampingRatio',
+    numberId: 'ropeDampingRatioNum',
+    label: 'param_rope_damping_ratio',
+    defaultValue: DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO,
+  },
+  {
+    id: 'swingForce',
+    numberId: 'swingForceNum',
+    label: 'param_swing_force',
+    defaultValue: DEFAULT_GRAPPLE_SWING_FORCE,
   },
 ]
 
@@ -297,6 +332,11 @@ async function initialize() {
     groundFriction: (v) => game.setGroundFriction(v),
     obstacleFriction: (v) => game.setObstacleFriction(v),
     cameraZoom: (v) => game.setZoom(v),
+    ropeDensity: (v) => game.setRopeDensity(v),
+    ropeLinearDamping: (v) => game.setRopeLinearDamping(v),
+    ropeHertz: (v) => game.setRopeHertz(v),
+    ropeDampingRatio: (v) => game.setRopeDampingRatio(v),
+    swingForce: (v) => game.setSwingForce(v),
   }
 
   // 设置所有参数控件
@@ -327,7 +367,7 @@ async function initialize() {
       paramLog[localizer.t(config.label)] = result.getValue()
     }
   }
-  // console.table(paramLog)
+  console.table(paramLog)
 
   const editorManager = new EditorManager()
   editorManager.setGameClient(game)

@@ -1580,6 +1580,139 @@
             </div>
           </div>
         </details>
+
+        <details id="detailsRope" open>
+          <summary>绳索物理参数</summary>
+          <div class="control-group">
+            <label for="ropeDensity" title="绳索段的密度，影响绳索重量和稳定性"
+              >绳索密度</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeDensity"
+                min="1"
+                max="100"
+                step="1"
+                value="30"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeDensityNum"
+                min="1"
+                max="200"
+                step="1"
+                value="30"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="ropeLinearDamping" title="绳索段的线性阻尼，影响摆荡持续时间和抖动"
+              >绳索线性阻尼</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeLinearDamping"
+                min="0"
+                max="10"
+                step="0.1"
+                value="0.1"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeLinearDampingNum"
+                min="0"
+                max="20"
+                step="0.1"
+                value="0.1"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="ropeHertz" title="绳索关节的弹簧刚度频率，数值越高绳索越硬"
+              >绳索关节刚度(Hz)</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeHertz"
+                min="10"
+                max="1000"
+                step="10"
+                value="110"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeHertzNum"
+                min="10"
+                max="2000"
+                step="10"
+                value="110"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="ropeDampingRatio" title="绳索关节的阻尼比，控制振荡衰减速度(0-1)"
+              >绳索关节阻尼比</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeDampingRatio"
+                min="0"
+                max="1"
+                step="0.05"
+                value="0.5"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeDampingRatioNum"
+                min="0"
+                max="2"
+                step="0.05"
+                value="0.5"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="swingForce" title="按方向键时施加的摆荡推力大小"
+              >摆荡推力</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="swingForce"
+                min="100"
+                max="3000"
+                step="50"
+                value="2000"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="swingForceNum"
+                min="100"
+                max="5000"
+                step="50"
+                value="2000"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+        </details>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

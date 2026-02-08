@@ -325,7 +325,10 @@ export class MovementSystem extends System {
       return
     }
 
-    if (entity.grapple?.isPulling) {
+    if (
+      entity.grapple?.isPulling &&
+      !(entity.grapple.isTethering && entity.movement.isGrounded)
+    ) {
       return
     }
     if (

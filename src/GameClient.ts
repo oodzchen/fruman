@@ -271,7 +271,11 @@ export class GameClient {
     const msg = e.data
     if (msg.type === 'state') {
       // Pass raw buffer to renderer, no decoding here to save Main Thread CPU/GC
-      this.renderer.updateState(msg.entitiesBuffer, msg.entityCount)
+      this.renderer.updateState(
+        msg.entitiesBuffer,
+        msg.entityCount,
+        msg.ropePointCount
+      )
       this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
@@ -960,6 +964,26 @@ export class GameClient {
         /* Not implemented */
       },
     }
+  }
+
+  setRopeDensity(value: number): void {
+    this.updateParam('ropeDensity', value)
+  }
+
+  setRopeLinearDamping(value: number): void {
+    this.updateParam('ropeLinearDamping', value)
+  }
+
+  setRopeHertz(value: number): void {
+    this.updateParam('ropeHertz', value)
+  }
+
+  setRopeDampingRatio(value: number): void {
+    this.updateParam('ropeDampingRatio', value)
+  }
+
+  setSwingForce(value: number): void {
+    this.updateParam('swingForce', value)
   }
 
   private updateParam(id: string, value: number) {

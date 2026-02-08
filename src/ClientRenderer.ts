@@ -32,6 +32,9 @@ import {
   EFFECT_OFFSETS,
   EFFECT_STRIDE,
   EFFECT_TYPES,
+  MAX_ROPE_POINTS,
+  ROPE_POINTS_BASE_OFFSET,
+  ROPE_POINT_STRIDE,
 } from './worker/effectsProtocol'
 import type {
   SensorDebugData,
@@ -41,6 +44,7 @@ import type {
 
 const MAX_PARTICLES = 600
 const DEBUG_DRAW_TRAJECTORY = false
+const DEBUG_DRAW_GRAPPLE_JOINTS = false
 const RETICLE_EDGE_PX = 8
 const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
 const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
@@ -65,6 +69,10 @@ export class ClientRenderer {
   private entityCount = 0
   private incomingBuffer: ArrayBuffer | SharedArrayBuffer | null = null
   private incomingView: Float32Array | null = null
+  private ropePointCount = 0
+  private ropePointsBuffer = new Float32Array(
+    MAX_ROPE_POINTS * ROPE_POINT_STRIDE
+  )
 
   // Cache for int -> hex color
   private colorCache = new Map<number, string>()
@@ -94,7 +102,11 @@ export class ClientRenderer {
     this.audioManager = audioManager
   }
 
-  updateState(buffer: ArrayBuffer | SharedArrayBuffer, count: number) {
+  updateState(
+    buffer: ArrayBuffer | SharedArrayBuffer,
+    count: number,
+    ropePointCount: number
+  ) {
     if (this.incomingBuffer !== buffer) {
       this.incomingBuffer = buffer
       this.incomingView = new Float32Array(buffer)
@@ -104,6 +116,21 @@ export class ClientRenderer {
     const copyLength = count * ENTITY_STRIDE
     this.stateBuffer.set(incoming.subarray(0, copyLength), 0)
     this.entityCount = count
+    const clampedRopePointCount =
+      ropePointCount < 0
+        ? 0
+        : ropePointCount > MAX_ROPE_POINTS
+          ? MAX_ROPE_POINTS
+          : ropePointCount
+    this.ropePointCount = clampedRopePointCount
+    if (clampedRopePointCount > 0) {
+      const ropeFloatCount = clampedRopePointCount * ROPE_POINT_STRIDE
+      const ropeStart = ROPE_POINTS_BASE_OFFSET
+      this.ropePointsBuffer.set(
+        incoming.subarray(ropeStart, ropeStart + ropeFloatCount),
+        0
+      )
+    }
   }
 
   update(deltaTime: number): void {
@@ -249,6 +276,8 @@ export class ClientRenderer {
 
       if (!this.grappleLineHidden && !this.grappleLineStartedClose && isClose) {
         this.grappleLineHidden = true
+      } else if (this.grappleLineHidden && !isClose) {
+        this.grappleLineHidden = false
       }
 
       if (
@@ -266,12 +295,20 @@ export class ClientRenderer {
     }
 
     if (shouldDrawGrappleLine) {
-      this.drawGrappleLine(
-        playerX,
-        playerY,
-        playerGrappleTargetX,
-        playerGrappleTargetY
-      )
+      const hasRopePoints =
+        this.ropePointCount > 1 &&
+        this.incomingView !== null &&
+        playerGrappleActive
+      if (hasRopePoints) {
+        this.drawGrappleRopePoints()
+      } else {
+        this.drawGrappleLine(
+          playerX,
+          playerY,
+          playerGrappleTargetX,
+          playerGrappleTargetY
+        )
+      }
     }
 
     // Render Entities
@@ -687,6 +724,48 @@ export class ClientRenderer {
     ctx.moveTo(startX * this.pixelsPerMeter, startY * this.pixelsPerMeter)
     ctx.lineTo(targetX * this.pixelsPerMeter, targetY * this.pixelsPerMeter)
     ctx.stroke()
+    ctx.restore()
+  }
+
+  private drawGrappleRopePoints(): void {
+    if (this.ropePointCount <= 1) {
+      return
+    }
+
+    const ctx = this.ctx
+    const view = this.ropePointsBuffer
+    let offset = 0
+    ctx.save()
+    ctx.strokeStyle = GRAPPLE_LINE_COLOR
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(
+      view[offset] * this.pixelsPerMeter,
+      view[offset + 1] * this.pixelsPerMeter
+    )
+
+    for (let i = 1; i < this.ropePointCount; i++) {
+      offset += ROPE_POINT_STRIDE
+      ctx.lineTo(
+        view[offset] * this.pixelsPerMeter,
+        view[offset + 1] * this.pixelsPerMeter
+      )
+    }
+    ctx.stroke()
+
+    if (DEBUG_DRAW_GRAPPLE_JOINTS) {
+      ctx.fillStyle = '#f3e3b8'
+      const radiusPx = 2
+      offset = 0
+      for (let i = 0; i < this.ropePointCount; i++) {
+        const x = view[offset] * this.pixelsPerMeter
+        const y = view[offset + 1] * this.pixelsPerMeter
+        ctx.beginPath()
+        ctx.arc(x, y, radiusPx, 0, Math.PI * 2)
+        ctx.fill()
+        offset += ROPE_POINT_STRIDE
+      }
+    }
     ctx.restore()
   }
 

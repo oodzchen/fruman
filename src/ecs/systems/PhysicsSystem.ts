@@ -21,7 +21,7 @@ export class PhysicsSystem extends System {
     const { b2World_Step, b2Body_GetLinearVelocity, b2Body_GetPosition } =
       this.box2d
     const timeStep = 1 / 60
-    b2World_Step(this.worldId, timeStep, 4)
+    b2World_Step(this.worldId, timeStep, 8)
 
     for (const entity of entities) {
       if (!entity.transform || !entity.physics) continue

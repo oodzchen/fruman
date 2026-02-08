@@ -197,6 +197,11 @@ export class InputComponent extends Component {
   moveDirection = 0
   jumpRequested = false
   sprintRequested = false
+  grappleHoldRequested = false
+  grapplePersistentRequested = false
+  grappleBreakRequested = false
+  grappleLengthAdjustSteps = 0
+  grappleClimbHeld = 0
   attackRequested = false
   blockRequested = false
   lockedTargetId: number | null = null
@@ -221,6 +226,11 @@ export class InputComponent extends Component {
     this.moveDirection = 0
     this.jumpRequested = false
     this.sprintRequested = false
+    this.grappleHoldRequested = false
+    this.grapplePersistentRequested = false
+    this.grappleBreakRequested = false
+    this.grappleLengthAdjustSteps = 0
+    this.grappleClimbHeld = 0
     this.attackRequested = false
     this.blockRequested = false
     this.lockedTargetId = null
@@ -281,6 +291,7 @@ export class CheckpointComponent extends Component {
 export class GrappleComponent extends Component {
   hasGrapple = false
   isPulling = false
+  isTethering = false
   startX = 0
   startY = 0
   targetX = 0
@@ -300,6 +311,7 @@ export class GrappleComponent extends Component {
   reset(): void {
     this.hasGrapple = false
     this.isPulling = false
+    this.isTethering = false
     this.startX = 0
     this.startY = 0
     this.targetX = 0

@@ -104,6 +104,8 @@ import {
   EFFECT_STRIDE,
   EFFECT_TYPES,
   MAX_EFFECTS,
+  MAX_ROPE_POINTS,
+  ROPE_POINTS_BASE_OFFSET,
   STATE_BUFFER_FLOATS,
 } from './effectsProtocol'
 import type {
@@ -341,6 +343,7 @@ const stateMessage: WorkerStateMessage = {
   entitiesBuffer: null as unknown as ArrayBuffer | SharedArrayBuffer,
   entityCount: 0,
   effectsCount: 0,
+  ropePointCount: 0,
   camera: { x: 0, y: 0 },
   zoom: DEFAULT_CAMERA_ZOOM,
 }
@@ -516,7 +519,7 @@ function initializeSystems() {
   enemyAISystem = new EnemyAISystem(box2d, worldId)
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
-  grappleSystem = new GrappleSystem(world, box2d)
+  grappleSystem = new GrappleSystem(world, box2d, worldId)
   weaponSystem = new WeaponSystem(box2d, statsSystem)
   arrowSystem = new ArrowSystem(box2d, statsSystem)
   arrowPools = new ArrowPools()
@@ -1818,11 +1821,15 @@ function handleInput(
       playerEntity.input.inputBuffer.bufferAction('roll')
     }
 
-    if (currKeys.has('shift') && !isPlayerDead) {
+    const shiftHeld = currKeys.has('shift')
+    if (shiftHeld && !isPlayerDead) {
       playerEntity.input.sprintRequested = !playerEntity.weapon?.bowFreeAim
     } else {
       playerEntity.input.sprintRequested = false
     }
+    playerEntity.input.grappleHoldRequested = shiftHeld && !isPlayerDead
+    playerEntity.input.grapplePersistentRequested =
+      shiftHeld && currKeys.has('r') && !prevKeys.has('r') && !isPlayerDead
 
     if (currKeys.has('e') && !prevKeys.has('e') && !isPlayerDead) {
       playerEntity.input.inputBuffer.bufferAction('interact')
@@ -1845,20 +1852,19 @@ function handleInput(
     }
 
     let aimAdjust = 0
-    if (
-      currKeys.has('arrowup') ||
-      currKeys.has('ArrowUp') ||
-      currKeys.has('w')
-    ) {
+    const upHeld =
+      currKeys.has('w') || currKeys.has('arrowup') || currKeys.has('ArrowUp')
+    const downHeld =
+      currKeys.has('s') ||
+      currKeys.has('arrowdown') ||
+      currKeys.has('ArrowDown')
+    if (upHeld) {
       aimAdjust -= 1
     }
-    if (
-      currKeys.has('arrowdown') ||
-      currKeys.has('ArrowDown') ||
-      currKeys.has('s')
-    ) {
+    if (downHeld) {
       aimAdjust += 1
     }
+    playerEntity.input.grappleClimbHeld = upHeld ? -1 : downHeld ? 1 : 0
     playerEntity.input.freeAimAdjust = aimAdjust
 
     playerEntity.input.moveSpeedScale = playerEntity.weapon?.bowFreeAim
@@ -2525,10 +2531,23 @@ function sendState() {
     const forwardY = 0
     const cosHalfFov = Math.cos(DEFAULT_PLAYER_FOV_RAD * 0.5)
     const rangeSq = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
+    const isTethering = playerEntity.grapple.isTethering
+    const currentTargetX = isTethering ? playerEntity.grapple.targetX : undefined
+    const currentTargetY = isTethering ? playerEntity.grapple.targetY : undefined
     let bestDistSq = rangeSq + 1
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i]
       if (!entity.grappleAnchor || !entity.transform) continue
+
+      if (
+        currentTargetX !== undefined &&
+        currentTargetY !== undefined &&
+        Math.abs(entity.transform.x - currentTargetX) < 0.01 &&
+        Math.abs(entity.transform.y - currentTargetY) < 0.01
+      ) {
+        continue
+      }
+
       const dx = entity.transform.x - playerX
       const dy = entity.transform.y - playerY
       const distSq = dx * dx + dy * dy
@@ -2751,9 +2770,20 @@ function sendState() {
     count++
   }
 
+  let ropePointCount = 0
+  if (playerEntity?.grapple?.isTethering) {
+    ropePointCount = grappleSystem.writeActiveRopePoints(
+      playerEntity,
+      stateBuffer,
+      ROPE_POINTS_BASE_OFFSET,
+      MAX_ROPE_POINTS
+    )
+  }
+
   stateMessage.entitiesBuffer = stateBuffer.buffer
   stateMessage.entityCount = count
   stateMessage.effectsCount = effectsCount
+  stateMessage.ropePointCount = ropePointCount
   stateMessage.camera.x = camera.x
   stateMessage.camera.y = camera.y
   stateMessage.zoom = zoom
@@ -3024,6 +3054,26 @@ function updateParam(id?: string, value?: number) {
       b2Shape_SetFriction(obs.capShapeId, value)
       // Base friction remains 0
     })
+  }
+
+  if (id === 'ropeDensity') {
+    grappleSystem.setRopeDensity(value)
+  }
+
+  if (id === 'ropeLinearDamping') {
+    grappleSystem.setRopeLinearDamping(value)
+  }
+
+  if (id === 'ropeHertz') {
+    grappleSystem.setRopeHertz(value)
+  }
+
+  if (id === 'ropeDampingRatio') {
+    grappleSystem.setRopeDampingRatio(value)
+  }
+
+  if (id === 'swingForce') {
+    grappleSystem.setSwingForce(value)
   }
 
   if (id === 'jumpBufferWindow') {
