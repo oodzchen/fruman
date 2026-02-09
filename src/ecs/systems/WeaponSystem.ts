@@ -2610,6 +2610,7 @@ export class WeaponSystem extends System {
     entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     this.resetWeaponForSwap(entity.weapon)
+    this.showHud(entity)
   }
 
   startAttack(entity: Entity): void {
