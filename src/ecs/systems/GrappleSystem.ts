@@ -219,9 +219,44 @@ export class GrappleSystem extends System {
         grappleActionActive &&
         this.currentTimeMs >= grapple.cooldownEndTime
       ) {
+        let hasNextAnchor = false
+        if (entity.transform && entity.input) {
+          const facing =
+            entity.input.lastMoveDirection !== 0
+              ? entity.input.lastMoveDirection
+              : 1
+          hasNextAnchor = this.findAnchorTarget(
+            entity.transform.x,
+            entity.transform.y,
+            facing,
+            this.tempTarget,
+            grapple.targetX,
+            grapple.targetY
+          )
+        }
+
+        if (hasNextAnchor) {
+          this.destroyAnchorTether(entity, grapple)
+          grapple.targetX = this.tempTarget.x
+          grapple.targetY = this.tempTarget.y
+          grapple.targetEntityId = -1
+          grapple.desiredDistanceSq = 0
+          grapple.pullElapsedMs = 0
+          grapple.isPulling = true
+          grapple.isTethering = false
+          grapple.cooldownEndTime = this.currentTimeMs
+          grapple.pullMode = this.pullModeAnchor
+          this.statsSystem?.playSound(SOUND_IDS.GRAPPLE_PULL_START)
+          this.applyGrappleImpulse(entity, grapple)
+          inputBuffer.clearAction('grapple')
+          continue
+        }
+
         this.destroyAnchorTether(entity, grapple)
         grapple.isPulling = false
         grapple.isTethering = false
+        inputBuffer.clearAction('grapple')
+        continue
       }
 
       if (grapple.isPulling) {

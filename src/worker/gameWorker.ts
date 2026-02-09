@@ -35,6 +35,7 @@ import {
   GRAPPLE_ANCHOR_COLOR,
   GRAPPLE_ANCHOR_HIGHLIGHT_BORDER_COLOR,
   GRAPPLE_ANCHOR_HIGHLIGHT_COLOR,
+  GRAPPLE_LONG_PRESS_MS,
   MASK_WEAPON,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
@@ -176,6 +177,7 @@ const PLAYER_PERSISTENT_ID = 'player'
 let nextPersistentEnemyId = 1
 const TARGET_FPS = 60
 const TIME_STEP = 1 / TARGET_FPS
+const FIXED_STEP_MS = Math.floor(TIME_STEP * 1000)
 let playTimeMs = 0
 
 const STATE_BUFFER_BYTES = STATE_BUFFER_FLOATS * Float32Array.BYTES_PER_ELEMENT
@@ -288,6 +290,9 @@ let prevKeys = new Set<string>()
 let currKeys = new Set<string>()
 let prevMouseButtons = new Set<number>()
 let currMouseButtons = new Set<number>()
+let rHoldMs = 0
+let rHoldActive = false
+let rHoldTriggered = false
 let canvasHeight = 0
 let pixelsPerMeter = 50
 let groundFriction = DEFAULT_GROUND_FRICTION
@@ -1828,17 +1833,39 @@ function handleInput(
       playerEntity.input.sprintRequested = false
     }
     playerEntity.input.grappleHoldRequested = shiftHeld && !isPlayerDead
-    playerEntity.input.grapplePersistentRequested =
-      shiftHeld && currKeys.has('r') && !prevKeys.has('r') && !isPlayerDead
+    playerEntity.input.grapplePersistentRequested = false
+
+    const rPressed = currKeys.has('r')
+    const rJustPressed = rPressed && !prevKeys.has('r')
+    const rJustReleased = !rPressed && prevKeys.has('r')
+
+    if (rJustPressed) {
+      if (!isPlayerDead) {
+        rHoldActive = true
+        rHoldTriggered = false
+        rHoldMs = 0
+      } else {
+        rHoldActive = false
+        rHoldTriggered = false
+        rHoldMs = 0
+      }
+    }
+
+    if (rJustReleased) {
+      if (rHoldActive && !rHoldTriggered && !isPlayerDead) {
+        playerEntity.input.inputBuffer.bufferAction('grapple')
+      }
+      rHoldActive = false
+      rHoldTriggered = false
+      rHoldMs = 0
+    }
 
     if (currKeys.has('e') && !prevKeys.has('e') && !isPlayerDead) {
       playerEntity.input.inputBuffer.bufferAction('interact')
     }
 
     const grappleJustPressed =
-      ((currKeys.has('r') && !prevKeys.has('r')) ||
-        (currMouseButtons.has(1) && !prevMouseButtons.has(1))) &&
-      !isPlayerDead
+      currMouseButtons.has(1) && !prevMouseButtons.has(1) && !isPlayerDead
     if (grappleJustPressed) {
       playerEntity.input.inputBuffer.bufferAction('grapple')
     }
@@ -1900,7 +1927,29 @@ function handleInput(
 function fixedUpdate() {
   // Accumulate time using delta time
   currentTime += TIME_STEP
-  playTimeMs += Math.floor(TIME_STEP * 1000)
+  playTimeMs += FIXED_STEP_MS
+
+  if (rHoldActive && !rHoldTriggered) {
+    if (!currKeys.has('r')) {
+      rHoldActive = false
+      rHoldTriggered = false
+      rHoldMs = 0
+    } else if (playerEntity?.input) {
+      const isPlayerDead = playerEntity.stats?.isDead ?? false
+      if (isPlayerDead) {
+        rHoldActive = false
+        rHoldTriggered = false
+        rHoldMs = 0
+      } else {
+        rHoldMs += FIXED_STEP_MS
+        if (rHoldMs >= GRAPPLE_LONG_PRESS_MS) {
+          rHoldTriggered = true
+          playerEntity.input.grapplePersistentRequested = true
+          playerEntity.input.inputBuffer.bufferAction('grapple')
+        }
+      }
+    }
+  }
 
   // Update Zoom logic (smooth transition)
   const zoomDiff = targetZoom - zoom
@@ -2871,6 +2920,9 @@ function restart() {
   currKeys.clear()
   prevMouseButtons.clear()
   currMouseButtons.clear()
+  rHoldMs = 0
+  rHoldActive = false
+  rHoldTriggered = false
 
   // Reset camera state variables
   isCameraLocked = false
