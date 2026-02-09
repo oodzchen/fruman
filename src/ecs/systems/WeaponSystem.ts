@@ -2217,7 +2217,10 @@ export class WeaponSystem extends System {
     out.bowAmmoMax = slot.bowAmmoMax
   }
 
-  private resetWeaponForSwap(weapon: WeaponComponent): void {
+  private resetWeaponForSwap(entity: Entity): void {
+    const weapon = entity.weapon
+    if (!weapon) return
+
     weapon.attackPhase = 'idle'
     weapon.attackElapsedMs = 0
     weapon.lastAttackTimestamp = 0
@@ -2266,6 +2269,10 @@ export class WeaponSystem extends System {
     weapon.dropEndOffset.dx = 0
     weapon.dropEndOffset.dy = 0
     weapon.dropEndOffset.rotation = 0
+
+    if (entity.input) {
+      entity.input.facingOverride = null
+    }
   }
 
   /**
@@ -2329,7 +2336,7 @@ export class WeaponSystem extends System {
               entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
               entity.weapon.visual.rotation =
                 DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-              this.resetWeaponForSwap(entity.weapon)
+              this.resetWeaponForSwap(entity)
 
               // 立即更新视觉位置，防止闪烁
               const facing = entity.input?.lastMoveDirection || 1
@@ -2397,8 +2404,9 @@ export class WeaponSystem extends System {
             entity.weapon.isEquipped = true
             entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
             entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-            this.resetWeaponForSwap(entity.weapon)
+            this.resetWeaponForSwap(entity)
             this.showHud(entity)
+            this.triggerFreeAimIfMouseMode(entity)
           }
           return true // 替换武器，已消费互动键
         }
@@ -2419,7 +2427,7 @@ export class WeaponSystem extends System {
           entity.weapon.isEquipped = true
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-          this.resetWeaponForSwap(entity.weapon)
+          this.resetWeaponForSwap(entity)
 
           // 立即更新视觉位置，防止闪烁
           const newFacing = entity.input?.lastMoveDirection || 1
@@ -2446,6 +2454,7 @@ export class WeaponSystem extends System {
           // 标记武器实体为已拾取（会在后续清理）
           weaponEntity.weapon.isEquipped = true
           this.showHud(entity)
+          this.triggerFreeAimIfMouseMode(entity)
           return false // 自动拾取，未消费互动键
         }
 
@@ -2485,7 +2494,7 @@ export class WeaponSystem extends System {
           entity.weapon.bowAmmo = weaponEntity.weapon.bowAmmo
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-          this.resetWeaponForSwap(entity.weapon)
+          this.resetWeaponForSwap(entity)
 
           // 立即更新视觉位置，防止闪烁
           const newFacing = entity.input?.lastMoveDirection || 1
@@ -2512,6 +2521,7 @@ export class WeaponSystem extends System {
           // 标记武器实体为已拾取（会在后续清理）
           weaponEntity.weapon.isEquipped = true
           this.showHud(entity)
+          this.triggerFreeAimIfMouseMode(entity)
           return true // 替换武器，已消费互动键
         }
       }
@@ -2609,8 +2619,20 @@ export class WeaponSystem extends System {
     entity.weapon.isEquipped = true
     entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-    this.resetWeaponForSwap(entity.weapon)
+    this.resetWeaponForSwap(entity)
     this.showHud(entity)
+    this.triggerFreeAimIfMouseMode(entity)
+  }
+
+  private triggerFreeAimIfMouseMode(entity: Entity): void {
+    if (
+      entity.weapon &&
+      entity.weapon.weaponType === 'bow' &&
+      entity.input &&
+      entity.input.mouseAimActive
+    ) {
+      entity.input.freeAimToggleRequested = true
+    }
   }
 
   startAttack(entity: Entity): void {
