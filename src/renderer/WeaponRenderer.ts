@@ -7,12 +7,23 @@ export function renderWeapon(
   height: number,
   color: string,
   isAttacking: boolean = false,
-  drawRatio: number = 0
+  drawRatio: number = 0,
+  bowLineWidthOverride?: number,
+  stringLineWidthOverride?: number
 ): void {
   if (weaponType === 'arrow') {
     renderArrow(ctx, width, height, color, isAttacking, 0)
   } else if (weaponType === 'bow') {
-    renderBow(ctx, width, height, color, isAttacking, drawRatio)
+    renderBow(
+      ctx,
+      width,
+      height,
+      color,
+      isAttacking,
+      drawRatio,
+      bowLineWidthOverride,
+      stringLineWidthOverride
+    )
   } else if (weaponType === 'hook') {
     renderHook(ctx, width, height, color, isAttacking)
   } else {
@@ -51,7 +62,9 @@ function renderBow(
   height: number,
   color: string,
   isAttacking: boolean,
-  drawRatio: number
+  drawRatio: number,
+  bowLineWidthOverride?: number,
+  stringLineWidthOverride?: number
 ): void {
   const halfLen = width / 2
   const clampedDraw = Math.max(0, Math.min(1, drawRatio))
@@ -61,8 +74,15 @@ function renderBow(
   const arcExtra = 1200
   const arcScaled = arcBase + Math.round((arcExtra * drawScaled) / drawScale)
   const arcDepth = Math.max(1, Math.floor((height * arcScaled) / drawScale))
-  const bowLineWidth = Math.max(1, Math.floor((height * 35) / 100))
-  const stringLineWidth = 2
+  const baseBowLineWidth = Math.max(1, Math.floor((height * 35) / 100))
+  const bowLineWidth =
+    bowLineWidthOverride !== undefined && bowLineWidthOverride > 0
+      ? bowLineWidthOverride
+      : baseBowLineWidth
+  const stringLineWidth =
+    stringLineWidthOverride !== undefined && stringLineWidthOverride > 0
+      ? stringLineWidthOverride
+      : 2
 
   ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
   ctx.lineWidth = bowLineWidth

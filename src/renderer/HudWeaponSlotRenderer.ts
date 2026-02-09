@@ -74,6 +74,7 @@ export function drawHudWeaponSlot(
     ctx.strokeStyle = HUD_ICON_COLOR
 
     if (weaponType === 'bow') {
+      const bowLineWidthBase = Math.max(1, Math.floor((iconHeight * 35) / 100))
       renderWeaponShape(
         ctx,
         'bow',
@@ -81,7 +82,9 @@ export function drawHudWeaponSlot(
         iconHeight,
         HUD_ICON_COLOR,
         false,
-        0
+        0,
+        2,
+        bowLineWidthBase
       )
 
       ctx.save()
