@@ -48,6 +48,12 @@ import {
 import type { MainModule, WeaponVisualType, b2BodyId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
+import type { AttackMoveData } from '../AttackMoveData'
+import {
+  ATTACK_MOVES,
+  ATTACK_MOVESETS,
+  getMovesetForWeaponType,
+} from '../AttackMoveRegistry'
 import type {
   WeaponRelativeTransform,
   WeaponSlotData,
@@ -421,11 +427,6 @@ export class WeaponSystem extends System {
 
     if (weapon.attackPhase === 'windup') {
       this.handleWindupPhase(entity, weapon)
-      return
-    }
-
-    if (weapon.attackPhase === 'finalWindup') {
-      this.handleFinalWindupPhase(entity, weapon)
       return
     }
 
@@ -891,12 +892,36 @@ export class WeaponSystem extends System {
       )
     }
 
-    if (weapon.attackQueued && weapon.comboCount < 5) {
+    let canChain = false
+    let nextMove: AttackMoveData | null = null
+
+    if (weapon.attackQueued && weapon.movesetId) {
+      const moveset = ATTACK_MOVESETS[weapon.movesetId]
+      const seq = moveset?.sequences.find(
+        (s: any) => s.id === weapon.activeSequenceId
+      )
+      if (seq) {
+        if (weapon.activeMoveIndex + 1 < seq.moves.length) {
+          canChain = true
+          nextMove = ATTACK_MOVES[seq.moves[weapon.activeMoveIndex + 1]] || null
+        } else if (seq.loop) {
+          canChain = true
+          weapon.activeMoveIndex = -1
+          nextMove = ATTACK_MOVES[seq.moves[0]] || null
+        }
+      }
+    }
+
+    if (canChain && nextMove) {
       weapon.attackQueued = false
       weapon.comboCount += 1
-      weapon.swingDirection = weapon.nextSwingDirection
-      weapon.nextSwingDirection =
-        weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
+
+      weapon.activeMoveIndex += 1
+      weapon.activeMoveId = nextMove.id
+      weapon.swingDirection = nextMove.swingDirection
+      weapon.knockback = nextMove.knockback
+      weapon.isUnstoppable = nextMove.isUnstoppable
+      attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
       this.getSwingTransforms(
         attackRadius,
@@ -942,18 +967,75 @@ export class WeaponSystem extends System {
       this.copyTransform(weapon.visual, weapon.attackStartTransform)
 
       weapon.attackRadius = attackRadius
-      weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
     }
+  }
+
+  private getActiveMove(weapon: Entity['weapon']): AttackMoveData | null {
+    if (!weapon || !weapon.activeMoveId) return null
+    return ATTACK_MOVES[weapon.activeMoveId] || null
+  }
+
+  private applyDamageOverrides(weapon: Entity['weapon']): void {
+    if (!weapon) return
+    const move = this.getActiveMove(weapon)
+    if (move) {
+      if (move.attackDamage > 0) {
+        weapon.originalAttackDamage = weapon.attackDamage
+        weapon.attackDamage = move.attackDamage
+      }
+      if (move.postureDamage > 0) {
+        weapon.originalPostureDamage = weapon.postureDamage
+        weapon.postureDamage = move.postureDamage
+      }
+      if (move.toughnessDamage > 0) {
+        weapon.originalToughnessDamage = weapon.toughnessDamage
+        weapon.toughnessDamage = move.toughnessDamage
+      }
+    }
+  }
+
+  private restoreDamageOverrides(weapon: Entity['weapon']): void {
+    if (!weapon) return
+    if (weapon.originalAttackDamage !== null) {
+      weapon.attackDamage = weapon.originalAttackDamage
+      weapon.originalAttackDamage = null
+    }
+    if (weapon.originalPostureDamage !== null) {
+      weapon.postureDamage = weapon.originalPostureDamage
+      weapon.originalPostureDamage = null
+    }
+    if (weapon.originalToughnessDamage !== null) {
+      weapon.toughnessDamage = weapon.originalToughnessDamage
+      weapon.originalToughnessDamage = null
+    }
+  }
+
+  private getWindupMs(weapon: Entity['weapon']): number {
+    const move = this.getActiveMove(weapon)
+    return move ? move.windupMs : DEFAULT_WEAPON_ATTACK_WINDUP_MS
+  }
+
+  private getSwingMs(weapon: Entity['weapon']): number {
+    const move = this.getActiveMove(weapon)
+    return move ? move.swingMs : DEFAULT_WEAPON_ATTACK_SWING_MS
+  }
+
+  private getPauseMs(weapon: Entity['weapon']): number {
+    const move = this.getActiveMove(weapon)
+    return move ? move.pauseMs : DEFAULT_WEAPON_ATTACK_PAUSE_MS
+  }
+
+  private getRecoverMs(weapon: Entity['weapon']): number {
+    const move = this.getActiveMove(weapon)
+    return move ? move.recoverMs : DEFAULT_WEAPON_ATTACK_RECOVER_MS
   }
 
   private handleWindupPhase(entity: Entity, weapon: Entity['weapon']): void {
     if (!weapon || !entity.transform) return
 
     const isGrounded = entity.movement?.isGrounded ?? true
-    const baseWindupDuration = isGrounded
-      ? DEFAULT_WEAPON_ATTACK_WINDUP_MS
-      : 250
+    const baseWindupDuration = isGrounded ? this.getWindupMs(weapon) : 250
     const windupDuration = weapon.parryCounterActive
       ? baseWindupDuration / 2
       : baseWindupDuration
@@ -994,54 +1076,10 @@ export class WeaponSystem extends System {
         SOUND_DB_SWORD_SWING
       )
       weapon.attackPhase = 'swing'
+      this.applyDamageOverrides(weapon)
       weapon.attackElapsedMs = 0
       // We don't need to copyTransform(attackStartTransform, swingStartTransform) anymore for logic,
       // but keeping data consistent is fine. However, logic now relies on offsets.
-      this.copyTransform(
-        weapon.attackStartTransform,
-        weapon.swingStartTransform
-      )
-      weapon.hitEntityIds.clear()
-    }
-  }
-
-  private handleFinalWindupPhase(
-    entity: Entity,
-    weapon: Entity['weapon']
-  ): void {
-    if (!weapon || !entity.transform) return
-
-    const finalWindupDuration = weapon.parryCounterActive
-      ? DEFAULT_WEAPON_FINAL_WINDUP_MS / 2
-      : DEFAULT_WEAPON_FINAL_WINDUP_MS
-    const t = this.clamp01(weapon.attackElapsedMs / finalWindupDuration)
-
-    this.lerpRelativeTransform(
-      weapon.attackStartOffset,
-      weapon.swingStartOffset,
-      t,
-      this.tempRelativeTransform
-    )
-
-    this.tempPlayerPos.x = entity.transform.x
-    this.tempPlayerPos.y = entity.transform.y
-    this.applyOffset(
-      this.tempRelativeTransform,
-      this.tempPlayerPos,
-      weapon.visual
-    )
-
-    if (t >= 1) {
-      weapon.parryCounterActive = false
-      this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_FINAL)
-      this.emitSoundAt(
-        weapon.visual.x,
-        weapon.visual.y,
-        entity,
-        SOUND_DB_SWORD_SWING
-      )
-      weapon.attackPhase = 'swing'
-      weapon.attackElapsedMs = 0
       this.copyTransform(
         weapon.attackStartTransform,
         weapon.swingStartTransform
@@ -1058,9 +1096,7 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
     const weapon = entity.weapon
 
-    const t = this.clamp01(
-      weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_SWING_MS
-    )
+    const t = this.clamp01(weapon.attackElapsedMs / this.getSwingMs(weapon))
 
     this.lerpRelativeTransform(
       weapon.swingStartOffset,
@@ -1086,6 +1122,7 @@ export class WeaponSystem extends System {
     this.checkEntityHits(entity, weapon)
     if (t >= 1) {
       weapon.attackPhase = 'pause'
+      this.restoreDamageOverrides(weapon)
       weapon.attackElapsedMs = 0
       this.getOffsetFromTransform(
         weapon.visual,
@@ -1136,9 +1173,10 @@ export class WeaponSystem extends System {
       this.checkEntityHits(entity, weapon)
     }
 
+    const pauseMs = this.getPauseMs(weapon)
     const pauseThreshold = weapon.reboundLockedPause
-      ? Math.max(REBOUND_PAUSE_MS, DEFAULT_WEAPON_ATTACK_PAUSE_MS)
-      : DEFAULT_WEAPON_ATTACK_PAUSE_MS
+      ? Math.max(REBOUND_PAUSE_MS, pauseMs)
+      : pauseMs
     const reachedPause = weapon.attackElapsedMs >= pauseThreshold
     if (weapon.reboundLockedPause && !reachedPause) {
       return
@@ -1147,93 +1185,60 @@ export class WeaponSystem extends System {
       weapon.reboundLockedPause = false
     }
 
-    const canChain =
+    let canChain = false
+    let nextMove: AttackMoveData | null = null
+
+    if (
       weapon.attackQueued &&
-      weapon.comboCount < 5 &&
       weapon.attackPhase !== 'rebound' &&
       weapon.attackElapsedMs >= DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS
+    ) {
+      if (weapon.movesetId) {
+        const moveset = ATTACK_MOVESETS[weapon.movesetId]
+        const seq = moveset?.sequences.find(
+          (s: any) => s.id === weapon.activeSequenceId
+        )
+        if (seq) {
+          if (weapon.activeMoveIndex + 1 < seq.moves.length) {
+            canChain = true
+            nextMove =
+              ATTACK_MOVES[seq.moves[weapon.activeMoveIndex + 1]] || null
+          } else if (seq.loop) {
+            canChain = true
+            weapon.activeMoveIndex = -1
+            nextMove = ATTACK_MOVES[seq.moves[0]] || null
+          }
+        }
+      }
+    }
 
-    if (canChain) {
+    if (canChain && nextMove) {
       weapon.attackQueued = false
       weapon.comboCount += 1
-      const isFinalAttack = weapon.comboCount === 5
 
-      weapon.swingDirection = weapon.nextSwingDirection
-      weapon.nextSwingDirection =
-        weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
+      weapon.activeMoveIndex += 1
+      weapon.activeMoveId = nextMove.id
+      weapon.swingDirection = nextMove.swingDirection
+      weapon.knockback = nextMove.knockback
+      weapon.isUnstoppable = nextMove.isUnstoppable
+      attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
-      const frontAngle =
-        weapon.attackFacing === 1
-          ? FRONT_SWING_TILT_RAD
-          : -Math.PI - FRONT_SWING_TILT_RAD
-      const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-
-      if (isFinalAttack) {
-        const finalWindupRadius = attackRadius * 1.5
-        const windupAngle =
-          weapon.swingDirection === 'toFront' ? headAngle : frontAngle
-
-        // Use tempTransform for intermediate result
-        this.getTransformAtAngle(
-          playerPos,
-          windupAngle,
-          finalWindupRadius,
-          this.tempTransform
-        )
-        // Copy to swingStartTransform (which is finalWindupTransform in this context)
-        this.copyTransform(weapon.swingStartTransform, this.tempTransform)
-
-        this.getOffsetFromTransform(
-          weapon.swingStartTransform, // finalWindupTransform
-          playerPos,
-          weapon.swingStartOffset // finalWindupOffset
-        )
-
-        const swingEndAngle =
-          weapon.swingDirection === 'toFront' ? frontAngle : headAngle
-
-        this.getTransformAtAngle(
-          playerPos,
-          swingEndAngle,
-          attackRadius,
-          weapon.swingEndTransform
-        )
-
-        this.getOffsetFromTransform(
-          weapon.swingEndTransform,
-          playerPos,
-          weapon.swingEndOffset
-        )
-
-        weapon.attackPhase = 'finalWindup'
-        weapon.attackElapsedMs = 0
-        this.getOffsetFromTransform(
-          weapon.visual,
-          playerPos,
-          weapon.attackStartOffset
-        )
-
-        this.copyTransform(weapon.attackStartTransform, weapon.visual)
-        // weapon.swingStartTransform is already set above
-        // weapon.swingEndTransform is already set above
-
-        weapon.lastAttackTimestamp = now
-        weapon.knockback = COMBO_FINISHER_KNOCKBACK
-        return
-      }
-
-      const swingEndAngle =
-        weapon.swingDirection === 'toFront' ? frontAngle : headAngle
-
-      this.getTransformAtAngle(
-        playerPos,
-        swingEndAngle,
+      this.getSwingTransforms(
         attackRadius,
+        weapon.attackFacing,
+        weapon.swingDirection,
+        playerPos,
+        weapon.swingStartTransform,
         weapon.swingEndTransform
       )
 
       this.getOffsetFromTransform(
         weapon.visual,
+        playerPos,
+        weapon.attackStartOffset
+      )
+      this.getOffsetFromTransform(
+        weapon.swingStartTransform,
         playerPos,
         weapon.swingStartOffset
       )
@@ -1243,22 +1248,32 @@ export class WeaponSystem extends System {
         weapon.swingEndOffset
       )
 
-      this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
-      this.emitSoundAt(
-        weapon.visual.x,
-        weapon.visual.y,
-        entity,
-        SOUND_DB_SWORD_SWING
-      )
-      weapon.attackPhase = 'swing'
+      weapon.attackPhase = nextMove.windupMs > 0 ? 'windup' : 'swing'
       weapon.attackElapsedMs = 0
-
-      this.copyTransform(weapon.swingStartTransform, weapon.visual)
-      // weapon.swingEndTransform is set above
-
-      this.copyTransform(weapon.attackStartTransform, weapon.visual)
       weapon.lastAttackTimestamp = now
-      weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
+
+      if (weapon.attackPhase === 'windup') {
+        // Update attackStartTransform based on current visual
+        this.applyOffset(
+          weapon.attackStartOffset,
+          playerPos,
+          weapon.attackStartTransform
+        )
+        this.copyTransform(weapon.visual, weapon.attackStartTransform)
+      } else {
+        // Skip windup, go directly to swing
+        this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
+        this.emitSoundAt(
+          weapon.visual.x,
+          weapon.visual.y,
+          entity,
+          SOUND_DB_SWORD_SWING
+        )
+        this.applyDamageOverrides(weapon)
+        this.copyTransform(weapon.swingStartTransform, weapon.visual)
+        this.copyTransform(weapon.attackStartTransform, weapon.visual)
+      }
+
       weapon.hitEntityIds.clear()
       return
     }
@@ -1287,9 +1302,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    const t = this.clamp01(
-      weapon.attackElapsedMs / DEFAULT_WEAPON_ATTACK_RECOVER_MS
-    )
+    const t = this.clamp01(weapon.attackElapsedMs / this.getRecoverMs(weapon))
 
     // Calculate target offset (Idle Front)
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
@@ -1324,6 +1337,7 @@ export class WeaponSystem extends System {
 
   private resetAttackStateForInterrupt(weapon: Entity['weapon']): void {
     if (!weapon) return
+    this.restoreDamageOverrides(weapon)
     weapon.attackElapsedMs = 0
     weapon.attackQueued = false
     weapon.comboCount = 0
@@ -2172,6 +2186,7 @@ export class WeaponSystem extends System {
     weapon.cornerRadius = slot.cornerRadius
     weapon.weight = slot.weight
     weapon.weaponType = slot.weaponType
+    weapon.movesetId = getMovesetForWeaponType(slot.weaponType)?.id || ''
     weapon.attackDamage = slot.attackDamage
     weapon.postureDamage = slot.postureDamage
     weapon.toughnessDamage = slot.toughnessDamage
@@ -2224,6 +2239,9 @@ export class WeaponSystem extends System {
     weapon.attackPhase = 'idle'
     weapon.attackElapsedMs = 0
     weapon.lastAttackTimestamp = 0
+    weapon.activeSequenceId = ''
+    weapon.activeMoveIndex = 0
+    weapon.activeMoveId = ''
     weapon.attackQueued = false
     weapon.comboCount = 0
     weapon.swingDirection = 'toFront'
@@ -2419,6 +2437,8 @@ export class WeaponSystem extends System {
           entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
           entity.weapon.weight = weaponEntity.weapon.weight
           entity.weapon.weaponType = weaponEntity.weapon.weaponType
+          entity.weapon.movesetId =
+            getMovesetForWeaponType(weaponEntity.weapon.weaponType)?.id || ''
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
@@ -2488,6 +2508,8 @@ export class WeaponSystem extends System {
           entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
           entity.weapon.weight = weaponEntity.weapon.weight
           entity.weapon.weaponType = weaponEntity.weapon.weaponType
+          entity.weapon.movesetId =
+            getMovesetForWeaponType(weaponEntity.weapon.weaponType)?.id || ''
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
@@ -2653,11 +2675,19 @@ export class WeaponSystem extends System {
     const playerPos = this.tempPlayerPos
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
-    const attackRadius = this.getAttackRadius(entity)
+    let attackRadius = this.getAttackRadius(entity)
     weapon.attackRadius = attackRadius
     weapon.attackFacing = facing
 
-    if (weapon.comboCount >= 5) return
+    if (weapon.movesetId && weapon.attackPhase !== 'idle') {
+      const moveset = ATTACK_MOVESETS[weapon.movesetId]
+      const seq = moveset?.sequences.find(
+        (s: any) => s.id === weapon.activeSequenceId
+      )
+      if (seq && !seq.loop && weapon.activeMoveIndex + 1 >= seq.moves.length) {
+        return
+      }
+    }
 
     if (weapon.parryCounterTimerMs > 0) {
       weapon.parryCounterActive = true
@@ -2665,6 +2695,28 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.attackPhase === 'idle') {
+      if (weapon.movesetId) {
+        const moveset = ATTACK_MOVESETS[weapon.movesetId]
+        if (moveset) {
+          weapon.activeSequenceId = moveset.defaultSequenceId
+          weapon.activeMoveIndex = 0
+          const seq = moveset.sequences.find(
+            (s: any) => s.id === weapon.activeSequenceId
+          )
+          if (seq && seq.moves.length > 0) {
+            weapon.activeMoveId = seq.moves[0]
+            const move = ATTACK_MOVES[weapon.activeMoveId]
+            if (move) {
+              weapon.swingDirection = move.swingDirection
+              weapon.knockback = move.knockback
+              weapon.isUnstoppable = move.isUnstoppable
+              attackRadius = (attackRadius * move.radiusScale) / 100
+              weapon.attackRadius = attackRadius
+            }
+          }
+        }
+      }
+
       this.getSwingTransforms(
         attackRadius,
         facing,
@@ -2690,9 +2742,6 @@ export class WeaponSystem extends System {
         weapon.swingEndOffset
       )
 
-      weapon.swingDirection = weapon.nextSwingDirection
-      weapon.nextSwingDirection =
-        weapon.swingDirection === 'toFront' ? 'toHead' : 'toFront'
       if (this.statsSystem) {
         this.statsSystem.enterCombat(entity)
       }
@@ -2712,7 +2761,6 @@ export class WeaponSystem extends System {
 
       this.applyOffset(weapon.attackStartOffset, playerPos, weapon.visual)
 
-      weapon.knockback = DEFAULT_ATTACK_KNOCKBACK
       weapon.hitEntityIds.clear()
       return
     }
@@ -3307,8 +3355,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    const reboundDurationMs = DEFAULT_WEAPON_ATTACK_SWING_MS * 0.8
-
+    const reboundDurationMs = this.getSwingMs(weapon) * 0.8
     const t = this.clamp01(weapon.attackElapsedMs / reboundDurationMs)
 
     this.lerpRelativeTransform(
@@ -3321,6 +3368,7 @@ export class WeaponSystem extends System {
 
     if (t >= 1) {
       weapon.attackPhase = 'pause'
+      this.restoreDamageOverrides(weapon)
       weapon.attackElapsedMs = 0
       this.getOffsetFromTransform(
         weapon.visual,

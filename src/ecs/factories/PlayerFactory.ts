@@ -45,6 +45,7 @@ import type {
   WeaponType,
   b2WorldId,
 } from '../../types'
+import { getMovesetForWeaponType } from '../AttackMoveRegistry'
 import {
   EnemyAIComponent,
   Faction,
@@ -196,6 +197,7 @@ export function createPlayer(
   weapon.cornerRadius = 0
   weapon.weight = 0
   weapon.weaponType = 'sword' // 默认类型，但尺寸为0不会渲染
+  weapon.movesetId = getMovesetForWeaponType('sword')?.id || ''
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
@@ -568,6 +570,11 @@ export function createEnemy(
         enemy.weapon.cornerRadius = activeSlot.cornerRadius
 
         enemy.weapon.weaponType = activeSlot.weaponType
+        enemy.weapon.movesetId =
+          getMovesetForWeaponType(activeSlot.weaponType)?.id || ''
+        if (enemy.enemyAI) {
+          enemy.enemyAI.movesetId = enemy.weapon.movesetId
+        }
 
         enemy.weapon.attackDamage = activeSlot.attackDamage
 

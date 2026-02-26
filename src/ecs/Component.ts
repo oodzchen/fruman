@@ -474,6 +474,9 @@ export class WeaponComponent extends Component {
   attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+  originalAttackDamage: number | null = null
+  originalPostureDamage: number | null = null
+  originalToughnessDamage: number | null = null
   knockback = 0
   isColliding = false
   isUnstoppable = false
@@ -512,6 +515,11 @@ export class WeaponComponent extends Component {
   reboundTargetTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   reboundTargetOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   hitEntityIds: Set<number> = new Set()
+
+  movesetId: string = ''
+  activeSequenceId: string = ''
+  activeMoveIndex: number = 0
+  activeMoveId: string = ''
 
   isParrying = false
   parryElapsedTime = 0 // 帧数
@@ -573,6 +581,9 @@ export class WeaponComponent extends Component {
     this.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
     this.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
     this.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
+    this.originalAttackDamage = null
+    this.originalPostureDamage = null
+    this.originalToughnessDamage = null
     this.knockback = 0
     this.isColliding = false
     this.isUnstoppable = false
@@ -619,6 +630,10 @@ export class WeaponComponent extends Component {
     this.reboundTargetOffset.dy = 0
     this.reboundTargetOffset.rotation = 0
     this.hitEntityIds.clear()
+    this.movesetId = ''
+    this.activeSequenceId = ''
+    this.activeMoveIndex = 0
+    this.activeMoveId = ''
     this.isParrying = false
     this.parryElapsedTime = 0
     this.parryWindowDuration = 200
@@ -851,6 +866,7 @@ export class EnemyAIComponent extends Component {
   patrolStuckTimer = 0
   enemyType: EnemyType = 'default'
   isRedTapeActive = false
+  movesetId: string = ''
 
   reset(): void {
     this.attackDesire = DEFAULT_ENEMY_ATTACK_DESIRE
@@ -927,6 +943,7 @@ export class EnemyAIComponent extends Component {
     this.patrolStuckTimer = 0
     this.enemyType = 'default'
     this.isRedTapeActive = false
+    this.movesetId = ''
   }
 
   getName(): string {

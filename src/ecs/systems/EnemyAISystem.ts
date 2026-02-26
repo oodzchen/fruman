@@ -23,6 +23,7 @@ import {
   ENEMY_RETREAT_EXTRA_DISTANCE,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
+import { ATTACK_MOVESETS } from '../AttackMoveRegistry'
 import { EnemyAIComponent, Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -562,6 +563,18 @@ export class EnemyAISystem extends System {
           ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
           ai.lastFacing = stableFacing
           if (entity.weapon) {
+            if (ai.movesetId) {
+              entity.weapon.movesetId = ai.movesetId
+              const moveset = ATTACK_MOVESETS[ai.movesetId]
+              if (moveset) {
+                const seq = moveset.sequences.find(
+                  (s: any) => s.id === moveset.defaultSequenceId
+                )
+                if (seq) {
+                  ai.comboSwingTarget = seq.moves.length
+                }
+              }
+            }
             entity.weapon.attackQueued = false
             if (entity.weapon.attackPhase === 'idle') {
               entity.weapon.comboCount = 0
@@ -635,6 +648,20 @@ export class EnemyAISystem extends System {
         if (distance < tooCloseThreshold) {
           ai.state = 'combo'
           ai.comboSwingsDone = 0
+          if (entity.weapon) {
+            if (ai.movesetId) {
+              entity.weapon.movesetId = ai.movesetId
+              const moveset = ATTACK_MOVESETS[ai.movesetId]
+              if (moveset) {
+                const seq = moveset.sequences.find(
+                  (s: any) => s.id === moveset.defaultSequenceId
+                )
+                if (seq) {
+                  ai.comboSwingTarget = seq.moves.length
+                }
+              }
+            }
+          }
           entity.input.moveDirection = 0
           this.queueAttack(entity, stableFacing, ai)
         } else if (distance < targetDistance) {
