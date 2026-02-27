@@ -11,6 +11,8 @@ export type AttackMoveData = {
   attackDamage: number // 0=使用武器默认
   postureDamage: number
   toughnessDamage: number
+  damageScaleNumerator?: number // 伤害/削韧系数分子（默认 1）
+  damageScaleDenominator?: number // 伤害/削韧系数分母（默认 1）
   knockback: number // 冲击力
   isUnstoppable: boolean // 霸体
   swingDirection: 'toFront' | 'toHead'

@@ -78,6 +78,10 @@ import type { StatsSystem } from './StatsSystem'
 
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
 const FRONT_SWING_TILT_RAD = Math.PI / 16
+const THRUST_START_RATIO = 35
+const THRUST_END_RATIO = 105
+const THRUST_HEIGHT_RATIO = 12
+const THRUST_GRIP_CLEARANCE = 0.06
 const BLOCK_VERTICAL_SCALE = 0.5
 const REBOUND_PAUSE_MS = 150
 const PARRY_WINDOW_FRAMES =
@@ -926,8 +930,10 @@ export class WeaponSystem extends System {
       this.getSwingTransforms(
         attackRadius,
         attackFacing,
+        nextMove.kind,
         weapon.swingDirection,
         playerPos,
+        weapon.width,
         weapon.swingStartTransform,
         weapon.swingEndTransform
       )
@@ -980,6 +986,46 @@ export class WeaponSystem extends System {
     if (!weapon) return
     const move = this.getActiveMove(weapon)
     if (move) {
+      const damageScaleNumerator =
+        move.damageScaleNumerator && move.damageScaleNumerator > 0
+          ? move.damageScaleNumerator
+          : 1
+      const damageScaleDenominator =
+        move.damageScaleDenominator && move.damageScaleDenominator > 0
+          ? move.damageScaleDenominator
+          : 1
+      if (damageScaleNumerator !== damageScaleDenominator) {
+        if (weapon.originalAttackDamage === null) {
+          weapon.originalAttackDamage = weapon.attackDamage
+        }
+        if (weapon.originalPostureDamage === null) {
+          weapon.originalPostureDamage = weapon.postureDamage
+        }
+        if (weapon.originalToughnessDamage === null) {
+          weapon.originalToughnessDamage = weapon.toughnessDamage
+        }
+        weapon.attackDamage = Math.max(
+          1,
+          Math.floor(
+            (weapon.originalAttackDamage * damageScaleNumerator) /
+              damageScaleDenominator
+          )
+        )
+        weapon.postureDamage = Math.max(
+          1,
+          Math.floor(
+            (weapon.originalPostureDamage * damageScaleNumerator) /
+              damageScaleDenominator
+          )
+        )
+        weapon.toughnessDamage = Math.max(
+          1,
+          Math.floor(
+            (weapon.originalToughnessDamage * damageScaleNumerator) /
+              damageScaleDenominator
+          )
+        )
+      }
       if (move.attackDamage > 0) {
         weapon.originalAttackDamage = weapon.attackDamage
         weapon.attackDamage = move.attackDamage
@@ -1226,8 +1272,10 @@ export class WeaponSystem extends System {
       this.getSwingTransforms(
         attackRadius,
         weapon.attackFacing,
+        nextMove.kind,
         weapon.swingDirection,
         playerPos,
+        weapon.width,
         weapon.swingStartTransform,
         weapon.swingEndTransform
       )
@@ -2720,8 +2768,10 @@ export class WeaponSystem extends System {
       this.getSwingTransforms(
         attackRadius,
         facing,
+        this.getMoveKind(weapon),
         weapon.swingDirection,
         playerPos,
+        weapon.width,
         weapon.swingStartTransform,
         weapon.swingEndTransform
       )
@@ -2901,11 +2951,25 @@ export class WeaponSystem extends System {
   private getSwingTransforms(
     radius: number,
     facing: number,
+    kind: AttackMoveData['kind'],
     direction: 'toFront' | 'toHead',
     playerPos: { x: number; y: number },
+    weaponWidth: number,
     outStart: WeaponTransform,
     outEnd: WeaponTransform
   ): void {
+    if (kind === 'thrust') {
+      this.getThrustTransforms(
+        radius,
+        facing,
+        playerPos,
+        weaponWidth,
+        outStart,
+        outEnd
+      )
+      return
+    }
+
     const frontAngle =
       facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
     const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
@@ -2914,6 +2978,40 @@ export class WeaponSystem extends System {
 
     this.getTransformAtAngle(playerPos, swingStartAngle, radius, outStart)
     this.getTransformAtAngle(playerPos, swingEndAngle, radius, outEnd)
+  }
+
+  private getThrustTransforms(
+    radius: number,
+    facing: number,
+    playerPos: { x: number; y: number },
+    weaponWidth: number,
+    outStart: WeaponTransform,
+    outEnd: WeaponTransform
+  ): void {
+    const endDistance = (radius * THRUST_END_RATIO) / 100
+    const minStartDistance = weaponWidth / 2 + THRUST_GRIP_CLEARANCE
+    let startDistance = (radius * THRUST_START_RATIO) / 100
+    if (startDistance < minStartDistance) {
+      startDistance = minStartDistance
+    }
+    if (startDistance >= endDistance) {
+      startDistance = endDistance * 0.7
+    }
+    const thrustY = playerPos.y - radius / THRUST_HEIGHT_RATIO
+    const rotation = facing === 1 ? 0 : -Math.PI
+
+    outStart.x = playerPos.x + facing * startDistance
+    outStart.y = thrustY
+    outStart.rotation = rotation
+
+    outEnd.x = playerPos.x + facing * endDistance
+    outEnd.y = thrustY
+    outEnd.rotation = rotation
+  }
+
+  private getMoveKind(weapon: Entity['weapon']): AttackMoveData['kind'] {
+    const move = this.getActiveMove(weapon)
+    return move ? move.kind : 'slash'
   }
 
   setObstacles(obstacles: ObstacleCollider[]): void {
