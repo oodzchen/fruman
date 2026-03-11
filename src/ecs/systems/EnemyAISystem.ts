@@ -563,9 +563,13 @@ export class EnemyAISystem extends System {
           ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
           ai.lastFacing = stableFacing
           if (entity.weapon) {
-            if (ai.movesetId) {
-              entity.weapon.movesetId = ai.movesetId
-              const moveset = ATTACK_MOVESETS[ai.movesetId]
+            const movesetId =
+              ai.movesetId ||
+              (entity.attackSlots?.normal.hasMoveset
+                ? entity.attackSlots.normal.movesetId
+                : '')
+            if (movesetId) {
+              const moveset = ATTACK_MOVESETS[movesetId]
               if (moveset) {
                 const seq = moveset.sequences.find(
                   (s: any) => s.id === moveset.defaultSequenceId
@@ -649,9 +653,13 @@ export class EnemyAISystem extends System {
           ai.state = 'combo'
           ai.comboSwingsDone = 0
           if (entity.weapon) {
-            if (ai.movesetId) {
-              entity.weapon.movesetId = ai.movesetId
-              const moveset = ATTACK_MOVESETS[ai.movesetId]
+            const movesetId =
+              ai.movesetId ||
+              (entity.attackSlots?.normal.hasMoveset
+                ? entity.attackSlots.normal.movesetId
+                : '')
+            if (movesetId) {
+              const moveset = ATTACK_MOVESETS[movesetId]
               if (moveset) {
                 const seq = moveset.sequences.find(
                   (s: any) => s.id === moveset.defaultSequenceId

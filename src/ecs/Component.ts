@@ -442,6 +442,10 @@ export type WeaponSlotData = {
   bowAmmo: number
   bowAmmoMax: number
 }
+export type AttackSlotData = {
+  hasMoveset: boolean
+  movesetId: string
+}
 
 const createWeaponSlotData = (): WeaponSlotData => ({
   hasWeapon: false,
@@ -458,6 +462,11 @@ const createWeaponSlotData = (): WeaponSlotData => ({
   toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
   bowAmmo: 0,
   bowAmmoMax: 0,
+})
+
+const createAttackSlotData = (): AttackSlotData => ({
+  hasMoveset: false,
+  movesetId: '',
 })
 
 export class WeaponComponent extends Component {
@@ -712,6 +721,18 @@ export class WeaponSlotsComponent extends Component {
 
   getName(): string {
     return 'WeaponSlots'
+  }
+}
+
+export class AttackSlotsComponent extends Component {
+  normal = createAttackSlotData()
+
+  reset(): void {
+    this.normal = createAttackSlotData()
+  }
+
+  getName(): string {
+    return 'AttackSlots'
   }
 }
 

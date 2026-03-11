@@ -7,6 +7,8 @@ import {
 } from '../constants'
 import type { AttackMoveData, AttackMoveset } from './AttackMoveData'
 
+export type AttackMovesetOwner = 'player' | 'enemy'
+
 export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_slash_front: {
     id: 'sword_slash_front',
@@ -100,6 +102,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -118,6 +121,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -136,6 +140,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -154,6 +159,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -172,6 +178,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
     knockback: 2,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -239,7 +246,17 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
 export function getMovesetForWeaponType(
   weaponType: string
 ): AttackMoveset | null {
+  return getMovesetForWeaponTypeAndOwner(weaponType, 'player')
+}
+
+export function getMovesetForWeaponTypeAndOwner(
+  weaponType: string,
+  owner: AttackMovesetOwner
+): AttackMoveset | null {
   if (weaponType === 'sword') {
+    if (owner === 'enemy') {
+      return ATTACK_MOVESETS['sword_default'] || null
+    }
     return ATTACK_MOVESETS['sword_thrust'] || null
   }
   return null

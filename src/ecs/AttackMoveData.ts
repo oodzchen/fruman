@@ -1,3 +1,5 @@
+import type { WeaponType } from '../types'
+
 export type AttackKind = 'slash' | 'thrust' | 'strike' | 'sweep'
 
 // 单个攻击动作
@@ -13,6 +15,7 @@ export type AttackMoveData = {
   toughnessDamage: number
   damageScaleNumerator?: number // 伤害/削韧系数分子（默认 1）
   damageScaleDenominator?: number // 伤害/削韧系数分母（默认 1）
+  compatibleWeaponTypes?: WeaponType[] // 兼容武器类型，未配置则默认兼容全部
   knockback: number // 冲击力
   isUnstoppable: boolean // 霸体
   swingDirection: 'toFront' | 'toHead'

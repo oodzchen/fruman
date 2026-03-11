@@ -498,6 +498,7 @@ function registerComponents() {
   componentRegistry.registerComponent('Stats')
   componentRegistry.registerComponent('Weapon')
   componentRegistry.registerComponent('WeaponSlots')
+  componentRegistry.registerComponent('AttackSlots')
   componentRegistry.registerComponent('Arrow')
   componentRegistry.registerComponent('Faction')
   componentRegistry.registerComponent('EnemyAI')

@@ -45,8 +45,9 @@ import type {
   WeaponType,
   b2WorldId,
 } from '../../types'
-import { getMovesetForWeaponType } from '../AttackMoveRegistry'
+import { getMovesetForWeaponTypeAndOwner } from '../AttackMoveRegistry'
 import {
+  AttackSlotsComponent,
   EnemyAIComponent,
   Faction,
   FactionComponent,
@@ -197,7 +198,8 @@ export function createPlayer(
   weapon.cornerRadius = 0
   weapon.weight = 0
   weapon.weaponType = 'sword' // 默认类型，但尺寸为0不会渲染
-  weapon.movesetId = getMovesetForWeaponType('sword')?.id || ''
+  weapon.movesetId =
+    getMovesetForWeaponTypeAndOwner('sword', 'player')?.id || ''
   weapon.attackDamage = DEFAULT_WEAPON_ATTACK_DAMAGE
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
@@ -222,6 +224,12 @@ export function createPlayer(
   const weaponSlots = new WeaponSlotsComponent()
   weaponSlots.activeSlot = 'main'
   entity.addComponent(weaponSlots)
+
+  const attackSlots = new AttackSlotsComponent()
+  attackSlots.normal.hasMoveset = true
+  attackSlots.normal.movesetId =
+    getMovesetForWeaponTypeAndOwner('sword', 'player')?.id || ''
+  entity.addComponent(attackSlots)
 
   return entity
 }
@@ -251,6 +259,7 @@ export interface EnemySpawnConfig {
   debugNoDeath?: boolean
   mainWeapon?: EnemyWeaponConfig
   secondaryWeapon?: EnemyWeaponConfig
+  initialNormalMovesetId?: string
 }
 
 export function createEnemy(
@@ -285,6 +294,7 @@ export function createEnemy(
   const facing = options?.facing ?? 1
   const debugNoDamage = options?.debugNoDamage === true
   const debugNoDeath = options?.debugNoDeath === true
+  const initialNormalMovesetId = options?.initialNormalMovesetId ?? ''
   const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY, radius)
 
   // 重置敌人的脱战超时为10秒
@@ -351,6 +361,17 @@ export function createEnemy(
 
   if (enemy.movement) {
     enemy.movement.moveSpeed = moveSpeed
+  }
+
+  if (enemy.attackSlots) {
+    enemy.attackSlots.normal.hasMoveset = true
+    enemy.attackSlots.normal.movesetId =
+      initialNormalMovesetId ||
+      getMovesetForWeaponTypeAndOwner('sword', 'enemy')?.id ||
+      ''
+    if (enemy.enemyAI) {
+      enemy.enemyAI.movesetId = enemy.attackSlots.normal.movesetId
+    }
   }
 
   if (equipWeapon && enemy.weapon && enemy.transform) {
@@ -570,10 +591,8 @@ export function createEnemy(
         enemy.weapon.cornerRadius = activeSlot.cornerRadius
 
         enemy.weapon.weaponType = activeSlot.weaponType
-        enemy.weapon.movesetId =
-          getMovesetForWeaponType(activeSlot.weaponType)?.id || ''
-        if (enemy.enemyAI) {
-          enemy.enemyAI.movesetId = enemy.weapon.movesetId
+        if (enemy.enemyAI && enemy.attackSlots?.normal.hasMoveset) {
+          enemy.enemyAI.movesetId = enemy.attackSlots.normal.movesetId
         }
 
         enemy.weapon.attackDamage = activeSlot.attackDamage
