@@ -318,7 +318,7 @@ export class GameClient {
     } else if (msg.type === 'checkpoint_activated') {
       void this.handleCheckpointAutosave()
     } else if (msg.type === 'player_dead') {
-      void this.handleAutoReload()
+      void this.handlePlayerDead()
     }
   }
 
@@ -377,6 +377,28 @@ export class GameClient {
     this.autoReloadPending = true
     await this.loadSaveById(this.currentSaveId)
     this.autoReloadPending = false
+  }
+
+  private async handlePlayerDead(): Promise<void> {
+    if (this.previewActive) {
+      this.handlePreviewRespawn()
+      return
+    }
+    await this.handleAutoReload()
+  }
+
+  private handlePreviewRespawn(): void {
+    if (!this.previewActive || !this.currentMapData) {
+      return
+    }
+
+    this.worker.postMessage({
+      type: 'map_preview',
+      map: this.currentMapData,
+    } as MainToWorkerMessage)
+
+    this.start()
+    this.setInputEnabled(true)
   }
 
   private async captureCheckpointAutosave(): Promise<void> {
