@@ -11,6 +11,7 @@ import {
   DEFAULT_PLAYER_RADIUS,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
+import { getDefaultNormalAttackMovesetId } from '../ecs/AttackMoveRegistry'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type {
   MapCheckpoint,
@@ -19,7 +20,12 @@ import type {
   MapPlayerProperties,
   WeaponCategory,
 } from '../editorMapTypes'
-import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
+import type {
+  EnemyPatrolMode,
+  EnemyType,
+  NormalAttackMovesetId,
+  WeaponType,
+} from '../types'
 import {
   DEFAULT_ENEMY_TYPE,
   EDITOR_PIXELS_PER_METER,
@@ -285,6 +291,8 @@ export class EditorMarkerManager {
         : DEFAULT_MOVE_SPEED
     const nextDebugNoDamage = data?.debugNoDamage === true
     const nextDebugNoDeath = data?.debugNoDeath === true
+    const nextInitialNormalMovesetId =
+      data?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('player')
     let spawnX: number
     let spawnY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -313,9 +321,12 @@ export class EditorMarkerManager {
         this.playerMarkerData.maxToughness = nextMaxToughness
         this.playerMarkerData.color = nextColor
         this.playerMarkerData.facing = nextFacing
+        this.playerMarkerData.initialNormalMovesetId =
+          nextInitialNormalMovesetId
         this.playerMarkerData.debugNoDamage = nextDebugNoDamage
         this.playerMarkerData.debugNoDeath = nextDebugNoDeath
       }
+      this.playerMarker.initialNormalMovesetId = nextInitialNormalMovesetId
       this.playerMarker.debugNoDamage = nextDebugNoDamage
       this.playerMarker.debugNoDeath = nextDebugNoDeath
       canvas.setActiveObject(this.playerMarker)
@@ -336,6 +347,7 @@ export class EditorMarkerManager {
     marker.maxToughness = nextMaxToughness
     marker.color = nextColor
     marker.facing = nextFacing
+    marker.initialNormalMovesetId = nextInitialNormalMovesetId
     marker.debugNoDamage = nextDebugNoDamage
     marker.debugNoDeath = nextDebugNoDeath
     this.updatePlayerMarkerVisual(marker, nextRadius, nextColor, nextFacing)
@@ -349,6 +361,7 @@ export class EditorMarkerManager {
       maxToughness: nextMaxToughness,
       color: nextColor,
       facing: nextFacing,
+      initialNormalMovesetId: nextInitialNormalMovesetId,
       debugNoDamage: nextDebugNoDamage,
       debugNoDeath: nextDebugNoDeath,
     }
@@ -520,6 +533,7 @@ export class EditorMarkerManager {
       maxToughness?: number
       color?: string
       facing?: number
+      initialNormalMovesetId?: NormalAttackMovesetId
       debugNoDamage?: boolean
       debugNoDeath?: boolean
       equipWeapon?: boolean
@@ -546,6 +560,8 @@ export class EditorMarkerManager {
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
     const color = spawn?.color ?? template.color
     const facing = spawn?.facing ?? 1
+    const initialNormalMovesetId =
+      spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('enemy')
     const debugNoDamage = spawn?.debugNoDamage === true
     const debugNoDeath = spawn?.debugNoDeath === true
     const equipWeapon =
@@ -580,6 +596,7 @@ export class EditorMarkerManager {
     marker.maxToughness = maxToughness
     marker.color = color
     marker.facing = facing
+    marker.initialNormalMovesetId = initialNormalMovesetId
     marker.debugNoDamage = debugNoDamage
     marker.debugNoDeath = debugNoDeath
     marker.equipWeapon = equipWeapon
@@ -601,6 +618,7 @@ export class EditorMarkerManager {
       maxToughness,
       color,
       facing,
+      initialNormalMovesetId,
       debugNoDamage,
       debugNoDeath,
       equipWeapon,

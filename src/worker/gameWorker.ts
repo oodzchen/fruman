@@ -41,6 +41,10 @@ import {
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
 import {
+  getDefaultNormalAttackMovesetId,
+  isNormalAttackMovesetId,
+} from '../ecs/AttackMoveRegistry'
+import {
   CheckpointComponent,
   Faction,
   GrappleAnchorComponent,
@@ -1424,6 +1428,19 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     playerEntity.movement.moveSpeed = nextMoveSpeed
   }
 
+  if (playerEntity.attackSlots && playerProps) {
+    const nextMovesetId = isNormalAttackMovesetId(
+      playerProps.initialNormalMovesetId
+    )
+      ? playerProps.initialNormalMovesetId
+      : getDefaultNormalAttackMovesetId('player')
+    playerEntity.attackSlots.normal.hasMoveset = true
+    playerEntity.attackSlots.normal.movesetId = nextMovesetId
+    if (playerEntity.weapon) {
+      playerEntity.weapon.movesetId = nextMovesetId
+    }
+  }
+
   if (playerEntity.weapon && playerEntity.weaponSlots && playerProps) {
     const weaponSlots = playerEntity.weaponSlots
     applyWeaponSlotConfig(
@@ -1600,6 +1617,21 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         enemy.enemyType,
         enemy
       )
+      if (created.attackSlots) {
+        const nextMovesetId = isNormalAttackMovesetId(
+          enemy.initialNormalMovesetId
+        )
+          ? enemy.initialNormalMovesetId
+          : getDefaultNormalAttackMovesetId('enemy')
+        created.attackSlots.normal.hasMoveset = true
+        created.attackSlots.normal.movesetId = nextMovesetId
+        if (created.weapon) {
+          created.weapon.movesetId = nextMovesetId
+        }
+        if (created.enemyAI) {
+          created.enemyAI.movesetId = nextMovesetId
+        }
+      }
       if (created.enemyAI) {
         created.enemyAI.mapSpawnIndex = i
       }

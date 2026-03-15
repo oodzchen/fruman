@@ -1,7 +1,12 @@
 import { fabric } from 'fabric'
 
 import type { WeaponCategory } from '../editorMapTypes'
-import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
+import type {
+  EnemyPatrolMode,
+  EnemyType,
+  NormalAttackMovesetId,
+  WeaponType,
+} from '../types'
 
 export enum ObjectType {
   Empty = 'empty',
@@ -29,6 +34,7 @@ export type PlayerMarker = fabric.Group & {
   maxToughness: number
   color: string
   facing: number
+  initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
   weaponBackShape?: WeaponShape
@@ -48,6 +54,7 @@ export type EnemyMarker = fabric.Group & {
   maxToughness: number
   color: string
   facing: number // 1 for right, -1 for left
+  initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
   equipWeapon: boolean
@@ -111,6 +118,7 @@ export interface EnemyMarkerData {
   maxToughness: number
   color: string
   facing: number
+  initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
   equipWeapon: boolean
@@ -129,6 +137,7 @@ export interface PlayerMarkerData {
   maxToughness: number
   color: string
   facing: number
+  initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
   mainWeapon?: WeaponType

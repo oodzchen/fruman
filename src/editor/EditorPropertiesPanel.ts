@@ -6,6 +6,11 @@ import {
   DEFAULT_BOW_AMMO_PLAYER,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
+import {
+  type AttackMovesetOwner,
+  NORMAL_ATTACK_MOVESET_OPTIONS,
+  getDefaultNormalAttackMovesetId,
+} from '../ecs/AttackMoveRegistry'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type { EditorMapData } from '../editorMapTypes'
@@ -15,7 +20,11 @@ import {
   drawHudWeaponSlot,
 } from '../renderer/HudWeaponSlotRenderer'
 import { renderWeapon } from '../renderer/WeaponRenderer'
-import type { EnemyPatrolMode, WeaponType } from '../types'
+import type {
+  EnemyPatrolMode,
+  NormalAttackMovesetId,
+  WeaponType,
+} from '../types'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import {
   computeWeaponRenderDimensions,
@@ -58,9 +67,11 @@ type CharacterDialogOptions = {
     maxToughness: number
     color: string
     facing: number
+    initialNormalMovesetId: NormalAttackMovesetId
     debugNoDamage: boolean
     debugNoDeath: boolean
   }
+  attackMovesetOwner: AttackMovesetOwner
   showMoveSpeed: boolean
   showAttackDesire: boolean
   showParry: boolean
@@ -79,6 +90,7 @@ type CharacterDialogOptions = {
     parryProficiency?: number
     initialPatrolMode?: EnemyPatrolMode
     facing: number
+    initialNormalMovesetId: NormalAttackMovesetId
     maxHealth: number
     maxPosture: number
     maxToughness: number
@@ -262,6 +274,21 @@ export class EditorPropertiesPanel {
     })
     facingRow.row.appendChild(facingSelect)
     leftPanel.appendChild(facingRow.row)
+
+    const initialAttackModuleRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_character_prop_attack_module')
+    )
+    const initialAttackModuleSelect = EditorUIHelper.createSelect({
+      options: NORMAL_ATTACK_MOVESET_OPTIONS.map((option) => ({
+        value: option.value,
+        label: localizer.t(option.labelKey),
+      })),
+      selected:
+        options.data.initialNormalMovesetId ??
+        getDefaultNormalAttackMovesetId(options.attackMovesetOwner),
+    })
+    initialAttackModuleRow.row.appendChild(initialAttackModuleSelect)
+    leftPanel.appendChild(initialAttackModuleRow.row)
 
     // Health
     const healthRow = EditorUIHelper.createFormRow(
@@ -729,6 +756,8 @@ export class EditorPropertiesPanel {
       const debugNoDamage = debugNoDamageSelect.value === '1'
       const debugNoDeath = debugNoDeathSelect.value === '1'
       const color = getValidColor()
+      const initialNormalMovesetId =
+        initialAttackModuleSelect.value as NormalAttackMovesetId
       const moveSpeed = speedInput ? Number.parseFloat(speedInput.value) : 0
       const attackDesire = desireInput
         ? Number.parseFloat(desireInput.value)
@@ -822,6 +851,7 @@ export class EditorPropertiesPanel {
         parryProficiency: options.showParry ? parryProficiency : undefined,
         initialPatrolMode: options.showPatrol ? initialPatrolMode : undefined,
         facing,
+        initialNormalMovesetId,
         maxHealth,
         maxPosture,
         maxToughness,
@@ -919,6 +949,7 @@ export class EditorPropertiesPanel {
       title: `[${enemyTypeLocal}] ${objectName}`,
       marker,
       data,
+      attackMovesetOwner: 'enemy',
       showMoveSpeed: true,
       showAttackDesire: true,
       showParry: true,
@@ -938,6 +969,7 @@ export class EditorPropertiesPanel {
         data.maxToughness = values.maxToughness
         data.color = values.color
         data.facing = values.facing
+        data.initialNormalMovesetId = values.initialNormalMovesetId
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
 
@@ -957,6 +989,7 @@ export class EditorPropertiesPanel {
         marker.maxToughness = data.maxToughness
         marker.color = data.color
         marker.facing = data.facing
+        marker.initialNormalMovesetId = data.initialNormalMovesetId
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
         marker.equipWeapon = data.equipWeapon
@@ -1025,6 +1058,7 @@ export class EditorPropertiesPanel {
       title: `[${localizer.t('editor_object_player')}] ${objectName}`,
       marker,
       data,
+      attackMovesetOwner: 'player',
       showMoveSpeed: true,
       showAttackDesire: false,
       showParry: false,
@@ -1040,6 +1074,7 @@ export class EditorPropertiesPanel {
         data.maxToughness = values.maxToughness
         data.color = values.color
         data.facing = values.facing
+        data.initialNormalMovesetId = values.initialNormalMovesetId
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
 
@@ -1054,6 +1089,7 @@ export class EditorPropertiesPanel {
         marker.maxToughness = data.maxToughness
         marker.color = data.color
         marker.facing = data.facing
+        marker.initialNormalMovesetId = data.initialNormalMovesetId
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
 

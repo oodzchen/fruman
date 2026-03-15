@@ -14,6 +14,8 @@ export type b2Rot = InstanceType<MainModule['b2Rot']>
 
 export type EnemyPatrolMode = 'guard' | 'patrol'
 
+export type NormalAttackMovesetId = 'sword_default' | 'sword_thrust'
+
 export interface EnemyTemplate {
   moveSpeed: number
   radius: number

@@ -5,9 +5,24 @@ import {
   DEFAULT_WEAPON_ATTACK_WINDUP_MS,
   DEFAULT_WEAPON_FINAL_WINDUP_MS,
 } from '../constants'
+import type { NormalAttackMovesetId } from '../types'
 import type { AttackMoveData, AttackMoveset } from './AttackMoveData'
 
 export type AttackMovesetOwner = 'player' | 'enemy'
+
+export const NORMAL_ATTACK_MOVESET_OPTIONS: Array<{
+  value: NormalAttackMovesetId
+  labelKey: string
+}> = [
+  {
+    value: 'sword_default',
+    labelKey: 'editor_attack_module_slash',
+  },
+  {
+    value: 'sword_thrust',
+    labelKey: 'editor_attack_module_thrust',
+  },
+]
 
 export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_slash_front: {
@@ -254,10 +269,19 @@ export function getMovesetForWeaponTypeAndOwner(
   owner: AttackMovesetOwner
 ): AttackMoveset | null {
   if (weaponType === 'sword') {
-    if (owner === 'enemy') {
-      return ATTACK_MOVESETS['sword_default'] || null
-    }
-    return ATTACK_MOVESETS['sword_thrust'] || null
+    return ATTACK_MOVESETS[getDefaultNormalAttackMovesetId(owner)] || null
   }
   return null
+}
+
+export function getDefaultNormalAttackMovesetId(
+  owner: AttackMovesetOwner
+): NormalAttackMovesetId {
+  return owner === 'enemy' ? 'sword_default' : 'sword_thrust'
+}
+
+export function isNormalAttackMovesetId(
+  value: string | undefined
+): value is NormalAttackMovesetId {
+  return value === 'sword_default' || value === 'sword_thrust'
 }

@@ -1,4 +1,9 @@
-import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
+import type {
+  EnemyPatrolMode,
+  EnemyType,
+  NormalAttackMovesetId,
+  WeaponType,
+} from './types'
 
 export type MapObjectKind = 'ground' | 'obstacle'
 
@@ -93,6 +98,7 @@ export interface MapEnemy {
   maxToughness?: number
   color?: string
   facing?: number
+  initialNormalMovesetId?: NormalAttackMovesetId
   debugNoDamage?: boolean
   debugNoDeath?: boolean
   equipWeapon?: boolean
@@ -138,6 +144,7 @@ export interface MapPlayerProperties {
   color?: string
   debugNoDamage?: boolean
   debugNoDeath?: boolean
+  initialNormalMovesetId?: NormalAttackMovesetId
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon
 }

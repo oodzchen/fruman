@@ -42,6 +42,7 @@ import type {
   EnemyPatrolMode,
   EnemyType,
   MainModule,
+  NormalAttackMovesetId,
   WeaponType,
   b2WorldId,
 } from '../../types'
@@ -259,7 +260,7 @@ export interface EnemySpawnConfig {
   debugNoDeath?: boolean
   mainWeapon?: EnemyWeaponConfig
   secondaryWeapon?: EnemyWeaponConfig
-  initialNormalMovesetId?: string
+  initialNormalMovesetId?: NormalAttackMovesetId
 }
 
 export function createEnemy(

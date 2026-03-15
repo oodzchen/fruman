@@ -2,7 +2,12 @@ import { fabric } from 'fabric'
 
 import type { MapEnemyWeapon, MapPlayerProperties } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
-import type { EnemyPatrolMode, EnemyType, WeaponType } from '../types'
+import type {
+  EnemyPatrolMode,
+  EnemyType,
+  NormalAttackMovesetId,
+  WeaponType,
+} from '../types'
 import type { EditorCameraManager } from './EditorCameraManager'
 import {
   EDITOR_CLIPBOARD_PASTE_OFFSET_PX,
@@ -120,6 +125,7 @@ export class EditorClipboardManager {
   private enemyMaxToughness = 0
   private enemyColor = ''
   private enemyFacing = 1
+  private enemyInitialNormalMovesetId: NormalAttackMovesetId = 'sword_default'
   private enemyDebugNoDamage = false
   private enemyDebugNoDeath = false
   private enemyEquipWeapon = false
@@ -152,6 +158,7 @@ export class EditorClipboardManager {
     maxToughness: 0,
     color: '',
     facing: 1,
+    initialNormalMovesetId: 'sword_default' as NormalAttackMovesetId,
     debugNoDamage: false,
     debugNoDeath: false,
     equipWeapon: false,
@@ -166,6 +173,7 @@ export class EditorClipboardManager {
   private playerMaxToughness = 0
   private playerColor = ''
   private playerFacing = 1
+  private playerInitialNormalMovesetId: NormalAttackMovesetId = 'sword_thrust'
   private playerDebugNoDamage = false
   private playerDebugNoDeath = false
   private playerHasMainWeapon = false
@@ -571,6 +579,7 @@ export class EditorClipboardManager {
     this.enemyMaxToughness = enemyData.maxToughness
     this.enemyColor = enemyData.color
     this.enemyFacing = enemyData.facing
+    this.enemyInitialNormalMovesetId = enemyData.initialNormalMovesetId
     this.enemyDebugNoDamage = enemyData.debugNoDamage
     this.enemyDebugNoDeath = enemyData.debugNoDeath
     this.enemyEquipWeapon = enemyData.equipWeapon
@@ -625,6 +634,8 @@ export class EditorClipboardManager {
     this.enemySpawnConfig.maxToughness = this.enemyMaxToughness
     this.enemySpawnConfig.color = this.enemyColor
     this.enemySpawnConfig.facing = this.enemyFacing
+    this.enemySpawnConfig.initialNormalMovesetId =
+      this.enemyInitialNormalMovesetId
     this.enemySpawnConfig.debugNoDamage = this.enemyDebugNoDamage
     this.enemySpawnConfig.debugNoDeath = this.enemyDebugNoDeath
     this.enemySpawnConfig.equipWeapon = this.enemyEquipWeapon
@@ -656,6 +667,7 @@ export class EditorClipboardManager {
     this.playerMaxToughness = playerData.maxToughness
     this.playerColor = playerData.color
     this.playerFacing = playerData.facing
+    this.playerInitialNormalMovesetId = playerData.initialNormalMovesetId
     this.playerDebugNoDamage = playerData.debugNoDamage
     this.playerDebugNoDeath = playerData.debugNoDeath
     this.playerHasMainWeapon = false
@@ -709,6 +721,8 @@ export class EditorClipboardManager {
     this.playerProperties.maxToughness = this.playerMaxToughness
     this.playerProperties.color = this.playerColor
     this.playerProperties.facing = this.playerFacing
+    this.playerProperties.initialNormalMovesetId =
+      this.playerInitialNormalMovesetId
     this.playerProperties.debugNoDamage = this.playerDebugNoDamage
     this.playerProperties.debugNoDeath = this.playerDebugNoDeath
     this.playerProperties.mainWeapon = this.playerHasMainWeapon

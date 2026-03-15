@@ -9,7 +9,7 @@ import type {
   MapEnemyWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
-import type { WeaponType } from '../types'
+import type { NormalAttackMovesetId, WeaponType } from '../types'
 import {
   GROUND_CIRCLE_OPTIONS,
   GROUND_EDITABLE_POLYGON_OPTIONS,
@@ -61,6 +61,7 @@ interface EditorMapSerializerContext {
     maxToughness: number
     color: string
     facing: number
+    initialNormalMovesetId?: NormalAttackMovesetId
     debugNoDamage: boolean
     debugNoDeath: boolean
     mainWeapon?: WeaponType
@@ -568,6 +569,7 @@ export class EditorMapSerializer {
       maxToughness: data.maxToughness,
       color: data.color,
       facing: data.facing,
+      initialNormalMovesetId: data.initialNormalMovesetId,
       debugNoDamage: data.debugNoDamage,
       debugNoDeath: data.debugNoDeath,
       mainWeapon,
@@ -745,6 +747,7 @@ export class EditorMapSerializer {
         maxToughness: data.maxToughness,
         color: data.color,
         facing: data.facing,
+        initialNormalMovesetId: data.initialNormalMovesetId,
         debugNoDamage: data.debugNoDamage,
         debugNoDeath: data.debugNoDeath,
         equipWeapon: data.equipWeapon,
