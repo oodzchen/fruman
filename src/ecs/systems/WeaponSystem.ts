@@ -3429,9 +3429,10 @@ export class WeaponSystem extends System {
         ? weapon.attackRadius
         : this.getAttackRadius(entity)
 
-    // reboundTargetOffset is WeaponRelativeTransform
+    // Rebound should return to the windup start pose, not the swing entry pose.
+    // For thrust attacks, using swingStart makes the retract distance too short.
     this.getOffsetFromTransform(
-      weapon.swingStartTransform,
+      weapon.attackStartTransform,
       playerPos,
       weapon.reboundTargetOffset
     )
