@@ -54,47 +54,103 @@ export class PatternCreator {
   }
 
   private static drawBackgroundToCanvas(): HTMLCanvasElement | null {
-    const patternSize = 80
+    const patternSize = 160
     const patternCanvas = document.createElement('canvas')
     patternCanvas.width = patternSize
     patternCanvas.height = patternSize
     const patternCtx = patternCanvas.getContext('2d')
     if (!patternCtx) return null
 
-    patternCtx.fillStyle = '#0b0c0e'
+    // 暗紫色夜空底色
+    patternCtx.fillStyle = '#0e0818'
     patternCtx.fillRect(0, 0, patternSize, patternSize)
 
-    patternCtx.strokeStyle = '#394155'
-    patternCtx.lineWidth = 1
-
-    const drawTriangle = (
-      x1: number,
-      y1: number,
-      x2: number,
-      y2: number,
-      x3: number,
-      y3: number
-    ) => {
-      patternCtx.beginPath()
-      patternCtx.moveTo(x1, y1)
-      patternCtx.lineTo(x2, y2)
-      patternCtx.lineTo(x3, y3)
-      patternCtx.closePath()
-      patternCtx.stroke()
+    // 小星星：1px，暗淡，数量最多，有松散聚集感
+    const smallStars: [number, number][] = [
+      [3, 19],
+      [60, 7],
+      [156, 14],
+      [33, 43],
+      [79, 36],
+      [127, 41],
+      [5, 61],
+      [157, 68],
+      [47, 77],
+      [119, 90],
+      [11, 89],
+      [91, 100],
+      [153, 104],
+      [12, 77],
+      [23, 87],
+      [105, 22],
+      [94, 33],
+      [147, 108],
+      [136, 121],
+      [8, 129],
+      [41, 133],
+      [84, 128],
+      [66, 150],
+      [119, 153],
+      [155, 145],
+      [37, 158],
+      [124, 7],
+      [49, 112],
+    ]
+    patternCtx.fillStyle = '#3d2e7a'
+    for (const [x, y] of smallStars) {
+      patternCtx.fillRect(x, y, 1, 1)
     }
 
-    const halfSize = patternSize / 2
-    const height = (Math.sqrt(3) / 2) * halfSize
+    // 中星星：1px，较亮
+    const midStars: [number, number][] = [
+      [28, 11],
+      [131, 6],
+      [7, 38],
+      [44, 65],
+      [113, 70],
+      [158, 48],
+      [26, 117],
+      [87, 105],
+      [149, 136],
+      [64, 153],
+      [106, 147],
+      [74, 20],
+    ]
+    patternCtx.fillStyle = '#ccbbee'
+    for (const [x, y] of midStars) {
+      patternCtx.fillRect(x, y, 1, 1)
+    }
 
-    drawTriangle(0, height, halfSize, 0, halfSize, height)
-    drawTriangle(halfSize, 0, patternSize, height, halfSize, height)
-    drawTriangle(0, height, halfSize, height * 2, halfSize, height)
-    drawTriangle(halfSize, height * 2, patternSize, height, halfSize, height)
+    // 大星星 A：3x3 中心 + 单像素十字光晕
+    const bigStars: [number, number][] = [
+      [17, 82],
+      [99, 28],
+      [141, 115],
+    ]
+    for (const [x, y] of bigStars) {
+      patternCtx.fillStyle = '#7755cc'
+      patternCtx.fillRect(x - 1, y + 1, 1, 1)
+      patternCtx.fillRect(x + 3, y + 1, 1, 1)
+      patternCtx.fillRect(x + 1, y - 1, 1, 1)
+      patternCtx.fillRect(x + 1, y + 3, 1, 1)
+      patternCtx.fillStyle = '#ffffff'
+      patternCtx.fillRect(x, y, 3, 3)
+    }
 
-    patternCtx.beginPath()
-    patternCtx.moveTo(0, height)
-    patternCtx.lineTo(patternSize, height)
-    patternCtx.stroke()
+    // 大星星 B：2x2 中心 + 单像素十字光晕
+    const brightStars: [number, number][] = [
+      [55, 140],
+      [72, 52],
+    ]
+    for (const [x, y] of brightStars) {
+      patternCtx.fillStyle = '#6644bb'
+      patternCtx.fillRect(x - 1, y, 1, 1)
+      patternCtx.fillRect(x + 2, y, 1, 1)
+      patternCtx.fillRect(x, y - 1, 1, 1)
+      patternCtx.fillRect(x, y + 2, 1, 1)
+      patternCtx.fillStyle = '#ffffff'
+      patternCtx.fillRect(x, y, 2, 2)
+    }
 
     return patternCanvas
   }
@@ -107,28 +163,92 @@ export class PatternCreator {
     const patternCtx = patternCanvas.getContext('2d')
     if (!patternCtx) return null
 
-    patternCtx.fillStyle = '#826343'
+    // 砖缝底色
+    patternCtx.fillStyle = '#3e2a15'
     patternCtx.fillRect(0, 0, size, size)
 
-    patternCtx.strokeStyle = '#a29f4f'
-    patternCtx.lineWidth = 1
+    // 8 块不规则石块，边缘分割点固定（左右 y=35,65；上下 x=40,72）保证无缝平铺
+    // 顶点均为整数坐标
+    const stones: [number, number][][] = [
+      [
+        [0, 0],
+        [40, 0],
+        [58, 28],
+        [22, 42],
+        [0, 35],
+      ], // 左上
+      [
+        [40, 0],
+        [72, 0],
+        [96, 0],
+        [96, 35],
+        [78, 52],
+        [58, 28],
+      ], // 右上
+      [
+        [0, 35],
+        [22, 42],
+        [28, 58],
+        [0, 65],
+      ], // 左中
+      [
+        [22, 42],
+        [58, 28],
+        [78, 52],
+        [65, 74],
+        [32, 78],
+        [28, 58],
+      ], // 中央
+      [
+        [78, 52],
+        [96, 35],
+        [96, 65],
+        [65, 74],
+      ], // 右中
+      [
+        [0, 65],
+        [28, 58],
+        [32, 78],
+        [40, 96],
+        [0, 96],
+      ], // 左下
+      [
+        [40, 96],
+        [72, 96],
+        [65, 74],
+        [32, 78],
+      ], // 下中
+      [
+        [72, 96],
+        [96, 96],
+        [96, 65],
+        [65, 74],
+      ], // 右下
+    ]
 
-    const mid = size / 2
-    patternCtx.beginPath()
-    patternCtx.moveTo(0, mid)
-    patternCtx.lineTo(mid, 0)
-    patternCtx.lineTo(size, mid)
-    patternCtx.lineTo(mid, size)
-    patternCtx.closePath()
-    patternCtx.stroke()
+    // 三色着色，相邻石块颜色不同
+    const colors = [
+      '#8a6845',
+      '#7a5c3c',
+      '#7a5c3c',
+      '#966f4a',
+      '#8a6845',
+      '#8a6845',
+      '#7a5c3c',
+      '#966f4a',
+    ]
 
-    patternCtx.beginPath()
-    patternCtx.moveTo(mid / 2, mid)
-    patternCtx.lineTo(mid, mid / 2)
-    patternCtx.lineTo((mid * 3) / 2, mid)
-    patternCtx.lineTo(mid, (mid * 3) / 2)
-    patternCtx.closePath()
-    patternCtx.stroke()
+    for (let i = 0; i < stones.length; i++) {
+      const pts = stones[i]
+      patternCtx.beginPath()
+      patternCtx.moveTo(pts[0][0], pts[0][1])
+      for (let j = 1; j < pts.length; j++) {
+        patternCtx.lineTo(pts[j][0], pts[j][1])
+      }
+      patternCtx.closePath()
+      patternCtx.fillStyle = colors[i]
+      patternCtx.fill()
+    }
 
     return patternCanvas
   }
@@ -141,38 +261,91 @@ export class PatternCreator {
     const patternCtx = patternCanvas.getContext('2d')
     if (!patternCtx) return null
 
-    patternCtx.fillStyle = '#70400e'
+    // 石缝底色
+    patternCtx.fillStyle = '#2a1808'
     patternCtx.fillRect(0, 0, size, size)
 
-    patternCtx.strokeStyle = '#d7a168'
-    patternCtx.lineWidth = 1
+    // 8 块不规则石块，边缘分割点固定（左右 y=30,58；上下 x=36,64）保证无缝平铺
+    // 顶点比地面更锐利，体现堆砌粗粝感
+    const stones: [number, number][][] = [
+      [
+        [0, 0],
+        [36, 0],
+        [48, 22],
+        [15, 35],
+        [0, 30],
+      ], // 左上
+      [
+        [36, 0],
+        [64, 0],
+        [88, 0],
+        [88, 30],
+        [68, 48],
+        [48, 22],
+      ], // 右上
+      [
+        [0, 30],
+        [15, 35],
+        [20, 52],
+        [0, 58],
+      ], // 左中
+      [
+        [15, 35],
+        [48, 22],
+        [68, 48],
+        [58, 70],
+        [28, 68],
+        [20, 52],
+      ], // 中央
+      [
+        [68, 48],
+        [88, 30],
+        [88, 58],
+        [58, 70],
+      ], // 右中
+      [
+        [0, 58],
+        [20, 52],
+        [28, 68],
+        [36, 88],
+        [0, 88],
+      ], // 左下
+      [
+        [36, 88],
+        [64, 88],
+        [58, 70],
+        [28, 68],
+      ], // 下中
+      [
+        [64, 88],
+        [88, 88],
+        [88, 58],
+        [58, 70],
+      ], // 右下
+    ]
 
-    const radius = size / 4
-    const rowHeight = Math.sqrt(3) * radius
+    // 三色着色，相邻石块颜色不同
+    const colors = [
+      '#6b3f14',
+      '#5a3310',
+      '#5a3310',
+      '#744518',
+      '#6b3f14',
+      '#6b3f14',
+      '#5a3310',
+      '#744518',
+    ]
 
-    const drawHex = (cx: number, cy: number) => {
+    for (let i = 0; i < stones.length; i++) {
+      const pts = stones[i]
       patternCtx.beginPath()
-      for (let i = 0; i < 6; i += 1) {
-        const angle = (Math.PI / 3) * i + Math.PI / 6
-        const x = cx + radius * Math.cos(angle)
-        const y = cy + radius * Math.sin(angle)
-        if (i === 0) {
-          patternCtx.moveTo(x, y)
-        } else {
-          patternCtx.lineTo(x, y)
-        }
+      patternCtx.moveTo(pts[0][0], pts[0][1])
+      for (let j = 1; j < pts.length; j++) {
+        patternCtx.lineTo(pts[j][0], pts[j][1])
       }
       patternCtx.closePath()
-      patternCtx.stroke()
-    }
-
-    for (let row = -1; row <= 2; row += 1) {
-      const y = row * rowHeight + rowHeight
-      for (let col = -1; col <= 2; col += 1) {
-        const xOffset = row % 2 === 0 ? 0 : radius
-        const x = col * radius * 2 + radius + xOffset
-        drawHex(x, y)
-      }
+      patternCtx.fillStyle = colors[i]
+      patternCtx.fill()
     }
 
     return patternCanvas
