@@ -805,17 +805,23 @@ export class ClientRenderer {
         ? 'bow'
         : mainType === WEAPON_TYPES.SPEAR
           ? 'spear'
-          : mainType === WEAPON_TYPES.HOOK
-            ? 'hook'
-            : 'sword'
+          : mainType === WEAPON_TYPES.HAMMER ||
+              mainType === WEAPON_TYPES.BIG_HAMMER
+            ? 'hammer'
+            : mainType === WEAPON_TYPES.HOOK
+              ? 'hook'
+              : 'sword'
     const secondaryWeaponKind =
       secondaryType === WEAPON_TYPES.BOW
         ? 'bow'
         : secondaryType === WEAPON_TYPES.SPEAR
           ? 'spear'
-          : secondaryType === WEAPON_TYPES.HOOK
-            ? 'hook'
-            : 'sword'
+          : secondaryType === WEAPON_TYPES.HAMMER ||
+              secondaryType === WEAPON_TYPES.BIG_HAMMER
+            ? 'hammer'
+            : secondaryType === WEAPON_TYPES.HOOK
+              ? 'hook'
+              : 'sword'
     const mainAmmoValue = mainAmmo < 0 ? 0 : mainAmmo
     const secondaryAmmoValue = secondaryAmmo < 0 ? 0 : secondaryAmmo
 
@@ -936,6 +942,18 @@ export class ClientRenderer {
       renderWeaponShape(
         this.ctx,
         'spear',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking
+      )
+    } else if (
+      weaponType === WEAPON_TYPES.HAMMER ||
+      weaponType === WEAPON_TYPES.BIG_HAMMER
+    ) {
+      renderWeaponShape(
+        this.ctx,
+        'hammer',
         wWidth,
         wHeight,
         bodyColor,

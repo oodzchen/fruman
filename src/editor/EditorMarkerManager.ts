@@ -1004,6 +1004,9 @@ export class EditorMarkerManager {
     if (weaponType === 'bow') {
       return 'bow'
     }
+    if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+      return 'hammer'
+    }
     if (weaponType === 'spear') {
       return 'spear'
     }

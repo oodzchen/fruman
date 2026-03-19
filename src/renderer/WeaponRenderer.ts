@@ -1,4 +1,10 @@
-export type WeaponRenderType = 'sword' | 'spear' | 'bow' | 'arrow' | 'hook'
+export type WeaponRenderType =
+  | 'sword'
+  | 'spear'
+  | 'hammer'
+  | 'bow'
+  | 'arrow'
+  | 'hook'
 
 export function renderWeapon(
   ctx: CanvasRenderingContext2D,
@@ -28,6 +34,8 @@ export function renderWeapon(
     renderHook(ctx, width, height, color, isAttacking)
   } else if (weaponType === 'spear') {
     renderSpear(ctx, width, height, color, isAttacking)
+  } else if (weaponType === 'hammer') {
+    renderHammer(ctx, width, height, color, isAttacking)
   } else {
     renderSword(ctx, width, height, color, isAttacking)
   }
@@ -169,6 +177,40 @@ function renderArrow(
   ctx.lineTo(-headWidth / 2, tipY + headLen)
   ctx.moveTo(0, tipY)
   ctx.lineTo(headWidth / 2, tipY + headLen)
+  ctx.stroke()
+}
+
+function renderHammer(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  color: string,
+  isAttacking: boolean
+): void {
+  const halfLen = width / 2
+  const halfThick = height / 2
+  const handleLen = width * 0.62
+  const handleStartX = -halfLen
+  const handleHalfHeight = Math.max(height * 0.16, halfThick * 0.32)
+  const handleEndX = handleStartX + handleLen
+  const headWidth = width - handleLen
+  const headInset = Math.max(height * 0.08, headWidth * 0.08)
+  const headHeight = height * 1.5
+  const headTop = -headHeight / 2
+
+  ctx.fillStyle = color
+  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
+
+  ctx.beginPath()
+  ctx.rect(handleStartX, -handleHalfHeight, handleLen, handleHalfHeight * 2)
+  ctx.fill()
+  ctx.stroke()
+
+  ctx.beginPath()
+  ctx.rect(handleEndX - headInset, headTop, headWidth + headInset, headHeight)
+  ctx.fill()
   ctx.stroke()
 }
 

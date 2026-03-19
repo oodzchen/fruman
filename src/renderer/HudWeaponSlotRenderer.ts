@@ -27,7 +27,7 @@ export function drawHudWeaponSlot(
   size: number,
   isActive: boolean,
   hasWeapon: boolean,
-  weaponType: 'sword' | 'spear' | 'bow' | 'hook',
+  weaponType: 'sword' | 'spear' | 'hammer' | 'bow' | 'hook',
   weaponWidth: number,
   weaponHeight: number,
   sizeLevel: number,
@@ -109,6 +109,23 @@ export function drawHudWeaponSlot(
       renderWeaponShape(
         ctx,
         'hook',
+        iconWidth,
+        iconHeight,
+        HUD_ICON_COLOR,
+        false,
+        0
+      )
+      ctx.restore()
+    } else if (weaponType === 'hammer') {
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+      ctx.fillStyle = HUD_ICON_COLOR
+      ctx.strokeStyle = HUD_ICON_COLOR
+      renderWeaponShape(
+        ctx,
+        'hammer',
         iconWidth,
         iconHeight,
         HUD_ICON_COLOR,

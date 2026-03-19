@@ -939,6 +939,7 @@ export class WeaponSystem extends System {
         nextMove.kind,
         weapon.swingDirection,
         playerPos,
+        weapon.weaponType,
         weapon.width,
         weapon.swingStartTransform,
         weapon.swingEndTransform
@@ -1298,6 +1299,7 @@ export class WeaponSystem extends System {
           nextMove.kind,
           weapon.swingDirection,
           playerPos,
+          weapon.weaponType,
           weapon.width,
           weapon.swingStartTransform,
           weapon.swingEndTransform
@@ -2233,6 +2235,42 @@ export class WeaponSystem extends System {
     return entity.weapon?.movesetId || ''
   }
 
+  private canMovesetUseWeapon(
+    movesetId: string,
+    weaponType: WeaponVisualType
+  ): boolean {
+    const moveset = ATTACK_MOVESETS[movesetId]
+    const firstSequence = moveset?.sequences[0]
+    const firstMoveId = firstSequence?.moves[0]
+    const firstMove = firstMoveId ? ATTACK_MOVES[firstMoveId] : null
+    if (!firstMove) {
+      return false
+    }
+    return this.isMoveCompatibleWithWeapon(firstMove, weaponType)
+  }
+
+  private playInvalidAttackFeedback(
+    entity: Entity,
+    weapon: Entity['weapon'],
+    playerPos: { x: number; y: number },
+    facing: number
+  ): void {
+    if (!weapon) return
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    this.getFrontTransform(
+      playerPos,
+      facing,
+      this.tempTransform,
+      radius,
+      weapon.weaponType,
+      weapon.width
+    )
+    this.copyTransform(this.tempTransform, weapon.visual)
+    weapon.visual.rotation += facing === 1 ? 0.22 : -0.22
+    weapon.visual.x += facing * 0.08
+    this.startBlockReturn(entity, weapon, playerPos)
+  }
+
   private copyWeaponToSlot(
     slot: WeaponSlotData,
     weapon: WeaponComponent
@@ -2758,11 +2796,15 @@ export class WeaponSystem extends System {
     weapon.attackRadius = attackRadius
     weapon.attackFacing = facing
     const equippedMovesetId = this.getNormalAttackMovesetId(entity)
-    weapon.movesetId = equippedMovesetId
-    if (!equippedMovesetId) {
+    if (
+      !equippedMovesetId ||
+      !this.canMovesetUseWeapon(equippedMovesetId, weapon.weaponType)
+    ) {
       weapon.attackQueued = false
+      this.playInvalidAttackFeedback(entity, weapon, playerPos, facing)
       return
     }
+    weapon.movesetId = equippedMovesetId
 
     if (weapon.movesetId && weapon.attackPhase !== 'idle') {
       const moveset = ATTACK_MOVESETS[weapon.movesetId]
@@ -2813,6 +2855,7 @@ export class WeaponSystem extends System {
         this.getMoveKind(weapon),
         weapon.swingDirection,
         playerPos,
+        weapon.weaponType,
         weapon.width,
         weapon.swingStartTransform,
         weapon.swingEndTransform
@@ -3003,6 +3046,7 @@ export class WeaponSystem extends System {
     kind: AttackMoveData['kind'],
     direction: 'toFront' | 'toHead',
     playerPos: { x: number; y: number },
+    weaponType: WeaponVisualType,
     weaponWidth: number,
     outStart: WeaponTransform,
     outEnd: WeaponTransform
@@ -3013,6 +3057,17 @@ export class WeaponSystem extends System {
         facing,
         playerPos,
         weaponWidth,
+        outStart,
+        outEnd
+      )
+      return
+    }
+    if (kind === 'strike') {
+      this.getStrikeTransforms(
+        playerPos,
+        facing,
+        radius,
+        weaponType,
         outStart,
         outEnd
       )
@@ -3059,6 +3114,21 @@ export class WeaponSystem extends System {
     outEnd.x = playerPos.x + facing * (endDistance - endGripOffset)
     outEnd.y = thrustY
     outEnd.rotation = rotation
+  }
+
+  private getStrikeTransforms(
+    playerPos: { x: number; y: number },
+    facing: number,
+    radius: number,
+    _weaponType: WeaponVisualType,
+    outStart: WeaponTransform,
+    outEnd: WeaponTransform
+  ): void {
+    const frontAngle =
+      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
+    const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    this.getTransformAtAngle(playerPos, headAngle, radius, outStart)
+    this.getTransformAtAngle(playerPos, frontAngle, radius, outEnd)
   }
 
   private getMoveKind(weapon: Entity['weapon']): AttackMoveData['kind'] {

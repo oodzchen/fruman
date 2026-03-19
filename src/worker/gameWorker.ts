@@ -239,6 +239,8 @@ function getWeaponTypeId(weaponType: WeaponVisualType | undefined): number {
       return WEAPON_TYPES.SPEAR
     case 'hammer':
       return WEAPON_TYPES.HAMMER
+    case 'bigHammer':
+      return WEAPON_TYPES.BIG_HAMMER
     case 'bow':
       return WEAPON_TYPES.BOW
     case 'hook':

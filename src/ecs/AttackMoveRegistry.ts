@@ -22,6 +22,10 @@ export const NORMAL_ATTACK_MOVESET_OPTIONS: Array<{
     value: 'sword_thrust',
     labelKey: 'editor_attack_module_thrust',
   },
+  {
+    value: 'hammer_strike',
+    labelKey: 'editor_attack_module_strike',
+  },
 ]
 
 export const ATTACK_MOVES: Record<string, AttackMoveData> = {
@@ -200,6 +204,91 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     radiusScale: 130,
     soundId: 0,
   },
+  hammer_strike_open: {
+    id: 'hammer_strike_open',
+    kind: 'strike',
+    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
+    pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
+    recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
+    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    knockback: 1,
+    isUnstoppable: false,
+    swingDirection: 'toFront',
+    radiusScale: 100,
+    soundId: 0,
+  },
+  hammer_strike_combo_1: {
+    id: 'hammer_strike_combo_1',
+    kind: 'strike',
+    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
+    pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
+    recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
+    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    knockback: 1,
+    isUnstoppable: false,
+    swingDirection: 'toFront',
+    radiusScale: 100,
+    soundId: 0,
+  },
+  hammer_strike_combo_2: {
+    id: 'hammer_strike_combo_2',
+    kind: 'strike',
+    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
+    pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
+    recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
+    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    knockback: 1,
+    isUnstoppable: false,
+    swingDirection: 'toFront',
+    radiusScale: 100,
+    soundId: 0,
+  },
+  hammer_strike_combo_3: {
+    id: 'hammer_strike_combo_3',
+    kind: 'strike',
+    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
+    pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
+    recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
+    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    knockback: 1,
+    isUnstoppable: false,
+    swingDirection: 'toFront',
+    radiusScale: 105,
+    soundId: 0,
+  },
+  hammer_strike_finisher: {
+    id: 'hammer_strike_finisher',
+    kind: 'strike',
+    windupMs: DEFAULT_WEAPON_FINAL_WINDUP_MS,
+    swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
+    pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
+    recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
+    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    knockback: 2,
+    isUnstoppable: false,
+    swingDirection: 'toFront',
+    radiusScale: 120,
+    soundId: 0,
+  },
 }
 
 export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
@@ -239,6 +328,24 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
     ],
     derivations: [],
   },
+  hammer_strike: {
+    id: 'hammer_strike',
+    defaultSequenceId: 'seq_hammer_strike',
+    sequences: [
+      {
+        id: 'seq_hammer_strike',
+        moves: [
+          'hammer_strike_open',
+          'hammer_strike_combo_1',
+          'hammer_strike_combo_2',
+          'hammer_strike_combo_3',
+          'hammer_strike_finisher',
+        ],
+        loop: false,
+      },
+    ],
+    derivations: [],
+  },
   // Used for testing combo
   test_combo: {
     id: 'test_combo',
@@ -271,6 +378,9 @@ export function getMovesetForWeaponTypeAndOwner(
   if (weaponType === 'spear') {
     return ATTACK_MOVESETS.sword_thrust || null
   }
+  if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+    return ATTACK_MOVESETS.hammer_strike || null
+  }
   if (weaponType === 'sword') {
     return ATTACK_MOVESETS[getDefaultNormalAttackMovesetId(owner)] || null
   }
@@ -286,5 +396,9 @@ export function getDefaultNormalAttackMovesetId(
 export function isNormalAttackMovesetId(
   value: string | undefined
 ): value is NormalAttackMovesetId {
-  return value === 'sword_default' || value === 'sword_thrust'
+  return (
+    value === 'sword_default' ||
+    value === 'sword_thrust' ||
+    value === 'hammer_strike'
+  )
 }

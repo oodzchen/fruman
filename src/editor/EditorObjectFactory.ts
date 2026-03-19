@@ -36,7 +36,7 @@ interface EditorObjectFactoryOptions {
   ) => WeaponRenderDimensions
   renderWeapon: (
     ctx: CanvasRenderingContext2D,
-    type: 'sword' | 'spear' | 'bow' | 'hook',
+    type: 'sword' | 'spear' | 'hammer' | 'bow' | 'hook',
     width: number,
     height: number,
     color: string,
@@ -50,7 +50,7 @@ type WeaponShape = fabric.Object & {
   weaponHeightPx: number
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
-  weaponRenderType: 'bow' | 'sword' | 'spear' | 'hook'
+  weaponRenderType: 'bow' | 'sword' | 'spear' | 'hammer' | 'hook'
 }
 
 export class EditorObjectFactory {
@@ -382,9 +382,11 @@ export class EditorObjectFactory {
         ? 'hook'
         : isBow
           ? 'bow'
-          : weaponType === 'spear'
-            ? 'spear'
-            : 'sword'
+          : weaponType === 'hammer' || weaponType === 'bigHammer'
+            ? 'hammer'
+            : weaponType === 'spear'
+              ? 'spear'
+              : 'sword'
     const renderWeapon = this.renderWeapon
 
     const weaponShape = new (fabric.util.createClass(fabric.Object, {
@@ -477,9 +479,11 @@ export class EditorObjectFactory {
         ? 'hook'
         : isBow
           ? 'bow'
-          : weaponType === 'spear'
-            ? 'spear'
-            : 'sword'
+          : weaponType === 'hammer' || weaponType === 'bigHammer'
+            ? 'hammer'
+            : weaponType === 'spear'
+              ? 'spear'
+              : 'sword'
 
     const weaponMarker = new fabric.Group([weaponShape], {
       left: x,
