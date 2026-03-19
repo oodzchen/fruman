@@ -149,12 +149,15 @@ export class EditorPropertiesPanel {
 
   private getWeaponRenderType(
     weaponType: WeaponType
-  ): 'sword' | 'bow' | 'hook' {
+  ): 'sword' | 'spear' | 'bow' | 'hook' {
     if (weaponType === 'hook') {
       return 'hook'
     }
     if (weaponType === 'bow') {
       return 'bow'
+    }
+    if (weaponType === 'spear') {
+      return 'spear'
     }
     return 'sword'
   }
@@ -659,7 +662,8 @@ export class EditorPropertiesPanel {
           facing,
           previewWeaponTransform,
           radius,
-          mainSlotPreview.weaponType
+          mainSlotPreview.weaponType,
+          mainSlotPreview.weaponWidth
         )
         const weaponX = Math.round(
           previewWeaponTransform.x * previewPixelsPerMeter
@@ -906,6 +910,7 @@ export class EditorPropertiesPanel {
       options: [
         { label: localizer.t('editor_weapon_none'), value: 'none' },
         { label: localizer.t('editor_weapon_sword'), value: 'sword' },
+        { label: localizer.t('editor_weapon_spear'), value: 'spear' },
       ],
       defaultBowAmmo: DEFAULT_BOW_AMMO_ENEMY,
       getWeaponType: () => data.mainWeapon,
@@ -1017,6 +1022,7 @@ export class EditorPropertiesPanel {
       options: [
         { label: localizer.t('editor_weapon_none'), value: 'none' },
         { label: localizer.t('editor_weapon_sword'), value: 'sword' },
+        { label: localizer.t('editor_weapon_spear'), value: 'spear' },
       ],
       defaultBowAmmo: DEFAULT_BOW_AMMO_PLAYER,
       getWeaponType: () => data.mainWeapon,
@@ -1136,6 +1142,8 @@ export class EditorPropertiesPanel {
         return level === 1
           ? localizer.t('editor_weapon_size_bow_1')
           : localizer.t('editor_weapon_size_bow_2')
+      } else if (marker.weaponType === 'spear') {
+        return localizer.t('editor_weapon_size_spear_1')
       } else {
         switch (level) {
           case 1:

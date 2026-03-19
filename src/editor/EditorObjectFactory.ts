@@ -36,7 +36,7 @@ interface EditorObjectFactoryOptions {
   ) => WeaponRenderDimensions
   renderWeapon: (
     ctx: CanvasRenderingContext2D,
-    type: 'sword' | 'bow' | 'hook',
+    type: 'sword' | 'spear' | 'bow' | 'hook',
     width: number,
     height: number,
     color: string,
@@ -50,7 +50,7 @@ type WeaponShape = fabric.Object & {
   weaponHeightPx: number
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
-  weaponRenderType: 'bow' | 'sword' | 'hook'
+  weaponRenderType: 'bow' | 'sword' | 'spear' | 'hook'
 }
 
 export class EditorObjectFactory {
@@ -371,8 +371,20 @@ export class EditorObjectFactory {
       this.pixelsPerMeter,
       isBow
     )
+    if (weaponType === 'spear') {
+      dims.widthPx *= 0.5
+      dims.heightPx *= 0.5
+      dims.boundingWidthPx *= 0.5
+      dims.boundingHeightPx *= 0.5
+    }
     const renderType: WeaponShape['weaponRenderType'] =
-      weaponType === 'hook' ? 'hook' : isBow ? 'bow' : 'sword'
+      weaponType === 'hook'
+        ? 'hook'
+        : isBow
+          ? 'bow'
+          : weaponType === 'spear'
+            ? 'spear'
+            : 'sword'
     const renderWeapon = this.renderWeapon
 
     const weaponShape = new (fabric.util.createClass(fabric.Object, {
@@ -461,7 +473,13 @@ export class EditorObjectFactory {
     weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
     weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
     weaponShape.weaponRenderType =
-      weaponType === 'hook' ? 'hook' : isBow ? 'bow' : 'sword'
+      weaponType === 'hook'
+        ? 'hook'
+        : isBow
+          ? 'bow'
+          : weaponType === 'spear'
+            ? 'spear'
+            : 'sword'
 
     const weaponMarker = new fabric.Group([weaponShape], {
       left: x,

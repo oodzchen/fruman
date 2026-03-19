@@ -803,15 +803,19 @@ export class ClientRenderer {
     const mainWeaponKind =
       mainType === WEAPON_TYPES.BOW
         ? 'bow'
-        : mainType === WEAPON_TYPES.HOOK
-          ? 'hook'
-          : 'sword'
+        : mainType === WEAPON_TYPES.SPEAR
+          ? 'spear'
+          : mainType === WEAPON_TYPES.HOOK
+            ? 'hook'
+            : 'sword'
     const secondaryWeaponKind =
       secondaryType === WEAPON_TYPES.BOW
         ? 'bow'
-        : secondaryType === WEAPON_TYPES.HOOK
-          ? 'hook'
-          : 'sword'
+        : secondaryType === WEAPON_TYPES.SPEAR
+          ? 'spear'
+          : secondaryType === WEAPON_TYPES.HOOK
+            ? 'hook'
+            : 'sword'
     const mainAmmoValue = mainAmmo < 0 ? 0 : mainAmmo
     const secondaryAmmoValue = secondaryAmmo < 0 ? 0 : secondaryAmmo
 
@@ -862,8 +866,8 @@ export class ClientRenderer {
     const wx = buf[offset + OFFSETS.WEAPON_X]
     const wy = buf[offset + OFFSETS.WEAPON_Y]
     const wRot = buf[offset + OFFSETS.WEAPON_ROT]
-    const wWidth = buf[offset + OFFSETS.WEAPON_W] * this.pixelsPerMeter
-    const wHeight = buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter
+    let wWidth = buf[offset + OFFSETS.WEAPON_W] * this.pixelsPerMeter
+    let wHeight = buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter
     const weaponType = buf[offset + OFFSETS.WEAPON_TYPE]
     const bowDraw = buf[offset + OFFSETS.WEAPON_DRAW]
     const bowDrawActive = buf[offset + OFFSETS.WEAPON_DRAW_ACTIVE] === 1
@@ -872,7 +876,13 @@ export class ClientRenderer {
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
     const isBlocking = !!(flags & FLAGS.WEAPON_BLOCKING)
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
+    const isStandaloneWeapon = buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0
     const bodyColor = '#b4bdc7'
+
+    if (weaponType === WEAPON_TYPES.SPEAR && isStandaloneWeapon) {
+      wWidth *= 0.5
+      wHeight *= 0.5
+    }
 
     this.ctx.save()
     this.ctx.translate(wx * this.pixelsPerMeter, wy * this.pixelsPerMeter)
@@ -917,6 +927,15 @@ export class ClientRenderer {
       renderWeaponShape(
         this.ctx,
         'hook',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking
+      )
+    } else if (weaponType === WEAPON_TYPES.SPEAR) {
+      renderWeaponShape(
+        this.ctx,
+        'spear',
         wWidth,
         wHeight,
         bodyColor,

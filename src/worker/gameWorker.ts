@@ -42,6 +42,7 @@ import {
 import { ArrowPools } from '../ecs/ArrowPools'
 import {
   getDefaultNormalAttackMovesetId,
+  getMovesetForWeaponTypeAndOwner,
   isNormalAttackMovesetId,
 } from '../ecs/AttackMoveRegistry'
 import {
@@ -234,6 +235,8 @@ function getWeaponTypeId(weaponType: WeaponVisualType | undefined): number {
       return WEAPON_TYPES.SHORT_SWORD
     case 'longSword':
       return WEAPON_TYPES.LONG_SWORD
+    case 'spear':
+      return WEAPON_TYPES.SPEAR
     case 'hammer':
       return WEAPON_TYPES.HAMMER
     case 'bow':
@@ -1429,11 +1432,16 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
   }
 
   if (playerEntity.attackSlots && playerProps) {
+    const defaultWeaponType =
+      playerProps.mainWeapon?.weaponType ??
+      playerProps.secondaryWeapon?.weaponType ??
+      'sword'
     const nextMovesetId = isNormalAttackMovesetId(
       playerProps.initialNormalMovesetId
     )
       ? playerProps.initialNormalMovesetId
-      : getDefaultNormalAttackMovesetId('player')
+      : getMovesetForWeaponTypeAndOwner(defaultWeaponType, 'player')?.id ||
+        getDefaultNormalAttackMovesetId('player')
     playerEntity.attackSlots.normal.hasMoveset = true
     playerEntity.attackSlots.normal.movesetId = nextMovesetId
     if (playerEntity.weapon) {

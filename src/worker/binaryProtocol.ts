@@ -79,10 +79,11 @@ export const WEAPON_TYPES = {
   SWORD: 0,
   SHORT_SWORD: 1,
   LONG_SWORD: 2,
-  HAMMER: 3,
-  BOW: 4,
-  ARROW: 5,
-  HOOK: 6,
+  SPEAR: 3,
+  HAMMER: 4,
+  BOW: 5,
+  ARROW: 6,
+  HOOK: 7,
 } as const
 
 export const MAX_ENTITIES = 2000

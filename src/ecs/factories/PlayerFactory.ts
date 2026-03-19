@@ -365,9 +365,14 @@ export function createEnemy(
   }
 
   if (enemy.attackSlots) {
+    const defaultWeaponType =
+      options?.mainWeapon?.weaponType ??
+      options?.secondaryWeapon?.weaponType ??
+      'sword'
     enemy.attackSlots.normal.hasMoveset = true
     enemy.attackSlots.normal.movesetId =
       initialNormalMovesetId ||
+      getMovesetForWeaponTypeAndOwner(defaultWeaponType, 'enemy')?.id ||
       getMovesetForWeaponTypeAndOwner('sword', 'enemy')?.id ||
       ''
     if (enemy.enemyAI) {

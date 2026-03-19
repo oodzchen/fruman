@@ -370,6 +370,16 @@ export const WEAPON_DEFAULT_DATA = {
     postureDamage: 8,
     toughnessDamage: 4,
   },
+  spear: {
+    width: 4.0,
+    height: 0.08333333333333333,
+    sizeLevel: 1,
+    sizeMaxLevel: 1,
+    weight: 3,
+    attackDamage: 1,
+    postureDamage: 8,
+    toughnessDamage: 1.5,
+  },
   hammer: {
     width: 1.0,
     height: 0.5,

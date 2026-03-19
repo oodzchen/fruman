@@ -893,7 +893,8 @@ export class WeaponSystem extends System {
         facing,
         weapon.visual,
         radius,
-        weapon.weaponType
+        weapon.weaponType,
+        weapon.width
       )
     }
 
@@ -1875,7 +1876,8 @@ export class WeaponSystem extends System {
         facing,
         weapon.visual,
         radius,
-        weapon.weaponType
+        weapon.weaponType,
+        weapon.width
       )
     }
 
@@ -2452,7 +2454,8 @@ export class WeaponSystem extends System {
                   facing,
                   entity.weapon.visual,
                   radius,
-                  entity.weapon.weaponType
+                  entity.weapon.weaponType,
+                  entity.weapon.width
                 )
               }
             }
@@ -2543,7 +2546,8 @@ export class WeaponSystem extends System {
               newFacing,
               entity.weapon.visual,
               radius,
-              entity.weapon.weaponType
+              entity.weapon.weaponType,
+              entity.weapon.width
             )
           }
 
@@ -2610,7 +2614,8 @@ export class WeaponSystem extends System {
               newFacing,
               entity.weapon.visual,
               radius,
-              entity.weapon.weaponType
+              entity.weapon.weaponType,
+              entity.weapon.width
             )
           }
 
@@ -2980,6 +2985,13 @@ export class WeaponSystem extends System {
       return
     }
 
+    if (weaponType === 'spear') {
+      out.x = playerPos.x
+      out.y = playerPos.y + radius - weaponWidth / 2
+      out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+      return
+    }
+
     out.x = playerPos.x + facing * 0
     out.y = playerPos.y - DEFAULT_WEAPON_WIDTH / 2
     out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
@@ -3025,6 +3037,9 @@ export class WeaponSystem extends System {
     outStart: WeaponTransform,
     outEnd: WeaponTransform
   ): void {
+    const isLongSpear = weaponWidth > 0 && weaponWidth >= 3
+    const startGripOffset = isLongSpear ? weaponWidth * 0.36 : 0
+    const endGripOffset = isLongSpear ? weaponWidth * 0.2 : 0
     const endDistance = (radius * THRUST_END_RATIO) / 100
     const minStartDistance = weaponWidth / 2 + THRUST_GRIP_CLEARANCE
     let startDistance = (radius * THRUST_START_RATIO) / 100
@@ -3034,14 +3049,14 @@ export class WeaponSystem extends System {
     if (startDistance >= endDistance) {
       startDistance = endDistance * 0.7
     }
-    const thrustY = playerPos.y - radius / THRUST_HEIGHT_RATIO
+    const thrustY = playerPos.y
     const rotation = facing === 1 ? 0 : -Math.PI
 
-    outStart.x = playerPos.x + facing * startDistance
+    outStart.x = playerPos.x + facing * (startDistance - startGripOffset)
     outStart.y = thrustY
     outStart.rotation = rotation
 
-    outEnd.x = playerPos.x + facing * endDistance
+    outEnd.x = playerPos.x + facing * (endDistance - endGripOffset)
     outEnd.y = thrustY
     outEnd.rotation = rotation
   }
@@ -3125,7 +3140,8 @@ export class WeaponSystem extends System {
       facing,
       weapon.visual,
       radius,
-      weapon.weaponType
+      weapon.weaponType,
+      weapon.width
     )
   }
 

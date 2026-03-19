@@ -88,7 +88,7 @@ export type WeaponShape = fabric.Object & {
   weaponHeightPx: number
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
-  weaponRenderType: 'sword' | 'bow' | 'hook'
+  weaponRenderType: 'sword' | 'spear' | 'bow' | 'hook'
 }
 
 export type ShapeResetData =

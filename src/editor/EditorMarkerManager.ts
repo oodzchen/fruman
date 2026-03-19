@@ -489,7 +489,8 @@ export class EditorMarkerManager {
       marker.facing,
       this.tempWeaponTransform,
       marker.radius,
-      weaponType
+      weaponType,
+      weaponWidthPx / EDITOR_PIXELS_PER_METER
     )
 
     const weaponLeft = Math.round(
@@ -900,7 +901,8 @@ export class EditorMarkerManager {
       marker.facing,
       this.tempWeaponTransform,
       marker.radius,
-      weaponType
+      weaponType,
+      weaponWidthPx / EDITOR_PIXELS_PER_METER
     )
 
     const weaponLeft = Math.round(
@@ -1001,6 +1003,9 @@ export class EditorMarkerManager {
     }
     if (weaponType === 'bow') {
       return 'bow'
+    }
+    if (weaponType === 'spear') {
+      return 'spear'
     }
     return 'sword'
   }

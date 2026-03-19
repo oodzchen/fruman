@@ -27,7 +27,7 @@ export function drawHudWeaponSlot(
   size: number,
   isActive: boolean,
   hasWeapon: boolean,
-  weaponType: 'sword' | 'bow' | 'hook',
+  weaponType: 'sword' | 'spear' | 'bow' | 'hook',
   weaponWidth: number,
   weaponHeight: number,
   sizeLevel: number,
@@ -66,14 +66,13 @@ export function drawHudWeaponSlot(
     const centerX = x + size * 0.5
     const centerY = y + size * 0.5
 
-    ctx.save()
-    ctx.translate(centerX, centerY)
-    ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
-    ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
-    ctx.fillStyle = HUD_ICON_COLOR
-    ctx.strokeStyle = HUD_ICON_COLOR
-
     if (weaponType === 'bow') {
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+      ctx.fillStyle = HUD_ICON_COLOR
+      ctx.strokeStyle = HUD_ICON_COLOR
       const bowLineWidthBase = Math.max(1, Math.floor((iconHeight * 35) / 100))
       renderWeaponShape(
         ctx,
@@ -99,7 +98,14 @@ export function drawHudWeaponSlot(
         arrowLength * 0.5
       )
       ctx.restore()
+      ctx.restore()
     } else if (weaponType === 'hook') {
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+      ctx.fillStyle = HUD_ICON_COLOR
+      ctx.strokeStyle = HUD_ICON_COLOR
       renderWeaponShape(
         ctx,
         'hook',
@@ -109,7 +115,44 @@ export function drawHudWeaponSlot(
         false,
         0
       )
+      ctx.restore()
+    } else if (weaponType === 'spear') {
+      const minIconHeight = Math.max(5, Math.floor(size * 0.14))
+      const spearIconHeight = Math.max(minIconHeight, iconHeight) * (2 / 3)
+      const spearScale =
+        slotHeight > 0 ? spearIconHeight / slotHeight : activeScale
+      const spearIconWidth = slotWidth * spearScale
+      const halfLen = spearIconWidth / 2
+      const headLen = Math.max(spearIconHeight * 4, spearIconWidth * 0.1)
+      const headMidX = halfLen - headLen / 2
+
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(x, y, size, size)
+      ctx.clip()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+      ctx.fillStyle = HUD_ICON_COLOR
+      ctx.strokeStyle = HUD_ICON_COLOR
+      ctx.translate(-headMidX, 0)
+      renderWeaponShape(
+        ctx,
+        'spear',
+        spearIconWidth,
+        spearIconHeight,
+        HUD_ICON_COLOR,
+        false,
+        0
+      )
+      ctx.restore()
     } else {
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+      ctx.fillStyle = HUD_ICON_COLOR
+      ctx.strokeStyle = HUD_ICON_COLOR
       const halfLen = iconWidth / 2
       const halfThick = iconHeight / 2
 
@@ -122,8 +165,8 @@ export function drawHudWeaponSlot(
 
       ctx.fill()
       ctx.stroke()
+      ctx.restore()
     }
-    ctx.restore()
 
     if (weaponType === 'bow' && ammoText.length > 0) {
       const ammoValue = ammo < 0 ? 0 : ammo

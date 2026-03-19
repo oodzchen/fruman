@@ -117,7 +117,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -136,7 +136,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -155,7 +155,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -174,7 +174,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
     knockback: 1,
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -193,11 +193,11 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword'],
+    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
     knockback: 2,
     isUnstoppable: false,
     swingDirection: 'toFront',
-    radiusScale: 115,
+    radiusScale: 130,
     soundId: 0,
   },
 }
@@ -268,6 +268,9 @@ export function getMovesetForWeaponTypeAndOwner(
   weaponType: string,
   owner: AttackMovesetOwner
 ): AttackMoveset | null {
+  if (weaponType === 'spear') {
+    return ATTACK_MOVESETS.sword_thrust || null
+  }
   if (weaponType === 'sword') {
     return ATTACK_MOVESETS[getDefaultNormalAttackMovesetId(owner)] || null
   }

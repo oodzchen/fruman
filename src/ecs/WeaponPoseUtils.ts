@@ -7,15 +7,23 @@ export function setWeaponBackTransform(
   facing: number,
   out: WeaponTransform,
   radius: number,
-  weaponType: WeaponVisualType
+  weaponType: WeaponVisualType,
+  weaponWidth: number
 ): void {
   out.x = playerPos.x - facing * (radius + 0.2)
-  out.y = playerPos.y
 
   if (weaponType === 'bow') {
+    out.y = playerPos.y
     out.rotation = facing === 1 ? -Math.PI / 2 : Math.PI / 2
     return
   }
 
+  if (weaponType === 'spear') {
+    out.y = playerPos.y + radius - weaponWidth / 2
+    out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    return
+  }
+
+  out.y = playerPos.y
   out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 }

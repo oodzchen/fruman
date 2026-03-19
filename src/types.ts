@@ -42,6 +42,7 @@ export type WeaponType =
   | 'sword'
   | 'shortSword'
   | 'longSword'
+  | 'spear'
   | 'hammer'
   | 'bow'
   | 'hook'
