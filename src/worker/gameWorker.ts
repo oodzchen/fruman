@@ -41,8 +41,8 @@ import {
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
 import {
+  getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
-  getMovesetForWeaponTypeAndOwner,
   isNormalAttackMovesetId,
 } from '../ecs/AttackMoveRegistry'
 import {
@@ -1322,6 +1322,7 @@ function applyWeaponSlotConfig(
   slot: {
     hasWeapon: boolean
     weaponType: string
+    movesetId: string
     width: number
     height: number
     baseWidth: number
@@ -1340,6 +1341,7 @@ function applyWeaponSlotConfig(
 ) {
   if (!config) {
     slot.hasWeapon = false
+    slot.movesetId = ''
     return
   }
 
@@ -1352,6 +1354,7 @@ function applyWeaponSlotConfig(
   const scaleFactor = sizeLevel / baseLevel
   slot.hasWeapon = true
   slot.weaponType = config.weaponType
+  slot.movesetId = getDefaultAttackMovesetIdForWeaponType(config.weaponType)
   slot.width = template.width * scaleFactor
   slot.height = template.height * scaleFactor
   slot.baseWidth = template.width * scaleFactor
@@ -1442,7 +1445,7 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
       playerProps.initialNormalMovesetId
     )
       ? playerProps.initialNormalMovesetId
-      : getMovesetForWeaponTypeAndOwner(defaultWeaponType, 'player')?.id ||
+      : getDefaultAttackMovesetIdForWeaponType(defaultWeaponType) ||
         getDefaultNormalAttackMovesetId('player')
     playerEntity.attackSlots.normal.hasMoveset = true
     playerEntity.attackSlots.normal.movesetId = nextMovesetId
@@ -1482,12 +1485,21 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
       playerEntity.weapon.sizeMaxLevel = activeSlot.sizeMaxLevel
       playerEntity.weapon.cornerRadius = activeSlot.cornerRadius
       playerEntity.weapon.weaponType = weaponType
+      playerEntity.weapon.movesetId =
+        activeSlot.movesetId ||
+        getDefaultAttackMovesetIdForWeaponType(weaponType)
       playerEntity.weapon.attackDamage = activeSlot.attackDamage
       playerEntity.weapon.postureDamage = activeSlot.postureDamage
       playerEntity.weapon.toughnessDamage = activeSlot.toughnessDamage
       playerEntity.weapon.bowAmmo = activeSlot.bowAmmo
       playerEntity.weapon.bowAmmoMax = activeSlot.bowAmmoMax
       playerEntity.weapon.isEquipped = true
+      if (playerEntity.attackSlots) {
+        playerEntity.attackSlots.normal.hasMoveset =
+          playerEntity.weapon.movesetId.length > 0
+        playerEntity.attackSlots.normal.movesetId =
+          playerEntity.weapon.movesetId
+      }
     } else {
       playerEntity.weapon.isEquipped = false
     }
@@ -1632,7 +1644,11 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
           enemy.initialNormalMovesetId
         )
           ? enemy.initialNormalMovesetId
-          : getDefaultNormalAttackMovesetId('enemy')
+          : getDefaultAttackMovesetIdForWeaponType(
+              enemy.mainWeapon?.weaponType ??
+                enemy.secondaryWeapon?.weaponType ??
+                'sword'
+            ) || getDefaultNormalAttackMovesetId('enemy')
         created.attackSlots.normal.hasMoveset = true
         created.attackSlots.normal.movesetId = nextMovesetId
         if (created.weapon) {
@@ -3251,6 +3267,7 @@ function applyWeaponSlotState(
   slot: {
     hasWeapon: boolean
     weaponType: WeaponVisualType
+    movesetId: string
     width: number
     height: number
     baseWidth: number
@@ -3268,11 +3285,13 @@ function applyWeaponSlotState(
 ): void {
   if (!state) {
     slot.hasWeapon = false
+    slot.movesetId = ''
     return
   }
 
   slot.hasWeapon = true
   slot.weaponType = state.weaponType
+  slot.movesetId = getDefaultAttackMovesetIdForWeaponType(state.weaponType)
   slot.sizeLevel = state.sizeLevel
   if (state.width !== undefined) slot.width = state.width
   if (state.height !== undefined) slot.height = state.height
@@ -3293,6 +3312,7 @@ function syncActiveSlotFromWeapon(
     main: {
       hasWeapon: boolean
       weaponType: WeaponVisualType
+      movesetId: string
       width: number
       height: number
       baseWidth: number
@@ -3309,6 +3329,7 @@ function syncActiveSlotFromWeapon(
     secondary: {
       hasWeapon: boolean
       weaponType: WeaponVisualType
+      movesetId: string
       width: number
       height: number
       baseWidth: number
@@ -3326,6 +3347,7 @@ function syncActiveSlotFromWeapon(
   weapon: {
     isEquipped: boolean
     weaponType: WeaponVisualType
+    movesetId: string
     width: number
     height: number
     baseWidth: number
@@ -3345,6 +3367,9 @@ function syncActiveSlotFromWeapon(
     weaponSlots.activeSlot === 'main' ? weaponSlots.main : weaponSlots.secondary
   targetSlot.hasWeapon = true
   targetSlot.weaponType = weapon.weaponType
+  targetSlot.movesetId =
+    weapon.movesetId ||
+    getDefaultAttackMovesetIdForWeaponType(weapon.weaponType)
   targetSlot.width = weapon.baseWidth
   targetSlot.height = weapon.height
   targetSlot.baseWidth = weapon.baseWidth
@@ -3371,6 +3396,7 @@ function applyWeaponFromSlot(
     blockWidthStart: number
     blockWidthTarget: number
     weaponType: WeaponVisualType
+    movesetId: string
     attackDamage: number
     postureDamage: number
     toughnessDamage: number
@@ -3381,6 +3407,7 @@ function applyWeaponFromSlot(
   slot: {
     hasWeapon: boolean
     weaponType: WeaponVisualType
+    movesetId: string
     sizeLevel: number
     width: number
     height: number
@@ -3396,12 +3423,15 @@ function applyWeaponFromSlot(
   }
 ): void {
   if (!slot.hasWeapon) {
+    weapon.movesetId = ''
     weapon.isEquipped = false
     return
   }
 
   const weaponType = slot.weaponType
   weapon.weaponType = weaponType
+  weapon.movesetId =
+    slot.movesetId || getDefaultAttackMovesetIdForWeaponType(weaponType)
   weapon.sizeLevel = slot.sizeLevel
   weapon.attackDamage = slot.attackDamage
   weapon.postureDamage = slot.postureDamage
@@ -3431,6 +3461,7 @@ function applyWeaponFromSlot(
 function applyGroundWeaponState(
   weapon: {
     weaponType: WeaponVisualType
+    movesetId: string
     sizeLevel: number
     width: number
     height: number
@@ -3455,6 +3486,7 @@ function applyGroundWeaponState(
   state: SaveGroundWeaponState
 ): void {
   weapon.weaponType = state.weaponType
+  weapon.movesetId = getDefaultAttackMovesetIdForWeaponType(state.weaponType)
   weapon.sizeLevel = state.sizeLevel
   weapon.attackDamage = state.attackDamage
   weapon.postureDamage = state.postureDamage
@@ -3786,6 +3818,11 @@ function restorePlayerWeapons(playerState: SaveData['player']): void {
         )
       }
     }
+    if (playerEntity.attackSlots) {
+      playerEntity.attackSlots.normal.hasMoveset =
+        playerEntity.weapon.movesetId.length > 0
+      playerEntity.attackSlots.normal.movesetId = playerEntity.weapon.movesetId
+    }
   } else {
     playerEntity.weapon.isEquipped = false
   }
@@ -3874,6 +3911,14 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
           const template = WEAPON_DEFAULT_DATA[weaponType]
           applyWeaponSizeLevel(entity.weapon, template, activeSlot.sizeLevel)
         }
+      }
+      if (entity.attackSlots) {
+        entity.attackSlots.normal.hasMoveset =
+          entity.weapon.movesetId.length > 0
+        entity.attackSlots.normal.movesetId = entity.weapon.movesetId
+      }
+      if (entity.enemyAI) {
+        entity.enemyAI.movesetId = entity.weapon.movesetId
       }
     }
 

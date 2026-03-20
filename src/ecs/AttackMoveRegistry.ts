@@ -5,7 +5,11 @@ import {
   DEFAULT_WEAPON_ATTACK_WINDUP_MS,
   DEFAULT_WEAPON_FINAL_WINDUP_MS,
 } from '../constants'
-import type { NormalAttackMovesetId } from '../types'
+import type {
+  NormalAttackMovesetId,
+  WeaponType,
+  WeaponVisualType,
+} from '../types'
 import type { AttackMoveData, AttackMoveset } from './AttackMoveData'
 
 export type AttackMovesetOwner = 'player' | 'enemy'
@@ -368,29 +372,42 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
 export function getMovesetForWeaponType(
   weaponType: string
 ): AttackMoveset | null {
-  return getMovesetForWeaponTypeAndOwner(weaponType, 'player')
+  const movesetId = getDefaultAttackMovesetIdForWeaponType(
+    weaponType as WeaponVisualType
+  )
+  return movesetId ? ATTACK_MOVESETS[movesetId] || null : null
 }
 
 export function getMovesetForWeaponTypeAndOwner(
   weaponType: string,
-  owner: AttackMovesetOwner
+  _owner: AttackMovesetOwner
 ): AttackMoveset | null {
+  return getMovesetForWeaponType(weaponType)
+}
+
+export function getDefaultAttackMovesetIdForWeaponType(
+  weaponType: WeaponType | WeaponVisualType
+): NormalAttackMovesetId | '' {
+  if (
+    weaponType === 'sword' ||
+    weaponType === 'shortSword' ||
+    weaponType === 'longSword'
+  ) {
+    return 'sword_default'
+  }
   if (weaponType === 'spear') {
-    return ATTACK_MOVESETS.sword_thrust || null
+    return 'sword_thrust'
   }
   if (weaponType === 'hammer' || weaponType === 'bigHammer') {
-    return ATTACK_MOVESETS.hammer_strike || null
+    return 'hammer_strike'
   }
-  if (weaponType === 'sword') {
-    return ATTACK_MOVESETS[getDefaultNormalAttackMovesetId(owner)] || null
-  }
-  return null
+  return ''
 }
 
 export function getDefaultNormalAttackMovesetId(
   owner: AttackMovesetOwner
 ): NormalAttackMovesetId {
-  return owner === 'enemy' ? 'sword_default' : 'sword_thrust'
+  return owner === 'enemy' ? 'sword_default' : 'sword_default'
 }
 
 export function isNormalAttackMovesetId(

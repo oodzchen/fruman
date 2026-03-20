@@ -429,6 +429,7 @@ export type WeaponSlotId = 'main' | 'secondary'
 export type WeaponSlotData = {
   hasWeapon: boolean
   weaponType: WeaponVisualType
+  movesetId: string
   width: number
   height: number
   baseWidth: number
@@ -450,6 +451,7 @@ export type AttackSlotData = {
 const createWeaponSlotData = (): WeaponSlotData => ({
   hasWeapon: false,
   weaponType: 'sword',
+  movesetId: '',
   width: 0,
   height: 0,
   baseWidth: 0,

@@ -54,7 +54,11 @@ import type {
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
 import type { AttackMoveData } from '../AttackMoveData'
-import { ATTACK_MOVES, ATTACK_MOVESETS } from '../AttackMoveRegistry'
+import {
+  ATTACK_MOVES,
+  ATTACK_MOVESETS,
+  getDefaultAttackMovesetIdForWeaponType,
+} from '../AttackMoveRegistry'
 import type {
   WeaponRelativeTransform,
   WeaponSlotData,
@@ -102,6 +106,7 @@ type ObstacleCollider = {
 
 type WeaponDropData = {
   weaponType: WeaponVisualType
+  movesetId: string
   width: number
   height: number
   baseWidth: number
@@ -146,6 +151,7 @@ export class WeaponSystem extends System {
   }
   private tempWeaponDropData: WeaponDropData = {
     weaponType: 'sword',
+    movesetId: '',
     width: 0,
     height: 0,
     baseWidth: 0,
@@ -1532,6 +1538,9 @@ export class WeaponSystem extends System {
     weapon.cornerRadius = weaponData.cornerRadius
     weapon.weight = weaponData.weight
     weapon.weaponType = weaponData.weaponType
+    weapon.movesetId =
+      weaponData.movesetId ||
+      this.getDefaultMovesetIdForWeaponType(weaponData.weaponType)
     weapon.attackDamage = weaponData.attackDamage
     weapon.postureDamage = weaponData.postureDamage
     weapon.toughnessDamage = weaponData.toughnessDamage
@@ -2227,6 +2236,38 @@ export class WeaponSystem extends System {
     return slotId === 'main' ? weaponSlots.main : weaponSlots.secondary
   }
 
+  private getDefaultMovesetIdForWeaponType(
+    weaponType: WeaponVisualType
+  ): string {
+    return getDefaultAttackMovesetIdForWeaponType(weaponType)
+  }
+
+  private getSlotMovesetId(slot: WeaponSlotData): string {
+    return (
+      slot.movesetId || this.getDefaultMovesetIdForWeaponType(slot.weaponType)
+    )
+  }
+
+  private getWeaponMovesetId(weapon: WeaponComponent): string {
+    return (
+      weapon.movesetId ||
+      this.getDefaultMovesetIdForWeaponType(weapon.weaponType)
+    )
+  }
+
+  private applyNormalAttackMoveset(entity: Entity, movesetId: string): void {
+    if (entity.attackSlots) {
+      entity.attackSlots.normal.hasMoveset = movesetId.length > 0
+      entity.attackSlots.normal.movesetId = movesetId
+    }
+    if (entity.weapon) {
+      entity.weapon.movesetId = movesetId
+    }
+    if (entity.enemyAI) {
+      entity.enemyAI.movesetId = movesetId
+    }
+  }
+
   private getNormalAttackMovesetId(entity: Entity): string {
     const attackSlot = entity.attackSlots?.normal
     if (attackSlot && attackSlot.hasMoveset && attackSlot.movesetId) {
@@ -2277,6 +2318,7 @@ export class WeaponSystem extends System {
   ): void {
     slot.hasWeapon = true
     slot.weaponType = weapon.weaponType
+    slot.movesetId = this.getWeaponMovesetId(weapon)
     slot.width = weapon.baseWidth
     slot.height = weapon.height
     slot.baseWidth = weapon.baseWidth
@@ -2305,6 +2347,7 @@ export class WeaponSystem extends System {
     weapon.cornerRadius = slot.cornerRadius
     weapon.weight = slot.weight
     weapon.weaponType = slot.weaponType
+    weapon.movesetId = this.getSlotMovesetId(slot)
     weapon.attackDamage = slot.attackDamage
     weapon.postureDamage = slot.postureDamage
     weapon.toughnessDamage = slot.toughnessDamage
@@ -2317,6 +2360,7 @@ export class WeaponSystem extends System {
     out: WeaponDropData
   ): void {
     out.weaponType = weapon.weaponType
+    out.movesetId = this.getWeaponMovesetId(weapon)
     out.width = weapon.baseWidth
     out.height = weapon.height
     out.baseWidth = weapon.baseWidth
@@ -2336,6 +2380,7 @@ export class WeaponSystem extends System {
     out: WeaponDropData
   ): void {
     out.weaponType = slot.weaponType
+    out.movesetId = this.getSlotMovesetId(slot)
     out.width = slot.baseWidth
     out.height = slot.height
     out.baseWidth = slot.baseWidth
@@ -2468,6 +2513,10 @@ export class WeaponSystem extends System {
 
             if (weaponSlots.activeSlot === targetSlotId) {
               this.copySlotToWeapon(targetSlot, entity.weapon)
+              this.applyNormalAttackMoveset(
+                entity,
+                this.getSlotMovesetId(targetSlot)
+              )
               entity.weapon.isEquipped = true
               entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
               entity.weapon.visual.rotation =
@@ -2538,6 +2587,10 @@ export class WeaponSystem extends System {
 
           if (weaponSlots.activeSlot === targetSlotId) {
             this.copySlotToWeapon(targetSlot, entity.weapon)
+            this.applyNormalAttackMoveset(
+              entity,
+              this.getSlotMovesetId(targetSlot)
+            )
             entity.weapon.isEquipped = true
             entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
             entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
@@ -2556,12 +2609,14 @@ export class WeaponSystem extends System {
           entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
           entity.weapon.weight = weaponEntity.weapon.weight
           entity.weapon.weaponType = weaponEntity.weapon.weaponType
+          entity.weapon.movesetId = this.getWeaponMovesetId(weaponEntity.weapon)
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
           entity.weapon.bowAmmo = weaponEntity.weapon.bowAmmo
           entity.weapon.bowAmmoMax = weaponEntity.weapon.bowAmmoMax
           entity.weapon.isEquipped = true
+          this.applyNormalAttackMoveset(entity, entity.weapon.movesetId)
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           this.resetWeaponForSwap(entity)
@@ -2626,10 +2681,12 @@ export class WeaponSystem extends System {
           entity.weapon.cornerRadius = weaponEntity.weapon.cornerRadius
           entity.weapon.weight = weaponEntity.weapon.weight
           entity.weapon.weaponType = weaponEntity.weapon.weaponType
+          entity.weapon.movesetId = this.getWeaponMovesetId(weaponEntity.weapon)
           entity.weapon.attackDamage = weaponEntity.weapon.attackDamage
           entity.weapon.postureDamage = weaponEntity.weapon.postureDamage
           entity.weapon.toughnessDamage = weaponEntity.weapon.toughnessDamage
           entity.weapon.bowAmmo = weaponEntity.weapon.bowAmmo
+          this.applyNormalAttackMoveset(entity, entity.weapon.movesetId)
           entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
           this.resetWeaponForSwap(entity)
@@ -2755,6 +2812,7 @@ export class WeaponSystem extends System {
 
     weaponSlots.activeSlot = slotId
     this.copySlotToWeapon(targetSlot, entity.weapon)
+    this.applyNormalAttackMoveset(entity, this.getSlotMovesetId(targetSlot))
     entity.weapon.isEquipped = true
     entity.weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     entity.weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
