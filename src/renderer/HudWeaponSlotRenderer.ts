@@ -3,6 +3,7 @@ import {
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_WIDTH,
 } from '../constants'
+import type { WeaponType } from '../types'
 import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
 
 export const HUD_SLOT_SIZE = 46
@@ -27,7 +28,7 @@ export function drawHudWeaponSlot(
   size: number,
   isActive: boolean,
   hasWeapon: boolean,
-  weaponType: 'sword' | 'spear' | 'hammer' | 'bow' | 'hook',
+  weaponType: WeaponType,
   weaponWidth: number,
   weaponHeight: number,
   sizeLevel: number,
@@ -35,6 +36,13 @@ export function drawHudWeaponSlot(
   ammo: number,
   ammoText: string
 ): void {
+  const indicator = getHudWeaponIndicatorLevel(
+    weaponType,
+    hasWeapon ? sizeLevel : 0,
+    hasWeapon ? sizeMaxLevel : 0
+  )
+  const renderType = getHudWeaponRenderType(weaponType)
+
   ctx.save()
   ctx.globalAlpha = 1
   ctx.fillStyle = HUD_SLOT_FILL
@@ -49,8 +57,8 @@ export function drawHudWeaponSlot(
     x,
     y,
     size,
-    hasWeapon ? sizeLevel : 0,
-    hasWeapon ? sizeMaxLevel : 0,
+    indicator.sizeLevel,
+    indicator.sizeMaxLevel,
     isActive,
     slotBorder
   )
@@ -66,7 +74,7 @@ export function drawHudWeaponSlot(
     const centerX = x + size * 0.5
     const centerY = y + size * 0.5
 
-    if (weaponType === 'bow') {
+    if (renderType === 'bow') {
       ctx.save()
       ctx.translate(centerX, centerY)
       ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
@@ -99,7 +107,7 @@ export function drawHudWeaponSlot(
       )
       ctx.restore()
       ctx.restore()
-    } else if (weaponType === 'hook') {
+    } else if (renderType === 'hook') {
       ctx.save()
       ctx.translate(centerX, centerY)
       ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
@@ -116,7 +124,7 @@ export function drawHudWeaponSlot(
         0
       )
       ctx.restore()
-    } else if (weaponType === 'hammer') {
+    } else if (renderType === 'hammer') {
       ctx.save()
       ctx.translate(centerX, centerY)
       ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
@@ -133,7 +141,7 @@ export function drawHudWeaponSlot(
         0
       )
       ctx.restore()
-    } else if (weaponType === 'spear') {
+    } else if (renderType === 'spear') {
       const minIconHeight = Math.max(5, Math.floor(size * 0.14))
       const spearIconHeight = Math.max(minIconHeight, iconHeight) * (2 / 3)
       const spearScale =
@@ -185,7 +193,7 @@ export function drawHudWeaponSlot(
       ctx.restore()
     }
 
-    if (weaponType === 'bow' && ammoText.length > 0) {
+    if (renderType === 'bow' && ammoText.length > 0) {
       const ammoValue = ammo < 0 ? 0 : ammo
       if (ammoValue >= 0) {
         ctx.save()
@@ -200,6 +208,38 @@ export function drawHudWeaponSlot(
     }
   }
   ctx.restore()
+}
+
+function getHudWeaponRenderType(
+  weaponType: WeaponType
+): 'sword' | 'spear' | 'hammer' | 'bow' | 'hook' {
+  if (weaponType === 'bow') {
+    return 'bow'
+  }
+  if (weaponType === 'spear') {
+    return 'spear'
+  }
+  if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+    return 'hammer'
+  }
+  if (weaponType === 'hook') {
+    return 'hook'
+  }
+  return 'sword'
+}
+
+function getHudWeaponIndicatorLevel(
+  weaponType: WeaponType,
+  sizeLevel: number,
+  sizeMaxLevel: number
+): { sizeLevel: number; sizeMaxLevel: number } {
+  if (weaponType === 'hammer') {
+    return { sizeLevel: 1, sizeMaxLevel: 2 }
+  }
+  if (weaponType === 'bigHammer') {
+    return { sizeLevel: 2, sizeMaxLevel: 2 }
+  }
+  return { sizeLevel, sizeMaxLevel }
 }
 
 function drawHudWeaponSizeIndicator(
