@@ -1084,9 +1084,45 @@ export class WeaponSystem extends System {
     }
   }
 
+  private getWindupScaleRatio(weapon: Entity['weapon']): {
+    numerator: number
+    denominator: number
+  } {
+    if (!weapon) {
+      return { numerator: 3, denominator: 3 }
+    }
+    if (weapon.weaponType === 'arrow') {
+      return { numerator: 3, denominator: 3 }
+    }
+    const template = WEAPON_DEFAULT_DATA[weapon.weaponType]
+    if (!template) {
+      return { numerator: 3, denominator: 3 }
+    }
+    const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
+    const currentLevel =
+      Number.isFinite(weapon.sizeLevel) && weapon.sizeLevel > 0
+        ? weapon.sizeLevel
+        : baseLevel
+    const deltaLevel = currentLevel - baseLevel
+    const numerator = Math.max(1, 3 + deltaLevel)
+    return { numerator, denominator: 3 }
+  }
+
+  private scaleWindupDuration(
+    baseMs: number,
+    weapon: Entity['weapon']
+  ): number {
+    const ratio = this.getWindupScaleRatio(weapon)
+    return Math.max(
+      1,
+      Math.floor((baseMs * ratio.numerator) / ratio.denominator)
+    )
+  }
+
   private getWindupMs(weapon: Entity['weapon']): number {
     const move = this.getActiveMove(weapon)
-    return move ? move.windupMs : DEFAULT_WEAPON_ATTACK_WINDUP_MS
+    const baseMs = move ? move.windupMs : DEFAULT_WEAPON_ATTACK_WINDUP_MS
+    return this.scaleWindupDuration(baseMs, weapon)
   }
 
   private getSwingMs(weapon: Entity['weapon']): number {
@@ -1104,11 +1140,24 @@ export class WeaponSystem extends System {
     return move ? move.recoverMs : DEFAULT_WEAPON_ATTACK_RECOVER_MS
   }
 
+  private getBowMinWindupMs(weapon: Entity['weapon']): number {
+    return this.scaleWindupDuration(BOW_MIN_WINDUP_MS, weapon)
+  }
+
+  private getBowMinForceRatio(weapon: Entity['weapon']): number {
+    return Math.max(
+      BOW_MIN_FORCE_RATIO,
+      Math.min(1, this.getBowMinWindupMs(weapon) / BOW_MAX_DRAW_MS)
+    )
+  }
+
   private handleWindupPhase(entity: Entity, weapon: Entity['weapon']): void {
     if (!weapon || !entity.transform) return
 
     const isGrounded = entity.movement?.isGrounded ?? true
-    const baseWindupDuration = isGrounded ? this.getWindupMs(weapon) : 250
+    const baseWindupDuration = isGrounded
+      ? this.getWindupMs(weapon)
+      : this.scaleWindupDuration(250, weapon)
     const windupDuration = weapon.parryCounterActive
       ? baseWindupDuration / 2
       : baseWindupDuration
@@ -1683,10 +1732,7 @@ export class WeaponSystem extends System {
           lockedTargetX = target.transform.x
           lockedTargetY = target.transform.y
           hasLockedTarget = true
-          const minForceRatio = Math.max(
-            BOW_MIN_FORCE_RATIO,
-            Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-          )
+          const minForceRatio = this.getBowMinForceRatio(weapon)
           const drawRatio = weapon.bowIsDrawing
             ? weapon.bowDrawRatio
             : Math.max(weapon.bowDrawRatio, minForceRatio)
@@ -1835,10 +1881,7 @@ export class WeaponSystem extends System {
       }
       entity.input.facingOverride = Math.cos(reticleAngle) >= 0 ? 1 : -1
 
-      const minForceRatio = Math.max(
-        BOW_MIN_FORCE_RATIO,
-        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-      )
+      const minForceRatio = this.getBowMinForceRatio(weapon)
       const drawRatio = weapon.bowIsDrawing
         ? weapon.bowDrawRatio
         : Math.max(weapon.bowDrawRatio, minForceRatio)
@@ -1936,10 +1979,7 @@ export class WeaponSystem extends System {
     if (weapon.bowReleasePending) {
       weapon.bowReleaseDelayMs = Math.max(0, weapon.bowReleaseDelayMs - deltaMs)
       weapon.bowDrawElapsedMs += deltaMs
-      const minForceRatio = Math.max(
-        BOW_MIN_FORCE_RATIO,
-        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-      )
+      const minForceRatio = this.getBowMinForceRatio(weapon)
       weapon.bowDrawRatio = Math.max(
         minForceRatio,
         Math.min(1, weapon.bowDrawElapsedMs / BOW_MAX_DRAW_MS)
@@ -1967,15 +2007,13 @@ export class WeaponSystem extends System {
 
     if (weapon.bowIsDrawing) {
       const drawRatio = weapon.bowDrawRatio
-      const minForceRatio = Math.max(
-        BOW_MIN_FORCE_RATIO,
-        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-      )
+      const minForceRatio = this.getBowMinForceRatio(weapon)
       weapon.bowForceRatio = drawRatio
 
-      if (weapon.bowDrawElapsedMs < BOW_MIN_WINDUP_MS) {
+      const minWindupMs = this.getBowMinWindupMs(weapon)
+      if (weapon.bowDrawElapsedMs < minWindupMs) {
         weapon.bowReleasePending = true
-        weapon.bowReleaseDelayMs = BOW_MIN_WINDUP_MS - weapon.bowDrawElapsedMs
+        weapon.bowReleaseDelayMs = minWindupMs - weapon.bowDrawElapsedMs
         weapon.bowReleaseDelayTotalMs = weapon.bowReleaseDelayMs
         return
       }
@@ -2052,10 +2090,7 @@ export class WeaponSystem extends System {
     const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9 * bowScale
     const arrowThickness = DEFAULT_WEAPON_HEIGHT * 0.15 * bowScale
     const arrowSpeed = this.getBowLaunchSpeed(drawRatio)
-    const minForceRatio = Math.max(
-      BOW_MIN_FORCE_RATIO,
-      Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-    )
+    const minForceRatio = this.getBowMinForceRatio(weapon)
     const forceDenom = 1 - minForceRatio
     const forceRatio =
       forceDenom > 0
@@ -2155,10 +2190,7 @@ export class WeaponSystem extends System {
     const target = this.entityLookup(targetId)
     if (!target?.transform || !target.stats || target.stats.isDead) return null
 
-    const minForceRatio = Math.max(
-      BOW_MIN_FORCE_RATIO,
-      Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-    )
+    const minForceRatio = this.getBowMinForceRatio(weapon)
     const drawRatio = weapon.bowIsDrawing
       ? weapon.bowDrawRatio
       : Math.max(weapon.bowDrawRatio, minForceRatio)

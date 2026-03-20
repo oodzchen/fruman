@@ -1,4 +1,5 @@
 import {
+  BOW_MIN_WINDUP_MS,
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   DEFAULT_PLAYER_RADIUS,
@@ -21,6 +22,7 @@ import {
   ENEMY_PROBE_RANGE_BUFFER_RATIO,
   ENEMY_PROBE_SPEED_MULTIPLIER,
   ENEMY_RETREAT_EXTRA_DISTANCE,
+  WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
 import { ATTACK_MOVESETS } from '../AttackMoveRegistry'
@@ -31,7 +33,6 @@ import { System } from '../System'
 import type { WeaponSystem } from './WeaponSystem'
 
 const ARCHER_MELEE_RANGE_RATIO = 0.25
-const ARCHER_BOW_MIN_WINDUP_MS = 200
 const ENEMY_LOCK_LOST_TIMEOUT_MS = 3000
 
 export class EnemyAISystem extends System {
@@ -65,6 +66,24 @@ export class EnemyAISystem extends System {
 
   setWeaponSystem(weaponSystem: WeaponSystem): void {
     this.weaponSystem = weaponSystem
+  }
+
+  private getArcherBowMinWindupMs(entity: Entity): number {
+    const weapon = entity.weapon
+    if (!weapon || weapon.weaponType === 'arrow') {
+      return BOW_MIN_WINDUP_MS
+    }
+    const template = WEAPON_DEFAULT_DATA[weapon.weaponType]
+    if (!template) {
+      return BOW_MIN_WINDUP_MS
+    }
+    const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
+    const currentLevel =
+      Number.isFinite(weapon.sizeLevel) && weapon.sizeLevel > 0
+        ? weapon.sizeLevel
+        : baseLevel
+    const numerator = Math.max(1, 3 + (currentLevel - baseLevel))
+    return Math.max(1, Math.floor((BOW_MIN_WINDUP_MS * numerator) / 3))
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -378,12 +397,13 @@ export class EnemyAISystem extends System {
               } else {
                 // 已经在用弓，执行连续射击逻辑
                 const weapon = entity.weapon
+                const minWindupMs = this.getArcherBowMinWindupMs(entity)
                 // 如果正在后摇（recovery），等待；否则开始或保持蓄力
                 if (weapon.bowRecoverElapsedMs > 0) {
                   entity.input.attackRequested = false
                 } else if (
                   weapon.bowIsDrawing &&
-                  weapon.bowDrawElapsedMs >= ARCHER_BOW_MIN_WINDUP_MS
+                  weapon.bowDrawElapsedMs >= minWindupMs
                 ) {
                   // 蓄力完成，释放攻击
                   entity.input.attackRequested = false
