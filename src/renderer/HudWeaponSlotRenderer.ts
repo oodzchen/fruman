@@ -178,18 +178,7 @@ export function drawHudWeaponSlot(
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR
-      const halfLen = iconWidth / 2
-      const halfThick = iconHeight / 2
-
-      ctx.beginPath()
-      ctx.moveTo(-halfLen, -halfThick)
-      ctx.lineTo(halfLen - halfThick, -halfThick)
-      ctx.arc(halfLen - halfThick, 0, halfThick, -Math.PI / 2, Math.PI / 2)
-      ctx.lineTo(-halfLen, halfThick)
-      ctx.closePath()
-
-      ctx.fill()
-      ctx.stroke()
+      renderWeaponShape(ctx, 'sword', iconWidth, iconHeight, HUD_ICON_COLOR)
       ctx.restore()
     }
 

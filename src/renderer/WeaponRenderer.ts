@@ -48,20 +48,58 @@ function renderSword(
   color: string,
   isAttacking: boolean
 ): void {
-  ctx.beginPath()
   const halfLen = width / 2
-  const halfThick = height / 2
+  const halfHeight = Math.max(1, Math.floor(height / 2))
+  const strokeColor = isAttacking ? '#FFFFFF' : color
+  const pommelLen = Math.max(1, Math.floor((width * 8) / 100))
+  const gripLen = Math.max(1, Math.floor((width * 12) / 100))
+  const guardLen = Math.max(1, Math.floor((width * 4) / 100))
+  const tipLen = Math.max(1, Math.floor((width * 12) / 100))
+  const handleStartX = -halfLen
+  const gripStartX = handleStartX + pommelLen
+  const guardStartX = gripStartX + gripLen
+  const bladeStartX = guardStartX + guardLen
+  const bladeEndX = halfLen - tipLen
+  const gripHalfWidth = Math.max(1, Math.floor((height * 12) / 100))
+  const pommelHalfWidth = Math.max(
+    gripHalfWidth + 1,
+    Math.floor((height * 22) / 100)
+  )
+  const guardHalfWidth = Math.max(
+    halfHeight + 2,
+    Math.floor((height * 90) / 100)
+  )
+  const bladeHalfWidth = Math.max(1, Math.floor((height * 34) / 100))
+  const guardInnerHalfWidth = Math.max(
+    gripHalfWidth + 1,
+    Math.floor((height * 20) / 100)
+  )
 
-  // Draw custom shape: Flat base (left), Round tip (right)
-  ctx.moveTo(-halfLen, -halfThick)
-  ctx.lineTo(halfLen - halfThick, -halfThick)
-  ctx.arc(halfLen - halfThick, 0, halfThick, -Math.PI / 2, Math.PI / 2)
-  ctx.lineTo(-halfLen, halfThick)
-  ctx.closePath()
-
-  ctx.fillStyle = color
-  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
   ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.fillStyle = color
+  ctx.strokeStyle = strokeColor
+
+  ctx.beginPath()
+  ctx.moveTo(handleStartX, -pommelHalfWidth)
+  ctx.lineTo(gripStartX, -gripHalfWidth)
+  ctx.lineTo(guardStartX, -guardInnerHalfWidth)
+  ctx.lineTo(guardStartX, -guardHalfWidth)
+  ctx.lineTo(bladeStartX, -guardHalfWidth)
+  ctx.lineTo(bladeStartX, -guardInnerHalfWidth)
+  ctx.lineTo(bladeStartX, -bladeHalfWidth)
+  ctx.lineTo(bladeEndX, -bladeHalfWidth)
+  ctx.lineTo(halfLen, 0)
+  ctx.lineTo(bladeEndX, bladeHalfWidth)
+  ctx.lineTo(bladeStartX, bladeHalfWidth)
+  ctx.lineTo(bladeStartX, guardInnerHalfWidth)
+  ctx.lineTo(bladeStartX, guardHalfWidth)
+  ctx.lineTo(guardStartX, guardHalfWidth)
+  ctx.lineTo(guardStartX, guardInnerHalfWidth)
+  ctx.lineTo(gripStartX, gripHalfWidth)
+  ctx.lineTo(handleStartX, pommelHalfWidth)
+  ctx.closePath()
   ctx.fill()
   ctx.stroke()
 }

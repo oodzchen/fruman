@@ -1,8 +1,14 @@
 import { localizer } from '../Localizer'
+import {
+  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+  WEAPON_DEFAULT_DATA,
+} from '../constants'
 import type { WeaponCategory } from '../editorMapTypes'
+import { renderWeapon } from '../renderer/WeaponRenderer'
 import type { EnemyType, WeaponType } from '../types'
 import { DEBUG_EDITOR_MENU } from './EditorConstants'
 import { EditorMenuNavigator, EditorSubmenuMode } from './EditorMenuNavigator'
+import { computeWeaponRenderDimensions } from './EditorRenderUtils'
 import { ObjectType } from './types'
 import type { GroundShapeType } from './types'
 
@@ -49,6 +55,8 @@ export class EditorMenuSystem {
   private obstacleSubmenuBackBtn: HTMLButtonElement
   private weaponMenuBackBtn: HTMLButtonElement
   private enemySubmenuBackBtn: HTMLButtonElement
+  private readonly weaponPreviewPixelsPerMeter = 16
+  private readonly weaponPreviewAngle = DEFAULT_WEAPON_GROUND_ROTATION_RAD
 
   private menuNavigator: EditorMenuNavigator
   private menuMode: EditorSubmenuMode = EditorSubmenuMode.None
@@ -437,11 +445,15 @@ export class EditorMenuSystem {
       const weapon = item.dataset.weapon
       const sizeStr = item.dataset.size
       if (weapon && sizeStr) {
-        item.textContent = localizer.t(
-          `editor_weapon_size_${weapon}_${sizeStr}`
+        this.setWeaponMenuItemContent(
+          item,
+          localizer.t(`editor_weapon_size_${weapon}_${sizeStr}`)
         )
       } else if (weapon) {
-        item.textContent = localizer.t(`editor_weapon_${weapon}`)
+        this.setWeaponMenuItemContent(
+          item,
+          localizer.t(`editor_weapon_${weapon}`)
+        )
       }
     })
 
@@ -457,6 +469,93 @@ export class EditorMenuSystem {
     this.obstacleSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.weaponMenuBackBtn.textContent = localizer.t('menu_back')
     this.enemySubmenuBackBtn.textContent = localizer.t('menu_back')
+  }
+
+  private setWeaponMenuItemContent(
+    item: HTMLButtonElement,
+    label: string
+  ): void {
+    const weaponType = item.dataset.weapon as WeaponType | undefined
+    if (!weaponType) {
+      item.textContent = label
+      return
+    }
+
+    item.textContent = ''
+    item.classList.add('editor-submenu-item-weapon')
+
+    const icon = document.createElement('canvas')
+    icon.width = 44
+    icon.height = 18
+    icon.className = 'editor-submenu-item-icon'
+    this.renderWeaponMenuIcon(icon, weaponType, item.dataset.size)
+    item.appendChild(icon)
+
+    const text = document.createElement('span')
+    text.className = 'editor-submenu-item-label'
+    text.textContent = label
+    item.appendChild(text)
+  }
+
+  private renderWeaponMenuIcon(
+    canvas: HTMLCanvasElement,
+    weaponType: WeaponType,
+    sizeValue?: string
+  ): void {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      return
+    }
+
+    const template = WEAPON_DEFAULT_DATA[weaponType]
+    const parsedSize = sizeValue ? Number.parseInt(sizeValue, 10) : NaN
+    const sizeLevel =
+      Number.isFinite(parsedSize) && parsedSize > 0
+        ? parsedSize
+        : template.sizeLevel
+    const renderType = this.getWeaponRenderType(weaponType)
+    const isBow = weaponType === 'bow'
+    const dims = computeWeaponRenderDimensions(
+      template,
+      sizeLevel,
+      this.weaponPreviewPixelsPerMeter,
+      isBow
+    )
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.save()
+    ctx.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2))
+    ctx.rotate(this.weaponPreviewAngle)
+
+    const maxWidth = canvas.width - 6
+    const maxHeight = canvas.height - 4
+    const scaleX = Math.max(1, Math.floor((maxWidth * 1000) / dims.widthPx))
+    const baseHeight = isBow ? dims.boundingHeightPx : dims.heightPx
+    const scaleY = Math.max(1, Math.floor((maxHeight * 1000) / baseHeight))
+    const scale = Math.min(scaleX, scaleY)
+    const drawWidth = Math.max(1, Math.floor((dims.widthPx * scale) / 1000))
+    const drawHeight = Math.max(1, Math.floor((dims.heightPx * scale) / 1000))
+
+    renderWeapon(ctx, renderType, drawWidth, drawHeight, '#b4bdc7')
+    ctx.restore()
+  }
+
+  private getWeaponRenderType(
+    weaponType: WeaponType
+  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'hook' {
+    if (weaponType === 'hook') {
+      return 'hook'
+    }
+    if (weaponType === 'bow') {
+      return 'bow'
+    }
+    if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+      return 'hammer'
+    }
+    if (weaponType === 'spear') {
+      return 'spear'
+    }
+    return 'sword'
   }
 
   handleKeyDown(event: KeyboardEvent): boolean {
