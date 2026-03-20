@@ -759,6 +759,13 @@ export class GameClient {
       this.fpsUpdateTime = 0
     }
 
+    // tab 切走再回来时 deltaTime 会很大，GPU 纹理可能已被驱逐，重建 pattern
+    if (deltaTime > 0.5) {
+      this.backgroundPattern = PatternCreator.createBackgroundPattern(this.ctx)
+      this.groundPattern = PatternCreator.createGroundPattern(this.ctx)
+      this.obstaclePattern = PatternCreator.createObstaclePattern(this.ctx)
+    }
+
     if (!this.editorPreview) {
       this.renderer.update(deltaTime)
     }

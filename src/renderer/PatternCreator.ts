@@ -1,10 +1,15 @@
 export class PatternCreator {
+  // 保持源 canvas 引用存活，防止 GC 导致 CanvasPattern 失效
+  private static bgCanvas: HTMLCanvasElement | null = null
+  private static groundCanvas: HTMLCanvasElement | null = null
+  private static obstacleCanvas: HTMLCanvasElement | null = null
+
   static createBackgroundPattern(
     targetCtx: CanvasRenderingContext2D
   ): CanvasPattern | null {
-    const canvas = this.drawBackgroundToCanvas()
-    if (!canvas) return null
-    return targetCtx.createPattern(canvas, 'repeat')
+    this.bgCanvas = this.drawBackgroundToCanvas()
+    if (!this.bgCanvas) return null
+    return targetCtx.createPattern(this.bgCanvas, 'repeat')
   }
 
   static createBackgroundImage(): HTMLImageElement | null {
@@ -18,9 +23,9 @@ export class PatternCreator {
   static createGroundPattern(
     targetCtx: CanvasRenderingContext2D
   ): CanvasPattern | null {
-    const canvas = this.drawGroundToCanvas()
-    if (!canvas) return null
-    return targetCtx.createPattern(canvas, 'repeat')
+    this.groundCanvas = this.drawGroundToCanvas()
+    if (!this.groundCanvas) return null
+    return targetCtx.createPattern(this.groundCanvas, 'repeat')
   }
 
   static createGroundImage(onLoad?: () => void): HTMLImageElement | null {
@@ -37,9 +42,9 @@ export class PatternCreator {
   static createObstaclePattern(
     targetCtx: CanvasRenderingContext2D
   ): CanvasPattern | null {
-    const canvas = this.drawObstacleToCanvas()
-    if (!canvas) return null
-    return targetCtx.createPattern(canvas, 'repeat')
+    this.obstacleCanvas = this.drawObstacleToCanvas()
+    if (!this.obstacleCanvas) return null
+    return targetCtx.createPattern(this.obstacleCanvas, 'repeat')
   }
 
   static createObstacleImage(onLoad?: () => void): HTMLImageElement | null {
@@ -54,103 +59,66 @@ export class PatternCreator {
   }
 
   private static drawBackgroundToCanvas(): HTMLCanvasElement | null {
-    const patternSize = 160
+    const W = 220
+    const H = 150
     const patternCanvas = document.createElement('canvas')
-    patternCanvas.width = patternSize
-    patternCanvas.height = patternSize
+    patternCanvas.width = W
+    patternCanvas.height = H
     const patternCtx = patternCanvas.getContext('2d')
     if (!patternCtx) return null
 
-    // 暗紫色夜空底色
-    patternCtx.fillStyle = '#0e0818'
-    patternCtx.fillRect(0, 0, patternSize, patternSize)
+    // 昏暗天空底色
+    patternCtx.fillStyle = '#0d0b18'
+    patternCtx.fillRect(0, 0, W, H)
 
-    // 小星星：1px，暗淡，数量最多，有松散聚集感
-    const smallStars: [number, number][] = [
-      [3, 19],
-      [60, 7],
-      [156, 14],
-      [33, 43],
-      [79, 36],
-      [127, 41],
-      [5, 61],
-      [157, 68],
-      [47, 77],
-      [119, 90],
-      [11, 89],
-      [91, 100],
-      [153, 104],
-      [12, 77],
-      [23, 87],
-      [105, 22],
-      [94, 33],
-      [147, 108],
-      [136, 121],
-      [8, 129],
-      [41, 133],
-      [84, 128],
-      [66, 150],
-      [119, 153],
-      [155, 145],
-      [37, 158],
-      [124, 7],
-      [49, 112],
-    ]
-    patternCtx.fillStyle = '#3d2e7a'
-    for (const [x, y] of smallStars) {
-      patternCtx.fillRect(x, y, 1, 1)
+    const fillCircle = (x: number, y: number, r: number) => {
+      patternCtx.beginPath()
+      patternCtx.arc(x, y, r, 0, Math.PI * 2)
+      patternCtx.fill()
     }
 
-    // 中星星：1px，较亮
-    const midStars: [number, number][] = [
-      [28, 11],
-      [131, 6],
-      [7, 38],
-      [44, 65],
-      [113, 70],
-      [158, 48],
-      [26, 117],
-      [87, 105],
-      [149, 136],
-      [64, 153],
-      [106, 147],
-      [74, 20],
+    // 云朵由多个圆叠加组成，puffs: [dx, dy, r]（相对于云中心）
+    const largePuffs: [number, number, number][] = [
+      [0, 0, 24],
+      [-22, 10, 18],
+      [24, 8, 21],
+      [-10, 22, 16],
+      [15, 24, 15],
+      [36, 18, 13],
+      [-34, 18, 12],
     ]
-    patternCtx.fillStyle = '#ccbbee'
-    for (const [x, y] of midStars) {
-      patternCtx.fillRect(x, y, 1, 1)
+    const mediumPuffs: [number, number, number][] = [
+      [0, 0, 19],
+      [-18, 9, 15],
+      [20, 7, 17],
+      [-7, 20, 14],
+      [13, 21, 13],
+      [28, 15, 11],
+    ]
+
+    const drawCloud = (
+      cx: number,
+      cy: number,
+      puffs: [number, number, number][]
+    ) => {
+      // 云体
+      patternCtx.fillStyle = '#1e1932'
+      for (const [dx, dy, r] of puffs) {
+        fillCircle(cx + dx, cy + dy, r)
+      }
+      // 顶部微亮，增加体积感
+      patternCtx.fillStyle = '#2a2444'
+      fillCircle(cx, cy - 5, 16)
     }
 
-    // 大星星 A：3x3 中心 + 单像素十字光晕
-    const bigStars: [number, number][] = [
-      [17, 82],
-      [99, 28],
-      [141, 115],
-    ]
-    for (const [x, y] of bigStars) {
-      patternCtx.fillStyle = '#7755cc'
-      patternCtx.fillRect(x - 1, y + 1, 1, 1)
-      patternCtx.fillRect(x + 3, y + 1, 1, 1)
-      patternCtx.fillRect(x + 1, y - 1, 1, 1)
-      patternCtx.fillRect(x + 1, y + 3, 1, 1)
-      patternCtx.fillStyle = '#ffffff'
-      patternCtx.fillRect(x, y, 3, 3)
-    }
-
-    // 大星星 B：2x2 中心 + 单像素十字光晕
-    const brightStars: [number, number][] = [
-      [55, 140],
-      [72, 52],
-    ]
-    for (const [x, y] of brightStars) {
-      patternCtx.fillStyle = '#6644bb'
-      patternCtx.fillRect(x - 1, y, 1, 1)
-      patternCtx.fillRect(x + 2, y, 1, 1)
-      patternCtx.fillRect(x, y - 1, 1, 1)
-      patternCtx.fillRect(x, y + 2, 1, 1)
-      patternCtx.fillStyle = '#ffffff'
-      patternCtx.fillRect(x, y, 2, 2)
-    }
+    // 云1：大云，左上
+    drawCloud(65, 42, largePuffs)
+    // 云2：中云，右下
+    drawCloud(155, 105, mediumPuffs)
+    // 云3：大云，跨越右/左边界（cx=210 右侧延伸超出 W=220）
+    // 在原位置画右半，在 cx-W 位置画左半，保证无缝平铺
+    drawCloud(210, 68, largePuffs)
+    drawCloud(210 - W, 68, largePuffs)
 
     return patternCanvas
   }
