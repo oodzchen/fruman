@@ -199,6 +199,109 @@ export function drawHudWeaponSlot(
   ctx.restore()
 }
 
+export const HUD_ULTIMATE_SIZE = 52
+export const HUD_ULTIMATE_READY_BORDER = 'rgba(255, 255, 255, 0.85)'
+export const HUD_ULTIMATE_COOLDOWN_BORDER = 'rgba(255, 255, 255, 0.25)'
+export const HUD_ULTIMATE_FILL = 'rgba(0, 0, 0, 0.2)'
+
+export function drawHudUltimateSlot(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  cooldownRatio: number,
+  isReady: boolean,
+  flashTimer100: number = 0
+): void {
+  const radius = HUD_ULTIMATE_SIZE / 2
+  ctx.save()
+  ctx.globalAlpha = 1
+
+  // 光晕：绝招可用时在圆圈外侧绘制渐变光晕
+  if (isReady) {
+    const glow = ctx.createRadialGradient(cx, cy, radius - 1, cx, cy, radius + 10)
+    glow.addColorStop(0, 'rgba(255, 255, 255, 0.45)')
+    glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius + 10, 0, Math.PI * 2)
+    ctx.fillStyle = glow
+    ctx.fill()
+  }
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.fillStyle = HUD_ULTIMATE_FILL
+  ctx.fill()
+
+  drawHudUltimateSwordTip(ctx, cx, cy, radius, isReady)
+
+  // 冷却蒙层：从顶部向下覆盖，随时间从底部向上减少
+  if (cooldownRatio > 0) {
+    const overlayH = Math.ceil((cooldownRatio * (radius * 2)) / 100)
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+    ctx.clip()
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+    ctx.fillRect(cx - radius, cy - radius, radius * 2, overlayH)
+    ctx.restore()
+  }
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  // flash 期间边框线性插值到亮白色
+  const flashAlpha = flashTimer100 / 100
+  ctx.strokeStyle =
+    flashAlpha > 0
+      ? `rgba(255, 255, 255, ${(0.35 + flashAlpha * 0.65).toFixed(2)})`
+      : isReady
+        ? HUD_ULTIMATE_READY_BORDER
+        : HUD_ULTIMATE_COOLDOWN_BORDER
+  ctx.lineWidth = flashAlpha > 0 ? 2 + Math.round(flashAlpha * 2) : 2
+  ctx.stroke()
+
+  ctx.restore()
+}
+
+function drawHudUltimateSwordTip(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  isReady: boolean
+): void {
+  const r = radius | 0
+  // 90° 尖角：bHalf = taper_height（半宽等于斜刃段高度），剑身更宽
+  const bHalf = Math.max(3, Math.floor((r * 58) / 100))
+  const tipY = -(r - 1)
+  const taperY = tipY + bHalf  // 满足 90° 角
+
+  ctx.save()
+  ctx.translate(cx, cy)
+
+  // 圆形裁剪视窗，下方截断由圆圈自然遮挡
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.clip()
+
+  ctx.globalAlpha = isReady ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+  ctx.fillStyle = HUD_ICON_COLOR
+  ctx.strokeStyle = HUD_ICON_COLOR
+  ctx.lineWidth = 1
+  ctx.lineJoin = 'round'
+
+  // 剑尖向上，剑身向下延伸超出圆圈，由 clip 自然截断
+  ctx.beginPath()
+  ctx.moveTo(0, tipY)
+  ctx.lineTo(bHalf, taperY)
+  ctx.lineTo(bHalf, r + 2)
+  ctx.lineTo(-bHalf, r + 2)
+  ctx.lineTo(-bHalf, taperY)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
 function getHudWeaponRenderType(
   weaponType: WeaponType
 ): 'sword' | 'spear' | 'hammer' | 'bow' | 'hook' {

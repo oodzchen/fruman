@@ -46,7 +46,10 @@ import type {
   WeaponType,
   b2WorldId,
 } from '../../types'
-import { getDefaultAttackMovesetIdForWeaponType } from '../AttackMoveRegistry'
+import {
+  getDefaultAttackMovesetIdForWeaponType,
+  getUltimateMovesetIdForWeaponType,
+} from '../AttackMoveRegistry'
 import {
   AttackSlotsComponent,
   EnemyAIComponent,
@@ -228,6 +231,9 @@ export function createPlayer(
   const attackSlots = new AttackSlotsComponent()
   attackSlots.normal.hasMoveset = true
   attackSlots.normal.movesetId = getDefaultAttackMovesetIdForWeaponType('sword')
+  const defaultUltimateMovesetId = getUltimateMovesetIdForWeaponType('sword')
+  attackSlots.ultimate.hasMoveset = defaultUltimateMovesetId.length > 0
+  attackSlots.ultimate.movesetId = defaultUltimateMovesetId
   entity.addComponent(attackSlots)
 
   return entity

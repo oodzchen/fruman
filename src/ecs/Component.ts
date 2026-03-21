@@ -203,6 +203,7 @@ export class InputComponent extends Component {
   grappleLengthAdjustSteps = 0
   grappleClimbHeld = 0
   attackRequested = false
+  ultimateRequested = false
   blockRequested = false
   lockedTargetId: number | null = null
   lockToggleRequested = false
@@ -232,6 +233,7 @@ export class InputComponent extends Component {
     this.grappleLengthAdjustSteps = 0
     this.grappleClimbHeld = 0
     this.attackRequested = false
+    this.ultimateRequested = false
     this.blockRequested = false
     this.lockedTargetId = null
     this.lockToggleRequested = false
@@ -354,6 +356,7 @@ export class StatsComponent extends Component {
   debugNoDamage = false
   debugNoDeath = false
   isDead = false
+  isInvincible = false
   isVanished = false
   deathElapsedSec = 0
   deathElapsedMs = 0
@@ -391,6 +394,7 @@ export class StatsComponent extends Component {
     this.debugNoDamage = false
     this.debugNoDeath = false
     this.isDead = false
+    this.isInvincible = false
     this.isVanished = false
     this.deathElapsedSec = 0
     this.deathElapsedMs = 0
@@ -448,6 +452,14 @@ export type AttackSlotData = {
   movesetId: string
 }
 
+export const ULTIMATE_COOLDOWN_MS = 10000
+
+export type UltimateSlotData = {
+  hasMoveset: boolean
+  movesetId: string
+  cooldownRemainingMs: number
+}
+
 const createWeaponSlotData = (): WeaponSlotData => ({
   hasWeapon: false,
   weaponType: 'sword',
@@ -469,6 +481,12 @@ const createWeaponSlotData = (): WeaponSlotData => ({
 const createAttackSlotData = (): AttackSlotData => ({
   hasMoveset: false,
   movesetId: '',
+})
+
+const createUltimateSlotData = (): UltimateSlotData => ({
+  hasMoveset: false,
+  movesetId: '',
+  cooldownRemainingMs: 0,
 })
 
 export class WeaponComponent extends Component {
@@ -577,6 +595,25 @@ export class WeaponComponent extends Component {
   dropEndOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
 
   pickupCooldownEndTime = 0 // 在此时间之前不可拾取（毫秒时间戳）
+
+  // 绝招动画状态（仅对装备剑类武器的玩家有效）
+  ultimatePhase:
+    | 'spin'
+    | 'hold'
+    | 'thrust'
+    | 'giant_wait'
+    | 'giant_recover'
+    | null = null
+  ultimateElapsedMs = 0
+  ultimateFacing = 1
+  ultimateSpinStartX = 0
+  ultimateSpinStartY = 0
+  ultimateSpinStartRot = 0
+  ultimateGiantX = 0 // 巨剑中心世界 X
+  ultimateGiantGroundY = 0 // 巨剑升出地面的 Y 参考点（玩家脚底）
+  ultimateGiantRise100 = 0 // 0-100：巨剑升起进度
+  ultimateGiantAlpha100 = 0 // 0-100：巨剑不透明度
+  ultimateDamageDealt = false
 
   reset(): void {
     this.width = 0
@@ -703,6 +740,17 @@ export class WeaponComponent extends Component {
     this.dropEndOffset.dy = 0
     this.dropEndOffset.rotation = 0
     this.pickupCooldownEndTime = 0
+    this.ultimatePhase = null
+    this.ultimateElapsedMs = 0
+    this.ultimateFacing = 1
+    this.ultimateSpinStartX = 0
+    this.ultimateSpinStartY = 0
+    this.ultimateSpinStartRot = 0
+    this.ultimateGiantX = 0
+    this.ultimateGiantGroundY = 0
+    this.ultimateGiantRise100 = 0
+    this.ultimateGiantAlpha100 = 0
+    this.ultimateDamageDealt = false
   }
 
   getName(): string {
@@ -728,9 +776,11 @@ export class WeaponSlotsComponent extends Component {
 
 export class AttackSlotsComponent extends Component {
   normal = createAttackSlotData()
+  ultimate = createUltimateSlotData()
 
   reset(): void {
     this.normal = createAttackSlotData()
+    this.ultimate = createUltimateSlotData()
   }
 
   getName(): string {

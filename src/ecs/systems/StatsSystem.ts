@@ -494,6 +494,7 @@ export class StatsSystem extends System {
   ): void {
     if (!entity.stats) return
     if (entity.stats.isDead) return
+    if (entity.stats.isInvincible) return
 
     // Enter combat state on damage taken
     this.enterCombat(entity)

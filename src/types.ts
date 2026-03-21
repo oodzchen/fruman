@@ -19,6 +19,12 @@ export type NormalAttackMovesetId =
   | 'sword_thrust'
   | 'hammer_strike'
 
+export type UltimateMovesetId =
+  | 'sword_ultimate'
+  | 'hammer_ultimate'
+  | 'spear_ultimate'
+  | 'bow_ultimate'
+
 export interface EnemyTemplate {
   moveSpeed: number
   radius: number

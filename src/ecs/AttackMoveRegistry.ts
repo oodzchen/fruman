@@ -7,6 +7,7 @@ import {
 } from '../constants'
 import type {
   NormalAttackMovesetId,
+  UltimateMovesetId,
   WeaponType,
   WeaponVisualType,
 } from '../types'
@@ -350,6 +351,55 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
     ],
     derivations: [],
   },
+  // 绝招占位（具体招式待实现）
+  sword_ultimate: {
+    id: 'sword_ultimate',
+    defaultSequenceId: 'seq_sword_ultimate',
+    sequences: [
+      {
+        id: 'seq_sword_ultimate',
+        moves: ['sword_slash_front'],
+        loop: false,
+      },
+    ],
+    derivations: [],
+  },
+  hammer_ultimate: {
+    id: 'hammer_ultimate',
+    defaultSequenceId: 'seq_hammer_ultimate',
+    sequences: [
+      {
+        id: 'seq_hammer_ultimate',
+        moves: ['hammer_strike_open'],
+        loop: false,
+      },
+    ],
+    derivations: [],
+  },
+  spear_ultimate: {
+    id: 'spear_ultimate',
+    defaultSequenceId: 'seq_spear_ultimate',
+    sequences: [
+      {
+        id: 'seq_spear_ultimate',
+        moves: ['sword_thrust_open'],
+        loop: false,
+      },
+    ],
+    derivations: [],
+  },
+  bow_ultimate: {
+    id: 'bow_ultimate',
+    defaultSequenceId: 'seq_bow_ultimate',
+    sequences: [
+      {
+        id: 'seq_bow_ultimate',
+        moves: ['sword_slash_front'],
+        loop: false,
+      },
+    ],
+    derivations: [],
+  },
   // Used for testing combo
   test_combo: {
     id: 'test_combo',
@@ -400,6 +450,28 @@ export function getDefaultAttackMovesetIdForWeaponType(
   }
   if (weaponType === 'hammer' || weaponType === 'bigHammer') {
     return 'hammer_strike'
+  }
+  return ''
+}
+
+export function getUltimateMovesetIdForWeaponType(
+  weaponType: WeaponType | WeaponVisualType
+): UltimateMovesetId | '' {
+  if (
+    weaponType === 'sword' ||
+    weaponType === 'shortSword' ||
+    weaponType === 'longSword'
+  ) {
+    return 'sword_ultimate'
+  }
+  if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+    return 'hammer_ultimate'
+  }
+  if (weaponType === 'spear') {
+    return 'spear_ultimate'
+  }
+  if (weaponType === 'bow') {
+    return 'bow_ultimate'
   }
   return ''
 }

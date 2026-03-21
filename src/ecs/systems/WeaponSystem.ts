@@ -58,6 +58,7 @@ import {
   ATTACK_MOVES,
   ATTACK_MOVESETS,
   getDefaultAttackMovesetIdForWeaponType,
+  getUltimateMovesetIdForWeaponType,
 } from '../AttackMoveRegistry'
 import type {
   WeaponRelativeTransform,
@@ -65,6 +66,7 @@ import type {
   WeaponSlotId,
   WeaponTransform,
 } from '../Component'
+import { ULTIMATE_COOLDOWN_MS } from '../Component'
 import {
   Faction,
   PhysicsComponent,
@@ -80,6 +82,19 @@ import { setWeaponBackTransform } from '../WeaponPoseUtils'
 import type { World } from '../World'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
+
+// 绝招动画参数
+const ULTIMATE_SPIN_MS = 1200
+const ULTIMATE_SPIN_MOVE_RATIO = 0.3 // spin 前30%用于移动到身前位置
+const ULTIMATE_HOLD_MS = 500
+const ULTIMATE_THRUST_MS = 350
+const ULTIMATE_GIANT_WAIT_MS = 350 // 与 THRUST_MS 相等保证匀速穿屏
+const ULTIMATE_GIANT_RECOVER_MS = 350
+const ULTIMATE_GIANT_SWORD_DIST = 5 // 巨剑出现位置与玩家的水平距离（米）
+const ULTIMATE_THRUST_DIST = 3 // 手中剑向上飞行距离（米）
+// 巨剑 = 10x longSword (1.6m → 16m 长, 0.3m → 3m 厚)
+// 护手宽度 = max(halfHeight+2, floor(height*90%)) = max(1+2, floor(2.7)) = 3m
+const ULTIMATE_GIANT_HALF_WIDTH = 3 // AOE 水平伤害半径，覆盖护手全宽
 
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
 const FRONT_SWING_TILT_RAD = Math.PI / 16
@@ -232,6 +247,13 @@ export class WeaponSystem extends System {
     this.currentTimeMs += deltaMs
 
     for (const entity of entities) {
+      if (entity.attackSlots) {
+        const slot = entity.attackSlots.ultimate
+        if (slot.cooldownRemainingMs > 0) {
+          slot.cooldownRemainingMs = Math.max(0, slot.cooldownRemainingMs - deltaMs)
+        }
+      }
+
       if (!entity.transform || !entity.weapon) continue
       if (entity.arrow) continue
       entity.weapon.isColliding = false
@@ -294,6 +316,12 @@ export class WeaponSystem extends System {
 
     if (weapon.attackPhase === 'idle') {
       weapon.attackFacing = inputFacing
+    }
+
+    // 绝招动画期间优先处理，不受装备/掉落/崩塌状态干扰
+    if (weapon.ultimatePhase !== null) {
+      this.handleUltimatePhases(entity, weapon, playerPos, deltaMs)
+      return
     }
 
     if (!weapon.isEquipped) {
@@ -2298,6 +2326,229 @@ export class WeaponSystem extends System {
     if (entity.enemyAI) {
       entity.enemyAI.movesetId = movesetId
     }
+    if (entity.weapon?.weaponType) {
+      this.applyUltimateMoveset(entity, entity.weapon.weaponType)
+    }
+  }
+
+  private applyUltimateMoveset(entity: Entity, weaponType: string): void {
+    if (!entity.attackSlots) return
+    const movesetId = getUltimateMovesetIdForWeaponType(
+      weaponType as Parameters<typeof getUltimateMovesetIdForWeaponType>[0]
+    )
+    entity.attackSlots.ultimate.hasMoveset = movesetId.length > 0
+    entity.attackSlots.ultimate.movesetId = movesetId
+  }
+
+  private handleUltimatePhases(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>,
+    playerPos: { x: number; y: number },
+    deltaMs: number
+  ): void {
+    weapon.ultimateElapsedMs += deltaMs
+
+    const facing = weapon.ultimateFacing
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    // 身前：面朝方向水平延伸，Y 在身体中心
+    const holdX = playerPos.x + facing * (radius + DEFAULT_WEAPON_WIDTH * 0.5)
+    const holdY = playerPos.y
+    const holdRot = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+
+    switch (weapon.ultimatePhase) {
+      case 'spin': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / ULTIMATE_SPIN_MS)
+        if (t < ULTIMATE_SPIN_MOVE_RATIO) {
+          // 前段：移动到身前位置（smoothstep 缓动）
+          const mt = t / ULTIMATE_SPIN_MOVE_RATIO
+          const ease = mt * mt * (3 - 2 * mt)
+          weapon.visual.x =
+            weapon.ultimateSpinStartX +
+            (holdX - weapon.ultimateSpinStartX) * ease
+          weapon.visual.y =
+            weapon.ultimateSpinStartY +
+            (holdY - weapon.ultimateSpinStartY) * ease
+          weapon.visual.rotation = weapon.ultimateSpinStartRot
+        } else {
+          // 后段：原地转圈
+          const st =
+            (t - ULTIMATE_SPIN_MOVE_RATIO) / (1 - ULTIMATE_SPIN_MOVE_RATIO)
+          weapon.visual.x = holdX
+          weapon.visual.y = holdY
+          weapon.visual.rotation =
+            weapon.ultimateSpinStartRot + facing * st * Math.PI * 2
+        }
+        if (t >= 1) {
+          weapon.ultimatePhase = 'hold'
+          weapon.ultimateElapsedMs = 0
+          weapon.visual.rotation = holdRot
+        }
+        break
+      }
+      case 'hold': {
+        weapon.visual.x = holdX
+        weapon.visual.y = holdY
+        weapon.visual.rotation = holdRot
+        if (weapon.ultimateElapsedMs >= ULTIMATE_HOLD_MS) {
+          weapon.ultimatePhase = 'thrust'
+          weapon.ultimateElapsedMs = 0
+          weapon.ultimateGiantAlpha100 = 0
+        }
+        break
+      }
+      case 'thrust': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / ULTIMATE_THRUST_MS)
+        weapon.visual.x = holdX
+        weapon.visual.y = holdY - t * ULTIMATE_THRUST_DIST
+        weapon.visual.rotation = holdRot
+        weapon.ultimateGiantRise100 = Math.round(t * 100)
+        // 淡入：随升起同步变透明度
+        weapon.ultimateGiantAlpha100 = Math.round(t * 100)
+        if (t >= 1) {
+          if (!weapon.ultimateDamageDealt) {
+            weapon.ultimateDamageDealt = true
+            this.applyUltimateAOEDamage(entity)
+          }
+          weapon.ultimateGiantAlpha100 = 100
+          weapon.ultimatePhase = 'giant_wait'
+          weapon.ultimateElapsedMs = 0
+        }
+        break
+      }
+      case 'giant_wait': {
+        const t = this.clamp01(
+          weapon.ultimateElapsedMs / ULTIMATE_GIANT_WAIT_MS
+        )
+        weapon.visual.x = holdX
+        weapon.visual.y = holdY - ULTIMATE_THRUST_DIST
+        weapon.visual.rotation = holdRot
+        // 继续升起：100→200，直到完全飞出屏幕顶部
+        weapon.ultimateGiantRise100 = 100 + Math.round(t * 100)
+        weapon.ultimateGiantAlpha100 = 100
+        if (t >= 1) {
+          // 保存手中剑当前位置用于归位过渡
+          weapon.ultimateSpinStartX = weapon.visual.x
+          weapon.ultimateSpinStartY = weapon.visual.y
+          weapon.ultimatePhase = 'giant_recover'
+          weapon.ultimateElapsedMs = 0
+        }
+        break
+      }
+      case 'giant_recover': {
+        const t = this.clamp01(
+          weapon.ultimateElapsedMs / ULTIMATE_GIANT_RECOVER_MS
+        )
+        // 计算战斗准备位置作为 lerp 目标
+        this.getFrontTransform(
+          playerPos,
+          facing,
+          this.tempTransform,
+          radius,
+          weapon.weaponType as WeaponVisualType,
+          weapon.width
+        )
+        weapon.visual.x =
+          weapon.ultimateSpinStartX +
+          (this.tempTransform.x - weapon.ultimateSpinStartX) * t
+        weapon.visual.y =
+          weapon.ultimateSpinStartY +
+          (this.tempTransform.y - weapon.ultimateSpinStartY) * t
+        weapon.visual.rotation = holdRot
+        // 巨剑已飞出屏幕，直接隐藏
+        weapon.ultimateGiantAlpha100 = 0
+        weapon.ultimateGiantRise100 = 0
+        if (t >= 1) {
+          weapon.ultimatePhase = null
+          weapon.ultimateElapsedMs = 0
+          weapon.isUnstoppable = false
+          weapon.attackPhase = 'idle'
+          if (entity.stats) entity.stats.isInvincible = false
+          if (entity.attackSlots)
+            entity.attackSlots.ultimate.cooldownRemainingMs = ULTIMATE_COOLDOWN_MS
+        }
+        break
+      }
+      default:
+        break
+    }
+  }
+
+  private applyUltimateAOEDamage(attacker: Entity): void {
+    if (!this.statsSystem || !attacker.faction || !attacker.weapon) return
+    const weapon = attacker.weapon
+    const giantX = weapon.ultimateGiantX
+    const groundY = weapon.ultimateGiantGroundY
+    const damage = weapon.attackDamage * 5
+    const posture = weapon.postureDamage * 5
+    const toughness = weapon.toughnessDamage * 5
+    for (let i = 0; i < this.allEntities.length; i++) {
+      const target = this.allEntities[i]
+      if (!target || target.id === attacker.id) continue
+      if (!target.transform || !target.stats || target.stats.isDead) continue
+      if (!target.faction || !attacker.faction.canAttack(target.faction))
+        continue
+      const dx = Math.abs(target.transform.x - giantX)
+      if (dx > ULTIMATE_GIANT_HALF_WIDTH) continue
+      this.statsSystem.applyWeaponHit(
+        target,
+        {
+          attackDamage: damage,
+          postureDamage: posture,
+          toughnessDamage: toughness,
+          knockback: 3,
+          weaponType: 'sword',
+        },
+        { x: giantX, y: groundY }
+      )
+    }
+  }
+
+  handleUltimateRequest(entity: Entity): void {
+    if (!entity.attackSlots || !entity.weapon || !entity.input) return
+    if (!entity.transform) return
+    const slot = entity.attackSlots.ultimate
+    if (!slot.hasMoveset) return
+    if (!entity.weapon.isEquipped) return
+    const wt = entity.weapon.weaponType
+    if (wt !== 'sword' && wt !== 'shortSword' && wt !== 'longSword') return
+    if (slot.cooldownRemainingMs > 0) return
+    if (entity.weapon.attackPhase !== 'idle') return
+    if (entity.weapon.ultimatePhase !== null) return
+
+    const weapon = entity.weapon
+    const facing =
+      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+
+    weapon.ultimatePhase = 'spin'
+    weapon.ultimateElapsedMs = 0
+    weapon.ultimateFacing = facing
+    weapon.ultimateSpinStartX = weapon.visual.x
+    weapon.ultimateSpinStartY = weapon.visual.y
+    weapon.ultimateSpinStartRot = weapon.visual.rotation
+    // 锁定目标时：巨剑中心对准目标 X（剑尖朝上，纵穿目标位置）
+    // 未锁定时：护手边缘（GIANT_THICK/2=1.5m）刚好掠过玩家身体（radius≈0.5m），偏移=2m
+    if (this.entityLookup && entity.input.lockedTargetId !== null) {
+      const lockedTarget = this.entityLookup(entity.input.lockedTargetId)
+      if (
+        lockedTarget?.transform &&
+        lockedTarget.stats &&
+        !lockedTarget.stats.isDead
+      ) {
+        weapon.ultimateGiantX = lockedTarget.transform.x
+      } else {
+        weapon.ultimateGiantX = entity.transform.x + facing * 2
+      }
+    } else {
+      weapon.ultimateGiantX = entity.transform.x + facing * 2
+    }
+    weapon.ultimateGiantGroundY = entity.transform.y + radius
+    weapon.ultimateGiantRise100 = 0
+    weapon.ultimateGiantAlpha100 = 0
+    weapon.ultimateDamageDealt = false
+    weapon.isUnstoppable = true
+    weapon.attackFacing = facing
+    if (entity.stats) entity.stats.isInvincible = true
   }
 
   private getNormalAttackMovesetId(entity: Entity): string {
@@ -2864,7 +3115,7 @@ export class WeaponSystem extends System {
     }
   }
 
-  startAttack(entity: Entity): void {
+  startAttack(entity: Entity, movesetIdOverride?: string): void {
     if (!entity.transform || !entity.input || !entity.weapon) return
     if (!entity.weapon.isEquipped) return
     if (entity.weapon.weaponType === 'bow') return
@@ -2885,7 +3136,8 @@ export class WeaponSystem extends System {
     let attackRadius = this.getAttackRadius(entity)
     weapon.attackRadius = attackRadius
     weapon.attackFacing = facing
-    const equippedMovesetId = this.getNormalAttackMovesetId(entity)
+    const equippedMovesetId =
+      movesetIdOverride ?? this.getNormalAttackMovesetId(entity)
     if (
       !equippedMovesetId ||
       !this.canMovesetUseWeapon(equippedMovesetId, weapon.weaponType)

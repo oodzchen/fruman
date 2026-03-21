@@ -16,6 +16,8 @@ import {
   HUD_SLOT_MARGIN,
   HUD_SLOT_SIZE,
   HUD_SLOT_SPACING,
+  HUD_ULTIMATE_SIZE,
+  drawHudUltimateSlot,
   drawHudWeaponSlot,
 } from './renderer/HudWeaponSlotRenderer'
 import { ParticleSystem } from './renderer/ParticleSystem'
@@ -199,6 +201,7 @@ export class ClientRenderer {
     const buf = this.stateBuffer
 
     // First pass: Find Player (Check for IS_PLAYER flag)
+    let playerOffset = -1
     let playerLockedTargetId = -1
     let playerFreeAimActive = false
     let playerFreeAimX = 0
@@ -218,6 +221,7 @@ export class ClientRenderer {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
       if (flags & FLAGS.IS_PLAYER) {
+        playerOffset = offset
         playerLockedTargetId = buf[offset + OFFSETS.LOCKED_TARGET_ID]
         playerFreeAimActive = buf[offset + OFFSETS.FREE_AIM_ACTIVE] === 1
         playerFreeAimX = buf[offset + OFFSETS.FREE_AIM_X]
@@ -321,18 +325,35 @@ export class ClientRenderer {
 
       const facing = buf[offset + OFFSETS.MOVE_DIR] // 1 or -1
       const hasWeapon = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
+      // 绝招动画期间手剑跳出循环，最后置顶渲染
+      const inUltimate =
+        !!(flags & FLAGS.IS_PLAYER) &&
+        buf[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] >= 1
 
       // Draw weapon behind
-      if (facing < 0 && hasWeapon) {
+      if (facing < 0 && hasWeapon && !inUltimate) {
         this.renderWeapon(buf, offset, flags)
       }
 
       this.renderEntity(buf, offset, flags, playerLockedTargetId)
 
       // Draw weapon in front
-      if (facing >= 0 && hasWeapon) {
+      if (facing >= 0 && hasWeapon && !inUltimate) {
         this.renderWeapon(buf, offset, flags)
       }
+    }
+
+    // 绝招动画期间手剑置顶（不被任何实体遮挡）
+    if (
+      playerOffset !== -1 &&
+      buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] >= 1
+    ) {
+      const playerFlags = buf[playerOffset + OFFSETS.FLAGS]
+      this.renderWeapon(buf, playerOffset, playerFlags)
+    }
+
+    if (playerOffset !== -1) {
+      this.renderUltimateSword(playerOffset)
     }
 
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
@@ -857,6 +878,38 @@ export class ClientRenderer {
       secondaryAmmoValue,
       secondaryWeaponKind === 'bow' ? this.getAmmoText(secondaryAmmoValue) : ''
     )
+
+    const currentWeaponType = buf[playerOffset + OFFSETS.WEAPON_TYPE] | 0
+    const currentWeaponActive = buf[playerOffset + OFFSETS.WEAPON_ACTIVE] === 1
+    const currentWeaponIsSword =
+      currentWeaponActive &&
+      (currentWeaponType === WEAPON_TYPES.SWORD ||
+        currentWeaponType === WEAPON_TYPES.SHORT_SWORD ||
+        currentWeaponType === WEAPON_TYPES.LONG_SWORD)
+    if (currentWeaponIsSword) {
+      const cooldownRatio =
+        buf[playerOffset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] | 0
+      // 绝招动画进行中时立即显示满蒙层
+      const ultimateAnimActive =
+        (buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] | 0) >= 1
+      const displayCooldownRatio = ultimateAnimActive ? 100 : cooldownRatio
+      // 有蒙层时不显示光晕
+      const ultimateReady =
+        displayCooldownRatio === 0 &&
+        buf[playerOffset + OFFSETS.ULTIMATE_READY] === 1
+      const flashTimer100 =
+        buf[playerOffset + OFFSETS.ULTIMATE_FLASH_TIMER100] | 0
+      const ultimateCx = canvasWidth >> 1
+      const ultimateCy = canvasHeight - HUD_SLOT_MARGIN - HUD_ULTIMATE_SIZE / 2
+      drawHudUltimateSlot(
+        this.ctx,
+        ultimateCx,
+        ultimateCy,
+        displayCooldownRatio,
+        ultimateReady,
+        flashTimer100
+      )
+    }
   }
 
   private getAmmoText(ammo: number): string {
@@ -971,6 +1024,50 @@ export class ClientRenderer {
         isAttacking
       )
     }
+    this.ctx.restore()
+  }
+
+  private renderUltimateSword(playerOffset: number): void {
+    const buf = this.stateBuffer
+    if (buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] !== 1) return
+
+    const rise100 = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_RISE100] | 0
+    const alpha100 = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ALPHA100] | 0
+    const giantX = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_X]
+    const groundY = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_GROUND_Y]
+    const ppm = this.pixelsPerMeter
+
+    // 巨剑尺寸：10x longSword（长16m，厚3m）
+    const GIANT_LEN = 16 * ppm
+    const GIANT_THICK = 3 * ppm
+    const screenH = this.ctx.canvas.height
+
+    // 巨剑从屏幕底部入、顶部出，纵穿整个屏幕：
+    // rise100=0:   剑尖在屏幕底部（完全在屏幕外下方）
+    // rise100=100: 剑尖在屏幕顶部（剑身居中横跨屏幕）
+    // rise100=200: 剑柄在屏幕顶部（完全飞出屏幕上方）
+    const risenFrac = rise100 / 200
+    const centerX = giantX * ppm
+    const centerY =
+      groundY * ppm +
+      screenH / 2 +
+      GIANT_LEN / 2 -
+      risenFrac * (screenH + GIANT_LEN)
+
+    const alpha = (alpha100 / 100) * 0.55
+
+    this.ctx.save()
+    this.ctx.globalAlpha = alpha
+    this.ctx.translate(centerX, centerY)
+    this.ctx.rotate(-Math.PI / 2) // 尖向上
+    renderWeaponShape(
+      this.ctx,
+      'sword',
+      GIANT_LEN,
+      GIANT_THICK,
+      '#c8d8ff',
+      false
+    )
     this.ctx.restore()
   }
 

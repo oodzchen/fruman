@@ -43,6 +43,7 @@ import { ArrowPools } from '../ecs/ArrowPools'
 import {
   getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
+  getUltimateMovesetIdForWeaponType,
   isNormalAttackMovesetId,
 } from '../ecs/AttackMoveRegistry'
 import {
@@ -51,6 +52,7 @@ import {
   GrappleAnchorComponent,
   RenderComponent,
   TransformComponent,
+  ULTIMATE_COOLDOWN_MS,
 } from '../ecs/Component'
 import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
@@ -172,6 +174,8 @@ let obstacles: {
 }[] = []
 
 let isPaused = false
+let ultimateFlashRemainingMs = 0
+const ULTIMATE_FLASH_DURATION_MS = 250
 let loopInterval: ReturnType<typeof setInterval>
 
 let tempSetTransformVec: InstanceType<MainModule['b2Vec2']> | null = null
@@ -1499,6 +1503,10 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
           playerEntity.weapon.movesetId.length > 0
         playerEntity.attackSlots.normal.movesetId =
           playerEntity.weapon.movesetId
+        const ultimateMovesetId = getUltimateMovesetIdForWeaponType(weaponType)
+        playerEntity.attackSlots.ultimate.hasMoveset =
+          ultimateMovesetId.length > 0
+        playerEntity.attackSlots.ultimate.movesetId = ultimateMovesetId
       }
     } else {
       playerEntity.weapon.isEquipped = false
@@ -1808,6 +1816,7 @@ function handleInput(
   }
 
   const isPlayerDead = playerEntity.stats?.isDead ?? false
+  const isUltimateActive = playerEntity.weapon?.ultimatePhase != null
 
   if (playerEntity.input) {
     let moveDirection = 0
@@ -1816,7 +1825,21 @@ function handleInput(
 
     const isBowEquipped = playerEntity.weapon?.weaponType === 'bow'
 
-    playerEntity.input.moveDirection = isPlayerDead ? 0 : moveDirection
+    // 绝招期间锁定移动和所有操作
+    playerEntity.input.moveDirection =
+      isPlayerDead || isUltimateActive ? 0 : moveDirection
+
+    if (isUltimateActive) {
+      playerEntity.input.attackRequested = false
+      playerEntity.input.blockRequested = false
+      playerEntity.input.jumpRequested = false
+      playerEntity.input.sprintRequested = false
+      playerEntity.input.grappleHoldRequested = false
+      playerEntity.input.grapplePersistentRequested = false
+      playerEntity.input.freeAimToggleRequested = false
+      playerEntity.input.inputBuffer.clearAll()
+      return
+    }
 
     if (currKeys.has(' ') && !prevKeys.has(' ') && !isPlayerDead) {
       if (playerEntity.isStunned()) {
@@ -1919,14 +1942,31 @@ function handleInput(
       rHoldMs = 0
     }
 
-    if (currKeys.has('e') && !prevKeys.has('e') && !isPlayerDead) {
-      playerEntity.input.inputBuffer.bufferAction('interact')
-    }
+    const eHeld = currKeys.has('e')
+    const eJustPressed = eHeld && !prevKeys.has('e')
+    const middleHeld = currMouseButtons.has(1)
+    const middleJustPressed = middleHeld && !prevMouseButtons.has(1)
 
-    const grappleJustPressed =
-      currMouseButtons.has(1) && !prevMouseButtons.has(1) && !isPlayerDead
-    if (grappleJustPressed) {
-      playerEntity.input.inputBuffer.bufferAction('grapple')
+    // E + 中键 = 绝招
+    const ultimateJustTriggered =
+      ((eJustPressed && middleHeld) || (middleJustPressed && eHeld)) &&
+      !isPlayerDead
+    if (ultimateJustTriggered) {
+      const ultSlot = playerEntity.attackSlots?.ultimate
+      const isBlocked =
+        (ultSlot?.cooldownRemainingMs ?? 0) > 0 ||
+        playerEntity.weapon?.ultimatePhase != null
+      if (isBlocked) ultimateFlashRemainingMs = ULTIMATE_FLASH_DURATION_MS
+      weaponSystem.handleUltimateRequest(playerEntity)
+    } else {
+      // E 单独 = 交互
+      if (eJustPressed && !isPlayerDead) {
+        playerEntity.input.inputBuffer.bufferAction('interact')
+      }
+      // 中键单独 = 钩爪
+      if (middleJustPressed && !isPlayerDead) {
+        playerEntity.input.inputBuffer.bufferAction('grapple')
+      }
     }
 
     if (currKeys.has('1') && !prevKeys.has('1') && !isPlayerDead) {
@@ -1987,6 +2027,9 @@ function fixedUpdate() {
   // Accumulate time using delta time
   currentTime += TIME_STEP
   playTimeMs += FIXED_STEP_MS
+  if (ultimateFlashRemainingMs > 0) {
+    ultimateFlashRemainingMs = Math.max(0, ultimateFlashRemainingMs - FIXED_STEP_MS)
+  }
 
   if (rHoldActive && !rHoldTriggered) {
     if (!currKeys.has('r')) {
@@ -2877,6 +2920,64 @@ function sendState() {
       stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_SIZE] = 0
       stateBuffer[offset + OFFSETS.WEAPON_SLOT_SECONDARY_MAX] = 0
       stateBuffer[offset + OFFSETS.WEAPON_SLOT_ACTIVE] = 0
+    }
+
+    if (e.attackSlots) {
+      const ultimateSlot = e.attackSlots.ultimate
+      const cooldownRatio =
+        ultimateSlot.cooldownRemainingMs > 0
+          ? Math.min(
+              100,
+              Math.ceil(
+                (ultimateSlot.cooldownRemainingMs * 100) / ULTIMATE_COOLDOWN_MS
+              )
+            )
+          : 0
+      // 动画进行中时也视为不可用（ULTIMATE_SWORD_ACTIVE 在后面写入，这里先判断 weapon）
+      const ultimateAnimating = e.weapon?.ultimatePhase != null
+      stateBuffer[offset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] = cooldownRatio
+      stateBuffer[offset + OFFSETS.ULTIMATE_READY] =
+        ultimateSlot.hasMoveset && cooldownRatio === 0 && !ultimateAnimating
+          ? 1
+          : 0
+    } else {
+      stateBuffer[offset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] = 0
+      stateBuffer[offset + OFFSETS.ULTIMATE_READY] = 0
+    }
+
+    if (e.weapon) {
+      const w = e.weapon
+      const giantSwordVisible =
+        w.ultimatePhase !== null &&
+        (w.ultimateGiantRise100 > 0 || w.ultimateGiantAlpha100 > 0)
+      // 1=巨剑可见, 2=绝招动画进行中(手剑需置顶), 0=无
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] = giantSwordVisible
+        ? 1
+        : w.ultimatePhase !== null
+          ? 2
+          : 0
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_X] = w.ultimateGiantX
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_GROUND_Y] =
+        w.ultimateGiantGroundY
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_RISE100] =
+        w.ultimateGiantRise100
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ALPHA100] =
+        w.ultimateGiantAlpha100
+    } else {
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_X] = 0
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_GROUND_Y] = 0
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_RISE100] = 0
+      stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ALPHA100] = 0
+    }
+    // 绝招边框闪烁（仅玩家）
+    if (e === playerEntity) {
+      stateBuffer[offset + OFFSETS.ULTIMATE_FLASH_TIMER100] =
+        ultimateFlashRemainingMs > 0
+          ? Math.ceil((ultimateFlashRemainingMs * 100) / ULTIMATE_FLASH_DURATION_MS)
+          : 0
+    } else {
+      stateBuffer[offset + OFFSETS.ULTIMATE_FLASH_TIMER100] = 0
     }
 
     count++
