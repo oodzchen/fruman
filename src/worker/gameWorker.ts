@@ -306,6 +306,7 @@ let currMouseButtons = new Set<number>()
 let rHoldMs = 0
 let rHoldActive = false
 let rHoldTriggered = false
+let eUsedForUltimate = false
 let canvasHeight = 0
 let pixelsPerMeter = 50
 let groundFriction = DEFAULT_GROUND_FRICTION
@@ -1944,6 +1945,7 @@ function handleInput(
 
     const eHeld = currKeys.has('e')
     const eJustPressed = eHeld && !prevKeys.has('e')
+    const eJustReleased = !eHeld && prevKeys.has('e')
     const middleHeld = currMouseButtons.has(1)
     const middleJustPressed = middleHeld && !prevMouseButtons.has(1)
 
@@ -1952,6 +1954,7 @@ function handleInput(
       ((eJustPressed && middleHeld) || (middleJustPressed && eHeld)) &&
       !isPlayerDead
     if (ultimateJustTriggered) {
+      eUsedForUltimate = true
       const ultSlot = playerEntity.attackSlots?.ultimate
       const isBlocked =
         (ultSlot?.cooldownRemainingMs ?? 0) > 0 ||
@@ -1959,9 +1962,12 @@ function handleInput(
       if (isBlocked) ultimateFlashRemainingMs = ULTIMATE_FLASH_DURATION_MS
       weaponSystem.handleUltimateRequest(playerEntity)
     } else {
-      // E 单独 = 交互
-      if (eJustPressed && !isPlayerDead) {
-        playerEntity.input.inputBuffer.bufferAction('interact')
+      // E 松开 = 交互（keyup 触发，且本次按键未用于绝招）
+      if (eJustReleased && !isPlayerDead) {
+        if (!eUsedForUltimate) {
+          playerEntity.input.inputBuffer.bufferAction('interact')
+        }
+        eUsedForUltimate = false
       }
       // 中键单独 = 钩爪
       if (middleJustPressed && !isPlayerDead) {
@@ -2028,7 +2034,10 @@ function fixedUpdate() {
   currentTime += TIME_STEP
   playTimeMs += FIXED_STEP_MS
   if (ultimateFlashRemainingMs > 0) {
-    ultimateFlashRemainingMs = Math.max(0, ultimateFlashRemainingMs - FIXED_STEP_MS)
+    ultimateFlashRemainingMs = Math.max(
+      0,
+      ultimateFlashRemainingMs - FIXED_STEP_MS
+    )
   }
 
   if (rHoldActive && !rHoldTriggered) {
@@ -2974,7 +2983,9 @@ function sendState() {
     if (e === playerEntity) {
       stateBuffer[offset + OFFSETS.ULTIMATE_FLASH_TIMER100] =
         ultimateFlashRemainingMs > 0
-          ? Math.ceil((ultimateFlashRemainingMs * 100) / ULTIMATE_FLASH_DURATION_MS)
+          ? Math.ceil(
+              (ultimateFlashRemainingMs * 100) / ULTIMATE_FLASH_DURATION_MS
+            )
           : 0
     } else {
       stateBuffer[offset + OFFSETS.ULTIMATE_FLASH_TIMER100] = 0

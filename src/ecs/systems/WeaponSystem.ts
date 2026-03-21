@@ -250,7 +250,10 @@ export class WeaponSystem extends System {
       if (entity.attackSlots) {
         const slot = entity.attackSlots.ultimate
         if (slot.cooldownRemainingMs > 0) {
-          slot.cooldownRemainingMs = Math.max(0, slot.cooldownRemainingMs - deltaMs)
+          slot.cooldownRemainingMs = Math.max(
+            0,
+            slot.cooldownRemainingMs - deltaMs
+          )
         }
       }
 
@@ -2464,7 +2467,8 @@ export class WeaponSystem extends System {
           weapon.attackPhase = 'idle'
           if (entity.stats) entity.stats.isInvincible = false
           if (entity.attackSlots)
-            entity.attackSlots.ultimate.cooldownRemainingMs = ULTIMATE_COOLDOWN_MS
+            entity.attackSlots.ultimate.cooldownRemainingMs =
+              ULTIMATE_COOLDOWN_MS
         }
         break
       }

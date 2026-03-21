@@ -26,9 +26,12 @@ export class InteractionSystem extends System {
       const inputBuffer = entity.input.inputBuffer
       let interactionConsumed = false
 
-      // 尝试拾取/替换武器 (内部处理了自动拾取和按键替换)
-      if (this.weaponSystem && this.weaponSystem.tryPickUpWeapon(entity)) {
-        interactionConsumed = true
+      // 绝招进行中时跳过武器拾取
+      if (entity.weapon?.ultimatePhase == null) {
+        // 尝试拾取/替换武器 (内部处理了自动拾取和按键替换)
+        if (this.weaponSystem && this.weaponSystem.tryPickUpWeapon(entity)) {
+          interactionConsumed = true
+        }
       }
 
       if (!inputBuffer.hasActiveAction('interact')) {

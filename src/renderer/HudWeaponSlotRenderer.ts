@@ -218,7 +218,14 @@ export function drawHudUltimateSlot(
 
   // 光晕：绝招可用时在圆圈外侧绘制渐变光晕
   if (isReady) {
-    const glow = ctx.createRadialGradient(cx, cy, radius - 1, cx, cy, radius + 10)
+    const glow = ctx.createRadialGradient(
+      cx,
+      cy,
+      radius - 1,
+      cx,
+      cy,
+      radius + 10
+    )
     glow.addColorStop(0, 'rgba(255, 255, 255, 0.45)')
     glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
     ctx.beginPath()
@@ -273,7 +280,7 @@ function drawHudUltimateSwordTip(
   // 90° 尖角：bHalf = taper_height（半宽等于斜刃段高度），剑身更宽
   const bHalf = Math.max(3, Math.floor((r * 58) / 100))
   const tipY = -(r - 1)
-  const taperY = tipY + bHalf  // 满足 90° 角
+  const taperY = tipY + bHalf // 满足 90° 角
 
   ctx.save()
   ctx.translate(cx, cy)
