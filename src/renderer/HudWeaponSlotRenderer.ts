@@ -318,7 +318,7 @@ function getHudWeaponRenderType(
   if (weaponType === 'spear') {
     return 'spear'
   }
-  if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+  if (weaponType === 'hammer') {
     return 'hammer'
   }
   if (weaponType === 'hook') {
@@ -334,9 +334,6 @@ function getHudWeaponIndicatorLevel(
 ): { sizeLevel: number; sizeMaxLevel: number } {
   if (weaponType === 'hammer') {
     return { sizeLevel: 1, sizeMaxLevel: 2 }
-  }
-  if (weaponType === 'bigHammer') {
-    return { sizeLevel: 2, sizeMaxLevel: 2 }
   }
   return { sizeLevel, sizeMaxLevel }
 }

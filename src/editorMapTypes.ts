@@ -4,6 +4,9 @@ import type {
   NormalAttackMovesetId,
   WeaponType,
 } from './types'
+import type { LegacyWeaponType } from './weaponTypeUtils'
+
+export type MapWeaponType = WeaponType | LegacyWeaponType
 
 export type MapObjectKind = 'ground' | 'obstacle'
 
@@ -76,7 +79,7 @@ export interface MapPlacedShape {
 }
 
 export interface MapEnemyWeapon {
-  weaponType: WeaponType
+  weaponType: MapWeaponType
   sizeLevel: number
   attackDamage: number
   postureDamage: number
@@ -119,7 +122,7 @@ export interface MapHookAnchor {
 export interface MapWeapon {
   x: number
   y: number
-  weaponType: WeaponType
+  weaponType: MapWeaponType
   category: WeaponCategory
   sizeLevel: number
   attackDamage?: number

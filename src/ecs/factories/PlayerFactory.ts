@@ -46,6 +46,11 @@ import type {
   WeaponType,
   b2WorldId,
 } from '../../types'
+import type { LegacyWeaponType } from '../../weaponTypeUtils'
+import {
+  normalizeWeaponType,
+  normalizeWeaponTypeAndSizeLevel,
+} from '../../weaponTypeUtils'
 import {
   getDefaultAttackMovesetIdForWeaponType,
   getUltimateMovesetIdForWeaponType,
@@ -240,7 +245,7 @@ export function createPlayer(
 }
 
 export interface EnemyWeaponConfig {
-  weaponType: WeaponType
+  weaponType: WeaponType | LegacyWeaponType
   sizeLevel: number
   attackDamage: number
   postureDamage: number
@@ -370,9 +375,9 @@ export function createEnemy(
 
   if (enemy.attackSlots) {
     const defaultWeaponType =
-      options?.mainWeapon?.weaponType ??
-      options?.secondaryWeapon?.weaponType ??
-      'sword'
+      normalizeWeaponType(
+        options?.mainWeapon?.weaponType ?? options?.secondaryWeapon?.weaponType
+      ) ?? 'sword'
     enemy.attackSlots.normal.hasMoveset = true
     enemy.attackSlots.normal.movesetId =
       initialNormalMovesetId ||
@@ -397,43 +402,54 @@ export function createEnemy(
 
       if (options?.mainWeapon) {
         const config = options.mainWeapon
-
-        const template = WEAPON_DEFAULT_DATA[config.weaponType]
-
-        enemy.weaponSlots.main.hasWeapon = true
-
-        enemy.weaponSlots.main.weaponType = config.weaponType
-        enemy.weaponSlots.main.movesetId =
-          getDefaultAttackMovesetIdForWeaponType(config.weaponType)
-
-        enemy.weaponSlots.main.width = template.width
-
-        enemy.weaponSlots.main.height = template.height
-
-        enemy.weaponSlots.main.baseWidth = template.width
-
-        enemy.weaponSlots.main.sizeLevel = config.sizeLevel
-
-        enemy.weaponSlots.main.sizeMaxLevel = template.sizeMaxLevel
-
-        enemy.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-
-        enemy.weaponSlots.main.weight = template.weight
-
-        enemy.weaponSlots.main.attackDamage = config.attackDamage
-
-        enemy.weaponSlots.main.postureDamage = config.postureDamage
-
-        enemy.weaponSlots.main.toughnessDamage = config.toughnessDamage
-
-        if (config.weaponType === 'bow') {
-          enemy.weaponSlots.main.bowAmmoMax = config.bowAmmo ?? 0
-
-          enemy.weaponSlots.main.bowAmmo = config.bowAmmo ?? 0
+        const normalizedConfig = normalizeWeaponTypeAndSizeLevel(
+          config.weaponType,
+          config.sizeLevel
+        )
+        if (!normalizedConfig) {
+          enemy.weaponSlots.main.hasWeapon = false
         } else {
-          enemy.weaponSlots.main.bowAmmoMax = 0
+          const template = WEAPON_DEFAULT_DATA[normalizedConfig.weaponType]
+          const scaleFactor = computeWeaponScaleFactor(
+            template,
+            normalizedConfig.sizeLevel
+          )
 
-          enemy.weaponSlots.main.bowAmmo = 0
+          enemy.weaponSlots.main.hasWeapon = true
+
+          enemy.weaponSlots.main.weaponType = normalizedConfig.weaponType
+          enemy.weaponSlots.main.movesetId =
+            getDefaultAttackMovesetIdForWeaponType(normalizedConfig.weaponType)
+
+          enemy.weaponSlots.main.width = template.width * scaleFactor
+
+          enemy.weaponSlots.main.height = template.height * scaleFactor
+
+          enemy.weaponSlots.main.baseWidth = template.width * scaleFactor
+
+          enemy.weaponSlots.main.sizeLevel = normalizedConfig.sizeLevel
+
+          enemy.weaponSlots.main.sizeMaxLevel = template.sizeMaxLevel
+
+          enemy.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+
+          enemy.weaponSlots.main.weight = template.weight * scaleFactor
+
+          enemy.weaponSlots.main.attackDamage = config.attackDamage
+
+          enemy.weaponSlots.main.postureDamage = config.postureDamage
+
+          enemy.weaponSlots.main.toughnessDamage = config.toughnessDamage
+
+          if (normalizedConfig.weaponType === 'bow') {
+            enemy.weaponSlots.main.bowAmmoMax = config.bowAmmo ?? 0
+
+            enemy.weaponSlots.main.bowAmmo = config.bowAmmo ?? 0
+          } else {
+            enemy.weaponSlots.main.bowAmmoMax = 0
+
+            enemy.weaponSlots.main.bowAmmo = 0
+          }
         }
       } else if (!hasOptions || enemyType !== 'archer') {
         // Default main weapon (Sword) if no options provided or if explicitly requested via lack of config
@@ -489,43 +505,55 @@ export function createEnemy(
 
       if (options?.secondaryWeapon) {
         const config = options.secondaryWeapon
-
-        const template = WEAPON_DEFAULT_DATA[config.weaponType]
-
-        enemy.weaponSlots.secondary.hasWeapon = true
-
-        enemy.weaponSlots.secondary.weaponType = config.weaponType
-        enemy.weaponSlots.secondary.movesetId =
-          getDefaultAttackMovesetIdForWeaponType(config.weaponType)
-
-        enemy.weaponSlots.secondary.width = template.width
-
-        enemy.weaponSlots.secondary.height = template.height
-
-        enemy.weaponSlots.secondary.baseWidth = template.width
-
-        enemy.weaponSlots.secondary.sizeLevel = config.sizeLevel
-
-        enemy.weaponSlots.secondary.sizeMaxLevel = template.sizeMaxLevel
-
-        enemy.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
-
-        enemy.weaponSlots.secondary.weight = template.weight
-
-        enemy.weaponSlots.secondary.attackDamage = config.attackDamage
-
-        enemy.weaponSlots.secondary.postureDamage = config.postureDamage
-
-        enemy.weaponSlots.secondary.toughnessDamage = config.toughnessDamage
-
-        if (config.weaponType === 'bow') {
-          enemy.weaponSlots.secondary.bowAmmoMax = config.bowAmmo ?? 0
-
-          enemy.weaponSlots.secondary.bowAmmo = config.bowAmmo ?? 0
+        const normalizedConfig = normalizeWeaponTypeAndSizeLevel(
+          config.weaponType,
+          config.sizeLevel
+        )
+        if (!normalizedConfig) {
+          enemy.weaponSlots.secondary.hasWeapon = false
         } else {
-          enemy.weaponSlots.secondary.bowAmmoMax = 0
+          const template = WEAPON_DEFAULT_DATA[normalizedConfig.weaponType]
+          const scaleFactor = computeWeaponScaleFactor(
+            template,
+            normalizedConfig.sizeLevel
+          )
 
-          enemy.weaponSlots.secondary.bowAmmo = 0
+          enemy.weaponSlots.secondary.hasWeapon = true
+
+          enemy.weaponSlots.secondary.weaponType = normalizedConfig.weaponType
+          enemy.weaponSlots.secondary.movesetId =
+            getDefaultAttackMovesetIdForWeaponType(normalizedConfig.weaponType)
+
+          enemy.weaponSlots.secondary.width = template.width * scaleFactor
+
+          enemy.weaponSlots.secondary.height = template.height * scaleFactor
+
+          enemy.weaponSlots.secondary.baseWidth = template.width * scaleFactor
+
+          enemy.weaponSlots.secondary.sizeLevel = normalizedConfig.sizeLevel
+
+          enemy.weaponSlots.secondary.sizeMaxLevel = template.sizeMaxLevel
+
+          enemy.weaponSlots.secondary.cornerRadius =
+            DEFAULT_WEAPON_CORNER_RADIUS
+
+          enemy.weaponSlots.secondary.weight = template.weight * scaleFactor
+
+          enemy.weaponSlots.secondary.attackDamage = config.attackDamage
+
+          enemy.weaponSlots.secondary.postureDamage = config.postureDamage
+
+          enemy.weaponSlots.secondary.toughnessDamage = config.toughnessDamage
+
+          if (normalizedConfig.weaponType === 'bow') {
+            enemy.weaponSlots.secondary.bowAmmoMax = config.bowAmmo ?? 0
+
+            enemy.weaponSlots.secondary.bowAmmo = config.bowAmmo ?? 0
+          } else {
+            enemy.weaponSlots.secondary.bowAmmoMax = 0
+
+            enemy.weaponSlots.secondary.bowAmmo = 0
+          }
         }
       } else if (enemyType === 'archer' && !hasOptions) {
         // Default archer secondary (Bow)

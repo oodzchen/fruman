@@ -156,7 +156,7 @@ export class EditorPropertiesPanel {
     if (weaponType === 'bow') {
       return 'bow'
     }
-    if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+    if (weaponType === 'hammer') {
       return 'hammer'
     }
     if (weaponType === 'spear') {
@@ -915,7 +915,6 @@ export class EditorPropertiesPanel {
         { label: localizer.t('editor_weapon_sword'), value: 'sword' },
         { label: localizer.t('editor_weapon_spear'), value: 'spear' },
         { label: localizer.t('editor_weapon_hammer'), value: 'hammer' },
-        { label: localizer.t('editor_weapon_bigHammer'), value: 'bigHammer' },
       ],
       defaultBowAmmo: DEFAULT_BOW_AMMO_ENEMY,
       getWeaponType: () => data.mainWeapon,
@@ -1029,7 +1028,6 @@ export class EditorPropertiesPanel {
         { label: localizer.t('editor_weapon_sword'), value: 'sword' },
         { label: localizer.t('editor_weapon_spear'), value: 'spear' },
         { label: localizer.t('editor_weapon_hammer'), value: 'hammer' },
-        { label: localizer.t('editor_weapon_bigHammer'), value: 'bigHammer' },
       ],
       defaultBowAmmo: DEFAULT_BOW_AMMO_PLAYER,
       getWeaponType: () => data.mainWeapon,
@@ -1168,9 +1166,9 @@ export class EditorPropertiesPanel {
           ? localizer.t('editor_weapon_size_bow_1')
           : localizer.t('editor_weapon_size_bow_2')
       } else if (marker.weaponType === 'hammer') {
-        return localizer.t('editor_weapon_size_hammer_1')
-      } else if (marker.weaponType === 'bigHammer') {
-        return localizer.t('editor_weapon_size_bigHammer_1')
+        return level === 1
+          ? localizer.t('editor_weapon_size_hammer_1')
+          : localizer.t('editor_weapon_size_hammer_2')
       } else if (marker.weaponType === 'spear') {
         return localizer.t('editor_weapon_size_spear_1')
       } else {

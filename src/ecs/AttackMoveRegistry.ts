@@ -126,7 +126,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
+    compatibleWeaponTypes: ['sword', 'spear'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -145,7 +145,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
+    compatibleWeaponTypes: ['sword', 'spear'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -164,7 +164,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
+    compatibleWeaponTypes: ['sword', 'spear'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -183,7 +183,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
+    compatibleWeaponTypes: ['sword', 'spear'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -202,7 +202,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     toughnessDamage: 0,
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
-    compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
+    compatibleWeaponTypes: ['sword', 'spear'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -219,7 +219,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    compatibleWeaponTypes: ['hammer'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -236,7 +236,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    compatibleWeaponTypes: ['hammer'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -253,7 +253,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    compatibleWeaponTypes: ['hammer'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -270,7 +270,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    compatibleWeaponTypes: ['hammer'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -287,7 +287,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    compatibleWeaponTypes: ['hammer', 'bigHammer'],
+    compatibleWeaponTypes: ['hammer'],
 
     isUnstoppable: false,
     swingDirection: 'toFront',
@@ -438,17 +438,13 @@ export function getMovesetForWeaponTypeAndOwner(
 export function getDefaultAttackMovesetIdForWeaponType(
   weaponType: WeaponType | WeaponVisualType
 ): NormalAttackMovesetId | '' {
-  if (
-    weaponType === 'sword' ||
-    weaponType === 'shortSword' ||
-    weaponType === 'longSword'
-  ) {
+  if (weaponType === 'sword') {
     return 'sword_default'
   }
   if (weaponType === 'spear') {
     return 'sword_thrust'
   }
-  if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+  if (weaponType === 'hammer') {
     return 'hammer_strike'
   }
   return ''
@@ -457,14 +453,10 @@ export function getDefaultAttackMovesetIdForWeaponType(
 export function getUltimateMovesetIdForWeaponType(
   weaponType: WeaponType | WeaponVisualType
 ): UltimateMovesetId | '' {
-  if (
-    weaponType === 'sword' ||
-    weaponType === 'shortSword' ||
-    weaponType === 'longSword'
-  ) {
+  if (weaponType === 'sword') {
     return 'sword_ultimate'
   }
-  if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+  if (weaponType === 'hammer') {
     return 'hammer_ultimate'
   }
   if (weaponType === 'spear') {

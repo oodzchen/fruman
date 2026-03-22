@@ -549,7 +549,7 @@ export class EditorMenuSystem {
     if (weaponType === 'bow') {
       return 'bow'
     }
-    if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+    if (weaponType === 'hammer') {
       return 'hammer'
     }
     if (weaponType === 'spear') {

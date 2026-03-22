@@ -826,25 +826,23 @@ export class ClientRenderer {
         ? 'bow'
         : mainType === WEAPON_TYPES.SPEAR
           ? 'spear'
-          : mainType === WEAPON_TYPES.BIG_HAMMER
-            ? 'bigHammer'
-            : mainType === WEAPON_TYPES.HAMMER
-              ? 'hammer'
-              : mainType === WEAPON_TYPES.HOOK
-                ? 'hook'
-                : 'sword'
+          : mainType === WEAPON_TYPES.BIG_HAMMER ||
+              mainType === WEAPON_TYPES.HAMMER
+            ? 'hammer'
+            : mainType === WEAPON_TYPES.HOOK
+              ? 'hook'
+              : 'sword'
     const secondaryWeaponKind =
       secondaryType === WEAPON_TYPES.BOW
         ? 'bow'
         : secondaryType === WEAPON_TYPES.SPEAR
           ? 'spear'
-          : secondaryType === WEAPON_TYPES.BIG_HAMMER
-            ? 'bigHammer'
-            : secondaryType === WEAPON_TYPES.HAMMER
-              ? 'hammer'
-              : secondaryType === WEAPON_TYPES.HOOK
-                ? 'hook'
-                : 'sword'
+          : secondaryType === WEAPON_TYPES.BIG_HAMMER ||
+              secondaryType === WEAPON_TYPES.HAMMER
+            ? 'hammer'
+            : secondaryType === WEAPON_TYPES.HOOK
+              ? 'hook'
+              : 'sword'
     const mainAmmoValue = mainAmmo < 0 ? 0 : mainAmmo
     const secondaryAmmoValue = secondaryAmmo < 0 ? 0 : secondaryAmmo
 

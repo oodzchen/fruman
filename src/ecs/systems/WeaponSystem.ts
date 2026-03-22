@@ -32,6 +32,8 @@ import {
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WIDTH,
+  JUMP_ATTACK_DAMAGE_SCALE_DENOMINATOR,
+  JUMP_ATTACK_DAMAGE_SCALE_NUMERATOR,
   MASK_WEAPON,
   PARRY_COUNTER_WINDOW_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
@@ -91,7 +93,7 @@ const ULTIMATE_GIANT_WAIT_MS = 350 // 与 THRUST_MS 相等保证匀速穿屏
 const ULTIMATE_GIANT_RECOVER_MS = 350
 const ULTIMATE_GIANT_SWORD_DIST = 5 // 巨剑出现位置与玩家的水平距离（米）
 const ULTIMATE_THRUST_DIST = 3 // 手中剑向上飞行距离（米）
-// 巨剑 = 10x longSword (1.6m → 16m 长, 0.3m → 3m 厚)
+// 巨剑 = 10x 3档剑尺寸（16m 长，3m 厚）
 // 护手宽度 = max(halfHeight+2, floor(height*90%)) = max(1+2, floor(2.7)) = 3m
 const ULTIMATE_GIANT_HALF_WIDTH = 3 // AOE 水平伤害半径，覆盖护手全宽
 
@@ -965,7 +967,7 @@ export class WeaponSystem extends System {
       weapon.activeMoveIndex += 1
       weapon.activeMoveId = nextMove.id
       weapon.swingDirection = nextMove.swingDirection
-      weapon.impactLevel = this.resolveImpactLevel(nextMove, weapon.weaponType)
+      weapon.impactLevel = this.resolveImpactLevel(nextMove, weapon)
       weapon.isUnstoppable = nextMove.isUnstoppable
       attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
@@ -1027,13 +1029,47 @@ export class WeaponSystem extends System {
 
   private resolveImpactLevel(
     move: AttackMoveData,
-    weaponType: WeaponVisualType
+    weapon: Entity['weapon']
   ): ImpactLevel {
     if (move.impactLevel !== undefined) return move.impactLevel
-    return (
-      (WEAPON_IMPACT_LEVEL as Record<string, ImpactLevel>)[weaponType] ??
+    if (!weapon) {
+      return 'medium'
+    }
+    const baseImpactLevel =
+      (WEAPON_IMPACT_LEVEL as Record<string, ImpactLevel>)[weapon.weaponType] ??
       'medium'
-    )
+    if (weapon.weaponType === 'arrow') {
+      return baseImpactLevel
+    }
+    const template = WEAPON_DEFAULT_DATA[weapon.weaponType]
+    if (!template) {
+      return baseImpactLevel
+    }
+    const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
+    const currentLevel =
+      Number.isFinite(weapon.sizeLevel) && weapon.sizeLevel > 0
+        ? weapon.sizeLevel
+        : baseLevel
+    const levelOffset = currentLevel - baseLevel
+    const baseIndex =
+      baseImpactLevel === 'small'
+        ? 0
+        : baseImpactLevel === 'medium'
+          ? 1
+          : baseImpactLevel === 'large'
+            ? 2
+            : 3
+    const nextIndex = Math.max(0, Math.min(3, baseIndex + levelOffset))
+    if (nextIndex === 0) {
+      return 'small'
+    }
+    if (nextIndex === 1) {
+      return 'medium'
+    }
+    if (nextIndex === 2) {
+      return 'large'
+    }
+    return 'extreme'
   }
 
   private isMoveCompatibleWithWeapon(
@@ -1050,7 +1086,7 @@ export class WeaponSystem extends System {
     return compatibleWeaponTypes.includes(weaponType as WeaponType)
   }
 
-  private applyDamageOverrides(weapon: Entity['weapon']): void {
+  private applyDamageOverrides(entity: Entity, weapon: Entity['weapon']): void {
     if (!weapon) return
     const move = this.getActiveMove(weapon)
     if (move) {
@@ -1107,6 +1143,40 @@ export class WeaponSystem extends System {
         weapon.toughnessDamage = move.toughnessDamage
       }
     }
+    const isJumpAttack = entity.movement ? !entity.movement.isGrounded : false
+    if (!isJumpAttack) {
+      return
+    }
+    if (weapon.originalAttackDamage === null) {
+      weapon.originalAttackDamage = weapon.attackDamage
+    }
+    if (weapon.originalPostureDamage === null) {
+      weapon.originalPostureDamage = weapon.postureDamage
+    }
+    if (weapon.originalToughnessDamage === null) {
+      weapon.originalToughnessDamage = weapon.toughnessDamage
+    }
+    weapon.attackDamage = Math.max(
+      1,
+      Math.floor(
+        (weapon.originalAttackDamage * JUMP_ATTACK_DAMAGE_SCALE_NUMERATOR) /
+          JUMP_ATTACK_DAMAGE_SCALE_DENOMINATOR
+      )
+    )
+    weapon.postureDamage = Math.max(
+      1,
+      Math.floor(
+        (weapon.originalPostureDamage * JUMP_ATTACK_DAMAGE_SCALE_NUMERATOR) /
+          JUMP_ATTACK_DAMAGE_SCALE_DENOMINATOR
+      )
+    )
+    weapon.toughnessDamage = Math.max(
+      1,
+      Math.floor(
+        (weapon.originalToughnessDamage * JUMP_ATTACK_DAMAGE_SCALE_NUMERATOR) /
+          JUMP_ATTACK_DAMAGE_SCALE_DENOMINATOR
+      )
+    )
   }
 
   private restoreDamageOverrides(weapon: Entity['weapon']): void {
@@ -1239,7 +1309,7 @@ export class WeaponSystem extends System {
         SOUND_DB_SWORD_SWING
       )
       weapon.attackPhase = 'swing'
-      this.applyDamageOverrides(weapon)
+      this.applyDamageOverrides(entity, weapon)
       weapon.attackElapsedMs = 0
       // We don't need to copyTransform(attackStartTransform, swingStartTransform) anymore for logic,
       // but keeping data consistent is fine. However, logic now relies on offsets.
@@ -1385,10 +1455,7 @@ export class WeaponSystem extends System {
         weapon.activeMoveIndex += 1
         weapon.activeMoveId = nextMove.id
         weapon.swingDirection = nextMove.swingDirection
-        weapon.impactLevel = this.resolveImpactLevel(
-          nextMove,
-          weapon.weaponType
-        )
+        weapon.impactLevel = this.resolveImpactLevel(nextMove, weapon)
         weapon.isUnstoppable = nextMove.isUnstoppable
         attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
@@ -1441,7 +1508,7 @@ export class WeaponSystem extends System {
             entity,
             SOUND_DB_SWORD_SWING
           )
-          this.applyDamageOverrides(weapon)
+          this.applyDamageOverrides(entity, weapon)
           this.copyTransform(weapon.swingStartTransform, weapon.visual)
           this.copyTransform(weapon.attackStartTransform, weapon.visual)
         }
@@ -2523,7 +2590,7 @@ export class WeaponSystem extends System {
     if (!slot.hasMoveset) return
     if (!entity.weapon.isEquipped) return
     const wt = entity.weapon.weaponType
-    if (wt !== 'sword' && wt !== 'shortSword' && wt !== 'longSword') return
+    if (wt !== 'sword') return
     if (slot.cooldownRemainingMs > 0) return
     if (entity.weapon.attackPhase !== 'idle') return
     if (entity.weapon.ultimatePhase !== null) return
@@ -3195,10 +3262,7 @@ export class WeaponSystem extends System {
               }
               weapon.activeMoveId = firstMoveId
               weapon.swingDirection = move.swingDirection
-              weapon.impactLevel = this.resolveImpactLevel(
-                move,
-                weapon.weaponType
-              )
+              weapon.impactLevel = this.resolveImpactLevel(move, weapon)
               weapon.isUnstoppable = move.isUnstoppable
               attackRadius = (attackRadius * move.radiusScale) / 100
               weapon.attackRadius = attackRadius

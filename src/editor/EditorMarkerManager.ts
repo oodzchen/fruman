@@ -12,8 +12,8 @@ import {
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { getDefaultNormalAttackMovesetId } from '../ecs/AttackMoveRegistry'
-import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
+import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type {
   MapCheckpoint,
   MapEnemyWeapon,
@@ -27,6 +27,7 @@ import type {
   NormalAttackMovesetId,
   WeaponType,
 } from '../types'
+import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
 import {
   DEFAULT_ENEMY_TYPE,
   EDITOR_PIXELS_PER_METER,
@@ -624,8 +625,14 @@ export class EditorMarkerManager {
       debugNoDamage,
       debugNoDeath,
       equipWeapon,
-      mainWeapon: spawn?.mainWeapon?.weaponType,
-      secondaryWeapon: spawn?.secondaryWeapon?.weaponType,
+      mainWeapon: normalizeWeaponTypeAndSizeLevel(
+        spawn?.mainWeapon?.weaponType,
+        spawn?.mainWeapon?.sizeLevel
+      )?.weaponType,
+      secondaryWeapon: normalizeWeaponTypeAndSizeLevel(
+        spawn?.secondaryWeapon?.weaponType,
+        spawn?.secondaryWeapon?.sizeLevel
+      )?.weaponType,
     }
     this.enemyMarkers.push(enemyData)
     this.enemyMarkerMap.set(marker, enemyData)
@@ -690,8 +697,10 @@ export class EditorMarkerManager {
     const template = WEAPON_DEFAULT_DATA[weaponType]
     const sizeLevel = spawn?.sizeLevel ?? template.sizeLevel
     const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
-    const attackDamage = spawn?.attackDamage ?? template.attackDamage * scaleFactor
-    const postureDamage = spawn?.postureDamage ?? template.postureDamage * scaleFactor
+    const attackDamage =
+      spawn?.attackDamage ?? template.attackDamage * scaleFactor
+    const postureDamage =
+      spawn?.postureDamage ?? template.postureDamage * scaleFactor
     const toughnessDamage =
       spawn?.toughnessDamage ?? template.toughnessDamage * scaleFactor
     const bowAmmo =
@@ -1007,7 +1016,7 @@ export class EditorMarkerManager {
     if (weaponType === 'bow') {
       return 'bow'
     }
-    if (weaponType === 'hammer' || weaponType === 'bigHammer') {
+    if (weaponType === 'hammer') {
       return 'hammer'
     }
     if (weaponType === 'spear') {
@@ -1156,10 +1165,10 @@ export class EditorMarkerManager {
 
     if (slot === 'main') {
       playerData.mainWeaponMarker = typedWeaponMarker
-      playerData.mainWeapon = config.weaponType
+      playerData.mainWeapon = typedWeaponData.weaponType
     } else {
       playerData.secondaryWeaponMarker = typedWeaponMarker
-      playerData.secondaryWeapon = config.weaponType
+      playerData.secondaryWeapon = typedWeaponData.weaponType
     }
   }
 }

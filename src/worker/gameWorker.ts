@@ -101,6 +101,10 @@ import type {
   b2ShapeId,
 } from '../types'
 import {
+  normalizeWeaponType,
+  normalizeWeaponTypeAndSizeLevel,
+} from '../weaponTypeUtils'
+import {
   ENTITY_STRIDE,
   FLAGS,
   MAX_ENTITIES,
@@ -234,16 +238,11 @@ function parseColor(color: string): number {
   return 0
 }
 
-function getWeaponTypeId(weaponType: WeaponVisualType | undefined): number {
+function getWeaponTypeId(weaponType: string | undefined): number {
   switch (weaponType) {
-    case 'shortSword':
-      return WEAPON_TYPES.SHORT_SWORD
-    case 'longSword':
-      return WEAPON_TYPES.LONG_SWORD
     case 'spear':
       return WEAPON_TYPES.SPEAR
     case 'hammer':
-      return WEAPON_TYPES.HAMMER
     case 'bigHammer':
       return WEAPON_TYPES.BIG_HAMMER
     case 'bow':
@@ -1351,16 +1350,24 @@ function applyWeaponSlotConfig(
     return
   }
 
-  const template = WEAPON_DEFAULT_DATA[config.weaponType]
+  const normalizedConfig = normalizeWeaponTypeAndSizeLevel(
+    config.weaponType,
+    config.sizeLevel
+  )
+  if (!normalizedConfig) {
+    slot.hasWeapon = false
+    slot.movesetId = ''
+    return
+  }
+  const template = WEAPON_DEFAULT_DATA[normalizedConfig.weaponType]
   const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
-  const sizeLevel =
-    Number.isFinite(config.sizeLevel) && config.sizeLevel > 0
-      ? config.sizeLevel
-      : baseLevel
+  const sizeLevel = normalizedConfig.sizeLevel
   const scaleFactor = sizeLevel / baseLevel
   slot.hasWeapon = true
-  slot.weaponType = config.weaponType
-  slot.movesetId = getDefaultAttackMovesetIdForWeaponType(config.weaponType)
+  slot.weaponType = normalizedConfig.weaponType
+  slot.movesetId = getDefaultAttackMovesetIdForWeaponType(
+    normalizedConfig.weaponType
+  )
   slot.width = template.width * scaleFactor
   slot.height = template.height * scaleFactor
   slot.baseWidth = template.width * scaleFactor
@@ -1371,7 +1378,7 @@ function applyWeaponSlotConfig(
   slot.attackDamage = config.attackDamage
   slot.postureDamage = config.postureDamage
   slot.toughnessDamage = config.toughnessDamage
-  if (config.weaponType === 'bow') {
+  if (normalizedConfig.weaponType === 'bow') {
     const ammo = config.bowAmmo ?? defaultBowAmmo
     slot.bowAmmoMax = ammo
     slot.bowAmmo = ammo
@@ -1444,9 +1451,10 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
 
   if (playerEntity.attackSlots && playerProps) {
     const defaultWeaponType =
-      playerProps.mainWeapon?.weaponType ??
-      playerProps.secondaryWeapon?.weaponType ??
-      'sword'
+      normalizeWeaponType(
+        playerProps.mainWeapon?.weaponType ??
+          playerProps.secondaryWeapon?.weaponType
+      ) ?? 'sword'
     const nextMovesetId = isNormalAttackMovesetId(
       playerProps.initialNormalMovesetId
     )
@@ -1525,14 +1533,18 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         weaponData.x,
         weaponData.y,
         groundY,
-        weaponData.weaponType
+        normalizeWeaponType(weaponData.weaponType) ?? 'sword'
       )
       const weapon = weaponEntity.weapon
       if (!weapon) {
         continue
       }
 
-      const sizeLevel = weaponData.sizeLevel
+      const sizeLevel =
+        normalizeWeaponTypeAndSizeLevel(
+          weaponData.weaponType,
+          weaponData.sizeLevel
+        )?.sizeLevel ?? weaponData.sizeLevel
       if (Number.isFinite(sizeLevel) && sizeLevel > 0) {
         const weaponType = weapon.weaponType
         if (!isTemplateWeaponType(weaponType)) {
@@ -1655,9 +1667,10 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         )
           ? enemy.initialNormalMovesetId
           : getDefaultAttackMovesetIdForWeaponType(
-              enemy.mainWeapon?.weaponType ??
-                enemy.secondaryWeapon?.weaponType ??
-                'sword'
+              normalizeWeaponType(
+                enemy.mainWeapon?.weaponType ??
+                  enemy.secondaryWeapon?.weaponType
+              ) ?? 'sword'
             ) || getDefaultNormalAttackMovesetId('enemy')
         created.attackSlots.normal.hasMoveset = true
         created.attackSlots.normal.movesetId = nextMovesetId
@@ -3402,9 +3415,16 @@ function applyWeaponSlotState(
     return
   }
 
+  const normalizedWeaponType = normalizeWeaponType(state.weaponType)
+  if (!normalizedWeaponType) {
+    slot.hasWeapon = false
+    slot.movesetId = ''
+    return
+  }
+
   slot.hasWeapon = true
-  slot.weaponType = state.weaponType
-  slot.movesetId = getDefaultAttackMovesetIdForWeaponType(state.weaponType)
+  slot.weaponType = normalizedWeaponType
+  slot.movesetId = getDefaultAttackMovesetIdForWeaponType(normalizedWeaponType)
   slot.sizeLevel = state.sizeLevel
   if (state.width !== undefined) slot.width = state.width
   if (state.height !== undefined) slot.height = state.height
@@ -3598,8 +3618,13 @@ function applyGroundWeaponState(
   },
   state: SaveGroundWeaponState
 ): void {
-  weapon.weaponType = state.weaponType
-  weapon.movesetId = getDefaultAttackMovesetIdForWeaponType(state.weaponType)
+  const normalizedWeaponType = normalizeWeaponType(state.weaponType)
+  if (!normalizedWeaponType) {
+    return
+  }
+  weapon.weaponType = normalizedWeaponType
+  weapon.movesetId =
+    getDefaultAttackMovesetIdForWeaponType(normalizedWeaponType)
   weapon.sizeLevel = state.sizeLevel
   weapon.attackDamage = state.attackDamage
   weapon.postureDamage = state.postureDamage

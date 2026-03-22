@@ -45,6 +45,11 @@ export type EffectsEmitter = {
 
 type ForcedHitStunLevel = 'light' | 'medium' | 'heavy'
 
+const LARGE_LAUNCH_IMPULSE_NUMERATOR = 9
+const LARGE_LAUNCH_IMPULSE_DENOMINATOR = 10
+const EXTREME_LAUNCH_IMPULSE_NUMERATOR = 3
+const EXTREME_LAUNCH_IMPULSE_DENOMINATOR = 2
+
 export class StatsSystem extends System {
   private box2d?: MainModule
   private worldId?: b2WorldId
@@ -737,14 +742,31 @@ export class StatsSystem extends System {
         const mass = b2Body_GetMass(entity.physics.bodyId)
 
         const impulseX = normalizedDirX * finalKnockback * 2 * mass
+        let impulseY = 0
+        if (impactLevel === 'extreme') {
+          impulseY = -(
+            (finalKnockback * EXTREME_LAUNCH_IMPULSE_NUMERATOR * mass) /
+            EXTREME_LAUNCH_IMPULSE_DENOMINATOR
+          )
+        } else if (impactLevel === 'large') {
+          impulseY = -(
+            (finalKnockback * LARGE_LAUNCH_IMPULSE_NUMERATOR * mass) /
+            LARGE_LAUNCH_IMPULSE_DENOMINATOR
+          )
+        }
         this.tempVec.x = impulseX
-        this.tempVec.y = 0
+        this.tempVec.y = impulseY
 
         b2Body_ApplyLinearImpulseToCenter(
           entity.physics.bodyId,
           this.tempVec,
           true
         )
+
+        if (impulseY < 0 && entity.movement) {
+          entity.movement.isGrounded = false
+          entity.movement.wasGrounded = false
+        }
 
         // 仅对物理击退进行冲量处理
       }

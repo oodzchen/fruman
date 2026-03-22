@@ -10,6 +10,7 @@ import type {
   MapPlacedShape,
 } from '../editorMapTypes'
 import type { NormalAttackMovesetId, WeaponType } from '../types'
+import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
 import {
   GROUND_CIRCLE_OPTIONS,
   GROUND_EDITABLE_POLYGON_OPTIONS,
@@ -337,10 +338,20 @@ export class EditorMapSerializer {
     }
     for (let i = 0; i < weapons.length; i++) {
       const weapon = weapons[i]
-      this.ctx.markerManager.spawnWeaponMarker(
+      const normalizedWeapon = normalizeWeaponTypeAndSizeLevel(
         weapon.weaponType,
+        weapon.sizeLevel
+      )
+      if (!normalizedWeapon) {
+        continue
+      }
+      this.ctx.markerManager.spawnWeaponMarker(
+        normalizedWeapon.weaponType,
         weapon.category,
-        weapon
+        {
+          ...weapon,
+          sizeLevel: normalizedWeapon.sizeLevel,
+        }
       )
     }
   }

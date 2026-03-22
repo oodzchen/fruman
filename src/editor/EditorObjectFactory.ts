@@ -7,6 +7,7 @@ import {
 } from '../constants'
 import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
 import type { WeaponType } from '../types'
+import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
 import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
 
 interface WeaponTemplateLike {
@@ -386,7 +387,7 @@ export class EditorObjectFactory {
         ? 'hook'
         : isBow
           ? 'bow'
-          : weaponType === 'hammer' || weaponType === 'bigHammer'
+          : weaponType === 'hammer'
             ? 'hammer'
             : weaponType === 'spear'
               ? 'spear'
@@ -455,14 +456,21 @@ export class EditorObjectFactory {
     y: number,
     templates: Record<WeaponType, WeaponTemplateLike>
   ) {
-    const weaponType = config.weaponType
+    const normalizedConfig = normalizeWeaponTypeAndSizeLevel(
+      config.weaponType,
+      config.sizeLevel
+    )
+    if (!normalizedConfig) {
+      throw new Error(`Unsupported weapon type: ${config.weaponType}`)
+    }
+    const weaponType = normalizedConfig.weaponType
     const isBow = weaponType === 'bow'
     const category: WeaponCategory =
       weaponType === 'hook' ? 'item' : isBow ? 'secondary' : 'main'
     const template = templates[weaponType]
     const dims = this.computeWeaponRenderDimensions(
       template,
-      config.sizeLevel,
+      normalizedConfig.sizeLevel,
       this.pixelsPerMeter,
       isBow
     )
@@ -484,7 +492,7 @@ export class EditorObjectFactory {
         ? 'hook'
         : isBow
           ? 'bow'
-          : weaponType === 'hammer' || weaponType === 'bigHammer'
+          : weaponType === 'hammer'
             ? 'hammer'
             : weaponType === 'spear'
               ? 'spear'
@@ -499,7 +507,7 @@ export class EditorObjectFactory {
     ;(weaponMarker as unknown as { weaponType: WeaponType }).weaponType =
       weaponType
     ;(weaponMarker as unknown as { sizeLevel: number }).sizeLevel =
-      config.sizeLevel
+      normalizedConfig.sizeLevel
     ;(weaponMarker as unknown as { category: WeaponCategory }).category =
       category
 

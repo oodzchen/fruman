@@ -54,6 +54,8 @@ export const DEBUG_DRAW_CAMERA = false
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
 export const DEFAULT_WEAPON_POSTURE_DAMAGE = 6
 export const DEFAULT_WEAPON_TOUGHNESS_DAMAGE = 3
+export const JUMP_ATTACK_DAMAGE_SCALE_NUMERATOR = 6
+export const JUMP_ATTACK_DAMAGE_SCALE_DENOMINATOR = 5
 
 // 弹反机制
 export const DEFAULT_PARRY_WINDOW_MS = 200
@@ -85,15 +87,12 @@ export const IMPACT_LEVEL_KNOCKBACK = {
 
 // 武器类型对应的默认冲击力等级
 export const WEAPON_IMPACT_LEVEL = {
-  shortSword: 'small',
   bow: 'small',
   hook: 'small',
   arrow: 'small',
   sword: 'medium',
   hammer: 'medium',
   spear: 'medium',
-  longSword: 'large',
-  bigHammer: 'large',
 } as const
 
 // 死亡动画（秒）
@@ -357,8 +356,6 @@ export const DEFAULT_BOW_AMMO_ENEMY = 50
 
 // 武器模板配置
 // 武器基础数值规则：同类武器每大一个尺寸等级，数值 ×1.2（约 +20%）
-// 剑类: shortSword(1) → sword(2) → longSword(3)，比例约 1 : 1.2 : 1.44
-// 锤类: hammer(1) → bigHammer(2)，比例约 1 : 1.25
 export const WEAPON_DEFAULT_DATA = {
   sword: {
     width: 1.2,
@@ -369,26 +366,6 @@ export const WEAPON_DEFAULT_DATA = {
     attackDamage: 2.5,
     postureDamage: 6,
     toughnessDamage: 2.5,
-  },
-  shortSword: {
-    width: 0.8,
-    height: 0.2,
-    sizeLevel: 1,
-    sizeMaxLevel: 4,
-    weight: 1.5,
-    attackDamage: 2,
-    postureDamage: 5,
-    toughnessDamage: 2,
-  },
-  longSword: {
-    width: 1.6,
-    height: 0.3,
-    sizeLevel: 3,
-    sizeMaxLevel: 4,
-    weight: 3,
-    attackDamage: 3,
-    postureDamage: 7,
-    toughnessDamage: 3,
   },
   spear: {
     width: 4.0,
@@ -404,21 +381,11 @@ export const WEAPON_DEFAULT_DATA = {
     width: 1.1,
     height: 0.45,
     sizeLevel: 1,
-    sizeMaxLevel: 1,
+    sizeMaxLevel: 2,
     weight: 3,
     attackDamage: 2,
     postureDamage: 8,
     toughnessDamage: 4,
-  },
-  bigHammer: {
-    width: 1.5,
-    height: 0.7,
-    sizeLevel: 1,
-    sizeMaxLevel: 1,
-    weight: 6,
-    attackDamage: 2.5,
-    postureDamage: 10,
-    toughnessDamage: 5,
   },
   bow: {
     width: 1.2,

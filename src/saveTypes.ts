@@ -1,5 +1,6 @@
 import type { EditorMapData } from './editorMapTypes'
 import type { EnemyType, WeaponVisualType } from './types'
+import type { LegacyWeaponVisualType } from './weaponTypeUtils'
 
 export type EnemyAIState =
   | 'approach'
@@ -23,7 +24,7 @@ export interface SaveMeta {
 }
 
 export interface SaveWeaponSlotState {
-  weaponType: WeaponVisualType
+  weaponType: LegacyWeaponVisualType
   sizeLevel: number
   width?: number
   height?: number
@@ -75,7 +76,7 @@ export interface SaveEnemyState {
 export interface SaveGroundWeaponState {
   spawnIndex: number
   position: { x: number; y: number }
-  weaponType: WeaponVisualType
+  weaponType: LegacyWeaponVisualType
   sizeLevel: number
   width?: number
   height?: number
