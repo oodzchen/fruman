@@ -77,6 +77,7 @@ import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
 import type {
   EditorMapData,
+  MapEnemy,
   MapEnemyWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
@@ -3973,7 +3974,26 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
 
   const usedEntities = new Set<Entity>()
 
+  const resolveEnemyMapConfig = (
+    savedState: SaveEnemyState
+  ): MapEnemy | undefined => {
+    if (!activeMapData) {
+      return undefined
+    }
+    const mapEnemies = activeMapData.enemies
+    const spawnIndex = savedState.spawnIndex
+    if (
+      !Number.isInteger(spawnIndex) ||
+      spawnIndex < 0 ||
+      spawnIndex >= mapEnemies.length
+    ) {
+      return undefined
+    }
+    return mapEnemies[spawnIndex]
+  }
+
   const applyStateToEntity = (entity: Entity, savedState: SaveEnemyState) => {
+    const mapEnemy = resolveEnemyMapConfig(savedState)
     setEntityTransformFromSave(
       entity,
       savedState.position.x,
@@ -3983,6 +4003,8 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       entity.stats.health = savedState.health
       entity.stats.posture = savedState.posture
       entity.stats.toughness = savedState.toughness
+      entity.stats.debugNoDamage = mapEnemy?.debugNoDamage === true
+      entity.stats.debugNoDeath = mapEnemy?.debugNoDeath === true
       entity.stats.isDead = savedState.isDead
       entity.stats.isVanished = savedState.isVanished
       if (savedState.id) {
@@ -4057,7 +4079,8 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       applyStateToEntity(entity, savedState)
       continue
     }
-    const enemyType = savedState.enemyType ?? 'default'
+    const mapEnemy = resolveEnemyMapConfig(savedState)
+    const enemyType = mapEnemy?.enemyType ?? savedState.enemyType ?? 'default'
     const created = createEnemy(
       world,
       box2d,
@@ -4065,7 +4088,8 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       savedState.position.x,
       savedState.position.y,
       groundTopY,
-      enemyType
+      enemyType,
+      mapEnemy
     )
     applyStateToEntity(created, savedState)
   }
@@ -4079,7 +4103,8 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       applyStateToEntity(entity, savedState)
       continue
     }
-    const enemyType = savedState.enemyType ?? 'default'
+    const mapEnemy = resolveEnemyMapConfig(savedState)
+    const enemyType = mapEnemy?.enemyType ?? savedState.enemyType ?? 'default'
     const created = createEnemy(
       world,
       box2d,
@@ -4087,7 +4112,8 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       savedState.position.x,
       savedState.position.y,
       groundTopY,
-      enemyType
+      enemyType,
+      mapEnemy
     )
     applyStateToEntity(created, savedState)
   }
