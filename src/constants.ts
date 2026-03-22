@@ -64,7 +64,7 @@ export const PARRY_COUNTER_WINDOW_MS = 500
 // 崩塌机制
 export const STAGGER_DURATION_MS = 3000
 export const STAGGER_DAMAGE_MULTIPLIER = 4
-export const STAGGER_KNOCKBACK_MULTIPLIER = 5
+export const STAGGER_KNOCKBACK_MULTIPLIER = 2
 export const STAGGER_HIT_STUN_DURATION_MS = 500
 export const WEAPON_DROP_DURATION_MS = 300
 
@@ -74,10 +74,27 @@ export const HIT_STUN_LIGHT_MS = 500
 export const HIT_STUN_MEDIUM_MS = DEFAULT_HIT_STUN_DURATION_MS
 export const HIT_STUN_HEAVY_MS = 1500
 
-// 攻击冲击力
-export const DEFAULT_ATTACK_KNOCKBACK = 1
-export const COMBO_FINISHER_KNOCKBACK = 2
-export const JUMP_ATTACK_KNOCKBACK = 2
+// 冲击力等级对应的速度变化量（m/s），公式：velocity += finalKnockback * 2
+// 地面摩擦减速约 40 m/s²，参考位移距离：medium≈0.45m, large≈1.8m, extreme≈5m
+export const IMPACT_LEVEL_KNOCKBACK = {
+  small: 0,
+  medium: 3,
+  large: 6,
+  extreme: 10,
+} as const
+
+// 武器类型对应的默认冲击力等级
+export const WEAPON_IMPACT_LEVEL = {
+  shortSword: 'small',
+  bow: 'small',
+  hook: 'small',
+  arrow: 'small',
+  sword: 'medium',
+  hammer: 'medium',
+  spear: 'medium',
+  longSword: 'large',
+  bigHammer: 'large',
+} as const
 
 // 死亡动画（秒）
 export const DEFAULT_DEATH_FLASH_DURATION = 0.3
@@ -339,6 +356,9 @@ export const DEFAULT_BOW_AMMO_PLAYER = 20
 export const DEFAULT_BOW_AMMO_ENEMY = 50
 
 // 武器模板配置
+// 武器基础数值规则：同类武器每大一个尺寸等级，数值 ×1.2（约 +20%）
+// 剑类: shortSword(1) → sword(2) → longSword(3)，比例约 1 : 1.2 : 1.44
+// 锤类: hammer(1) → bigHammer(2)，比例约 1 : 1.25
 export const WEAPON_DEFAULT_DATA = {
   sword: {
     width: 1.2,
@@ -346,9 +366,9 @@ export const WEAPON_DEFAULT_DATA = {
     sizeLevel: 2,
     sizeMaxLevel: 4,
     weight: 2,
-    attackDamage: 2,
+    attackDamage: 2.5,
     postureDamage: 6,
-    toughnessDamage: 3,
+    toughnessDamage: 2.5,
   },
   shortSword: {
     width: 0.8,
@@ -356,8 +376,8 @@ export const WEAPON_DEFAULT_DATA = {
     sizeLevel: 1,
     sizeMaxLevel: 4,
     weight: 1.5,
-    attackDamage: 1.5,
-    postureDamage: 4,
+    attackDamage: 2,
+    postureDamage: 5,
     toughnessDamage: 2,
   },
   longSword: {
@@ -367,8 +387,8 @@ export const WEAPON_DEFAULT_DATA = {
     sizeMaxLevel: 4,
     weight: 3,
     attackDamage: 3,
-    postureDamage: 8,
-    toughnessDamage: 4,
+    postureDamage: 7,
+    toughnessDamage: 3,
   },
   spear: {
     width: 4.0,
@@ -376,9 +396,9 @@ export const WEAPON_DEFAULT_DATA = {
     sizeLevel: 1,
     sizeMaxLevel: 1,
     weight: 3,
-    attackDamage: 1,
-    postureDamage: 8,
-    toughnessDamage: 1.5,
+    attackDamage: 1.5,
+    postureDamage: 7,
+    toughnessDamage: 2.5,
   },
   hammer: {
     width: 1.1,
@@ -386,7 +406,7 @@ export const WEAPON_DEFAULT_DATA = {
     sizeLevel: 1,
     sizeMaxLevel: 1,
     weight: 3,
-    attackDamage: 1.3333333333333333,
+    attackDamage: 2,
     postureDamage: 8,
     toughnessDamage: 4,
   },
@@ -396,9 +416,9 @@ export const WEAPON_DEFAULT_DATA = {
     sizeLevel: 1,
     sizeMaxLevel: 1,
     weight: 6,
-    attackDamage: 2.6666666666666665,
-    postureDamage: 16,
-    toughnessDamage: 8,
+    attackDamage: 2.5,
+    postureDamage: 10,
+    toughnessDamage: 5,
   },
   bow: {
     width: 1.2,
@@ -406,8 +426,8 @@ export const WEAPON_DEFAULT_DATA = {
     sizeLevel: 1,
     sizeMaxLevel: 2,
     weight: 1.5,
-    attackDamage: 2,
-    postureDamage: 2,
+    attackDamage: 1.5,
+    postureDamage: 3,
     toughnessDamage: 1,
   },
   hook: {

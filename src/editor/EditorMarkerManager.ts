@@ -12,6 +12,7 @@ import {
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { getDefaultNormalAttackMovesetId } from '../ecs/AttackMoveRegistry'
+import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type {
   MapCheckpoint,
@@ -688,9 +689,11 @@ export class EditorMarkerManager {
     }
     const template = WEAPON_DEFAULT_DATA[weaponType]
     const sizeLevel = spawn?.sizeLevel ?? template.sizeLevel
-    const attackDamage = spawn?.attackDamage ?? template.attackDamage
-    const postureDamage = spawn?.postureDamage ?? template.postureDamage
-    const toughnessDamage = spawn?.toughnessDamage ?? template.toughnessDamage
+    const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
+    const attackDamage = spawn?.attackDamage ?? template.attackDamage * scaleFactor
+    const postureDamage = spawn?.postureDamage ?? template.postureDamage * scaleFactor
+    const toughnessDamage =
+      spawn?.toughnessDamage ?? template.toughnessDamage * scaleFactor
     const bowAmmo =
       spawn?.bowAmmo ??
       (weaponType === 'bow' ? DEFAULT_BOW_AMMO_PLAYER : undefined)

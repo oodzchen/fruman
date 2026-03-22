@@ -16,6 +16,7 @@ import {
   HIT_STUN_HEAVY_MS,
   HIT_STUN_LIGHT_MS,
   HIT_STUN_MEDIUM_MS,
+  IMPACT_LEVEL_KNOCKBACK,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
   SOUND_DB_BODY_HIT,
@@ -27,6 +28,7 @@ import {
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
+import type { ImpactLevel } from '../AttackMoveData'
 import { PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -454,7 +456,7 @@ export class StatsSystem extends System {
       attackDamage: number
       postureDamage: number
       toughnessDamage: number
-      knockback?: number
+      impactLevel?: ImpactLevel
       weaponType?: WeaponVisualType
     },
     hitSource?: { x: number; y: number }
@@ -471,13 +473,13 @@ export class StatsSystem extends System {
       0,
       weapon?.toughnessDamage ?? DEFAULT_WEAPON_TOUGHNESS_DAMAGE
     )
-    const knockback = Math.max(0, weapon?.knockback ?? 0)
+    const impactLevel: ImpactLevel = weapon?.impactLevel ?? 'small'
     this.applyDamage(
       entity,
       attackDamage,
       postureDamage,
       toughnessDamage,
-      knockback,
+      impactLevel,
       hitSource,
       weapon?.weaponType
     )
@@ -488,7 +490,7 @@ export class StatsSystem extends System {
     healthDamage: number,
     postureDamage: number,
     toughnessDamage: number,
-    knockback: number,
+    impactLevel: ImpactLevel,
     hitSource?: { x: number; y: number },
     weaponType?: WeaponVisualType
   ): void {
@@ -535,7 +537,7 @@ export class StatsSystem extends System {
     let finalHealthDamage = Math.max(0, healthDamage)
     let finalPostureDamage = Math.max(0, postureDamage)
     let finalToughnessDamage = Math.max(0, toughnessDamage)
-    let finalKnockback = knockback
+    let finalKnockback = IMPACT_LEVEL_KNOCKBACK[impactLevel]
 
     // 崩塌期间受击：伤害翻倍、击退加强、解除崩塌
     const wasStaggered = entity.stats.isStaggered
@@ -636,6 +638,18 @@ export class StatsSystem extends System {
       this.triggerStagger(entity)
     }
 
+    // 极大冲击力在韧性被清空时强制触发倒地
+    let extremeKnockdown = false
+    if (
+      impactLevel === 'extreme' &&
+      toughnessBroken &&
+      !wasStaggered &&
+      !entity.stats.isStaggered
+    ) {
+      this.triggerStagger(entity)
+      extremeKnockdown = true
+    }
+
     if (hitSource && entity.transform) {
       const dirX = entity.transform.x - hitSource.x
       const dirY = entity.transform.y - hitSource.y
@@ -671,7 +685,10 @@ export class StatsSystem extends System {
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       }
 
-      if ((toughnessBroken || wasStaggered) && !isBlockingSuccessfully) {
+      if (
+        (toughnessBroken || wasStaggered || extremeKnockdown) &&
+        !isBlockingSuccessfully
+      ) {
         const hitStunOverrideMs = wasStaggered
           ? STAGGER_HIT_STUN_DURATION_MS
           : undefined
@@ -709,7 +726,13 @@ export class StatsSystem extends System {
         }
       }
 
-      if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {
+      if (
+        finalKnockback > 0 &&
+        (toughnessBroken || wasStaggered) &&
+        entity.physics &&
+        this.box2d &&
+        this.tempVec
+      ) {
         const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = this.box2d
         const mass = b2Body_GetMass(entity.physics.bodyId)
 

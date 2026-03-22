@@ -32,6 +32,7 @@ import type {
   b2BodyId,
   b2ShapeId,
 } from '../types'
+import type { ImpactLevel } from './AttackMoveData'
 import { componentRegistry } from './ComponentRegistry'
 
 export abstract class Component {
@@ -506,7 +507,7 @@ export class WeaponComponent extends Component {
   originalAttackDamage: number | null = null
   originalPostureDamage: number | null = null
   originalToughnessDamage: number | null = null
-  knockback = 0
+  impactLevel: ImpactLevel = 'medium'
   isColliding = false
   isUnstoppable = false
   position = { x: 0, y: 0 }
@@ -632,7 +633,7 @@ export class WeaponComponent extends Component {
     this.originalAttackDamage = null
     this.originalPostureDamage = null
     this.originalToughnessDamage = null
-    this.knockback = 0
+    this.impactLevel = 'medium'
     this.isColliding = false
     this.isUnstoppable = false
     this.position.x = 0

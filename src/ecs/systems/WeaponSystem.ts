@@ -9,9 +9,7 @@ import {
   BOW_MIN_WINDUP_MS,
   BOW_RECOVER_MS,
   CATEGORY_WEAPON,
-  COMBO_FINISHER_KNOCKBACK,
   DEBUG_ANIMATION_SLOWDOWN,
-  DEFAULT_ATTACK_KNOCKBACK,
   DEFAULT_FRAME_RATE,
   DEFAULT_GRAVITY,
   DEFAULT_PARRY_WINDOW_MS,
@@ -44,6 +42,7 @@ import {
   SOUND_DB_SWORD_SWING,
   WEAPON_DEFAULT_DATA,
   WEAPON_DROP_DURATION_MS,
+  WEAPON_IMPACT_LEVEL,
 } from '../../constants'
 import type {
   MainModule,
@@ -53,7 +52,7 @@ import type {
 } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
-import type { AttackMoveData } from '../AttackMoveData'
+import type { AttackMoveData, ImpactLevel } from '../AttackMoveData'
 import {
   ATTACK_MOVES,
   ATTACK_MOVESETS,
@@ -966,7 +965,7 @@ export class WeaponSystem extends System {
       weapon.activeMoveIndex += 1
       weapon.activeMoveId = nextMove.id
       weapon.swingDirection = nextMove.swingDirection
-      weapon.knockback = nextMove.knockback
+      weapon.impactLevel = this.resolveImpactLevel(nextMove, weapon.weaponType)
       weapon.isUnstoppable = nextMove.isUnstoppable
       attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
@@ -1024,6 +1023,17 @@ export class WeaponSystem extends System {
   private getActiveMove(weapon: Entity['weapon']): AttackMoveData | null {
     if (!weapon || !weapon.activeMoveId) return null
     return ATTACK_MOVES[weapon.activeMoveId] || null
+  }
+
+  private resolveImpactLevel(
+    move: AttackMoveData,
+    weaponType: WeaponVisualType
+  ): ImpactLevel {
+    if (move.impactLevel !== undefined) return move.impactLevel
+    return (
+      (WEAPON_IMPACT_LEVEL as Record<string, ImpactLevel>)[weaponType] ??
+      'medium'
+    )
   }
 
   private isMoveCompatibleWithWeapon(
@@ -1375,7 +1385,10 @@ export class WeaponSystem extends System {
         weapon.activeMoveIndex += 1
         weapon.activeMoveId = nextMove.id
         weapon.swingDirection = nextMove.swingDirection
-        weapon.knockback = nextMove.knockback
+        weapon.impactLevel = this.resolveImpactLevel(
+          nextMove,
+          weapon.weaponType
+        )
         weapon.isUnstoppable = nextMove.isUnstoppable
         attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
@@ -2163,14 +2176,10 @@ export class WeaponSystem extends System {
     arrowWeapon.cornerRadius = 0
     arrowWeapon.weight = 0
     arrowWeapon.weaponType = 'arrow'
-    const baseAttackDamage = weapon.attackDamage * forceMultiplier
-    const basePostureDamage = weapon.postureDamage * forceMultiplier
-    const baseToughnessDamage = weapon.toughnessDamage * forceMultiplier
-    const baseKnockback = weapon.knockback * forceMultiplier
-    arrowWeapon.attackDamage = baseAttackDamage
-    arrowWeapon.postureDamage = basePostureDamage
-    arrowWeapon.toughnessDamage = baseToughnessDamage
-    arrowWeapon.knockback = baseKnockback
+    arrowWeapon.attackDamage = weapon.attackDamage * forceMultiplier
+    arrowWeapon.postureDamage = weapon.postureDamage * forceMultiplier
+    arrowWeapon.toughnessDamage = weapon.toughnessDamage * forceMultiplier
+    arrowWeapon.impactLevel = 'small'
     arrowWeapon.isEquipped = false
     arrowWeapon.attackPhase = 'idle'
     arrowWeapon.visual.x = arrowTransform.x
@@ -2499,7 +2508,7 @@ export class WeaponSystem extends System {
           attackDamage: damage,
           postureDamage: posture,
           toughnessDamage: toughness,
-          knockback: 3,
+          impactLevel: 'extreme',
           weaponType: 'sword',
         },
         { x: giantX, y: groundY }
@@ -3186,7 +3195,10 @@ export class WeaponSystem extends System {
               }
               weapon.activeMoveId = firstMoveId
               weapon.swingDirection = move.swingDirection
-              weapon.knockback = move.knockback
+              weapon.impactLevel = this.resolveImpactLevel(
+                move,
+                weapon.weaponType
+              )
               weapon.isUnstoppable = move.isUnstoppable
               attackRadius = (attackRadius * move.radiusScale) / 100
               weapon.attackRadius = attackRadius

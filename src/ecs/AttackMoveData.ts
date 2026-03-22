@@ -2,6 +2,9 @@ import type { WeaponType } from '../types'
 
 export type AttackKind = 'slash' | 'thrust' | 'strike' | 'sweep'
 
+// 冲击力等级：小=无位移，中=普通位移，大=较大位移，极大=大位移+倒地
+export type ImpactLevel = 'small' | 'medium' | 'large' | 'extreme'
+
 // 单个攻击动作
 export type AttackMoveData = {
   id: string // 'sword_slash_front'
@@ -16,7 +19,7 @@ export type AttackMoveData = {
   damageScaleNumerator?: number // 伤害/削韧系数分子（默认 1）
   damageScaleDenominator?: number // 伤害/削韧系数分母（默认 1）
   compatibleWeaponTypes?: WeaponType[] // 兼容武器类型，未配置则默认兼容全部
-  knockback: number // 冲击力
+  impactLevel?: ImpactLevel // 冲击力等级覆盖（未设置则使用武器默认等级）
   isUnstoppable: boolean // 霸体
   swingDirection: 'toFront' | 'toHead'
   radiusScale: number // 攻击范围百分比(100=1x)

@@ -823,7 +823,7 @@ export class MovementSystem extends System {
         attackDamage: fatalDamage,
         postureDamage: 0,
         toughnessDamage: 0,
-        knockback: 0,
+        impactLevel: 'small',
       })
     } else if (kineticEnergy >= FALL_DAMAGE_KINETIC_THRESHOLD) {
       const excessKinetic = kineticEnergy - FALL_DAMAGE_KINETIC_THRESHOLD
@@ -832,7 +832,7 @@ export class MovementSystem extends System {
         attackDamage: damage,
         postureDamage: 0,
         toughnessDamage: 0,
-        knockback: 0,
+        impactLevel: 'small',
       })
     }
   }
@@ -854,7 +854,7 @@ export class MovementSystem extends System {
       attackDamage: fatalDamage,
       postureDamage: 0,
       toughnessDamage: 0,
-      knockback: 0,
+      impactLevel: 'small',
     })
   }
 

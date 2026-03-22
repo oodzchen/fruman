@@ -1128,9 +1128,27 @@ export class EditorPropertiesPanel {
         weaponType,
         category,
         sizeLevel: marker.sizeLevel ?? template.sizeLevel,
-        attackDamage: marker.attackDamage ?? template.attackDamage,
-        postureDamage: marker.postureDamage ?? template.postureDamage,
-        toughnessDamage: marker.toughnessDamage ?? template.toughnessDamage,
+        attackDamage:
+          marker.attackDamage ??
+          template.attackDamage *
+            computeWeaponScaleFactor(
+              template,
+              marker.sizeLevel ?? template.sizeLevel
+            ),
+        postureDamage:
+          marker.postureDamage ??
+          template.postureDamage *
+            computeWeaponScaleFactor(
+              template,
+              marker.sizeLevel ?? template.sizeLevel
+            ),
+        toughnessDamage:
+          marker.toughnessDamage ??
+          template.toughnessDamage *
+            computeWeaponScaleFactor(
+              template,
+              marker.sizeLevel ?? template.sizeLevel
+            ),
         bowAmmo:
           weaponType === 'bow'
             ? (marker.bowAmmo ?? DEFAULT_BOW_AMMO_PLAYER)

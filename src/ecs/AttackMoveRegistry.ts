@@ -44,7 +44,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -60,7 +60,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toHead',
     radiusScale: 100,
@@ -76,7 +76,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -92,7 +92,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toHead',
     radiusScale: 100,
@@ -108,7 +108,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
-    knockback: 2,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 120,
@@ -127,7 +127,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
     compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -146,7 +146,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
     compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -165,7 +165,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
     compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -184,7 +184,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
     compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -203,7 +203,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     damageScaleNumerator: 2,
     damageScaleDenominator: 3,
     compatibleWeaponTypes: ['sword', 'shortSword', 'longSword', 'spear'],
-    knockback: 2,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 130,
@@ -220,7 +220,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     postureDamage: 0,
     toughnessDamage: 0,
     compatibleWeaponTypes: ['hammer', 'bigHammer'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -237,7 +237,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     postureDamage: 0,
     toughnessDamage: 0,
     compatibleWeaponTypes: ['hammer', 'bigHammer'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -254,7 +254,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     postureDamage: 0,
     toughnessDamage: 0,
     compatibleWeaponTypes: ['hammer', 'bigHammer'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 100,
@@ -271,7 +271,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     postureDamage: 0,
     toughnessDamage: 0,
     compatibleWeaponTypes: ['hammer', 'bigHammer'],
-    knockback: 1,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 105,
@@ -288,7 +288,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
     postureDamage: 0,
     toughnessDamage: 0,
     compatibleWeaponTypes: ['hammer', 'bigHammer'],
-    knockback: 2,
+
     isUnstoppable: false,
     swingDirection: 'toFront',
     radiusScale: 120,
