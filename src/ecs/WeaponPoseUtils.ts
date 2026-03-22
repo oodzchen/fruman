@@ -24,6 +24,7 @@ export function setWeaponBackTransform(
     return
   }
 
-  out.y = playerPos.y
+  // 将武器下方（剑柄端）限制在地面以上，当武器足够长时上移中心点
+  out.y = playerPos.y + Math.min(0, radius - weaponWidth / 2)
   out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 }

@@ -3824,7 +3824,7 @@ export class WeaponSystem extends System {
     }
 
     out.x = playerPos.x + facing * 0
-    out.y = playerPos.y - DEFAULT_WEAPON_WIDTH / 2
+    out.y = playerPos.y - weaponWidth / 2
     out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
   }
 
