@@ -354,6 +354,7 @@ export class ClientRenderer {
 
     if (playerOffset !== -1) {
       this.renderUltimateSword(playerOffset)
+      this.renderHammerUltimateShockwave(playerOffset)
     }
 
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
@@ -877,19 +878,24 @@ export class ClientRenderer {
       secondaryWeaponKind === 'bow' ? this.getAmmoText(secondaryAmmoValue) : ''
     )
 
-    const currentWeaponType = buf[playerOffset + OFFSETS.WEAPON_TYPE] | 0
-    const currentWeaponActive = buf[playerOffset + OFFSETS.WEAPON_ACTIVE] === 1
+    const ultimateActiveWeaponType =
+      activeSlot === 0
+        ? buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_TYPE] | 0
+        : buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_TYPE] | 0
+    const currentWeaponIsHammer =
+      ultimateActiveWeaponType === WEAPON_TYPES.HAMMER ||
+      ultimateActiveWeaponType === WEAPON_TYPES.BIG_HAMMER
     const currentWeaponIsSword =
-      currentWeaponActive &&
-      (currentWeaponType === WEAPON_TYPES.SWORD ||
-        currentWeaponType === WEAPON_TYPES.SHORT_SWORD ||
-        currentWeaponType === WEAPON_TYPES.LONG_SWORD)
-    if (currentWeaponIsSword) {
+      ultimateActiveWeaponType === WEAPON_TYPES.SWORD ||
+      ultimateActiveWeaponType === WEAPON_TYPES.SHORT_SWORD ||
+      ultimateActiveWeaponType === WEAPON_TYPES.LONG_SWORD
+    if (currentWeaponIsSword || currentWeaponIsHammer) {
       const cooldownRatio =
         buf[playerOffset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] | 0
       // 绝招动画进行中时立即显示满蒙层
       const ultimateAnimActive =
-        (buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] | 0) >= 1
+        (buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] | 0) >= 1 ||
+        buf[playerOffset + OFFSETS.HAMMER_ULTIMATE_ACTIVE] === 1
       const displayCooldownRatio = ultimateAnimActive ? 100 : cooldownRatio
       // 有蒙层时不显示光晕
       const ultimateReady =
@@ -905,7 +911,8 @@ export class ClientRenderer {
         ultimateCy,
         displayCooldownRatio,
         ultimateReady,
-        flashTimer100
+        flashTimer100,
+        currentWeaponIsHammer
       )
     }
   }
@@ -1066,6 +1073,49 @@ export class ClientRenderer {
       '#c8d8ff',
       false
     )
+    this.ctx.restore()
+  }
+
+  private renderHammerUltimateShockwave(playerOffset: number): void {
+    const buf = this.stateBuffer
+    if (buf[playerOffset + OFFSETS.HAMMER_ULTIMATE_ACTIVE] !== 1) return
+    const impact100 = buf[playerOffset + OFFSETS.HAMMER_ULTIMATE_IMPACT100] | 0
+    if (impact100 <= 0) return
+
+    const ppm = this.pixelsPerMeter
+    // 冲击波中心 = 锤头触地点，与游戏 AOE 圆心一致
+    const cx = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_X] * ppm
+    const cy = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_GROUND_Y] * ppm
+
+    const progress = impact100 / 100
+    // AOE 半径与 WeaponSystem.ts 中 HAMMER_AOE_RADIUS 保持一致（4m）
+    const HAMMER_AOE_R_M = 4
+    const maxReach = HAMMER_AOE_R_M * ppm
+    // 固定长度条状物从中心向外飞散，中心保持空旷
+    const BAR_LEN = ppm * 0.8
+    const outerEdge = progress * maxReach
+    const innerEdge = Math.max(0, outerEdge - BAR_LEN)
+    const BAR_COUNT = 7
+    const BAR_W = Math.max(3, ppm * 0.12)
+    const alpha = (1 - progress) * 0.8
+
+    this.ctx.save()
+    this.ctx.globalAlpha = alpha
+    this.ctx.strokeStyle = '#e8e0c8'
+    this.ctx.lineWidth = BAR_W
+    this.ctx.lineCap = 'round'
+
+    // 上半圆（从右→上→左），贴地爆炸向四周扩散
+    for (let i = 0; i < BAR_COUNT; i++) {
+      const angle = -(i / (BAR_COUNT - 1)) * Math.PI
+      const cos = Math.cos(angle)
+      const sin = Math.sin(angle)
+      this.ctx.beginPath()
+      this.ctx.moveTo(cx + cos * innerEdge, cy + sin * innerEdge)
+      this.ctx.lineTo(cx + cos * outerEdge, cy + sin * outerEdge)
+      this.ctx.stroke()
+    }
+
     this.ctx.restore()
   }
 

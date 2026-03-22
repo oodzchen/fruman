@@ -97,6 +97,19 @@ const ULTIMATE_THRUST_DIST = 3 // 手中剑向上飞行距离（米）
 // 护手宽度 = max(halfHeight+2, floor(height*90%)) = max(1+2, floor(2.7)) = 3m
 const ULTIMATE_GIANT_HALF_WIDTH = 3 // AOE 水平伤害半径，覆盖护手全宽
 
+// 锤子绝招动画参数
+const HAMMER_SPIN_MS = 900
+const HAMMER_SPIN_START_RATIO = 0.15 // 前15%从准备位置过渡到轨道起点
+const HAMMER_JUMP_RISE_MS = 700
+const HAMMER_JUMP_RISE_SWING_RATIO = 0.3 // 跳升前30%将武器从前方摆到举高位置
+const HAMMER_JUMP_APEX_MS = 350
+const HAMMER_FALL_MS = 550
+const HAMMER_LAND_MS = 800
+const HAMMER_RECOVER_MS = 600
+const HAMMER_JUMP_HEIGHT = 8 // 跳跃视觉高度（米），约为普通跳跃4倍
+const HAMMER_AOE_RADIUS = 4 // 落地AOE伤害范围（米）
+const HAMMER_ULTIMATE_MAX_DIST = 12 // 落地点最大距离（米）= 约可视范围一半
+
 // 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
 const FRONT_SWING_TILT_RAD = Math.PI / 16
 const THRUST_START_RATIO = 35
@@ -182,6 +195,7 @@ export class WeaponSystem extends System {
     bowAmmoMax: 0,
   }
   private tempPlayerPos = { x: 0, y: 0 }
+  private tempVisualPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
   private tempObbVerts = [
     { x: 0, y: 0 },
@@ -2434,6 +2448,15 @@ export class WeaponSystem extends System {
     const holdY = playerPos.y
     const holdRot = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 
+    // 锤子绝招使用视觉偏移后的位置来计算武器坐标
+    if (
+      weapon.ultimatePhase !== null &&
+      weapon.ultimatePhase.startsWith('hammer_')
+    ) {
+      this.handleHammerUltimatePhases(entity, weapon, playerPos, deltaMs)
+      return
+    }
+
     switch (weapon.ultimatePhase) {
       case 'spin': {
         const t = this.clamp01(weapon.ultimateElapsedMs / ULTIMATE_SPIN_MS)
@@ -2583,17 +2606,314 @@ export class WeaponSystem extends System {
     }
   }
 
-  handleUltimateRequest(entity: Entity): void {
+  private handleHammerUltimatePhases(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>,
+    playerPos: { x: number; y: number },
+    _deltaMs: number
+  ): void {
+    const facing = weapon.ultimateFacing
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const frontAngle =
+      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
+    const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+
+    // 构建当前帧的视觉玩家位置（跳跃偏移）
+    this.tempVisualPos.x = playerPos.x + weapon.ultimateHammerVisualDX
+    this.tempVisualPos.y = playerPos.y - weapon.ultimateHammerJumpOffsetY
+    const visualPos = this.tempVisualPos
+
+    switch (weapon.ultimatePhase) {
+      case 'hammer_spin': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_SPIN_MS)
+        if (t < HAMMER_SPIN_START_RATIO) {
+          // 前段：从准备位置平滑过渡到轨道起点（前方），自然衔接无闪现
+          const st = t / HAMMER_SPIN_START_RATIO
+          const ease = st * st * (3 - 2 * st)
+          this.getTransformAtAngle(
+            playerPos,
+            frontAngle,
+            radius,
+            this.tempTransform
+          )
+          weapon.visual.x =
+            weapon.ultimateSpinStartX +
+            (this.tempTransform.x - weapon.ultimateSpinStartX) * ease
+          weapon.visual.y =
+            weapon.ultimateSpinStartY +
+            (this.tempTransform.y - weapon.ultimateSpinStartY) * ease
+          weapon.visual.rotation =
+            weapon.ultimateSpinStartRot +
+            (this.tempTransform.rotation - weapon.ultimateSpinStartRot) * ease
+        } else {
+          // 主段：从前方出发逆/顺时针绕一圈回到前方（从前方，由上而过）
+          const st =
+            (t - HAMMER_SPIN_START_RATIO) / (1 - HAMMER_SPIN_START_RATIO)
+          const spinAngle = frontAngle + -facing * st * Math.PI * 2
+          this.getTransformAtAngle(playerPos, spinAngle, radius, weapon.visual)
+        }
+        if (t >= 1) {
+          weapon.ultimatePhase = 'hammer_jump_rise'
+          weapon.ultimateElapsedMs = 0
+          weapon.ultimateHammerJumpOffsetY = 0
+          weapon.ultimateHammerVisualDX = 0
+        }
+        break
+      }
+      case 'hammer_jump_rise': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_JUMP_RISE_MS)
+        // 物理感：垂直 easeOut（抛出减速），水平匀速
+        const riseEase = 1 - (1 - t) * (1 - t)
+        const startX = entity.transform?.x ?? playerPos.x
+        weapon.ultimateHammerJumpOffsetY =
+          Math.round(riseEase * HAMMER_JUMP_HEIGHT * 100) / 100
+        weapon.ultimateHammerVisualDX =
+          (weapon.ultimateHammerLandX - startX) * t
+        // 消除一帧延迟：用当前帧最新偏移量重新计算 visualPos
+        visualPos.x = playerPos.x + weapon.ultimateHammerVisualDX
+        visualPos.y = playerPos.y - weapon.ultimateHammerJumpOffsetY
+        // 举高位置：比普通前摇最高点（radius）高出约3倍，体现蓄力感
+        const overheadOffset = radius * 3
+        if (t < HAMMER_JUMP_RISE_SWING_RATIO) {
+          // 前段：以视觉玩家为基准，从前方偏移量插值到举高偏移量
+          const st = t / HAMMER_JUMP_RISE_SWING_RATIO
+          const swingEase = st * st * (3 - 2 * st)
+          const spinOffX = Math.cos(frontAngle) * radius
+          const spinOffY = Math.sin(frontAngle) * radius
+          weapon.visual.x = visualPos.x + spinOffX + (0 - spinOffX) * swingEase
+          weapon.visual.y =
+            visualPos.y + spinOffY + (-overheadOffset - spinOffY) * swingEase
+          weapon.visual.rotation =
+            frontAngle + (headAngle - frontAngle) * swingEase
+        } else {
+          // 后段：举高保持，明显区别于默认位置
+          weapon.visual.x = visualPos.x
+          weapon.visual.y = visualPos.y - overheadOffset
+          weapon.visual.rotation = headAngle
+        }
+        if (t >= 1) {
+          weapon.ultimatePhase = 'hammer_jump_apex'
+          weapon.ultimateElapsedMs = 0
+          weapon.ultimateHammerJumpOffsetY = HAMMER_JUMP_HEIGHT
+          // 在最高点重新查询锁定目标位置，修正追踪偏差
+          if (
+            entity.input?.lockedTargetId !== null &&
+            entity.input?.lockedTargetId !== undefined &&
+            this.entityLookup
+          ) {
+            const locked = this.entityLookup(entity.input.lockedTargetId)
+            if (locked?.transform && locked.stats && !locked.stats.isDead) {
+              const newLandX =
+                locked.transform.x -
+                Math.cos(frontAngle) * (radius + weapon.width / 2)
+              const baseX = entity.transform?.x ?? playerPos.x
+              const rawDx = newLandX - baseX
+              const clampedDx =
+                rawDx > HAMMER_ULTIMATE_MAX_DIST
+                  ? HAMMER_ULTIMATE_MAX_DIST
+                  : rawDx < -HAMMER_ULTIMATE_MAX_DIST
+                    ? -HAMMER_ULTIMATE_MAX_DIST
+                    : rawDx
+              weapon.ultimateHammerLandX = baseX + clampedDx
+            }
+          }
+          weapon.ultimateHammerVisualDX =
+            weapon.ultimateHammerLandX - (entity.transform?.x ?? playerPos.x)
+        }
+        break
+      }
+      case 'hammer_jump_apex': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_JUMP_APEX_MS)
+        // 最高点：从高举位置猛击向前方，比轨道更有力度感
+        const overheadOffset = radius * 3
+        const swingEase = t * t * (3 - 2 * t)
+        this.getTransformAtAngle(
+          visualPos,
+          frontAngle,
+          radius,
+          this.tempTransform
+        )
+        weapon.visual.x =
+          visualPos.x + (this.tempTransform.x - visualPos.x) * swingEase
+        weapon.visual.y =
+          visualPos.y -
+          overheadOffset +
+          (this.tempTransform.y - (visualPos.y - overheadOffset)) * swingEase
+        weapon.visual.rotation =
+          headAngle + (frontAngle - headAngle) * swingEase
+        if (t >= 1) {
+          weapon.ultimatePhase = 'hammer_fall'
+          weapon.ultimateElapsedMs = 0
+        }
+        break
+      }
+      case 'hammer_fall': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_FALL_MS)
+        // 物理感：重力加速下落 easeIn
+        const fallEase = t * t
+        weapon.ultimateHammerJumpOffsetY =
+          Math.round(HAMMER_JUMP_HEIGHT * (1 - fallEase) * 100) / 100
+        // 武器保持打击后摇姿势（前方位置）
+        this.getTransformAtAngle(visualPos, frontAngle, radius, weapon.visual)
+        if (t >= 1) {
+          // 传送玩家物理位置
+          weapon.ultimateHammerJumpOffsetY = 0
+          this.teleportEntityToLanding(entity, weapon)
+          // 重新计算视觉位置（已落地，偏移归零，复用 tempPlayerPos）
+          this.tempPlayerPos.x = entity.transform?.x ?? playerPos.x
+          this.tempPlayerPos.y = entity.transform?.y ?? playerPos.y
+          weapon.ultimateHammerVisualDX = 0
+          this.getTransformAtAngle(
+            this.tempPlayerPos,
+            frontAngle,
+            radius,
+            weapon.visual
+          )
+          // 冲击波中心 = 锤头触地点（武器中心沿 frontAngle 方向偏移半长）
+          const halfLen = weapon.width / 2
+          weapon.ultimateGiantX =
+            weapon.visual.x + Math.cos(frontAngle) * halfLen
+          weapon.ultimateGiantGroundY =
+            weapon.visual.y + Math.sin(frontAngle) * halfLen
+          // 落地瞬间触发 AOE，中心已计算完毕
+          if (!weapon.ultimateDamageDealt) {
+            weapon.ultimateDamageDealt = true
+            this.applyHammerUltimateAOEDamage(entity)
+          }
+          weapon.ultimatePhase = 'hammer_land'
+          weapon.ultimateElapsedMs = 0
+          weapon.ultimateHammerImpact100 = 0
+        }
+        break
+      }
+      case 'hammer_land': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_LAND_MS)
+        weapon.ultimateHammerImpact100 = Math.round(t * 100)
+        // 武器保持在落地位置（playerPos 此帧已是落地坐标）
+        this.getTransformAtAngle(playerPos, frontAngle, radius, weapon.visual)
+        if (t >= 1) {
+          weapon.ultimatePhase = 'hammer_recover'
+          weapon.ultimateElapsedMs = 0
+          weapon.ultimateHammerImpact100 = 0
+          weapon.ultimateSpinStartX = weapon.visual.x
+          weapon.ultimateSpinStartY = weapon.visual.y
+          weapon.ultimateSpinStartRot = weapon.visual.rotation
+        }
+        break
+      }
+      case 'hammer_recover': {
+        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_RECOVER_MS)
+        this.getFrontTransform(
+          playerPos,
+          facing,
+          this.tempTransform,
+          radius,
+          weapon.weaponType as WeaponVisualType,
+          weapon.width
+        )
+        const ease = t * t * (3 - 2 * t)
+        weapon.visual.x =
+          weapon.ultimateSpinStartX +
+          (this.tempTransform.x - weapon.ultimateSpinStartX) * ease
+        weapon.visual.y =
+          weapon.ultimateSpinStartY +
+          (this.tempTransform.y - weapon.ultimateSpinStartY) * ease
+        weapon.visual.rotation =
+          weapon.ultimateSpinStartRot +
+          (DEFAULT_WEAPON_VERTICAL_ROTATION_RAD - weapon.ultimateSpinStartRot) *
+            ease
+        if (t >= 1) {
+          weapon.ultimatePhase = null
+          weapon.ultimateElapsedMs = 0
+          weapon.isUnstoppable = false
+          weapon.attackPhase = 'idle'
+          weapon.ultimateHammerImpact100 = 0
+          weapon.ultimateHammerJumpOffsetY = 0
+          weapon.ultimateHammerVisualDX = 0
+          if (entity.stats) entity.stats.isInvincible = false
+          if (entity.attackSlots)
+            entity.attackSlots.ultimate.cooldownRemainingMs =
+              ULTIMATE_COOLDOWN_MS
+        }
+        break
+      }
+      default:
+        break
+    }
+  }
+
+  private teleportEntityToLanding(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>
+  ): void {
+    if (!entity.physics || !entity.transform || !this.box2d || !this.tempVec)
+      return
+    const {
+      b2Body_SetTransform,
+      b2Body_GetRotation,
+      b2Body_SetLinearVelocity,
+    } = this.box2d
+    this.tempVec.x = weapon.ultimateHammerLandX
+    this.tempVec.y = entity.transform.y
+    b2Body_SetTransform(
+      entity.physics.bodyId,
+      this.tempVec,
+      b2Body_GetRotation(entity.physics.bodyId)
+    )
+    this.tempVec.x = 0
+    this.tempVec.y = 0
+    b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+    entity.transform.x = weapon.ultimateHammerLandX
+  }
+
+  private applyHammerUltimateAOEDamage(attacker: Entity): void {
+    if (!this.statsSystem || !attacker.faction || !attacker.weapon) return
+    const weapon = attacker.weapon
+    // AOE 中心 = 锤头触地点，与视觉爆炸效果对齐
+    const cx = weapon.ultimateGiantX
+    const cy = weapon.ultimateGiantGroundY
+    const damage = weapon.attackDamage * 5
+    const posture = weapon.postureDamage * 5
+    const toughness = weapon.toughnessDamage * 5
+    for (let i = 0; i < this.allEntities.length; i++) {
+      const target = this.allEntities[i]
+      if (!target || target.id === attacker.id) continue
+      if (!target.transform || !target.stats || target.stats.isDead) continue
+      if (!target.faction || !attacker.faction.canAttack(target.faction))
+        continue
+      const dx = target.transform.x - cx
+      const dy = target.transform.y - cy
+      if (dx * dx + dy * dy > HAMMER_AOE_RADIUS * HAMMER_AOE_RADIUS) continue
+      this.statsSystem.applyWeaponHit(
+        target,
+        {
+          attackDamage: damage,
+          postureDamage: posture,
+          toughnessDamage: toughness,
+          impactLevel: 'extreme',
+          weaponType: 'hammer',
+        },
+        { x: cx, y: cy }
+      )
+    }
+  }
+
+  handleUltimateRequest(entity: Entity, maxLandDist?: number): void {
     if (!entity.attackSlots || !entity.weapon || !entity.input) return
     if (!entity.transform) return
     const slot = entity.attackSlots.ultimate
     if (!slot.hasMoveset) return
     if (!entity.weapon.isEquipped) return
     const wt = entity.weapon.weaponType
-    if (wt !== 'sword') return
+    if (wt !== 'sword' && wt !== 'hammer') return
     if (slot.cooldownRemainingMs > 0) return
     if (entity.weapon.attackPhase !== 'idle') return
     if (entity.weapon.ultimatePhase !== null) return
+
+    if (wt === 'hammer') {
+      this.handleHammerUltimateRequest(entity, maxLandDist)
+      return
+    }
 
     const weapon = entity.weapon
     const facing =
@@ -2626,6 +2946,52 @@ export class WeaponSystem extends System {
     weapon.ultimateGiantRise100 = 0
     weapon.ultimateGiantAlpha100 = 0
     weapon.ultimateDamageDealt = false
+    weapon.isUnstoppable = true
+    weapon.attackFacing = facing
+    if (entity.stats) entity.stats.isInvincible = true
+  }
+
+  private handleHammerUltimateRequest(
+    entity: Entity,
+    maxLandDist?: number
+  ): void {
+    if (!entity.weapon || !entity.input || !entity.transform) return
+    const weapon = entity.weapon
+    const facing =
+      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const maxDist = maxLandDist ?? HAMMER_ULTIMATE_MAX_DIST
+
+    // 计算落地X：以锤头为基准对准目标（玩家落点 = 目标X - 锤头相对玩家的水平偏移）
+    const frontAngle =
+      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
+    const headOffset = Math.cos(frontAngle) * (radius + weapon.width / 2)
+    let landX = entity.transform.x
+    if (this.entityLookup && entity.input.lockedTargetId !== null) {
+      const locked = this.entityLookup(entity.input.lockedTargetId)
+      if (locked?.transform && locked.stats && !locked.stats.isDead) {
+        landX = locked.transform.x - headOffset
+      }
+    }
+    // 限制落地距离不超过 maxDist
+    const rawDx = landX - entity.transform.x
+    const clampedDx =
+      rawDx > maxDist ? maxDist : rawDx < -maxDist ? -maxDist : rawDx
+    landX = entity.transform.x + clampedDx
+
+    weapon.ultimatePhase = 'hammer_spin'
+    weapon.ultimateElapsedMs = 0
+    weapon.ultimateFacing = facing
+    weapon.ultimateSpinStartX = weapon.visual.x
+    weapon.ultimateSpinStartY = weapon.visual.y
+    weapon.ultimateSpinStartRot = weapon.visual.rotation
+    weapon.ultimateHammerLandX = landX
+    weapon.ultimateHammerJumpOffsetY = 0
+    weapon.ultimateHammerVisualDX = 0
+    weapon.ultimateHammerImpact100 = 0
+    weapon.ultimateDamageDealt = false
+    weapon.ultimateGiantX = 0
+    weapon.ultimateGiantGroundY = 0
     weapon.isUnstoppable = true
     weapon.attackFacing = facing
     if (entity.stats) entity.stats.isInvincible = true

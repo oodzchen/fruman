@@ -453,7 +453,7 @@ export type AttackSlotData = {
   movesetId: string
 }
 
-export const ULTIMATE_COOLDOWN_MS = 10000
+export const ULTIMATE_COOLDOWN_MS = 0 // DEBUG: 冷却清零，方便测试绝招
 
 export type UltimateSlotData = {
   hasMoveset: boolean
@@ -597,24 +597,35 @@ export class WeaponComponent extends Component {
 
   pickupCooldownEndTime = 0 // 在此时间之前不可拾取（毫秒时间戳）
 
-  // 绝招动画状态（仅对装备剑类武器的玩家有效）
+  // 绝招动画状态
   ultimatePhase:
     | 'spin'
     | 'hold'
     | 'thrust'
     | 'giant_wait'
     | 'giant_recover'
+    | 'hammer_spin'
+    | 'hammer_jump_rise'
+    | 'hammer_jump_apex'
+    | 'hammer_fall'
+    | 'hammer_land'
+    | 'hammer_recover'
     | null = null
   ultimateElapsedMs = 0
   ultimateFacing = 1
   ultimateSpinStartX = 0
   ultimateSpinStartY = 0
   ultimateSpinStartRot = 0
-  ultimateGiantX = 0 // 巨剑中心世界 X
-  ultimateGiantGroundY = 0 // 巨剑升出地面的 Y 参考点（玩家脚底）
+  ultimateGiantX = 0 // 剑：巨剑中心X / 锤：冲击波中心X
+  ultimateGiantGroundY = 0 // 剑：玩家脚底Y / 锤：冲击波中心Y
   ultimateGiantRise100 = 0 // 0-100：巨剑升起进度
   ultimateGiantAlpha100 = 0 // 0-100：巨剑不透明度
   ultimateDamageDealt = false
+  // 锤子绝招专用视觉状态
+  ultimateHammerLandX = 0 // 落地目标X（世界坐标）
+  ultimateHammerJumpOffsetY = 0 // 当前视觉跳跃高度偏移（米，>0 = 上升）
+  ultimateHammerVisualDX = 0 // 当前视觉X偏移（米，从起点到落点）
+  ultimateHammerImpact100 = 0 // 冲击波进度 0-100
 
   reset(): void {
     this.width = 0
@@ -752,6 +763,10 @@ export class WeaponComponent extends Component {
     this.ultimateGiantRise100 = 0
     this.ultimateGiantAlpha100 = 0
     this.ultimateDamageDealt = false
+    this.ultimateHammerLandX = 0
+    this.ultimateHammerJumpOffsetY = 0
+    this.ultimateHammerVisualDX = 0
+    this.ultimateHammerImpact100 = 0
   }
 
   getName(): string {

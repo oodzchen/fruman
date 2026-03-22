@@ -1974,7 +1974,10 @@ function handleInput(
         (ultSlot?.cooldownRemainingMs ?? 0) > 0 ||
         playerEntity.weapon?.ultimatePhase != null
       if (isBlocked) ultimateFlashRemainingMs = ULTIMATE_FLASH_DURATION_MS
-      weaponSystem.handleUltimateRequest(playerEntity)
+      const viewHalfWidth = Math.round(
+        canvasWidth / (pixelsPerMeter * zoom) / 2
+      )
+      weaponSystem.handleUltimateRequest(playerEntity, viewHalfWidth)
     } else {
       // E 松开 = 交互（keyup 触发，且本次按键未用于绝招）
       if (eJustReleased && !isPlayerDead) {
@@ -2752,8 +2755,19 @@ function sendState() {
     const offset = count * ENTITY_STRIDE
 
     stateBuffer[offset + OFFSETS.ID] = e.id
-    stateBuffer[offset + OFFSETS.X] = e.transform.x
-    stateBuffer[offset + OFFSETS.Y] = e.transform.y
+    // 锤子绝招期间使用视觉位置（跳跃偏移）覆盖渲染坐标
+    const hammerPhase = e.weapon?.ultimatePhase
+    const hammerUltActive =
+      hammerPhase !== null &&
+      hammerPhase !== undefined &&
+      typeof hammerPhase === 'string' &&
+      hammerPhase.startsWith('hammer_')
+    stateBuffer[offset + OFFSETS.X] = hammerUltActive
+      ? e.transform.x + (e.weapon?.ultimateHammerVisualDX ?? 0)
+      : e.transform.x
+    stateBuffer[offset + OFFSETS.Y] = hammerUltActive
+      ? e.transform.y - (e.weapon?.ultimateHammerJumpOffsetY ?? 0)
+      : e.transform.y
     stateBuffer[offset + OFFSETS.RADIUS] = e.render?.radius ?? 0
     stateBuffer[offset + OFFSETS.COLOR] = parseColor(
       e.render?.color ?? '#000000'
@@ -2986,12 +3000,21 @@ function sendState() {
         w.ultimateGiantRise100
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ALPHA100] =
         w.ultimateGiantAlpha100
+      // 锤子绝招状态
+      stateBuffer[offset + OFFSETS.HAMMER_ULTIMATE_ACTIVE] = hammerUltActive
+        ? 1
+        : 0
+      stateBuffer[offset + OFFSETS.HAMMER_ULTIMATE_IMPACT100] = hammerUltActive
+        ? w.ultimateHammerImpact100
+        : 0
     } else {
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] = 0
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_X] = 0
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_GROUND_Y] = 0
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_RISE100] = 0
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ALPHA100] = 0
+      stateBuffer[offset + OFFSETS.HAMMER_ULTIMATE_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.HAMMER_ULTIMATE_IMPACT100] = 0
     }
     // 绝招边框闪烁（仅玩家）
     if (e === playerEntity) {

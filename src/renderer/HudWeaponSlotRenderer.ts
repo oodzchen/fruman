@@ -210,7 +210,8 @@ export function drawHudUltimateSlot(
   cy: number,
   cooldownRatio: number,
   isReady: boolean,
-  flashTimer100: number = 0
+  flashTimer100: number = 0,
+  isHammer: boolean = false
 ): void {
   const radius = HUD_ULTIMATE_SIZE / 2
   ctx.save()
@@ -239,7 +240,11 @@ export function drawHudUltimateSlot(
   ctx.fillStyle = HUD_ULTIMATE_FILL
   ctx.fill()
 
-  drawHudUltimateSwordTip(ctx, cx, cy, radius, isReady)
+  if (isHammer) {
+    drawHudUltimateHammerTip(ctx, cx, cy, radius, isReady)
+  } else {
+    drawHudUltimateSwordTip(ctx, cx, cy, radius, isReady)
+  }
 
   // 冷却蒙层：从顶部向下覆盖，随时间从底部向上减少
   if (cooldownRatio > 0) {
@@ -306,6 +311,47 @@ function drawHudUltimateSwordTip(
   ctx.closePath()
   ctx.fill()
   ctx.stroke()
+  ctx.restore()
+}
+
+function drawHudUltimateHammerTip(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  isReady: boolean
+): void {
+  const r = radius | 0
+  ctx.save()
+  ctx.translate(cx, cy)
+
+  // 圆形裁剪，锤头和锤柄两端超出圆圈被自然截断
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.clip()
+
+  ctx.globalAlpha = isReady ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+  ctx.fillStyle = HUD_ICON_COLOR
+  ctx.strokeStyle = HUD_ICON_COLOR
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 1
+
+  // 锤子：复用 hammer 形状，保持实际武器宽高比（1.1:0.45），旋转15°
+  // 平移使锤头中心对齐地面水平中心（x=0），并上移使锤头只有少部分触地
+  const hammerW = Math.round(r * 1.6)
+  const hammerH = Math.round(r * 0.65)
+  ctx.save()
+  ctx.translate(-Math.round(r * 0.45), -Math.round(r * 0.08))
+  ctx.rotate(Math.PI / 12)
+  renderWeaponShape(ctx, 'hammer', hammerW, hammerH, HUD_ICON_COLOR, false, 0)
+  ctx.restore()
+
+  // 地面：填充矩形覆盖圆圈下部
+  const groundY = Math.round(r * 0.5)
+  ctx.beginPath()
+  ctx.rect(-r, groundY, r * 2, r)
+  ctx.fill()
+
   ctx.restore()
 }
 

@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 63
+export const ENTITY_STRIDE = 65
 
 export const OFFSETS = {
   ID: 0,
@@ -64,6 +64,8 @@ export const OFFSETS = {
   ULTIMATE_SWORD_RISE100: 60,
   ULTIMATE_SWORD_ALPHA100: 61,
   ULTIMATE_FLASH_TIMER100: 62,
+  HAMMER_ULTIMATE_ACTIVE: 63, // 1 = 锤子绝招动画进行中
+  HAMMER_ULTIMATE_IMPACT100: 64, // 冲击波进度 0-100
 }
 
 export const FLAGS = {
