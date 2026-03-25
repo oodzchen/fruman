@@ -610,6 +610,10 @@ export class WeaponComponent extends Component {
     | 'hammer_fall'
     | 'hammer_land'
     | 'hammer_recover'
+    | 'spear_spin'
+    | 'spear_hold'
+    | 'spear_thrust'
+    | 'spear_recover'
     | null = null
   ultimateElapsedMs = 0
   ultimateFacing = 1
@@ -626,6 +630,20 @@ export class WeaponComponent extends Component {
   ultimateHammerJumpOffsetY = 0 // 当前视觉跳跃高度偏移（米，>0 = 上升）
   ultimateHammerVisualDX = 0 // 当前视觉X偏移（米，从起点到落点）
   ultimateHammerImpact100 = 0 // 冲击波进度 0-100
+  // 枪类绝招专用视觉状态
+  ultimateSpearCrossX = 0
+  ultimateSpearCrossY = 0
+  ultimateSpearTopStartX = 0
+  ultimateSpearTopStartY = 0
+  ultimateSpearBottomStartX = 0
+  ultimateSpearBottomStartY = 0
+  ultimateSpearTopX = 0
+  ultimateSpearTopY = 0
+  ultimateSpearTopRot = 0
+  ultimateSpearBottomX = 0
+  ultimateSpearBottomY = 0
+  ultimateSpearBottomRot = 0
+  ultimateSpearAlpha100 = 0
 
   reset(): void {
     this.width = 0
@@ -767,6 +785,19 @@ export class WeaponComponent extends Component {
     this.ultimateHammerJumpOffsetY = 0
     this.ultimateHammerVisualDX = 0
     this.ultimateHammerImpact100 = 0
+    this.ultimateSpearCrossX = 0
+    this.ultimateSpearCrossY = 0
+    this.ultimateSpearTopStartX = 0
+    this.ultimateSpearTopStartY = 0
+    this.ultimateSpearBottomStartX = 0
+    this.ultimateSpearBottomStartY = 0
+    this.ultimateSpearTopX = 0
+    this.ultimateSpearTopY = 0
+    this.ultimateSpearTopRot = 0
+    this.ultimateSpearBottomX = 0
+    this.ultimateSpearBottomY = 0
+    this.ultimateSpearBottomRot = 0
+    this.ultimateSpearAlpha100 = 0
   }
 
   getName(): string {

@@ -1,5 +1,6 @@
 import {
   DEFAULT_PLAYER_RADIUS,
+  DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WIDTH,
 } from '../../constants'
@@ -8,10 +9,12 @@ import type { WeaponVisualType } from '../../types'
 import { ULTIMATE_COOLDOWN_MS } from '../Component'
 import type { WeaponTransform } from '../Component'
 import type { Entity } from '../Entity'
+import { checkOBBvsCircle } from '../OBBCollision'
 import {
   FRONT_SWING_TILT_RAD,
   clamp01,
   getFrontTransform,
+  getThrustTransforms,
   getTransformAtAngle,
 } from '../WeaponPoseUtils'
 import type { StatsSystem } from './StatsSystem'
@@ -40,6 +43,16 @@ const HAMMER_RECOVER_MS = 600
 const HAMMER_JUMP_HEIGHT = 8 // 跳跃视觉高度（米），约为普通跳跃4倍
 const HAMMER_AOE_RADIUS = 4 // 落地AOE伤害范围（米）
 export const HAMMER_ULTIMATE_MAX_DIST = 12 // 落地点最大距离（米）= 约可视范围一半
+
+const SPEAR_ULTIMATE_SPIN_MS = 850
+const SPEAR_ULTIMATE_HOLD_MS = 300
+const SPEAR_ULTIMATE_THRUST_MS = 400
+const SPEAR_ULTIMATE_RECOVER_MS = 500
+const SPEAR_ULTIMATE_SIZE_NUMERATOR = 2
+const SPEAR_ULTIMATE_DAMAGE_SCALE = 4
+const SPEAR_ULTIMATE_FIXED_POINT_Y_SCALE = 2
+const SPEAR_ULTIMATE_FIXED_POINT_FORWARD_RATIO_NUMERATOR = 1
+const SPEAR_ULTIMATE_FIXED_POINT_FORWARD_RATIO_DENOMINATOR = 6
 
 export class UltimateHandler {
   private statsSystem?: StatsSystem
@@ -88,6 +101,13 @@ export class UltimateHandler {
       weapon.ultimatePhase.startsWith('hammer_')
     ) {
       this.handleHammerUltimatePhases(entity, weapon, playerPos, deltaMs)
+      return
+    }
+    if (
+      weapon.ultimatePhase !== null &&
+      weapon.ultimatePhase.startsWith('spear_')
+    ) {
+      this.handleSpearUltimatePhases(entity, weapon, playerPos)
       return
     }
 
@@ -191,6 +211,125 @@ export class UltimateHandler {
           if (entity.attackSlots)
             entity.attackSlots.ultimate.cooldownRemainingMs =
               ULTIMATE_COOLDOWN_MS
+        }
+        break
+      }
+      default:
+        break
+    }
+  }
+
+  private handleSpearUltimatePhases(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>,
+    playerPos: { x: number; y: number }
+  ): void {
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const attackRadius =
+      radius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
+    getThrustTransforms(
+      attackRadius,
+      weapon.ultimateFacing,
+      playerPos,
+      weapon.width,
+      this.tempTransform,
+      weapon.swingEndTransform
+    )
+    const holdX = this.tempTransform.x
+    const holdY = this.tempTransform.y
+    const thrustEndX = weapon.swingEndTransform.x
+    const thrustEndY = weapon.swingEndTransform.y
+    const thrustRot = this.tempTransform.rotation
+
+    switch (weapon.ultimatePhase) {
+      case 'spear_spin': {
+        const t = clamp01(weapon.ultimateElapsedMs / SPEAR_ULTIMATE_SPIN_MS)
+        const ease = t * t * (3 - 2 * t)
+        weapon.visual.x =
+          weapon.ultimateSpinStartX + (holdX - weapon.ultimateSpinStartX) * ease
+        weapon.visual.y =
+          weapon.ultimateSpinStartY + (holdY - weapon.ultimateSpinStartY) * ease
+        weapon.visual.rotation =
+          weapon.ultimateSpinStartRot +
+          (thrustRot +
+            weapon.ultimateFacing * Math.PI * 2 * 0.999 -
+            weapon.ultimateSpinStartRot) *
+            ease
+        if (t >= 1) {
+          weapon.ultimatePhase = 'spear_hold'
+          weapon.ultimateElapsedMs = 0
+          weapon.visual.x = holdX
+          weapon.visual.y = holdY
+          weapon.visual.rotation = thrustRot
+        }
+        break
+      }
+      case 'spear_hold': {
+        weapon.visual.x = holdX
+        weapon.visual.y = holdY
+        weapon.visual.rotation = thrustRot
+        weapon.ultimateSpearAlpha100 = 100
+        if (weapon.ultimateElapsedMs >= SPEAR_ULTIMATE_HOLD_MS) {
+          weapon.ultimatePhase = 'spear_thrust'
+          weapon.ultimateElapsedMs = 0
+          weapon.attackStartTransform.x = holdX
+          weapon.attackStartTransform.y = holdY
+          weapon.attackStartTransform.rotation = thrustRot
+          if (!weapon.ultimateDamageDealt) {
+            weapon.ultimateDamageDealt = true
+            this.applySpearUltimateAOEDamage(entity)
+          }
+        }
+        break
+      }
+      case 'spear_thrust': {
+        const t = clamp01(weapon.ultimateElapsedMs / SPEAR_ULTIMATE_THRUST_MS)
+        weapon.visual.x = holdX + (thrustEndX - holdX) * t
+        weapon.visual.y = holdY + (thrustEndY - holdY) * t
+        weapon.visual.rotation = thrustRot
+        weapon.ultimateSpearAlpha100 = 100 - Math.round(t * 25)
+        this.updateSpearUltimateVisuals(weapon, t)
+        if (t >= 1) {
+          weapon.ultimatePhase = 'spear_recover'
+          weapon.ultimateElapsedMs = 0
+          weapon.ultimateSpinStartX = weapon.visual.x
+          weapon.ultimateSpinStartY = weapon.visual.y
+          weapon.ultimateSpinStartRot = weapon.visual.rotation
+          weapon.ultimateSpearAlpha100 = 0
+        }
+        break
+      }
+      case 'spear_recover': {
+        const t = clamp01(weapon.ultimateElapsedMs / SPEAR_ULTIMATE_RECOVER_MS)
+        const ease = t * t * (3 - 2 * t)
+        getFrontTransform(
+          playerPos,
+          weapon.ultimateFacing,
+          this.tempTransform,
+          radius,
+          weapon.weaponType as WeaponVisualType,
+          weapon.width
+        )
+        weapon.visual.x =
+          weapon.ultimateSpinStartX +
+          (this.tempTransform.x - weapon.ultimateSpinStartX) * ease
+        weapon.visual.y =
+          weapon.ultimateSpinStartY +
+          (this.tempTransform.y - weapon.ultimateSpinStartY) * ease
+        weapon.visual.rotation =
+          weapon.ultimateSpinStartRot +
+          (this.tempTransform.rotation - weapon.ultimateSpinStartRot) * ease
+        if (t >= 1) {
+          weapon.ultimatePhase = null
+          weapon.ultimateElapsedMs = 0
+          weapon.isUnstoppable = false
+          weapon.attackPhase = 'idle'
+          weapon.ultimateSpearAlpha100 = 0
+          if (entity.stats) entity.stats.isInvincible = false
+          if (entity.attackSlots) {
+            entity.attackSlots.ultimate.cooldownRemainingMs =
+              ULTIMATE_COOLDOWN_MS
+          }
         }
         break
       }
@@ -493,6 +632,188 @@ export class UltimateHandler {
     }
   }
 
+  private updateSpearUltimateVisuals(
+    weapon: NonNullable<Entity['weapon']>,
+    t: number
+  ): void {
+    const progress = clamp01(t)
+    const topEndX =
+      weapon.ultimateSpearCrossX * 2 - weapon.ultimateSpearTopStartX
+    const topEndY =
+      weapon.ultimateSpearCrossY * 2 - weapon.ultimateSpearTopStartY
+    const bottomEndX =
+      weapon.ultimateSpearCrossX * 2 - weapon.ultimateSpearBottomStartX
+    const bottomEndY =
+      weapon.ultimateSpearCrossY * 2 - weapon.ultimateSpearBottomStartY
+    const fixedPointOffset =
+      (weapon.ultimateGiantX *
+        SPEAR_ULTIMATE_FIXED_POINT_FORWARD_RATIO_NUMERATOR) /
+      SPEAR_ULTIMATE_FIXED_POINT_FORWARD_RATIO_DENOMINATOR
+
+    const topFixedX =
+      weapon.ultimateSpearTopStartX +
+      (topEndX - weapon.ultimateSpearTopStartX) * progress
+    const topFixedY =
+      weapon.ultimateSpearTopStartY +
+      (topEndY - weapon.ultimateSpearTopStartY) * progress
+    const bottomFixedX =
+      weapon.ultimateSpearBottomStartX +
+      (bottomEndX - weapon.ultimateSpearBottomStartX) * progress
+    const bottomFixedY =
+      weapon.ultimateSpearBottomStartY +
+      (bottomEndY - weapon.ultimateSpearBottomStartY) * progress
+
+    weapon.ultimateSpearTopRot = Math.atan2(
+      weapon.ultimateSpearCrossY - topFixedY,
+      weapon.ultimateSpearCrossX - topFixedX
+    )
+    weapon.ultimateSpearBottomRot = Math.atan2(
+      weapon.ultimateSpearCrossY - bottomFixedY,
+      weapon.ultimateSpearCrossX - bottomFixedX
+    )
+
+    weapon.ultimateSpearTopX =
+      topFixedX - Math.cos(weapon.ultimateSpearTopRot) * fixedPointOffset
+    weapon.ultimateSpearTopY =
+      topFixedY - Math.sin(weapon.ultimateSpearTopRot) * fixedPointOffset
+    weapon.ultimateSpearBottomX =
+      bottomFixedX - Math.cos(weapon.ultimateSpearBottomRot) * fixedPointOffset
+    weapon.ultimateSpearBottomY =
+      bottomFixedY - Math.sin(weapon.ultimateSpearBottomRot) * fixedPointOffset
+  }
+
+  private applySpearUltimateAOEDamage(attacker: Entity): void {
+    if (!this.statsSystem || !attacker.faction || !attacker.weapon) return
+    const weapon = attacker.weapon
+    const ghostWidth = weapon.width * SPEAR_ULTIMATE_SIZE_NUMERATOR
+    const ghostHeight = weapon.height * SPEAR_ULTIMATE_SIZE_NUMERATOR
+    const damage = weapon.attackDamage * SPEAR_ULTIMATE_DAMAGE_SCALE
+    const posture = weapon.postureDamage * SPEAR_ULTIMATE_DAMAGE_SCALE
+    const toughness = weapon.toughnessDamage * SPEAR_ULTIMATE_DAMAGE_SCALE
+    const topRot = Math.atan2(
+      weapon.ultimateSpearCrossY - weapon.ultimateSpearTopStartY,
+      weapon.ultimateSpearCrossX - weapon.ultimateSpearTopStartX
+    )
+    const bottomRot = Math.atan2(
+      weapon.ultimateSpearCrossY - weapon.ultimateSpearBottomStartY,
+      weapon.ultimateSpearCrossX - weapon.ultimateSpearBottomStartX
+    )
+    const topTravel = Math.hypot(
+      weapon.ultimateSpearCrossX - weapon.ultimateSpearTopStartX,
+      weapon.ultimateSpearCrossY - weapon.ultimateSpearTopStartY
+    )
+    const bottomTravel = Math.hypot(
+      weapon.ultimateSpearCrossX - weapon.ultimateSpearBottomStartX,
+      weapon.ultimateSpearCrossY - weapon.ultimateSpearBottomStartY
+    )
+    const topSweepWidth = topTravel * 2 + ghostWidth
+    const bottomSweepWidth = bottomTravel * 2 + ghostWidth
+
+    for (let i = 0; i < this.allEntities.length; i++) {
+      const target = this.allEntities[i]
+      if (!target || target.id === attacker.id) continue
+      if (!target.transform || !target.stats || target.stats.isDead) continue
+      if (!target.faction || !attacker.faction.canAttack(target.faction)) {
+        continue
+      }
+
+      const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      const hitTop = checkOBBvsCircle(
+        weapon.ultimateSpearCrossX,
+        weapon.ultimateSpearCrossY,
+        topSweepWidth,
+        ghostHeight,
+        topRot,
+        target.transform.x,
+        target.transform.y,
+        targetRadius
+      )
+      const hitBottom = checkOBBvsCircle(
+        weapon.ultimateSpearCrossX,
+        weapon.ultimateSpearCrossY,
+        bottomSweepWidth,
+        ghostHeight,
+        bottomRot,
+        target.transform.x,
+        target.transform.y,
+        targetRadius
+      )
+      const hitHand = checkOBBvsCircle(
+        (weapon.attackStartTransform.x + weapon.swingEndTransform.x) * 0.5,
+        (weapon.attackStartTransform.y + weapon.swingEndTransform.y) * 0.5,
+        Math.hypot(
+          weapon.swingEndTransform.x - weapon.attackStartTransform.x,
+          weapon.swingEndTransform.y - weapon.attackStartTransform.y
+        ) + weapon.width,
+        weapon.height,
+        weapon.swingEndTransform.rotation,
+        target.transform.x,
+        target.transform.y,
+        targetRadius
+      )
+      if (!hitTop && !hitBottom && !hitHand) continue
+
+      this.statsSystem.applyWeaponHit(
+        target,
+        {
+          attackDamage: damage,
+          postureDamage: posture,
+          toughnessDamage: toughness,
+          impactLevel: 'extreme',
+          weaponType: 'spear',
+        },
+        { x: weapon.ultimateSpearCrossX, y: weapon.ultimateSpearCrossY }
+      )
+    }
+  }
+
+  private setupSpearUltimateVisuals(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>,
+    crossX: number,
+    crossY: number
+  ): void {
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const ghostWidth = weapon.width * SPEAR_ULTIMATE_SIZE_NUMERATOR
+    const centerX = entity.transform?.x ?? crossX
+    const centerY = entity.transform?.y ?? crossY
+    const fixedPointOffset =
+      (ghostWidth * SPEAR_ULTIMATE_FIXED_POINT_FORWARD_RATIO_NUMERATOR) /
+      SPEAR_ULTIMATE_FIXED_POINT_FORWARD_RATIO_DENOMINATOR
+
+    weapon.ultimateSpearCrossX = crossX
+    weapon.ultimateSpearCrossY = crossY
+    weapon.ultimateSpearTopStartX = centerX
+    weapon.ultimateSpearTopStartY =
+      centerY - radius * SPEAR_ULTIMATE_FIXED_POINT_Y_SCALE
+    weapon.ultimateSpearBottomStartX = centerX
+    weapon.ultimateSpearBottomStartY =
+      centerY + radius * SPEAR_ULTIMATE_FIXED_POINT_Y_SCALE
+    weapon.ultimateSpearTopRot = Math.atan2(
+      crossY - weapon.ultimateSpearTopStartY,
+      crossX - weapon.ultimateSpearTopStartX
+    )
+    weapon.ultimateSpearBottomRot = Math.atan2(
+      crossY - weapon.ultimateSpearBottomStartY,
+      crossX - weapon.ultimateSpearBottomStartX
+    )
+    weapon.ultimateSpearTopX =
+      weapon.ultimateSpearTopStartX -
+      Math.cos(weapon.ultimateSpearTopRot) * fixedPointOffset
+    weapon.ultimateSpearTopY =
+      weapon.ultimateSpearTopStartY -
+      Math.sin(weapon.ultimateSpearTopRot) * fixedPointOffset
+    weapon.ultimateSpearBottomX =
+      weapon.ultimateSpearBottomStartX -
+      Math.cos(weapon.ultimateSpearBottomRot) * fixedPointOffset
+    weapon.ultimateSpearBottomY =
+      weapon.ultimateSpearBottomStartY -
+      Math.sin(weapon.ultimateSpearBottomRot) * fixedPointOffset
+    weapon.ultimateGiantX = ghostWidth
+    weapon.ultimateGiantGroundY = weapon.height * SPEAR_ULTIMATE_SIZE_NUMERATOR
+    weapon.ultimateSpearAlpha100 = 100
+  }
+
   handleUltimateRequest(entity: Entity, maxLandDist?: number): void {
     if (!entity.attackSlots || !entity.weapon || !entity.input) return
     if (!entity.transform) return
@@ -500,13 +821,17 @@ export class UltimateHandler {
     if (!slot.hasMoveset) return
     if (!entity.weapon.isEquipped) return
     const wt = entity.weapon.weaponType
-    if (wt !== 'sword' && wt !== 'hammer') return
+    if (wt !== 'sword' && wt !== 'hammer' && wt !== 'spear') return
     if (slot.cooldownRemainingMs > 0) return
     if (entity.weapon.attackPhase !== 'idle') return
     if (entity.weapon.ultimatePhase !== null) return
 
     if (wt === 'hammer') {
       this.handleHammerUltimateRequest(entity, maxLandDist)
+      return
+    }
+    if (wt === 'spear') {
+      this.handleSpearUltimateRequest(entity, maxLandDist)
       return
     }
 
@@ -541,6 +866,67 @@ export class UltimateHandler {
     weapon.ultimateDamageDealt = false
     weapon.isUnstoppable = true
     weapon.attackFacing = facing
+    if (entity.stats) entity.stats.isInvincible = true
+  }
+
+  private handleSpearUltimateRequest(
+    entity: Entity,
+    maxLandDist?: number
+  ): void {
+    if (!entity.weapon || !entity.input || !entity.transform) return
+
+    const weapon = entity.weapon
+    const facing =
+      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const attackRadius =
+      radius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
+
+    getThrustTransforms(
+      attackRadius,
+      facing,
+      entity.transform,
+      weapon.width,
+      weapon.attackStartTransform,
+      weapon.swingEndTransform
+    )
+
+    const tipOffset = weapon.width / 2
+    let crossX =
+      weapon.swingEndTransform.x +
+      Math.cos(weapon.swingEndTransform.rotation) * tipOffset
+    let crossY =
+      weapon.swingEndTransform.y +
+      Math.sin(weapon.swingEndTransform.rotation) * tipOffset
+
+    if (this.entityLookup && entity.input.lockedTargetId !== null) {
+      const locked = this.entityLookup(entity.input.lockedTargetId)
+      if (locked?.transform && locked.stats && !locked.stats.isDead) {
+        const dx = locked.transform.x - entity.transform.x
+        const dy = locked.transform.y - entity.transform.y
+        const maxDist = maxLandDist ?? attackRadius
+        const dist = Math.hypot(dx, dy)
+        if (dist > maxDist && dist > 0) {
+          const scale = maxDist / dist
+          crossX = entity.transform.x + dx * scale
+          crossY = entity.transform.y + dy * scale
+        } else {
+          crossX = locked.transform.x
+          crossY = locked.transform.y
+        }
+      }
+    }
+
+    weapon.ultimatePhase = 'spear_spin'
+    weapon.ultimateElapsedMs = 0
+    weapon.ultimateFacing = facing
+    weapon.ultimateSpinStartX = weapon.visual.x
+    weapon.ultimateSpinStartY = weapon.visual.y
+    weapon.ultimateSpinStartRot = weapon.visual.rotation
+    weapon.ultimateDamageDealt = false
+    weapon.isUnstoppable = true
+    weapon.attackFacing = facing
+    this.setupSpearUltimateVisuals(entity, weapon, crossX, crossY)
     if (entity.stats) entity.stats.isInvincible = true
   }
 

@@ -203,6 +203,7 @@ export const HUD_ULTIMATE_SIZE = 52
 export const HUD_ULTIMATE_READY_BORDER = 'rgba(255, 255, 255, 0.85)'
 export const HUD_ULTIMATE_COOLDOWN_BORDER = 'rgba(255, 255, 255, 0.25)'
 export const HUD_ULTIMATE_FILL = 'rgba(0, 0, 0, 0.2)'
+const HUD_ULTIMATE_SPEAR_HALF_ANGLE = (35 * Math.PI) / 180
 
 export function drawHudUltimateSlot(
   ctx: CanvasRenderingContext2D,
@@ -211,7 +212,7 @@ export function drawHudUltimateSlot(
   cooldownRatio: number,
   isReady: boolean,
   flashTimer100: number = 0,
-  isHammer: boolean = false
+  iconType: 'sword' | 'hammer' | 'spear' = 'sword'
 ): void {
   const radius = HUD_ULTIMATE_SIZE / 2
   ctx.save()
@@ -240,8 +241,10 @@ export function drawHudUltimateSlot(
   ctx.fillStyle = HUD_ULTIMATE_FILL
   ctx.fill()
 
-  if (isHammer) {
+  if (iconType === 'hammer') {
     drawHudUltimateHammerTip(ctx, cx, cy, radius, isReady)
+  } else if (iconType === 'spear') {
+    drawHudUltimateSpearTips(ctx, cx, cy, radius, isReady)
   } else {
     drawHudUltimateSwordTip(ctx, cx, cy, radius, isReady)
   }
@@ -351,6 +354,53 @@ function drawHudUltimateHammerTip(
   ctx.beginPath()
   ctx.rect(-r, groundY, r * 2, r)
   ctx.fill()
+
+  ctx.restore()
+}
+
+function drawHudUltimateSpearTips(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  isReady: boolean
+): void {
+  const r = radius | 0
+  const spearW = Math.round(r * 2.5)
+  const spearH = Math.max(4, Math.round(r * 0.16))
+  const halfLen = spearW / 2
+  const tipRadius = r - 1
+  const topAngle = -HUD_ULTIMATE_SPEAR_HALF_ANGLE
+  const bottomAngle = HUD_ULTIMATE_SPEAR_HALF_ANGLE
+
+  ctx.save()
+  ctx.translate(cx, cy)
+
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.clip()
+
+  ctx.globalAlpha = isReady ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+  ctx.fillStyle = HUD_ICON_COLOR
+  ctx.strokeStyle = HUD_ICON_COLOR
+
+  ctx.save()
+  ctx.translate(
+    Math.cos(topAngle) * (tipRadius - halfLen),
+    Math.sin(topAngle) * (tipRadius - halfLen)
+  )
+  ctx.rotate(topAngle)
+  renderWeaponShape(ctx, 'spear', spearW, spearH, HUD_ICON_COLOR, false, 0)
+  ctx.restore()
+
+  ctx.save()
+  ctx.translate(
+    Math.cos(bottomAngle) * (tipRadius - halfLen),
+    Math.sin(bottomAngle) * (tipRadius - halfLen)
+  )
+  ctx.rotate(bottomAngle)
+  renderWeaponShape(ctx, 'spear', spearW, spearH, HUD_ICON_COLOR, false, 0)
+  ctx.restore()
 
   ctx.restore()
 }

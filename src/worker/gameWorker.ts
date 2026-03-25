@@ -2990,6 +2990,11 @@ function sendState() {
       const giantSwordVisible =
         w.ultimatePhase !== null &&
         (w.ultimateGiantRise100 > 0 || w.ultimateGiantAlpha100 > 0)
+      const spearUltActive =
+        w.ultimatePhase !== null &&
+        typeof w.ultimatePhase === 'string' &&
+        w.ultimatePhase.startsWith('spear_') &&
+        w.ultimateSpearAlpha100 > 0
       // 1=巨剑可见, 2=绝招动画进行中(手剑需置顶), 0=无
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] = giantSwordVisible
         ? 1
@@ -3010,6 +3015,36 @@ function sendState() {
       stateBuffer[offset + OFFSETS.HAMMER_ULTIMATE_IMPACT100] = hammerUltActive
         ? w.ultimateHammerImpact100
         : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_ACTIVE] = spearUltActive
+        ? 1
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_ALPHA100] = spearUltActive
+        ? w.ultimateSpearAlpha100
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_TOP_X] = spearUltActive
+        ? w.ultimateSpearTopX
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_TOP_Y] = spearUltActive
+        ? w.ultimateSpearTopY
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_TOP_ROT] = spearUltActive
+        ? w.ultimateSpearTopRot
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_X] = spearUltActive
+        ? w.ultimateSpearBottomX
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_Y] = spearUltActive
+        ? w.ultimateSpearBottomY
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_ROT] = spearUltActive
+        ? w.ultimateSpearBottomRot
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_W] = spearUltActive
+        ? w.ultimateGiantX
+        : 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_H] = spearUltActive
+        ? w.ultimateGiantGroundY
+        : 0
     } else {
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] = 0
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_X] = 0
@@ -3018,6 +3053,16 @@ function sendState() {
       stateBuffer[offset + OFFSETS.ULTIMATE_SWORD_ALPHA100] = 0
       stateBuffer[offset + OFFSETS.HAMMER_ULTIMATE_ACTIVE] = 0
       stateBuffer[offset + OFFSETS.HAMMER_ULTIMATE_IMPACT100] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_ALPHA100] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_TOP_X] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_TOP_Y] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_TOP_ROT] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_X] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_Y] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_ROT] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_W] = 0
+      stateBuffer[offset + OFFSETS.SPEAR_ULTIMATE_H] = 0
     }
     // 绝招边框闪烁（仅玩家）
     if (e === playerEntity) {

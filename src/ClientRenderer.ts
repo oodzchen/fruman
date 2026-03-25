@@ -355,6 +355,7 @@ export class ClientRenderer {
     if (playerOffset !== -1) {
       this.renderUltimateSword(playerOffset)
       this.renderHammerUltimateShockwave(playerOffset)
+      this.renderSpearUltimatePhantoms(playerOffset)
     }
 
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
@@ -885,17 +886,19 @@ export class ClientRenderer {
     const currentWeaponIsHammer =
       ultimateActiveWeaponType === WEAPON_TYPES.HAMMER ||
       ultimateActiveWeaponType === WEAPON_TYPES.BIG_HAMMER
+    const currentWeaponIsSpear = ultimateActiveWeaponType === WEAPON_TYPES.SPEAR
     const currentWeaponIsSword =
       ultimateActiveWeaponType === WEAPON_TYPES.SWORD ||
       ultimateActiveWeaponType === WEAPON_TYPES.SHORT_SWORD ||
       ultimateActiveWeaponType === WEAPON_TYPES.LONG_SWORD
-    if (currentWeaponIsSword || currentWeaponIsHammer) {
+    if (currentWeaponIsSword || currentWeaponIsHammer || currentWeaponIsSpear) {
       const cooldownRatio =
         buf[playerOffset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] | 0
       // 绝招动画进行中时立即显示满蒙层
       const ultimateAnimActive =
         (buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] | 0) >= 1 ||
-        buf[playerOffset + OFFSETS.HAMMER_ULTIMATE_ACTIVE] === 1
+        buf[playerOffset + OFFSETS.HAMMER_ULTIMATE_ACTIVE] === 1 ||
+        buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_ACTIVE] === 1
       const displayCooldownRatio = ultimateAnimActive ? 100 : cooldownRatio
       // 有蒙层时不显示光晕
       const ultimateReady =
@@ -913,6 +916,10 @@ export class ClientRenderer {
         ultimateReady,
         flashTimer100,
         currentWeaponIsHammer
+          ? 'hammer'
+          : currentWeaponIsSpear
+            ? 'spear'
+            : 'sword'
       )
     }
   }
@@ -1116,6 +1123,39 @@ export class ClientRenderer {
       this.ctx.stroke()
     }
 
+    this.ctx.restore()
+  }
+
+  private renderSpearUltimatePhantoms(playerOffset: number): void {
+    const buf = this.stateBuffer
+    if (buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_ACTIVE] !== 1) return
+
+    const alpha100 = buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_ALPHA100] | 0
+    if (alpha100 <= 0) return
+
+    const ppm = this.pixelsPerMeter
+    const width = buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_W] * ppm
+    const height = buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_H] * ppm
+    const alpha = (alpha100 / 100) * 0.45
+
+    this.ctx.save()
+    this.ctx.globalAlpha = alpha
+    this.ctx.translate(
+      buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_TOP_X] * ppm,
+      buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_TOP_Y] * ppm
+    )
+    this.ctx.rotate(buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_TOP_ROT])
+    renderWeaponShape(this.ctx, 'spear', width, height, '#d9dbc8', false)
+    this.ctx.restore()
+
+    this.ctx.save()
+    this.ctx.globalAlpha = alpha
+    this.ctx.translate(
+      buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_X] * ppm,
+      buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_Y] * ppm
+    )
+    this.ctx.rotate(buf[playerOffset + OFFSETS.SPEAR_ULTIMATE_BOTTOM_ROT])
+    renderWeaponShape(this.ctx, 'spear', width, height, '#d9dbc8', false)
     this.ctx.restore()
   }
 
