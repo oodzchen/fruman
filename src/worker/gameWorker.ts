@@ -1834,6 +1834,7 @@ function handleInput(
   const isUltimateActive = playerEntity.weapon?.ultimatePhase != null
 
   if (playerEntity.input) {
+    const eHeld = currKeys.has('e')
     let moveDirection = 0
     if (currKeys.has('a') || currKeys.has('arrowleft')) moveDirection -= 1
     if (currKeys.has('d') || currKeys.has('arrowright')) moveDirection += 1
@@ -1853,6 +1854,9 @@ function handleInput(
       playerEntity.input.grapplePersistentRequested = false
       playerEntity.input.freeAimToggleRequested = false
       playerEntity.input.inputBuffer.clearAll()
+      if (!eHeld) {
+        eUsedForUltimate = false
+      }
       return
     }
 
@@ -1957,7 +1961,6 @@ function handleInput(
       rHoldMs = 0
     }
 
-    const eHeld = currKeys.has('e')
     const eJustPressed = eHeld && !prevKeys.has('e')
     const eJustReleased = !eHeld && prevKeys.has('e')
     const middleHeld = currMouseButtons.has(1)
