@@ -77,45 +77,36 @@ import {
 } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import {
+  checkOBBvsAABB,
+  checkOBBvsCircle,
+  checkOBBvsOBB,
+  checkOBBvsPolygon,
+} from '../OBBCollision'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
-import { setWeaponBackTransform } from '../WeaponPoseUtils'
+import {
+  FRONT_SWING_TILT_RAD,
+  applyOffset,
+  clamp01,
+  copyRelativeTransform,
+  copyTransform,
+  getFrontTransform,
+  getOffsetFromTransform,
+  getStrikeTransforms,
+  getSwingTransforms,
+  getThrustTransforms,
+  getTransformAtAngle,
+  lerpRelativeTransform,
+  lerpTransform,
+  realignToFacing,
+  setWeaponBackTransform,
+} from '../WeaponPoseUtils'
 import type { World } from '../World'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
+import { UltimateHandler } from './UltimateHandler'
 
-// 绝招动画参数
-const ULTIMATE_SPIN_MS = 1200
-const ULTIMATE_SPIN_MOVE_RATIO = 0.3 // spin 前30%用于移动到身前位置
-const ULTIMATE_HOLD_MS = 500
-const ULTIMATE_THRUST_MS = 350
-const ULTIMATE_GIANT_WAIT_MS = 350 // 与 THRUST_MS 相等保证匀速穿屏
-const ULTIMATE_GIANT_RECOVER_MS = 350
-const ULTIMATE_GIANT_SWORD_DIST = 5 // 巨剑出现位置与玩家的水平距离（米）
-const ULTIMATE_THRUST_DIST = 3 // 手中剑向上飞行距离（米）
-// 巨剑 = 10x 3档剑尺寸（16m 长，3m 厚）
-// 护手宽度 = max(halfHeight+2, floor(height*90%)) = max(1+2, floor(2.7)) = 3m
-const ULTIMATE_GIANT_HALF_WIDTH = 3 // AOE 水平伤害半径，覆盖护手全宽
-
-// 锤子绝招动画参数
-const HAMMER_SPIN_MS = 900
-const HAMMER_SPIN_START_RATIO = 0.15 // 前15%从准备位置过渡到轨道起点
-const HAMMER_JUMP_RISE_MS = 700
-const HAMMER_JUMP_RISE_SWING_RATIO = 0.3 // 跳升前30%将武器从前方摆到举高位置
-const HAMMER_JUMP_APEX_MS = 350
-const HAMMER_FALL_MS = 550
-const HAMMER_LAND_MS = 800
-const HAMMER_RECOVER_MS = 600
-const HAMMER_JUMP_HEIGHT = 8 // 跳跃视觉高度（米），约为普通跳跃4倍
-const HAMMER_AOE_RADIUS = 4 // 落地AOE伤害范围（米）
-const HAMMER_ULTIMATE_MAX_DIST = 12 // 落地点最大距离（米）= 约可视范围一半
-
-// 控制向前挥砍时的下压角度（0 为水平向前，正值顺时针向下）
-const FRONT_SWING_TILT_RAD = Math.PI / 16
-const THRUST_START_RATIO = 35
-const THRUST_END_RATIO = 105
-const THRUST_HEIGHT_RATIO = 12
-const THRUST_GRIP_CLEARANCE = 0.06
 const BLOCK_VERTICAL_SCALE = 0.5
 const REBOUND_PAUSE_MS = 150
 const PARRY_WINDOW_FRAMES =
@@ -195,29 +186,21 @@ export class WeaponSystem extends System {
     bowAmmoMax: 0,
   }
   private tempPlayerPos = { x: 0, y: 0 }
-  private tempVisualPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
-  private tempObbVerts = [
-    { x: 0, y: 0 },
-    { x: 0, y: 0 },
-    { x: 0, y: 0 },
-    { x: 0, y: 0 },
-  ]
-  private tempAxes = [
-    { x: 0, y: 0 },
-    { x: 0, y: 0 },
-    { x: 0, y: 0 },
-    { x: 0, y: 0 },
-  ]
   private currentDeltaTime = 0
   private currentTimeMs = 0
+  private readonly ultimateHandler = new UltimateHandler()
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
     this.box2d = box2d
     this.statsSystem = statsSystem
+    if (statsSystem) {
+      this.ultimateHandler.setStatsSystem(statsSystem)
+    }
     if (box2d) {
       this.tempVec = new box2d.b2Vec2(0, 0)
+      this.ultimateHandler.setBox2d(box2d)
       this.arrowBodyDef = box2d.b2DefaultBodyDef()
       this.arrowShapeDef = box2d.b2DefaultShapeDef()
       this.arrowCircle = new box2d.b2Circle()
@@ -297,6 +280,7 @@ export class WeaponSystem extends System {
 
   setEntities(entities: Entity[]): void {
     this.allEntities = entities
+    this.ultimateHandler.setAllEntities(entities)
   }
 
   setSpatialHash(spatialHash: SpatialHash): void {
@@ -305,6 +289,7 @@ export class WeaponSystem extends System {
 
   setEntityLookup(entityLookup: (id: number) => Entity | undefined): void {
     this.entityLookup = entityLookup
+    this.ultimateHandler.setEntityLookup(entityLookup)
   }
 
   private updateWeapon(entity: Entity, deltaMs: number): void {
@@ -338,7 +323,12 @@ export class WeaponSystem extends System {
 
     // 绝招动画期间优先处理，不受装备/掉落/崩塌状态干扰
     if (weapon.ultimatePhase !== null) {
-      this.handleUltimatePhases(entity, weapon, playerPos, deltaMs)
+      this.ultimateHandler.handleUltimatePhases(
+        entity,
+        weapon,
+        playerPos,
+        deltaMs
+      )
       return
     }
 
@@ -359,7 +349,7 @@ export class WeaponSystem extends System {
       const eased = 1 - Math.pow(1 - progress, 2)
 
       // 插值相对偏移量
-      this.lerpRelativeTransform(
+      lerpRelativeTransform(
         weapon.dropStartOffset,
         weapon.dropEndOffset,
         eased,
@@ -367,7 +357,7 @@ export class WeaponSystem extends System {
       )
 
       // 应用到当前玩家位置
-      this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+      applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
       if (progress >= 1) {
         weapon.isDropping = false
@@ -380,7 +370,7 @@ export class WeaponSystem extends System {
     if (entity.stats?.isStaggered) {
       if (weapon.isDropped) {
         // 武器掉落完成，保持在玩家脚下
-        this.applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+        applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
       }
       return
     }
@@ -392,7 +382,7 @@ export class WeaponSystem extends System {
         entity.stats &&
         !entity.stats.isInCombat
       ) {
-        this.applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+        applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
         return
       }
       this.startWeaponRecover(entity)
@@ -408,7 +398,7 @@ export class WeaponSystem extends System {
       const eased = 1 - Math.pow(1 - progress, 2)
 
       // 插值相对偏移量
-      this.lerpRelativeTransform(
+      lerpRelativeTransform(
         weapon.dropStartOffset,
         weapon.dropEndOffset,
         eased,
@@ -416,7 +406,7 @@ export class WeaponSystem extends System {
       )
 
       // 应用到当前玩家位置
-      this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+      applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
       if (progress >= 1) {
         weapon.isRecovering = false
@@ -434,17 +424,13 @@ export class WeaponSystem extends System {
     const attackRadius = weapon.attackRadius || this.getAttackRadius(entity)
     const attackFacing = weapon.attackFacing
 
-    this.applyOffset(
+    applyOffset(
       weapon.attackStartOffset,
       playerPos,
       weapon.attackStartTransform
     )
-    this.applyOffset(
-      weapon.swingStartOffset,
-      playerPos,
-      weapon.swingStartTransform
-    )
-    this.applyOffset(weapon.swingEndOffset, playerPos, weapon.swingEndTransform)
+    applyOffset(weapon.swingStartOffset, playerPos, weapon.swingStartTransform)
+    applyOffset(weapon.swingEndOffset, playerPos, weapon.swingEndTransform)
 
     if (weapon.attackPhase === 'idle') {
       if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
@@ -529,11 +515,7 @@ export class WeaponSystem extends System {
     // 初始化弹反起始和目标位置
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const blockRotation = -Math.PI / 2
-    this.getOffsetFromTransform(
-      weapon.visual,
-      playerPos,
-      weapon.parryStartOffset
-    )
+    getOffsetFromTransform(weapon.visual, playerPos, weapon.parryStartOffset)
     weapon.parryEndOffset.dx = facing * (radius + 0.2)
     weapon.parryEndOffset.dy = 0
     weapon.parryEndOffset.rotation = blockRotation
@@ -577,7 +559,7 @@ export class WeaponSystem extends System {
     if (!weapon.isParrying && entity.input && !entity.input.blockRequested) {
       // Vital fix: Ensure visual is up-to-date with current playerPos before capturing offset
       // Since we are in "Hold" state here, we snap visual to the calculated parryEndOffset
-      this.applyOffset(weapon.parryEndOffset, playerPos, weapon.visual)
+      applyOffset(weapon.parryEndOffset, playerPos, weapon.visual)
       this.startBlockReturn(entity, weapon, playerPos)
       return
     }
@@ -600,13 +582,13 @@ export class WeaponSystem extends System {
         (weapon.blockWidthTarget - weapon.blockWidthStart) * progress
 
       // 插值相对位置并应用
-      this.lerpRelativeTransform(
+      lerpRelativeTransform(
         weapon.parryStartOffset,
         weapon.parryEndOffset,
         progress,
         this.tempRelativeTransform
       )
-      this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+      applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
       // 弹反窗口内检测敌人武器碰撞（仅后半段有效帧）
       if (weapon.parryElapsedTime >= PARRY_ACTIVE_START_FRAME) {
@@ -624,7 +606,7 @@ export class WeaponSystem extends System {
       }
     } else {
       // 弹反窗口结束后，保持格挡姿态（相对于角色）
-      this.applyOffset(weapon.parryEndOffset, playerPos, weapon.visual)
+      applyOffset(weapon.parryEndOffset, playerPos, weapon.visual)
       weapon.width = weapon.blockWidthTarget
     }
   }
@@ -643,7 +625,7 @@ export class WeaponSystem extends System {
     weapon.blockWidthTarget = weapon.baseWidth
 
     // 记录当前位置作为回归动画的起点 (存入 parryEndOffset)
-    this.getOffsetFromTransform(weapon.visual, playerPos, weapon.parryEndOffset)
+    getOffsetFromTransform(weapon.visual, playerPos, weapon.parryEndOffset)
 
     // 计算 idle 状态的目标位置 (存入 parryStartOffset)
     // 注意：我们需要根据当前朝向计算 idle 位置
@@ -654,7 +636,7 @@ export class WeaponSystem extends System {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
 
     // 复用 getFrontTransform 计算目标 offset (战斗姿态)
-    this.getFrontTransform(
+    getFrontTransform(
       playerPos,
       facing,
       this.tempTransform,
@@ -662,7 +644,7 @@ export class WeaponSystem extends System {
       weapon.weaponType,
       weapon.width
     )
-    this.getOffsetFromTransform(
+    getOffsetFromTransform(
       this.tempTransform,
       playerPos,
       weapon.parryStartOffset
@@ -688,13 +670,13 @@ export class WeaponSystem extends System {
       (weapon.blockWidthTarget - weapon.blockWidthStart) * progress
 
     // 插值相对位置并应用 (从 parryEndOffset 回到 parryStartOffset)
-    this.lerpRelativeTransform(
+    lerpRelativeTransform(
       weapon.parryEndOffset, // Start (recorded current)
       weapon.parryStartOffset, // End (idle)
       progress,
       this.tempRelativeTransform
     )
-    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+    applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     // 在撤回过程中不再检测弹反碰撞，确保无弹反/防御效果
 
@@ -736,7 +718,7 @@ export class WeaponSystem extends System {
 
       // 武器对武器 OBB 碰撞检测
       if (
-        this.checkOBBvsOBB(
+        checkOBBvsOBB(
           weaponX,
           weaponY,
           weaponWidth,
@@ -823,11 +805,7 @@ export class WeaponSystem extends System {
     const playerPos = this.tempPlayerPos
 
     // 计算起始相对偏移（当前武器位置相对于玩家）
-    this.getOffsetFromTransform(
-      weapon.visual,
-      playerPos,
-      weapon.dropStartOffset
-    )
+    getOffsetFromTransform(weapon.visual, playerPos, weapon.dropStartOffset)
 
     // 计算目标相对偏移（回到角色身侧）
     const facing =
@@ -836,7 +814,7 @@ export class WeaponSystem extends System {
         : weapon.attackFacing || 1
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     if (weapon.weaponType === 'bow') {
-      this.getFrontTransform(
+      getFrontTransform(
         playerPos,
         facing,
         this.tempTransform,
@@ -844,7 +822,7 @@ export class WeaponSystem extends System {
         weapon.weaponType,
         weapon.width
       )
-      this.getOffsetFromTransform(
+      getOffsetFromTransform(
         this.tempTransform,
         playerPos,
         weapon.dropEndOffset
@@ -854,63 +832,6 @@ export class WeaponSystem extends System {
       weapon.dropEndOffset.dy = radius * -0.2
       weapon.dropEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     }
-  }
-
-  private checkOBBvsOBB(
-    x1: number,
-    y1: number,
-    w1: number,
-    h1: number,
-    rot1: number,
-    x2: number,
-    y2: number,
-    w2: number,
-    h2: number,
-    rot2: number
-  ): boolean {
-    // 分离轴定理（SAT）检测两个 OBB 是否相交
-    const cos1 = Math.cos(rot1)
-    const sin1 = Math.sin(rot1)
-    const cos2 = Math.cos(rot2)
-    const sin2 = Math.sin(rot2)
-
-    // 复用预分配的轴数组
-    this.tempAxes[0].x = cos1
-    this.tempAxes[0].y = sin1
-    this.tempAxes[1].x = -sin1
-    this.tempAxes[1].y = cos1
-    this.tempAxes[2].x = cos2
-    this.tempAxes[2].y = sin2
-    this.tempAxes[3].x = -sin2
-    this.tempAxes[3].y = cos2
-
-    // 两个OBB的半尺寸
-    const hw1 = w1 / 2
-    const hh1 = h1 / 2
-    const hw2 = w2 / 2
-    const hh2 = h2 / 2
-
-    // 中心点差值
-    const dx = x2 - x1
-    const dy = y2 - y1
-
-    for (const axis of this.tempAxes) {
-      // 投影两个OBB到轴上
-      const proj1 =
-        Math.abs(hw1 * (cos1 * axis.x + sin1 * axis.y)) +
-        Math.abs(hh1 * (-sin1 * axis.x + cos1 * axis.y))
-      const proj2 =
-        Math.abs(hw2 * (cos2 * axis.x + sin2 * axis.y)) +
-        Math.abs(hh2 * (-sin2 * axis.x + cos2 * axis.y))
-      const projDist = Math.abs(dx * axis.x + dy * axis.y)
-
-      // 如果投影不重叠，则不相交
-      if (projDist > proj1 + proj2) {
-        return false
-      }
-    }
-
-    return true
   }
 
   private handleIdlePhase(
@@ -931,7 +852,7 @@ export class WeaponSystem extends System {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
 
     if (entity.stats?.isInCombat) {
-      this.getFrontTransform(
+      getFrontTransform(
         playerPos,
         facing,
         weapon.visual,
@@ -985,7 +906,7 @@ export class WeaponSystem extends System {
       weapon.isUnstoppable = nextMove.isUnstoppable
       attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
-      this.getSwingTransforms(
+      getSwingTransforms(
         attackRadius,
         attackFacing,
         nextMove.kind,
@@ -997,17 +918,13 @@ export class WeaponSystem extends System {
         weapon.swingEndTransform
       )
 
-      this.getOffsetFromTransform(
-        weapon.visual,
-        playerPos,
-        weapon.attackStartOffset
-      )
-      this.getOffsetFromTransform(
+      getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
+      getOffsetFromTransform(
         weapon.swingStartTransform,
         playerPos,
         weapon.swingStartOffset
       )
-      this.getOffsetFromTransform(
+      getOffsetFromTransform(
         weapon.swingEndTransform,
         playerPos,
         weapon.swingEndOffset
@@ -1022,14 +939,14 @@ export class WeaponSystem extends System {
       weapon.attackFacing = attackFacing
 
       // Update attackStartTransform based on current visual (which was just set)
-      this.applyOffset(
+      applyOffset(
         weapon.attackStartOffset,
         playerPos,
         weapon.attackStartTransform
       )
 
       // Visual starts at attackStartTransform
-      this.copyTransform(weapon.visual, weapon.attackStartTransform)
+      copyTransform(weapon.visual, weapon.attackStartTransform)
 
       weapon.attackRadius = attackRadius
       weapon.hitEntityIds.clear()
@@ -1287,9 +1204,9 @@ export class WeaponSystem extends System {
       ? baseWindupDuration / 2
       : baseWindupDuration
 
-    const t = this.clamp01(weapon.attackElapsedMs / windupDuration)
+    const t = clamp01(weapon.attackElapsedMs / windupDuration)
 
-    this.lerpRelativeTransform(
+    lerpRelativeTransform(
       weapon.attackStartOffset,
       weapon.swingStartOffset,
       t,
@@ -1298,11 +1215,7 @@ export class WeaponSystem extends System {
 
     this.tempPlayerPos.x = entity.transform.x
     this.tempPlayerPos.y = entity.transform.y
-    this.applyOffset(
-      this.tempRelativeTransform,
-      this.tempPlayerPos,
-      weapon.visual
-    )
+    applyOffset(this.tempRelativeTransform, this.tempPlayerPos, weapon.visual)
 
     if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
       const facing =
@@ -1327,10 +1240,7 @@ export class WeaponSystem extends System {
       weapon.attackElapsedMs = 0
       // We don't need to copyTransform(attackStartTransform, swingStartTransform) anymore for logic,
       // but keeping data consistent is fine. However, logic now relies on offsets.
-      this.copyTransform(
-        weapon.attackStartTransform,
-        weapon.swingStartTransform
-      )
+      copyTransform(weapon.attackStartTransform, weapon.swingStartTransform)
       weapon.hitEntityIds.clear()
     }
   }
@@ -1343,15 +1253,15 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
     const weapon = entity.weapon
 
-    const t = this.clamp01(weapon.attackElapsedMs / this.getSwingMs(weapon))
+    const t = clamp01(weapon.attackElapsedMs / this.getSwingMs(weapon))
 
-    this.lerpRelativeTransform(
+    lerpRelativeTransform(
       weapon.swingStartOffset,
       weapon.swingEndOffset,
       t,
       this.tempRelativeTransform
     )
-    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+    applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
@@ -1371,12 +1281,8 @@ export class WeaponSystem extends System {
       weapon.attackPhase = 'pause'
       this.restoreDamageOverrides(weapon)
       weapon.attackElapsedMs = 0
-      this.getOffsetFromTransform(
-        weapon.visual,
-        playerPos,
-        weapon.attackStartOffset
-      )
-      this.copyTransform(weapon.attackStartTransform, weapon.visual)
+      getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
+      copyTransform(weapon.attackStartTransform, weapon.visual)
       weapon.lastAttackTimestamp = now
     }
   }
@@ -1414,7 +1320,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    this.copyTransform(weapon.visual, weapon.attackStartTransform)
+    copyTransform(weapon.visual, weapon.attackStartTransform)
 
     if (entity.movement && !entity.movement.isGrounded) {
       this.checkEntityHits(entity, weapon)
@@ -1473,7 +1379,7 @@ export class WeaponSystem extends System {
         weapon.isUnstoppable = nextMove.isUnstoppable
         attackRadius = (attackRadius * nextMove.radiusScale) / 100
 
-        this.getSwingTransforms(
+        getSwingTransforms(
           attackRadius,
           weapon.attackFacing,
           nextMove.kind,
@@ -1485,17 +1391,17 @@ export class WeaponSystem extends System {
           weapon.swingEndTransform
         )
 
-        this.getOffsetFromTransform(
+        getOffsetFromTransform(
           weapon.visual,
           playerPos,
           weapon.attackStartOffset
         )
-        this.getOffsetFromTransform(
+        getOffsetFromTransform(
           weapon.swingStartTransform,
           playerPos,
           weapon.swingStartOffset
         )
-        this.getOffsetFromTransform(
+        getOffsetFromTransform(
           weapon.swingEndTransform,
           playerPos,
           weapon.swingEndOffset
@@ -1507,12 +1413,12 @@ export class WeaponSystem extends System {
 
         if (weapon.attackPhase === 'windup') {
           // Update attackStartTransform based on current visual
-          this.applyOffset(
+          applyOffset(
             weapon.attackStartOffset,
             playerPos,
             weapon.attackStartTransform
           )
-          this.copyTransform(weapon.visual, weapon.attackStartTransform)
+          copyTransform(weapon.visual, weapon.attackStartTransform)
         } else {
           // Skip windup, go directly to swing
           this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
@@ -1523,8 +1429,8 @@ export class WeaponSystem extends System {
             SOUND_DB_SWORD_SWING
           )
           this.applyDamageOverrides(entity, weapon)
-          this.copyTransform(weapon.swingStartTransform, weapon.visual)
-          this.copyTransform(weapon.attackStartTransform, weapon.visual)
+          copyTransform(weapon.swingStartTransform, weapon.visual)
+          copyTransform(weapon.attackStartTransform, weapon.visual)
         }
 
         weapon.hitEntityIds.clear()
@@ -1537,7 +1443,7 @@ export class WeaponSystem extends System {
     weapon.attackPhase = 'recover'
     weapon.reboundLockedPause = false
     weapon.attackElapsedMs = 0
-    this.copyTransform(weapon.attackStartTransform, weapon.visual)
+    copyTransform(weapon.attackStartTransform, weapon.visual)
   }
 
   private handleRecoverPhase(
@@ -1556,7 +1462,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    const t = this.clamp01(weapon.attackElapsedMs / this.getRecoverMs(weapon))
+    const t = clamp01(weapon.attackElapsedMs / this.getRecoverMs(weapon))
 
     // Calculate target offset (Idle Front)
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
@@ -1568,14 +1474,14 @@ export class WeaponSystem extends System {
     weapon.swingEndOffset.dy = radius * -0.2
     weapon.swingEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 
-    this.lerpRelativeTransform(
+    lerpRelativeTransform(
       weapon.attackStartOffset,
       weapon.swingEndOffset,
       t,
       this.tempRelativeTransform // Output
     )
 
-    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+    applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (t >= 1) {
       weapon.attackPhase = 'idle'
@@ -1617,7 +1523,7 @@ export class WeaponSystem extends System {
     weapon.parryElapsedTime = 0
     weapon.parryHitWeaponIds.clear()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    this.getFrontTransform(
+    getFrontTransform(
       playerPos,
       facing,
       weapon.visual,
@@ -2038,7 +1944,7 @@ export class WeaponSystem extends System {
       weapon.bowHasAim = false
       weapon.bowFreeAimReticleX = 0
       weapon.bowFreeAimReticleY = 0
-      this.getFrontTransform(
+      getFrontTransform(
         playerPos,
         facing,
         weapon.visual,
@@ -2433,568 +2339,8 @@ export class WeaponSystem extends System {
     entity.attackSlots.ultimate.movesetId = movesetId
   }
 
-  private handleUltimatePhases(
-    entity: Entity,
-    weapon: NonNullable<Entity['weapon']>,
-    playerPos: { x: number; y: number },
-    deltaMs: number
-  ): void {
-    weapon.ultimateElapsedMs += deltaMs
-
-    const facing = weapon.ultimateFacing
-    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
-    // 身前：面朝方向水平延伸，Y 在身体中心
-    const holdX = playerPos.x + facing * (radius + DEFAULT_WEAPON_WIDTH * 0.5)
-    const holdY = playerPos.y
-    const holdRot = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-
-    // 锤子绝招使用视觉偏移后的位置来计算武器坐标
-    if (
-      weapon.ultimatePhase !== null &&
-      weapon.ultimatePhase.startsWith('hammer_')
-    ) {
-      this.handleHammerUltimatePhases(entity, weapon, playerPos, deltaMs)
-      return
-    }
-
-    switch (weapon.ultimatePhase) {
-      case 'spin': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / ULTIMATE_SPIN_MS)
-        if (t < ULTIMATE_SPIN_MOVE_RATIO) {
-          // 前段：移动到身前位置（smoothstep 缓动）
-          const mt = t / ULTIMATE_SPIN_MOVE_RATIO
-          const ease = mt * mt * (3 - 2 * mt)
-          weapon.visual.x =
-            weapon.ultimateSpinStartX +
-            (holdX - weapon.ultimateSpinStartX) * ease
-          weapon.visual.y =
-            weapon.ultimateSpinStartY +
-            (holdY - weapon.ultimateSpinStartY) * ease
-          weapon.visual.rotation = weapon.ultimateSpinStartRot
-        } else {
-          // 后段：原地转圈
-          const st =
-            (t - ULTIMATE_SPIN_MOVE_RATIO) / (1 - ULTIMATE_SPIN_MOVE_RATIO)
-          weapon.visual.x = holdX
-          weapon.visual.y = holdY
-          weapon.visual.rotation =
-            weapon.ultimateSpinStartRot + facing * st * Math.PI * 2
-        }
-        if (t >= 1) {
-          weapon.ultimatePhase = 'hold'
-          weapon.ultimateElapsedMs = 0
-          weapon.visual.rotation = holdRot
-        }
-        break
-      }
-      case 'hold': {
-        weapon.visual.x = holdX
-        weapon.visual.y = holdY
-        weapon.visual.rotation = holdRot
-        if (weapon.ultimateElapsedMs >= ULTIMATE_HOLD_MS) {
-          weapon.ultimatePhase = 'thrust'
-          weapon.ultimateElapsedMs = 0
-          weapon.ultimateGiantAlpha100 = 0
-        }
-        break
-      }
-      case 'thrust': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / ULTIMATE_THRUST_MS)
-        weapon.visual.x = holdX
-        weapon.visual.y = holdY - t * ULTIMATE_THRUST_DIST
-        weapon.visual.rotation = holdRot
-        weapon.ultimateGiantRise100 = Math.round(t * 100)
-        // 淡入：随升起同步变透明度
-        weapon.ultimateGiantAlpha100 = Math.round(t * 100)
-        if (t >= 1) {
-          if (!weapon.ultimateDamageDealt) {
-            weapon.ultimateDamageDealt = true
-            this.applyUltimateAOEDamage(entity)
-          }
-          weapon.ultimateGiantAlpha100 = 100
-          weapon.ultimatePhase = 'giant_wait'
-          weapon.ultimateElapsedMs = 0
-        }
-        break
-      }
-      case 'giant_wait': {
-        const t = this.clamp01(
-          weapon.ultimateElapsedMs / ULTIMATE_GIANT_WAIT_MS
-        )
-        weapon.visual.x = holdX
-        weapon.visual.y = holdY - ULTIMATE_THRUST_DIST
-        weapon.visual.rotation = holdRot
-        // 继续升起：100→200，直到完全飞出屏幕顶部
-        weapon.ultimateGiantRise100 = 100 + Math.round(t * 100)
-        weapon.ultimateGiantAlpha100 = 100
-        if (t >= 1) {
-          // 保存手中剑当前位置用于归位过渡
-          weapon.ultimateSpinStartX = weapon.visual.x
-          weapon.ultimateSpinStartY = weapon.visual.y
-          weapon.ultimatePhase = 'giant_recover'
-          weapon.ultimateElapsedMs = 0
-        }
-        break
-      }
-      case 'giant_recover': {
-        const t = this.clamp01(
-          weapon.ultimateElapsedMs / ULTIMATE_GIANT_RECOVER_MS
-        )
-        // 计算战斗准备位置作为 lerp 目标
-        this.getFrontTransform(
-          playerPos,
-          facing,
-          this.tempTransform,
-          radius,
-          weapon.weaponType as WeaponVisualType,
-          weapon.width
-        )
-        weapon.visual.x =
-          weapon.ultimateSpinStartX +
-          (this.tempTransform.x - weapon.ultimateSpinStartX) * t
-        weapon.visual.y =
-          weapon.ultimateSpinStartY +
-          (this.tempTransform.y - weapon.ultimateSpinStartY) * t
-        weapon.visual.rotation = holdRot
-        // 巨剑已飞出屏幕，直接隐藏
-        weapon.ultimateGiantAlpha100 = 0
-        weapon.ultimateGiantRise100 = 0
-        if (t >= 1) {
-          weapon.ultimatePhase = null
-          weapon.ultimateElapsedMs = 0
-          weapon.isUnstoppable = false
-          weapon.attackPhase = 'idle'
-          if (entity.stats) entity.stats.isInvincible = false
-          if (entity.attackSlots)
-            entity.attackSlots.ultimate.cooldownRemainingMs =
-              ULTIMATE_COOLDOWN_MS
-        }
-        break
-      }
-      default:
-        break
-    }
-  }
-
-  private applyUltimateAOEDamage(attacker: Entity): void {
-    if (!this.statsSystem || !attacker.faction || !attacker.weapon) return
-    const weapon = attacker.weapon
-    const giantX = weapon.ultimateGiantX
-    const groundY = weapon.ultimateGiantGroundY
-    const damage = weapon.attackDamage * 5
-    const posture = weapon.postureDamage * 5
-    const toughness = weapon.toughnessDamage * 5
-    for (let i = 0; i < this.allEntities.length; i++) {
-      const target = this.allEntities[i]
-      if (!target || target.id === attacker.id) continue
-      if (!target.transform || !target.stats || target.stats.isDead) continue
-      if (!target.faction || !attacker.faction.canAttack(target.faction))
-        continue
-      const dx = Math.abs(target.transform.x - giantX)
-      if (dx > ULTIMATE_GIANT_HALF_WIDTH) continue
-      this.statsSystem.applyWeaponHit(
-        target,
-        {
-          attackDamage: damage,
-          postureDamage: posture,
-          toughnessDamage: toughness,
-          impactLevel: 'extreme',
-          weaponType: 'sword',
-        },
-        { x: giantX, y: groundY }
-      )
-    }
-  }
-
-  private handleHammerUltimatePhases(
-    entity: Entity,
-    weapon: NonNullable<Entity['weapon']>,
-    playerPos: { x: number; y: number },
-    _deltaMs: number
-  ): void {
-    const facing = weapon.ultimateFacing
-    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
-    const frontAngle =
-      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
-    const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-
-    // 构建当前帧的视觉玩家位置（跳跃偏移）
-    this.tempVisualPos.x = playerPos.x + weapon.ultimateHammerVisualDX
-    this.tempVisualPos.y = playerPos.y - weapon.ultimateHammerJumpOffsetY
-    const visualPos = this.tempVisualPos
-
-    switch (weapon.ultimatePhase) {
-      case 'hammer_spin': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_SPIN_MS)
-        if (t < HAMMER_SPIN_START_RATIO) {
-          // 前段：从准备位置平滑过渡到轨道起点（前方），自然衔接无闪现
-          const st = t / HAMMER_SPIN_START_RATIO
-          const ease = st * st * (3 - 2 * st)
-          this.getTransformAtAngle(
-            playerPos,
-            frontAngle,
-            radius,
-            this.tempTransform
-          )
-          weapon.visual.x =
-            weapon.ultimateSpinStartX +
-            (this.tempTransform.x - weapon.ultimateSpinStartX) * ease
-          weapon.visual.y =
-            weapon.ultimateSpinStartY +
-            (this.tempTransform.y - weapon.ultimateSpinStartY) * ease
-          weapon.visual.rotation =
-            weapon.ultimateSpinStartRot +
-            (this.tempTransform.rotation - weapon.ultimateSpinStartRot) * ease
-        } else {
-          // 主段：从前方出发逆/顺时针绕一圈回到前方（从前方，由上而过）
-          const st =
-            (t - HAMMER_SPIN_START_RATIO) / (1 - HAMMER_SPIN_START_RATIO)
-          const spinAngle = frontAngle + -facing * st * Math.PI * 2
-          this.getTransformAtAngle(playerPos, spinAngle, radius, weapon.visual)
-        }
-        if (t >= 1) {
-          weapon.ultimatePhase = 'hammer_jump_rise'
-          weapon.ultimateElapsedMs = 0
-          weapon.ultimateHammerJumpOffsetY = 0
-          weapon.ultimateHammerVisualDX = 0
-        }
-        break
-      }
-      case 'hammer_jump_rise': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_JUMP_RISE_MS)
-        // 物理感：垂直 easeOut（抛出减速），水平匀速
-        const riseEase = 1 - (1 - t) * (1 - t)
-        const startX = entity.transform?.x ?? playerPos.x
-        weapon.ultimateHammerJumpOffsetY =
-          Math.round(riseEase * HAMMER_JUMP_HEIGHT * 100) / 100
-        weapon.ultimateHammerVisualDX =
-          (weapon.ultimateHammerLandX - startX) * t
-        // 消除一帧延迟：用当前帧最新偏移量重新计算 visualPos
-        visualPos.x = playerPos.x + weapon.ultimateHammerVisualDX
-        visualPos.y = playerPos.y - weapon.ultimateHammerJumpOffsetY
-        // 举高位置：比普通前摇最高点（radius）高出约3倍，体现蓄力感
-        const overheadOffset = radius * 3
-        if (t < HAMMER_JUMP_RISE_SWING_RATIO) {
-          // 前段：以视觉玩家为基准，从前方偏移量插值到举高偏移量
-          const st = t / HAMMER_JUMP_RISE_SWING_RATIO
-          const swingEase = st * st * (3 - 2 * st)
-          const spinOffX = Math.cos(frontAngle) * radius
-          const spinOffY = Math.sin(frontAngle) * radius
-          weapon.visual.x = visualPos.x + spinOffX + (0 - spinOffX) * swingEase
-          weapon.visual.y =
-            visualPos.y + spinOffY + (-overheadOffset - spinOffY) * swingEase
-          weapon.visual.rotation =
-            frontAngle + (headAngle - frontAngle) * swingEase
-        } else {
-          // 后段：举高保持，明显区别于默认位置
-          weapon.visual.x = visualPos.x
-          weapon.visual.y = visualPos.y - overheadOffset
-          weapon.visual.rotation = headAngle
-        }
-        if (t >= 1) {
-          weapon.ultimatePhase = 'hammer_jump_apex'
-          weapon.ultimateElapsedMs = 0
-          weapon.ultimateHammerJumpOffsetY = HAMMER_JUMP_HEIGHT
-          // 在最高点重新查询锁定目标位置，修正追踪偏差
-          if (
-            entity.input?.lockedTargetId !== null &&
-            entity.input?.lockedTargetId !== undefined &&
-            this.entityLookup
-          ) {
-            const locked = this.entityLookup(entity.input.lockedTargetId)
-            if (locked?.transform && locked.stats && !locked.stats.isDead) {
-              const newLandX =
-                locked.transform.x -
-                Math.cos(frontAngle) * (radius + weapon.width / 2)
-              const baseX = entity.transform?.x ?? playerPos.x
-              const rawDx = newLandX - baseX
-              const clampedDx =
-                rawDx > HAMMER_ULTIMATE_MAX_DIST
-                  ? HAMMER_ULTIMATE_MAX_DIST
-                  : rawDx < -HAMMER_ULTIMATE_MAX_DIST
-                    ? -HAMMER_ULTIMATE_MAX_DIST
-                    : rawDx
-              weapon.ultimateHammerLandX = baseX + clampedDx
-            }
-          }
-          weapon.ultimateHammerVisualDX =
-            weapon.ultimateHammerLandX - (entity.transform?.x ?? playerPos.x)
-        }
-        break
-      }
-      case 'hammer_jump_apex': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_JUMP_APEX_MS)
-        // 最高点：从高举位置猛击向前方，比轨道更有力度感
-        const overheadOffset = radius * 3
-        const swingEase = t * t * (3 - 2 * t)
-        this.getTransformAtAngle(
-          visualPos,
-          frontAngle,
-          radius,
-          this.tempTransform
-        )
-        weapon.visual.x =
-          visualPos.x + (this.tempTransform.x - visualPos.x) * swingEase
-        weapon.visual.y =
-          visualPos.y -
-          overheadOffset +
-          (this.tempTransform.y - (visualPos.y - overheadOffset)) * swingEase
-        weapon.visual.rotation =
-          headAngle + (frontAngle - headAngle) * swingEase
-        if (t >= 1) {
-          weapon.ultimatePhase = 'hammer_fall'
-          weapon.ultimateElapsedMs = 0
-        }
-        break
-      }
-      case 'hammer_fall': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_FALL_MS)
-        // 物理感：重力加速下落 easeIn
-        const fallEase = t * t
-        weapon.ultimateHammerJumpOffsetY =
-          Math.round(HAMMER_JUMP_HEIGHT * (1 - fallEase) * 100) / 100
-        // 武器保持打击后摇姿势（前方位置）
-        this.getTransformAtAngle(visualPos, frontAngle, radius, weapon.visual)
-        if (t >= 1) {
-          // 传送玩家物理位置
-          weapon.ultimateHammerJumpOffsetY = 0
-          this.teleportEntityToLanding(entity, weapon)
-          // 重新计算视觉位置（已落地，偏移归零，复用 tempPlayerPos）
-          this.tempPlayerPos.x = entity.transform?.x ?? playerPos.x
-          this.tempPlayerPos.y = entity.transform?.y ?? playerPos.y
-          weapon.ultimateHammerVisualDX = 0
-          this.getTransformAtAngle(
-            this.tempPlayerPos,
-            frontAngle,
-            radius,
-            weapon.visual
-          )
-          // 冲击波中心 = 锤头触地点（武器中心沿 frontAngle 方向偏移半长）
-          const halfLen = weapon.width / 2
-          weapon.ultimateGiantX =
-            weapon.visual.x + Math.cos(frontAngle) * halfLen
-          weapon.ultimateGiantGroundY =
-            weapon.visual.y + Math.sin(frontAngle) * halfLen
-          // 落地瞬间触发 AOE，中心已计算完毕
-          if (!weapon.ultimateDamageDealt) {
-            weapon.ultimateDamageDealt = true
-            this.applyHammerUltimateAOEDamage(entity)
-          }
-          weapon.ultimatePhase = 'hammer_land'
-          weapon.ultimateElapsedMs = 0
-          weapon.ultimateHammerImpact100 = 0
-        }
-        break
-      }
-      case 'hammer_land': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_LAND_MS)
-        weapon.ultimateHammerImpact100 = Math.round(t * 100)
-        // 武器保持在落地位置（playerPos 此帧已是落地坐标）
-        this.getTransformAtAngle(playerPos, frontAngle, radius, weapon.visual)
-        if (t >= 1) {
-          weapon.ultimatePhase = 'hammer_recover'
-          weapon.ultimateElapsedMs = 0
-          weapon.ultimateHammerImpact100 = 0
-          weapon.ultimateSpinStartX = weapon.visual.x
-          weapon.ultimateSpinStartY = weapon.visual.y
-          weapon.ultimateSpinStartRot = weapon.visual.rotation
-        }
-        break
-      }
-      case 'hammer_recover': {
-        const t = this.clamp01(weapon.ultimateElapsedMs / HAMMER_RECOVER_MS)
-        this.getFrontTransform(
-          playerPos,
-          facing,
-          this.tempTransform,
-          radius,
-          weapon.weaponType as WeaponVisualType,
-          weapon.width
-        )
-        const ease = t * t * (3 - 2 * t)
-        weapon.visual.x =
-          weapon.ultimateSpinStartX +
-          (this.tempTransform.x - weapon.ultimateSpinStartX) * ease
-        weapon.visual.y =
-          weapon.ultimateSpinStartY +
-          (this.tempTransform.y - weapon.ultimateSpinStartY) * ease
-        weapon.visual.rotation =
-          weapon.ultimateSpinStartRot +
-          (DEFAULT_WEAPON_VERTICAL_ROTATION_RAD - weapon.ultimateSpinStartRot) *
-            ease
-        if (t >= 1) {
-          weapon.ultimatePhase = null
-          weapon.ultimateElapsedMs = 0
-          weapon.isUnstoppable = false
-          weapon.attackPhase = 'idle'
-          weapon.ultimateHammerImpact100 = 0
-          weapon.ultimateHammerJumpOffsetY = 0
-          weapon.ultimateHammerVisualDX = 0
-          if (entity.stats) entity.stats.isInvincible = false
-          if (entity.attackSlots)
-            entity.attackSlots.ultimate.cooldownRemainingMs =
-              ULTIMATE_COOLDOWN_MS
-        }
-        break
-      }
-      default:
-        break
-    }
-  }
-
-  private teleportEntityToLanding(
-    entity: Entity,
-    weapon: NonNullable<Entity['weapon']>
-  ): void {
-    if (!entity.physics || !entity.transform || !this.box2d || !this.tempVec)
-      return
-    const {
-      b2Body_SetTransform,
-      b2Body_GetRotation,
-      b2Body_SetLinearVelocity,
-    } = this.box2d
-    this.tempVec.x = weapon.ultimateHammerLandX
-    this.tempVec.y = entity.transform.y
-    b2Body_SetTransform(
-      entity.physics.bodyId,
-      this.tempVec,
-      b2Body_GetRotation(entity.physics.bodyId)
-    )
-    this.tempVec.x = 0
-    this.tempVec.y = 0
-    b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
-    entity.transform.x = weapon.ultimateHammerLandX
-  }
-
-  private applyHammerUltimateAOEDamage(attacker: Entity): void {
-    if (!this.statsSystem || !attacker.faction || !attacker.weapon) return
-    const weapon = attacker.weapon
-    // AOE 中心 = 锤头触地点，与视觉爆炸效果对齐
-    const cx = weapon.ultimateGiantX
-    const cy = weapon.ultimateGiantGroundY
-    const damage = weapon.attackDamage * 5
-    const posture = weapon.postureDamage * 5
-    const toughness = weapon.toughnessDamage * 5
-    for (let i = 0; i < this.allEntities.length; i++) {
-      const target = this.allEntities[i]
-      if (!target || target.id === attacker.id) continue
-      if (!target.transform || !target.stats || target.stats.isDead) continue
-      if (!target.faction || !attacker.faction.canAttack(target.faction))
-        continue
-      const dx = target.transform.x - cx
-      const dy = target.transform.y - cy
-      if (dx * dx + dy * dy > HAMMER_AOE_RADIUS * HAMMER_AOE_RADIUS) continue
-      this.statsSystem.applyWeaponHit(
-        target,
-        {
-          attackDamage: damage,
-          postureDamage: posture,
-          toughnessDamage: toughness,
-          impactLevel: 'extreme',
-          weaponType: 'hammer',
-        },
-        { x: cx, y: cy }
-      )
-    }
-  }
-
   handleUltimateRequest(entity: Entity, maxLandDist?: number): void {
-    if (!entity.attackSlots || !entity.weapon || !entity.input) return
-    if (!entity.transform) return
-    const slot = entity.attackSlots.ultimate
-    if (!slot.hasMoveset) return
-    if (!entity.weapon.isEquipped) return
-    const wt = entity.weapon.weaponType
-    if (wt !== 'sword' && wt !== 'hammer') return
-    if (slot.cooldownRemainingMs > 0) return
-    if (entity.weapon.attackPhase !== 'idle') return
-    if (entity.weapon.ultimatePhase !== null) return
-
-    if (wt === 'hammer') {
-      this.handleHammerUltimateRequest(entity, maxLandDist)
-      return
-    }
-
-    const weapon = entity.weapon
-    const facing =
-      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
-    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-
-    weapon.ultimatePhase = 'spin'
-    weapon.ultimateElapsedMs = 0
-    weapon.ultimateFacing = facing
-    weapon.ultimateSpinStartX = weapon.visual.x
-    weapon.ultimateSpinStartY = weapon.visual.y
-    weapon.ultimateSpinStartRot = weapon.visual.rotation
-    // 锁定目标时：巨剑中心对准目标 X（剑尖朝上，纵穿目标位置）
-    // 未锁定时：护手边缘（GIANT_THICK/2=1.5m）刚好掠过玩家身体（radius≈0.5m），偏移=2m
-    if (this.entityLookup && entity.input.lockedTargetId !== null) {
-      const lockedTarget = this.entityLookup(entity.input.lockedTargetId)
-      if (
-        lockedTarget?.transform &&
-        lockedTarget.stats &&
-        !lockedTarget.stats.isDead
-      ) {
-        weapon.ultimateGiantX = lockedTarget.transform.x
-      } else {
-        weapon.ultimateGiantX = entity.transform.x + facing * 2
-      }
-    } else {
-      weapon.ultimateGiantX = entity.transform.x + facing * 2
-    }
-    weapon.ultimateGiantGroundY = entity.transform.y + radius
-    weapon.ultimateGiantRise100 = 0
-    weapon.ultimateGiantAlpha100 = 0
-    weapon.ultimateDamageDealt = false
-    weapon.isUnstoppable = true
-    weapon.attackFacing = facing
-    if (entity.stats) entity.stats.isInvincible = true
-  }
-
-  private handleHammerUltimateRequest(
-    entity: Entity,
-    maxLandDist?: number
-  ): void {
-    if (!entity.weapon || !entity.input || !entity.transform) return
-    const weapon = entity.weapon
-    const facing =
-      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
-    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    const maxDist = maxLandDist ?? HAMMER_ULTIMATE_MAX_DIST
-
-    // 计算落地X：以锤头为基准对准目标（玩家落点 = 目标X - 锤头相对玩家的水平偏移）
-    const frontAngle =
-      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
-    const headOffset = Math.cos(frontAngle) * (radius + weapon.width / 2)
-    let landX = entity.transform.x
-    if (this.entityLookup && entity.input.lockedTargetId !== null) {
-      const locked = this.entityLookup(entity.input.lockedTargetId)
-      if (locked?.transform && locked.stats && !locked.stats.isDead) {
-        landX = locked.transform.x - headOffset
-      }
-    }
-    // 限制落地距离不超过 maxDist
-    const rawDx = landX - entity.transform.x
-    const clampedDx =
-      rawDx > maxDist ? maxDist : rawDx < -maxDist ? -maxDist : rawDx
-    landX = entity.transform.x + clampedDx
-
-    weapon.ultimatePhase = 'hammer_spin'
-    weapon.ultimateElapsedMs = 0
-    weapon.ultimateFacing = facing
-    weapon.ultimateSpinStartX = weapon.visual.x
-    weapon.ultimateSpinStartY = weapon.visual.y
-    weapon.ultimateSpinStartRot = weapon.visual.rotation
-    weapon.ultimateHammerLandX = landX
-    weapon.ultimateHammerJumpOffsetY = 0
-    weapon.ultimateHammerVisualDX = 0
-    weapon.ultimateHammerImpact100 = 0
-    weapon.ultimateDamageDealt = false
-    weapon.ultimateGiantX = 0
-    weapon.ultimateGiantGroundY = 0
-    weapon.isUnstoppable = true
-    weapon.attackFacing = facing
-    if (entity.stats) entity.stats.isInvincible = true
+    this.ultimateHandler.handleUltimateRequest(entity, maxLandDist)
   }
 
   private getNormalAttackMovesetId(entity: Entity): string {
@@ -3027,7 +2373,7 @@ export class WeaponSystem extends System {
   ): void {
     if (!weapon) return
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    this.getFrontTransform(
+    getFrontTransform(
       playerPos,
       facing,
       this.tempTransform,
@@ -3035,7 +2381,7 @@ export class WeaponSystem extends System {
       weapon.weaponType,
       weapon.width
     )
-    this.copyTransform(this.tempTransform, weapon.visual)
+    copyTransform(this.tempTransform, weapon.visual)
     weapon.visual.rotation += facing === 1 ? 0.22 : -0.22
     weapon.visual.x += facing * 0.08
     this.startBlockReturn(entity, weapon, playerPos)
@@ -3256,7 +2602,7 @@ export class WeaponSystem extends System {
               const facing = entity.input?.lastMoveDirection || 1
               const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
               if (entity.stats?.isInCombat) {
-                this.getFrontTransform(
+                getFrontTransform(
                   entity.transform,
                   facing,
                   entity.weapon.visual,
@@ -3354,7 +2700,7 @@ export class WeaponSystem extends System {
           const newFacing = entity.input?.lastMoveDirection || 1
           const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
           if (entity.stats?.isInCombat) {
-            this.getFrontTransform(
+            getFrontTransform(
               entity.transform,
               newFacing,
               entity.weapon.visual,
@@ -3424,7 +2770,7 @@ export class WeaponSystem extends System {
           const newFacing = entity.input?.lastMoveDirection || 1
           const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
           if (entity.stats?.isInCombat) {
-            this.getFrontTransform(
+            getFrontTransform(
               entity.transform,
               newFacing,
               entity.weapon.visual,
@@ -3637,7 +2983,7 @@ export class WeaponSystem extends System {
         }
       }
 
-      this.getSwingTransforms(
+      getSwingTransforms(
         attackRadius,
         facing,
         this.getMoveKind(weapon),
@@ -3649,17 +2995,13 @@ export class WeaponSystem extends System {
         weapon.swingEndTransform
       )
 
-      this.getOffsetFromTransform(
-        weapon.visual,
-        playerPos,
-        weapon.attackStartOffset
-      )
-      this.getOffsetFromTransform(
+      getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
+      getOffsetFromTransform(
         weapon.swingStartTransform,
         playerPos,
         weapon.swingStartOffset
       )
-      this.getOffsetFromTransform(
+      getOffsetFromTransform(
         weapon.swingEndTransform,
         playerPos,
         weapon.swingEndOffset
@@ -3672,7 +3014,7 @@ export class WeaponSystem extends System {
       weapon.attackElapsedMs = 0
       weapon.lastAttackTimestamp = now
 
-      this.applyOffset(
+      applyOffset(
         weapon.attackStartOffset,
         playerPos,
         weapon.attackStartTransform
@@ -3682,7 +3024,7 @@ export class WeaponSystem extends System {
       weapon.comboCount = 1
       weapon.attackQueued = false
 
-      this.applyOffset(weapon.attackStartOffset, playerPos, weapon.visual)
+      applyOffset(weapon.attackStartOffset, playerPos, weapon.visual)
 
       weapon.hitEntityIds.clear()
       return
@@ -3713,210 +3055,6 @@ export class WeaponSystem extends System {
     if (!this.soundSystem) return
     const radius = source.render?.radius ?? DEFAULT_PLAYER_RADIUS
     this.soundSystem.emitSoundAt(x, y, radius, db, rangeMultiplier)
-  }
-
-  private clamp01(value: number): number {
-    if (value < 0) return 0
-    if (value > 1) return 1
-    return value
-  }
-
-  private lerpTransform(
-    from: WeaponTransform,
-    to: WeaponTransform,
-    t: number,
-    out: WeaponTransform
-  ): void {
-    const clampedT = this.clamp01(t)
-    out.x = from.x + (to.x - from.x) * clampedT
-    out.y = from.y + (to.y - from.y) * clampedT
-    out.rotation = from.rotation + (to.rotation - from.rotation) * clampedT
-  }
-
-  private lerpRelativeTransform(
-    from: WeaponRelativeTransform,
-    to: WeaponRelativeTransform,
-    t: number,
-    out: WeaponRelativeTransform
-  ): void {
-    const clampedT = this.clamp01(t)
-    out.dx = from.dx + (to.dx - from.dx) * clampedT
-    out.dy = from.dy + (to.dy - from.dy) * clampedT
-    out.rotation = from.rotation + (to.rotation - from.rotation) * clampedT
-  }
-
-  private getOffsetFromTransform(
-    transform: WeaponTransform,
-    playerPos: { x: number; y: number },
-    out: WeaponRelativeTransform
-  ): void {
-    out.dx = transform.x - playerPos.x
-    out.dy = transform.y - playerPos.y
-    out.rotation = transform.rotation
-  }
-
-  private applyOffset(
-    offset: WeaponRelativeTransform,
-    playerPos: { x: number; y: number },
-    out: WeaponTransform
-  ): void {
-    out.x = playerPos.x + offset.dx
-    out.y = playerPos.y + offset.dy
-    out.rotation = offset.rotation
-  }
-
-  private realignToFacing(
-    weapon: Entity['weapon'],
-    playerPos: { x: number; y: number },
-    facing: number,
-    minimumElapsedMs: number,
-    radius: number
-  ): void {
-    if (!weapon) return
-    this.getFrontTransform(
-      playerPos,
-      facing,
-      weapon.visual,
-      radius,
-      weapon.weaponType,
-      weapon.width
-    )
-    this.getOffsetFromTransform(
-      weapon.visual,
-      playerPos,
-      weapon.attackStartOffset
-    )
-    weapon.attackFacing = facing
-    this.copyTransform(weapon.attackStartTransform, weapon.visual)
-    this.copyTransform(weapon.swingStartTransform, weapon.visual)
-    this.copyTransform(weapon.swingEndTransform, weapon.visual)
-    this.getOffsetFromTransform(
-      weapon.visual,
-      playerPos,
-      weapon.swingStartOffset
-    )
-    this.getOffsetFromTransform(weapon.visual, playerPos, weapon.swingEndOffset)
-
-    weapon.attackElapsedMs = Math.max(weapon.attackElapsedMs, minimumElapsedMs)
-  }
-
-  private getFrontTransform(
-    playerPos: { x: number; y: number },
-    facing: number,
-    out: WeaponTransform,
-    radius: number,
-    weaponType: WeaponVisualType,
-    weaponWidth: number
-  ): void {
-    if (weaponType === 'bow') {
-      const offsetX = radius + 0.2
-      out.x = playerPos.x + facing * offsetX
-      out.y = playerPos.y
-      out.rotation = facing === 1 ? Math.PI / 2 : -Math.PI / 2
-      return
-    }
-
-    if (weaponType === 'spear') {
-      out.x = playerPos.x
-      out.y = playerPos.y + radius - weaponWidth / 2
-      out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-      return
-    }
-
-    out.x = playerPos.x + facing * 0
-    out.y = playerPos.y - weaponWidth / 2
-    out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-  }
-
-  private getSwingTransforms(
-    radius: number,
-    facing: number,
-    kind: AttackMoveData['kind'],
-    direction: 'toFront' | 'toHead',
-    playerPos: { x: number; y: number },
-    weaponType: WeaponVisualType,
-    weaponWidth: number,
-    outStart: WeaponTransform,
-    outEnd: WeaponTransform
-  ): void {
-    if (kind === 'thrust') {
-      this.getThrustTransforms(
-        radius,
-        facing,
-        playerPos,
-        weaponWidth,
-        outStart,
-        outEnd
-      )
-      return
-    }
-    if (kind === 'strike') {
-      this.getStrikeTransforms(
-        playerPos,
-        facing,
-        radius,
-        weaponType,
-        outStart,
-        outEnd
-      )
-      return
-    }
-
-    const frontAngle =
-      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
-    const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-    const swingStartAngle = direction === 'toFront' ? headAngle : frontAngle
-    const swingEndAngle = direction === 'toFront' ? frontAngle : headAngle
-
-    this.getTransformAtAngle(playerPos, swingStartAngle, radius, outStart)
-    this.getTransformAtAngle(playerPos, swingEndAngle, radius, outEnd)
-  }
-
-  private getThrustTransforms(
-    radius: number,
-    facing: number,
-    playerPos: { x: number; y: number },
-    weaponWidth: number,
-    outStart: WeaponTransform,
-    outEnd: WeaponTransform
-  ): void {
-    const isLongSpear = weaponWidth > 0 && weaponWidth >= 3
-    const startGripOffset = isLongSpear ? weaponWidth * 0.36 : 0
-    const endGripOffset = isLongSpear ? weaponWidth * 0.2 : 0
-    const endDistance = (radius * THRUST_END_RATIO) / 100
-    const minStartDistance = weaponWidth / 2 + THRUST_GRIP_CLEARANCE
-    let startDistance = (radius * THRUST_START_RATIO) / 100
-    if (startDistance < minStartDistance) {
-      startDistance = minStartDistance
-    }
-    if (startDistance >= endDistance) {
-      startDistance = endDistance * 0.7
-    }
-    const thrustY = playerPos.y
-    const rotation = facing === 1 ? 0 : -Math.PI
-
-    outStart.x = playerPos.x + facing * (startDistance - startGripOffset)
-    outStart.y = thrustY
-    outStart.rotation = rotation
-
-    outEnd.x = playerPos.x + facing * (endDistance - endGripOffset)
-    outEnd.y = thrustY
-    outEnd.rotation = rotation
-  }
-
-  private getStrikeTransforms(
-    playerPos: { x: number; y: number },
-    facing: number,
-    radius: number,
-    _weaponType: WeaponVisualType,
-    outStart: WeaponTransform,
-    outEnd: WeaponTransform
-  ): void {
-    const frontAngle =
-      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
-    const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
-    this.getTransformAtAngle(playerPos, headAngle, radius, outStart)
-    this.getTransformAtAngle(playerPos, frontAngle, radius, outEnd)
   }
 
   private getMoveKind(weapon: Entity['weapon']): AttackMoveData['kind'] {
@@ -3950,7 +3088,7 @@ export class WeaponSystem extends System {
     weapon.hitEntityIds.clear()
 
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    this.getFrontTransform(
+    getFrontTransform(
       playerPos,
       newFacing,
       weapon.visual,
@@ -4003,82 +3141,6 @@ export class WeaponSystem extends System {
     )
   }
 
-  private checkOBBvsAABB(
-    obbCenterX: number,
-    obbCenterY: number,
-    obbWidth: number,
-    obbHeight: number,
-    obbRotation: number,
-    aabbCenterX: number,
-    aabbCenterY: number,
-    aabbHalfWidth: number,
-    aabbHalfHeight: number
-  ): boolean {
-    const cos = Math.cos(obbRotation)
-    const sin = Math.sin(obbRotation)
-
-    const dx = obbCenterX - aabbCenterX
-    const dy = obbCenterY - aabbCenterY
-
-    const projD1 = Math.abs(dx * cos + dy * sin)
-    const projAABB1 =
-      aabbHalfWidth * Math.abs(cos) + aabbHalfHeight * Math.abs(sin)
-    if (projD1 > obbWidth / 2 + projAABB1) return false
-
-    const projD2 = Math.abs(-dx * sin + dy * cos)
-    const projAABB2 =
-      aabbHalfWidth * Math.abs(sin) + aabbHalfHeight * Math.abs(cos)
-    if (projD2 > obbHeight / 2 + projAABB2) return false
-
-    const projD3 = Math.abs(dx)
-    const projOBB3 =
-      (obbWidth / 2) * Math.abs(cos) + (obbHeight / 2) * Math.abs(sin)
-    if (projD3 > projOBB3 + aabbHalfWidth) return false
-
-    const projD4 = Math.abs(dy)
-    const projOBB4 =
-      (obbWidth / 2) * Math.abs(sin) + (obbHeight / 2) * Math.abs(cos)
-    if (projD4 > projOBB4 + aabbHalfHeight) return false
-
-    return true
-  }
-
-  private checkOBBvsCircle(
-    obbCenterX: number,
-    obbCenterY: number,
-    obbWidth: number,
-    obbHeight: number,
-    obbRotation: number,
-    circleX: number,
-    circleY: number,
-    circleRadius: number
-  ): boolean {
-    const cos = Math.cos(-obbRotation)
-    const sin = Math.sin(-obbRotation)
-
-    const dx = circleX - obbCenterX
-    const dy = circleY - obbCenterY
-
-    const localX = dx * cos - dy * sin
-    const localY = dx * sin + dy * cos
-
-    const halfWidth = obbWidth / 2
-    const halfHeight = obbHeight / 2
-
-    const clampedX = Math.max(-halfWidth, Math.min(halfWidth, localX))
-    const clampedY = Math.max(-halfHeight, Math.min(halfHeight, localY))
-
-    const closestX = clampedX
-    const closestY = clampedY
-
-    const distanceX = localX - closestX
-    const distanceY = localY - closestY
-
-    const distanceSquared = distanceX * distanceX + distanceY * distanceY
-
-    return distanceSquared <= circleRadius * circleRadius
-  }
-
   private checkObstacleCollision(weapon?: Entity['weapon']): boolean {
     if (!weapon) return false
     if (this.obstacles.length === 0) return false
@@ -4096,21 +3158,14 @@ export class WeaponSystem extends System {
       if (worldVertices) {
         // Polygon (SAT)
         if (
-          this.checkOBBvsPolygon(
-            wx,
-            wy,
-            wWidth,
-            wHeight,
-            wRotation,
-            worldVertices
-          )
+          checkOBBvsPolygon(wx, wy, wWidth, wHeight, wRotation, worldVertices)
         ) {
           return true
         }
       } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
         // Circle
         if (
-          this.checkOBBvsCircle(
+          checkOBBvsCircle(
             wx,
             wy,
             wWidth,
@@ -4129,7 +3184,7 @@ export class WeaponSystem extends System {
         const halfH = obstacle.height
 
         if (
-          this.checkOBBvsAABB(
+          checkOBBvsAABB(
             wx,
             wy,
             wWidth,
@@ -4147,73 +3202,6 @@ export class WeaponSystem extends System {
     }
 
     return false
-  }
-
-  private checkOBBvsPolygon(
-    wx: number,
-    wy: number,
-    ww: number,
-    wh: number,
-    wRot: number,
-    vertices: { x: number; y: number }[]
-  ): boolean {
-    const cos = Math.cos(wRot)
-    const sin = Math.sin(wRot)
-    const hw = ww / 2
-    const hh = wh / 2
-
-    const obbVerts = this.tempObbVerts
-    obbVerts[0].x = wx + (cos * -hw - sin * -hh)
-    obbVerts[0].y = wy + (sin * -hw + cos * -hh)
-    obbVerts[1].x = wx + (cos * hw - sin * -hh)
-    obbVerts[1].y = wy + (sin * hw + cos * -hh)
-    obbVerts[2].x = wx + (cos * hw - sin * hh)
-    obbVerts[2].y = wy + (sin * hw + cos * hh)
-    obbVerts[3].x = wx + (cos * -hw - sin * hh)
-    obbVerts[3].y = wy + (sin * -hw + cos * hh)
-
-    if (!this.checkOBBvsPolyAxis(cos, sin, obbVerts, vertices)) return false
-    if (!this.checkOBBvsPolyAxis(-sin, cos, obbVerts, vertices)) return false
-
-    const polyCount = vertices.length
-    for (let i = 0; i < polyCount; i++) {
-      const curr = vertices[i]
-      const next = vertices[(i + 1) % polyCount]
-      const edgeX = next.x - curr.x
-      const edgeY = next.y - curr.y
-      if (!this.checkOBBvsPolyAxis(-edgeY, edgeX, obbVerts, vertices)) {
-        return false
-      }
-    }
-
-    return true
-  }
-
-  private checkOBBvsPolyAxis(
-    axisX: number,
-    axisY: number,
-    obbVerts: { x: number; y: number }[],
-    polyVerts: { x: number; y: number }[]
-  ): boolean {
-    let minOBB = Infinity
-    let maxOBB = -Infinity
-    for (let i = 0; i < obbVerts.length; i++) {
-      const v = obbVerts[i]
-      const proj = v.x * axisX + v.y * axisY
-      if (proj < minOBB) minOBB = proj
-      if (proj > maxOBB) maxOBB = proj
-    }
-
-    let minPoly = Infinity
-    let maxPoly = -Infinity
-    for (let i = 0; i < polyVerts.length; i++) {
-      const v = polyVerts[i]
-      const proj = v.x * axisX + v.y * axisY
-      if (proj < minPoly) minPoly = proj
-      if (proj > maxPoly) maxPoly = proj
-    }
-
-    return !(maxOBB < minPoly || maxPoly < minOBB)
   }
 
   private applyPushback(entity: Entity, weapon: Entity['weapon']): void {
@@ -4271,7 +3259,7 @@ export class WeaponSystem extends System {
       if (weapon.hitEntityIds.has(target.id)) continue
 
       if (
-        this.checkOBBvsCircle(
+        checkOBBvsCircle(
           weaponX,
           weaponY,
           weaponWidth,
@@ -4305,14 +3293,14 @@ export class WeaponSystem extends System {
 
     // Rebound should return to the windup start pose, not the swing entry pose.
     // For thrust attacks, using swingStart makes the retract distance too short.
-    this.getOffsetFromTransform(
+    getOffsetFromTransform(
       weapon.attackStartTransform,
       playerPos,
       weapon.reboundTargetOffset
     )
 
     // reboundTargetTransform is WeaponTransform
-    this.applyOffset(
+    applyOffset(
       weapon.reboundTargetOffset,
       playerPos,
       weapon.reboundTargetTransform
@@ -4324,25 +3312,14 @@ export class WeaponSystem extends System {
     weapon.reboundLockedPause = true
 
     // update attackStartOffset/swingStartOffset with current visual pos
-    this.getOffsetFromTransform(
-      weapon.visual,
-      playerPos,
-      weapon.attackStartOffset
-    )
-    this.getOffsetFromTransform(
-      weapon.visual,
-      playerPos,
-      weapon.swingStartOffset
-    )
+    getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
+    getOffsetFromTransform(weapon.visual, playerPos, weapon.swingStartOffset)
 
-    this.copyRelativeTransform(
-      weapon.swingEndOffset,
-      weapon.reboundTargetOffset
-    )
+    copyRelativeTransform(weapon.swingEndOffset, weapon.reboundTargetOffset)
 
-    this.copyTransform(weapon.attackStartTransform, weapon.visual)
-    this.copyTransform(weapon.swingStartTransform, weapon.visual)
-    this.copyTransform(weapon.swingEndTransform, weapon.reboundTargetTransform)
+    copyTransform(weapon.attackStartTransform, weapon.visual)
+    copyTransform(weapon.swingStartTransform, weapon.visual)
+    copyTransform(weapon.swingEndTransform, weapon.reboundTargetTransform)
 
     weapon.lastAttackTimestamp = now
     weapon.hitEntityIds.clear()
@@ -4366,56 +3343,23 @@ export class WeaponSystem extends System {
     }
 
     const reboundDurationMs = this.getSwingMs(weapon) * 0.8
-    const t = this.clamp01(weapon.attackElapsedMs / reboundDurationMs)
+    const t = clamp01(weapon.attackElapsedMs / reboundDurationMs)
 
-    this.lerpRelativeTransform(
+    lerpRelativeTransform(
       weapon.swingStartOffset,
       weapon.reboundTargetOffset,
       t,
       this.tempRelativeTransform
     )
-    this.applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+    applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (t >= 1) {
       weapon.attackPhase = 'pause'
       this.restoreDamageOverrides(weapon)
       weapon.attackElapsedMs = 0
-      this.getOffsetFromTransform(
-        weapon.visual,
-        playerPos,
-        weapon.attackStartOffset
-      )
-      this.copyTransform(weapon.attackStartTransform, weapon.visual)
+      getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
+      copyTransform(weapon.attackStartTransform, weapon.visual)
       weapon.lastAttackTimestamp = now
     }
-  }
-
-  private getTransformAtAngle(
-    playerPos: { x: number; y: number },
-    angle: number,
-    radius: number,
-    out: WeaponTransform
-  ): void {
-    out.x = playerPos.x + Math.cos(angle) * radius
-    out.y = playerPos.y + Math.sin(angle) * radius
-    out.rotation = angle
-  }
-
-  private copyTransform(
-    target: WeaponTransform,
-    source: WeaponTransform
-  ): void {
-    target.x = source.x
-    target.y = source.y
-    target.rotation = source.rotation
-  }
-
-  private copyRelativeTransform(
-    target: WeaponRelativeTransform,
-    source: WeaponRelativeTransform
-  ): void {
-    target.dx = source.dx
-    target.dy = source.dy
-    target.rotation = source.rotation
   }
 }
