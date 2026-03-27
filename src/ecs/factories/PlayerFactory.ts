@@ -66,6 +66,7 @@ import {
   PhysicsComponent,
   RenderComponent,
   SensorComponent,
+  SolarEnergyComponent,
   StatsComponent,
   TransformComponent,
   WeaponComponent,
@@ -196,6 +197,10 @@ export function createPlayer(
   sensor.radius = ENEMY_DETECTION_RANGE
   sensor.fov = DEFAULT_PLAYER_FOV_RAD // +/- 80 degrees
   entity.addComponent(sensor)
+
+  const solarEnergy = new SolarEnergyComponent()
+  solarEnergy.largeCount = 1
+  entity.addComponent(solarEnergy)
 
   // 玩家初始武器组件（默认为空，需要在地上拾取）
   const weapon = new WeaponComponent()

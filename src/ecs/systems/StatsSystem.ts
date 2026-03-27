@@ -43,6 +43,7 @@ export type EffectsEmitter = {
   emitSpark: (x: number, y: number) => void
   emitBlood: (x: number, y: number, color: number) => void
   emitDeath: (x: number, y: number, color: number, radius: number) => void
+  emitHeal: (x: number, y: number) => void
   playSound: (soundId: number, playbackRate?: number) => void
 }
 
@@ -66,6 +67,8 @@ export class StatsSystem extends System {
   private soundSystem: SoundSystem | null = null
   private bloodEffectsEnabled = false
   private colorCache = new Map<string, number>()
+  onEnemyDeath?: (x: number, y: number) => void
+  onEnemyVanish?: (x: number, y: number) => void
 
   constructor(box2d?: MainModule, worldId?: b2WorldId) {
     super()
@@ -96,6 +99,8 @@ export class StatsSystem extends System {
             entity.stats.deathElapsedMs >= DEATH_CROSS_DURATION_MS
           ) {
             entity.stats.deathEffectTriggered = true
+            // 动画开始时立即移除碰撞体，避免尸体碰撞框阻挡其他物体
+            this.removePhysics(entity)
             if (entity.render && entity.transform && this.effectsEmitter) {
               const colorInt = this.parseColor(entity.render.color)
               const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
@@ -107,6 +112,9 @@ export class StatsSystem extends System {
               )
             }
             this.playSound(SOUND_IDS.DEATH_SPLASH)
+            if (entity.enemyAI && entity.transform) {
+              this.onEnemyVanish?.(entity.transform.x, entity.transform.y)
+            }
           }
 
           const totalDurationMs =
@@ -120,7 +128,6 @@ export class StatsSystem extends System {
             if (entity.render) {
               entity.render.visible = false
             }
-            this.removePhysics(entity)
           }
         }
         continue
@@ -303,6 +310,11 @@ export class StatsSystem extends System {
   emitDeath(x: number, y: number, color: number, radius: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.emitDeath(x, y, color, radius)
+  }
+
+  emitHeal(x: number, y: number): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.emitHeal(x, y)
   }
 
   playSound(soundId: number, playbackRate?: number): void {
@@ -852,6 +864,9 @@ export class StatsSystem extends System {
       )
 
       this.dropWeaponsOnDeath(entity)
+      if (entity.enemyAI && entity.transform) {
+        this.onEnemyDeath?.(entity.transform.x, entity.transform.y)
+      }
       entity.stats.isDead = true
       entity.stats.isVanished = false
       entity.stats.deathElapsedSec = 0

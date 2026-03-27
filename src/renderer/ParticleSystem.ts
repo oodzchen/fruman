@@ -3,6 +3,7 @@ const TWO_PI = Math.PI * 2
 const PARTICLE_TYPE_SPARK = 0
 const PARTICLE_TYPE_BLOOD = 1
 const PARTICLE_TYPE_DEATH = 2
+const PARTICLE_TYPE_HEAL = 3
 
 type Particle = {
   x: number
@@ -106,10 +107,14 @@ export class ParticleSystem {
 
     let lastColor = ''
 
-    // 火花粒子：单次遍历绘制尾迹+发光+核心
+    // 火花/回血粒子：单次遍历绘制尾迹+发光+核心
     for (let i = 0; i < this.activeCount; i++) {
       const particle = this.active[i]
-      if (particle.type !== PARTICLE_TYPE_SPARK) continue
+      if (
+        particle.type !== PARTICLE_TYPE_SPARK &&
+        particle.type !== PARTICLE_TYPE_HEAL
+      )
+        continue
 
       const lifeRatio = particle.age / particle.life
       const alpha = 1 - lifeRatio
@@ -269,6 +274,35 @@ export class ParticleSystem {
       particle.drag = 2.6
       particle.type = PARTICLE_TYPE_DEATH
       particle.curve = (Math.random() * 2 - 1) * 0.8
+      this.active[this.activeCount] = particle
+      this.activeCount += 1
+    }
+  }
+
+  spawnHeal(x: number, y: number, color: number): void {
+    const count = 20
+    for (let i = 0; i < count; i++) {
+      const particle = this.acquire()
+      if (!particle) return
+      const angle = (i / count) * TWO_PI + Math.random() * 0.4
+      const dist = 1.0 + Math.random() * 0.8
+      const dirX = Math.cos(angle)
+      const dirY = Math.sin(angle)
+      // 从外围向中心出发
+      particle.x = x + dirX * dist
+      particle.y = y + dirY * dist
+      particle.prevX = particle.x
+      particle.prevY = particle.y
+      particle.vx = -dirX * (4 + Math.random() * 2)
+      particle.vy = -dirY * (4 + Math.random() * 2)
+      particle.age = 0
+      particle.life = 0.4 + Math.random() * 0.1
+      particle.size = 0.025 + Math.random() * 0.02
+      particle.color = color
+      particle.gravity = 0
+      particle.drag = 6
+      particle.type = PARTICLE_TYPE_HEAL
+      particle.curve = 0
       this.active[this.activeCount] = particle
       this.activeCount += 1
     }

@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 75
+export const ENTITY_STRIDE = 78
 
 export const OFFSETS = {
   ID: 0,
@@ -76,6 +76,9 @@ export const OFFSETS = {
   SPEAR_ULTIMATE_BOTTOM_ROT: 72,
   SPEAR_ULTIMATE_W: 73,
   SPEAR_ULTIMATE_H: 74,
+  SOLAR_SMALL: 75,
+  SOLAR_LARGE: 76,
+  SOLAR_LARGE_MAX: 77,
 }
 
 export const FLAGS = {
@@ -93,6 +96,8 @@ export const FLAGS = {
   GRAPPLE_READY: 2048,
   GRAPPLE_ANCHOR: 4096,
   GRAPPLE_ANCHOR_HIGHLIGHT: 8192,
+  SUN_PICKUP_SMALL: 16384,
+  SUN_PICKUP_LARGE: 32768,
 }
 
 export const WEAPON_TYPES = {

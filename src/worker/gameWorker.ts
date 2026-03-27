@@ -50,7 +50,9 @@ import {
   CheckpointComponent,
   Faction,
   GrappleAnchorComponent,
+  PhysicsComponent,
   RenderComponent,
+  SunPickupComponent,
   TransformComponent,
   ULTIMATE_COOLDOWN_MS,
 } from '../ecs/Component'
@@ -73,6 +75,7 @@ import { MovementSystem } from '../ecs/systems/MovementSystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
 import { SoundSystem } from '../ecs/systems/SoundSystem'
 import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
+import { SunPickupSystem } from '../ecs/systems/SunPickupSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import { WeaponSystem } from '../ecs/systems/WeaponSystem'
 import type {
@@ -156,6 +159,7 @@ let interactionSystem: InteractionSystem
 let checkpointSystem: CheckpointSystem
 let grappleSystem: GrappleSystem
 let arrowPools: ArrowPools
+let sunPickupSystem: SunPickupSystem
 
 const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
 const playerDeadMessage = { type: 'player_dead' } as const
@@ -283,6 +287,8 @@ function queueEffect(
   effectsCount += 1
 }
 
+const SUN_COLOR_INT = 0xffd700
+
 const effectsEmitter: EffectsEmitter = {
   emitSpark: (x, y) => {
     queueEffect(EFFECT_TYPES.SPARK, x, y, SPARK_COLOR_INT, 0)
@@ -292,6 +298,9 @@ const effectsEmitter: EffectsEmitter = {
   },
   emitDeath: (x, y, color, radius) => {
     queueEffect(EFFECT_TYPES.DEATH, x, y, color, radius)
+  },
+  emitHeal: (x, y) => {
+    queueEffect(EFFECT_TYPES.HEAL, x, y, SUN_COLOR_INT, 0)
   },
   playSound: (soundId, playbackRate = 1.0) => {
     queueEffect(EFFECT_TYPES.SOUND, 0, 0, soundId, playbackRate)
@@ -519,6 +528,8 @@ function registerComponents() {
   componentRegistry.registerComponent('Checkpoint')
   componentRegistry.registerComponent('Grapple')
   componentRegistry.registerComponent('GrappleAnchor')
+  componentRegistry.registerComponent('SolarEnergy')
+  componentRegistry.registerComponent('SunPickup')
 }
 
 function initializeSystems() {
@@ -553,6 +564,62 @@ function initializeSystems() {
   weaponSystem.setSoundSystem(soundSystem)
   arrowSystem.setSoundSystem(soundSystem)
   interactionSystem.setWeaponSystem(weaponSystem)
+  sunPickupSystem = new SunPickupSystem()
+  statsSystem.onEnemyVanish = (x: number, y: number) => {
+    const {
+      b2DefaultBodyDef,
+      b2CreateBody,
+      b2BodyType,
+      b2DefaultShapeDef,
+      b2CreateCircleShape,
+      b2Circle,
+      b2Body_SetLinearVelocity,
+    } = box2d
+    const sun = world.createEntity()
+    const t = new TransformComponent()
+    t.x = x
+    t.y = y
+    sun.addComponent(t)
+
+    const bodyDef = b2DefaultBodyDef()
+    bodyDef.type = b2BodyType.b2_dynamicBody
+    bodyDef.position.Set(x, y)
+    bodyDef.linearDamping = 1.0
+    bodyDef.motionLocks.angularZ = true
+    const bodyId = b2CreateBody(worldId, bodyDef)
+
+    const shapeDef = b2DefaultShapeDef()
+    shapeDef.density = 0.3
+    shapeDef.material.friction = 0.3
+    shapeDef.material.restitution = 0.1
+    shapeDef.filter.categoryBits = CATEGORY_WEAPON
+    shapeDef.filter.maskBits = MASK_WEAPON
+
+    const circle = new b2Circle()
+    circle.center.Set(0, 0)
+    circle.radius = 0.15
+    b2CreateCircleShape(bodyId, shapeDef, circle)
+
+    // 小幅抛物线初速：横向随机，向上弹起
+    const vel = new box2d.b2Vec2(
+      Math.random() * 4 - 2,
+      -(8 + Math.random() * 4)
+    )
+    b2Body_SetLinearVelocity(bodyId, vel)
+    vel.delete()
+    bodyDef.delete()
+    shapeDef.delete()
+    circle.delete()
+
+    const physics = new PhysicsComponent()
+    physics.bodyId = bodyId
+    sun.addComponent(physics)
+
+    const p = new SunPickupComponent()
+    p.isLarge = false
+    p.pickupRadiusSq = 1
+    sun.addComponent(p)
+  }
   targetingSystem = new TargetingSystem(box2d, worldId)
 
   const entityLookup = world.getEntityById.bind(world)
@@ -1954,7 +2021,33 @@ function handleInput(
 
     if (rJustReleased) {
       if (rHoldActive && !rHoldTriggered && !isPlayerDead) {
-        playerEntity.input.inputBuffer.bufferAction('grapple')
+        const g = playerEntity.grapple
+        const shouldGrapple =
+          g && (g.isPulling || g.isTethering || g.hasAnchorNearby)
+        if (shouldGrapple) {
+          playerEntity.input.inputBuffer.bufferAction('grapple')
+        } else {
+          const solar = playerEntity.solarEnergy
+          const isGrounded = playerEntity.movement?.isGrounded ?? false
+          const stats = playerEntity.stats
+          if (
+            solar &&
+            solar.largeCount > 0 &&
+            stats &&
+            isGrounded &&
+            stats.healingMs <= 0
+          ) {
+            solar.largeCount--
+            stats.healingMs = 500
+            stats.hudVisibleTimer = stats.combatExitTimeout
+            if (playerEntity.transform) {
+              statsSystem.emitHeal(
+                playerEntity.transform.x,
+                playerEntity.transform.y
+              )
+            }
+          }
+        }
       }
       rHoldActive = false
       rHoldTriggered = false
@@ -2098,7 +2191,33 @@ function fixedUpdate() {
   movementSystem.setEntities(entities)
   movementSystem.setSpatialHash(spatialHash)
 
+  // 回血动画期间锁定玩家主动操作（受击/位移仍正常）
+  const healStats = playerEntity.stats
+  if (healStats && healStats.healingMs > 0 && playerEntity.input) {
+    healStats.healingMs -= FIXED_STEP_MS
+    if (healStats.healingMs <= 0) {
+      healStats.healingMs = 0
+      healStats.health = healStats.maxHealth
+    }
+    playerEntity.input.moveDirection = 0
+    playerEntity.input.jumpRequested = false
+    playerEntity.input.attackRequested = false
+    playerEntity.input.ultimateRequested = false
+    playerEntity.input.blockRequested = false
+    playerEntity.input.inputBuffer.clearAll()
+  }
+
   world.update(TIME_STEP)
+
+  const sunPickups = entities.filter((e) => e.sunPickup)
+  sunPickupSystem.update(sunPickups, [playerEntity], TIME_STEP)
+  for (const e of sunPickupSystem.getPendingRemove()) {
+    if (e.physics) {
+      box2d.b2DestroyBody(e.physics.bodyId)
+      e.removeComponent('Physics')
+    }
+    world.destroyEntity(e)
+  }
 
   cleanupDestroyedEntities()
 
@@ -2751,9 +2870,9 @@ function sendState() {
     if (count >= MAX_ENTITIES) break
     if (!e.transform) continue
 
-    // 独立武器实体不需要 render 组件
+    // 独立武器实体和太阳拾取实体不需要 render 组件
     const isStandaloneWeapon = e.weapon && !e.weapon.isEquipped && !e.stats
-    if (!isStandaloneWeapon && !e.render) continue
+    if (!isStandaloneWeapon && !e.render && !e.sunPickup) continue
 
     const offset = count * ENTITY_STRIDE
 
@@ -2780,7 +2899,8 @@ function sendState() {
     )
 
     let flags = 0
-    if (e.render?.visible ?? isStandaloneWeapon) flags |= FLAGS.VISIBLE
+    if ((e.render?.visible ?? isStandaloneWeapon) || e.sunPickup)
+      flags |= FLAGS.VISIBLE
     if (e.stats?.isDead) flags |= FLAGS.DEAD
     if (e.stats?.isVanished) flags |= FLAGS.VANISHED
     if (e.movement?.isRolling) flags |= FLAGS.ROLLING
@@ -2799,6 +2919,11 @@ function sendState() {
     if (e.checkpoint) flags |= FLAGS.CHECKPOINT
     if (e.grapple?.hasGrapple) flags |= FLAGS.GRAPPLE_READY
     if (e.grappleAnchor) flags |= FLAGS.GRAPPLE_ANCHOR
+    if (e.sunPickup) {
+      flags |= e.sunPickup.isLarge
+        ? FLAGS.SUN_PICKUP_LARGE
+        : FLAGS.SUN_PICKUP_SMALL
+    }
     if (e.grappleAnchor && e.id === highlightAnchorId) {
       flags |= FLAGS.GRAPPLE_ANCHOR_HIGHLIGHT
       stateBuffer[offset + OFFSETS.COLOR] = parseColor(
@@ -2864,6 +2989,17 @@ function sendState() {
       stateBuffer[offset + OFFSETS.GRAPPLE_START_Y] = 0
       stateBuffer[offset + OFFSETS.GRAPPLE_VX] = 0
       stateBuffer[offset + OFFSETS.GRAPPLE_VY] = 0
+    }
+
+    if (e.solarEnergy) {
+      stateBuffer[offset + OFFSETS.SOLAR_SMALL] = e.solarEnergy.smallCount
+      stateBuffer[offset + OFFSETS.SOLAR_LARGE] = e.solarEnergy.largeCount
+      stateBuffer[offset + OFFSETS.SOLAR_LARGE_MAX] =
+        e.solarEnergy.largeMaxCount
+    } else {
+      stateBuffer[offset + OFFSETS.SOLAR_SMALL] = 0
+      stateBuffer[offset + OFFSETS.SOLAR_LARGE] = 0
+      stateBuffer[offset + OFFSETS.SOLAR_LARGE_MAX] = 0
     }
 
     // 独立武器实体（地面武器）：只要有weapon组件就显示

@@ -52,6 +52,7 @@ const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
 const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
 const GRAPPLE_ICON_COLOR = '#c6b07a'
 const GRAPPLE_LINE_COLOR = '#d9c896'
+const SUN_COLOR = '#ffd700'
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
@@ -161,6 +162,8 @@ export class ClientRenderer {
         this.particleSystem.spawnBlood(x, y, color)
       } else if (type === EFFECT_TYPES.DEATH) {
         this.particleSystem.spawnDeath(x, y, color, radius)
+      } else if (type === EFFECT_TYPES.HEAL) {
+        this.particleSystem.spawnHeal(x, y, color)
       } else if (type === EFFECT_TYPES.SOUND) {
         const soundId = color
         const playbackRate = radius || 1.0
@@ -322,6 +325,19 @@ export class ClientRenderer {
 
       if (flags & FLAGS.VANISHED) continue
       if (!(flags & FLAGS.VISIBLE)) continue
+
+      if (flags & FLAGS.SUN_PICKUP_SMALL) {
+        const wx = buf[offset + OFFSETS.X]
+        const wy = buf[offset + OFFSETS.Y]
+        this.drawSunPickupIcon(wx, wy, false)
+        continue
+      }
+      if (flags & FLAGS.SUN_PICKUP_LARGE) {
+        const wx = buf[offset + OFFSETS.X]
+        const wy = buf[offset + OFFSETS.Y]
+        this.drawSunPickupIcon(wx, wy, true)
+        continue
+      }
 
       const facing = buf[offset + OFFSETS.MOVE_DIR] // 1 or -1
       const hasWeapon = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
@@ -650,6 +666,9 @@ export class ClientRenderer {
     const maxHealth = buf[playerOffset + OFFSETS.STATS_HEALTH_MAX]
     const posture = buf[playerOffset + OFFSETS.STATS_POSTURE]
     const maxPosture = buf[playerOffset + OFFSETS.STATS_POSTURE_MAX]
+    const solarSmall = buf[playerOffset + OFFSETS.SOLAR_SMALL] | 0
+    const solarLarge = buf[playerOffset + OFFSETS.SOLAR_LARGE] | 0
+    const solarLargeMax = buf[playerOffset + OFFSETS.SOLAR_LARGE_MAX] | 0
 
     if (maxHealth <= 0) return
 
@@ -663,10 +682,16 @@ export class ClientRenderer {
     const slotY = canvasHeight - HUD_SLOT_MARGIN - weaponSlotSize
 
     // Health Bar & Grapple Icon Layout (Left side)
-    const startX = 16
     const barHeight = 12
     const iconSize = 10
     const iconGap = 6
+
+    // Sun icon dimensions
+    const sunIconSize = 42
+    const sunIconGap = 8 // gap between sun icon right edge and health bar
+    const leftMargin = 16 // distance from screen left edge to sun icon left edge
+    // Health bar starts after sun icon + gap
+    const startX = leftMargin + sunIconSize + sunIconGap
 
     // Calculate total height of left UI group (Bar + Gap + Icon)
     const leftGroupHeight = barHeight + iconGap + iconSize
@@ -683,6 +708,26 @@ export class ClientRenderer {
     const pixelsPerUnit = 4
 
     const healthWidth = maxHealth * pixelsPerUnit
+
+    // Sun HUD icons: orbs drawn right-to-left, first orb left edge at leftMargin
+    const sunOrbSpacing = sunIconSize + 4
+    for (let s = 0; s < solarLargeMax; s++) {
+      const orbLeftX = startX - sunIconGap - sunIconSize - s * sunOrbSpacing
+      const orbCX = orbLeftX + sunIconSize / 2
+      const orbCY = startY + barHeight / 2
+      const isFull = s < solarLarge
+      const fillPct = isFull ? 100 : s === solarLarge ? solarSmall * 10 : 0
+      this.drawSunHudIcon(orbCX, orbCY, sunIconSize, fillPct)
+    }
+    // Count badge bottom-right of rightmost orb, only when multiple max orbs
+    if (solarLargeMax > 1) {
+      this.drawSunCount(
+        startX - sunIconGap + 2,
+        startY + barHeight / 2 + sunIconSize / 2 - 8,
+        solarLarge,
+        solarLargeMax
+      )
+    }
 
     // Health Bar
     const healthRatio = health / maxHealth
@@ -731,6 +776,109 @@ export class ClientRenderer {
     this.ctx.translate(x, y)
     renderWeaponShape(this.ctx, 'hook', size, size, GRAPPLE_ICON_COLOR, false)
     this.ctx.restore()
+  }
+
+  // 绘制太阳形路径（cx/cy为圆心，size为直径，8角锯齿）
+  private buildSunPath(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    size: number
+  ): void {
+    const rays = 8
+    const outerR = size / 2
+    const innerR = (size / 2) * 0.6
+    const step = Math.PI / rays
+    ctx.beginPath()
+    for (let i = 0; i < rays * 2; i++) {
+      const angle = i * step - Math.PI / 2
+      const r = i % 2 === 0 ? outerR : innerR
+      const px = cx + Math.cos(angle) * r
+      const py = cy + Math.sin(angle) * r
+      if (i === 0) ctx.moveTo(px, py)
+      else ctx.lineTo(px, py)
+    }
+    ctx.closePath()
+  }
+
+  // HUD 太阳图标（cx/cy 为圆心，size 为直径，fillPct 为 0-100 整数）
+  private drawSunHudIcon(
+    cx: number,
+    cy: number,
+    size: number,
+    fillPct: number
+  ): void {
+    const ctx = this.ctx
+    const isFull = fillPct >= 100
+    const fillColor = isFull ? SUN_COLOR : '#c49a00'
+    const strokeColor = isFull ? SUN_COLOR : '#8a6b00'
+
+    // 满格时先画光晕（在图形下方，不裁剪）
+    if (isFull) {
+      ctx.save()
+      const glowR = size / 2 + 4
+      const grad = ctx.createRadialGradient(cx, cy, size / 2 - 2, cx, cy, glowR)
+      grad.addColorStop(0, 'rgba(255,215,0,0.35)')
+      grad.addColorStop(1, 'rgba(255,215,0,0)')
+      ctx.fillStyle = grad
+      ctx.beginPath()
+      ctx.arc(cx, cy, glowR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    ctx.save()
+    if (fillPct > 0) {
+      this.buildSunPath(ctx, cx, cy, size)
+      ctx.clip()
+      const fillH = Math.round((size * fillPct) / 100)
+      ctx.fillStyle = fillColor
+      ctx.fillRect(cx - size / 2, cy + size / 2 - fillH, size, fillH)
+      ctx.restore()
+      ctx.save()
+    }
+    this.buildSunPath(ctx, cx, cy, size)
+    ctx.strokeStyle = strokeColor
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  // HUD 太阳数量标注
+  private drawSunCount(x: number, y: number, count: number, max: number): void {
+    const ctx = this.ctx
+    ctx.save()
+    ctx.font = '9px monospace'
+    ctx.fillStyle = SUN_COLOR
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    const text = max > 1 ? `${count}/${max}` : `${count}`
+    ctx.fillText(text, x, y)
+    ctx.restore()
+  }
+
+  // 世界中太阳拾取图标（世界坐标）
+  private drawSunPickupIcon(
+    worldX: number,
+    worldY: number,
+    isLarge: boolean
+  ): void {
+    const ctx = this.ctx
+    const ppm = this.pixelsPerMeter
+    const cx = worldX * ppm
+    const cy = worldY * ppm
+    const largeSunSize = ppm * 0.5
+    const size = largeSunSize
+    ctx.save()
+    this.buildSunPath(ctx, cx, cy, size)
+    ctx.fillStyle = SUN_COLOR
+    ctx.fill()
+    if (isLarge) {
+      ctx.strokeStyle = '#c8a800'
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
+    ctx.restore()
   }
 
   private drawGrappleLine(

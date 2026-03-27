@@ -310,6 +310,7 @@ export class GrappleComponent extends Component {
   cooldownEndTime = 0
   moveLockEndTime = 0
   retainAirMomentum = false
+  hasAnchorNearby = false
 
   reset(): void {
     this.hasGrapple = false
@@ -330,6 +331,7 @@ export class GrappleComponent extends Component {
     this.cooldownEndTime = 0
     this.moveLockEndTime = 0
     this.retainAirMomentum = false
+    this.hasAnchorNearby = false
   }
 
   getName(): string {
@@ -382,6 +384,7 @@ export class StatsComponent extends Component {
   staggerAnimationPhase: 'none' | 'rotateBack' | 'prone' = 'none'
   staggerAnimationElapsed = 0
   persistentId = ''
+  healingMs = 0
 
   reset(): void {
     this.maxHealth = DEFAULT_PLAYER_MAX_HEALTH
@@ -417,6 +420,7 @@ export class StatsComponent extends Component {
     this.staggerAnimationPhase = 'none'
     this.staggerAnimationElapsed = 0
     this.persistentId = ''
+    this.healingMs = 0
   }
 
   getName(): string {
@@ -1116,5 +1120,39 @@ export class SensorComponent extends Component {
 
   getName(): string {
     return 'Sensor'
+  }
+}
+
+export class SolarEnergyComponent extends Component {
+  smallCount = 0
+  largeCount = 0
+  largeMaxCount = 1
+  smallPerLarge = 10
+
+  reset(): void {
+    this.smallCount = 0
+    this.largeCount = 0
+    this.largeMaxCount = 1
+    this.smallPerLarge = 10
+  }
+
+  getName(): string {
+    return 'SolarEnergy'
+  }
+}
+
+export class SunPickupComponent extends Component {
+  isLarge = false
+  pickupRadiusSq = 1
+  dropElapsedTime = 0
+
+  reset(): void {
+    this.isLarge = false
+    this.pickupRadiusSq = 1
+    this.dropElapsedTime = 0
+  }
+
+  getName(): string {
+    return 'SunPickup'
   }
 }

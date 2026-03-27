@@ -186,6 +186,17 @@ export class GrappleSystem extends System {
       const grapple = entity.grapple
       if (!grapple) continue
 
+      const facing =
+        entity.input.lastMoveDirection !== 0
+          ? entity.input.lastMoveDirection
+          : 1
+      grapple.hasAnchorNearby = this.findAnchorTarget(
+        entity.transform.x,
+        entity.transform.y,
+        facing,
+        this.tempTarget
+      )
+
       if (!grapple.hasGrapple) {
         if (grapple.isTethering) {
           this.destroyAnchorTether(entity, grapple)

@@ -12,7 +12,9 @@ import {
   PhysicsComponent,
   RenderComponent,
   SensorComponent,
+  SolarEnergyComponent,
   StatsComponent,
+  SunPickupComponent,
   TransformComponent,
   WeaponComponent,
   WeaponSlotsComponent,
@@ -41,6 +43,8 @@ export class Entity {
   faction?: FactionComponent
   enemyAI?: EnemyAIComponent
   sensor?: SensorComponent
+  solarEnergy?: SolarEnergyComponent
+  sunPickup?: SunPickupComponent
 
   constructor() {
     this.id = nextEntityId++
@@ -121,6 +125,8 @@ export class Entity {
     this.faction = undefined
     this.enemyAI = undefined
     this.sensor = undefined
+    this.solarEnergy = undefined
+    this.sunPickup = undefined
   }
 
   private updateCachedComponents(name: string, component: Component): void {
@@ -172,6 +178,12 @@ export class Entity {
         break
       case 'Sensor':
         this.sensor = component as SensorComponent
+        break
+      case 'SolarEnergy':
+        this.solarEnergy = component as SolarEnergyComponent
+        break
+      case 'SunPickup':
+        this.sunPickup = component as SunPickupComponent
         break
     }
   }
@@ -225,6 +237,12 @@ export class Entity {
         break
       case 'Sensor':
         this.sensor = undefined
+        break
+      case 'SolarEnergy':
+        this.solarEnergy = undefined
+        break
+      case 'SunPickup':
+        this.sunPickup = undefined
         break
     }
   }
