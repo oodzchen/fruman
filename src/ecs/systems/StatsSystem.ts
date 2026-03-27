@@ -25,6 +25,9 @@ import {
   STAGGER_DURATION_MS,
   STAGGER_HIT_STUN_DURATION_MS,
   STAGGER_KNOCKBACK_MULTIPLIER,
+  ATTACK_TOUGHNESS_DENOMINATOR,
+  ATTACK_TOUGHNESS_NUMERATOR,
+  WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -738,6 +741,50 @@ export class StatsSystem extends System {
           entity.enemyAI.probeHasTriggered = true
           if (entity.movement) {
             entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+          }
+        }
+      }
+
+      // 出手韧性：攻击中被高韧性伤害打断，进入小硬直
+      if (
+        !wasStaggered &&
+        !toughnessBroken &&
+        !extremeKnockdown &&
+        !isBlockingSuccessfully &&
+        finalToughnessDamage > 0 &&
+        entity.weapon
+      ) {
+        const phase = entity.weapon.attackPhase
+        const isAttacking =
+          phase === 'windup' ||
+          phase === 'swing' ||
+          phase === 'rebound' ||
+          phase === 'pause' ||
+          phase === 'headHold' ||
+          phase === 'finalWindup'
+        if (isAttacking) {
+          const wt = entity.weapon.weaponType
+          const template =
+            (WEAPON_DEFAULT_DATA as Record<string, { sizeLevel: number } | undefined>)[wt]
+          if (template) {
+            const baseLevel = Math.max(1, template.sizeLevel)
+            const sizeLevel =
+              entity.weapon.sizeLevel > 0 ? entity.weapon.sizeLevel : baseLevel
+            const attackToughness = Math.floor(
+              (toughnessBefore * sizeLevel * ATTACK_TOUGHNESS_NUMERATOR) /
+                (baseLevel * ATTACK_TOUGHNESS_DENOMINATOR)
+            )
+            if (attackToughness > 0 && finalToughnessDamage >= attackToughness) {
+              entity.weapon.attackPhase = 'idle'
+              entity.weapon.attackElapsedMs = 0
+              entity.weapon.attackQueued = false
+              entity.weapon.isColliding = false
+              entity.weapon.hitEntityIds.clear()
+              entity.weapon.comboCount = 0
+              entity.weapon.swingDirection = 'toFront'
+              entity.weapon.nextSwingDirection = 'toFront'
+              this.applyForcedHitStun(entity, 'light')
+            }
           }
         }
       }

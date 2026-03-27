@@ -408,3 +408,10 @@ export const WEAPON_DEFAULT_DATA = {
     toughnessDamage: 0,
   },
 } as const
+
+// 出手韧性公式：floor(受击前韧性 × sizeLevel × N / (baseLevel × D))
+// 以韧性=6、普通剑削韧=3为基准：
+//   普通剑(level2/2) T=4 → floor(4×2×3/8)=3 被打断
+//   大剑(level3/2) T=3.9 → floor(3.9×3×3/8)≈4 不被打断
+export const ATTACK_TOUGHNESS_NUMERATOR = 3
+export const ATTACK_TOUGHNESS_DENOMINATOR = 4
