@@ -366,7 +366,8 @@ export class UltimateHandler {
           impactLevel: 'extreme',
           weaponType: 'sword',
         },
-        { x: giantX, y: groundY }
+        { x: giantX, y: groundY },
+        attacker
       )
     }
   }
@@ -631,7 +632,8 @@ export class UltimateHandler {
           impactLevel: 'extreme',
           weaponType: 'hammer',
         },
-        { x: cx, y: cy }
+        { x: cx, y: cy },
+        attacker
       )
     }
   }
@@ -766,7 +768,8 @@ export class UltimateHandler {
           impactLevel: 'extreme',
           weaponType: 'spear',
         },
-        { x: weapon.ultimateSpearCrossX, y: weapon.ultimateSpearCrossY }
+        { x: weapon.ultimateSpearCrossX, y: weapon.ultimateSpearCrossY },
+        attacker
       )
     }
   }

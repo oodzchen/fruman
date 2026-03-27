@@ -453,7 +453,7 @@ export type AttackSlotData = {
   movesetId: string
 }
 
-export const ULTIMATE_COOLDOWN_MS = 0 // DEBUG: 冷却清零，方便测试绝招
+export const ULTIMATE_COOLDOWN_MS = 100000
 
 export type UltimateSlotData = {
   hasMoveset: boolean

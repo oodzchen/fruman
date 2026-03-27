@@ -49,6 +49,8 @@ const LARGE_LAUNCH_IMPULSE_NUMERATOR = 9
 const LARGE_LAUNCH_IMPULSE_DENOMINATOR = 10
 const EXTREME_LAUNCH_IMPULSE_NUMERATOR = 3
 const EXTREME_LAUNCH_IMPULSE_DENOMINATOR = 2
+const ULTIMATE_COOLDOWN_HIT_REWARD_MS = 1000
+const ULTIMATE_COOLDOWN_KILL_REWARD_MS = 2000
 
 export class StatsSystem extends System {
   private box2d?: MainModule
@@ -464,7 +466,8 @@ export class StatsSystem extends System {
       impactLevel?: ImpactLevel
       weaponType?: WeaponVisualType
     },
-    hitSource?: { x: number; y: number }
+    hitSource?: { x: number; y: number },
+    attacker?: Entity
   ): void {
     const attackDamage = Math.max(
       0,
@@ -486,7 +489,8 @@ export class StatsSystem extends System {
       toughnessDamage,
       impactLevel,
       hitSource,
-      weapon?.weaponType
+      weapon?.weaponType,
+      attacker
     )
   }
 
@@ -497,7 +501,8 @@ export class StatsSystem extends System {
     toughnessDamage: number,
     impactLevel: ImpactLevel,
     hitSource?: { x: number; y: number },
-    weaponType?: WeaponVisualType
+    weaponType?: WeaponVisualType,
+    attacker?: Entity
   ): void {
     if (!entity.stats) return
     if (entity.stats.isDead) return
@@ -638,6 +643,12 @@ export class StatsSystem extends System {
     )
     const shouldTriggerHitEffects =
       finalHealthDamage > 0 && !toughnessBroken && !isInHitStun
+
+    this.rewardUltimateCooldown(
+      attacker,
+      entity,
+      ULTIMATE_COOLDOWN_HIT_REWARD_MS
+    )
 
     if (entity.stats.posture <= 0 && !wasStaggered) {
       this.triggerStagger(entity)
@@ -780,6 +791,12 @@ export class StatsSystem extends System {
         return
       }
 
+      this.rewardUltimateCooldown(
+        attacker,
+        entity,
+        ULTIMATE_COOLDOWN_KILL_REWARD_MS
+      )
+
       this.dropWeaponsOnDeath(entity)
       entity.stats.isDead = true
       entity.stats.isVanished = false
@@ -808,6 +825,18 @@ export class StatsSystem extends System {
       }
       this.stabilizeBody(entity)
     }
+  }
+
+  private rewardUltimateCooldown(
+    attacker: Entity | undefined,
+    target: Entity,
+    rewardMs: number
+  ): void {
+    if (!attacker?.attackSlots || rewardMs <= 0) return
+    if (target.faction?.faction !== 'enemy') return
+    const slot = attacker.attackSlots.ultimate
+    if (!slot.hasMoveset || slot.cooldownRemainingMs <= 0) return
+    slot.cooldownRemainingMs = Math.max(0, slot.cooldownRemainingMs - rewardMs)
   }
 
   revive(entity: Entity): void {

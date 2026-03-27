@@ -3272,7 +3272,12 @@ export class WeaponSystem extends System {
       ) {
         this.tempHitSource.x = weaponX
         this.tempHitSource.y = weaponY
-        this.statsSystem.applyWeaponHit(target, weapon, this.tempHitSource)
+        this.statsSystem.applyWeaponHit(
+          target,
+          weapon,
+          this.tempHitSource,
+          attacker
+        )
         weapon.isColliding = true
         weapon.hitEntityIds.add(target.id)
       }

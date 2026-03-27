@@ -169,10 +169,12 @@ export class ArrowSystem extends System {
             )
           } else {
             const blocked = this.isArrowBlocked(target, headX)
+            const attacker = this.world?.getEntityById(arrow.ownerId)
             this.statsSystem.applyWeaponHit(
               target,
               entity.weapon,
-              this.tempHitSource
+              this.tempHitSource,
+              attacker
             )
             if (blocked) {
               this.deflectArrow(entity, dirX, dirY, speed)
