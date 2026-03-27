@@ -50,6 +50,22 @@ export class AudioManager {
         SOUND_IDS.GRAPPLE_PULL_START,
         'audios/floraphonic-swing-whoosh-in-room-7-234261.wav'
       ),
+      this.loadSound(
+        SOUND_IDS.SWORD_ULTIMATE_SPIN,
+        'audios/Weapon Sword Pick Up From Ground 01.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.SWORD_ULTIMATE_GIANT_RISE,
+        'audios/Weapon Sword Whips 02-ultimate.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.HAMMER_ULTIMATE_LAND,
+        'audios/Explosion Military Bomb 02.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.SPEAR_ULTIMATE_THRUST,
+        'audios/Weapon Whips 02-double.wav'
+      ),
     ])
   }
 
