@@ -1716,7 +1716,14 @@ export class EditorManager {
       if (!resolvedData) {
         return
       }
-      if (node.name && node.name.length > 0) {
+      if (
+        node.name &&
+        node.name.length > 0 &&
+        !(
+          resolvedData.type === ObjectType.Weapon &&
+          this.objectManager.isLegacyDefaultName(ObjectType.Weapon, node.name)
+        )
+      ) {
         resolvedData.name = node.name
       }
       resolved.push(resolvedData)

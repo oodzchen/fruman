@@ -2,7 +2,7 @@ import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
 import { ObjectType } from './types'
-import type { EditorObjectData } from './types'
+import type { EditorObjectData, WeaponMarker } from './types'
 
 export interface EditorObjectManagerContext {
   fabricCanvas: () => fabric.Canvas | null
@@ -16,7 +16,7 @@ export class EditorObjectManager {
   private ctx: EditorObjectManagerContext
   private editorObjects: EditorObjectData[] = []
   private editorObjectMap = new Map<fabric.Object, EditorObjectData>()
-  private objectTypeCounts = new Map<ObjectType, number>()
+  private defaultNameCounts = new Map<string, number>()
   private nextEditorObjectId = 1
   private selectedEditorObjectId = -1
   private selectedEditorObjectIds: number[] = []
@@ -121,10 +121,10 @@ export class EditorObjectManager {
     }
     const id = this.nextEditorObjectId
     this.nextEditorObjectId += 1
-    const nextCount = (this.objectTypeCounts.get(type) ?? 0) + 1
-    this.objectTypeCounts.set(type, nextCount)
-    const typeLabel = localizer.t(`editor_object_${type}`)
-    const name = `${typeLabel}${nextCount}`
+    const defaultNameBase = this.getDefaultObjectNameBase(type, object)
+    const nextCount = (this.defaultNameCounts.get(defaultNameBase) ?? 0) + 1
+    this.defaultNameCounts.set(defaultNameBase, nextCount)
+    const name = `${defaultNameBase}${nextCount}`
     const data: EditorObjectData = { id, name, type, object, parentId: null }
     this.editorObjects.push(data)
     this.editorObjectMap.set(object, data)
@@ -423,13 +423,31 @@ export class EditorObjectManager {
 
     this.editorObjects.length = 0
     this.editorObjectMap.clear()
-    this.objectTypeCounts.clear()
+    this.defaultNameCounts.clear()
     this.nextEditorObjectId = 1
     this.selectedEditorObjectId = -1
     this.selectedEditorObjectIds.length = 0
     this.renamingEditorObjectId = -1
     this.focusedEditorObject = null
     this.dragObjectId = -1
+  }
+
+  isLegacyDefaultName(type: ObjectType, name: string): boolean {
+    const typeLabel = localizer.t(`editor_object_${type}`)
+    if (!name.startsWith(typeLabel)) {
+      return false
+    }
+    const suffix = name.slice(typeLabel.length)
+    if (suffix.length === 0) {
+      return false
+    }
+    for (let i = 0; i < suffix.length; i++) {
+      const charCode = suffix.charCodeAt(i)
+      if (charCode < 48 || charCode > 57) {
+        return false
+      }
+    }
+    return true
   }
 
   private isDescendant(candidateId: number, ancestorId: number): boolean {
@@ -463,5 +481,56 @@ export class EditorObjectManager {
         data.parentId = null
       }
     }
+  }
+
+  private getDefaultObjectNameBase(
+    type: ObjectType,
+    object: fabric.Object
+  ): string {
+    if (type === ObjectType.Weapon) {
+      const weaponName = this.getWeaponObjectName(object)
+      if (weaponName.length > 0) {
+        return weaponName
+      }
+    }
+    return localizer.t(`editor_object_${type}`)
+  }
+
+  private getWeaponObjectName(object: fabric.Object): string {
+    const weaponMarker = object as WeaponMarker
+    const sizeLevel = weaponMarker.sizeLevel
+
+    if (weaponMarker.weaponType === 'hook') {
+      return localizer.t('editor_weapon_hook')
+    }
+    if (weaponMarker.weaponType === 'bow') {
+      return localizer.t(
+        sizeLevel >= 2 ? 'editor_weapon_size_bow_2' : 'editor_weapon_size_bow_1'
+      )
+    }
+    if (weaponMarker.weaponType === 'hammer') {
+      return localizer.t(
+        sizeLevel >= 2
+          ? 'editor_weapon_size_hammer_2'
+          : 'editor_weapon_size_hammer_1'
+      )
+    }
+    if (weaponMarker.weaponType === 'spear') {
+      return localizer.t('editor_weapon_size_spear_1')
+    }
+    if (weaponMarker.weaponType === 'sword') {
+      if (sizeLevel <= 1) {
+        return localizer.t('editor_weapon_size_sword_1')
+      }
+      if (sizeLevel === 2) {
+        return localizer.t('editor_weapon_size_sword_2')
+      }
+      if (sizeLevel === 3) {
+        return localizer.t('editor_weapon_size_sword_3')
+      }
+      return localizer.t('editor_weapon_size_sword_4')
+    }
+
+    return localizer.t('editor_object_weapon')
   }
 }
