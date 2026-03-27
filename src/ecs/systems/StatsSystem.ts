@@ -1,4 +1,6 @@
 import {
+  ATTACK_TOUGHNESS_DENOMINATOR,
+  ATTACK_TOUGHNESS_NUMERATOR,
   DEATH_CROSS_DURATION_MS,
   DEATH_PRE_SPLATTER_PAUSE_MS,
   DEFAULT_BODY_FRICTION,
@@ -25,8 +27,6 @@ import {
   STAGGER_DURATION_MS,
   STAGGER_HIT_STUN_DURATION_MS,
   STAGGER_KNOCKBACK_MULTIPLIER,
-  ATTACK_TOUGHNESS_DENOMINATOR,
-  ATTACK_TOUGHNESS_NUMERATOR,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
@@ -764,8 +764,12 @@ export class StatsSystem extends System {
           phase === 'finalWindup'
         if (isAttacking) {
           const wt = entity.weapon.weaponType
-          const template =
-            (WEAPON_DEFAULT_DATA as Record<string, { sizeLevel: number } | undefined>)[wt]
+          const template = (
+            WEAPON_DEFAULT_DATA as Record<
+              string,
+              { sizeLevel: number } | undefined
+            >
+          )[wt]
           if (template) {
             const baseLevel = Math.max(1, template.sizeLevel)
             const sizeLevel =
@@ -774,7 +778,10 @@ export class StatsSystem extends System {
               (toughnessBefore * sizeLevel * ATTACK_TOUGHNESS_NUMERATOR) /
                 (baseLevel * ATTACK_TOUGHNESS_DENOMINATOR)
             )
-            if (attackToughness > 0 && finalToughnessDamage >= attackToughness) {
+            if (
+              attackToughness > 0 &&
+              finalToughnessDamage >= attackToughness
+            ) {
               entity.weapon.attackPhase = 'idle'
               entity.weapon.attackElapsedMs = 0
               entity.weapon.attackQueued = false

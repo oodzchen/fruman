@@ -1594,8 +1594,8 @@ export class WeaponSystem extends System {
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
 
     // 施加初始速度：向玩家面朝的前方抛出，同时向上
-    const throwSpeedX = facing * 8.0 // 向前抛
-    const throwSpeedY = -6.0 // 向上抛
+    const throwSpeedX = facing * 3 // 向前抛
+    const throwSpeedY = -3.0 // 向上抛
     const throwVelocity = this.tempVec
     if (throwVelocity) {
       throwVelocity.x = throwSpeedX
