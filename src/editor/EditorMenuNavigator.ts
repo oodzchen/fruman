@@ -5,6 +5,7 @@ export enum EditorSubmenuMode {
   Obstacle = 'obstacle',
   Weapon = 'weapon',
   Enemy = 'enemy',
+  Prop = 'prop',
 }
 
 interface EditorMenuNavigatorContext {

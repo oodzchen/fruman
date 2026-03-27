@@ -18,6 +18,8 @@ export enum ObjectType {
   HookAnchor = 'hookAnchor',
   Ground = 'ground',
   Obstacle = 'obstacle',
+  SunPickupSmall = 'sunPickupSmall',
+  SunPickupLarge = 'sunPickupLarge',
 }
 
 export type GroundShapeType = 'rect' | 'triangle' | 'circle' | 'polygon'
@@ -163,6 +165,16 @@ export interface CheckpointMarkerData {
 
 export interface HookAnchorMarkerData {
   marker: HookAnchorMarker
+}
+
+export type SunPickupMarker = fabric.Group & {
+  editorShape: 'sun-pickup-marker'
+  isLarge: boolean
+}
+
+export interface SunPickupMarkerData {
+  marker: SunPickupMarker
+  isLarge: boolean
 }
 
 export interface EditorMap {

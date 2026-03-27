@@ -44,6 +44,8 @@ import type {
   ObjectType,
   PlayerMarker,
   PlayerMarkerData,
+  SunPickupMarker,
+  SunPickupMarkerData,
   WeaponMarker,
   WeaponMarkerData,
   WeaponShape,
@@ -83,10 +85,12 @@ export class EditorMarkerManager {
   private weaponMarkers: WeaponMarkerData[] = []
   private checkpointMarkers: CheckpointMarkerData[] = []
   private hookAnchorMarkers: HookAnchorMarkerData[] = []
+  private sunPickupMarkers: SunPickupMarkerData[] = []
   private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
   private checkpointMarkerMap = new Map<fabric.Object, CheckpointMarkerData>()
   private hookAnchorMarkerMap = new Map<fabric.Object, HookAnchorMarkerData>()
+  private sunPickupMarkerMap = new Map<fabric.Object, SunPickupMarkerData>()
   private tempEnemyPos = { x: 0, y: 0 }
   private tempWeaponTransform = { x: 0, y: 0, rotation: 0 }
 
@@ -109,6 +113,8 @@ export class EditorMarkerManager {
     this.checkpointMarkerMap.clear()
     this.hookAnchorMarkers.length = 0
     this.hookAnchorMarkerMap.clear()
+    this.sunPickupMarkers.length = 0
+    this.sunPickupMarkerMap.clear()
   }
 
   getPlayerMarker() {
@@ -142,6 +148,10 @@ export class EditorMarkerManager {
 
   getHookAnchorMarkers() {
     return this.hookAnchorMarkers
+  }
+
+  getSunPickupMarkers() {
+    return this.sunPickupMarkers
   }
 
   getWeaponMarkerMap() {
@@ -803,6 +813,38 @@ export class EditorMarkerManager {
     const anchorData: HookAnchorMarkerData = { marker }
     this.hookAnchorMarkers.push(anchorData)
     this.hookAnchorMarkerMap.set(marker, anchorData)
+    canvas.setActiveObject(marker)
+    this.ctx.handleCanvasSelection(marker)
+    canvas.renderAll()
+  }
+
+  spawnSunPickupMarker(isLarge: boolean, spawn?: { x: number; y: number }) {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) return
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.ctx.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
+    const objectType = (
+      isLarge ? 'sunPickupLarge' : 'sunPickupSmall'
+    ) as ObjectType
+    const marker = this.objectFactory.createSunPickupMarker(
+      isLarge
+    ) as SunPickupMarker
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    canvas.add(marker)
+    this.ctx.registerEditorObject(objectType, marker)
+    const data: SunPickupMarkerData = { marker, isLarge }
+    this.sunPickupMarkers.push(data)
+    this.sunPickupMarkerMap.set(marker, data)
     canvas.setActiveObject(marker)
     this.ctx.handleCanvasSelection(marker)
     canvas.renderAll()

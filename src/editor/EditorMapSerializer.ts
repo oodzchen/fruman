@@ -8,6 +8,7 @@ import type {
   EditorTreeObjectType,
   MapEnemyWeapon,
   MapPlacedShape,
+  MapSunPickup,
 } from '../editorMapTypes'
 import type { NormalAttackMovesetId, WeaponType } from '../types'
 import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
@@ -131,12 +132,15 @@ export class EditorMapSerializer {
     const checkpoints = this.serializeCheckpoints(checkpointIndexMap)
     const hookAnchorIndexMap = new Map<fabric.Object, number>()
     const hookAnchors = this.serializeHookAnchors(hookAnchorIndexMap)
+    const sunPickupIndexMap = new Map<fabric.Object, number>()
+    const sunPickups = this.serializeSunPickups(sunPickupIndexMap)
     const editorTree = this.serializeEditorTree({
       shapeIndexMap,
       enemyIndexMap,
       weaponIndexMap,
       checkpointIndexMap,
       hookAnchorIndexMap,
+      sunPickupIndexMap,
     })
     return {
       version: 1,
@@ -151,6 +155,7 @@ export class EditorMapSerializer {
       weapons,
       checkpoints,
       hookAnchors,
+      sunPickups,
       editorTree: editorTree ?? undefined,
     }
   }
@@ -170,6 +175,7 @@ export class EditorMapSerializer {
     this.applyWeapons(data.weapons)
     this.applyCheckpoints(data.checkpoints)
     this.applyHookAnchors(data.hookAnchors)
+    this.applySunPickups(data.sunPickups)
     this.ctx.renderObjectTree()
     this.ctx.requestRenderAll()
   }
@@ -374,6 +380,14 @@ export class EditorMapSerializer {
     }
   }
 
+  private applySunPickups(pickups: EditorMapData['sunPickups']) {
+    if (!pickups) return
+    for (let i = 0; i < pickups.length; i++) {
+      const p = pickups[i]
+      this.ctx.markerManager.spawnSunPickupMarker(p.isLarge, { x: p.x, y: p.y })
+    }
+  }
+
   private serializePlayerSpawn(base: EditorMapData) {
     const marker = this.ctx.markerManager.getPlayerMarker()
     if (!marker) {
@@ -449,12 +463,30 @@ export class EditorMapSerializer {
     return anchors
   }
 
+  private serializeSunPickups(
+    indexMap?: Map<fabric.Object, number>
+  ): MapSunPickup[] {
+    const markers = this.ctx.markerManager.getSunPickupMarkers()
+    if (markers.length === 0) return []
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    const pickups: MapSunPickup[] = []
+    for (let i = 0; i < markers.length; i++) {
+      const { marker, isLarge } = markers[i]
+      const x = (marker.left ?? 0) * invPixelsPerMeter
+      const y = (marker.top ?? 0) * invPixelsPerMeter
+      if (indexMap) indexMap.set(marker, pickups.length)
+      pickups.push({ x, y, isLarge })
+    }
+    return pickups
+  }
+
   private serializeEditorTree(data: {
     shapeIndexMap: Map<fabric.Object, number>
     enemyIndexMap: Map<fabric.Object, number>
     weaponIndexMap: Map<fabric.Object, number>
     checkpointIndexMap: Map<fabric.Object, number>
     hookAnchorIndexMap: Map<fabric.Object, number>
+    sunPickupIndexMap: Map<fabric.Object, number>
   }): EditorTreeData | null {
     const editorObjects = this.ctx.getEditorObjects()
     if (editorObjects.length === 0) {
@@ -500,6 +532,15 @@ export class EditorMapSerializer {
         node.index = index
       } else if (dataItem.type === 'hookAnchor') {
         const index = data.hookAnchorIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (
+        dataItem.type === 'sunPickupSmall' ||
+        dataItem.type === 'sunPickupLarge'
+      ) {
+        const index = data.sunPickupIndexMap.get(dataItem.object)
         if (index === undefined) {
           return null
         }

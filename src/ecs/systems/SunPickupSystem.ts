@@ -28,6 +28,11 @@ export class SunPickupSystem {
         if (sp.isLarge) {
           solar.largeMaxCount++
           if (solar.largeCount < solar.largeMaxCount) solar.largeCount++
+          // 大太阳道具：立即回满血
+          if (player.stats) {
+            player.stats.health = player.stats.maxHealth
+            player.stats.hudVisibleTimer = player.stats.combatExitTimeout
+          }
         } else {
           solar.smallCount++
           if (solar.smallCount >= solar.smallPerLarge) {

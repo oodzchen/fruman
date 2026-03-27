@@ -222,6 +222,45 @@ export class EditorObjectFactory {
     return group
   }
 
+  createSunPickupMarker(isLarge: boolean) {
+    const baseRadius = Math.round((this.pixelsPerMeter * 20) / 100)
+    const radius = isLarge ? baseRadius * 2 : baseRadius
+    const rays = 8
+    const outerR = radius
+    const innerR = radius * 0.6
+    const step = Math.PI / rays
+    const points: { x: number; y: number }[] = []
+    for (let i = 0; i < rays * 2; i++) {
+      const angle = i * step - Math.PI / 2
+      const r = i % 2 === 0 ? outerR : innerR
+      points.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r })
+    }
+    const star = new fabric.Polygon(points, {
+      fill: '#ffd700',
+      stroke: isLarge ? '#c8a800' : 'transparent',
+      strokeWidth: isLarge ? 1 : 0,
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+    })
+    const group = new fabric.Group([star], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    })
+    ;(
+      group as unknown as { editorShape: string; isLarge: boolean }
+    ).editorShape = 'sun-pickup-marker'
+    ;(group as unknown as { editorShape: string; isLarge: boolean }).isLarge =
+      isLarge
+    return group
+  }
+
   createHookAnchorMarker() {
     const radius = Math.round((this.pixelsPerMeter * 28) / 100)
     const strokeWidth = Math.max(2, Math.round(radius * 0.18))

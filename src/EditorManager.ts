@@ -586,6 +586,18 @@ export class EditorManager {
         }
         this.captureHistorySnapshot()
       },
+      onSunPickupSelected: (isLarge) => {
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.markerManager.spawnSunPickupMarker(isLarge, {
+            x: spawn.x * this.invPixelsPerMeter,
+            y: spawn.y * this.invPixelsPerMeter,
+          })
+        } else {
+          this.markerManager.spawnSunPickupMarker(isLarge)
+        }
+        this.captureHistorySnapshot()
+      },
       onPanelMenuAdd: () => {
         const pos = this.menuSystem.getPanelMenuPosition()
         this.menuSystem.hidePanelMenu()
@@ -1643,6 +1655,7 @@ export class EditorManager {
     const weaponObjects: EditorObjectData[] = []
     const checkpointObjects: EditorObjectData[] = []
     const hookAnchorObjects: EditorObjectData[] = []
+    const sunPickupObjects: EditorObjectData[] = []
     let playerObject: EditorObjectData | null = null
     let cameraObject: EditorObjectData | null = null
 
@@ -1661,6 +1674,11 @@ export class EditorManager {
         checkpointObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.HookAnchor) {
         hookAnchorObjects.push(dataItem)
+      } else if (
+        dataItem.type === ObjectType.SunPickupSmall ||
+        dataItem.type === ObjectType.SunPickupLarge
+      ) {
+        sunPickupObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Player) {
         playerObject = dataItem
       } else if (dataItem.type === ObjectType.Camera) {
@@ -1706,6 +1724,15 @@ export class EditorManager {
         resolvedData =
           index >= 0 && index < hookAnchorObjects.length
             ? hookAnchorObjects[index]
+            : null
+      } else if (
+        node.type === 'sunPickupSmall' ||
+        node.type === 'sunPickupLarge'
+      ) {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < sunPickupObjects.length
+            ? sunPickupObjects[index]
             : null
       } else if (node.type === 'player') {
         resolvedData = playerObject

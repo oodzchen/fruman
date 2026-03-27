@@ -22,6 +22,8 @@ export type EditorTreeObjectType =
   | 'hookAnchor'
   | 'ground'
   | 'obstacle'
+  | 'sunPickupSmall'
+  | 'sunPickupLarge'
 
 export interface EditorTreeNode {
   type: EditorTreeObjectType
@@ -119,6 +121,12 @@ export interface MapHookAnchor {
   y: number
 }
 
+export interface MapSunPickup {
+  x: number
+  y: number
+  isLarge: boolean
+}
+
 export interface MapWeapon {
   x: number
   y: number
@@ -171,6 +179,7 @@ export interface EditorMapData {
   weapons?: MapWeapon[]
   checkpoints?: MapCheckpoint[]
   hookAnchors?: MapHookAnchor[]
+  sunPickups?: MapSunPickup[]
   editorTree?: EditorTreeData
 }
 

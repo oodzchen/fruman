@@ -13,6 +13,8 @@ import {
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
 import { renderBody } from './renderer/BodyRenderer'
 import {
+  HUD_AMMO_ALPHA,
+  HUD_ICON_COLOR,
   HUD_SLOT_MARGIN,
   HUD_SLOT_SIZE,
   HUD_SLOT_SPACING,
@@ -688,7 +690,7 @@ export class ClientRenderer {
 
     // Sun icon dimensions
     const sunIconSize = 42
-    const sunIconGap = 8 // gap between sun icon right edge and health bar
+    const sunIconGap = 16 // gap between sun icon right edge and health bar
     const leftMargin = 16 // distance from screen left edge to sun icon left edge
     // Health bar starts after sun icon + gap
     const startX = leftMargin + sunIconSize + sunIconGap
@@ -709,25 +711,17 @@ export class ClientRenderer {
 
     const healthWidth = maxHealth * pixelsPerUnit
 
-    // Sun HUD icons: orbs drawn right-to-left, first orb left edge at leftMargin
-    const sunOrbSpacing = sunIconSize + 4
-    for (let s = 0; s < solarLargeMax; s++) {
-      const orbLeftX = startX - sunIconGap - sunIconSize - s * sunOrbSpacing
-      const orbCX = orbLeftX + sunIconSize / 2
-      const orbCY = startY + barHeight / 2
-      const isFull = s < solarLarge
-      const fillPct = isFull ? 100 : s === solarLarge ? solarSmall * 10 : 0
-      this.drawSunHudIcon(orbCX, orbCY, sunIconSize, fillPct)
-    }
-    // Count badge bottom-right of rightmost orb, only when multiple max orbs
-    if (solarLargeMax > 1) {
-      this.drawSunCount(
-        startX - sunIconGap + 2,
-        startY + barHeight / 2 + sunIconSize / 2 - 8,
-        solarLarge,
-        solarLargeMax
-      )
-    }
+    // Sun HUD: single orb icon
+    const orbCX = leftMargin + sunIconSize / 2
+    const orbCY = startY + barHeight / 2
+    const fillPct = solarLarge > 0 ? 100 : solarSmall * 10
+    this.drawSunHudIcon(orbCX, orbCY, sunIconSize, fillPct)
+    // Count badge: to the right of icon, bottom aligned with icon bottom
+    this.drawSunCount(
+      leftMargin + sunIconSize + 2,
+      orbCY + sunIconSize / 2,
+      solarLarge
+    )
 
     // Health Bar
     const healthRatio = health / maxHealth
@@ -845,15 +839,15 @@ export class ClientRenderer {
   }
 
   // HUD 太阳数量标注
-  private drawSunCount(x: number, y: number, count: number, max: number): void {
+  private drawSunCount(x: number, y: number, count: number): void {
     const ctx = this.ctx
     ctx.save()
-    ctx.font = '9px monospace'
-    ctx.fillStyle = SUN_COLOR
+    ctx.font = '12px monospace'
+    ctx.fillStyle = HUD_ICON_COLOR
+    ctx.globalAlpha = HUD_AMMO_ALPHA
     ctx.textAlign = 'left'
-    ctx.textBaseline = 'top'
-    const text = max > 1 ? `${count}/${max}` : `${count}`
-    ctx.fillText(text, x, y)
+    ctx.textBaseline = 'bottom'
+    ctx.fillText(String(count), x, y)
     ctx.restore()
   }
 
@@ -867,8 +861,7 @@ export class ClientRenderer {
     const ppm = this.pixelsPerMeter
     const cx = worldX * ppm
     const cy = worldY * ppm
-    const largeSunSize = ppm * 0.5
-    const size = largeSunSize
+    const size = isLarge ? ppm * 0.7 : ppm * 0.35
     ctx.save()
     this.buildSunPath(ctx, cx, cy, size)
     ctx.fillStyle = SUN_COLOR

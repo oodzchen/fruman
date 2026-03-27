@@ -875,6 +875,7 @@ function createEnvironment(): void {
     createEnvironmentFromMap(activeMapData)
     createCheckpointsFromMap(activeMapData)
     createGrappleAnchorsFromMap(activeMapData)
+    createSunPickupsFromMap(activeMapData)
   } else {
     createGround()
     createObstacles()
@@ -952,6 +953,72 @@ function createGrappleAnchorEntity(x: number, y: number): void {
 
   const anchor = new GrappleAnchorComponent()
   entity.addComponent(anchor)
+}
+
+function createSunPickupsFromMap(map: EditorMapData): void {
+  if (!world) return
+  const pickups = map.sunPickups ?? []
+  for (let i = 0; i < pickups.length; i++) {
+    const p = pickups[i]
+    createMapSunPickupEntity(p.x, p.y, p.isLarge)
+  }
+}
+
+function createMapSunPickupEntity(
+  x: number,
+  y: number,
+  isLarge: boolean
+): void {
+  if (!world) return
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2CreateCircleShape,
+    b2Circle,
+    b2Body_SetLinearVelocity,
+  } = box2d
+  const entity = world.createEntity()
+  const t = new TransformComponent()
+  t.x = x
+  t.y = y
+  entity.addComponent(t)
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(x, y)
+  bodyDef.linearDamping = 1.0
+  bodyDef.motionLocks.angularZ = true
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.3
+  shapeDef.material.friction = 0.3
+  shapeDef.material.restitution = 0.1
+  shapeDef.filter.categoryBits = CATEGORY_WEAPON
+  shapeDef.filter.maskBits = MASK_WEAPON
+
+  const circle = new b2Circle()
+  circle.center.Set(0, 0)
+  circle.radius = isLarge ? 0.3 : 0.15
+  b2CreateCircleShape(bodyId, shapeDef, circle)
+
+  const vel = new box2d.b2Vec2(0, 0)
+  b2Body_SetLinearVelocity(bodyId, vel)
+  vel.delete()
+  bodyDef.delete()
+  shapeDef.delete()
+  circle.delete()
+
+  const physics = new PhysicsComponent()
+  physics.bodyId = bodyId
+  entity.addComponent(physics)
+
+  const p = new SunPickupComponent()
+  p.isLarge = isLarge
+  p.pickupRadiusSq = isLarge ? 4 : 1
+  entity.addComponent(p)
 }
 
 function createGroundShapeFromMap(placed: MapPlacedShape): void {
