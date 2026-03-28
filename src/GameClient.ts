@@ -19,6 +19,7 @@ import type {
 } from './worker/protocol'
 
 export class GameClient {
+  private static readonly START_MENU_CAMERA_STABLE_MS = 150
   private worker: Worker
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
@@ -111,6 +112,12 @@ export class GameClient {
   private autoReloadPending = false
   private onEditorActionCallback?: () => void
   private onExitActionCallback?: () => Promise<boolean>
+  private pendingStartMenuDelayMs = -1
+  private pendingStartMenuSkipAnimation = false
+  private startMenuPauseArmed = false
+  private startMenuStableElapsedMs = 0
+  private lastStartMenuCameraX = 0
+  private lastStartMenuCameraY = 0
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -749,6 +756,7 @@ export class GameClient {
     const deltaTime = (now - this.lastTime) / 1000
     this.lastTime = now
     this.lastDeltaTime = deltaTime
+    const deltaMs = Math.max(0, (deltaTime * 1000) | 0)
 
     this.frameCount++
     this.fpsUpdateTime += deltaTime
@@ -769,6 +777,7 @@ export class GameClient {
     if (!this.editorPreview) {
       this.renderer.update(deltaTime)
     }
+    this.updateStartMenuFlow(deltaMs)
     this.render(deltaTime)
     if (this.pendingCheckpointCapture) {
       this.pendingCheckpointCapture = false
@@ -934,6 +943,29 @@ export class GameClient {
     this.previewActive = false
     this.setPreviewExitVisible(false)
     this.worker.postMessage({ type: 'control', action: 'clear_map_preview' })
+  }
+
+  scheduleStartMenu(delayMs: number, skipAnimation = false) {
+    this.pendingStartMenuDelayMs = Math.max(0, delayMs | 0)
+    this.pendingStartMenuSkipAnimation = skipAnimation
+    this.startMenuPauseArmed = false
+    this.startMenuStableElapsedMs = 0
+  }
+
+  showStartMenu(skipAnimation = false) {
+    this.pendingStartMenuDelayMs = -1
+    this.pendingStartMenuSkipAnimation = false
+    this.setInputEnabled(false)
+    void this.menuManager
+      .showWithSaveRefresh(MenuMode.Start, skipAnimation)
+      .then(() => {
+        if (
+          this.menuManager.isVisible() &&
+          this.menuManager.getMode() === MenuMode.Start
+        ) {
+          this.armStartMenuPause()
+        }
+      })
   }
 
   isPreviewActive(): boolean {
@@ -1113,9 +1145,8 @@ export class GameClient {
           }
           this.clearMapPreview()
           this.setEditorPreview(false)
-          this.inputEnabled = false
           this.menuManager.hide()
-          void this.menuManager.showWithSaveRefresh(MenuMode.Start)
+          this.showStartMenu()
           break
         case MenuAction.Exit:
           if (this.onExitActionCallback) {
@@ -1181,6 +1212,7 @@ export class GameClient {
       saveData,
     } as MainToWorkerMessage)
 
+    this.clearStartMenuFlow()
     this.menuManager.hide()
     this.resumeGameInput()
   }
@@ -1215,14 +1247,76 @@ export class GameClient {
       saveData,
     } as MainToWorkerMessage)
 
+    this.clearStartMenuFlow()
     this.menuManager.hide()
     this.resumeGameInput()
   }
 
   private resumeGameInput() {
+    this.clearStartMenuFlow()
     this.start()
     this.inputEnabled = true
     this.requestGameFocus()
+  }
+
+  private updateStartMenuFlow(deltaMs: number) {
+    if (this.pendingStartMenuDelayMs >= 0) {
+      this.pendingStartMenuDelayMs -= deltaMs
+      if (this.pendingStartMenuDelayMs <= 0) {
+        const skipAnimation = this.pendingStartMenuSkipAnimation
+        this.pendingStartMenuDelayMs = -1
+        this.pendingStartMenuSkipAnimation = false
+        this.showStartMenu(skipAnimation)
+      }
+    }
+
+    if (!this.startMenuPauseArmed) {
+      return
+    }
+
+    if (
+      !this.menuManager.isVisible() ||
+      this.menuManager.getMode() !== MenuMode.Start
+    ) {
+      this.startMenuPauseArmed = false
+      this.startMenuStableElapsedMs = 0
+      return
+    }
+
+    const cameraX = Math.round(this.camera.x * this.pixelsPerMeter)
+    const cameraY = Math.round(this.camera.y * this.pixelsPerMeter)
+    if (
+      cameraX === this.lastStartMenuCameraX &&
+      cameraY === this.lastStartMenuCameraY
+    ) {
+      this.startMenuStableElapsedMs += deltaMs
+    } else {
+      this.startMenuStableElapsedMs = 0
+      this.lastStartMenuCameraX = cameraX
+      this.lastStartMenuCameraY = cameraY
+    }
+
+    if (
+      this.startMenuStableElapsedMs >= GameClient.START_MENU_CAMERA_STABLE_MS
+    ) {
+      this.stop()
+      this.startMenuPauseArmed = false
+      this.startMenuStableElapsedMs = 0
+    }
+  }
+
+  private armStartMenuPause() {
+    this.startMenuPauseArmed = true
+    this.startMenuStableElapsedMs = 0
+    this.lastStartMenuCameraX = Math.round(this.camera.x * this.pixelsPerMeter)
+    this.lastStartMenuCameraY = Math.round(this.camera.y * this.pixelsPerMeter)
+  }
+
+  private clearStartMenuFlow() {
+    this.pendingStartMenuDelayMs = -1
+    this.pendingStartMenuSkipAnimation = false
+    this.startMenuPauseArmed = false
+    this.startMenuStableElapsedMs = 0
   }
 
   requestSave(): Promise<SaveData | null> {

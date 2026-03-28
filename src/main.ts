@@ -374,7 +374,7 @@ async function initialize() {
   editorManager.onBackToMenu(() => {
     game.setEditorPreview(false)
     game.clearMapPreview()
-    void menuManager.showWithSaveRefresh(MenuMode.Start)
+    game.showStartMenu()
   })
   editorManager.onPreview((_meta, data) => {
     editorManager.hide()
@@ -446,10 +446,7 @@ async function initialize() {
   })
 
   game.setOnFirstFrameRendered(() => {
-    setTimeout(() => {
-      game.setInputEnabled(false)
-      void menuManager.showWithSaveRefresh(MenuMode.Start)
-    }, 800)
+    game.scheduleStartMenu(800)
   })
 }
 
