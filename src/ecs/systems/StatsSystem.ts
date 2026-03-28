@@ -53,6 +53,10 @@ const LARGE_LAUNCH_IMPULSE_NUMERATOR = 9
 const LARGE_LAUNCH_IMPULSE_DENOMINATOR = 10
 const EXTREME_LAUNCH_IMPULSE_NUMERATOR = 3
 const EXTREME_LAUNCH_IMPULSE_DENOMINATOR = 2
+const STAGGER_KNOCKBACK_NUMERATOR = 6
+const STAGGER_KNOCKBACK_DENOMINATOR = 5
+const TOUGHNESS_BREAK_KNOCKBACK_NUMERATOR = 4
+const TOUGHNESS_BREAK_KNOCKBACK_DENOMINATOR = 5
 const ULTIMATE_COOLDOWN_HIT_REWARD_MS = 1000
 const ULTIMATE_COOLDOWN_KILL_REWARD_MS = 2000
 
@@ -480,6 +484,7 @@ export class StatsSystem extends System {
       toughnessDamage: number
       impactLevel?: ImpactLevel
       weaponType?: WeaponVisualType
+      sizeLevel?: number
     },
     hitSource?: { x: number; y: number },
     attacker?: Entity
@@ -505,6 +510,7 @@ export class StatsSystem extends System {
       impactLevel,
       hitSource,
       weapon?.weaponType,
+      weapon?.sizeLevel,
       attacker
     )
   }
@@ -517,6 +523,7 @@ export class StatsSystem extends System {
     impactLevel: ImpactLevel,
     hitSource?: { x: number; y: number },
     weaponType?: WeaponVisualType,
+    weaponSizeLevel?: number,
     attacker?: Entity
   ): void {
     if (!entity.stats) return
@@ -562,13 +569,17 @@ export class StatsSystem extends System {
     let finalHealthDamage = Math.max(0, healthDamage)
     let finalPostureDamage = Math.max(0, postureDamage)
     let finalToughnessDamage = Math.max(0, toughnessDamage)
-    let finalKnockback = IMPACT_LEVEL_KNOCKBACK[impactLevel]
+    let finalKnockback: number = IMPACT_LEVEL_KNOCKBACK[impactLevel]
 
     // 崩塌期间受击：伤害翻倍、击退加强、解除崩塌
     const wasStaggered = entity.stats.isStaggered
     if (wasStaggered) {
       finalHealthDamage *= STAGGER_DAMAGE_MULTIPLIER
-      finalKnockback *= STAGGER_KNOCKBACK_MULTIPLIER
+      finalKnockback = this.getStaggerKnockback(
+        finalKnockback,
+        weaponType,
+        weaponSizeLevel
+      )
       finalPostureDamage = 0
       entity.stats.isStaggered = false
       entity.stats.staggerElapsedTime = 0
@@ -679,6 +690,12 @@ export class StatsSystem extends System {
     ) {
       this.triggerStagger(entity)
       extremeKnockdown = true
+    }
+
+    if (toughnessBroken && !wasStaggered) {
+      finalKnockback =
+        (finalKnockback * TOUGHNESS_BREAK_KNOCKBACK_NUMERATOR) /
+        TOUGHNESS_BREAK_KNOCKBACK_DENOMINATOR
     }
 
     if (hitSource && entity.transform) {
@@ -894,6 +911,31 @@ export class StatsSystem extends System {
       }
       this.stabilizeBody(entity)
     }
+  }
+
+  private getStaggerKnockback(
+    baseKnockback: number,
+    weaponType?: WeaponVisualType,
+    weaponSizeLevel?: number
+  ): number {
+    if (weaponType === 'sword') {
+      const sizeLevel =
+        weaponSizeLevel && weaponSizeLevel > 0 ? weaponSizeLevel : 2
+      if (sizeLevel <= 1) {
+        return (3 * STAGGER_KNOCKBACK_NUMERATOR) / STAGGER_KNOCKBACK_DENOMINATOR
+      }
+      if (sizeLevel === 2) {
+        return (4 * STAGGER_KNOCKBACK_NUMERATOR) / STAGGER_KNOCKBACK_DENOMINATOR
+      }
+      if (sizeLevel === 3) {
+        return (6 * STAGGER_KNOCKBACK_NUMERATOR) / STAGGER_KNOCKBACK_DENOMINATOR
+      }
+      return (8 * STAGGER_KNOCKBACK_NUMERATOR) / STAGGER_KNOCKBACK_DENOMINATOR
+    }
+    return (
+      (baseKnockback * STAGGER_KNOCKBACK_NUMERATOR) /
+      STAGGER_KNOCKBACK_DENOMINATOR
+    )
   }
 
   private rewardUltimateCooldown(

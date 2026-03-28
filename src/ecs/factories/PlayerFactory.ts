@@ -199,7 +199,8 @@ export function createPlayer(
   entity.addComponent(sensor)
 
   const solarEnergy = new SolarEnergyComponent()
-  solarEnergy.largeCount = 1
+  solarEnergy.smallCount = 4
+  solarEnergy.largeCount = 0
   entity.addComponent(solarEnergy)
 
   // 玩家初始武器组件（默认为空，需要在地上拾取）
