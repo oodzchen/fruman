@@ -2866,7 +2866,6 @@ function collectSoundListenerDebugData(
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
     if (!entity.enemyAI || !entity.transform) continue
-    if (entity.faction?.factionId === Faction.Player) continue
     if (entity.stats?.isDead || entity.stats?.isVanished) continue
 
     let debugListener = debugSoundListeners[listenerCount]
@@ -4032,7 +4031,6 @@ function extractEnemiesState(): SaveEnemyState[] {
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
     if (!entity.enemyAI || !entity.faction) continue
-    if (entity.faction.factionId === Faction.Player) continue
 
     const transform = entity.transform
     const stats = entity.stats
@@ -4268,7 +4266,6 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
     if (!entity.enemyAI || !entity.faction) continue
-    if (entity.faction.factionId === Faction.Player) continue
     currentEnemies.push(entity)
     if (entity.stats?.persistentId) {
       currentById.set(entity.stats.persistentId, entity)

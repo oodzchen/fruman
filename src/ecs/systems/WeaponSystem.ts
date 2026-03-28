@@ -2189,6 +2189,7 @@ export class WeaponSystem extends System {
     const arrow = this.arrowPools.acquireArrow()
     arrow.ownerId = entity.id
     arrow.factionId = arrowFaction
+    arrow.enemyFactions = entity.faction?.enemyFactions ?? []
     arrow.velocityX = Math.cos(aimAngle) * launchSpeed
     arrow.velocityY = Math.sin(aimAngle) * launchSpeed
     arrow.gravity = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE

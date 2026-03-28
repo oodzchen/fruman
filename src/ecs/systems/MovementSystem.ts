@@ -784,7 +784,8 @@ export class MovementSystem extends System {
 
       const shouldBlock =
         entity.faction.canAttack(other.faction) ||
-        (myFactionId !== Faction.Player &&
+        (!!entity.enemyAI &&
+          !!other.enemyAI &&
           myFactionId === other.faction.factionId)
       if (!shouldBlock) continue
 

@@ -873,6 +873,7 @@ export class FactionComponent extends Component {
 export class ArrowComponent extends Component {
   ownerId = 0
   factionId: string = Faction.Player
+  enemyFactions: string[] = []
   velocityX = 0
   velocityY = 0
   gravity = DEFAULT_GRAVITY
@@ -894,6 +895,7 @@ export class ArrowComponent extends Component {
   reset(): void {
     this.ownerId = 0
     this.factionId = Faction.Player
+    this.enemyFactions = []
     this.velocityX = 0
     this.velocityY = 0
     this.gravity = DEFAULT_GRAVITY

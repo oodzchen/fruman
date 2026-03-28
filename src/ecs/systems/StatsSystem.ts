@@ -229,7 +229,7 @@ export class StatsSystem extends System {
 
       // 战斗状态管理
       if (entity.stats.isInCombat) {
-        const isPlayer = entity.faction?.factionId === Faction.Player
+        const isPlayer = !entity.enemyAI
 
         if (isPlayer) {
           // 玩家：基于deltaTime累积计时，每次战斗动作重置

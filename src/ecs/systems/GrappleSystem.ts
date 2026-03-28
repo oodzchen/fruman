@@ -674,7 +674,7 @@ export class GrappleSystem extends System {
   }
 
   private triggerEnemyAggro(attacker: Entity, target: Entity): void {
-    if (target.faction?.factionId === Faction.Player) return
+    if (!target.enemyAI) return
     if (!target.enemyAI || !target.input) return
     if (target.stats?.isDead) return
 
