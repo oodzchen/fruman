@@ -507,7 +507,22 @@ export class ClientRenderer {
     this.ctx.globalAlpha *= alpha
 
     const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
+    const bodyHeightPx =
+      buf[offset + OFFSETS.BODY_HEIGHT] * this.pixelsPerMeter
     if (rollAngle !== 0) {
+      if (radius > 0) {
+        // 非圆形体型旋转时，调整 Y 偏移使视觉最低点始终贴在物理底部
+        // 椭圆旋转后最低点 = sqrt(rx² * sin²θ + ry² * cos²θ)
+        const ryPx = bodyHeightPx > 0 ? bodyHeightPx / 2 : radius
+        if (ryPx !== radius) {
+          const sinA = Math.sin(rollAngle)
+          const cosA = Math.cos(rollAngle)
+          const rotatedLow = Math.sqrt(
+            radius * radius * sinA * sinA + ryPx * ryPx * cosA * cosA
+          )
+          this.ctx.translate(0, ryPx - rotatedLow)
+        }
+      }
       this.ctx.rotate(rollAngle)
     }
 
@@ -519,7 +534,8 @@ export class ClientRenderer {
         radius,
         this.getColorString(colorInt),
         this.pixelsPerMeter,
-        direction
+        direction,
+        bodyHeightPx || undefined
       )
     }
 

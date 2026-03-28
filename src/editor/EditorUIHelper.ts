@@ -56,20 +56,16 @@ export class EditorUIHelper {
     `
     form.appendChild(footerPanel)
 
-    modal.appendChild(form)
+    modal.style.alignItems = 'stretch'
+    modal.style.justifyContent = 'stretch'
+    form.style.minWidth = 'unset'
+    form.style.width = '100%'
+    form.style.height = '100%'
 
-    const applyDialogMaxHeight = () => {
-      const modalRect = modal.getBoundingClientRect()
-      const fallbackHeight = window.innerHeight
-      const baseHeight =
-        modalRect.height > 0 ? modalRect.height : fallbackHeight
-      const maxHeightPx = Math.max(240, Math.floor(baseHeight - 32))
-      form.style.maxHeight = `${maxHeightPx}px`
-    }
+    modal.appendChild(form)
 
     const show = (parent: HTMLElement) => {
       parent.appendChild(modal)
-      applyDialogMaxHeight()
     }
 
     return {
@@ -329,7 +325,7 @@ export class EditorUIHelper {
     input.type = 'color'
     input.value = value
     input.style.cssText = `
-      width: 200px;
+      width: 40px;
       height: 32px;
       padding: 2px;
       background: rgba(255, 255, 255, 0.1);

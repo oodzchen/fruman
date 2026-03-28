@@ -110,7 +110,8 @@ export function createPlayer(
   x: number,
   y: number,
   groundTopY: number,
-  radius: number = DEFAULT_PLAYER_RADIUS
+  radius: number = DEFAULT_PLAYER_RADIUS,
+  bodyHeight = 0
 ): Entity {
   const entity = world.createEntity()
 
@@ -137,9 +138,13 @@ export function createPlayer(
   physics.bodyId = b2CreateBody(worldId, bodyDef)
 
   const shape = new b2Capsule()
-  shape.center1.Set(0, 0)
-  shape.center2.Set(0, 0)
-  shape.radius = radius
+  const bodyHeightRadius = bodyHeight > 0 ? bodyHeight / 2 : radius
+  // 胶囊 radius 取宽高半径的较小值，确保物理体高度严格等于 bodyHeight
+  const capsuleRadius = Math.min(radius, bodyHeightRadius)
+  const centerHalfDist = Math.max(0, bodyHeightRadius - capsuleRadius)
+  shape.center1.Set(0, -centerHalfDist)
+  shape.center2.Set(0, centerHalfDist)
+  shape.radius = capsuleRadius
   const fixtureDef = b2DefaultShapeDef()
   fixtureDef.density = 1.0
   fixtureDef.material.friction = DEFAULT_BODY_FRICTION
@@ -187,6 +192,7 @@ export function createPlayer(
 
   const render = new RenderComponent()
   render.radius = radius
+  render.bodyHeight = bodyHeight
   entity.addComponent(render)
 
   const faction = new FactionComponent()
@@ -262,6 +268,7 @@ export interface EnemyWeaponConfig {
 export interface EnemySpawnConfig {
   equipWeapon?: boolean
   radius?: number
+  bodyHeight?: number
   moveSpeed?: number
   attackDesire?: number
   parryProficiency?: number
@@ -297,6 +304,7 @@ export function createEnemy(
   const hasOptions = options !== undefined
   const equipWeapon = options?.equipWeapon ?? (hasOptions ? false : true)
   const radius = options?.radius ?? template.radius
+  const bodyHeight = options?.bodyHeight ?? 0
   const moveSpeed = options?.moveSpeed ?? template.moveSpeed
   const attackDesire = options?.attackDesire ?? template.attackDesire
   const parryProficiency =
@@ -311,7 +319,16 @@ export function createEnemy(
   const debugNoDamage = options?.debugNoDamage === true
   const debugNoDeath = options?.debugNoDeath === true
   const initialNormalMovesetId = options?.initialNormalMovesetId ?? ''
-  const enemy = createPlayer(world, box2d, worldId, x, y, groundTopY, radius)
+  const enemy = createPlayer(
+    world,
+    box2d,
+    worldId,
+    x,
+    y,
+    groundTopY,
+    radius,
+    bodyHeight
+  )
 
   // 重置敌人的脱战超时为10秒
   if (enemy.stats) {

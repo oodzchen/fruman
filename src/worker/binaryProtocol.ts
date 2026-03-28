@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 78
+export const ENTITY_STRIDE = 79
 
 export const OFFSETS = {
   ID: 0,
@@ -79,6 +79,7 @@ export const OFFSETS = {
   SOLAR_SMALL: 75,
   SOLAR_LARGE: 76,
   SOLAR_LARGE_MAX: 77,
+  BODY_HEIGHT: 78,
 }
 
 export const FLAGS = {

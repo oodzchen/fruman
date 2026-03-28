@@ -107,6 +107,14 @@ import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
 import { UltimateHandler } from './UltimateHandler'
 
+function getBodyHalfHeight(
+  render: { radius?: number; bodyHeight?: number } | undefined,
+  radius: number
+): number {
+  const bh = render?.bodyHeight ?? 0
+  return bh > 0 ? bh / 2 : radius
+}
+
 const BLOCK_VERTICAL_SCALE = 0.5
 const REBOUND_PAUSE_MS = 150
 const PARRY_WINDOW_FRAMES =
@@ -850,6 +858,7 @@ export class WeaponSystem extends System {
     const facing =
       entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const bodyHalfHeight = getBodyHalfHeight(entity.render, radius)
 
     if (entity.stats?.isInCombat) {
       getFrontTransform(
@@ -867,7 +876,8 @@ export class WeaponSystem extends System {
         weapon.visual,
         radius,
         weapon.weaponType,
-        weapon.width
+        weapon.width,
+        bodyHalfHeight
       )
     }
 
@@ -1962,7 +1972,8 @@ export class WeaponSystem extends System {
         weapon.visual,
         radius,
         weapon.weaponType,
-        weapon.width
+        weapon.width,
+        getBodyHalfHeight(entity.render, radius)
       )
     }
 
@@ -2617,7 +2628,8 @@ export class WeaponSystem extends System {
                   entity.weapon.visual,
                   radius,
                   entity.weapon.weaponType,
-                  entity.weapon.width
+                  entity.weapon.width,
+                  getBodyHalfHeight(entity.render, radius)
                 )
               }
             }
@@ -2715,7 +2727,8 @@ export class WeaponSystem extends System {
               entity.weapon.visual,
               radius,
               entity.weapon.weaponType,
-              entity.weapon.width
+              entity.weapon.width,
+              getBodyHalfHeight(entity.render, radius)
             )
           }
 
@@ -2785,7 +2798,8 @@ export class WeaponSystem extends System {
               entity.weapon.visual,
               radius,
               entity.weapon.weaponType,
-              entity.weapon.width
+              entity.weapon.width,
+              getBodyHalfHeight(entity.render, radius)
             )
           }
 
@@ -3137,7 +3151,8 @@ export class WeaponSystem extends System {
       weapon.visual,
       radius,
       weapon.weaponType,
-      weapon.width
+      weapon.width,
+      getBodyHalfHeight(entity.render, radius)
     )
   }
 

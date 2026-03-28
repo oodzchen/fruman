@@ -423,10 +423,10 @@ export class EditorManager {
         this.markerManager.getOrCreateEnemyWeaponMarker(d, w, s),
       getOrCreatePlayerWeaponMarker: (d, w, s) =>
         this.markerManager.getOrCreatePlayerWeaponMarker(d, w, s),
-      updateEnemyMarkerVisual: (m, r, c, f) =>
-        this.markerManager.updateEnemyMarkerVisual(m, r, c, f),
-      updatePlayerMarkerVisual: (m, r, c, f) =>
-        this.markerManager.updatePlayerMarkerVisual(m, r, c, f),
+      updateEnemyMarkerVisual: (m, r, bh, c, f) =>
+        this.markerManager.updateEnemyMarkerVisual(m, r, bh, c, f),
+      updatePlayerMarkerVisual: (m, r, bh, c, f) =>
+        this.markerManager.updatePlayerMarkerVisual(m, r, bh, c, f),
       updateWeaponMarkerVisual: (m, s) =>
         this.markerManager.updateWeaponMarkerVisual(m, s),
     })

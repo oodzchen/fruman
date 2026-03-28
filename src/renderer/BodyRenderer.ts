@@ -3,15 +3,22 @@ export function renderBody(
   radiusPx: number,
   bodyColor: string,
   pixelsPerMeter: number,
-  facingDirection: number
+  facingDirection: number,
+  bodyHeightPx = 0
 ): void {
   if (!Number.isFinite(radiusPx) || radiusPx <= 0) {
     return
   }
 
+  const radiusYPx = bodyHeightPx > 0 ? bodyHeightPx / 2 : radiusPx
+
   ctx.fillStyle = bodyColor
   ctx.beginPath()
-  ctx.arc(0, 0, radiusPx, 0, Math.PI * 2)
+  if (radiusYPx === radiusPx) {
+    ctx.arc(0, 0, radiusPx, 0, Math.PI * 2)
+  } else {
+    ctx.ellipse(0, 0, radiusPx, radiusYPx, 0, 0, Math.PI * 2)
+  }
   ctx.fill()
 
   ctx.strokeStyle = bodyColor
@@ -20,7 +27,7 @@ export function renderBody(
 
   const eyeRadius = 0.08 * pixelsPerMeter
   const eyeOffsetX = radiusPx * 0.5
-  const eyeOffsetY = -radiusPx * 0.5
+  const eyeOffsetY = -radiusYPx * 0.5
   const eyeX = facingDirection < 0 ? -eyeOffsetX : eyeOffsetX
   const eyeY = eyeOffsetY
 

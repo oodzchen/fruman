@@ -94,6 +94,7 @@ export interface MapEnemy {
   y: number
   enemyType: EnemyType
   radius?: number
+  bodyHeight?: number
   moveSpeed?: number
   attackDesire?: number
   parryProficiency?: number
@@ -147,6 +148,7 @@ export interface MapCamera {
 
 export interface MapPlayerProperties {
   radius?: number
+  bodyHeight?: number
   moveSpeed?: number
   facing?: number
   maxHealth?: number

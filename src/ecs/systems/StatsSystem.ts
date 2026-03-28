@@ -1019,9 +1019,14 @@ export class StatsSystem extends System {
     const bodyId = b2CreateBody(this.worldId, bodyDef)
 
     const shape = new b2Capsule()
-    shape.center1.Set(0, 0)
-    shape.center2.Set(0, 0)
-    shape.radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const bh = entity.render?.bodyHeight ?? 0
+    const bhRadius = bh > 0 ? bh / 2 : radius
+    const capsuleRadius = Math.min(radius, bhRadius)
+    const centerHalfDist = Math.max(0, bhRadius - capsuleRadius)
+    shape.center1.Set(0, -centerHalfDist)
+    shape.center2.Set(0, centerHalfDist)
+    shape.radius = capsuleRadius
     const fixtureDef = b2DefaultShapeDef()
     fixtureDef.density = 1.0
     fixtureDef.material.friction = DEFAULT_BODY_FRICTION

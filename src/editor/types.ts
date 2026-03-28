@@ -31,6 +31,7 @@ export type CameraFrame = fabric.Rect & {
 export type PlayerMarker = fabric.Group & {
   editorShape: 'player-marker'
   radius: number
+  bodyHeight: number
   maxHealth: number
   maxPosture: number
   maxToughness: number
@@ -47,6 +48,7 @@ export type EnemyMarker = fabric.Group & {
   editorShape: 'enemy-marker'
   enemyType: EnemyType
   radius: number
+  bodyHeight: number
   moveSpeed: number
   attackDesire: number
   parryProficiency: number
@@ -111,6 +113,7 @@ export interface EnemyMarkerData {
   marker: EnemyMarker
   enemyType: EnemyType
   radius: number
+  bodyHeight: number
   moveSpeed: number
   attackDesire: number
   parryProficiency: number
@@ -133,6 +136,7 @@ export interface EnemyMarkerData {
 export interface PlayerMarkerData {
   marker: PlayerMarker
   radius: number
+  bodyHeight: number
   moveSpeed: number
   maxHealth: number
   maxPosture: number

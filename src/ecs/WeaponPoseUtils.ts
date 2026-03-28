@@ -15,8 +15,10 @@ export function setWeaponBackTransform(
   out: WeaponTransform,
   radius: number,
   weaponType: WeaponVisualType,
-  weaponWidth: number
+  weaponWidth: number,
+  bodyHalfHeight?: number
 ): void {
+  const halfH = bodyHalfHeight !== undefined ? bodyHalfHeight : radius
   out.x = playerPos.x - facing * (radius + 0.2)
 
   if (weaponType === 'bow') {
@@ -26,13 +28,12 @@ export function setWeaponBackTransform(
   }
 
   if (weaponType === 'spear') {
-    out.y = playerPos.y + radius - weaponWidth / 2
+    out.y = playerPos.y + halfH - weaponWidth / 2
     out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
     return
   }
 
-  // 将武器下方（剑柄端）限制在地面以上，当武器足够长时上移中心点
-  out.y = playerPos.y + Math.min(0, radius - weaponWidth / 2)
+  out.y = playerPos.y + halfH - weaponWidth / 2
   out.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 }
 

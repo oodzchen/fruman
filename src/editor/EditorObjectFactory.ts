@@ -92,8 +92,9 @@ export class EditorObjectFactory {
     const eyeRadius = 0.08 * this.pixelsPerMeter
     const eyeOffsetX = radius * 0.5
     const eyeOffsetY = -radius * 0.5
-    const body = new fabric.Circle({
-      radius,
+    const body = new fabric.Ellipse({
+      rx: radius,
+      ry: radius,
       fill: this.playerBodyColor,
       stroke: this.playerBodyColor,
       strokeWidth: 3,
@@ -314,8 +315,9 @@ export class EditorObjectFactory {
     const eyeRadius = 0.08 * this.pixelsPerMeter
     const eyeOffsetX = radius * 0.5
     const eyeOffsetY = -radius * 0.5
-    const body = new fabric.Circle({
-      radius,
+    const body = new fabric.Ellipse({
+      rx: radius,
+      ry: radius,
       fill: color,
       stroke: color,
       strokeWidth: 3,

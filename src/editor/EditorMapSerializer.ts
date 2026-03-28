@@ -57,6 +57,7 @@ interface EditorMapSerializerContext {
   getCameraViews: () => CameraViewLike[]
   getPlayerMarkerData: () => {
     radius: number
+    bodyHeight: number
     moveSpeed: number
     maxHealth: number
     maxPosture: number
@@ -615,6 +616,7 @@ export class EditorMapSerializer {
 
     return {
       radius: data.radius,
+      bodyHeight: data.bodyHeight || undefined,
       moveSpeed: data.moveSpeed,
       maxHealth: data.maxHealth,
       maxPosture: data.maxPosture,
@@ -790,6 +792,7 @@ export class EditorMapSerializer {
         y: (marker.top ?? 0) * invPixelsPerMeter,
         enemyType: data.enemyType,
         radius: data.radius,
+        bodyHeight: data.bodyHeight || undefined,
         moveSpeed: data.moveSpeed,
         attackDesire: data.attackDesire,
         parryProficiency: data.parryProficiency,

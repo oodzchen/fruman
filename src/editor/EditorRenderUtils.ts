@@ -39,13 +39,16 @@ export function renderEnemyPreviewToContext(
   centerX: number,
   centerY: number,
   radiusMeters: number,
+  bodyHeightMeters: number,
   bodyColor: string,
   pixelsPerMeter: number,
   facing = 1
 ): void {
   const bodyRadius = computeEnemyBodyRadiusPx(radiusMeters, pixelsPerMeter)
+  const bodyHeightPx =
+    bodyHeightMeters > 0 ? bodyHeightMeters * pixelsPerMeter : undefined
   ctx.save()
   ctx.translate(centerX, centerY)
-  renderBody(ctx, bodyRadius, bodyColor, pixelsPerMeter, facing)
+  renderBody(ctx, bodyRadius, bodyColor, pixelsPerMeter, facing, bodyHeightPx)
   ctx.restore()
 }

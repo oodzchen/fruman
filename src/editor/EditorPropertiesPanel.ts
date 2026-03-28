@@ -58,6 +58,7 @@ type CharacterDialogOptions = {
   marker: EnemyMarker | PlayerMarker
   data: {
     radius: number
+    bodyHeight: number
     moveSpeed?: number
     attackDesire?: number
     parryProficiency?: number
@@ -80,11 +81,13 @@ type CharacterDialogOptions = {
   updateMarkerVisual: (
     marker: EnemyMarker | PlayerMarker,
     radiusMeters: number,
+    bodyHeightMeters: number,
     color: string,
     facing: number
   ) => void
   onCommit: (values: {
     radius: number
+    bodyHeight: number
     moveSpeed?: number
     attackDesire?: number
     parryProficiency?: number
@@ -128,12 +131,14 @@ export interface EditorPropertiesPanelContext {
   updateEnemyMarkerVisual: (
     marker: EnemyMarker,
     radiusMeters: number,
+    bodyHeightMeters: number,
     color: string,
     facing: number
   ) => void
   updatePlayerMarkerVisual: (
     marker: PlayerMarker,
     radiusMeters: number,
+    bodyHeightMeters: number,
     color: string,
     facing: number
   ) => void
@@ -190,17 +195,56 @@ export class EditorPropertiesPanel {
     }
     const weaponSlotsCtx = weaponSlotsCanvas.getContext('2d')
 
-    // Radius
-    const radiusRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_enemy_prop_radius')
+    // Tab bar
+    const tabBar = document.createElement('div')
+    tabBar.style.cssText =
+      'display:flex;border-bottom:1px solid rgba(255,255,255,0.15);margin-bottom:8px;position:sticky;top:0;z-index:1;background:rgba(0,0,0,0.9);'
+
+    const createTabBtn = (label: string, active: boolean) => {
+      const btn = document.createElement('button')
+      btn.textContent = label
+      btn.style.cssText = [
+        'font:inherit;cursor:pointer;border:none;outline:none;',
+        'padding:6px 14px;background:transparent;color:rgba(255,255,255,0.6);',
+        'border-bottom:2px solid transparent;margin-bottom:-1px;',
+        active
+          ? 'color:#fff;border-bottom-color:#fff;'
+          : 'color:rgba(255,255,255,0.5);',
+      ].join('')
+      return btn
+    }
+
+    const tabBtnBasic = createTabBtn(localizer.t('editor_tab_basic'), true)
+    const tabBtnAppearance = createTabBtn(
+      localizer.t('editor_tab_appearance'),
+      false
     )
-    const radiusInput = EditorUIHelper.createNumberInput({
-      value: options.data.radius,
-      min: '0.1',
-      step: '0.1',
-    })
-    radiusRow.row.appendChild(radiusInput)
-    leftPanel.appendChild(radiusRow.row)
+    tabBar.appendChild(tabBtnBasic)
+    tabBar.appendChild(tabBtnAppearance)
+    leftPanel.appendChild(tabBar)
+
+    const basicPanel = document.createElement('div')
+    const appearancePanel = document.createElement('div')
+    appearancePanel.style.display = 'none'
+    leftPanel.appendChild(basicPanel)
+    leftPanel.appendChild(appearancePanel)
+
+    const switchTab = (showBasic: boolean) => {
+      basicPanel.style.display = showBasic ? '' : 'none'
+      appearancePanel.style.display = showBasic ? 'none' : ''
+      tabBtnBasic.style.color = showBasic ? '#fff' : 'rgba(255,255,255,0.5)'
+      tabBtnBasic.style.borderBottomColor = showBasic ? '#fff' : 'transparent'
+      tabBtnAppearance.style.color = showBasic
+        ? 'rgba(255,255,255,0.5)'
+        : '#fff'
+      tabBtnAppearance.style.borderBottomColor = showBasic
+        ? 'transparent'
+        : '#fff'
+    }
+    tabBtnBasic.addEventListener('click', () => switchTab(true))
+    tabBtnAppearance.addEventListener('click', () => switchTab(false))
+
+    // === 基础 Tab ===
 
     // Move Speed
     let speedInput: HTMLInputElement | null = null
@@ -214,7 +258,7 @@ export class EditorPropertiesPanel {
         step: '0.1',
       })
       speedRow.row.appendChild(speedInput)
-      leftPanel.appendChild(speedRow.row)
+      basicPanel.appendChild(speedRow.row)
     }
 
     // Attack Desire
@@ -230,7 +274,7 @@ export class EditorPropertiesPanel {
         step: '1',
       })
       desireRow.row.appendChild(desireInput)
-      leftPanel.appendChild(desireRow.row)
+      basicPanel.appendChild(desireRow.row)
     }
 
     // Parry Proficiency
@@ -246,7 +290,7 @@ export class EditorPropertiesPanel {
         step: '1',
       })
       parryRow.row.appendChild(parryInput)
-      leftPanel.appendChild(parryRow.row)
+      basicPanel.appendChild(parryRow.row)
     }
 
     // Patrol Mode
@@ -264,7 +308,7 @@ export class EditorPropertiesPanel {
         selected: options.data.initialPatrolMode,
       })
       patrolRow.row.appendChild(patrolSelect)
-      leftPanel.appendChild(patrolRow.row)
+      basicPanel.appendChild(patrolRow.row)
     }
 
     // Facing
@@ -279,7 +323,7 @@ export class EditorPropertiesPanel {
       selected: String(options.data.facing ?? 1),
     })
     facingRow.row.appendChild(facingSelect)
-    leftPanel.appendChild(facingRow.row)
+    basicPanel.appendChild(facingRow.row)
 
     const initialAttackModuleRow = EditorUIHelper.createFormRow(
       localizer.t('editor_character_prop_attack_module')
@@ -294,7 +338,7 @@ export class EditorPropertiesPanel {
         getDefaultNormalAttackMovesetId(options.attackMovesetOwner),
     })
     initialAttackModuleRow.row.appendChild(initialAttackModuleSelect)
-    leftPanel.appendChild(initialAttackModuleRow.row)
+    basicPanel.appendChild(initialAttackModuleRow.row)
 
     // Health
     const healthRow = EditorUIHelper.createFormRow(
@@ -306,7 +350,7 @@ export class EditorPropertiesPanel {
       step: '1',
     })
     healthRow.row.appendChild(healthInput)
-    leftPanel.appendChild(healthRow.row)
+    basicPanel.appendChild(healthRow.row)
 
     // Posture
     const postureRow = EditorUIHelper.createFormRow(
@@ -318,7 +362,7 @@ export class EditorPropertiesPanel {
       step: '1',
     })
     postureRow.row.appendChild(postureInput)
-    leftPanel.appendChild(postureRow.row)
+    basicPanel.appendChild(postureRow.row)
 
     // Toughness
     const toughnessRow = EditorUIHelper.createFormRow(
@@ -330,7 +374,7 @@ export class EditorPropertiesPanel {
       step: '1',
     })
     toughnessRow.row.appendChild(toughnessInput)
-    leftPanel.appendChild(toughnessRow.row)
+    basicPanel.appendChild(toughnessRow.row)
 
     const debugNoDamageRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_debug_no_damage')
@@ -343,7 +387,7 @@ export class EditorPropertiesPanel {
       selected: options.data.debugNoDamage ? '1' : '0',
     })
     debugNoDamageRow.row.appendChild(debugNoDamageSelect)
-    leftPanel.appendChild(debugNoDamageRow.row)
+    basicPanel.appendChild(debugNoDamageRow.row)
 
     const debugNoDeathRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_debug_no_death')
@@ -356,9 +400,39 @@ export class EditorPropertiesPanel {
       selected: options.data.debugNoDeath ? '1' : '0',
     })
     debugNoDeathRow.row.appendChild(debugNoDeathSelect)
-    leftPanel.appendChild(debugNoDeathRow.row)
+    basicPanel.appendChild(debugNoDeathRow.row)
 
-    // Color
+    // === 外观 Tab ===
+    const defaultDiameter = options.data.radius * 2
+    const bodyWidthDefault = defaultDiameter
+    const bodyHeightDefault =
+      options.data.bodyHeight > 0 ? options.data.bodyHeight : defaultDiameter
+
+    const bodyWidthRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_body_width')
+    )
+    const bodyWidthInput = EditorUIHelper.createNumberInput({
+      value: bodyWidthDefault,
+      min: '0.5',
+      max: '2.0',
+      step: '0.1',
+    })
+    bodyWidthRow.row.appendChild(bodyWidthInput)
+    appearancePanel.appendChild(bodyWidthRow.row)
+
+    const bodyHeightRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_enemy_prop_body_height')
+    )
+    const bodyHeightInput = EditorUIHelper.createNumberInput({
+      value: bodyHeightDefault,
+      min: '0.5',
+      max: '2.0',
+      step: '0.1',
+    })
+    bodyHeightRow.row.appendChild(bodyHeightInput)
+    appearancePanel.appendChild(bodyHeightRow.row)
+
+    // Color (moved to 外观 tab)
     const colorRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_color')
     )
@@ -378,7 +452,7 @@ export class EditorPropertiesPanel {
       }
     })
     colorRow.row.appendChild(colorPicker)
-    leftPanel.appendChild(colorRow.row)
+    appearancePanel.appendChild(colorRow.row)
 
     const mainBinding =
       options.weaponBindings.find((binding) => binding.slot === 'main') ?? null
@@ -412,7 +486,7 @@ export class EditorPropertiesPanel {
         }
       })
       row.row.appendChild(configBtn)
-      leftPanel.appendChild(row.row)
+      basicPanel.appendChild(row.row)
 
       const updateConfigBtnVisibility = () => {
         const weaponType = select.value
@@ -620,11 +694,14 @@ export class EditorPropertiesPanel {
         return
       }
       previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height)
-      const radiusMeters = Number.parseFloat(radiusInput.value)
+      const bodyWidthVal = Number.parseFloat(bodyWidthInput.value)
       const radius =
-        Number.isFinite(radiusMeters) && radiusMeters > 0
-          ? radiusMeters
+        Number.isFinite(bodyWidthVal) && bodyWidthVal > 0
+          ? bodyWidthVal / 2
           : options.data.radius
+      const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
+      const bodyHeight =
+        Number.isFinite(bodyHeightVal) && bodyHeightVal > 0 ? bodyHeightVal : 0
       const color = getValidColor()
       const facing = Number.parseInt(facingSelect.value, 10)
 
@@ -707,6 +784,7 @@ export class EditorPropertiesPanel {
         centerX,
         centerY,
         radius,
+        bodyHeight,
         color,
         previewPixelsPerMeter,
         facing
@@ -718,12 +796,19 @@ export class EditorPropertiesPanel {
     }
 
     const updateCharacterVisualFromInputs = () => {
-      const radiusMeters = Number.parseFloat(radiusInput.value)
+      const bodyWidthVal = Number.parseFloat(bodyWidthInput.value)
+      const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
       const facing = Number.parseInt(facingSelect.value, 10)
-      if (Number.isFinite(radiusMeters) && radiusMeters > 0) {
+      if (Number.isFinite(bodyWidthVal) && bodyWidthVal > 0) {
+        const radiusMeters = bodyWidthVal / 2
+        const bodyHeight =
+          Number.isFinite(bodyHeightVal) && bodyHeightVal > 0
+            ? bodyHeightVal
+            : 0
         options.updateMarkerVisual(
           options.marker,
           radiusMeters,
+          bodyHeight,
           getValidColor(),
           facing
         )
@@ -733,7 +818,11 @@ export class EditorPropertiesPanel {
       }
     }
 
-    radiusInput.addEventListener('input', () => {
+    bodyWidthInput.addEventListener('input', () => {
+      updateCharacterVisualFromInputs()
+      renderCharacterPreview()
+    })
+    bodyHeightInput.addEventListener('input', () => {
       updateCharacterVisualFromInputs()
       renderCharacterPreview()
     })
@@ -755,7 +844,14 @@ export class EditorPropertiesPanel {
     renderCharacterPreview()
 
     confirmBtn.addEventListener('click', () => {
-      const radius = Number.parseFloat(radiusInput.value)
+      const bodyWidthVal = Number.parseFloat(bodyWidthInput.value)
+      const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
+      const radius =
+        Number.isFinite(bodyWidthVal) && bodyWidthVal > 0
+          ? bodyWidthVal / 2
+          : options.data.radius
+      const bodyHeight =
+        Number.isFinite(bodyHeightVal) && bodyHeightVal > 0 ? bodyHeightVal : 0
       const facing = Number.parseInt(facingSelect.value, 10)
       const maxHealth = Number.parseFloat(healthInput.value)
       const maxPosture = Number.parseFloat(postureInput.value)
@@ -779,6 +875,8 @@ export class EditorPropertiesPanel {
       if (
         !Number.isFinite(radius) ||
         radius <= 0 ||
+        !Number.isFinite(bodyHeight) ||
+        bodyHeight < 0 ||
         !Number.isFinite(maxHealth) ||
         maxHealth <= 0 ||
         !Number.isFinite(maxPosture) ||
@@ -853,6 +951,7 @@ export class EditorPropertiesPanel {
 
       options.onCommit({
         radius,
+        bodyHeight,
         moveSpeed: options.showMoveSpeed ? moveSpeed : undefined,
         attackDesire: options.showAttackDesire ? attackDesire : undefined,
         parryProficiency: options.showParry ? parryProficiency : undefined,
@@ -964,10 +1063,11 @@ export class EditorPropertiesPanel {
       showParry: true,
       showPatrol: true,
       weaponBindings: [mainBinding, secondaryBinding],
-      updateMarkerVisual: (m, r, c, f) =>
-        this.context.updateEnemyMarkerVisual(m as EnemyMarker, r, c, f),
+      updateMarkerVisual: (m, r, bh, c, f) =>
+        this.context.updateEnemyMarkerVisual(m as EnemyMarker, r, bh, c, f),
       onCommit: (values) => {
         data.radius = values.radius
+        data.bodyHeight = values.bodyHeight
         data.moveSpeed = values.moveSpeed ?? data.moveSpeed
         data.attackDesire = values.attackDesire ?? data.attackDesire
         data.parryProficiency = values.parryProficiency ?? data.parryProficiency
@@ -989,6 +1089,7 @@ export class EditorPropertiesPanel {
         data.equipWeapon = !!data.mainWeapon || !!data.secondaryWeapon
 
         marker.radius = data.radius
+        marker.bodyHeight = data.bodyHeight
         marker.moveSpeed = data.moveSpeed
         marker.attackDesire = data.attackDesire
         marker.parryProficiency = data.parryProficiency
@@ -1006,6 +1107,7 @@ export class EditorPropertiesPanel {
         this.context.updateEnemyMarkerVisual(
           marker,
           data.radius,
+          data.bodyHeight,
           data.color,
           data.facing
         )
@@ -1075,10 +1177,11 @@ export class EditorPropertiesPanel {
       showParry: false,
       showPatrol: false,
       weaponBindings: [mainBinding, secondaryBinding],
-      updateMarkerVisual: (m, r, c, f) =>
-        this.context.updatePlayerMarkerVisual(m as PlayerMarker, r, c, f),
+      updateMarkerVisual: (m, r, bh, c, f) =>
+        this.context.updatePlayerMarkerVisual(m as PlayerMarker, r, bh, c, f),
       onCommit: (values) => {
         data.radius = values.radius
+        data.bodyHeight = values.bodyHeight
         data.moveSpeed = values.moveSpeed ?? data.moveSpeed
         data.maxHealth = values.maxHealth
         data.maxPosture = values.maxPosture
@@ -1095,6 +1198,7 @@ export class EditorPropertiesPanel {
         data.secondaryWeaponMarker = values.secondaryWeaponMarker
 
         marker.radius = data.radius
+        marker.bodyHeight = data.bodyHeight
         marker.maxHealth = data.maxHealth
         marker.maxPosture = data.maxPosture
         marker.maxToughness = data.maxToughness
@@ -1107,6 +1211,7 @@ export class EditorPropertiesPanel {
         this.context.updatePlayerMarkerVisual(
           marker,
           data.radius,
+          data.bodyHeight,
           data.color,
           data.facing
         )

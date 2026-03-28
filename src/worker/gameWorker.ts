@@ -1531,6 +1531,10 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     playerProps.radius > 0
       ? playerProps.radius
       : DEFAULT_PLAYER_RADIUS
+  const playerBodyHeight =
+    typeof playerProps?.bodyHeight === 'number' && playerProps.bodyHeight > 0
+      ? playerProps.bodyHeight
+      : 0
   playerEntity = createPlayer(
     world,
     box2d,
@@ -1538,7 +1542,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     map ? map.playerSpawn.x : -12,
     map ? map.playerSpawn.y : groundY - 0.6,
     groundY,
-    playerRadius
+    playerRadius,
+    playerBodyHeight
   )
 
   if (playerEntity.stats && playerProps) {
@@ -3069,6 +3074,8 @@ function sendState() {
       stateBuffer[offset + OFFSETS.SOLAR_LARGE] = 0
       stateBuffer[offset + OFFSETS.SOLAR_LARGE_MAX] = 0
     }
+
+    stateBuffer[offset + OFFSETS.BODY_HEIGHT] = e.render?.bodyHeight ?? 0
 
     // 独立武器实体（地面武器）：只要有weapon组件就显示
     // 角色实体：只有装备时才显示武器

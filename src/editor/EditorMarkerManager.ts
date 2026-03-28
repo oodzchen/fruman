@@ -305,6 +305,10 @@ export class EditorMarkerManager {
     const nextDebugNoDeath = data?.debugNoDeath === true
     const nextInitialNormalMovesetId =
       data?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('player')
+    const nextBodyHeight =
+      typeof data?.bodyHeight === 'number' && data.bodyHeight > 0
+        ? data.bodyHeight
+        : 0
     let spawnX: number
     let spawnY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -322,11 +326,13 @@ export class EditorMarkerManager {
       this.updatePlayerMarkerVisual(
         this.playerMarker,
         nextRadius,
+        nextBodyHeight,
         nextColor,
         nextFacing
       )
       if (this.playerMarkerData) {
         this.playerMarkerData.radius = nextRadius
+        this.playerMarkerData.bodyHeight = nextBodyHeight
         this.playerMarkerData.moveSpeed = nextMoveSpeed
         this.playerMarkerData.maxHealth = nextMaxHealth
         this.playerMarkerData.maxPosture = nextMaxPosture
@@ -354,6 +360,7 @@ export class EditorMarkerManager {
     marker.top = spawnY
     marker.setCoords()
     marker.radius = nextRadius
+    marker.bodyHeight = nextBodyHeight
     marker.maxHealth = nextMaxHealth
     marker.maxPosture = nextMaxPosture
     marker.maxToughness = nextMaxToughness
@@ -362,11 +369,18 @@ export class EditorMarkerManager {
     marker.initialNormalMovesetId = nextInitialNormalMovesetId
     marker.debugNoDamage = nextDebugNoDamage
     marker.debugNoDeath = nextDebugNoDeath
-    this.updatePlayerMarkerVisual(marker, nextRadius, nextColor, nextFacing)
+    this.updatePlayerMarkerVisual(
+      marker,
+      nextRadius,
+      nextBodyHeight,
+      nextColor,
+      nextFacing
+    )
     this.playerMarker = marker
     this.playerMarkerData = {
       marker,
       radius: nextRadius,
+      bodyHeight: nextBodyHeight,
       moveSpeed: nextMoveSpeed,
       maxHealth: nextMaxHealth,
       maxPosture: nextMaxPosture,
@@ -395,7 +409,13 @@ export class EditorMarkerManager {
         marker.top ?? 0
       )
     }
-    this.updatePlayerMarkerVisual(marker, nextRadius, nextColor, nextFacing)
+    this.updatePlayerMarkerVisual(
+      marker,
+      nextRadius,
+      nextBodyHeight,
+      nextColor,
+      nextFacing
+    )
     canvas.add(marker)
     this.ctx.registerEditorObject(ObjectTypePlayer, marker)
     canvas.setActiveObject(marker)
@@ -406,23 +426,29 @@ export class EditorMarkerManager {
   updatePlayerMarkerVisual(
     marker: PlayerMarker,
     nextRadius: number,
+    nextBodyHeight: number,
     nextColor: string,
     nextFacing: number
   ) {
     const body = marker.item(1)
     const eye = marker.item(3)
-    const bodyRadiusPx = nextRadius * EDITOR_PIXELS_PER_METER
+    const bodyRadiusXPx = nextRadius * EDITOR_PIXELS_PER_METER
+    const bodyRadiusYPx =
+      nextBodyHeight > 0
+        ? (nextBodyHeight * EDITOR_PIXELS_PER_METER) / 2
+        : bodyRadiusXPx
     const eyeRadiusPx = 0.08 * EDITOR_PIXELS_PER_METER
-    const eyeOffsetX = bodyRadiusPx * 0.5 * nextFacing
-    const eyeOffsetY = -bodyRadiusPx * 0.5
+    const eyeOffsetX = bodyRadiusXPx * 0.5 * nextFacing
+    const eyeOffsetY = -bodyRadiusYPx * 0.5
 
     marker.scaleX = 1
     marker.scaleY = 1
-    marker.width = bodyRadiusPx * 2
-    marker.height = bodyRadiusPx * 2
+    marker.width = bodyRadiusXPx * 2
+    marker.height = bodyRadiusYPx * 2
 
-    if (body instanceof fabric.Circle) {
-      body.set('radius', bodyRadiusPx)
+    if (body instanceof fabric.Ellipse) {
+      body.set('rx', bodyRadiusXPx)
+      body.set('ry', bodyRadiusYPx)
       body.set('fill', nextColor)
       body.set('stroke', nextColor)
     }
@@ -433,6 +459,7 @@ export class EditorMarkerManager {
     }
 
     marker.radius = nextRadius
+    marker.bodyHeight = nextBodyHeight
     marker.color = nextColor
     marker.facing = nextFacing
     this.updatePlayerWeaponVisual(marker)
@@ -537,6 +564,7 @@ export class EditorMarkerManager {
       x: number
       y: number
       radius?: number
+      bodyHeight?: number
       moveSpeed?: number
       attackDesire?: number
       parryProficiency?: number
@@ -562,6 +590,7 @@ export class EditorMarkerManager {
     const template =
       CHARACTER_DEFAULT_DATA[enemyType] ?? CHARACTER_DEFAULT_DATA.default
     const radius = spawn?.radius ?? template.radius
+    const bodyHeight = spawn?.bodyHeight ?? 0
     const moveSpeed = spawn?.moveSpeed ?? template.moveSpeed
     const attackDesire = spawn?.attackDesire ?? template.attackDesire
     const parryProficiency =
@@ -600,6 +629,7 @@ export class EditorMarkerManager {
       equipWeapon
     ) as EnemyMarker
     marker.radius = radius
+    marker.bodyHeight = bodyHeight
     marker.moveSpeed = moveSpeed
     marker.attackDesire = attackDesire
     marker.parryProficiency = parryProficiency
@@ -622,6 +652,7 @@ export class EditorMarkerManager {
       marker,
       enemyType,
       radius,
+      bodyHeight,
       moveSpeed,
       attackDesire,
       parryProficiency,
@@ -667,7 +698,7 @@ export class EditorMarkerManager {
       )
     }
 
-    this.updateEnemyMarkerVisual(marker, radius, color, facing)
+    this.updateEnemyMarkerVisual(marker, radius, bodyHeight, color, facing)
     canvas.setActiveObject(marker)
     this.ctx.handleCanvasSelection(marker)
     canvas.renderAll()
@@ -853,27 +884,32 @@ export class EditorMarkerManager {
   updateEnemyMarkerVisual(
     marker: EnemyMarker,
     nextRadius: number,
+    nextBodyHeight: number,
     nextColor: string,
     nextFacing: number
   ) {
     const body = marker.item(1)
     const eye = marker.item(3)
-    const bodyRadiusPx = this.ctx.computeEnemyBodyRadiusPx(
+    const bodyRadiusXPx = this.ctx.computeEnemyBodyRadiusPx(
       nextRadius,
       EDITOR_PIXELS_PER_METER
     )
+    const bodyRadiusYPx =
+      nextBodyHeight > 0
+        ? (nextBodyHeight * EDITOR_PIXELS_PER_METER) / 2
+        : bodyRadiusXPx
     const eyeRadiusPx = 0.08 * EDITOR_PIXELS_PER_METER
-    // Adjust eye offset based on facing
-    const eyeOffsetX = bodyRadiusPx * 0.5 * nextFacing
-    const eyeOffsetY = -bodyRadiusPx * 0.5
+    const eyeOffsetX = bodyRadiusXPx * 0.5 * nextFacing
+    const eyeOffsetY = -bodyRadiusYPx * 0.5
 
     marker.scaleX = 1
     marker.scaleY = 1
-    marker.width = bodyRadiusPx * 2
-    marker.height = bodyRadiusPx * 2
+    marker.width = bodyRadiusXPx * 2
+    marker.height = bodyRadiusYPx * 2
 
-    if (body instanceof fabric.Circle) {
-      body.set('radius', bodyRadiusPx)
+    if (body instanceof fabric.Ellipse) {
+      body.set('rx', bodyRadiusXPx)
+      body.set('ry', bodyRadiusYPx)
       body.set('fill', nextColor)
       body.set('stroke', nextColor)
     }
@@ -884,6 +920,7 @@ export class EditorMarkerManager {
     }
 
     marker.radius = nextRadius
+    marker.bodyHeight = nextBodyHeight
     marker.color = nextColor
     marker.facing = nextFacing
     this.updateEnemyWeaponVisual(marker)
@@ -1024,6 +1061,7 @@ export class EditorMarkerManager {
         this.updateEnemyMarkerVisual(
           enemyData.marker,
           enemyData.radius,
+          enemyData.bodyHeight,
           enemyData.color,
           enemyData.facing
         )
@@ -1042,6 +1080,7 @@ export class EditorMarkerManager {
       this.updatePlayerMarkerVisual(
         playerData.marker,
         playerData.radius,
+        playerData.bodyHeight,
         playerData.color,
         playerData.facing
       )
