@@ -218,12 +218,20 @@ export class EditorClipboardManager {
   private cameraZoom = 1
   private cameraOffset = { x: 0, y: 0, zoom: 1 }
 
+  private batchTargets: fabric.Object[] = []
+  private batchTargetsScratch: fabric.Object[] = []
+  private batchPasteIndex = 0
+
   constructor(ctx: EditorClipboardManagerContext) {
     this.ctx = ctx
   }
 
   hasData(): boolean {
-    return this.kind !== 'none'
+    return this.kind !== 'none' || this.batchTargets.length > 0
+  }
+
+  hasBatchData(): boolean {
+    return this.batchTargets.length > 0
   }
 
   canCopy(target: fabric.Object): boolean {
@@ -236,8 +244,52 @@ export class EditorClipboardManager {
     return true
   }
 
+  copyBatch(targets: fabric.Object[]): boolean {
+    this.batchTargets.length = 0
+    this.batchPasteIndex = 0
+    for (let i = 0; i < targets.length; i++) {
+      if (this.canCopy(targets[i])) {
+        this.batchTargets.push(targets[i])
+      }
+    }
+    if (this.batchTargets.length === 0) return false
+    this.kind = 'none'
+    return true
+  }
+
+  pasteBatch(): fabric.Object[] {
+    if (this.batchTargets.length === 0) return []
+    this.batchTargetsScratch.length = 0
+    for (let i = 0; i < this.batchTargets.length; i++) {
+      this.batchTargetsScratch.push(this.batchTargets[i])
+    }
+    const savedIndex = this.batchPasteIndex
+    const offset = EDITOR_CLIPBOARD_PASTE_OFFSET_PX * (savedIndex + 1)
+    const results: fabric.Object[] = []
+    for (let i = 0; i < this.batchTargetsScratch.length; i++) {
+      const target = this.batchTargetsScratch[i]
+      this.copy(target)
+      if (this.kind !== 'none') {
+        const pasted = this.pasteAt(
+          this.sourceLeft + offset,
+          this.sourceTop + offset
+        )
+        if (pasted) results.push(pasted)
+      }
+    }
+    this.batchTargets.length = 0
+    for (let i = 0; i < this.batchTargetsScratch.length; i++) {
+      this.batchTargets.push(this.batchTargetsScratch[i])
+    }
+    this.batchPasteIndex = savedIndex + 1
+    this.kind = 'none'
+    return results
+  }
+
   copy(target: fabric.Object): boolean {
     this.pasteIndex = 0
+    this.batchTargets.length = 0
+    this.batchPasteIndex = 0
     if (this.ctx.cameraManager.isCameraFrame(target)) {
       return this.copyCameraFrame(target)
     }

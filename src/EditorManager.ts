@@ -616,11 +616,18 @@ export class EditorManager {
         this.menuSystem.showObjectTypeMenu(pos.x, pos.y)
       },
       onPanelMenuPaste: () => {
+        this.menuSystem.hidePanelMenu()
+        if (this.clipboardManager.hasBatchData()) {
+          const pasted = this.clipboardManager.pasteBatch()
+          if (pasted.length > 0) {
+            this.captureHistorySnapshot()
+          }
+          return
+        }
         const spawn = this.consumePanelMenuSpawn()
         const pasted = spawn
           ? this.clipboardManager.pasteAt(spawn.x, spawn.y)
           : this.clipboardManager.paste()
-        this.menuSystem.hidePanelMenu()
         if (pasted) {
           this.captureHistorySnapshot()
         }
@@ -796,17 +803,30 @@ export class EditorManager {
       const lowered = key.toLowerCase()
       if (lowered === 'c') {
         event.preventDefault()
-        const active = this.fabricCanvas?.getActiveObject() ?? null
-        if (active && this.clipboardManager.canCopy(active)) {
-          this.clipboardManager.copy(active)
+        const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+        if (selectedIds.length > 1) {
+          const targets = this.getObjectsByIds(selectedIds)
+          this.clipboardManager.copyBatch(targets)
+        } else {
+          const active = this.fabricCanvas?.getActiveObject() ?? null
+          if (active && this.clipboardManager.canCopy(active)) {
+            this.clipboardManager.copy(active)
+          }
         }
         return
       }
       if (lowered === 'v') {
         event.preventDefault()
-        const pasted = this.clipboardManager.paste()
-        if (pasted) {
-          this.captureHistorySnapshot()
+        if (this.clipboardManager.hasBatchData()) {
+          const pasted = this.clipboardManager.pasteBatch()
+          if (pasted.length > 0) {
+            this.captureHistorySnapshot()
+          }
+        } else {
+          const pasted = this.clipboardManager.paste()
+          if (pasted) {
+            this.captureHistorySnapshot()
+          }
         }
         return
       }
@@ -1394,6 +1414,11 @@ export class EditorManager {
     this.menuSystem.hideObjectTypeMenu()
     if (node?.dataset.objectId) {
       const objectId = Number.parseInt(node.dataset.objectId, 10)
+      const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+      if (selectedIds.length > 1 && selectedIds.includes(objectId)) {
+        this.showMultiSelectContextMenu(event.clientX, event.clientY)
+        return
+      }
       this.objectManager.focusEditorObjectById(objectId)
       const data = this.objectManager.getEditorObjectById(objectId)
       if (data) {
@@ -1832,6 +1857,20 @@ export class EditorManager {
     }
     this.contextMenu.hide()
     const target = this.fabricCanvas.findTarget(event, false) ?? null
+    const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+    if (selectedIds.length > 1 && target) {
+      const isActiveSelection = target instanceof fabric.ActiveSelection
+      const targetData = isActiveSelection
+        ? null
+        : this.objectManager.getEditorObjectMap().get(target)
+      const targetInSelection = targetData
+        ? selectedIds.includes(targetData.id)
+        : false
+      if (isActiveSelection || targetInSelection) {
+        this.showMultiSelectContextMenu(event.clientX, event.clientY)
+        return
+      }
+    }
     const handled = this.handleEditablePolygonContextMenuCore(event, target)
     if (handled) {
       return
@@ -2104,6 +2143,60 @@ export class EditorManager {
   // MENU SYSTEM
   // ========================================
 
+  private showMultiSelectContextMenu(clientX: number, clientY: number) {
+    const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+    let menuTarget: fabric.Object | null = null
+    for (let i = 0; i < selectedIds.length; i++) {
+      const d = this.objectManager.getEditorObjectById(selectedIds[i])
+      if (!d) continue
+      if (menuTarget === null) menuTarget = d.object
+      if (this.clipboardManager.canCopy(d.object)) {
+        menuTarget = d.object
+        break
+      }
+    }
+    if (!menuTarget) return
+    const hasCopyable = this.clipboardManager.canCopy(menuTarget)
+    const actions: ContextMenuAction[] = hasCopyable
+      ? ['copy', 'delete']
+      : ['delete']
+    this.contextMenu.show(actions, menuTarget, -1, clientX, clientY)
+  }
+
+  private getObjectsByIds(ids: number[]): fabric.Object[] {
+    const result: fabric.Object[] = []
+    for (let i = 0; i < ids.length; i++) {
+      const d = this.objectManager.getEditorObjectById(ids[i])
+      if (d) result.push(d.object)
+    }
+    return result
+  }
+
+  private async handleBatchDelete(ids: number[]) {
+    const canvas = this.fabricCanvas
+    if (!canvas) return
+    const confirmed = await this.dialogManager.confirm(
+      localizer
+        .t('editor_confirm_delete_multiple')
+        .replace('{0}', String(ids.length))
+    )
+    if (!confirmed) {
+      this.contextMenu.hide()
+      return
+    }
+    canvas.discardActiveObject()
+    for (let i = 0; i < ids.length; i++) {
+      const data = this.objectManager.getEditorObjectById(ids[i])
+      if (!data) continue
+      this.objectManager.unregisterEditorObject(data.object)
+      canvas.remove(data.object)
+      this.shapeManager.deleteShapeResetData(data.object)
+    }
+    canvas.requestRenderAll()
+    this.contextMenu.hide()
+    this.captureHistorySnapshot()
+  }
+
   private showPolygonMenuWithActions(
     actions: ContextMenuAction[],
     target: EditablePolygon | fabric.Object,
@@ -2125,6 +2218,19 @@ export class EditorManager {
   }
 
   private async handlePolygonMenuAction(action: ContextMenuAction) {
+    const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+    if (selectedIds.length > 1) {
+      if (action === 'copy') {
+        const targets = this.getObjectsByIds(selectedIds)
+        this.clipboardManager.copyBatch(targets)
+        this.contextMenu.hide()
+        return
+      }
+      if (action === 'delete') {
+        await this.handleBatchDelete(selectedIds)
+        return
+      }
+    }
     const polygon = this.contextMenu.getPolygon()
     const target = this.contextMenu.getTarget()
     if (!target || !target.canvas) {
@@ -2142,6 +2248,14 @@ export class EditorManager {
       return
     }
     if (action === 'paste') {
+      if (this.clipboardManager.hasBatchData()) {
+        const pasted = this.clipboardManager.pasteBatch()
+        this.contextMenu.hide()
+        if (pasted.length > 0) {
+          this.captureHistorySnapshot()
+        }
+        return
+      }
       const pasted = this.clipboardManager.paste()
       this.contextMenu.hide()
       if (pasted) {
