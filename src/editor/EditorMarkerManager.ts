@@ -12,6 +12,7 @@ import {
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { getDefaultNormalAttackMovesetId } from '../ecs/AttackMoveRegistry'
+import { Faction } from '../ecs/Component'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type {
@@ -309,6 +310,9 @@ export class EditorMarkerManager {
       typeof data?.bodyHeight === 'number' && data.bodyHeight > 0
         ? data.bodyHeight
         : 0
+    const nextFactionId = data?.factionId ?? Faction.Player
+    const nextEnemyFactions = data?.enemyFactions ?? [Faction.Enemy]
+    const nextAllyFactions = data?.allyFactions ?? []
     let spawnX: number
     let spawnY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -343,10 +347,16 @@ export class EditorMarkerManager {
           nextInitialNormalMovesetId
         this.playerMarkerData.debugNoDamage = nextDebugNoDamage
         this.playerMarkerData.debugNoDeath = nextDebugNoDeath
+        this.playerMarkerData.factionId = nextFactionId
+        this.playerMarkerData.enemyFactions = nextEnemyFactions
+        this.playerMarkerData.allyFactions = nextAllyFactions
       }
       this.playerMarker.initialNormalMovesetId = nextInitialNormalMovesetId
       this.playerMarker.debugNoDamage = nextDebugNoDamage
       this.playerMarker.debugNoDeath = nextDebugNoDeath
+      this.playerMarker.factionId = nextFactionId
+      this.playerMarker.enemyFactions = nextEnemyFactions
+      this.playerMarker.allyFactions = nextAllyFactions
       canvas.setActiveObject(this.playerMarker)
       this.ctx.handleCanvasSelection(this.playerMarker)
       canvas.requestRenderAll()
@@ -369,6 +379,9 @@ export class EditorMarkerManager {
     marker.initialNormalMovesetId = nextInitialNormalMovesetId
     marker.debugNoDamage = nextDebugNoDamage
     marker.debugNoDeath = nextDebugNoDeath
+    marker.factionId = nextFactionId
+    marker.enemyFactions = nextEnemyFactions
+    marker.allyFactions = nextAllyFactions
     this.updatePlayerMarkerVisual(
       marker,
       nextRadius,
@@ -390,6 +403,9 @@ export class EditorMarkerManager {
       initialNormalMovesetId: nextInitialNormalMovesetId,
       debugNoDamage: nextDebugNoDamage,
       debugNoDeath: nextDebugNoDeath,
+      factionId: nextFactionId,
+      enemyFactions: nextEnemyFactions,
+      allyFactions: nextAllyFactions,
     }
     if (data?.mainWeapon) {
       this.createPlayerWeaponFromConfig(
@@ -580,6 +596,9 @@ export class EditorMarkerManager {
       equipWeapon?: boolean
       mainWeapon?: MapEnemyWeapon
       secondaryWeapon?: MapEnemyWeapon
+      factionId?: string
+      enemyFactions?: string[]
+      allyFactions?: string[]
     }
   ) {
     const canvas = this.ctx.getCanvas()
@@ -608,6 +627,9 @@ export class EditorMarkerManager {
     const debugNoDeath = spawn?.debugNoDeath === true
     const equipWeapon =
       spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
+    const factionId = spawn?.factionId ?? Faction.Enemy
+    const enemyFactions = spawn?.enemyFactions ?? [Faction.Player]
+    const allyFactions = spawn?.allyFactions ?? []
     let centerX: number
     let centerY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -643,6 +665,9 @@ export class EditorMarkerManager {
     marker.debugNoDamage = debugNoDamage
     marker.debugNoDeath = debugNoDeath
     marker.equipWeapon = equipWeapon
+    marker.factionId = factionId
+    marker.enemyFactions = enemyFactions
+    marker.allyFactions = allyFactions
     marker.left = centerX
     marker.top = centerY
     marker.setCoords()
@@ -666,6 +691,9 @@ export class EditorMarkerManager {
       debugNoDamage,
       debugNoDeath,
       equipWeapon,
+      factionId,
+      enemyFactions,
+      allyFactions,
       mainWeapon: normalizeWeaponTypeAndSizeLevel(
         spawn?.mainWeapon?.weaponType,
         spawn?.mainWeapon?.sizeLevel

@@ -73,6 +73,9 @@ type CharacterDialogOptions = {
     initialNormalMovesetId: NormalAttackMovesetId
     debugNoDamage: boolean
     debugNoDeath: boolean
+    factionId: string
+    enemyFactions: string[]
+    allyFactions: string[]
   }
   attackMovesetOwner: AttackMovesetOwner
   showMoveSpeed: boolean
@@ -102,6 +105,9 @@ type CharacterDialogOptions = {
     color: string
     debugNoDamage: boolean
     debugNoDeath: boolean
+    factionId: string
+    enemyFactions: string[]
+    allyFactions: string[]
     mainWeaponType?: WeaponType
     mainWeaponMarker?: WeaponMarker
     secondaryWeaponType?: WeaponType
@@ -118,6 +124,8 @@ export interface EditorPropertiesPanelContext {
   objectFactory: EditorObjectFactory
   requestRender: () => void
   getMapSnapshot: () => EditorMapData
+  getFactions: () => string[]
+  addFaction: (id: string) => void
   applyMapSnapshot: (data: EditorMapData) => void
   onHistoryCapture: () => void
   getOrCreateEnemyWeaponMarker: (
@@ -312,6 +320,140 @@ export class EditorPropertiesPanel {
       patrolRow.row.appendChild(patrolSelect)
       basicPanel.appendChild(patrolRow.row)
     }
+
+    // Faction
+    const allFactions = this.context.getFactions()
+
+    const factionRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_faction_prop_faction')
+    )
+    const factionSelectEl = EditorUIHelper.createSelect({
+      options: allFactions.map((f) => ({ value: f, label: f })),
+      selected: options.data.factionId,
+      width: '140px',
+    })
+    factionRow.row.appendChild(factionSelectEl)
+
+    const newFactionBtn = EditorUIHelper.createButton(
+      localizer.t('editor_faction_new'),
+      { primary: false }
+    )
+    newFactionBtn.style.padding = '4px 8px'
+    newFactionBtn.style.fontSize = '11px'
+    factionRow.row.appendChild(newFactionBtn)
+    basicPanel.appendChild(factionRow.row)
+
+    newFactionBtn.addEventListener('click', () => {
+      const name = prompt(localizer.t('editor_faction_new_prompt'))
+      if (!name || !name.trim()) return
+      const trimmed = name.trim()
+      this.context.addFaction(trimmed)
+      const opt = document.createElement('option')
+      opt.value = trimmed
+      opt.textContent = trimmed
+      factionSelectEl.appendChild(opt)
+      factionSelectEl.value = trimmed
+      rebuildFactionCheckboxes()
+    })
+
+    const createFactionSection = (labelKey: string): HTMLDivElement => {
+      const label = document.createElement('div')
+      label.textContent = localizer.t(labelKey)
+      label.style.cssText =
+        'font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:4px;margin-top:8px;'
+      basicPanel.appendChild(label)
+      const container = document.createElement('div')
+      container.style.cssText =
+        'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;'
+      basicPanel.appendChild(container)
+      return container
+    }
+    const enemyFactionContainer = createFactionSection(
+      'editor_faction_prop_enemy_factions'
+    )
+    const allyFactionContainer = createFactionSection(
+      'editor_faction_prop_ally_factions'
+    )
+
+    const getEnemyFactionSelected = (): string[] => {
+      const result: string[] = []
+      enemyFactionContainer
+        .querySelectorAll<HTMLInputElement>('input[type=checkbox]')
+        .forEach((cb) => {
+          if (cb.checked) result.push(cb.value)
+        })
+      return result
+    }
+    const getAllyFactionSelected = (): string[] => {
+      const result: string[] = []
+      allyFactionContainer
+        .querySelectorAll<HTMLInputElement>('input[type=checkbox]')
+        .forEach((cb) => {
+          if (cb.checked) result.push(cb.value)
+        })
+      return result
+    }
+
+    const createFactionCheckbox = (
+      container: HTMLDivElement,
+      factionId: string,
+      checked: boolean,
+      onCheck: (fid: string, val: boolean) => void
+    ) => {
+      const wrapper = document.createElement('label')
+      wrapper.style.cssText =
+        'display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;padding:3px 6px;border:1px solid rgba(255,255,255,0.2);'
+      const cb = document.createElement('input')
+      cb.type = 'checkbox'
+      cb.value = factionId
+      cb.checked = checked
+      cb.addEventListener('change', () => onCheck(factionId, cb.checked))
+      wrapper.appendChild(cb)
+      wrapper.appendChild(document.createTextNode(factionId))
+      container.appendChild(wrapper)
+    }
+
+    const rebuildFactionCheckboxes = (
+      overrideEnemy?: string[],
+      overrideAlly?: string[]
+    ) => {
+      const currentFaction = factionSelectEl.value
+      const enemySel = overrideEnemy ?? getEnemyFactionSelected()
+      const allySel = overrideAlly ?? getAllyFactionSelected()
+      const factions = this.context.getFactions()
+
+      enemyFactionContainer.innerHTML = ''
+      allyFactionContainer.innerHTML = ''
+
+      for (const fid of factions) {
+        if (fid === currentFaction) continue
+        const isEnemy = enemySel.includes(fid)
+        const isAlly = allySel.includes(fid)
+        createFactionCheckbox(enemyFactionContainer, fid, isEnemy, (f, v) => {
+          if (v) {
+            const allyCb = allyFactionContainer.querySelector<HTMLInputElement>(
+              `input[value="${f}"]`
+            )
+            if (allyCb) allyCb.checked = false
+          }
+        })
+        createFactionCheckbox(allyFactionContainer, fid, isAlly, (f, v) => {
+          if (v) {
+            const enemyCb =
+              enemyFactionContainer.querySelector<HTMLInputElement>(
+                `input[value="${f}"]`
+              )
+            if (enemyCb) enemyCb.checked = false
+          }
+        })
+      }
+    }
+
+    rebuildFactionCheckboxes(
+      options.data.enemyFactions,
+      options.data.allyFactions
+    )
+    factionSelectEl.addEventListener('change', () => rebuildFactionCheckboxes())
 
     // Facing
     const facingRow = EditorUIHelper.createFormRow(
@@ -982,6 +1124,9 @@ export class EditorPropertiesPanel {
         color,
         debugNoDamage,
         debugNoDeath,
+        factionId: factionSelectEl.value,
+        enemyFactions: getEnemyFactionSelected(),
+        allyFactions: getAllyFactionSelected(),
         mainWeaponType,
         mainWeaponMarker,
         secondaryWeaponType,
@@ -1099,6 +1244,9 @@ export class EditorPropertiesPanel {
         data.initialNormalMovesetId = values.initialNormalMovesetId
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
+        data.factionId = values.factionId
+        data.enemyFactions = values.enemyFactions
+        data.allyFactions = values.allyFactions
 
         data.mainWeapon = values.mainWeaponType
         data.mainWeaponMarker = values.mainWeaponMarker
@@ -1121,6 +1269,9 @@ export class EditorPropertiesPanel {
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
         marker.equipWeapon = data.equipWeapon
+        marker.factionId = data.factionId
+        marker.enemyFactions = data.enemyFactions
+        marker.allyFactions = data.allyFactions
 
         this.context.updateEnemyMarkerVisual(
           marker,
@@ -1209,6 +1360,9 @@ export class EditorPropertiesPanel {
         data.initialNormalMovesetId = values.initialNormalMovesetId
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
+        data.factionId = values.factionId
+        data.enemyFactions = values.enemyFactions
+        data.allyFactions = values.allyFactions
 
         data.mainWeapon = values.mainWeaponType
         data.mainWeaponMarker = values.mainWeaponMarker
@@ -1225,6 +1379,9 @@ export class EditorPropertiesPanel {
         marker.initialNormalMovesetId = data.initialNormalMovesetId
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
+        marker.factionId = data.factionId
+        marker.enemyFactions = data.enemyFactions
+        marker.allyFactions = data.allyFactions
 
         this.context.updatePlayerMarkerVisual(
           marker,

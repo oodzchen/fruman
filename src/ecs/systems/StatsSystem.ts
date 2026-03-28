@@ -32,7 +32,7 @@ import {
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ImpactLevel } from '../AttackMoveData'
-import { PhysicsComponent } from '../Component'
+import { Faction, PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -229,7 +229,7 @@ export class StatsSystem extends System {
 
       // 战斗状态管理
       if (entity.stats.isInCombat) {
-        const isPlayer = entity.faction?.faction === 'player'
+        const isPlayer = entity.faction?.factionId === Faction.Player
 
         if (isPlayer) {
           // 玩家：基于deltaTime累积计时，每次战斗动作重置
@@ -273,6 +273,12 @@ export class StatsSystem extends System {
         entity.stats.hudVisibleTimer = Math.max(
           0,
           entity.stats.hudVisibleTimer - deltaMs
+        )
+      }
+      if (entity.stats.healthBarTimerMs > 0) {
+        entity.stats.healthBarTimerMs = Math.max(
+          0,
+          entity.stats.healthBarTimerMs - deltaMs
         )
       }
     }
@@ -530,8 +536,16 @@ export class StatsSystem extends System {
     if (entity.stats.isDead) return
     if (entity.stats.isInvincible) return
 
-    // Enter combat state on damage taken
-    this.enterCombat(entity)
+    // 只有被敌对阵营攻击时才进入战斗状态
+    if (
+      !attacker?.faction ||
+      !entity.faction ||
+      attacker.faction.canAttack(entity.faction)
+    ) {
+      this.enterCombat(entity)
+    }
+    // 受击后短暂显示血条（与战斗状态无关）
+    entity.stats.healthBarTimerMs = 3000
     if (entity.enemyAI && hitSource && entity.transform) {
       const dx = hitSource.x - entity.transform.x
       entity.enemyAI.forcedChaseDirection = dx >= 0 ? 1 : -1
@@ -944,7 +958,7 @@ export class StatsSystem extends System {
     rewardMs: number
   ): void {
     if (!attacker?.attackSlots || rewardMs <= 0) return
-    if (target.faction?.faction !== 'enemy') return
+    if (!attacker?.faction?.canAttack(target.faction!)) return
     const slot = attacker.attackSlots.ultimate
     if (!slot.hasMoveset || slot.cooldownRemainingMs <= 0) return
     slot.cooldownRemainingMs = Math.max(0, slot.cooldownRemainingMs - rewardMs)

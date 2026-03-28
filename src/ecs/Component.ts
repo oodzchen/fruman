@@ -379,6 +379,7 @@ export class StatsComponent extends Component {
   combatExitTimer = 0
   combatExitTimeout = 5000
   hudVisibleTimer = 0
+  healthBarTimerMs = 0
 
   isStaggered = false
   staggerElapsedTime = 0
@@ -416,6 +417,7 @@ export class StatsComponent extends Component {
     this.combatExitTimer = 0
     this.combatExitTimeout = 5000
     this.hudVisibleTimer = 0
+    this.healthBarTimerMs = 0
     this.isStaggered = false
     this.staggerElapsedTime = 0
     this.staggerDuration = 1000
@@ -848,10 +850,14 @@ export enum Faction {
 }
 
 export class FactionComponent extends Component {
-  faction: Faction = Faction.Neutral
+  factionId: string = Faction.Neutral
+  enemyFactions: string[] = []
+  allyFactions: string[] = []
 
   reset(): void {
-    this.faction = Faction.Neutral
+    this.factionId = Faction.Neutral
+    this.enemyFactions = []
+    this.allyFactions = []
   }
 
   getName(): string {
@@ -859,19 +865,14 @@ export class FactionComponent extends Component {
   }
 
   canAttack(other: FactionComponent): boolean {
-    if (this.faction === Faction.Neutral || other.faction === Faction.Neutral) {
-      return false
-    }
-    if (this.faction === Faction.Player && other.faction === Faction.Player) {
-      return false
-    }
-    return this.faction !== other.faction
+    if (this.factionId === Faction.Neutral) return false
+    return this.enemyFactions.includes(other.factionId)
   }
 }
 
 export class ArrowComponent extends Component {
   ownerId = 0
-  faction: Faction = Faction.Player
+  factionId: string = Faction.Player
   velocityX = 0
   velocityY = 0
   gravity = DEFAULT_GRAVITY
@@ -892,7 +893,7 @@ export class ArrowComponent extends Component {
 
   reset(): void {
     this.ownerId = 0
-    this.faction = Faction.Player
+    this.factionId = Faction.Player
     this.velocityX = 0
     this.velocityY = 0
     this.gravity = DEFAULT_GRAVITY

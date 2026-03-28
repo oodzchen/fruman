@@ -763,7 +763,7 @@ export class MovementSystem extends System {
 
     const myRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
     const myX = entity.transform.x
-    const myFaction = entity.faction.faction
+    const myFactionId = entity.faction.factionId
 
     const nearbyEntities = this.spatialHash
       ? this.spatialHash.query(
@@ -784,7 +784,8 @@ export class MovementSystem extends System {
 
       const shouldBlock =
         entity.faction.canAttack(other.faction) ||
-        (myFaction === Faction.Enemy && other.faction.faction === Faction.Enemy)
+        (myFactionId !== Faction.Player &&
+          myFactionId === other.faction.factionId)
       if (!shouldBlock) continue
 
       const otherRadius = other.render?.radius ?? DEFAULT_PLAYER_RADIUS

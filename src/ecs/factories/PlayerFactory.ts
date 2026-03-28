@@ -196,7 +196,8 @@ export function createPlayer(
   entity.addComponent(render)
 
   const faction = new FactionComponent()
-  faction.faction = Faction.Player
+  faction.factionId = Faction.Player
+  faction.enemyFactions = [Faction.Enemy]
   entity.addComponent(faction)
 
   const sensor = new SensorComponent()
@@ -283,6 +284,9 @@ export interface EnemySpawnConfig {
   mainWeapon?: EnemyWeaponConfig
   secondaryWeapon?: EnemyWeaponConfig
   initialNormalMovesetId?: NormalAttackMovesetId
+  factionId?: string
+  enemyFactions?: string[]
+  allyFactions?: string[]
 }
 
 export function createEnemy(
@@ -385,7 +389,9 @@ export function createEnemy(
   }
 
   if (enemy.faction) {
-    enemy.faction.faction = Faction.Enemy
+    enemy.faction.factionId = options?.factionId ?? Faction.Enemy
+    enemy.faction.enemyFactions = options?.enemyFactions ?? [Faction.Player]
+    enemy.faction.allyFactions = options?.allyFactions ?? []
   }
 
   if (enemy.render) {

@@ -40,6 +40,9 @@ export type PlayerMarker = fabric.Group & {
   initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
+  factionId: string
+  enemyFactions: string[]
+  allyFactions: string[]
   weaponBackShape?: WeaponShape
   weaponFrontShape?: WeaponShape
 }
@@ -62,6 +65,9 @@ export type EnemyMarker = fabric.Group & {
   debugNoDamage: boolean
   debugNoDeath: boolean
   equipWeapon: boolean
+  factionId: string
+  enemyFactions: string[]
+  allyFactions: string[]
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
   weaponBackShape?: WeaponShape
@@ -127,6 +133,9 @@ export interface EnemyMarkerData {
   debugNoDamage: boolean
   debugNoDeath: boolean
   equipWeapon: boolean
+  factionId: string
+  enemyFactions: string[]
+  allyFactions: string[]
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker
   secondaryWeapon?: WeaponType
@@ -146,6 +155,9 @@ export interface PlayerMarkerData {
   initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
+  factionId: string
+  enemyFactions: string[]
+  allyFactions: string[]
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker
   secondaryWeapon?: WeaponType

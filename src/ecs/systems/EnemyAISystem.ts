@@ -87,7 +87,7 @@ export class EnemyAISystem extends System {
   }
 
   update(entities: Entity[], deltaTime: number): void {
-    if (!this.player?.transform || this.player.stats?.isDead) {
+    if (!this.player?.transform) {
       this.resetEnemies(entities)
       return
     }
@@ -96,13 +96,19 @@ export class EnemyAISystem extends System {
     this.currentTimeMs += deltaMs
     const now = this.currentTimeMs
 
+    // Build entity lookup map for target resolution
+    const entityMap = new Map<number, Entity>()
+    for (const e of entities) {
+      entityMap.set(e.id, e)
+    }
+
     // Count active attackers (Red Tape System)
     let activeAttackers = 0
     for (const entity of entities) {
       if (
-        entity.faction?.faction === Faction.Enemy &&
+        !!entity.enemyAI &&
         !entity.stats?.isDead &&
-        entity.enemyAI?.state === 'combo'
+        entity.enemyAI.state === 'combo'
       ) {
         activeAttackers++
       }
@@ -110,7 +116,38 @@ export class EnemyAISystem extends System {
 
     for (const entity of entities) {
       if (!entity.transform || !entity.input || !entity.enemyAI) continue
-      if (entity.faction?.faction !== Faction.Enemy) continue
+
+      // Resolve target: prefer sensor-detected, fall back to lockedTargetId, then player
+      let target = this.player
+      if (entity.sensor?.detectedTargetId != null) {
+        const sensed = entityMap.get(entity.sensor.detectedTargetId)
+        if (sensed?.transform && !sensed.stats?.isDead) target = sensed
+      } else if (
+        entity.input.lockedTargetId != null &&
+        entity.input.lockedTargetId !== this.player.id
+      ) {
+        const locked = entityMap.get(entity.input.lockedTargetId)
+        if (locked?.transform && !locked.stats?.isDead) target = locked
+      }
+      if (!target.transform) continue
+
+      // No valid target for this entity — clear combat state and patrol
+      if (
+        entity.faction &&
+        target.faction &&
+        !entity.faction.canAttack(target.faction)
+      ) {
+        if (entity.stats?.isInCombat) entity.stats.isInCombat = false
+        entity.enemyAI.forcedChaseDistanceRemaining = 0
+        entity.enemyAI.alertChaseActive = false
+        if (entity.input.lockedTargetId !== null) {
+          entity.input.lockedTargetId = null
+          entity.input.lockLostTimer = 0
+        }
+        if (entity.weapon) entity.weapon.attackQueued = false
+        this.handlePatrol(entity, entity.enemyAI, now)
+        continue
+      }
       if (entity.stats?.isDead) {
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
@@ -129,8 +166,8 @@ export class EnemyAISystem extends System {
 
       const ai = entity.enemyAI
 
-      const dx = this.player.transform.x - entity.transform.x
-      const dy = this.player.transform.y - entity.transform.y
+      const dx = target.transform.x - entity.transform.x
+      const dy = target.transform.y - entity.transform.y
       const distance = Math.hypot(dx, dy)
       const facing = dx >= 0 ? 1 : -1
       if (Math.abs(dx) >= ENEMY_PACE_MIN_DISTANCE) {
@@ -151,24 +188,24 @@ export class EnemyAISystem extends System {
 
       // 计算武器的有效攻击半径（与 WeaponSystem.getAttackRadius 相同逻辑）
       const weaponAttackRadius = this.getWeaponAttackRadius(entity)
-      // 考虑目标（玩家）的半径，得到实际可攻击的距离
-      const playerRadius = this.player.render?.radius ?? DEFAULT_PLAYER_RADIUS
-      const weaponRange = weaponAttackRadius + playerRadius
+      // 考虑目标的半径，得到实际可攻击的距离
+      const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      const weaponRange = weaponAttackRadius + targetRadius
 
       // 使用传感器结果判断视线
       const hasSensorContact =
-        entity.sensor && entity.sensor.detectedTargetId === this.player.id
+        entity.sensor && entity.sensor.detectedTargetId === target.id
       const alertRange = ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
       const hasCombatLineOfSight =
         hasSensorContact && distance <= ai.detectionRange
       const hasAlertLineOfSight = hasSensorContact && distance <= alertRange
-      const isPlayerSwinging = this.player.weapon
-        ? this.player.weapon.attackPhase === 'swing'
+      const isTargetSwinging = target.weapon
+        ? target.weapon.attackPhase === 'swing'
         : false
       this.updateParryState(
         entity,
         ai,
-        isPlayerSwinging,
+        isTargetSwinging,
         distance,
         weaponRange,
         !!hasCombatLineOfSight
@@ -290,13 +327,14 @@ export class EnemyAISystem extends System {
         !!hasAlertLineOfSight,
         deltaMs,
         now,
-        stableFacing
+        stableFacing,
+        target
       )
       if (alertHandled) {
         continue
       }
 
-      if (entity.input.lockedTargetId === this.player.id) {
+      if (entity.input.lockedTargetId === target.id) {
         if (hasCombatLineOfSight) {
           entity.input.lockLostTimer = 0
         } else {
@@ -365,13 +403,13 @@ export class EnemyAISystem extends System {
         continue
       }
 
-      // 敌人锁定玩家（进入战斗状态）
+      // 敌人锁定目标（进入战斗状态）
       if (
         hasCombatLineOfSight &&
         entity.input &&
-        entity.input.lockedTargetId !== this.player.id
+        entity.input.lockedTargetId !== target.id
       ) {
-        entity.input.lockedTargetId = this.player.id
+        entity.input.lockedTargetId = target.id
         entity.input.lockLostTimer = 0
       }
 
@@ -384,11 +422,11 @@ export class EnemyAISystem extends System {
         if (distance > meleeSwitchDistance && hasBowAmmo) {
           // 远程逻辑
           // 只要有视野或者已经锁定，就维持远程攻击状态（防止射击间隙的射线检测失败导致丢失目标）
-          const isLocked = entity.input.lockedTargetId === this.player.id
+          const isLocked = entity.input.lockedTargetId === target.id
           if (hasCombatLineOfSight || isLocked) {
             // 有视野：使用弓箭远程射击，原地不动
             // 强制锁定并更新朝向
-            entity.input.lockedTargetId = this.player.id
+            entity.input.lockedTargetId = target.id
             entity.input.facingOverride = stableFacing
 
             if (this.weaponSystem) {
@@ -1093,27 +1131,28 @@ export class EnemyAISystem extends System {
     hasAlertLineOfSight: boolean,
     deltaMs: number,
     now: number,
-    facing: number
+    facing: number,
+    target: Entity
   ): boolean {
-    if (!this.player || !entity.input) return false
+    if (!entity.input) return false
     const detectionRange = ai.detectionRange
     const alertRange = detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
 
     if (ai.alertChaseActive) {
       if (distance > alertRange) {
-        this.clearAlertState(entity, ai)
+        this.clearAlertState(entity, ai, target)
       }
       return false
     }
     if (!hasAlertLineOfSight) {
       if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
-        this.clearAlertState(entity, ai)
+        this.clearAlertState(entity, ai, target)
       }
       return false
     }
     if (entity.stats?.isInCombat) {
       if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
-        this.clearAlertState(entity, ai)
+        this.clearAlertState(entity, ai, target)
       }
       return false
     }
@@ -1123,7 +1162,7 @@ export class EnemyAISystem extends System {
 
     if (distance <= detectionRange) {
       if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
-        this.clearAlertState(entity, ai)
+        this.clearAlertState(entity, ai, target)
       }
       ai.alertChaseActive = false
       return false
@@ -1131,7 +1170,7 @@ export class EnemyAISystem extends System {
 
     if (distance > alertRange) {
       if (ai.state === 'alert' || ai.alertTimeRemainingMs > 0) {
-        this.clearAlertState(entity, ai)
+        this.clearAlertState(entity, ai, target)
       }
       if (ai.alertChaseActive) {
         ai.alertChaseActive = false
@@ -1169,7 +1208,7 @@ export class EnemyAISystem extends System {
       return false
     }
 
-    entity.input.lockedTargetId = this.player.id
+    entity.input.lockedTargetId = target.id
     entity.input.lockLostTimer = 0
     entity.input.attackRequested = false
     entity.input.sprintRequested = false
@@ -1219,7 +1258,11 @@ export class EnemyAISystem extends System {
     return true
   }
 
-  private clearAlertState(entity: Entity, ai: EnemyAIComponent): void {
+  private clearAlertState(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    target: Entity
+  ): void {
     if (ai.state === 'alert') {
       ai.state = 'approach'
     }
@@ -1232,9 +1275,8 @@ export class EnemyAISystem extends System {
     ai.alertNextPaceResumeTimestamp = 0
     ai.alertChaseActive = false
     if (
-      this.player &&
       entity.input &&
-      entity.input.lockedTargetId === this.player.id &&
+      entity.input.lockedTargetId === target.id &&
       !entity.stats?.isInCombat
     ) {
       entity.input.lockedTargetId = null
@@ -1517,7 +1559,7 @@ export class EnemyAISystem extends System {
 
   private resetEnemies(entities: Entity[]): void {
     for (const entity of entities) {
-      if (!entity.input || entity.faction?.faction !== Faction.Enemy) continue
+      if (!entity.input || !entity.enemyAI) continue
       entity.input.moveDirection = 0
       entity.input.facingOverride = null
       entity.input.blockRequested = false

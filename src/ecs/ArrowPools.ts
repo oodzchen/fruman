@@ -58,21 +58,17 @@ export class ArrowPools implements EntityComponentPool {
     this.physicsPool.release(component)
   }
 
-  canSpawn(faction: Faction): boolean {
-    switch (faction) {
-      case Faction.Player:
-        return this.playerCount < PLAYER_ARROW_LIMIT
-      case Faction.Enemy:
-        return this.enemyCount < ENEMY_ARROW_LIMIT
-      default:
-        return true
-    }
+  canSpawn(factionId: string): boolean {
+    if (factionId === Faction.Player)
+      return this.playerCount < PLAYER_ARROW_LIMIT
+    if (factionId === Faction.Enemy) return this.enemyCount < ENEMY_ARROW_LIMIT
+    return true
   }
 
-  registerSpawn(faction: Faction): void {
-    if (faction === Faction.Player) {
+  registerSpawn(factionId: string): void {
+    if (factionId === Faction.Player) {
       this.playerCount += 1
-    } else if (faction === Faction.Enemy) {
+    } else if (factionId === Faction.Enemy) {
       this.enemyCount += 1
     }
   }
@@ -80,9 +76,9 @@ export class ArrowPools implements EntityComponentPool {
   releaseEntityComponents(entity: Entity): void {
     if (!entity.arrow) return
 
-    if (entity.arrow.faction === Faction.Player) {
+    if (entity.arrow.factionId === Faction.Player) {
       this.playerCount = Math.max(0, this.playerCount - 1)
-    } else if (entity.arrow.faction === Faction.Enemy) {
+    } else if (entity.arrow.factionId === Faction.Enemy) {
       this.enemyCount = Math.max(0, this.enemyCount - 1)
     }
     this.arrowPool.release(entity.arrow)

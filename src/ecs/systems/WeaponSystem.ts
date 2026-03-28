@@ -2101,7 +2101,7 @@ export class WeaponSystem extends System {
       return
     }
 
-    const arrowFaction = entity.faction?.faction ?? Faction.Player
+    const arrowFaction = entity.faction?.factionId ?? Faction.Player
     if (!this.arrowPools.canSpawn(arrowFaction)) {
       return
     }
@@ -2188,7 +2188,7 @@ export class WeaponSystem extends System {
 
     const arrow = this.arrowPools.acquireArrow()
     arrow.ownerId = entity.id
-    arrow.faction = arrowFaction
+    arrow.factionId = arrowFaction
     arrow.velocityX = Math.cos(aimAngle) * launchSpeed
     arrow.velocityY = Math.sin(aimAngle) * launchSpeed
     arrow.gravity = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE

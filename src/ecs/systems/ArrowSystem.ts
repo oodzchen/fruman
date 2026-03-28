@@ -147,7 +147,7 @@ export class ArrowSystem extends System {
         const target = nearby[i]
         if (!target.stats || !target.faction || !target.transform) continue
         if (target.id === arrow.ownerId) continue
-        if (target.faction.faction === arrow.faction) continue
+        if (target.faction.factionId === arrow.factionId) continue
 
         const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
         const dx = headX - target.transform.x

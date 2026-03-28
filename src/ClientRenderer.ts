@@ -547,8 +547,13 @@ export class ClientRenderer {
     const isPlayer = !!(flags & FLAGS.IS_PLAYER)
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const isLocked = buf[offset + OFFSETS.ID] === playerLockedTargetId
+    const isHealthBarFlash = !!(flags & FLAGS.HEALTH_BAR_FLASH)
 
-    if (maxHealth > 0 && !isPlayer && (isInCombat || isLocked)) {
+    if (
+      maxHealth > 0 &&
+      !isPlayer &&
+      (isInCombat || isLocked || isHealthBarFlash)
+    ) {
       this.drawStatusBars(
         buf,
         offset,

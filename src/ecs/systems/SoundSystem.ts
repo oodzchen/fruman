@@ -7,7 +7,6 @@ import {
   FOOTSTEP_WAVE_DISTANCE_MULTIPLIER,
   FOOTSTEP_WAVE_SPEED,
 } from '../../constants'
-import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { ObjectPool } from '../ObjectPool'
@@ -93,66 +92,73 @@ export class SoundSystem extends System {
   update(entities: Entity[], deltaTime: number): void {
     const deltaMs = deltaTime > 0 ? deltaTime * 1000 : 0
     if (deltaMs > 0) {
-      this.updateFootsteps(deltaMs)
+      this.updateFootsteps(entities, deltaMs)
     }
     this.updateWaves(entities, deltaTime)
   }
 
-  private updateFootsteps(deltaMs: number): void {
-    const player = this.player
-    if (!player || !player.transform || !player.movement || !player.render) {
-      return
-    }
-    if (player.stats?.isDead || player.movement.isRolling) {
-      player.movement.footstepTimerMs = 0
-      return
-    }
-    if (!player.movement.isGrounded) {
-      player.movement.footstepTimerMs = 0
-      return
-    }
+  private updateFootsteps(entities: Entity[], deltaMs: number): void {
+    for (const entity of entities) {
+      if (!entity.transform || !entity.movement || !entity.render) continue
+      if (entity.stats?.isDead || entity.movement.isRolling) {
+        entity.movement.footstepTimerMs = 0
+        continue
+      }
+      if (!entity.movement.isGrounded) {
+        entity.movement.footstepTimerMs = 0
+        continue
+      }
 
-    const moveDir = player.input?.moveDirection ?? 0
-    let isMoving = moveDir !== 0
-    if (!isMoving && player.physics) {
-      isMoving = Math.abs(player.physics.velX) >= FOOTSTEP_MIN_MOVE_SPEED
-    }
-    if (!isMoving) {
-      player.movement.footstepTimerMs = 0
-      return
-    }
+      const moveDir = entity.input?.moveDirection ?? 0
+      let isMoving = moveDir !== 0
+      if (!isMoving && entity.physics) {
+        isMoving = Math.abs(entity.physics.velX) >= FOOTSTEP_MIN_MOVE_SPEED
+      }
+      if (!isMoving) {
+        entity.movement.footstepTimerMs = 0
+        continue
+      }
 
-    player.movement.footstepTimerMs -= deltaMs
-    if (player.movement.footstepTimerMs > 0) {
-      return
-    }
+      entity.movement.footstepTimerMs -= deltaMs
+      if (entity.movement.footstepTimerMs > 0) continue
 
-    if (this.activeWaves.length < MAX_SOUND_WAVES) {
-      this.emitFootstep(player)
+      if (this.activeWaves.length < MAX_SOUND_WAVES) {
+        this.emitFootstep(entity)
+      }
+      const interval =
+        entity.movement.footstepIntervalMs > 0
+          ? entity.movement.footstepIntervalMs
+          : FOOTSTEP_INTERVAL_MS
+      entity.movement.footstepTimerMs = interval
     }
-    const interval =
-      player.movement.footstepIntervalMs > 0
-        ? player.movement.footstepIntervalMs
-        : FOOTSTEP_INTERVAL_MS
-    player.movement.footstepTimerMs = interval
   }
 
-  private emitFootstep(player: Entity): void {
-    if (!player.transform) return
+  private emitFootstep(entity: Entity): void {
+    if (!entity.transform) return
 
-    const radius = player.render?.radius ?? DEFAULT_PLAYER_RADIUS
-    this.emitSoundAt(
-      player.transform.x,
-      player.transform.y + radius,
-      radius,
-      FOOTSTEP_SOUND_DB
-    )
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    if (this.activeWaves.length >= MAX_SOUND_WAVES) return
+    const wave = this.wavePool.acquire()
+    wave.x = entity.transform.x
+    wave.y = entity.transform.y + radius
+    wave.radius = 0
+    wave.prevRadius = 0
+    wave.speed = FOOTSTEP_WAVE_SPEED
+    const loudnessScale = Math.max(0.1, FOOTSTEP_SOUND_DB)
+    wave.maxRadius = radius * FOOTSTEP_WAVE_DISTANCE_MULTIPLIER * loudnessScale
+    wave.baseDb = FOOTSTEP_SOUND_DB
+    wave.currentDb = FOOTSTEP_SOUND_DB
+    wave.sourceEntityId = entity.id
+    this.activeWaves.push(wave)
   }
 
   private updateWaves(entities: Entity[], deltaTime: number): void {
     if (this.activeWaves.length === 0) {
       return
     }
+
+    const entityMap = new Map<number, Entity>()
+    for (const e of entities) entityMap.set(e.id, e)
 
     for (let i = 0; i < this.activeWaves.length; ) {
       const wave = this.activeWaves[i]
@@ -171,7 +177,7 @@ export class SoundSystem extends System {
         continue
       }
 
-      this.checkWaveAgainstListeners(wave, entities)
+      this.checkWaveAgainstListeners(wave, entities, entityMap)
       i += 1
     }
   }
@@ -186,12 +192,25 @@ export class SoundSystem extends System {
     this.wavePool.release(wave)
   }
 
-  private checkWaveAgainstListeners(wave: SoundWave, entities: Entity[]): void {
+  private checkWaveAgainstListeners(
+    wave: SoundWave,
+    entities: Entity[],
+    entityMap: Map<number, Entity>
+  ): void {
+    const source = wave.sourceEntityId
+      ? entityMap.get(wave.sourceEntityId)
+      : undefined
+
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i]
       if (!entity.enemyAI || !entity.transform) continue
-      if (entity.faction?.faction !== Faction.Enemy) continue
+      if (entity.id === wave.sourceEntityId) continue
       if (entity.stats?.isDead || entity.stats?.isVanished) continue
+
+      // 只对敌对阵营的声音产生警戒反应
+      if (source?.faction && entity.faction) {
+        if (!entity.faction.canAttack(source.faction)) continue
+      }
 
       const hearingRange =
         entity.enemyAI.detectionRange * ENEMY_HEARING_RANGE_MULTIPLIER
@@ -204,11 +223,11 @@ export class SoundSystem extends System {
       const radiusSq = wave.radius * wave.radius
       if (distanceSq < prevRadiusSq || distanceSq > radiusSq) continue
 
-      this.triggerSoundAlert(entity)
+      this.triggerSoundAlert(entity, source)
     }
   }
 
-  private triggerSoundAlert(entity: Entity): void {
+  private triggerSoundAlert(entity: Entity, source?: Entity): void {
     if (entity.enemyAI) {
       entity.enemyAI.alertChaseActive = true
       entity.enemyAI.alertTimeRemainingMs = 0
@@ -217,6 +236,10 @@ export class SoundSystem extends System {
     if (entity.stats) {
       entity.stats.isInCombat = true
       entity.stats.combatExitTimer = 0
+    }
+    if (source && entity.input && entity.input.lockedTargetId == null) {
+      entity.input.lockedTargetId = source.id
+      entity.input.lockLostTimer = 0
     }
   }
 }

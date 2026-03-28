@@ -1,12 +1,9 @@
 import {
-  CATEGORY_ENEMY,
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
-  CATEGORY_PLAYER,
   ENEMY_DETECTION_RANGE,
 } from '../../constants'
 import type { MainModule, b2ShapeId, b2WorldId } from '../../types'
-import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -147,7 +144,7 @@ export class TargetingSystem extends System {
           if (entity.id === player.id || entity.id === currentTarget.id)
             continue
           if (
-            entity.faction?.faction !== Faction.Enemy ||
+            !player.faction?.canAttack(entity.faction!) ||
             entity.stats?.isDead ||
             entity.stats?.isVanished
           )
@@ -349,15 +346,9 @@ export class TargetingSystem extends System {
     const filter = this.rayFilter
     startVec.Set(startX, startY)
 
-    // Determine mask based on faction to avoid hitting self
-    let mask =
-      CATEGORY_OBSTACLE | CATEGORY_GROUND | CATEGORY_PLAYER | CATEGORY_ENEMY
-    if (entity.faction?.faction === Faction.Player) {
-      mask &= ~CATEGORY_PLAYER
-    } else if (entity.faction?.faction === Faction.Enemy) {
-      mask &= ~CATEGORY_ENEMY
-    }
-    filter.maskBits = mask
+    // 只检测障碍物/地形阻挡，不依赖目标的物理分类
+    // 射线未命中任何障碍物 = 视线畅通；命中障碍物 = 视线被阻断
+    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
 
     for (const target of entities) {
       if (target.id === entity.id) continue
@@ -393,32 +384,14 @@ export class TargetingSystem extends System {
           filter
         )
 
-        const hit = output.hit
-        let hitEntityId: number | undefined
-        let isHostile = false
+        // 没有命中障碍物 = 视线畅通 = 能看到目标
+        const hasLineOfSight = !output.hit
+        const isHostile = hasLineOfSight
 
-        if (hit) {
-          const shapeKey = this.getShapeKey(output.shapeId)
-          const hitEntity = this.shapeMap.get(shapeKey)
-
-          if (hitEntity) {
-            hitEntityId = hitEntity.id
-            if (
-              entity.faction &&
-              hitEntity.faction &&
-              entity.faction.canAttack(hitEntity.faction) &&
-              !hitEntity.stats?.isDead &&
-              !hitEntity.stats?.isVanished
-            ) {
-              isHostile = true
-              const hitDx = output.point.x - startX
-              const hitDy = output.point.y - startY
-              const hitDistSq = hitDx * hitDx + hitDy * hitDy
-              if (hitDistSq < closestDistSq) {
-                closestDistSq = hitDistSq
-                detectedHostileId = hitEntityId
-              }
-            }
+        if (hasLineOfSight) {
+          if (centerDistSq < closestDistSq) {
+            closestDistSq = centerDistSq
+            detectedHostileId = target.id
           }
         }
 
@@ -428,10 +401,10 @@ export class TargetingSystem extends System {
           result.start.y = startY
           result.end.x = startX + dx
           result.end.y = startY + dy
-          result.hit = hit
-          result.hitEntityId = hitEntityId
+          result.hit = output.hit
+          result.hitEntityId = hasLineOfSight ? target.id : undefined
           result.isHostile = isHostile
-          if (hit) {
+          if (output.hit) {
             const hitPoint = result.hitPoint
             if (hitPoint) {
               hitPoint.x = output.point.x
@@ -461,11 +434,10 @@ export class TargetingSystem extends System {
       // Auto-combat state for player/enemies upon detection
       if (entity.stats && !entity.stats.isInCombat) {
         let shouldEnterCombat = true
-        if (entity.faction?.faction === Faction.Enemy) {
-          const combatRange = entity.enemyAI
-            ? entity.enemyAI.detectionRange
-            : entity.sensor.radius
-          shouldEnterCombat = closestDistSq <= combatRange * combatRange
+        if (entity.enemyAI) {
+          shouldEnterCombat =
+            closestDistSq <=
+            entity.enemyAI.detectionRange * entity.enemyAI.detectionRange
         }
         if (shouldEnterCombat) {
           entity.stats.isInCombat = true

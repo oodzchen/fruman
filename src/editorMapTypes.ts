@@ -110,6 +110,9 @@ export interface MapEnemy {
   equipWeapon?: boolean
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon
+  factionId?: string
+  enemyFactions?: string[]
+  allyFactions?: string[]
 }
 
 export interface MapCheckpoint {
@@ -160,6 +163,9 @@ export interface MapPlayerProperties {
   initialNormalMovesetId?: NormalAttackMovesetId
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon
+  factionId?: string
+  enemyFactions?: string[]
+  allyFactions?: string[]
 }
 
 export interface EditorViewportState {
@@ -183,6 +189,7 @@ export interface EditorMapData {
   hookAnchors?: MapHookAnchor[]
   sunPickups?: MapSunPickup[]
   editorTree?: EditorTreeData
+  factions?: string[]
 }
 
 export interface StoredEditorMap {

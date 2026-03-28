@@ -1579,6 +1579,14 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     }
   }
 
+  if (playerEntity.faction && playerProps?.factionId) {
+    playerEntity.faction.factionId = playerProps.factionId
+    playerEntity.faction.enemyFactions = playerProps.enemyFactions ?? [
+      Faction.Enemy,
+    ]
+    playerEntity.faction.allyFactions = playerProps.allyFactions ?? []
+  }
+
   if (playerEntity.movement && playerProps) {
     const nextMoveSpeed =
       typeof playerProps.moveSpeed === 'number' &&
@@ -2858,7 +2866,7 @@ function collectSoundListenerDebugData(
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
     if (!entity.enemyAI || !entity.transform) continue
-    if (entity.faction?.faction !== Faction.Enemy) continue
+    if (entity.faction?.factionId === Faction.Player) continue
     if (entity.stats?.isDead || entity.stats?.isVanished) continue
 
     let debugListener = debugSoundListeners[listenerCount]
@@ -2988,6 +2996,7 @@ function sendState() {
     if (e.stats?.isInCombat) flags |= FLAGS.IN_COMBAT
     const hudVisibleTimer = e.stats ? e.stats.hudVisibleTimer : 0
     if (hudVisibleTimer > 0) flags |= FLAGS.HUD_VISIBLE
+    if (e.stats && e.stats.healthBarTimerMs > 0) flags |= FLAGS.HEALTH_BAR_FLASH
     if (e.weapon?.isBlocking) flags |= FLAGS.WEAPON_BLOCKING
     if (e.checkpoint) flags |= FLAGS.CHECKPOINT
     if (e.grapple?.hasGrapple) flags |= FLAGS.GRAPPLE_READY
@@ -4023,7 +4032,7 @@ function extractEnemiesState(): SaveEnemyState[] {
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
     if (!entity.enemyAI || !entity.faction) continue
-    if (entity.faction.faction !== Faction.Enemy) continue
+    if (entity.faction.factionId === Faction.Player) continue
 
     const transform = entity.transform
     const stats = entity.stats
@@ -4259,7 +4268,7 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
     if (!entity.enemyAI || !entity.faction) continue
-    if (entity.faction.faction !== Faction.Enemy) continue
+    if (entity.faction.factionId === Faction.Player) continue
     currentEnemies.push(entity)
     if (entity.stats?.persistentId) {
       currentById.set(entity.stats.persistentId, entity)

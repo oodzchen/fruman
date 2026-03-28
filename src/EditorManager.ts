@@ -8,6 +8,7 @@ import {
   DEFAULT_PLAYER_RADIUS,
   WEAPON_DEFAULT_DATA,
 } from './constants'
+import { Faction } from './ecs/Component'
 import { computeWeaponScaleFactor } from './ecs/factories/PlayerFactory'
 import { EditorCameraManager } from './editor/EditorCameraManager'
 import { EditorCanvasEventHandler } from './editor/EditorCanvasEventHandler'
@@ -131,6 +132,7 @@ export class EditorManager {
   private historyManager: EditorHistoryManager
   private clipboardManager: EditorClipboardManager
 
+  private factions: string[] = [Faction.Player, Faction.Enemy]
   private visible = false
   private currentView: EditorView = EditorView.MapList
   private maps: EditorMap[] = []
@@ -381,6 +383,10 @@ export class EditorManager {
         this.patternManager.applyGroundPatternToObject(obj),
       applyObstaclePatternToObject: (obj) =>
         this.patternManager.applyObstaclePatternToObject(obj),
+      getFactions: () => this.factions,
+      setFactions: (factions) => {
+        this.factions = factions
+      },
     })
 
     this.historyManager = new EditorHistoryManager(
@@ -429,6 +435,12 @@ export class EditorManager {
         this.markerManager.updatePlayerMarkerVisual(m, r, bh, c, f),
       updateWeaponMarkerVisual: (m, s) =>
         this.markerManager.updateWeaponMarkerVisual(m, s),
+      getFactions: () => this.factions,
+      addFaction: (id) => {
+        if (!this.factions.includes(id)) {
+          this.factions = [...this.factions, id]
+        }
+      },
     })
 
     this.mapListManager = new EditorMapListManager({

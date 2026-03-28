@@ -71,6 +71,9 @@ interface EditorMapSerializerContext {
     mainWeaponMarker?: fabric.Object
     secondaryWeapon?: WeaponType
     secondaryWeaponMarker?: fabric.Object
+    factionId: string
+    enemyFactions: string[]
+    allyFactions: string[]
   } | null
   getEditorObjects: () => EditorObjectLike[]
   getPolygonScratchPoint: () => fabric.Point
@@ -86,6 +89,9 @@ interface EditorMapSerializerContext {
   registerEditorObject: (type: ObjectType, object: fabric.Object) => void
   applyGroundPatternToObject: (obj: fabric.Object) => void
   applyObstaclePatternToObject: (obj: fabric.Object) => void
+
+  getFactions: () => string[]
+  setFactions: (factions: string[]) => void
 }
 
 export class EditorMapSerializer {
@@ -158,6 +164,7 @@ export class EditorMapSerializer {
       hookAnchors,
       sunPickups,
       editorTree: editorTree ?? undefined,
+      factions: this.ctx.getFactions(),
     }
   }
 
@@ -166,6 +173,9 @@ export class EditorMapSerializer {
     const canvas = this.ctx.getFabricCanvas()
     if (!canvas) {
       return
+    }
+    if (data.factions) {
+      this.ctx.setFactions(data.factions)
     }
     this.ctx.resizeEditorCanvas()
     this.ctx.clearEditorScene()
@@ -628,6 +638,9 @@ export class EditorMapSerializer {
       debugNoDeath: data.debugNoDeath,
       mainWeapon,
       secondaryWeapon,
+      factionId: data.factionId,
+      enemyFactions: data.enemyFactions,
+      allyFactions: data.allyFactions,
     }
   }
 
@@ -808,6 +821,9 @@ export class EditorMapSerializer {
         equipWeapon: data.equipWeapon,
         mainWeapon,
         secondaryWeapon,
+        factionId: data.factionId,
+        enemyFactions: data.enemyFactions,
+        allyFactions: data.allyFactions,
       })
     }
     return enemies
