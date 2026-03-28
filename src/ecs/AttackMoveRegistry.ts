@@ -450,6 +450,22 @@ export function getDefaultAttackMovesetIdForWeaponType(
   return ''
 }
 
+export function isMovesetCompatibleWithWeaponType(
+  movesetId: string,
+  weaponType: WeaponType
+): boolean {
+  switch (movesetId) {
+    case 'sword_default':
+      return weaponType === 'sword'
+    case 'sword_thrust':
+      return weaponType === 'sword' || weaponType === 'spear'
+    case 'hammer_strike':
+      return weaponType === 'hammer'
+    default:
+      return false
+  }
+}
+
 export function getUltimateMovesetIdForWeaponType(
   weaponType: WeaponType | WeaponVisualType
 ): UltimateMovesetId | '' {

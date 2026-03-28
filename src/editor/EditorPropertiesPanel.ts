@@ -9,7 +9,9 @@ import {
 import {
   type AttackMovesetOwner,
   NORMAL_ATTACK_MOVESET_OPTIONS,
+  getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
+  isMovesetCompatibleWithWeaponType,
 } from '../ecs/AttackMoveRegistry'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
@@ -503,6 +505,22 @@ export class EditorPropertiesPanel {
           binding.setWeaponType(weaponType as WeaponType)
           if (weaponMarker) {
             binding.setWeaponMarker(weaponMarker)
+          }
+          if (binding.slot === 'main') {
+            const currentMovesetId = initialAttackModuleSelect.value
+            if (
+              !isMovesetCompatibleWithWeaponType(
+                currentMovesetId,
+                weaponType as WeaponType
+              )
+            ) {
+              const defaultId = getDefaultAttackMovesetIdForWeaponType(
+                weaponType as WeaponType
+              )
+              if (defaultId) {
+                initialAttackModuleSelect.value = defaultId
+              }
+            }
           }
         } else {
           const marker = binding.getWeaponMarker()

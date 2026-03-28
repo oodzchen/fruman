@@ -507,8 +507,7 @@ export class ClientRenderer {
     this.ctx.globalAlpha *= alpha
 
     const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
-    const bodyHeightPx =
-      buf[offset + OFFSETS.BODY_HEIGHT] * this.pixelsPerMeter
+    const bodyHeightPx = buf[offset + OFFSETS.BODY_HEIGHT] * this.pixelsPerMeter
     if (rollAngle !== 0) {
       if (radius > 0) {
         // 非圆形体型旋转时，调整 Y 偏移使视觉最低点始终贴在物理底部

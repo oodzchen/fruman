@@ -60,6 +60,7 @@ import {
   ATTACK_MOVESETS,
   getDefaultAttackMovesetIdForWeaponType,
   getUltimateMovesetIdForWeaponType,
+  isMovesetCompatibleWithWeaponType,
 } from '../AttackMoveRegistry'
 import type {
   WeaponRelativeTransform,
@@ -2366,14 +2367,11 @@ export class WeaponSystem extends System {
     movesetId: string,
     weaponType: WeaponVisualType
   ): boolean {
-    const moveset = ATTACK_MOVESETS[movesetId]
-    const firstSequence = moveset?.sequences[0]
-    const firstMoveId = firstSequence?.moves[0]
-    const firstMove = firstMoveId ? ATTACK_MOVES[firstMoveId] : null
-    if (!firstMove) {
-      return false
-    }
-    return this.isMoveCompatibleWithWeapon(firstMove, weaponType)
+    if (weaponType === 'arrow') return false
+    return isMovesetCompatibleWithWeaponType(
+      movesetId,
+      weaponType as WeaponType
+    )
   }
 
   private playInvalidAttackFeedback(
@@ -2942,15 +2940,25 @@ export class WeaponSystem extends System {
     let attackRadius = this.getAttackRadius(entity)
     weapon.attackRadius = attackRadius
     weapon.attackFacing = facing
-    const equippedMovesetId =
+    let equippedMovesetId =
       movesetIdOverride ?? this.getNormalAttackMovesetId(entity)
     if (
       !equippedMovesetId ||
       !this.canMovesetUseWeapon(equippedMovesetId, weapon.weaponType)
     ) {
-      weapon.attackQueued = false
-      this.playInvalidAttackFeedback(entity, weapon, playerPos, facing)
-      return
+      const fallbackId = getDefaultAttackMovesetIdForWeaponType(
+        weapon.weaponType
+      )
+      if (
+        fallbackId &&
+        this.canMovesetUseWeapon(fallbackId, weapon.weaponType)
+      ) {
+        equippedMovesetId = fallbackId
+      } else {
+        weapon.attackQueued = false
+        this.playInvalidAttackFeedback(entity, weapon, playerPos, facing)
+        return
+      }
     }
     weapon.movesetId = equippedMovesetId
 
