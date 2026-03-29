@@ -1,10 +1,20 @@
+import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { Entity } from '../Entity'
+
+type EffectsEmitter = {
+  playSound: (soundId: number, playbackRate?: number) => void
+}
 
 // 生成后多久才可以被拾取（避免生成瞬间就被附近玩家吃掉）
 const PICKUP_DELAY = 0.3
 
 export class SunPickupSystem {
   private readonly pendingRemove: Entity[] = []
+  private effectsEmitter?: EffectsEmitter
+
+  setEffectsEmitter(emitter: EffectsEmitter | null): void {
+    this.effectsEmitter = emitter ?? undefined
+  }
 
   update(pickupEntities: Entity[], players: Entity[], deltaTime: number): void {
     this.pendingRemove.length = 0
@@ -40,6 +50,7 @@ export class SunPickupSystem {
             if (solar.largeCount < solar.largeMaxCount) solar.largeCount++
           }
         }
+        this.effectsEmitter?.playSound(SOUND_IDS.PICKUP_ITEM)
         this.pendingRemove.push(pickup)
         break
       }

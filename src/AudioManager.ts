@@ -58,14 +58,12 @@ export class AudioManager {
         SOUND_IDS.SWORD_ULTIMATE_GIANT_RISE,
         'audios/Weapon Sword Whips 02-ultimate.wav'
       ),
-      this.loadSound(
-        SOUND_IDS.HAMMER_ULTIMATE_LAND,
-        'audios/Explosion Military Bomb 02.wav'
-      ),
+      this.loadSound(SOUND_IDS.HAMMER_ULTIMATE_LAND, 'audios/hit-ground.wav'),
       this.loadSound(
         SOUND_IDS.SPEAR_ULTIMATE_THRUST,
         'audios/Weapon Whips 02-double.wav'
       ),
+      this.loadSound(SOUND_IDS.PICKUP_ITEM, 'audios/pickup-item.wav'),
     ])
   }
 

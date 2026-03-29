@@ -565,6 +565,7 @@ function initializeSystems() {
   arrowSystem.setSoundSystem(soundSystem)
   interactionSystem.setWeaponSystem(weaponSystem)
   sunPickupSystem = new SunPickupSystem()
+  sunPickupSystem.setEffectsEmitter(effectsEmitter)
   statsSystem.onEnemyVanish = (x: number, y: number) => {
     const {
       b2DefaultBodyDef,
