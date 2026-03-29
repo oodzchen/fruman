@@ -33,12 +33,14 @@ import {
   DEFAULT_WEAPON_WIDTH,
   ENEMY_ALERT_RANGE_MULTIPLIER,
   ENEMY_DETECTION_RANGE,
+  ENEMY_DETECTION_RANGE_MULTIPLIERS,
   MASK_ENEMY,
   MASK_PLAYER,
   MASK_WEAPON,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type {
+  EnemyDetectionRangeLevel,
   EnemyPatrolMode,
   EnemyType,
   MainModule,
@@ -281,6 +283,10 @@ export interface EnemySpawnConfig {
   facing?: number
   debugNoDamage?: boolean
   debugNoDeath?: boolean
+  redTapeEnabled?: boolean
+  retreatEnabled?: boolean
+  retreatDelaySec?: number
+  detectionRangeLevel?: EnemyDetectionRangeLevel
   mainWeapon?: EnemyWeaponConfig
   secondaryWeapon?: EnemyWeaponConfig
   initialNormalMovesetId?: NormalAttackMovesetId
@@ -350,12 +356,19 @@ export function createEnemy(
   const ai = new EnemyAIComponent()
   ai.attackDesire = attackDesire
   ai.parryProficiency = parryProficiency
+  ai.redTapeEnabled = options?.redTapeEnabled === true
+  ai.retreatEnabled = options?.retreatEnabled === true
+  ai.retreatDelayMs = Math.round((options?.retreatDelaySec ?? 0) * 1000)
   ai.enemyType = enemyType
   ai.initialPatrolMode = initialPatrolMode
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
   ai.lastFacing = facing as -1 | 1
-  if (enemyType === 'archer') {
+  if (options?.detectionRangeLevel) {
+    ai.detectionRange =
+      ENEMY_DETECTION_RANGE * ENEMY_DETECTION_RANGE_MULTIPLIERS[options.detectionRangeLevel]
+  } else if (enemyType === 'archer') {
+    // 旧地图兼容：弓箭手默认中等视野
     ai.detectionRange = ENEMY_DETECTION_RANGE * 2
   }
 

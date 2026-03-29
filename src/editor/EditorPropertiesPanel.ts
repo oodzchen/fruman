@@ -23,6 +23,7 @@ import {
 } from '../renderer/HudWeaponSlotRenderer'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type {
+  EnemyDetectionRangeLevel,
   EnemyPatrolMode,
   NormalAttackMovesetId,
   WeaponType,
@@ -65,6 +66,7 @@ type CharacterDialogOptions = {
     attackDesire?: number
     parryProficiency?: number
     initialPatrolMode?: EnemyPatrolMode
+    detectionRangeLevel?: EnemyDetectionRangeLevel
     maxHealth: number
     maxPosture: number
     maxToughness: number
@@ -73,6 +75,9 @@ type CharacterDialogOptions = {
     initialNormalMovesetId: NormalAttackMovesetId
     debugNoDamage: boolean
     debugNoDeath: boolean
+    redTapeEnabled?: boolean
+    retreatEnabled?: boolean
+    retreatDelaySec?: number
     factionId: string
     enemyFactions: string[]
     allyFactions: string[]
@@ -82,6 +87,9 @@ type CharacterDialogOptions = {
   showAttackDesire: boolean
   showParry: boolean
   showPatrol: boolean
+  showRedTape?: boolean
+  showRetreat?: boolean
+  showDetectionRange?: boolean
   weaponBindings: CharacterWeaponBinding[]
   updateMarkerVisual: (
     marker: EnemyMarker | PlayerMarker,
@@ -97,6 +105,7 @@ type CharacterDialogOptions = {
     attackDesire?: number
     parryProficiency?: number
     initialPatrolMode?: EnemyPatrolMode
+    detectionRangeLevel?: EnemyDetectionRangeLevel
     facing: number
     initialNormalMovesetId: NormalAttackMovesetId
     maxHealth: number
@@ -105,6 +114,9 @@ type CharacterDialogOptions = {
     color: string
     debugNoDamage: boolean
     debugNoDeath: boolean
+    redTapeEnabled?: boolean
+    retreatEnabled?: boolean
+    retreatDelaySec?: number
     factionId: string
     enemyFactions: string[]
     allyFactions: string[]
@@ -319,6 +331,23 @@ export class EditorPropertiesPanel {
       })
       patrolRow.row.appendChild(patrolSelect)
       basicPanel.appendChild(patrolRow.row)
+    }
+
+    let detectionRangeSelect: HTMLSelectElement | null = null
+    if (options.showDetectionRange) {
+      const detectionRangeRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_detection_range')
+      )
+      const levels: EnemyDetectionRangeLevel[] = ['near', 'medium', 'far']
+      detectionRangeSelect = EditorUIHelper.createSelect({
+        options: levels.map((lvl) => ({
+          value: lvl,
+          label: localizer.t(`editor_enemy_detection_${lvl}`),
+        })),
+        selected: options.data.detectionRangeLevel ?? 'near',
+      })
+      detectionRangeRow.row.appendChild(detectionRangeSelect)
+      basicPanel.appendChild(detectionRangeRow.row)
     }
 
     // Faction
@@ -545,6 +574,51 @@ export class EditorPropertiesPanel {
     })
     debugNoDeathRow.row.appendChild(debugNoDeathSelect)
     basicPanel.appendChild(debugNoDeathRow.row)
+
+    let redTapeCheckbox: HTMLInputElement | null = null
+    if (options.showRedTape) {
+      const redTapeRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_red_tape')
+      )
+      redTapeCheckbox = document.createElement('input')
+      redTapeCheckbox.type = 'checkbox'
+      redTapeCheckbox.checked = options.data.redTapeEnabled === true
+      redTapeCheckbox.style.cssText = 'cursor:pointer;width:14px;height:14px;'
+      redTapeRow.row.appendChild(redTapeCheckbox)
+      basicPanel.appendChild(redTapeRow.row)
+    }
+
+    let retreatEnabledCheckbox: HTMLInputElement | null = null
+    let retreatDelayInput: HTMLInputElement | null = null
+    if (options.showRetreat) {
+      const retreatEnabledRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_retreat_enabled')
+      )
+      retreatEnabledCheckbox = document.createElement('input')
+      retreatEnabledCheckbox.type = 'checkbox'
+      retreatEnabledCheckbox.checked = options.data.retreatEnabled === true
+      retreatEnabledCheckbox.style.cssText = 'cursor:pointer;width:14px;height:14px;'
+      retreatEnabledRow.row.appendChild(retreatEnabledCheckbox)
+      basicPanel.appendChild(retreatEnabledRow.row)
+
+      const retreatDelayRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_retreat_delay')
+      )
+      retreatDelayInput = EditorUIHelper.createNumberInput({
+        value: options.data.retreatDelaySec ?? 0,
+        min: '0',
+        step: '1',
+      })
+      retreatDelayInput.disabled = !retreatEnabledCheckbox.checked
+      retreatDelayRow.row.appendChild(retreatDelayInput)
+      basicPanel.appendChild(retreatDelayRow.row)
+
+      retreatEnabledCheckbox.addEventListener('change', () => {
+        if (retreatDelayInput) {
+          retreatDelayInput.disabled = !retreatEnabledCheckbox!.checked
+        }
+      })
+    }
 
     // === 外观 Tab ===
     const defaultDiameter = options.data.radius * 2
@@ -1018,6 +1092,12 @@ export class EditorPropertiesPanel {
       const maxToughness = Number.parseFloat(toughnessInput.value)
       const debugNoDamage = debugNoDamageSelect.value === '1'
       const debugNoDeath = debugNoDeathSelect.value === '1'
+      const redTapeEnabled = redTapeCheckbox?.checked
+      const retreatEnabled = retreatEnabledCheckbox?.checked
+      const retreatDelaySec =
+        retreatDelayInput !== null
+          ? Number.parseFloat(retreatDelayInput.value)
+          : undefined
       const color = getValidColor()
       const initialNormalMovesetId =
         initialAttackModuleSelect.value as NormalAttackMovesetId
@@ -1030,6 +1110,9 @@ export class EditorPropertiesPanel {
         : 0
       const initialPatrolMode = patrolSelect
         ? (patrolSelect.value as EnemyPatrolMode)
+        : undefined
+      const detectionRangeLevel = detectionRangeSelect
+        ? (detectionRangeSelect.value as EnemyDetectionRangeLevel)
         : undefined
 
       if (
@@ -1116,6 +1199,7 @@ export class EditorPropertiesPanel {
         attackDesire: options.showAttackDesire ? attackDesire : undefined,
         parryProficiency: options.showParry ? parryProficiency : undefined,
         initialPatrolMode: options.showPatrol ? initialPatrolMode : undefined,
+        detectionRangeLevel: options.showDetectionRange ? detectionRangeLevel : undefined,
         facing,
         initialNormalMovesetId,
         maxHealth,
@@ -1124,6 +1208,9 @@ export class EditorPropertiesPanel {
         color,
         debugNoDamage,
         debugNoDeath,
+        redTapeEnabled,
+        retreatEnabled,
+        retreatDelaySec,
         factionId: factionSelectEl.value,
         enemyFactions: getEnemyFactionSelected(),
         allyFactions: getAllyFactionSelected(),
@@ -1225,6 +1312,9 @@ export class EditorPropertiesPanel {
       showAttackDesire: true,
       showParry: true,
       showPatrol: true,
+      showRedTape: true,
+      showRetreat: true,
+      showDetectionRange: true,
       weaponBindings: [mainBinding, secondaryBinding],
       updateMarkerVisual: (m, r, bh, c, f) =>
         this.context.updateEnemyMarkerVisual(m as EnemyMarker, r, bh, c, f),
@@ -1236,6 +1326,8 @@ export class EditorPropertiesPanel {
         data.parryProficiency = values.parryProficiency ?? data.parryProficiency
         data.initialPatrolMode =
           values.initialPatrolMode ?? data.initialPatrolMode
+        data.detectionRangeLevel =
+          values.detectionRangeLevel ?? data.detectionRangeLevel
         data.maxHealth = values.maxHealth
         data.maxPosture = values.maxPosture
         data.maxToughness = values.maxToughness
@@ -1244,6 +1336,15 @@ export class EditorPropertiesPanel {
         data.initialNormalMovesetId = values.initialNormalMovesetId
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
+        if (values.redTapeEnabled !== undefined) {
+          data.redTapeEnabled = values.redTapeEnabled
+        }
+        if (values.retreatEnabled !== undefined) {
+          data.retreatEnabled = values.retreatEnabled
+        }
+        if (values.retreatDelaySec !== undefined && Number.isFinite(values.retreatDelaySec)) {
+          data.retreatDelaySec = Math.max(0, values.retreatDelaySec)
+        }
         data.factionId = values.factionId
         data.enemyFactions = values.enemyFactions
         data.allyFactions = values.allyFactions
@@ -1260,6 +1361,7 @@ export class EditorPropertiesPanel {
         marker.attackDesire = data.attackDesire
         marker.parryProficiency = data.parryProficiency
         marker.initialPatrolMode = data.initialPatrolMode
+        marker.detectionRangeLevel = data.detectionRangeLevel
         marker.maxHealth = data.maxHealth
         marker.maxPosture = data.maxPosture
         marker.maxToughness = data.maxToughness
@@ -1268,6 +1370,9 @@ export class EditorPropertiesPanel {
         marker.initialNormalMovesetId = data.initialNormalMovesetId
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
+        marker.redTapeEnabled = data.redTapeEnabled
+        marker.retreatEnabled = data.retreatEnabled
+        marker.retreatDelaySec = data.retreatDelaySec
         marker.equipWeapon = data.equipWeapon
         marker.factionId = data.factionId
         marker.enemyFactions = data.enemyFactions

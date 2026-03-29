@@ -3,6 +3,7 @@ import { fabric } from 'fabric'
 import type { MapEnemyWeapon, MapPlayerProperties } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
 import type {
+  EnemyDetectionRangeLevel,
   EnemyPatrolMode,
   EnemyType,
   NormalAttackMovesetId,
@@ -120,6 +121,7 @@ export class EditorClipboardManager {
   private enemyAttackDesire = 0
   private enemyParryProficiency = 0
   private enemyInitialPatrolMode: EnemyPatrolMode = 'guard'
+  private enemyDetectionRangeLevel: EnemyDetectionRangeLevel = 'near'
   private enemyMaxHealth = 0
   private enemyMaxPosture = 0
   private enemyMaxToughness = 0
@@ -128,6 +130,9 @@ export class EditorClipboardManager {
   private enemyInitialNormalMovesetId: NormalAttackMovesetId = 'sword_default'
   private enemyDebugNoDamage = false
   private enemyDebugNoDeath = false
+  private enemyRedTapeEnabled = false
+  private enemyRetreatEnabled = false
+  private enemyRetreatDelaySec = 0
   private enemyEquipWeapon = false
   private enemyFactionId = ''
   private enemyEnemyFactions: string[] = []
@@ -156,6 +161,7 @@ export class EditorClipboardManager {
     attackDesire: 0,
     parryProficiency: 0,
     initialPatrolMode: 'guard' as EnemyPatrolMode,
+    detectionRangeLevel: 'near' as EnemyDetectionRangeLevel,
     maxHealth: 0,
     maxPosture: 0,
     maxToughness: 0,
@@ -164,6 +170,9 @@ export class EditorClipboardManager {
     initialNormalMovesetId: 'sword_default' as NormalAttackMovesetId,
     debugNoDamage: false,
     debugNoDeath: false,
+    redTapeEnabled: false,
+    retreatEnabled: false,
+    retreatDelaySec: 0,
     equipWeapon: false,
     mainWeapon: undefined as MapEnemyWeapon | undefined,
     secondaryWeapon: undefined as MapEnemyWeapon | undefined,
@@ -635,6 +644,7 @@ export class EditorClipboardManager {
     this.enemyAttackDesire = enemyData.attackDesire
     this.enemyParryProficiency = enemyData.parryProficiency
     this.enemyInitialPatrolMode = enemyData.initialPatrolMode
+    this.enemyDetectionRangeLevel = enemyData.detectionRangeLevel
     this.enemyMaxHealth = enemyData.maxHealth
     this.enemyMaxPosture = enemyData.maxPosture
     this.enemyMaxToughness = enemyData.maxToughness
@@ -643,6 +653,9 @@ export class EditorClipboardManager {
     this.enemyInitialNormalMovesetId = enemyData.initialNormalMovesetId
     this.enemyDebugNoDamage = enemyData.debugNoDamage
     this.enemyDebugNoDeath = enemyData.debugNoDeath
+    this.enemyRedTapeEnabled = enemyData.redTapeEnabled
+    this.enemyRetreatEnabled = enemyData.retreatEnabled
+    this.enemyRetreatDelaySec = enemyData.retreatDelaySec
     this.enemyEquipWeapon = enemyData.equipWeapon
     this.enemyFactionId = enemyData.factionId
     this.enemyEnemyFactions.length = 0
@@ -699,6 +712,7 @@ export class EditorClipboardManager {
     this.enemySpawnConfig.attackDesire = this.enemyAttackDesire
     this.enemySpawnConfig.parryProficiency = this.enemyParryProficiency
     this.enemySpawnConfig.initialPatrolMode = this.enemyInitialPatrolMode
+    this.enemySpawnConfig.detectionRangeLevel = this.enemyDetectionRangeLevel
     this.enemySpawnConfig.maxHealth = this.enemyMaxHealth
     this.enemySpawnConfig.maxPosture = this.enemyMaxPosture
     this.enemySpawnConfig.maxToughness = this.enemyMaxToughness
@@ -708,6 +722,9 @@ export class EditorClipboardManager {
       this.enemyInitialNormalMovesetId
     this.enemySpawnConfig.debugNoDamage = this.enemyDebugNoDamage
     this.enemySpawnConfig.debugNoDeath = this.enemyDebugNoDeath
+    this.enemySpawnConfig.redTapeEnabled = this.enemyRedTapeEnabled
+    this.enemySpawnConfig.retreatEnabled = this.enemyRetreatEnabled
+    this.enemySpawnConfig.retreatDelaySec = this.enemyRetreatDelaySec
     this.enemySpawnConfig.equipWeapon = this.enemyEquipWeapon
     this.enemySpawnConfig.mainWeapon = this.enemyHasMainWeapon
       ? this.enemyMainWeaponData

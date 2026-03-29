@@ -23,6 +23,7 @@ import type {
   WeaponCategory,
 } from '../editorMapTypes'
 import type {
+  EnemyDetectionRangeLevel,
   EnemyPatrolMode,
   EnemyType,
   NormalAttackMovesetId,
@@ -585,6 +586,7 @@ export class EditorMarkerManager {
       attackDesire?: number
       parryProficiency?: number
       initialPatrolMode?: EnemyPatrolMode
+      detectionRangeLevel?: EnemyDetectionRangeLevel
       maxHealth?: number
       maxPosture?: number
       maxToughness?: number
@@ -593,6 +595,9 @@ export class EditorMarkerManager {
       initialNormalMovesetId?: NormalAttackMovesetId
       debugNoDamage?: boolean
       debugNoDeath?: boolean
+      redTapeEnabled?: boolean
+      retreatEnabled?: boolean
+      retreatDelaySec?: number
       equipWeapon?: boolean
       mainWeapon?: MapEnemyWeapon
       secondaryWeapon?: MapEnemyWeapon
@@ -616,6 +621,8 @@ export class EditorMarkerManager {
       spawn?.parryProficiency ?? template.parryProficiency
     const initialPatrolMode =
       spawn?.initialPatrolMode ?? template.initialPatrolMode
+    const detectionRangeLevel: EnemyDetectionRangeLevel =
+      spawn?.detectionRangeLevel ?? (enemyType === 'archer' ? 'medium' : 'near')
     const maxHealth = spawn?.maxHealth ?? template.maxHealth
     const maxPosture = spawn?.maxPosture ?? template.maxPosture
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
@@ -625,6 +632,9 @@ export class EditorMarkerManager {
       spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('enemy')
     const debugNoDamage = spawn?.debugNoDamage === true
     const debugNoDeath = spawn?.debugNoDeath === true
+    const redTapeEnabled = spawn?.redTapeEnabled === true
+    const retreatEnabled = spawn?.retreatEnabled === true
+    const retreatDelaySec = spawn?.retreatDelaySec ?? 0
     const equipWeapon =
       spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
     const factionId = spawn?.factionId ?? Faction.Enemy
@@ -656,6 +666,7 @@ export class EditorMarkerManager {
     marker.attackDesire = attackDesire
     marker.parryProficiency = parryProficiency
     marker.initialPatrolMode = initialPatrolMode
+    marker.detectionRangeLevel = detectionRangeLevel
     marker.maxHealth = maxHealth
     marker.maxPosture = maxPosture
     marker.maxToughness = maxToughness
@@ -664,6 +675,9 @@ export class EditorMarkerManager {
     marker.initialNormalMovesetId = initialNormalMovesetId
     marker.debugNoDamage = debugNoDamage
     marker.debugNoDeath = debugNoDeath
+    marker.redTapeEnabled = redTapeEnabled
+    marker.retreatEnabled = retreatEnabled
+    marker.retreatDelaySec = retreatDelaySec
     marker.equipWeapon = equipWeapon
     marker.factionId = factionId
     marker.enemyFactions = enemyFactions
@@ -682,6 +696,7 @@ export class EditorMarkerManager {
       attackDesire,
       parryProficiency,
       initialPatrolMode,
+      detectionRangeLevel,
       maxHealth,
       maxPosture,
       maxToughness,
@@ -690,6 +705,9 @@ export class EditorMarkerManager {
       initialNormalMovesetId,
       debugNoDamage,
       debugNoDeath,
+      redTapeEnabled,
+      retreatEnabled,
+      retreatDelaySec,
       equipWeapon,
       factionId,
       enemyFactions,

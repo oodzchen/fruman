@@ -1,4 +1,5 @@
 import type {
+  EnemyDetectionRangeLevel,
   EnemyPatrolMode,
   EnemyType,
   NormalAttackMovesetId,
@@ -99,6 +100,7 @@ export interface MapEnemy {
   attackDesire?: number
   parryProficiency?: number
   initialPatrolMode?: EnemyPatrolMode
+  detectionRangeLevel?: EnemyDetectionRangeLevel
   maxHealth?: number
   maxPosture?: number
   maxToughness?: number
@@ -107,6 +109,9 @@ export interface MapEnemy {
   initialNormalMovesetId?: NormalAttackMovesetId
   debugNoDamage?: boolean
   debugNoDeath?: boolean
+  redTapeEnabled?: boolean
+  retreatEnabled?: boolean
+  retreatDelaySec?: number
   equipWeapon?: boolean
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon

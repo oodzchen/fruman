@@ -995,6 +995,10 @@ export class EnemyAIComponent extends Component {
   patrolStuckTimer = 0
   enemyType: EnemyType = 'default'
   isRedTapeActive = false
+  redTapeEnabled = false
+  retreatEnabled = false
+  retreatDelayMs = 0
+  retreatDelayTimerMs = 0
   movesetId: string = ''
 
   reset(): void {
@@ -1072,6 +1076,10 @@ export class EnemyAIComponent extends Component {
     this.patrolStuckTimer = 0
     this.enemyType = 'default'
     this.isRedTapeActive = false
+    this.redTapeEnabled = false
+    this.retreatEnabled = false
+    this.retreatDelayMs = 0
+    this.retreatDelayTimerMs = 0
     this.movesetId = ''
   }
 

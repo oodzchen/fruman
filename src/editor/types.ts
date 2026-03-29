@@ -2,6 +2,7 @@ import { fabric } from 'fabric'
 
 import type { WeaponCategory } from '../editorMapTypes'
 import type {
+  EnemyDetectionRangeLevel,
   EnemyPatrolMode,
   EnemyType,
   NormalAttackMovesetId,
@@ -56,6 +57,7 @@ export type EnemyMarker = fabric.Group & {
   attackDesire: number
   parryProficiency: number
   initialPatrolMode: EnemyPatrolMode
+  detectionRangeLevel: EnemyDetectionRangeLevel
   maxHealth: number
   maxPosture: number
   maxToughness: number
@@ -64,6 +66,9 @@ export type EnemyMarker = fabric.Group & {
   initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
+  redTapeEnabled: boolean
+  retreatEnabled: boolean
+  retreatDelaySec: number
   equipWeapon: boolean
   factionId: string
   enemyFactions: string[]
@@ -124,6 +129,7 @@ export interface EnemyMarkerData {
   attackDesire: number
   parryProficiency: number
   initialPatrolMode: EnemyPatrolMode
+  detectionRangeLevel: EnemyDetectionRangeLevel
   maxHealth: number
   maxPosture: number
   maxToughness: number
@@ -132,6 +138,9 @@ export interface EnemyMarkerData {
   initialNormalMovesetId: NormalAttackMovesetId
   debugNoDamage: boolean
   debugNoDeath: boolean
+  redTapeEnabled: boolean
+  retreatEnabled: boolean
+  retreatDelaySec: number
   equipWeapon: boolean
   factionId: string
   enemyFactions: string[]

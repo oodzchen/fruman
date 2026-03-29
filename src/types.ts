@@ -13,6 +13,7 @@ export type b2Vec2 = InstanceType<MainModule['b2Vec2']>
 export type b2Rot = InstanceType<MainModule['b2Rot']>
 
 export type EnemyPatrolMode = 'guard' | 'patrol'
+export type EnemyDetectionRangeLevel = 'near' | 'medium' | 'far'
 
 export type NormalAttackMovesetId =
   | 'sword_default'

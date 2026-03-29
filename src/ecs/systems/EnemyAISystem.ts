@@ -131,7 +131,7 @@ export class EnemyAISystem extends System {
       }
       if (!target.transform) continue
 
-      // No valid target for this entity — clear combat state and patrol
+      // No valid target for this entity — clear combat state
       if (
         entity.faction &&
         target.faction &&
@@ -145,7 +145,12 @@ export class EnemyAISystem extends System {
           entity.input.lockLostTimer = 0
         }
         if (entity.weapon) entity.weapon.attackQueued = false
-        this.handlePatrol(entity, entity.enemyAI, now)
+        if (entity.enemyAI.retreatEnabled) {
+          this.handlePatrol(entity, entity.enemyAI, now)
+        } else {
+          entity.input.moveDirection = 0
+          entity.input.sprintRequested = false
+        }
         continue
       }
       if (entity.stats?.isDead) {
@@ -178,6 +183,7 @@ export class EnemyAISystem extends System {
       // Red Tape System: High proficiency enemies wait their turn
       ai.isRedTapeActive = false
       if (
+        ai.redTapeEnabled &&
         ai.parryProficiency > 50 &&
         activeAttackers > 0 &&
         ai.state !== 'combo'
@@ -364,33 +370,25 @@ export class EnemyAISystem extends System {
         ai.targetLostTimer += deltaMs
       }
 
-      const lostInterest =
+      // 撤回条件：无视线且已脱战
+      const retreatConditionMet =
         !hasCombatLineOfSight &&
         !entity.stats?.isInCombat &&
         !ai.alertChaseActive
 
-      // 计算当前位置距离巡逻中心的距离
-      const distFromPatrolCenter = Math.hypot(
-        entity.transform.x - ai.patrolCenter.x,
-        entity.transform.y - ai.patrolCenter.y
-      )
-      // 如果超出了从巡逻区域边缘（patrolRange）开始计算的可视距离（detectionRange），
-      // 且当前没有看到玩家，则不再追击
-      const isTooFarFromPatrol =
-        distFromPatrolCenter > ai.patrolRange + ai.detectionRange
-      const shouldRetreatDueToDistance =
-        isTooFarFromPatrol && !hasCombatLineOfSight
+      if (retreatConditionMet) {
+        ai.retreatDelayTimerMs += deltaMs
+      } else {
+        ai.retreatDelayTimerMs = 0
+      }
 
-      const effectiveDetectionRange = ai.alertChaseActive
-        ? ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
-        : ai.detectionRange
+      const retreatByTimer =
+        ai.retreatEnabled &&
+        retreatConditionMet &&
+        ai.retreatDelayTimerMs >= ai.retreatDelayMs
+      const shouldGoPatrol = effectiveAttackDesire <= 0 || retreatByTimer
 
-      if (
-        effectiveAttackDesire <= 0 ||
-        distance > effectiveDetectionRange ||
-        lostInterest ||
-        shouldRetreatDueToDistance
-      ) {
+      if (shouldGoPatrol) {
         // 巡逻逻辑
         this.handlePatrol(entity, ai, now)
         if (entity.weapon) {
@@ -685,7 +683,7 @@ export class EnemyAISystem extends System {
           weapon.attackPhase === 'idle' &&
           !weapon.attackQueued
         if (comboFinished) {
-          const retreatChance = Math.max(0, (100 - effectiveAttackDesire) / 100)
+          const retreatChance = Math.max(0, (100 - effectiveAttackDesire) / 200)
           if (Math.random() < retreatChance) {
             ai.state = 'retreat'
             ai.retreatDirection = (ai.lastFacing === 1 ? -1 : 1) as -1 | 1
