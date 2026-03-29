@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 79
+export const ENTITY_STRIDE = 80
 
 export const OFFSETS = {
   ID: 0,
@@ -80,6 +80,7 @@ export const OFFSETS = {
   SOLAR_LARGE: 76,
   SOLAR_LARGE_MAX: 77,
   BODY_HEIGHT: 78,
+  FOLLOW_FLASH_PROGRESS: 79, // 绑定动画进度 1.0→0.0，>0 表示动画进行中
 }
 
 export const FLAGS = {
@@ -100,6 +101,7 @@ export const FLAGS = {
   SUN_PICKUP_SMALL: 16384,
   SUN_PICKUP_LARGE: 32768,
   HEALTH_BAR_FLASH: 65536,
+  IS_FOLLOWING: 131072,
 }
 
 export const WEAPON_TYPES = {

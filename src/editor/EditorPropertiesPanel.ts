@@ -78,6 +78,7 @@ type CharacterDialogOptions = {
     redTapeEnabled?: boolean
     retreatEnabled?: boolean
     retreatDelaySec?: number
+    canBeFollower?: boolean
     factionId: string
     enemyFactions: string[]
     allyFactions: string[]
@@ -90,6 +91,7 @@ type CharacterDialogOptions = {
   showRedTape?: boolean
   showRetreat?: boolean
   showDetectionRange?: boolean
+  showCanBeFollower?: boolean
   weaponBindings: CharacterWeaponBinding[]
   updateMarkerVisual: (
     marker: EnemyMarker | PlayerMarker,
@@ -117,6 +119,7 @@ type CharacterDialogOptions = {
     redTapeEnabled?: boolean
     retreatEnabled?: boolean
     retreatDelaySec?: number
+    canBeFollower?: boolean
     factionId: string
     enemyFactions: string[]
     allyFactions: string[]
@@ -597,7 +600,8 @@ export class EditorPropertiesPanel {
       retreatEnabledCheckbox = document.createElement('input')
       retreatEnabledCheckbox.type = 'checkbox'
       retreatEnabledCheckbox.checked = options.data.retreatEnabled === true
-      retreatEnabledCheckbox.style.cssText = 'cursor:pointer;width:14px;height:14px;'
+      retreatEnabledCheckbox.style.cssText =
+        'cursor:pointer;width:14px;height:14px;'
       retreatEnabledRow.row.appendChild(retreatEnabledCheckbox)
       basicPanel.appendChild(retreatEnabledRow.row)
 
@@ -618,6 +622,20 @@ export class EditorPropertiesPanel {
           retreatDelayInput.disabled = !retreatEnabledCheckbox!.checked
         }
       })
+    }
+
+    let canBeFollowerCheckbox: HTMLInputElement | null = null
+    if (options.showCanBeFollower) {
+      const canBeFollowerRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_enemy_prop_can_be_follower')
+      )
+      canBeFollowerCheckbox = document.createElement('input')
+      canBeFollowerCheckbox.type = 'checkbox'
+      canBeFollowerCheckbox.checked = options.data.canBeFollower === true
+      canBeFollowerCheckbox.style.cssText =
+        'cursor:pointer;width:14px;height:14px;'
+      canBeFollowerRow.row.appendChild(canBeFollowerCheckbox)
+      basicPanel.appendChild(canBeFollowerRow.row)
     }
 
     // === 外观 Tab ===
@@ -1094,6 +1112,7 @@ export class EditorPropertiesPanel {
       const debugNoDeath = debugNoDeathSelect.value === '1'
       const redTapeEnabled = redTapeCheckbox?.checked
       const retreatEnabled = retreatEnabledCheckbox?.checked
+      const canBeFollower = canBeFollowerCheckbox?.checked
       const retreatDelaySec =
         retreatDelayInput !== null
           ? Number.parseFloat(retreatDelayInput.value)
@@ -1199,7 +1218,9 @@ export class EditorPropertiesPanel {
         attackDesire: options.showAttackDesire ? attackDesire : undefined,
         parryProficiency: options.showParry ? parryProficiency : undefined,
         initialPatrolMode: options.showPatrol ? initialPatrolMode : undefined,
-        detectionRangeLevel: options.showDetectionRange ? detectionRangeLevel : undefined,
+        detectionRangeLevel: options.showDetectionRange
+          ? detectionRangeLevel
+          : undefined,
         facing,
         initialNormalMovesetId,
         maxHealth,
@@ -1211,6 +1232,7 @@ export class EditorPropertiesPanel {
         redTapeEnabled,
         retreatEnabled,
         retreatDelaySec,
+        canBeFollower,
         factionId: factionSelectEl.value,
         enemyFactions: getEnemyFactionSelected(),
         allyFactions: getAllyFactionSelected(),
@@ -1315,6 +1337,7 @@ export class EditorPropertiesPanel {
       showRedTape: true,
       showRetreat: true,
       showDetectionRange: true,
+      showCanBeFollower: true,
       weaponBindings: [mainBinding, secondaryBinding],
       updateMarkerVisual: (m, r, bh, c, f) =>
         this.context.updateEnemyMarkerVisual(m as EnemyMarker, r, bh, c, f),
@@ -1342,8 +1365,14 @@ export class EditorPropertiesPanel {
         if (values.retreatEnabled !== undefined) {
           data.retreatEnabled = values.retreatEnabled
         }
-        if (values.retreatDelaySec !== undefined && Number.isFinite(values.retreatDelaySec)) {
+        if (
+          values.retreatDelaySec !== undefined &&
+          Number.isFinite(values.retreatDelaySec)
+        ) {
           data.retreatDelaySec = Math.max(0, values.retreatDelaySec)
+        }
+        if (values.canBeFollower !== undefined) {
+          data.canBeFollower = values.canBeFollower
         }
         data.factionId = values.factionId
         data.enemyFactions = values.enemyFactions
@@ -1373,6 +1402,7 @@ export class EditorPropertiesPanel {
         marker.redTapeEnabled = data.redTapeEnabled
         marker.retreatEnabled = data.retreatEnabled
         marker.retreatDelaySec = data.retreatDelaySec
+        marker.canBeFollower = data.canBeFollower
         marker.equipWeapon = data.equipWeapon
         marker.factionId = data.factionId
         marker.enemyFactions = data.enemyFactions

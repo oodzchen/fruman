@@ -598,6 +598,7 @@ export class EditorMarkerManager {
       redTapeEnabled?: boolean
       retreatEnabled?: boolean
       retreatDelaySec?: number
+      canBeFollower?: boolean
       equipWeapon?: boolean
       mainWeapon?: MapEnemyWeapon
       secondaryWeapon?: MapEnemyWeapon
@@ -635,6 +636,7 @@ export class EditorMarkerManager {
     const redTapeEnabled = spawn?.redTapeEnabled === true
     const retreatEnabled = spawn?.retreatEnabled === true
     const retreatDelaySec = spawn?.retreatDelaySec ?? 0
+    const canBeFollower = spawn?.canBeFollower === true
     const equipWeapon =
       spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
     const factionId = spawn?.factionId ?? Faction.Enemy
@@ -678,6 +680,7 @@ export class EditorMarkerManager {
     marker.redTapeEnabled = redTapeEnabled
     marker.retreatEnabled = retreatEnabled
     marker.retreatDelaySec = retreatDelaySec
+    marker.canBeFollower = canBeFollower
     marker.equipWeapon = equipWeapon
     marker.factionId = factionId
     marker.enemyFactions = enemyFactions
@@ -708,6 +711,7 @@ export class EditorMarkerManager {
       redTapeEnabled,
       retreatEnabled,
       retreatDelaySec,
+      canBeFollower,
       equipWeapon,
       factionId,
       enemyFactions,

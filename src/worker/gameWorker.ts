@@ -69,6 +69,7 @@ import {
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { CheckpointSystem } from '../ecs/systems/CheckpointSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
+import { FollowSystem } from '../ecs/systems/FollowSystem'
 import { GrappleSystem } from '../ecs/systems/GrappleSystem'
 import { InteractionSystem } from '../ecs/systems/InteractionSystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
@@ -153,6 +154,7 @@ let statsSystem: StatsSystem
 let weaponSystem: WeaponSystem
 let arrowSystem: ArrowSystem
 let enemyAISystem: EnemyAISystem
+let followSystem: FollowSystem
 let soundSystem: SoundSystem
 let targetingSystem: TargetingSystem
 let interactionSystem: InteractionSystem
@@ -530,6 +532,7 @@ function registerComponents() {
   componentRegistry.registerComponent('GrappleAnchor')
   componentRegistry.registerComponent('SolarEnergy')
   componentRegistry.registerComponent('SunPickup')
+  componentRegistry.registerComponent('Follow')
 }
 
 function initializeSystems() {
@@ -548,6 +551,7 @@ function initializeSystems() {
   })
   soundSystem = new SoundSystem()
   enemyAISystem = new EnemyAISystem(box2d, worldId)
+  followSystem = new FollowSystem()
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
   grappleSystem = new GrappleSystem(world, box2d, worldId)
@@ -627,6 +631,7 @@ function initializeSystems() {
   movementSystem.setEntityLookup(entityLookup)
   targetingSystem.setEntityLookup(entityLookup)
   weaponSystem.setEntityLookup(entityLookup)
+  followSystem.setEntityLookup(entityLookup)
 
   // 关键：MovementSystem必须在PhysicsSystem之前执行
   // 这样施加的力才能在当前帧的b2World_Step中被处理
@@ -634,6 +639,7 @@ function initializeSystems() {
   world.addSystem(checkpointSystem)
   world.addSystem(soundSystem)
   world.addSystem(enemyAISystem)
+  world.addSystem(followSystem)
   world.addSystem(movementSystem)
   world.addSystem(grappleSystem)
   world.addSystem(physicsSystem)
@@ -3004,6 +3010,13 @@ function sendState() {
       flags |= e.sunPickup.isLarge
         ? FLAGS.SUN_PICKUP_LARGE
         : FLAGS.SUN_PICKUP_SMALL
+    }
+    if (e.follow !== undefined && e.follow.bondFlashTimer > 0) {
+      flags |= FLAGS.IS_FOLLOWING
+      stateBuffer[offset + OFFSETS.FOLLOW_FLASH_PROGRESS] =
+        e.follow.bondFlashTimer / 1200
+    } else {
+      stateBuffer[offset + OFFSETS.FOLLOW_FLASH_PROGRESS] = 0
     }
     if (e.grappleAnchor && e.id === highlightAnchorId) {
       flags |= FLAGS.GRAPPLE_ANCHOR_HIGHLIGHT

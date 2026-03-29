@@ -62,6 +62,7 @@ import {
   EnemyAIComponent,
   Faction,
   FactionComponent,
+  FollowComponent,
   GrappleComponent,
   InputComponent,
   MovementComponent,
@@ -286,6 +287,7 @@ export interface EnemySpawnConfig {
   redTapeEnabled?: boolean
   retreatEnabled?: boolean
   retreatDelaySec?: number
+  canBeFollower?: boolean
   detectionRangeLevel?: EnemyDetectionRangeLevel
   mainWeapon?: EnemyWeaponConfig
   secondaryWeapon?: EnemyWeaponConfig
@@ -366,7 +368,8 @@ export function createEnemy(
   ai.lastFacing = facing as -1 | 1
   if (options?.detectionRangeLevel) {
     ai.detectionRange =
-      ENEMY_DETECTION_RANGE * ENEMY_DETECTION_RANGE_MULTIPLIERS[options.detectionRangeLevel]
+      ENEMY_DETECTION_RANGE *
+      ENEMY_DETECTION_RANGE_MULTIPLIERS[options.detectionRangeLevel]
   } else if (enemyType === 'archer') {
     // 旧地图兼容：弓箭手默认中等视野
     ai.detectionRange = ENEMY_DETECTION_RANGE * 2
@@ -383,6 +386,11 @@ export function createEnemy(
     ]
   }
   enemy.addComponent(ai)
+
+  if (options?.canBeFollower === true) {
+    const follow = new FollowComponent()
+    enemy.addComponent(follow)
+  }
 
   if (enemy.input) {
     enemy.input.lastMoveDirection = facing

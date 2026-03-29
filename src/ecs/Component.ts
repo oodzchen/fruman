@@ -23,6 +23,9 @@ import {
   ENEMY_PACE_PAUSE_MS,
   ENEMY_PACE_SWITCH_INTERVAL_MS,
   ENEMY_RETREAT_EXTRA_DISTANCE,
+  FOLLOW_MAX_DISTANCE,
+  FOLLOW_MIN_DISTANCE,
+  FOLLOW_PREFERRED_DISTANCE,
   FOOTSTEP_INTERVAL_MS,
 } from '../constants'
 import type {
@@ -1167,5 +1170,51 @@ export class SunPickupComponent extends Component {
 
   getName(): string {
     return 'SunPickup'
+  }
+}
+
+export class FollowComponent extends Component {
+  followTargetId: number | null = null
+  preferredDistance = FOLLOW_PREFERRED_DISTANCE
+  minDistance = FOLLOW_MIN_DISTANCE
+  maxDistance = FOLLOW_MAX_DISTANCE
+  state: 'idle' | 'following' | 'waiting' = 'idle'
+  lastKnownTargetX = 0
+  lastKnownTargetY = 0
+  hasKnownPosition = false
+  stuckTimer = 0
+  lastPositionX = 0
+  lastPositionY = 0
+  lastPositionUpdateTime = 0
+  obstacleJumpStage = 0
+  obstacleJumpDirection: -1 | 1 = 1
+  jumpStartTimestamp = 0
+  jumpStartX = 0
+  jumpStartY = 0
+  bondFlashTimer = 0
+
+  reset(): void {
+    this.followTargetId = null
+    this.preferredDistance = FOLLOW_PREFERRED_DISTANCE
+    this.minDistance = FOLLOW_MIN_DISTANCE
+    this.maxDistance = FOLLOW_MAX_DISTANCE
+    this.state = 'idle'
+    this.lastKnownTargetX = 0
+    this.lastKnownTargetY = 0
+    this.hasKnownPosition = false
+    this.stuckTimer = 0
+    this.lastPositionX = 0
+    this.lastPositionY = 0
+    this.lastPositionUpdateTime = 0
+    this.obstacleJumpStage = 0
+    this.obstacleJumpDirection = 1
+    this.jumpStartTimestamp = 0
+    this.jumpStartX = 0
+    this.jumpStartY = 0
+    this.bondFlashTimer = 0
+  }
+
+  getName(): string {
+    return 'Follow'
   }
 }

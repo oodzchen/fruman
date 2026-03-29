@@ -148,6 +148,7 @@
   "editor_enemy_prop_red_tape": "Combat Etiquette",
   "editor_enemy_prop_retreat_enabled": "Enable Retreat",
   "editor_enemy_prop_retreat_delay": "Retreat Delay (s)",
+  "editor_enemy_prop_can_be_follower": "Can Be Companion",
   "editor_enemy_prop_detection_range": "Detection Range",
   "editor_enemy_detection_near": "Near",
   "editor_enemy_detection_medium": "Medium",

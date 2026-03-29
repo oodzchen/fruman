@@ -5,6 +5,7 @@ import {
   CheckpointComponent,
   EnemyAIComponent,
   FactionComponent,
+  FollowComponent,
   GrappleAnchorComponent,
   GrappleComponent,
   InputComponent,
@@ -45,6 +46,7 @@ export class Entity {
   sensor?: SensorComponent
   solarEnergy?: SolarEnergyComponent
   sunPickup?: SunPickupComponent
+  follow?: FollowComponent
 
   constructor() {
     this.id = nextEntityId++
@@ -127,6 +129,7 @@ export class Entity {
     this.sensor = undefined
     this.solarEnergy = undefined
     this.sunPickup = undefined
+    this.follow = undefined
   }
 
   private updateCachedComponents(name: string, component: Component): void {
@@ -184,6 +187,9 @@ export class Entity {
         break
       case 'SunPickup':
         this.sunPickup = component as SunPickupComponent
+        break
+      case 'Follow':
+        this.follow = component as FollowComponent
         break
     }
   }
@@ -243,6 +249,9 @@ export class Entity {
         break
       case 'SunPickup':
         this.sunPickup = undefined
+        break
+      case 'Follow':
+        this.follow = undefined
         break
     }
   }

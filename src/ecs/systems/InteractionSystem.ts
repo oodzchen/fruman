@@ -1,3 +1,4 @@
+import { FOLLOW_INTERACTION_RANGE } from '../../constants'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 import type { WeaponSystem } from './WeaponSystem'
@@ -40,12 +41,19 @@ export class InteractionSystem extends System {
         continue
       }
 
-      // 优先级2：开门（未来扩展）
+      // 优先级2：绑定/解绑追随同伴（仅对玩家有效，玩家无 enemyAI 组件）
+      if (!interactionConsumed && !entity.enemyAI) {
+        if (this.tryToggleFollowBind(entity, entities)) {
+          interactionConsumed = true
+        }
+      }
+
+      // 优先级3：开门（未来扩展）
       // if (!interactionConsumed && this.tryOpenDoor(entity)) {
       //   interactionConsumed = true
       // }
 
-      // 优先级3：NPC对话（未来扩展）
+      // 优先级4：NPC对话（未来扩展）
       // if (!interactionConsumed && this.tryTalkToNPC(entity)) {
       //   interactionConsumed = true
       // }
@@ -61,6 +69,38 @@ export class InteractionSystem extends System {
         inputBuffer.clearAction('interact')
       }
     }
+  }
+
+  private tryToggleFollowBind(player: Entity, entities: Entity[]): boolean {
+    if (!player.transform) return false
+    const px = player.transform.x
+    const py = player.transform.y
+    const rangeSq = FOLLOW_INTERACTION_RANGE * FOLLOW_INTERACTION_RANGE
+    let nearest: Entity | null = null
+    let nearestDistSq = rangeSq
+
+    for (let i = 0; i < entities.length; i++) {
+      const e = entities[i]
+      if (!e.follow || !e.transform) continue
+      const dx = e.transform.x - px
+      const dy = e.transform.y - py
+      const distSq = dx * dx + dy * dy
+      if (distSq < nearestDistSq) {
+        nearestDistSq = distSq
+        nearest = e
+      }
+    }
+
+    if (!nearest?.follow) return false
+
+    if (nearest.follow.followTargetId === null) {
+      nearest.follow.followTargetId = player.id
+      nearest.follow.bondFlashTimer = 1200
+    } else {
+      nearest.follow.followTargetId = null
+      nearest.follow.state = 'idle'
+    }
+    return true
   }
 
   /**

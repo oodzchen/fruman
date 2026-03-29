@@ -822,6 +822,7 @@ export class EditorMapSerializer {
         redTapeEnabled: data.redTapeEnabled,
         retreatEnabled: data.retreatEnabled,
         retreatDelaySec: data.retreatDelaySec,
+        canBeFollower: data.canBeFollower,
         equipWeapon: data.equipWeapon,
         mainWeapon,
         secondaryWeapon,

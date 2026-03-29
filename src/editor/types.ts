@@ -69,6 +69,7 @@ export type EnemyMarker = fabric.Group & {
   redTapeEnabled: boolean
   retreatEnabled: boolean
   retreatDelaySec: number
+  canBeFollower: boolean
   equipWeapon: boolean
   factionId: string
   enemyFactions: string[]
@@ -141,6 +142,7 @@ export interface EnemyMarkerData {
   redTapeEnabled: boolean
   retreatEnabled: boolean
   retreatDelaySec: number
+  canBeFollower: boolean
   equipWeapon: boolean
   factionId: string
   enemyFactions: string[]

@@ -139,6 +139,7 @@
   "editor_enemy_prop_red_tape": "战斗礼仪",
   "editor_enemy_prop_retreat_enabled": "启用撤回",
   "editor_enemy_prop_retreat_delay": "撤回计时(秒)",
+  "editor_enemy_prop_can_be_follower": "可作为同伴",
   "editor_enemy_prop_detection_range": "可视范围",
   "editor_enemy_detection_near": "近",
   "editor_enemy_detection_medium": "中等",

@@ -222,7 +222,11 @@ export const DEFAULT_WEAPON_COMBAT_TIMEOUT_MS = 30000
 export const DEFAULT_ENEMY_ATTACK_DESIRE = 10
 export const DEFAULT_ENEMY_MOVE_SPEED = 3
 export const ENEMY_DETECTION_RANGE = 10
-export const ENEMY_DETECTION_RANGE_MULTIPLIERS = { near: 1, medium: 2, far: 3 } as const
+export const ENEMY_DETECTION_RANGE_MULTIPLIERS = {
+  near: 1,
+  medium: 2,
+  far: 3,
+} as const
 export const ENEMY_ATTACK_RANGE_BUFFER = 0.35
 export const ENEMY_PACE_SWITCH_INTERVAL_MS = 3000
 export const ENEMY_DECISION_COOLDOWN_MS = 90
@@ -245,6 +249,15 @@ export const ENEMY_PROBE_PACE_SWITCH_INTERVAL_MS = 700
 export const ENEMY_PROBE_RANGE_BUFFER_RATIO = 0.2
 export const ENEMY_PROBE_PACE_MIN_DISTANCE = 0.4
 export const ENEMY_HEARING_RANGE_MULTIPLIER = 0.5
+
+// 追随系统参数
+export const FOLLOW_PREFERRED_DISTANCE = 2
+export const FOLLOW_MIN_DISTANCE = 1
+export const FOLLOW_MAX_DISTANCE = 6
+export const FOLLOW_BLOCK_CHECK_DISTANCE = 2
+export const FOLLOW_STUCK_THRESHOLD_MS = 500
+export const FOLLOW_POSITION_CHECK_INTERVAL_MS = 300
+export const FOLLOW_INTERACTION_RANGE = 3
 
 // 脚步声参数
 export const FOOTSTEP_INTERVAL_MS = 320

@@ -94,6 +94,8 @@ export class ClientRenderer {
   private grappleLineAutoHideRemainingMs = 0
   private grappleLineStartedClose = false
   private grappleLineHidden = false
+  private handshakeIcon: HTMLImageElement
+  private handshakeIconLoaded = false
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
@@ -101,6 +103,11 @@ export class ClientRenderer {
     this.camera = { x: 0, y: 0 }
     this.particleSystem = new ParticleSystem(MAX_PARTICLES)
     this.trajectoryCalculator = new BowTrajectoryCalculator()
+    this.handshakeIcon = new Image()
+    this.handshakeIcon.onload = () => {
+      this.handshakeIconLoaded = true
+    }
+    this.handshakeIcon.src = '/images/handshake_yellow.png'
   }
 
   setAudioManager(audioManager: AudioManager): void {
@@ -380,6 +387,30 @@ export class ClientRenderer {
     this.drawSensorDebug()
     this.drawSoundDebug()
 
+    // Draw follow bond icons
+    if (playerOffset !== -1) {
+      for (let i = 0; i < this.entityCount; i++) {
+        const offset = i * ENTITY_STRIDE
+        const flags = buf[offset + OFFSETS.FLAGS]
+        if (!(flags & FLAGS.IS_FOLLOWING)) continue
+        if (flags & FLAGS.VANISHED) continue
+        const npcX = buf[offset + OFFSETS.X]
+        const npcY = buf[offset + OFFSETS.Y]
+        const npcRadius = buf[offset + OFFSETS.RADIUS]
+        const midX = ((playerX + npcX) / 2) * this.pixelsPerMeter
+        const baseY =
+          (Math.min(playerY, npcY) - npcRadius) * this.pixelsPerMeter - 42
+        // progress: 1.0(刚开始) → 0.0(结束)，elapsed = (1-progress)*1200
+        const progress = buf[offset + OFFSETS.FOLLOW_FLASH_PROGRESS]
+        const elapsed = (1 - progress) * 1200
+        // 上升阶段 0-300ms：从 +15px 下方升到最终位置
+        const riseOffset = elapsed < 300 ? Math.round(15 * (1 - elapsed / 300)) : 0
+        // 消失阶段 800-1200ms：alpha 从 1 渐变到 0
+        const alpha = elapsed > 800 ? (1200 - elapsed) / 400 : 1
+        this.drawFollowBondIcon(midX, baseY + riseOffset, alpha)
+      }
+    }
+
     // Draw LockOn Reticle
     if (!playerFreeAimActive && playerLockedTargetId !== -1) {
       // Find target
@@ -420,6 +451,16 @@ export class ClientRenderer {
         effectiveDrawRatio
       )
     }
+  }
+
+  private drawFollowBondIcon(cx: number, cy: number, alpha: number): void {
+    if (!this.handshakeIconLoaded) return
+    const ctx = this.ctx
+    ctx.save()
+    ctx.globalAlpha = alpha
+    const size = 20
+    ctx.drawImage(this.handshakeIcon, cx - size / 2, cy - size / 2, size, size)
+    ctx.restore()
   }
 
   private drawLockOnReticle(buf: Float32Array, offset: number): void {

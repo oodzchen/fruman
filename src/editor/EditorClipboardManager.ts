@@ -133,6 +133,7 @@ export class EditorClipboardManager {
   private enemyRedTapeEnabled = false
   private enemyRetreatEnabled = false
   private enemyRetreatDelaySec = 0
+  private enemyCanBeFollower = false
   private enemyEquipWeapon = false
   private enemyFactionId = ''
   private enemyEnemyFactions: string[] = []
@@ -173,6 +174,7 @@ export class EditorClipboardManager {
     redTapeEnabled: false,
     retreatEnabled: false,
     retreatDelaySec: 0,
+    canBeFollower: false,
     equipWeapon: false,
     mainWeapon: undefined as MapEnemyWeapon | undefined,
     secondaryWeapon: undefined as MapEnemyWeapon | undefined,
@@ -656,6 +658,7 @@ export class EditorClipboardManager {
     this.enemyRedTapeEnabled = enemyData.redTapeEnabled
     this.enemyRetreatEnabled = enemyData.retreatEnabled
     this.enemyRetreatDelaySec = enemyData.retreatDelaySec
+    this.enemyCanBeFollower = enemyData.canBeFollower
     this.enemyEquipWeapon = enemyData.equipWeapon
     this.enemyFactionId = enemyData.factionId
     this.enemyEnemyFactions.length = 0
@@ -724,6 +727,7 @@ export class EditorClipboardManager {
     this.enemySpawnConfig.debugNoDeath = this.enemyDebugNoDeath
     this.enemySpawnConfig.redTapeEnabled = this.enemyRedTapeEnabled
     this.enemySpawnConfig.retreatEnabled = this.enemyRetreatEnabled
+    this.enemySpawnConfig.canBeFollower = this.enemyCanBeFollower
     this.enemySpawnConfig.retreatDelaySec = this.enemyRetreatDelaySec
     this.enemySpawnConfig.equipWeapon = this.enemyEquipWeapon
     this.enemySpawnConfig.mainWeapon = this.enemyHasMainWeapon

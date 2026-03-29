@@ -112,6 +112,7 @@ export interface MapEnemy {
   redTapeEnabled?: boolean
   retreatEnabled?: boolean
   retreatDelaySec?: number
+  canBeFollower?: boolean
   equipWeapon?: boolean
   mainWeapon?: MapEnemyWeapon
   secondaryWeapon?: MapEnemyWeapon
