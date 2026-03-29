@@ -129,6 +129,9 @@ export class EditorClipboardManager {
   private enemyDebugNoDamage = false
   private enemyDebugNoDeath = false
   private enemyEquipWeapon = false
+  private enemyFactionId = ''
+  private enemyEnemyFactions: string[] = []
+  private enemyAllyFactions: string[] = []
   private enemyHasMainWeapon = false
   private enemyHasSecondaryWeapon = false
   private enemyMainWeaponData: MapEnemyWeapon = {
@@ -164,6 +167,9 @@ export class EditorClipboardManager {
     equipWeapon: false,
     mainWeapon: undefined as MapEnemyWeapon | undefined,
     secondaryWeapon: undefined as MapEnemyWeapon | undefined,
+    factionId: undefined as string | undefined,
+    enemyFactions: undefined as string[] | undefined,
+    allyFactions: undefined as string[] | undefined,
   }
 
   private playerRadius = 0
@@ -176,6 +182,9 @@ export class EditorClipboardManager {
   private playerInitialNormalMovesetId: NormalAttackMovesetId = 'sword_thrust'
   private playerDebugNoDamage = false
   private playerDebugNoDeath = false
+  private playerFactionId = ''
+  private playerEnemyFactions: string[] = []
+  private playerAllyFactions: string[] = []
   private playerHasMainWeapon = false
   private playerHasSecondaryWeapon = false
   private playerMainWeaponData: MapEnemyWeapon = {
@@ -635,6 +644,15 @@ export class EditorClipboardManager {
     this.enemyDebugNoDamage = enemyData.debugNoDamage
     this.enemyDebugNoDeath = enemyData.debugNoDeath
     this.enemyEquipWeapon = enemyData.equipWeapon
+    this.enemyFactionId = enemyData.factionId
+    this.enemyEnemyFactions.length = 0
+    for (let i = 0; i < enemyData.enemyFactions.length; i++) {
+      this.enemyEnemyFactions.push(enemyData.enemyFactions[i])
+    }
+    this.enemyAllyFactions.length = 0
+    for (let i = 0; i < enemyData.allyFactions.length; i++) {
+      this.enemyAllyFactions.push(enemyData.allyFactions[i])
+    }
     this.enemyHasMainWeapon = false
     this.enemyHasSecondaryWeapon = false
     const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
@@ -697,6 +715,9 @@ export class EditorClipboardManager {
     this.enemySpawnConfig.secondaryWeapon = this.enemyHasSecondaryWeapon
       ? this.enemySecondaryWeaponData
       : undefined
+    this.enemySpawnConfig.factionId = this.enemyFactionId
+    this.enemySpawnConfig.enemyFactions = this.enemyEnemyFactions
+    this.enemySpawnConfig.allyFactions = this.enemyAllyFactions
     this.ctx.markerManager.spawnEnemyMarker(
       this.enemyType,
       this.enemySpawnConfig
@@ -722,6 +743,15 @@ export class EditorClipboardManager {
     this.playerInitialNormalMovesetId = playerData.initialNormalMovesetId
     this.playerDebugNoDamage = playerData.debugNoDamage
     this.playerDebugNoDeath = playerData.debugNoDeath
+    this.playerFactionId = playerData.factionId
+    this.playerEnemyFactions.length = 0
+    for (let i = 0; i < playerData.enemyFactions.length; i++) {
+      this.playerEnemyFactions.push(playerData.enemyFactions[i])
+    }
+    this.playerAllyFactions.length = 0
+    for (let i = 0; i < playerData.allyFactions.length; i++) {
+      this.playerAllyFactions.push(playerData.allyFactions[i])
+    }
     this.playerHasMainWeapon = false
     this.playerHasSecondaryWeapon = false
     const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
@@ -783,6 +813,9 @@ export class EditorClipboardManager {
     this.playerProperties.secondaryWeapon = this.playerHasSecondaryWeapon
       ? this.playerSecondaryWeaponData
       : undefined
+    this.playerProperties.factionId = this.playerFactionId
+    this.playerProperties.enemyFactions = this.playerEnemyFactions
+    this.playerProperties.allyFactions = this.playerAllyFactions
     this.ctx.markerManager.spawnPlayerMarker(
       this.playerSpawn,
       this.playerProperties
