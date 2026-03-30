@@ -3018,6 +3018,10 @@ function sendState() {
     } else {
       stateBuffer[offset + OFFSETS.FOLLOW_FLASH_PROGRESS] = 0
     }
+    stateBuffer[offset + OFFSETS.UNBOND_FLASH_PROGRESS] =
+      e.follow !== undefined && e.follow.unbondFlashTimer > 0
+        ? e.follow.unbondFlashTimer / 1200
+        : 0
     if (e.grappleAnchor && e.id === highlightAnchorId) {
       flags |= FLAGS.GRAPPLE_ANCHOR_HIGHLIGHT
       stateBuffer[offset + OFFSETS.COLOR] = parseColor(

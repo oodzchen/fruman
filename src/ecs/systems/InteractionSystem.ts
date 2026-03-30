@@ -99,6 +99,7 @@ export class InteractionSystem extends System {
     } else {
       nearest.follow.followTargetId = null
       nearest.follow.state = 'idle'
+      nearest.follow.unbondFlashTimer = 1200
     }
     return true
   }

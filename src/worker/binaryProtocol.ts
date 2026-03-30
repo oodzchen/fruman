@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 80
+export const ENTITY_STRIDE = 81
 
 export const OFFSETS = {
   ID: 0,
@@ -81,6 +81,7 @@ export const OFFSETS = {
   SOLAR_LARGE_MAX: 77,
   BODY_HEIGHT: 78,
   FOLLOW_FLASH_PROGRESS: 79, // 绑定动画进度 1.0→0.0，>0 表示动画进行中
+  UNBOND_FLASH_PROGRESS: 80, // 解绑动画进度 1.0→0.0，>0 表示动画进行中
 }
 
 export const FLAGS = {

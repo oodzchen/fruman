@@ -1208,6 +1208,7 @@ export class FollowComponent extends Component {
   jumpStartX = 0
   jumpStartY = 0
   bondFlashTimer = 0
+  unbondFlashTimer = 0
 
   reset(): void {
     this.followTargetId = null
@@ -1228,6 +1229,7 @@ export class FollowComponent extends Component {
     this.jumpStartX = 0
     this.jumpStartY = 0
     this.bondFlashTimer = 0
+    this.unbondFlashTimer = 0
   }
 
   getName(): string {

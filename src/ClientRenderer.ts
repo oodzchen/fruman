@@ -96,6 +96,8 @@ export class ClientRenderer {
   private grappleLineHidden = false
   private handshakeIcon: HTMLImageElement
   private handshakeIconLoaded = false
+  private wavingHandIcon: HTMLImageElement
+  private wavingHandIconLoaded = false
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
@@ -108,6 +110,11 @@ export class ClientRenderer {
       this.handshakeIconLoaded = true
     }
     this.handshakeIcon.src = '/images/handshake_yellow.png'
+    this.wavingHandIcon = new Image()
+    this.wavingHandIcon.onload = () => {
+      this.wavingHandIconLoaded = true
+    }
+    this.wavingHandIcon.src = '/images/waving_hand.png'
   }
 
   setAudioManager(audioManager: AudioManager): void {
@@ -412,6 +419,25 @@ export class ClientRenderer {
       }
     }
 
+    // Draw follow unbond icons
+    for (let i = 0; i < this.entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      const unbondProgress = buf[offset + OFFSETS.UNBOND_FLASH_PROGRESS]
+      if (unbondProgress <= 0) continue
+      const flags = buf[offset + OFFSETS.FLAGS]
+      if (flags & FLAGS.VANISHED) continue
+      const npcX = buf[offset + OFFSETS.X]
+      const npcY = buf[offset + OFFSETS.Y]
+      const npcRadius = buf[offset + OFFSETS.RADIUS]
+      const cx = npcX * this.pixelsPerMeter
+      const baseY = (npcY - npcRadius) * this.pixelsPerMeter - 42
+      const elapsed = (1 - unbondProgress) * 1200
+      const riseOffset =
+        elapsed < 300 ? Math.round(15 * (1 - elapsed / 300)) : 0
+      const alpha = elapsed > 800 ? (1200 - elapsed) / 400 : 1
+      this.drawFollowUnbondIcon(cx, baseY + riseOffset, alpha)
+    }
+
     // Draw LockOn Reticle
     if (!playerFreeAimActive && playerLockedTargetId !== -1) {
       // Find target
@@ -461,6 +487,16 @@ export class ClientRenderer {
     ctx.globalAlpha = alpha
     const size = 20
     ctx.drawImage(this.handshakeIcon, cx - size / 2, cy - size / 2, size, size)
+    ctx.restore()
+  }
+
+  private drawFollowUnbondIcon(cx: number, cy: number, alpha: number): void {
+    if (!this.wavingHandIconLoaded) return
+    const ctx = this.ctx
+    ctx.save()
+    ctx.globalAlpha = alpha
+    const size = 20
+    ctx.drawImage(this.wavingHandIcon, cx - size / 2, cy - size / 2, size, size)
     ctx.restore()
   }
 

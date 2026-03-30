@@ -35,6 +35,9 @@ export class FollowSystem extends System {
       if (follow.bondFlashTimer > 0) {
         follow.bondFlashTimer = Math.max(0, follow.bondFlashTimer - deltaMs)
       }
+      if (follow.unbondFlashTimer > 0) {
+        follow.unbondFlashTimer = Math.max(0, follow.unbondFlashTimer - deltaMs)
+      }
       if (entity.stats?.isDead) {
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
