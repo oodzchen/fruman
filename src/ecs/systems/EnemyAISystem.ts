@@ -135,7 +135,7 @@ export class EnemyAISystem extends System {
       if (
         entity.faction &&
         target.faction &&
-        !entity.faction.canAttack(target.faction)
+        !entity.faction.canAttackEntity(target.faction, target.id.toString())
       ) {
         if (entity.stats?.isInCombat) entity.stats.isInCombat = false
         entity.enemyAI.forcedChaseDistanceRemaining = 0
