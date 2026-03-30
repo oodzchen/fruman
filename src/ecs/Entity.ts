@@ -4,11 +4,13 @@ import {
   AttackSlotsComponent,
   CheckpointComponent,
   EnemyAIComponent,
+  ExpOrbComponent,
   FactionComponent,
   FollowComponent,
   GrappleAnchorComponent,
   GrappleComponent,
   InputComponent,
+  LevelComponent,
   MovementComponent,
   PhysicsComponent,
   RenderComponent,
@@ -46,6 +48,8 @@ export class Entity {
   sensor?: SensorComponent
   solarEnergy?: SolarEnergyComponent
   sunPickup?: SunPickupComponent
+  expOrb?: ExpOrbComponent
+  level?: LevelComponent
   follow?: FollowComponent
 
   constructor() {
@@ -129,6 +133,8 @@ export class Entity {
     this.sensor = undefined
     this.solarEnergy = undefined
     this.sunPickup = undefined
+    this.expOrb = undefined
+    this.level = undefined
     this.follow = undefined
   }
 
@@ -187,6 +193,12 @@ export class Entity {
         break
       case 'SunPickup':
         this.sunPickup = component as SunPickupComponent
+        break
+      case 'ExpOrb':
+        this.expOrb = component as ExpOrbComponent
+        break
+      case 'Level':
+        this.level = component as LevelComponent
         break
       case 'Follow':
         this.follow = component as FollowComponent
@@ -249,6 +261,12 @@ export class Entity {
         break
       case 'SunPickup':
         this.sunPickup = undefined
+        break
+      case 'ExpOrb':
+        this.expOrb = undefined
+        break
+      case 'Level':
+        this.level = undefined
         break
       case 'Follow':
         this.follow = undefined

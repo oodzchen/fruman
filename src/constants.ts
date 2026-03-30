@@ -25,6 +25,13 @@ export const DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER = 0.8
 // 角色基础重量（可理解为 kg，影响跳跃与下落）
 export const DEFAULT_PLAYER_WEIGHT = 80
 
+// 等级系统
+export const PLAYER_MAX_LEVEL = 8
+export const PLAYER_HEALTH_PER_LEVEL = 10
+// 升到下一级所需经验（index 0 = level 1→2, index 6 = level 7→8）
+// 增量规律：前3个固定10，之后每个增量 = 前所有增量之和
+export const EXP_TABLE = [100, 110, 120, 130, 160, 220, 340]
+
 // 角色生命与架势
 export const DEFAULT_PLAYER_MAX_HEALTH = 20
 export const DEFAULT_PLAYER_MAX_POSTURE = 10

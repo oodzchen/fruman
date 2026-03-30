@@ -31,12 +31,14 @@ import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_CORNER_RADIUS,
   ENEMY_HEARING_RANGE_MULTIPLIER,
+  EXP_TABLE,
   GRAPPLE_ANCHOR_BORDER_COLOR,
   GRAPPLE_ANCHOR_COLOR,
   GRAPPLE_ANCHOR_HIGHLIGHT_BORDER_COLOR,
   GRAPPLE_ANCHOR_HIGHLIGHT_COLOR,
   GRAPPLE_LONG_PRESS_MS,
   MASK_WEAPON,
+  PLAYER_MAX_LEVEL,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
@@ -48,6 +50,7 @@ import {
 } from '../ecs/AttackMoveRegistry'
 import {
   CheckpointComponent,
+  ExpOrbComponent,
   Faction,
   GrappleAnchorComponent,
   PhysicsComponent,
@@ -69,6 +72,7 @@ import {
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { CheckpointSystem } from '../ecs/systems/CheckpointSystem'
 import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
+import { ExpOrbSystem } from '../ecs/systems/ExpOrbSystem'
 import { FollowSystem } from '../ecs/systems/FollowSystem'
 import { GrappleSystem } from '../ecs/systems/GrappleSystem'
 import { InteractionSystem } from '../ecs/systems/InteractionSystem'
@@ -162,6 +166,7 @@ let checkpointSystem: CheckpointSystem
 let grappleSystem: GrappleSystem
 let arrowPools: ArrowPools
 let sunPickupSystem: SunPickupSystem
+let expOrbSystem: ExpOrbSystem
 
 const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
 const playerDeadMessage = { type: 'player_dead' } as const
@@ -535,6 +540,8 @@ function registerComponents() {
   componentRegistry.registerComponent('GrappleAnchor')
   componentRegistry.registerComponent('SolarEnergy')
   componentRegistry.registerComponent('SunPickup')
+  componentRegistry.registerComponent('ExpOrb')
+  componentRegistry.registerComponent('Level')
   componentRegistry.registerComponent('Follow')
 }
 
@@ -573,6 +580,8 @@ function initializeSystems() {
   interactionSystem.setWeaponSystem(weaponSystem)
   sunPickupSystem = new SunPickupSystem()
   sunPickupSystem.setEffectsEmitter(effectsEmitter)
+  expOrbSystem = new ExpOrbSystem()
+  expOrbSystem.setEffectsEmitter(effectsEmitter)
   statsSystem.onEnemyVanish = (x: number, y: number) => {
     const {
       b2DefaultBodyDef,
@@ -627,6 +636,50 @@ function initializeSystems() {
     p.isLarge = false
     p.pickupRadiusSq = 1
     sun.addComponent(p)
+
+    // 掉落经验球（物理逻辑与小太阳相同，向另一侧弹出）
+    const orb = world.createEntity()
+    const orbT = new TransformComponent()
+    orbT.x = x
+    orbT.y = y
+    orb.addComponent(orbT)
+
+    const orbBodyDef = b2DefaultBodyDef()
+    orbBodyDef.type = b2BodyType.b2_dynamicBody
+    orbBodyDef.position.Set(x, y)
+    orbBodyDef.linearDamping = 1.0
+    orbBodyDef.motionLocks.angularZ = true
+    const orbBodyId = b2CreateBody(worldId, orbBodyDef)
+
+    const orbShapeDef = b2DefaultShapeDef()
+    orbShapeDef.density = 0.3
+    orbShapeDef.material.friction = 0.3
+    orbShapeDef.material.restitution = 0.1
+    orbShapeDef.filter.categoryBits = CATEGORY_WEAPON
+    orbShapeDef.filter.maskBits = MASK_WEAPON
+
+    const orbCircle = new b2Circle()
+    orbCircle.center.Set(0, 0)
+    orbCircle.radius = 0.12
+    b2CreateCircleShape(orbBodyId, orbShapeDef, orbCircle)
+
+    const orbVel = new box2d.b2Vec2(
+      -(Math.random() * 4 - 2),
+      -(8 + Math.random() * 4)
+    )
+    b2Body_SetLinearVelocity(orbBodyId, orbVel)
+    orbVel.delete()
+    orbBodyDef.delete()
+    orbShapeDef.delete()
+    orbCircle.delete()
+
+    const orbPhysics = new PhysicsComponent()
+    orbPhysics.bodyId = orbBodyId
+    orb.addComponent(orbPhysics)
+
+    const expOrb = new ExpOrbComponent()
+    expOrb.pickupRadiusSq = 1
+    orb.addComponent(expOrb)
   }
   targetingSystem = new TargetingSystem(box2d, worldId)
 
@@ -2309,6 +2362,16 @@ function fixedUpdate() {
     world.destroyEntity(e)
   }
 
+  const expOrbs = entities.filter((e) => e.expOrb)
+  expOrbSystem.update(expOrbs, [playerEntity], TIME_STEP)
+  for (const e of expOrbSystem.getPendingRemove()) {
+    if (e.physics) {
+      box2d.b2DestroyBody(e.physics.bodyId)
+      e.removeComponent('Physics')
+    }
+    world.destroyEntity(e)
+  }
+
   cleanupDestroyedEntities()
 
   updateCamera(playerEntity.transform ? playerEntity.transform.x : 0)
@@ -2959,9 +3022,9 @@ function sendState() {
     if (count >= MAX_ENTITIES) break
     if (!e.transform) continue
 
-    // 独立武器实体和太阳拾取实体不需要 render 组件
+    // 独立武器实体、太阳拾取和经验球实体不需要 render 组件
     const isStandaloneWeapon = e.weapon && !e.weapon.isEquipped && !e.stats
-    if (!isStandaloneWeapon && !e.render && !e.sunPickup) continue
+    if (!isStandaloneWeapon && !e.render && !e.sunPickup && !e.expOrb) continue
 
     const offset = count * ENTITY_STRIDE
 
@@ -2988,7 +3051,7 @@ function sendState() {
     )
 
     let flags = 0
-    if ((e.render?.visible ?? isStandaloneWeapon) || e.sunPickup)
+    if ((e.render?.visible ?? isStandaloneWeapon) || e.sunPickup || e.expOrb)
       flags |= FLAGS.VISIBLE
     if (e.stats?.isDead) flags |= FLAGS.DEAD
     if (e.stats?.isVanished) flags |= FLAGS.VANISHED
@@ -3013,6 +3076,9 @@ function sendState() {
       flags |= e.sunPickup.isLarge
         ? FLAGS.SUN_PICKUP_LARGE
         : FLAGS.SUN_PICKUP_SMALL
+    }
+    if (e.expOrb) {
+      flags |= FLAGS.EXP_ORB
     }
     if (e.follow !== undefined && e.follow.bondFlashTimer > 0) {
       flags |= FLAGS.IS_FOLLOWING
@@ -3101,6 +3167,18 @@ function sendState() {
       stateBuffer[offset + OFFSETS.SOLAR_SMALL] = 0
       stateBuffer[offset + OFFSETS.SOLAR_LARGE] = 0
       stateBuffer[offset + OFFSETS.SOLAR_LARGE_MAX] = 0
+    }
+
+    if (e.level) {
+      stateBuffer[offset + OFFSETS.PLAYER_LEVEL] = e.level.level
+      const expRatio100 =
+        e.level.level >= PLAYER_MAX_LEVEL
+          ? 100
+          : ((e.level.exp * 100) / EXP_TABLE[e.level.level - 1]) | 0
+      stateBuffer[offset + OFFSETS.PLAYER_EXP_RATIO100] = expRatio100
+    } else {
+      stateBuffer[offset + OFFSETS.PLAYER_LEVEL] = 0
+      stateBuffer[offset + OFFSETS.PLAYER_EXP_RATIO100] = 0
     }
 
     stateBuffer[offset + OFFSETS.BODY_HEIGHT] = e.render?.bodyHeight ?? 0

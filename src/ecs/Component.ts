@@ -1195,6 +1195,34 @@ export class SunPickupComponent extends Component {
   }
 }
 
+export class ExpOrbComponent extends Component {
+  dropElapsedTime = 0
+  pickupRadiusSq = 1
+
+  reset(): void {
+    this.dropElapsedTime = 0
+    this.pickupRadiusSq = 1
+  }
+
+  getName(): string {
+    return 'ExpOrb'
+  }
+}
+
+export class LevelComponent extends Component {
+  level = 1
+  exp = 0
+
+  reset(): void {
+    this.level = 1
+    this.exp = 0
+  }
+
+  getName(): string {
+    return 'Level'
+  }
+}
+
 export class FollowComponent extends Component {
   followTargetId: number | null = null
   preferredDistance = FOLLOW_PREFERRED_DISTANCE

@@ -65,6 +65,7 @@ import {
   FollowComponent,
   GrappleComponent,
   InputComponent,
+  LevelComponent,
   MovementComponent,
   PhysicsComponent,
   RenderComponent,
@@ -212,6 +213,9 @@ export function createPlayer(
   solarEnergy.smallCount = 4
   solarEnergy.largeCount = 0
   entity.addComponent(solarEnergy)
+
+  const levelComp = new LevelComponent()
+  entity.addComponent(levelComp)
 
   // 玩家初始武器组件（默认为空，需要在地上拾取）
   const weapon = new WeaponComponent()

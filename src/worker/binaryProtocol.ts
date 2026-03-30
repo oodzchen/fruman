@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 81
+export const ENTITY_STRIDE = 83
 
 export const OFFSETS = {
   ID: 0,
@@ -82,6 +82,8 @@ export const OFFSETS = {
   BODY_HEIGHT: 78,
   FOLLOW_FLASH_PROGRESS: 79, // 绑定动画进度 1.0→0.0，>0 表示动画进行中
   UNBOND_FLASH_PROGRESS: 80, // 解绑动画进度 1.0→0.0，>0 表示动画进行中
+  PLAYER_LEVEL: 81,
+  PLAYER_EXP_RATIO100: 82, // 当前经验 / 升级所需经验 × 100（整数 0-100）
 }
 
 export const FLAGS = {
@@ -103,6 +105,7 @@ export const FLAGS = {
   SUN_PICKUP_LARGE: 32768,
   HEALTH_BAR_FLASH: 65536,
   IS_FOLLOWING: 131072,
+  EXP_ORB: 262144,
 }
 
 export const WEAPON_TYPES = {

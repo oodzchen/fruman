@@ -55,6 +55,7 @@ const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
 const GRAPPLE_ICON_COLOR = '#c6b07a'
 const GRAPPLE_LINE_COLOR = '#d9c896'
 const SUN_COLOR = '#ffd700'
+const EXP_COLOR = '#3d7fff'
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
@@ -100,6 +101,14 @@ export class ClientRenderer {
   private cameraShakePhaseMs = 0
   private cameraShakeOffsetX = 0
   private cameraShakeOffsetY = 0
+  // 血条宽度动画（升级时最大血量增加，血条等比例变长）
+  private healthBarDisplayWidth = 0
+  private healthBarAnimStartWidth = 0
+  private healthBarAnimTargetWidth = 0
+  private healthBarAnimElapsedSec = 0
+  private lastRenderDeltaSec = 0
+  private readonly HEALTH_BAR_ANIM_SEC = 2.0
+  private debugEffectTimer = 0
   private handshakeIcon: HTMLImageElement
   private handshakeIconLoaded = false
   private wavingHandIcon: HTMLImageElement
@@ -275,6 +284,7 @@ export class ClientRenderer {
   }
 
   render(deltaMs: number) {
+    this.lastRenderDeltaSec = deltaMs / 1000
     if (this.entityCount === 0 && !this.particleSystem.hasActiveParticles())
       return
     const buf = this.stateBuffer
@@ -402,6 +412,12 @@ export class ClientRenderer {
       if (flags & FLAGS.VANISHED) continue
       if (!(flags & FLAGS.VISIBLE)) continue
 
+      if (flags & FLAGS.EXP_ORB) {
+        const wx = buf[offset + OFFSETS.X]
+        const wy = buf[offset + OFFSETS.Y]
+        this.drawExpOrbIcon(wx, wy)
+        continue
+      }
       if (flags & FLAGS.SUN_PICKUP_SMALL) {
         const wx = buf[offset + OFFSETS.X]
         const wy = buf[offset + OFFSETS.Y]
@@ -829,6 +845,7 @@ export class ClientRenderer {
     const solarSmall = buf[playerOffset + OFFSETS.SOLAR_SMALL] | 0
     const solarLarge = buf[playerOffset + OFFSETS.SOLAR_LARGE] | 0
     const solarLargeMax = buf[playerOffset + OFFSETS.SOLAR_LARGE_MAX] | 0
+    const expRatio100 = buf[playerOffset + OFFSETS.PLAYER_EXP_RATIO100] | 0
 
     if (maxHealth <= 0) return
 
@@ -841,8 +858,10 @@ export class ClientRenderer {
     const weaponTotalWidth = weaponSlotSize * 2 + HUD_SLOT_SPACING
     const slotY = canvasHeight - HUD_SLOT_MARGIN - weaponSlotSize
 
-    // Health Bar & Grapple Icon Layout (Left side)
+    // Health Bar & Exp Bar & Grapple Icon Layout (Left side)
     const barHeight = 12
+    const expBarHeight = 6
+    const expBarGap = 3
     const iconSize = 10
     const iconGap = 6
 
@@ -853,21 +872,47 @@ export class ClientRenderer {
     // Health bar starts after sun icon + gap
     const startX = leftMargin + sunIconSize + sunIconGap
 
-    // Calculate total height of left UI group (Bar + Gap + Icon)
-    const leftGroupHeight = barHeight + iconGap + iconSize
+    // Calculate total height of left UI group (HealthBar + ExpBar + Gap + Icon)
+    const leftGroupHeight =
+      barHeight + expBarGap + expBarHeight + iconGap + iconSize
 
     // Center left group vertically relative to right weapon slots
-    // slotY is top of weapon slots, weaponSlotSize is height
     const weaponCenterY = slotY + weaponSlotSize / 2
     const leftGroupStartY = weaponCenterY - leftGroupHeight / 2
 
     // Start drawing
     const startY = leftGroupStartY
 
-    // Scale: 4 pixels per 1 unit of stats (increased by 1/3 from 3)
-    const pixelsPerUnit = 4
+    // Scale: 2 pixels per 1 unit of stats（视觉缩小到1/2，数值不变）
+    const pixelsPerUnit = 2
 
-    const healthWidth = maxHealth * pixelsPerUnit
+    // 血条宽度动画：升级时最大血量增加，血条等比例变长
+    const targetWidth = maxHealth * pixelsPerUnit
+    if (this.healthBarDisplayWidth === 0) {
+      this.healthBarDisplayWidth = targetWidth
+      this.healthBarAnimStartWidth = targetWidth
+      this.healthBarAnimTargetWidth = targetWidth
+    }
+    if (targetWidth > this.healthBarAnimTargetWidth) {
+      this.healthBarAnimStartWidth = this.healthBarDisplayWidth
+      this.healthBarAnimTargetWidth = targetWidth
+      this.healthBarAnimElapsedSec = 0
+    }
+    if (this.healthBarDisplayWidth < this.healthBarAnimTargetWidth) {
+      this.healthBarAnimElapsedSec += this.lastRenderDeltaSec
+      const t = Math.min(
+        1,
+        this.healthBarAnimElapsedSec / this.HEALTH_BAR_ANIM_SEC
+      )
+      const eased = 1 - (1 - t) * (1 - t)
+      this.healthBarDisplayWidth =
+        (this.healthBarAnimStartWidth +
+          (this.healthBarAnimTargetWidth - this.healthBarAnimStartWidth) *
+            eased) |
+        0
+      if (t >= 1) this.healthBarDisplayWidth = this.healthBarAnimTargetWidth
+    }
+    const displayBarWidth = this.healthBarDisplayWidth
 
     // Sun HUD: single orb icon
     const orbCX = leftMargin + sunIconSize / 2
@@ -883,40 +928,55 @@ export class ClientRenderer {
 
     // Health Bar
     const healthRatio = health / maxHealth
+    const isGrowing =
+      this.healthBarDisplayWidth < this.healthBarAnimTargetWidth ||
+      (this.healthBarAnimElapsedSec > 0 &&
+        this.healthBarAnimElapsedSec < this.HEALTH_BAR_ANIM_SEC)
     this.drawBar(
       startX,
       startY,
-      healthWidth,
+      displayBarWidth,
       barHeight,
       healthRatio,
       '#5a1b1b',
       '#ff4d4f'
     )
+    // DEBUG: 粒子效果常驻
+    const DEBUG_GROW_EFFECT = true
+    if (DEBUG_GROW_EFFECT) {
+      this.debugEffectTimer =
+        (this.debugEffectTimer + this.lastRenderDeltaSec) % this.HEALTH_BAR_ANIM_SEC
+    }
+    if (isGrowing || DEBUG_GROW_EFFECT) {
+      const debugStartWidth = displayBarWidth * 0.75
+      this.drawHealthBarGrowEffect(
+        startX,
+        startY + (barHeight >> 1),
+        barHeight,
+        DEBUG_GROW_EFFECT ? debugStartWidth : this.healthBarAnimStartWidth,
+        displayBarWidth,
+        DEBUG_GROW_EFFECT ? this.debugEffectTimer : this.healthBarAnimElapsedSec
+      )
+    }
 
-    /*
-    // Posture Bar
-    const postureWidth = maxPosture * pixelsPerUnit
-    const postureRatio = maxPosture > 0 ? posture / maxPosture : 0
+    // Exp Bar（血条下方，蓝色，细）
+    const expBarY = startY + barHeight + expBarGap
     this.drawBar(
       startX,
-      startY + barHeight + spacing,
-      postureWidth,
-      barHeight,
-      postureRatio,
-      '#665511',
-      '#ffd666'
+      expBarY,
+      displayBarWidth,
+      expBarHeight,
+      expRatio100 / 100,
+      '#0b2966',
+      EXP_COLOR
     )
-    */
+
     void posture
     void maxPosture
 
     if (flags & FLAGS.GRAPPLE_READY) {
-      // Icon position
       const iconX = startX + 6
-      // iconY is center of icon.
-      // Top of icon should be at (startY + barHeight + iconGap)
-      // Center = Top + iconSize/2
-      const iconY = startY + barHeight + iconGap + iconSize / 2
+      const iconY = expBarY + expBarHeight + iconGap + iconSize / 2
       this.renderGrappleIcon(iconX, iconY, iconSize)
     }
 
@@ -1029,6 +1089,103 @@ export class ClientRenderer {
       ctx.lineWidth = 1
       ctx.stroke()
     }
+    ctx.restore()
+  }
+
+  private drawExpOrbIcon(worldX: number, worldY: number): void {
+    const ctx = this.ctx
+    const ppm = this.pixelsPerMeter
+    const cx = worldX * ppm
+    const cy = worldY * ppm
+    const r = (ppm * 0.175) | 0
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.fillStyle = EXP_COLOR
+    ctx.fill()
+    ctx.restore()
+  }
+
+  // 血条增长区域向外飞溅白色粒子特效（屏幕坐标空间）
+  // 粒子从血条增长区域的上边、右边、下边向外飞出，突出血条矩形轮廓
+  private drawHealthBarGrowEffect(
+    barStartX: number,
+    ry: number,
+    barHeight: number,
+    animStartWidth: number,
+    displayWidth: number,
+    elapsedSec: number
+  ): void {
+    const growWidth = displayWidth - animStartWidth
+    const fade = Math.max(0, 1 - elapsedSec / this.HEALTH_BAR_ANIM_SEC)
+    if (fade <= 0 || growWidth <= 0) return
+
+    const ctx = this.ctx
+    const half = barHeight >> 1
+    const topY = ry - half
+    const botY = ry + half
+    const tipX = barStartX + displayWidth
+    const segStartX = barStartX + animStartWidth
+    const PARTICLE_COUNT = 18
+    const PARTICLE_LIFE = 0.4
+
+    ctx.save()
+    ctx.fillStyle = '#ffffff'
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      // 三条边轮流分配：上边(0)、右边(1)、下边(2)
+      const side = i % 3
+      // 黄金比例在边内均匀分布位置
+      const frac = (i * 0.618033988749895) % 1
+      const startOffset = (i * 0.11) % PARTICLE_LIFE
+      const localT =
+        ((elapsedSec + startOffset) % PARTICLE_LIFE) / PARTICLE_LIFE
+      const dist = localT * (4 + (i % 4) * 2)
+
+      let sx: number, sy: number, dx: number, dy: number
+      if (side === 0) {
+        // 上边 → 向上飞，带微小横向扩散
+        sx = segStartX + frac * growWidth
+        sy = topY
+        dx = (frac - 0.5) * 0.25
+        dy = -1
+      } else if (side === 1) {
+        // 右边 → 向右飞，带微小纵向扩散
+        sx = tipX
+        sy = topY + frac * barHeight
+        dx = 1
+        dy = (frac - 0.5) * 0.3
+      } else {
+        // 下边 → 向下飞，带微小横向扩散
+        sx = segStartX + frac * growWidth
+        sy = botY
+        dx = (frac - 0.5) * 0.25
+        dy = 1
+      }
+
+      const alpha = (1 - localT) * fade
+      if (alpha <= 0) continue
+
+      const px = sx + dx * dist
+      const py = sy + dy * dist
+
+      // 外层光晕
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalAlpha = alpha * 0.5
+      ctx.beginPath()
+      ctx.arc(px, py, 4, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 核心亮点
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.globalAlpha = alpha
+      ctx.beginPath()
+      ctx.arc(px, py, 2.2, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = 'source-over'
     ctx.restore()
   }
 
