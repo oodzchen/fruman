@@ -56,6 +56,7 @@ const GRAPPLE_ICON_COLOR = '#c6b07a'
 const GRAPPLE_LINE_COLOR = '#d9c896'
 const SUN_COLOR = '#ffd700'
 const EXP_COLOR = '#3d7fff'
+const FOLLOW_BOUND_BORDER_COLOR = '#ffee58'
 
 export class ClientRenderer {
   private ctx: CanvasRenderingContext2D
@@ -646,7 +647,7 @@ export class ClientRenderer {
     const y = buf[offset + OFFSETS.Y]
     const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
     const colorInt = buf[offset + OFFSETS.COLOR]
-    // const borderColorInt = buf[offset + OFFSETS.BORDER_COLOR]
+    const hasFollowBound = !!(flags & FLAGS.FOLLOW_BOUND)
 
     const shakeOffset = this.getHitShakeOffset(buf, offset)
     const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
@@ -682,13 +683,16 @@ export class ClientRenderer {
     // 只有 radius > 0 时才渲染圆圈和眼睛
     if (radius > 0) {
       const direction = buf[offset + OFFSETS.MOVE_DIR]
+      const outlineWidthPx = hasFollowBound ? Math.max(1, radius >> 3) : 0
       renderBody(
         this.ctx,
         radius,
         this.getColorString(colorInt),
         this.pixelsPerMeter,
         direction,
-        bodyHeightPx || undefined
+        bodyHeightPx || undefined,
+        hasFollowBound ? FOLLOW_BOUND_BORDER_COLOR : '',
+        outlineWidthPx
       )
     }
 

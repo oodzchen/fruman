@@ -3080,6 +3080,9 @@ function sendState() {
     if (e.expOrb) {
       flags |= FLAGS.EXP_ORB
     }
+    if (e.follow !== undefined && e.follow.followTargetId !== null) {
+      flags |= FLAGS.FOLLOW_BOUND
+    }
     if (e.follow !== undefined && e.follow.bondFlashTimer > 0) {
       flags |= FLAGS.IS_FOLLOWING
       stateBuffer[offset + OFFSETS.FOLLOW_FLASH_PROGRESS] =
