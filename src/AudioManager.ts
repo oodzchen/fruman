@@ -5,12 +5,14 @@ export class AudioManager {
   private sounds: Map<number, AudioBuffer>
   private masterVolume: number
   private hasUserActivation: boolean
+  private muted: boolean
 
   constructor() {
     this.audioContext = new AudioContext()
     this.sounds = new Map()
     this.masterVolume = 0.3
     this.hasUserActivation = false
+    this.muted = false
   }
 
   async init(): Promise<void> {
@@ -99,7 +101,7 @@ export class AudioManager {
       return
     }
 
-    if (!this.hasUserActivation || this.audioContext.state !== 'running') {
+    if (this.muted || !this.hasUserActivation || this.audioContext.state !== 'running') {
       return
     }
 
@@ -114,6 +116,10 @@ export class AudioManager {
     gainNode.connect(this.audioContext.destination)
 
     source.start()
+  }
+
+  setMuted(muted: boolean): void {
+    this.muted = muted
   }
 
   setMasterVolume(volume: number): void {

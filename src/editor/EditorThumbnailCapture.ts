@@ -38,6 +38,7 @@ export class EditorThumbnailCapture {
 
     this.ctx.gameCanvas.style.visibility = 'visible'
 
+    gameClient.setAudioMuted(true)
     gameClient.applyMapPreview(data)
     gameClient.start()
 
@@ -46,6 +47,9 @@ export class EditorThumbnailCapture {
     const snapshotDataUrl = this.ctx.gameCanvas.toDataURL('image/jpeg', 0.8)
 
     gameClient.clearMapPreview()
+    gameClient.stop()
+    gameClient.setEditorPreview(true)
+    gameClient.setAudioMuted(false)
     this.ctx.gameCanvas.style.visibility = 'hidden'
 
     if (!snapshotDataUrl) return null

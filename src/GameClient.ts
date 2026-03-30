@@ -277,7 +277,9 @@ export class GameClient {
         msg.entityCount,
         msg.ropePointCount
       )
-      this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
+      if (!this.editorPreview) {
+        this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
+      }
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
       this.renderZoom = msg.zoom
@@ -966,6 +968,10 @@ export class GameClient {
           this.armStartMenuPause()
         }
       })
+  }
+
+  setAudioMuted(muted: boolean): void {
+    this.audioManager.setMuted(muted)
   }
 
   isPreviewActive(): boolean {
