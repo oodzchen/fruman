@@ -3201,7 +3201,7 @@ export class WeaponSystem extends System {
     weapon.attackStartedAirborne =
       weapon.attackStartedAirborne || !(entity.movement?.isGrounded ?? true)
     if (!weapon.attackStartedAirborne || weapon.landingShakeTriggered) return
-    if (!(entity.movement?.isGrounded ?? false)) return
+    if (!this.checkGroundCollision(weapon)) return
     if (!this.isAttackShakeEligiblePhase(weapon.attackPhase)) return
 
     const impactX = entity.transform.x
