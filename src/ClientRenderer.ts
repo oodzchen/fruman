@@ -941,22 +941,14 @@ export class ClientRenderer {
       '#5a1b1b',
       '#ff4d4f'
     )
-    // DEBUG: 粒子效果常驻
-    const DEBUG_GROW_EFFECT = true
-    if (DEBUG_GROW_EFFECT) {
-      this.debugEffectTimer =
-        (this.debugEffectTimer + this.lastRenderDeltaSec) %
-        this.HEALTH_BAR_ANIM_SEC
-    }
-    if (isGrowing || DEBUG_GROW_EFFECT) {
-      const debugStartWidth = displayBarWidth * 0.75
+    if (isGrowing) {
       this.drawHealthBarGrowEffect(
         startX,
         startY + (barHeight >> 1),
         barHeight,
-        DEBUG_GROW_EFFECT ? debugStartWidth : this.healthBarAnimStartWidth,
+        this.healthBarAnimStartWidth,
         displayBarWidth,
-        DEBUG_GROW_EFFECT ? this.debugEffectTimer : this.healthBarAnimElapsedSec
+        this.healthBarAnimElapsedSec
       )
     }
 
