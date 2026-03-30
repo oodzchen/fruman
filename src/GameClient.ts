@@ -823,6 +823,12 @@ export class GameClient {
     this.ctx.scale(zoom, zoom)
     this.ctx.translate(-centerX, -bottomY)
 
+    const shakeOffsetX = this.renderer.getCameraShakeOffsetX()
+    const shakeOffsetY = this.renderer.getCameraShakeOffsetY()
+    if (shakeOffsetX !== 0 || shakeOffsetY !== 0) {
+      this.ctx.translate(shakeOffsetX, shakeOffsetY)
+    }
+
     this.ctx.translate(
       -this.camera.x * this.pixelsPerMeter,
       -this.camera.y * this.pixelsPerMeter

@@ -304,6 +304,9 @@ const effectsEmitter: EffectsEmitter = {
   emitHeal: (x, y) => {
     queueEffect(EFFECT_TYPES.HEAL, x, y, SUN_COLOR_INT, 0)
   },
+  emitCameraShake: (x, y, intensity, durationMs) => {
+    queueEffect(EFFECT_TYPES.CAMERA_SHAKE, x, y, intensity, durationMs)
+  },
   playSound: (soundId, playbackRate = 1.0) => {
     queueEffect(EFFECT_TYPES.SOUND, 0, 0, soundId, playbackRate)
   },

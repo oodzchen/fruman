@@ -121,6 +121,16 @@ const REBOUND_PAUSE_MS = 150
 const PARRY_WINDOW_FRAMES =
   (DEFAULT_PARRY_WINDOW_MS * DEFAULT_FRAME_RATE) / 1000
 const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
+const BIG_HAMMER_SIZE_LEVEL = 2
+const GIANT_SWORD_SIZE_LEVEL = 3
+const BIG_HAMMER_JUMP_SHAKE_INTENSITY_PX = 14
+const BIG_HAMMER_JUMP_SHAKE_DURATION_MS = 180
+const GIANT_SWORD_JUMP_SHAKE_INTENSITY_PX = 11
+const GIANT_SWORD_JUMP_SHAKE_DURATION_MS = 160
+const BIG_HAMMER_FINISHER_SHAKE_INTENSITY_PX = 16
+const BIG_HAMMER_FINISHER_SHAKE_DURATION_MS = 210
+const GIANT_SWORD_FINISHER_SHAKE_INTENSITY_PX = 13
+const GIANT_SWORD_FINISHER_SHAKE_DURATION_MS = 190
 
 type ObstacleCollider = {
   bodyId: b2BodyId
@@ -345,6 +355,7 @@ export class WeaponSystem extends System {
       weapon.visual.x = weapon.position.x
       weapon.visual.y = weapon.position.y
       weapon.visual.rotation = weapon.rotation
+      this.clearAttackImpactState(weapon)
       return
     }
 
@@ -372,6 +383,7 @@ export class WeaponSystem extends System {
         weapon.isDropping = false
         weapon.isDropped = true
       }
+      this.clearAttackImpactState(weapon)
       return
     }
 
@@ -381,6 +393,7 @@ export class WeaponSystem extends System {
         // 武器掉落完成，保持在玩家脚下
         applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
       }
+      this.clearAttackImpactState(weapon)
       return
     }
 
@@ -421,8 +434,11 @@ export class WeaponSystem extends System {
         weapon.isRecovering = false
         weapon.isDropped = false
       }
+      this.clearAttackImpactState(weapon)
       return
     }
+
+    this.tryEmitLandingCameraShake(entity, weapon)
 
     if (weapon.weaponType === 'bow' && entity.stats) {
       this.updateBowWeapon(entity, weapon, playerPos, inputFacing, deltaMs)
@@ -954,6 +970,7 @@ export class WeaponSystem extends System {
       weapon.attackElapsedMs = 0
       weapon.lastAttackTimestamp = now
       weapon.attackFacing = attackFacing
+      this.beginAttackImpactState(entity, weapon)
 
       // Update attackStartTransform based on current visual (which was just set)
       applyOffset(
@@ -1295,6 +1312,7 @@ export class WeaponSystem extends System {
     }
     this.checkEntityHits(entity, weapon)
     if (t >= 1) {
+      this.tryEmitCompletedFinalSwingCameraShake(entity, weapon)
       weapon.attackPhase = 'pause'
       this.restoreDamageOverrides(weapon)
       weapon.attackElapsedMs = 0
@@ -1427,6 +1445,7 @@ export class WeaponSystem extends System {
         weapon.attackPhase = nextMove.windupMs > 0 ? 'windup' : 'swing'
         weapon.attackElapsedMs = 0
         weapon.lastAttackTimestamp = now
+        this.beginAttackImpactState(entity, weapon)
 
         if (weapon.attackPhase === 'windup') {
           // Update attackStartTransform based on current visual
@@ -1509,6 +1528,7 @@ export class WeaponSystem extends System {
       weapon.swingDirection = 'toFront'
       weapon.nextSwingDirection = 'toFront'
       weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
+      this.clearAttackImpactState(weapon)
     }
   }
 
@@ -1523,6 +1543,7 @@ export class WeaponSystem extends System {
     weapon.reboundLockedPause = false
     weapon.parryCounterActive = false
     weapon.hitEntityIds.clear()
+    this.clearAttackImpactState(weapon)
   }
 
   private resetWeaponToCombatIdle(
@@ -2541,6 +2562,7 @@ export class WeaponSystem extends System {
     weapon.dropEndOffset.dx = 0
     weapon.dropEndOffset.dy = 0
     weapon.dropEndOffset.rotation = 0
+    this.clearAttackImpactState(weapon)
 
     if (entity.input) {
       entity.input.facingOverride = null
@@ -3042,6 +3064,7 @@ export class WeaponSystem extends System {
       weapon.attackPhase = 'windup'
       weapon.attackElapsedMs = 0
       weapon.lastAttackTimestamp = now
+      this.beginAttackImpactState(entity, weapon)
 
       applyOffset(
         weapon.attackStartOffset,
@@ -3086,6 +3109,134 @@ export class WeaponSystem extends System {
     this.soundSystem.emitSoundAt(x, y, radius, db, rangeMultiplier)
   }
 
+  private beginAttackImpactState(
+    entity: Entity,
+    weapon: WeaponComponent
+  ): void {
+    weapon.attackStartedAirborne = !(entity.movement?.isGrounded ?? true)
+    weapon.landingShakeTriggered = false
+    weapon.impactShakeTriggered = false
+  }
+
+  private clearAttackImpactState(weapon: Entity['weapon']): void {
+    if (!weapon) return
+    weapon.attackStartedAirborne = false
+    weapon.landingShakeTriggered = false
+    weapon.impactShakeTriggered = false
+  }
+
+  private isBigHammer(weapon: Entity['weapon']): boolean {
+    return (
+      !!weapon &&
+      weapon.weaponType === 'hammer' &&
+      weapon.sizeLevel >= BIG_HAMMER_SIZE_LEVEL
+    )
+  }
+
+  private isGiantSword(weapon: Entity['weapon']): boolean {
+    return (
+      !!weapon &&
+      weapon.weaponType === 'sword' &&
+      weapon.sizeLevel >= GIANT_SWORD_SIZE_LEVEL
+    )
+  }
+
+  private tryEmitLandingCameraShake(
+    entity: Entity,
+    weapon: WeaponComponent
+  ): void {
+    if (!this.statsSystem || !entity.transform || !entity.render) return
+    if (
+      weapon.activeMoveId === 'hammer_strike_finisher' ||
+      weapon.activeMoveId === 'sword_finisher'
+    ) {
+      return
+    }
+    weapon.attackStartedAirborne =
+      weapon.attackStartedAirborne || !(entity.movement?.isGrounded ?? true)
+    if (!weapon.attackStartedAirborne || weapon.landingShakeTriggered) return
+    if (!(entity.movement?.isGrounded ?? false)) return
+    if (!this.isAttackShakeEligiblePhase(weapon.attackPhase)) return
+
+    const impactX = entity.transform.x
+    const impactY = entity.transform.y + (entity.render.radius || 0)
+
+    if (this.isBigHammer(weapon)) {
+      const isFinisher = weapon.activeMoveId === 'hammer_strike_finisher'
+      this.statsSystem.emitCameraShake(
+        impactX,
+        impactY,
+        isFinisher
+          ? BIG_HAMMER_FINISHER_SHAKE_INTENSITY_PX
+          : BIG_HAMMER_JUMP_SHAKE_INTENSITY_PX,
+        isFinisher
+          ? BIG_HAMMER_FINISHER_SHAKE_DURATION_MS
+          : BIG_HAMMER_JUMP_SHAKE_DURATION_MS
+      )
+      weapon.landingShakeTriggered = true
+      return
+    }
+
+    if (this.isGiantSword(weapon)) {
+      const isFinisher = weapon.activeMoveId === 'sword_finisher'
+      this.statsSystem.emitCameraShake(
+        impactX,
+        impactY,
+        isFinisher
+          ? GIANT_SWORD_FINISHER_SHAKE_INTENSITY_PX
+          : GIANT_SWORD_JUMP_SHAKE_INTENSITY_PX,
+        isFinisher
+          ? GIANT_SWORD_FINISHER_SHAKE_DURATION_MS
+          : GIANT_SWORD_JUMP_SHAKE_DURATION_MS
+      )
+      weapon.landingShakeTriggered = true
+    }
+  }
+
+  private tryEmitCompletedFinalSwingCameraShake(
+    entity: Entity,
+    weapon: WeaponComponent
+  ): void {
+    if (!this.statsSystem || weapon.impactShakeTriggered) return
+    if (!(entity.movement?.isGrounded ?? true)) return
+
+    if (
+      weapon.activeMoveId === 'hammer_strike_finisher' &&
+      this.isBigHammer(weapon)
+    ) {
+      this.statsSystem.emitCameraShake(
+        weapon.visual.x,
+        weapon.visual.y,
+        BIG_HAMMER_FINISHER_SHAKE_INTENSITY_PX,
+        BIG_HAMMER_FINISHER_SHAKE_DURATION_MS
+      )
+      weapon.impactShakeTriggered = true
+      return
+    }
+
+    if (weapon.activeMoveId === 'sword_finisher' && this.isGiantSword(weapon)) {
+      this.statsSystem.emitCameraShake(
+        weapon.visual.x,
+        weapon.visual.y,
+        GIANT_SWORD_FINISHER_SHAKE_INTENSITY_PX,
+        GIANT_SWORD_FINISHER_SHAKE_DURATION_MS
+      )
+      weapon.impactShakeTriggered = true
+    }
+  }
+
+  private isAttackShakeEligiblePhase(
+    phase: WeaponComponent['attackPhase']
+  ): boolean {
+    return (
+      phase === 'windup' ||
+      phase === 'swing' ||
+      phase === 'pause' ||
+      phase === 'recover' ||
+      phase === 'rebound'
+    )
+  }
+
   private getMoveKind(weapon: Entity['weapon']): AttackMoveData['kind'] {
     const move = this.getActiveMove(weapon)
     return move ? move.kind : 'slash'
@@ -3115,6 +3266,7 @@ export class WeaponSystem extends System {
     weapon.swingDirection = 'toFront'
     weapon.nextSwingDirection = 'toFront'
     weapon.hitEntityIds.clear()
+    this.clearAttackImpactState(weapon)
 
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     getFrontTransform(
@@ -3143,6 +3295,7 @@ export class WeaponSystem extends System {
     weapon.parryElapsedTime = 0
     weapon.hitEntityIds.clear()
     weapon.width = weapon.baseWidth
+    this.clearAttackImpactState(weapon)
 
     if (!entity.transform) return
 

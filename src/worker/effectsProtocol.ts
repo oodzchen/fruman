@@ -15,6 +15,7 @@ export const EFFECT_TYPES = {
   DEATH: 2,
   SOUND: 3,
   HEAL: 4,
+  CAMERA_SHAKE: 5,
 } as const
 
 export const SOUND_IDS = {

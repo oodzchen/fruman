@@ -44,6 +44,12 @@ export type EffectsEmitter = {
   emitBlood: (x: number, y: number, color: number) => void
   emitDeath: (x: number, y: number, color: number, radius: number) => void
   emitHeal: (x: number, y: number) => void
+  emitCameraShake: (
+    x: number,
+    y: number,
+    intensity: number,
+    durationMs: number
+  ) => void
   playSound: (soundId: number, playbackRate?: number) => void
 }
 
@@ -327,6 +333,16 @@ export class StatsSystem extends System {
   emitHeal(x: number, y: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.emitHeal(x, y)
+  }
+
+  emitCameraShake(
+    x: number,
+    y: number,
+    intensity: number,
+    durationMs: number
+  ): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.emitCameraShake(x, y, intensity, durationMs)
   }
 
   playSound(soundId: number, playbackRate?: number): void {

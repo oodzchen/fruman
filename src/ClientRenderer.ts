@@ -94,6 +94,12 @@ export class ClientRenderer {
   private grappleLineAutoHideRemainingMs = 0
   private grappleLineStartedClose = false
   private grappleLineHidden = false
+  private cameraShakeElapsedMs = 0
+  private cameraShakeDurationMs = 0
+  private cameraShakeIntensityPx = 0
+  private cameraShakePhaseMs = 0
+  private cameraShakeOffsetX = 0
+  private cameraShakeOffsetY = 0
   private handshakeIcon: HTMLImageElement
   private handshakeIconLoaded = false
   private wavingHandIcon: HTMLImageElement
@@ -154,6 +160,7 @@ export class ClientRenderer {
 
   update(deltaTime: number): void {
     this.particleSystem.update(deltaTime)
+    this.updateCameraShake(Math.max(0, (deltaTime * 1000) | 0))
   }
 
   applyEffects(buffer: ArrayBuffer | SharedArrayBuffer, count: number): void {
@@ -180,6 +187,8 @@ export class ClientRenderer {
         this.particleSystem.spawnDeath(x, y, color, radius)
       } else if (type === EFFECT_TYPES.HEAL) {
         this.particleSystem.spawnHeal(x, y, color)
+      } else if (type === EFFECT_TYPES.CAMERA_SHAKE) {
+        this.applyCameraShake(color, radius)
       } else if (type === EFFECT_TYPES.SOUND) {
         const soundId = color
         const playbackRate = radius || 1.0
@@ -204,6 +213,57 @@ export class ClientRenderer {
     this.camera.x = x
     this.camera.y = y
     this.zoom = zoom
+  }
+
+  getCameraShakeOffsetX(): number {
+    return this.cameraShakeOffsetX
+  }
+
+  getCameraShakeOffsetY(): number {
+    return this.cameraShakeOffsetY
+  }
+
+  private applyCameraShake(intensityPx: number, durationMs: number): void {
+    if (intensityPx <= 0 || durationMs <= 0) return
+    this.cameraShakeIntensityPx = Math.max(
+      this.cameraShakeIntensityPx,
+      intensityPx
+    )
+    this.cameraShakeDurationMs = Math.max(
+      this.cameraShakeDurationMs,
+      durationMs
+    )
+    this.cameraShakeElapsedMs = 0
+  }
+
+  private updateCameraShake(deltaMs: number): void {
+    if (this.cameraShakeDurationMs <= 0 || deltaMs <= 0) {
+      if (this.cameraShakeDurationMs <= 0) {
+        this.cameraShakeOffsetX = 0
+        this.cameraShakeOffsetY = 0
+      }
+      return
+    }
+
+    this.cameraShakeElapsedMs += deltaMs
+    this.cameraShakePhaseMs += deltaMs
+    if (this.cameraShakeElapsedMs >= this.cameraShakeDurationMs) {
+      this.cameraShakeElapsedMs = 0
+      this.cameraShakeDurationMs = 0
+      this.cameraShakeIntensityPx = 0
+      this.cameraShakeOffsetX = 0
+      this.cameraShakeOffsetY = 0
+      return
+    }
+
+    const progress = this.cameraShakeElapsedMs / this.cameraShakeDurationMs
+    const decay = 1 - progress
+    const phaseA = (this.cameraShakePhaseMs * 30) / 1000
+    const phaseB = (this.cameraShakePhaseMs * 47) / 1000
+    this.cameraShakeOffsetX =
+      Math.sin(phaseA * Math.PI * 2) * this.cameraShakeIntensityPx * decay
+    this.cameraShakeOffsetY =
+      Math.cos(phaseB * Math.PI * 2) * this.cameraShakeIntensityPx * decay * 0.7
   }
 
   private getColorString(colorInt: number): string {

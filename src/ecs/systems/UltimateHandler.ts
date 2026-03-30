@@ -44,6 +44,8 @@ const HAMMER_RECOVER_MS = 600
 const HAMMER_JUMP_HEIGHT = 8 // 跳跃视觉高度（米），约为普通跳跃4倍
 const HAMMER_AOE_RADIUS = 4 // 落地AOE伤害范围（米）
 export const HAMMER_ULTIMATE_MAX_DIST = 12 // 落地点最大距离（米）= 约可视范围一半
+const HAMMER_ULTIMATE_SHAKE_INTENSITY_PX = 18
+const HAMMER_ULTIMATE_SHAKE_DURATION_MS = 280
 
 const SPEAR_ULTIMATE_SPIN_MS = 850
 const SPEAR_ULTIMATE_HOLD_MS = 300
@@ -520,6 +522,12 @@ export class UltimateHandler {
           weapon.ultimateGiantGroundY =
             weapon.visual.y + Math.sin(frontAngle) * halfLen
           this.statsSystem?.playSound(SOUND_IDS.HAMMER_ULTIMATE_LAND)
+          this.statsSystem?.emitCameraShake(
+            weapon.ultimateGiantX,
+            weapon.ultimateGiantGroundY,
+            HAMMER_ULTIMATE_SHAKE_INTENSITY_PX,
+            HAMMER_ULTIMATE_SHAKE_DURATION_MS
+          )
           if (!weapon.ultimateDamageDealt) {
             weapon.ultimateDamageDealt = true
             this.applyHammerUltimateAOEDamage(entity)
