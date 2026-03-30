@@ -4,11 +4,13 @@ export class AudioManager {
   private audioContext: AudioContext
   private sounds: Map<number, AudioBuffer>
   private masterVolume: number
+  private hasUserActivation: boolean
 
   constructor() {
     this.audioContext = new AudioContext()
     this.sounds = new Map()
     this.masterVolume = 0.3
+    this.hasUserActivation = false
   }
 
   async init(): Promise<void> {
@@ -68,7 +70,11 @@ export class AudioManager {
   }
 
   resumeContext(): void {
-    if (this.audioContext.state === 'suspended') {
+    this.hasUserActivation = true
+    if (
+      this.audioContext.state === 'suspended' ||
+      this.audioContext.state === 'interrupted'
+    ) {
       this.audioContext.resume().catch((e) => {
         console.warn('AudioContext resume failed:', e)
       })
@@ -93,8 +99,8 @@ export class AudioManager {
       return
     }
 
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume()
+    if (!this.hasUserActivation || this.audioContext.state !== 'running') {
+      return
     }
 
     const source = this.audioContext.createBufferSource()

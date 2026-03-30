@@ -251,25 +251,19 @@ export class GameClient {
   }
 
   private setupAudioResume() {
-    let hasUnlockedAudio = false
     const passiveListenerOptions: AddEventListenerOptions = { passive: true }
-    const resume = () => {
-      if (hasUnlockedAudio) return
-      hasUnlockedAudio = true
+    const resumeAudio = () => {
       this.audioManager.resumeContext()
-      this.inputTarget.removeEventListener('keydown', resume)
-      this.inputTarget.removeEventListener('pointerdown', resume)
-      this.inputTarget.removeEventListener('touchstart', resume)
     }
-    this.inputTarget.addEventListener('keydown', resume)
+    this.inputTarget.addEventListener('keydown', resumeAudio)
     this.inputTarget.addEventListener(
       'pointerdown',
-      resume,
+      resumeAudio,
       passiveListenerOptions
     )
     this.inputTarget.addEventListener(
       'touchstart',
-      resume,
+      resumeAudio,
       passiveListenerOptions
     )
   }
