@@ -339,6 +339,28 @@ export class TargetingSystem extends System {
     const startX = x + eyeOffsetX
     const startY = y + eyeOffsetY
 
+    // 预判：视野范围内非敌对但已锁定自己且处于战斗状态的单位，提前标记为临时敌人
+    if (entity.faction) {
+      for (const target of entities) {
+        if (target.id === entity.id) continue
+        if (!target.transform || !target.faction) continue
+        if (target.stats?.isDead || target.stats?.isVanished) continue
+        if (
+          entity.faction.canAttackEntity(target.faction, target.id.toString())
+        )
+          continue
+        if (!target.stats?.isInCombat) continue
+        const targetingMe =
+          target.sensor?.detectedTargetId === entity.id ||
+          target.input?.lockedTargetId === entity.id
+        if (!targetingMe) continue
+        const pdx = target.transform.x - x
+        const pdy = target.transform.y - y
+        if (pdx * pdx + pdy * pdy > radiusSq) continue
+        entity.faction.addTemporaryEnemy(target.id.toString())
+      }
+    }
+
     const scanResults = entity.sensor.scanResults
     let detectedHostileId: number | null = null
     let closestDistSq = Infinity
@@ -358,7 +380,8 @@ export class TargetingSystem extends System {
       if (target.id === entity.id) continue
       if (!target.transform) continue
       if (!entity.faction || !target.faction) continue
-      if (!entity.faction.canAttack(target.faction)) continue
+      if (!entity.faction.canAttackEntity(target.faction, target.id.toString()))
+        continue
       if (target.stats?.isDead || target.stats?.isVanished) continue
 
       const centerDx = target.transform.x - startX
