@@ -240,6 +240,7 @@ export class StatsSystem extends System {
             } else {
               entity.stats.isInCombat = false
               entity.stats.combatExitTimer = 0
+              entity.faction?.clearTemporaryEnemies()
               if (entity.weapon) {
                 entity.weapon.comboCount = 0
                 entity.weapon.attackQueued = false
@@ -259,6 +260,7 @@ export class StatsSystem extends System {
             ) {
               entity.stats.isInCombat = false
               entity.stats.combatExitTimer = 0
+              entity.faction?.clearTemporaryEnemies()
               if (entity.weapon) {
                 entity.weapon.comboCount = 0
                 entity.weapon.attackQueued = false
@@ -536,13 +538,14 @@ export class StatsSystem extends System {
     if (entity.stats.isDead) return
     if (entity.stats.isInvincible) return
 
-    // 只有被敌对阵营攻击时才进入战斗状态
+    // 被任意实体攻击时都进入战斗状态；若攻击方非当前敌对阵营，记为临时敌人以便反击
+    this.enterCombat(entity)
     if (
-      !attacker?.faction ||
-      !entity.faction ||
-      attacker.faction.canAttack(entity.faction)
+      attacker?.faction &&
+      entity.faction &&
+      !entity.faction.canAttack(attacker.faction)
     ) {
-      this.enterCombat(entity)
+      entity.faction.addTemporaryEnemy(attacker.id.toString())
     }
     // 受击后短暂显示血条（与战斗状态无关）
     entity.stats.healthBarTimerMs = 3000

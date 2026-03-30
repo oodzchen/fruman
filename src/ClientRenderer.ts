@@ -404,7 +404,8 @@ export class ClientRenderer {
         const progress = buf[offset + OFFSETS.FOLLOW_FLASH_PROGRESS]
         const elapsed = (1 - progress) * 1200
         // 上升阶段 0-300ms：从 +15px 下方升到最终位置
-        const riseOffset = elapsed < 300 ? Math.round(15 * (1 - elapsed / 300)) : 0
+        const riseOffset =
+          elapsed < 300 ? Math.round(15 * (1 - elapsed / 300)) : 0
         // 消失阶段 800-1200ms：alpha 从 1 渐变到 0
         const alpha = elapsed > 800 ? (1200 - elapsed) / 400 : 1
         this.drawFollowBondIcon(midX, baseY + riseOffset, alpha)

@@ -710,7 +710,13 @@ export class WeaponSystem extends System {
       if (attacker.id === defender.id) continue
       if (!attacker.weapon || !attacker.faction || !attacker.stats) continue
       if (attacker.stats.isDead) continue
-      if (!defender.faction.canAttack(attacker.faction)) continue
+      if (
+        !defender.faction.canAttackEntity(
+          attacker.faction,
+          attacker.id.toString()
+        )
+      )
+        continue
 
       // 只检测正在攻击的敌人武器（swing 阶段）
       if (attacker.weapon.attackPhase !== 'swing') continue
@@ -3270,7 +3276,10 @@ export class WeaponSystem extends System {
       const target = nearbyEntities[i]
       if (!target || target.id === attacker.id) continue
       if (!target.transform || !target.stats || target.stats.isDead) continue
-      if (!target.faction || !attacker.faction.canAttack(target.faction))
+      if (
+        !target.faction ||
+        !attacker.faction.canAttackEntity(target.faction, target.id.toString())
+      )
         continue
 
       const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS

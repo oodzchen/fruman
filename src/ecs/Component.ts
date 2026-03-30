@@ -856,11 +856,13 @@ export class FactionComponent extends Component {
   factionId: string = Faction.Neutral
   enemyFactions: string[] = []
   allyFactions: string[] = []
+  temporaryEnemyIds: string[] = []
 
   reset(): void {
     this.factionId = Faction.Neutral
     this.enemyFactions = []
     this.allyFactions = []
+    this.temporaryEnemyIds = []
   }
 
   getName(): string {
@@ -870,6 +872,20 @@ export class FactionComponent extends Component {
   canAttack(other: FactionComponent): boolean {
     if (this.factionId === Faction.Neutral) return false
     return this.enemyFactions.includes(other.factionId)
+  }
+
+  canAttackEntity(other: FactionComponent, otherId: string): boolean {
+    return this.canAttack(other) || this.temporaryEnemyIds.includes(otherId)
+  }
+
+  addTemporaryEnemy(id: string): void {
+    if (!this.temporaryEnemyIds.includes(id)) {
+      this.temporaryEnemyIds.push(id)
+    }
+  }
+
+  clearTemporaryEnemies(): void {
+    this.temporaryEnemyIds.length = 0
   }
 }
 

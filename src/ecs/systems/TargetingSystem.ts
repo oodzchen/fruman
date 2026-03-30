@@ -144,7 +144,11 @@ export class TargetingSystem extends System {
           if (entity.id === player.id || entity.id === currentTarget.id)
             continue
           if (
-            !player.faction?.canAttack(entity.faction!) ||
+            !entity.faction ||
+            !player.faction?.canAttackEntity(
+              entity.faction,
+              entity.id.toString()
+            ) ||
             entity.stats?.isDead ||
             entity.stats?.isVanished
           )
@@ -258,7 +262,7 @@ export class TargetingSystem extends System {
       if (entity.id === player.id) continue
       if (
         !entity.faction ||
-        !player.faction.canAttack(entity.faction) ||
+        !player.faction.canAttackEntity(entity.faction, entity.id.toString()) ||
         entity.stats?.isDead ||
         entity.stats?.isVanished
       )

@@ -353,7 +353,10 @@ export class UltimateHandler {
       const target = this.allEntities[i]
       if (!target || target.id === attacker.id) continue
       if (!target.transform || !target.stats || target.stats.isDead) continue
-      if (!target.faction || !attacker.faction.canAttack(target.faction))
+      if (
+        !target.faction ||
+        !attacker.faction.canAttackEntity(target.faction, target.id.toString())
+      )
         continue
       const dx = Math.abs(target.transform.x - giantX)
       if (dx > ULTIMATE_GIANT_HALF_WIDTH) continue
@@ -618,7 +621,10 @@ export class UltimateHandler {
       const target = this.allEntities[i]
       if (!target || target.id === attacker.id) continue
       if (!target.transform || !target.stats || target.stats.isDead) continue
-      if (!target.faction || !attacker.faction.canAttack(target.faction))
+      if (
+        !target.faction ||
+        !attacker.faction.canAttackEntity(target.faction, target.id.toString())
+      )
         continue
       const dx = target.transform.x - cx
       const dy = target.transform.y - cy
@@ -719,7 +725,10 @@ export class UltimateHandler {
       const target = this.allEntities[i]
       if (!target || target.id === attacker.id) continue
       if (!target.transform || !target.stats || target.stats.isDead) continue
-      if (!target.faction || !attacker.faction.canAttack(target.faction)) {
+      if (
+        !target.faction ||
+        !attacker.faction.canAttackEntity(target.faction, target.id.toString())
+      ) {
         continue
       }
 
