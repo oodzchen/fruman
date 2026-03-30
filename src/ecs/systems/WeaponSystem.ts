@@ -38,7 +38,9 @@ import {
   PARRY_COUNTER_WINDOW_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
+  SOUND_DB_BIG_HAMMER_HIT_ROCK,
   SOUND_DB_BOW_SNAP,
+  SOUND_DB_HEAVY_SWORD_HIT_GROUND,
   SOUND_DB_PARRY,
   SOUND_DB_SWORD_HIT_OBSTACLE,
   SOUND_DB_SWORD_SWING,
@@ -123,6 +125,7 @@ const PARRY_WINDOW_FRAMES =
 const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
 const BIG_HAMMER_SIZE_LEVEL = 2
 const GIANT_SWORD_SIZE_LEVEL = 3
+const HEAVY_SWORD_SIZE_LEVEL = 2
 const BIG_HAMMER_JUMP_SHAKE_INTENSITY_PX = 14
 const BIG_HAMMER_JUMP_SHAKE_DURATION_MS = 180
 const GIANT_SWORD_JUMP_SHAKE_INTENSITY_PX = 11
@@ -1297,6 +1300,26 @@ export class WeaponSystem extends System {
     )
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
+    if (!weapon.groundHitSoundTriggered && this.checkGroundCollision(weapon)) {
+      weapon.groundHitSoundTriggered = true
+      if (this.isBigHammer(weapon)) {
+        this.statsSystem?.playSound(SOUND_IDS.BIG_HAMMER_HIT_ROCK)
+        this.emitSoundAt(
+          weapon.visual.x,
+          weapon.visual.y,
+          entity,
+          SOUND_DB_BIG_HAMMER_HIT_ROCK
+        )
+      } else if (this.isHeavySword(weapon)) {
+        this.statsSystem?.playSound(SOUND_IDS.HEAVY_SWORD_HIT_GROUND)
+        this.emitSoundAt(
+          weapon.visual.x,
+          weapon.visual.y,
+          entity,
+          SOUND_DB_HEAVY_SWORD_HIT_GROUND
+        )
+      }
+    }
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
       this.statsSystem?.playSound(SOUND_IDS.SWORD_HIT_OBSTACLE)
@@ -3116,6 +3139,7 @@ export class WeaponSystem extends System {
     weapon.attackStartedAirborne = !(entity.movement?.isGrounded ?? true)
     weapon.landingShakeTriggered = false
     weapon.impactShakeTriggered = false
+    weapon.groundHitSoundTriggered = false
   }
 
   private clearAttackImpactState(weapon: Entity['weapon']): void {
@@ -3123,6 +3147,7 @@ export class WeaponSystem extends System {
     weapon.attackStartedAirborne = false
     weapon.landingShakeTriggered = false
     weapon.impactShakeTriggered = false
+    weapon.groundHitSoundTriggered = false
   }
 
   private isBigHammer(weapon: Entity['weapon']): boolean {
@@ -3139,6 +3164,27 @@ export class WeaponSystem extends System {
       weapon.weaponType === 'sword' &&
       weapon.sizeLevel >= GIANT_SWORD_SIZE_LEVEL
     )
+  }
+
+  private isHeavySword(weapon: Entity['weapon']): boolean {
+    return (
+      !!weapon &&
+      weapon.weaponType === 'sword' &&
+      weapon.sizeLevel >= HEAVY_SWORD_SIZE_LEVEL
+    )
+  }
+
+  private checkGroundCollision(weapon: Entity['weapon']): boolean {
+    if (!weapon) return false
+    const wy = weapon.visual.y
+    const wWidth = weapon.width
+    const wHeight = weapon.height
+    const wRotation = weapon.visual.rotation
+    const cos = Math.cos(wRotation)
+    const sin = Math.sin(wRotation)
+    const maxY =
+      wy + (wWidth / 2) * Math.abs(sin) + (wHeight / 2) * Math.abs(cos)
+    return maxY >= this.groundTopY
   }
 
   private tryEmitLandingCameraShake(

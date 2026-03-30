@@ -290,6 +290,8 @@ export const SOUND_DB_SWORD_BLOCK = 1
 export const SOUND_DB_BODY_HIT = 1.1
 export const SOUND_DB_PARRY = 1.6
 export const SOUND_DB_BOW_SNAP = 0.9
+export const SOUND_DB_HEAVY_SWORD_HIT_GROUND = 1.3
+export const SOUND_DB_BIG_HAMMER_HIT_ROCK = 1.4
 
 // 敌人模板配置
 export const CHARACTER_DEFAULT_DATA = {

@@ -559,6 +559,7 @@ export class WeaponComponent extends Component {
   attackStartedAirborne = false
   landingShakeTriggered = false
   impactShakeTriggered = false
+  groundHitSoundTriggered = false
 
   movesetId: string = ''
   activeSequenceId: string = ''
@@ -725,6 +726,7 @@ export class WeaponComponent extends Component {
     this.attackStartedAirborne = false
     this.landingShakeTriggered = false
     this.impactShakeTriggered = false
+    this.groundHitSoundTriggered = false
     this.movesetId = ''
     this.activeSequenceId = ''
     this.activeMoveIndex = 0

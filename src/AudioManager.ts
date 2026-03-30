@@ -68,6 +68,14 @@ export class AudioManager {
         'audios/Weapon Whips 02-double.wav'
       ),
       this.loadSound(SOUND_IDS.PICKUP_ITEM, 'audios/pickup-item.wav'),
+      this.loadSound(
+        SOUND_IDS.HEAVY_SWORD_HIT_GROUND,
+        'audios/heavy-sword-hit-ground.wav'
+      ),
+      this.loadSound(
+        SOUND_IDS.BIG_HAMMER_HIT_ROCK,
+        'audios/big-hammer-hit-rock.wav'
+      ),
     ])
   }
 
@@ -101,7 +109,11 @@ export class AudioManager {
       return
     }
 
-    if (this.muted || !this.hasUserActivation || this.audioContext.state !== 'running') {
+    if (
+      this.muted ||
+      !this.hasUserActivation ||
+      this.audioContext.state !== 'running'
+    ) {
       return
     }
 
