@@ -945,7 +945,8 @@ export class ClientRenderer {
     const DEBUG_GROW_EFFECT = true
     if (DEBUG_GROW_EFFECT) {
       this.debugEffectTimer =
-        (this.debugEffectTimer + this.lastRenderDeltaSec) % this.HEALTH_BAR_ANIM_SEC
+        (this.debugEffectTimer + this.lastRenderDeltaSec) %
+        this.HEALTH_BAR_ANIM_SEC
     }
     if (isGrowing || DEBUG_GROW_EFFECT) {
       const debugStartWidth = displayBarWidth * 0.75

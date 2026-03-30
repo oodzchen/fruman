@@ -556,12 +556,14 @@ export class StatsSystem extends System {
 
     // 被任意实体攻击时都进入战斗状态；若攻击方非当前敌对阵营，记为临时敌人以便反击
     this.enterCombat(entity)
-    if (
-      attacker?.faction &&
-      entity.faction &&
-      !entity.faction.canAttack(attacker.faction)
-    ) {
-      entity.faction.addTemporaryEnemy(attacker.id.toString())
+    if (attacker?.faction && entity.faction) {
+      if (!entity.faction.canAttack(attacker.faction)) {
+        entity.faction.addTemporaryEnemy(attacker.id.toString())
+      }
+      // 无论视野方向，受击后立即锁定攻击方，确保背后偷袭也能立即反击
+      if (entity.sensor) {
+        entity.sensor.detectedTargetId = attacker.id
+      }
     }
     // 受击后短暂显示血条（与战斗状态无关）
     entity.stats.healthBarTimerMs = 3000
