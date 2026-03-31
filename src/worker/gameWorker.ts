@@ -82,7 +82,10 @@ import { SoundSystem } from '../ecs/systems/SoundSystem'
 import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
 import { SunPickupSystem } from '../ecs/systems/SunPickupSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
-import { WeaponSystem } from '../ecs/systems/WeaponSystem'
+import {
+  type ObstacleCollider,
+  WeaponSystem,
+} from '../ecs/systems/WeaponSystem'
 import type {
   EditorMapData,
   MapEnemy,
@@ -175,6 +178,7 @@ let groundShapeIds: b2ShapeId[] = []
 let activeMapData: EditorMapData | null = null
 let defaultMapData: EditorMapData | null = null
 let isMapPreview = false
+let standableSurfaces: ObstacleCollider[] = []
 let obstacles: {
   bodyId: b2BodyId
   mainShapeId: b2ShapeId
@@ -706,6 +710,7 @@ function initializeSystems() {
 
   world.setComponentPool(arrowPools)
   weaponSystem.setObstacles(obstacles)
+  weaponSystem.setStandableSurfaces(standableSurfaces)
   weaponSystem.setWorld(world, worldId, groundTopY)
   weaponSystem.setArrowPools(arrowPools)
   weaponSystem.setViewportSize(
@@ -933,6 +938,7 @@ function createObstacles() {
 
 function createEnvironment(): void {
   groundShapeIds.length = 0
+  standableSurfaces = []
   obstacles = []
   if (activeMapData) {
     createEnvironmentFromMap(activeMapData)
@@ -945,16 +951,24 @@ function createEnvironment(): void {
   }
   if (weaponSystem) {
     weaponSystem.setObstacles(obstacles)
+    weaponSystem.setStandableSurfaces(standableSurfaces)
   }
 }
 
 function createEnvironmentFromMap(map: EditorMapData): void {
+  const hasExplicitGround = map.shapes.some(
+    (placed) => placed.objectKind === 'ground'
+  )
   for (let i = 0; i < map.shapes.length; i++) {
     const placed = map.shapes[i]
     if (placed.objectKind === 'ground') {
       createGroundShapeFromMap(placed)
+      registerStandableSurfaceFromPlacedShape(placed)
     } else {
       createObstacleShapeFromMap(placed)
+      if (!hasExplicitGround) {
+        registerStandableSurfaceFromPlacedShape(placed)
+      }
     }
   }
 }
@@ -1092,6 +1106,69 @@ function createObstacleShapeFromMap(placed: MapPlacedShape): void {
   createStaticShapeFromMap(placed, CATEGORY_OBSTACLE, obstacleFriction, true)
 }
 
+function registerStandableSurfaceFromPlacedShape(placed: MapPlacedShape): void {
+  const shape = placed.shape
+  if (shape.kind === 'rect') {
+    const worldVertices =
+      Math.abs(shape.rotationRad) > 0.0001
+        ? computeRectWorldVertices(
+            shape.center.x,
+            shape.center.y,
+            shape.halfWidth,
+            shape.halfHeight,
+            shape.rotationRad
+          )
+        : undefined
+    standableSurfaces.push({
+      bodyId: 0 as unknown as b2BodyId,
+      centerX: shape.center.x,
+      centerY: shape.center.y,
+      width: shape.halfWidth,
+      height: shape.halfHeight,
+      worldVertices,
+    })
+    return
+  }
+
+  if (shape.kind === 'circle') {
+    standableSurfaces.push({
+      bodyId: 0 as unknown as b2BodyId,
+      centerX: shape.center.x,
+      centerY: shape.center.y,
+      width: shape.radius,
+      height: shape.radius,
+      radius: shape.radius,
+    })
+    return
+  }
+
+  if (shape.points.length < 6) return
+
+  let minX = shape.points[0]
+  let maxX = shape.points[0]
+  let minY = shape.points[1]
+  let maxY = shape.points[1]
+  const worldVertices: { x: number; y: number }[] = []
+  for (let i = 0; i < shape.points.length; i += 2) {
+    const worldX = shape.points[i]
+    const worldY = shape.points[i + 1]
+    if (worldX < minX) minX = worldX
+    if (worldX > maxX) maxX = worldX
+    if (worldY < minY) minY = worldY
+    if (worldY > maxY) maxY = worldY
+    worldVertices.push({ x: worldX, y: worldY })
+  }
+
+  standableSurfaces.push({
+    bodyId: 0 as unknown as b2BodyId,
+    centerX: shape.center.x,
+    centerY: shape.center.y,
+    width: (maxX - minX) / 2,
+    height: (maxY - minY) / 2,
+    worldVertices,
+  })
+}
+
 function createStaticShapeFromMap(
   placed: MapPlacedShape,
   categoryBits: number,
@@ -1151,9 +1228,7 @@ function createStaticRectBody(
 
   const bodyDef = b2DefaultBodyDef()
   bodyDef.position.Set(centerX, centerY)
-  ;(
-    bodyDef as ReturnType<MainModule['b2DefaultBodyDef']> & { angle: number }
-  ).angle = rotationRad
+  bodyDef.rotation.SetAngle(rotationRad)
   const bodyId = b2CreateBody(worldId, bodyDef)
 
   const box = b2MakeBox(halfWidth, halfHeight)
@@ -1476,9 +1551,7 @@ function createObstacleCapRect(
   const capCenterY = centerY + offsetY * cos
   const bodyDef = b2DefaultBodyDef()
   bodyDef.position.Set(capCenterX, capCenterY)
-  ;(
-    bodyDef as ReturnType<MainModule['b2DefaultBodyDef']> & { angle: number }
-  ).angle = rotationRad
+  bodyDef.rotation.SetAngle(rotationRad)
   const bodyId = b2CreateBody(worldId, bodyDef)
   const capBox = b2MakeBox(halfWidth, capHalfHeight)
   const shapeDef = b2DefaultShapeDef()

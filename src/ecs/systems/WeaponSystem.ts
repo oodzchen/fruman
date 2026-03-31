@@ -135,7 +135,7 @@ const BIG_HAMMER_FINISHER_SHAKE_DURATION_MS = 210
 const GIANT_SWORD_FINISHER_SHAKE_INTENSITY_PX = 13
 const GIANT_SWORD_FINISHER_SHAKE_DURATION_MS = 190
 
-type ObstacleCollider = {
+export type ObstacleCollider = {
   bodyId: b2BodyId
   centerX: number
   centerY: number
@@ -166,6 +166,7 @@ type WeaponDropData = {
 export class WeaponSystem extends System {
   private box2d?: MainModule
   private obstacles: ObstacleCollider[] = []
+  private standableSurfaces: ObstacleCollider[] = []
   private statsSystem?: StatsSystem
   private soundSystem: SoundSystem | null = null
   private allEntities: Entity[] = []
@@ -209,6 +210,7 @@ export class WeaponSystem extends System {
   }
   private tempPlayerPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
+  private tempWeaponBottomPoint = { x: 0, y: 0 }
   private currentDeltaTime = 0
   private currentTimeMs = 0
   private readonly ultimateHandler = new UltimateHandler()
@@ -3186,6 +3188,13 @@ export class WeaponSystem extends System {
 
   private checkGroundCollision(weapon: Entity['weapon']): boolean {
     if (!weapon) return false
+    if (this.checkGroundPlaneCollision(weapon)) {
+      return true
+    }
+    return this.checkStandableSurfaceCollision(weapon)
+  }
+
+  private checkGroundPlaneCollision(weapon: WeaponComponent): boolean {
     const wy = weapon.visual.y
     const wWidth = weapon.width
     const wHeight = weapon.height
@@ -3195,6 +3204,112 @@ export class WeaponSystem extends System {
     const maxY =
       wy + (wWidth / 2) * Math.abs(sin) + (wHeight / 2) * Math.abs(cos)
     return maxY >= this.groundTopY
+  }
+
+  private checkStandableSurfaceCollision(weapon: WeaponComponent): boolean {
+    if (this.standableSurfaces.length === 0) return false
+
+    this.getWeaponBottomPoint(weapon, this.tempWeaponBottomPoint)
+    const pointX = this.tempWeaponBottomPoint.x
+    const pointY = this.tempWeaponBottomPoint.y
+
+    for (let i = 0; i < this.standableSurfaces.length; i++) {
+      if (
+        this.isPointNearSurfaceTop(pointX, pointY, this.standableSurfaces[i])
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private getWeaponBottomPoint(
+    weapon: WeaponComponent,
+    out: { x: number; y: number }
+  ): void {
+    const halfWidth = weapon.width / 2
+    const halfHeight = weapon.height / 2
+    const cos = Math.cos(weapon.visual.rotation)
+    const sin = Math.sin(weapon.visual.rotation)
+    const centerX = weapon.visual.x
+    const centerY = weapon.visual.y
+    let bottomX = centerX
+    let bottomY = centerY
+
+    for (let i = 0; i < 4; i++) {
+      const localX = i === 0 || i === 3 ? -halfWidth : halfWidth
+      const localY = i < 2 ? -halfHeight : halfHeight
+      const worldX = centerX + localX * cos - localY * sin
+      const worldY = centerY + localX * sin + localY * cos
+      if (i === 0 || worldY > bottomY) {
+        bottomX = worldX
+        bottomY = worldY
+      }
+    }
+
+    out.x = bottomX
+    out.y = bottomY
+  }
+
+  private isPointNearSurfaceTop(
+    x: number,
+    y: number,
+    surface: ObstacleCollider
+  ): boolean {
+    const SURFACE_HIT_TOLERANCE = 0.35
+    const worldVertices = surface.worldVertices
+    let topY: number | null = null
+
+    if (worldVertices && worldVertices.length >= 2) {
+      topY = this.findPolygonTopYAtX(worldVertices, x)
+    } else if (surface.radius !== undefined && surface.radius > 0) {
+      const dx = x - surface.centerX
+      const radius = surface.radius
+      if (dx < -radius || dx > radius) return false
+      const remaining = radius * radius - dx * dx
+      if (remaining < 0) return false
+      topY = surface.centerY - Math.sqrt(remaining)
+    } else {
+      const left = surface.centerX - surface.width
+      const right = surface.centerX + surface.width
+      if (x < left || x > right) return false
+      topY = surface.centerY - surface.height
+    }
+
+    return topY !== null && y >= topY && y <= topY + SURFACE_HIT_TOLERANCE
+  }
+
+  private findPolygonTopYAtX(
+    vertices: { x: number; y: number }[],
+    x: number
+  ): number | null {
+    let topY = 0
+    let found = false
+
+    for (let i = 0; i < vertices.length; i++) {
+      const start = vertices[i]
+      const end = vertices[(i + 1) % vertices.length]
+      const minX = start.x < end.x ? start.x : end.x
+      const maxX = start.x > end.x ? start.x : end.x
+      if (x < minX || x > maxX) continue
+
+      let edgeY = 0
+      if (start.x === end.x) {
+        edgeY = start.y < end.y ? start.y : end.y
+      } else {
+        const t = (x - start.x) / (end.x - start.x)
+        if (t < 0 || t > 1) continue
+        edgeY = start.y + (end.y - start.y) * t
+      }
+
+      if (!found || edgeY < topY) {
+        topY = edgeY
+        found = true
+      }
+    }
+
+    return found ? topY : null
   }
 
   private tryEmitLandingCameraShake(
@@ -3306,6 +3421,10 @@ export class WeaponSystem extends System {
 
   setObstacles(obstacles: ObstacleCollider[]): void {
     this.obstacles = obstacles
+  }
+
+  setStandableSurfaces(surfaces: ObstacleCollider[]): void {
+    this.standableSurfaces = surfaces
   }
 
   private retractWeaponOnDirectionChange(
