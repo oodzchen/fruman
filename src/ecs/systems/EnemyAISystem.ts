@@ -219,13 +219,17 @@ export class EnemyAISystem extends System {
       const isTargetSwinging = target.weapon
         ? target.weapon.attackPhase === 'swing'
         : false
+      const isTargetAirborne = target.movement
+        ? !target.movement.isGrounded
+        : false
       this.updateParryState(
         entity,
         ai,
         isTargetSwinging,
         distance,
         weaponRange,
-        !!hasCombatLineOfSight
+        !!hasCombatLineOfSight,
+        isTargetAirborne
       )
       const isEngaged =
         !!hasCombatLineOfSight ||
@@ -836,7 +840,8 @@ export class EnemyAISystem extends System {
     isPlayerSwinging: boolean,
     distance: number,
     weaponRange: number,
-    hasLineOfSight: boolean
+    hasLineOfSight: boolean,
+    isTargetAirborne: boolean
   ): void {
     if (!entity.input || !entity.weapon) return
 
@@ -873,7 +878,8 @@ export class EnemyAISystem extends System {
 
     if (!hasLineOfSight) return
 
-    if (distance > weaponRange * 2) return
+    const parryRangeMultiplier = isTargetAirborne ? 5 : 2
+    if (distance > weaponRange * parryRangeMultiplier) return
 
     if (ai.parryAttemptedThisSwing) return
 
