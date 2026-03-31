@@ -300,6 +300,19 @@ export class WeaponSystem extends System {
       }
       this.updateWeapon(entity, deltaMs)
     }
+
+    for (const entity of entities) {
+      if (!entity.weapon || entity.weapon.groundHitSoundPending === 0) continue
+      const weapon = entity.weapon
+      const soundId = weapon.groundHitSoundPending
+      weapon.groundHitSoundPending = 0
+      const db =
+        soundId === SOUND_IDS.BIG_HAMMER_HIT_ROCK
+          ? SOUND_DB_BIG_HAMMER_HIT_ROCK
+          : SOUND_DB_HEAVY_SWORD_HIT_GROUND
+      this.statsSystem?.playSound(soundId)
+      this.emitSoundAt(weapon.visual.x, weapon.visual.y, entity, db)
+    }
   }
 
   setEntities(entities: Entity[]): void {
@@ -1302,26 +1315,6 @@ export class WeaponSystem extends System {
     )
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
-    if (!weapon.groundHitSoundTriggered && this.checkGroundCollision(weapon)) {
-      weapon.groundHitSoundTriggered = true
-      if (this.isBigHammer(weapon)) {
-        this.statsSystem?.playSound(SOUND_IDS.BIG_HAMMER_HIT_ROCK)
-        this.emitSoundAt(
-          weapon.visual.x,
-          weapon.visual.y,
-          entity,
-          SOUND_DB_BIG_HAMMER_HIT_ROCK
-        )
-      } else if (this.shouldPlayHeavySwordGroundHitSound(weapon)) {
-        this.statsSystem?.playSound(SOUND_IDS.HEAVY_SWORD_HIT_GROUND)
-        this.emitSoundAt(
-          weapon.visual.x,
-          weapon.visual.y,
-          entity,
-          SOUND_DB_HEAVY_SWORD_HIT_GROUND
-        )
-      }
-    }
     if (this.checkObstacleCollision(weapon)) {
       weapon.isColliding = true
       this.statsSystem?.playSound(SOUND_IDS.SWORD_HIT_OBSTACLE)
@@ -1334,6 +1327,14 @@ export class WeaponSystem extends System {
       this.applyPushback(entity, weapon)
       this.startRebound(entity, playerPos, now)
       return
+    }
+    if (!weapon.groundHitSoundTriggered && this.checkGroundCollision(weapon)) {
+      weapon.groundHitSoundTriggered = true
+      if (this.isBigHammer(weapon)) {
+        weapon.groundHitSoundPending = SOUND_IDS.BIG_HAMMER_HIT_ROCK
+      } else if (this.shouldPlayHeavySwordGroundHitSound(weapon)) {
+        weapon.groundHitSoundPending = SOUND_IDS.HEAVY_SWORD_HIT_GROUND
+      }
     }
     this.checkEntityHits(entity, weapon)
     if (t >= 1) {
@@ -3142,6 +3143,7 @@ export class WeaponSystem extends System {
     weapon.landingShakeTriggered = false
     weapon.impactShakeTriggered = false
     weapon.groundHitSoundTriggered = false
+    weapon.groundHitSoundPending = 0
   }
 
   private clearAttackImpactState(weapon: Entity['weapon']): void {
@@ -3150,6 +3152,7 @@ export class WeaponSystem extends System {
     weapon.landingShakeTriggered = false
     weapon.impactShakeTriggered = false
     weapon.groundHitSoundTriggered = false
+    weapon.groundHitSoundPending = 0
   }
 
   private isBigHammer(weapon: Entity['weapon']): boolean {
@@ -3695,6 +3698,7 @@ export class WeaponSystem extends System {
 
     weapon.lastAttackTimestamp = now
     weapon.hitEntityIds.clear()
+    weapon.groundHitSoundPending = 0
   }
 
   private handleReboundPhase(
