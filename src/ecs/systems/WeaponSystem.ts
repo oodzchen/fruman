@@ -3213,6 +3213,7 @@ export class WeaponSystem extends System {
     if (!weapon.attackStartedAirborne || weapon.landingShakeTriggered) return
     if (!this.checkGroundCollision(weapon)) return
     if (!this.isAttackShakeEligiblePhase(weapon.attackPhase)) return
+    if (!this.isGroundImpactShakeTimingValid(entity)) return
 
     const impactX = entity.transform.x
     const impactY = entity.transform.y + (entity.render.radius || 0)
@@ -3291,6 +3292,11 @@ export class WeaponSystem extends System {
       phase === 'recover' ||
       phase === 'rebound'
     )
+  }
+
+  private isGroundImpactShakeTimingValid(entity: Entity): boolean {
+    if (entity.movement?.isGrounded) return true
+    return (entity.physics?.velY ?? 0) > 0
   }
 
   private getMoveKind(weapon: Entity['weapon']): AttackMoveData['kind'] {
