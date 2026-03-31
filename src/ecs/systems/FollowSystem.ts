@@ -1,6 +1,8 @@
 import {
+  FOLLOW_APPROACH_HYSTERESIS,
   FOLLOW_BLOCK_CHECK_DISTANCE,
   FOLLOW_POSITION_CHECK_INTERVAL_MS,
+  FOLLOW_RETREAT_HYSTERESIS,
   FOLLOW_STUCK_THRESHOLD_MS,
 } from '../../constants'
 import type { FollowComponent } from '../Component'
@@ -82,7 +84,13 @@ export class FollowSystem extends System {
         continue
       }
 
-      const facing = dx >= 0 ? 1 : -1
+      // stableFacing：只有 |dx| >= minDistance 时才更新朝向，阈值远大于 EnemyAI 的 0.4，
+      // 彻底避免 dx≈0 时每帧翻转
+      const rawFacing = dx >= 0 ? 1 : -1
+      if (Math.abs(dx) >= follow.minDistance) {
+        follow.lastFacing = rawFacing
+      }
+      const stableFacing = follow.lastFacing
 
       // 优先处理障碍跳跃序列
       if (follow.obstacleJumpStage > 0) {
@@ -90,20 +98,44 @@ export class FollowSystem extends System {
         continue
       }
 
-      // 太近，退步
-      if (fullDist < follow.minDistance) {
-        entity.input.moveDirection = -facing as -1 | 1
-        entity.input.sprintRequested = false
-        entity.input.facingOverride = facing
+      // 退步：太近时冲刺后退，加滞后区间防止边界抖动
+      // 进入：fullDist < minDistance；退出：fullDist >= minDistance + RETREAT_HYSTERESIS
+      const inRetreat =
+        fullDist < follow.minDistance ||
+        (follow.retreatDir !== 0 &&
+          fullDist < follow.minDistance + FOLLOW_RETREAT_HYSTERESIS)
+
+      if (inRetreat) {
+        if (follow.retreatDir === 0) {
+          follow.retreatDir = (-stableFacing) as -1 | 1
+        }
+        entity.input.moveDirection = follow.retreatDir
+        entity.input.sprintRequested = true
+        entity.input.facingOverride = stableFacing
         follow.state = 'following'
+        if (entity.movement?.isGrounded && follow.obstacleJumpStage === 0) {
+          entity.input.jumpRequested = true
+          entity.input.inputBuffer.bufferAction('jump')
+        }
+        this.checkStuck(entity, follow, now)
         continue
       }
 
-      // 在舒适范围内，停下等待并朝向目标
-      if (fullDist <= follow.preferredDistance) {
+      follow.retreatDir = 0
+
+      // 等待：在舒适距离内停下。
+      // 使用状态迟滞避免在 preferredDistance 边界反复切换：
+      //   当前为 waiting → 需要 fullDist > preferredDistance + APPROACH_HYSTERESIS 才重新追随
+      //   当前为 following → 到达 preferredDistance 时停下
+      const waitThreshold =
+        follow.state === 'waiting'
+          ? follow.preferredDistance + FOLLOW_APPROACH_HYSTERESIS
+          : follow.preferredDistance
+
+      if (fullDist <= waitThreshold) {
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
-        entity.input.facingOverride = facing
+        entity.input.facingOverride = stableFacing
         follow.state = 'waiting'
         follow.stuckTimer = 0
         follow.lastPositionUpdateTime = 0
@@ -126,9 +158,9 @@ export class FollowSystem extends System {
 
       // 正常追随
       follow.state = 'following'
-      entity.input.moveDirection = facing
+      entity.input.moveDirection = stableFacing
       entity.input.sprintRequested = fullDist > follow.maxDistance
-      entity.input.facingOverride = facing
+      entity.input.facingOverride = stableFacing
       this.checkStuck(entity, follow, now)
     }
   }
@@ -192,12 +224,23 @@ export class FollowSystem extends System {
     now: number
   ): void {
     if (
-      !entity.movement?.isTouchingWall ||
       follow.obstacleJumpStage !== 0 ||
       !entity.input ||
-      !entity.transform
+      !entity.transform ||
+      !entity.movement
     )
       return
+    // 碰墙或太近退步被卡住均可触发
+    const target = follow.followTargetId
+      ? this.entityLookup?.(follow.followTargetId)
+      : undefined
+    const isTooClose =
+      target?.transform != null &&
+      Math.hypot(
+        target.transform.x - entity.transform.x,
+        target.transform.y - entity.transform.y
+      ) < follow.minDistance
+    if (!entity.movement.isTouchingWall && !isTooClose) return
 
     const moveDir =
       entity.input.moveDirection !== 0

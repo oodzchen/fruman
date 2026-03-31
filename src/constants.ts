@@ -262,6 +262,9 @@ export const FOLLOW_PREFERRED_DISTANCE = 2
 export const FOLLOW_MIN_DISTANCE = 1
 export const FOLLOW_MAX_DISTANCE = 6
 export const FOLLOW_BLOCK_CHECK_DISTANCE = 2
+export const FOLLOW_RETREAT_HYSTERESIS = 0.4
+// waiting 状态需要距离超过此值才重新开始追随（避免在 preferredDistance 边界反复切换）
+export const FOLLOW_APPROACH_HYSTERESIS = 0.8
 export const FOLLOW_STUCK_THRESHOLD_MS = 500
 export const FOLLOW_POSITION_CHECK_INTERVAL_MS = 300
 export const FOLLOW_INTERACTION_RANGE = 3
