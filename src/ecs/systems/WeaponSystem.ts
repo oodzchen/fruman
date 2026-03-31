@@ -1310,7 +1310,7 @@ export class WeaponSystem extends System {
           entity,
           SOUND_DB_BIG_HAMMER_HIT_ROCK
         )
-      } else if (this.isGreatSword(weapon)) {
+      } else if (this.shouldPlayHeavySwordGroundHitSound(weapon)) {
         this.statsSystem?.playSound(SOUND_IDS.HEAVY_SWORD_HIT_GROUND)
         this.emitSoundAt(
           weapon.visual.x,
@@ -3171,6 +3171,16 @@ export class WeaponSystem extends System {
       !!weapon &&
       weapon.weaponType === 'sword' &&
       weapon.sizeLevel >= GIANT_SWORD_SIZE_LEVEL
+    )
+  }
+
+  private shouldPlayHeavySwordGroundHitSound(
+    weapon: Entity['weapon']
+  ): boolean {
+    return (
+      !!weapon &&
+      this.isGreatSword(weapon) &&
+      weapon.swingDirection === 'toFront'
     )
   }
 
