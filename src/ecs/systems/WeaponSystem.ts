@@ -1328,13 +1328,12 @@ export class WeaponSystem extends System {
       this.startRebound(entity, playerPos, now)
       return
     }
-    if (!weapon.groundHitSoundTriggered && this.checkGroundCollision(weapon)) {
+    if (
+      !weapon.groundHitSoundTriggered &&
+      this.shouldTriggerHeavyGroundHitSound(entity, weapon)
+    ) {
       weapon.groundHitSoundTriggered = true
-      if (this.isBigHammer(weapon)) {
-        weapon.groundHitSoundPending = SOUND_IDS.BIG_HAMMER_HIT_ROCK
-      } else if (this.shouldPlayHeavySwordGroundHitSound(weapon)) {
-        weapon.groundHitSoundPending = SOUND_IDS.HEAVY_SWORD_HIT_GROUND
-      }
+      weapon.groundHitSoundPending = this.getHeavyGroundHitSoundId(weapon)
     }
     this.checkEntityHits(entity, weapon)
     if (t >= 1) {
@@ -3189,19 +3188,113 @@ export class WeaponSystem extends System {
     )
   }
 
-  private checkGroundCollision(weapon: Entity['weapon']): boolean {
-    if (!weapon) return false
-    if (this.checkGroundPlaneCollision(weapon)) {
-      return true
+  private getHeavyGroundHitSoundId(weapon: Entity['weapon']): number {
+    if (!weapon) return 0
+    if (this.isBigHammer(weapon)) {
+      return SOUND_IDS.BIG_HAMMER_HIT_ROCK
     }
-    return this.checkStandableSurfaceCollision(weapon)
+    if (this.shouldPlayHeavySwordGroundHitSound(weapon)) {
+      return SOUND_IDS.HEAVY_SWORD_HIT_GROUND
+    }
+    return 0
   }
 
-  private checkGroundPlaneCollision(weapon: WeaponComponent): boolean {
-    const wy = weapon.visual.y
+  private shouldTriggerHeavyGroundHitSound(
+    entity: Entity,
+    weapon: WeaponComponent
+  ): boolean {
+    if (this.getHeavyGroundHitSoundId(weapon) === 0) return false
+    if (!this.checkGroundCollision(weapon)) return false
+    return !this.hasActiveParryWeaponCollision(entity, weapon)
+  }
+
+  private hasActiveParryWeaponCollision(
+    attacker: Entity,
+    attackerWeapon: WeaponComponent
+  ): boolean {
+    if (!attacker.faction) return false
+
+    const weaponX = attackerWeapon.visual.x
+    const weaponY = attackerWeapon.visual.y
+    const weaponWidth = attackerWeapon.width
+    const weaponHeight = attackerWeapon.height
+    const weaponRotation = attackerWeapon.visual.rotation
+    const attackRadius =
+      attackerWeapon.attackRadius !== 0
+        ? attackerWeapon.attackRadius
+        : this.getAttackRadius(attacker)
+
+    const nearbyEntities = this.spatialHash
+      ? this.spatialHash.query(weaponX, weaponY, attackRadius + 2)
+      : this.allEntities
+    const nearbyCount = this.spatialHash
+      ? this.spatialHash.getQueryResultLength()
+      : nearbyEntities.length
+
+    for (let i = 0; i < nearbyCount; i++) {
+      const defender = nearbyEntities[i]
+      if (!defender || defender.id === attacker.id) continue
+      if (!defender.weapon || !defender.faction || !defender.stats) continue
+      if (defender.stats.isDead) continue
+      if (
+        !attacker.faction.canAttackEntity(
+          defender.faction,
+          defender.id.toString()
+        )
+      ) {
+        continue
+      }
+      if (!this.isWeaponInActiveParryWindow(defender.weapon)) continue
+
+      if (
+        checkOBBvsOBB(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation,
+          defender.weapon.visual.x,
+          defender.weapon.visual.y,
+          defender.weapon.width,
+          defender.weapon.height,
+          defender.weapon.visual.rotation
+        )
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private isWeaponInActiveParryWindow(weapon: Entity['weapon']): boolean {
+    return (
+      !!weapon &&
+      weapon.attackPhase === 'block' &&
+      weapon.isParrying &&
+      weapon.parryElapsedTime >= PARRY_ACTIVE_START_FRAME
+    )
+  }
+
+  private checkGroundCollision(
+    weapon: Entity['weapon'],
+    transform: WeaponTransform = weapon?.visual ?? this.tempTransform
+  ): boolean {
+    if (!weapon) return false
+    if (this.checkGroundPlaneCollision(weapon, transform)) {
+      return true
+    }
+    return this.checkStandableSurfaceCollision(weapon, transform)
+  }
+
+  private checkGroundPlaneCollision(
+    weapon: WeaponComponent,
+    transform: WeaponTransform
+  ): boolean {
+    const wy = transform.y
     const wWidth = weapon.width
     const wHeight = weapon.height
-    const wRotation = weapon.visual.rotation
+    const wRotation = transform.rotation
     const cos = Math.cos(wRotation)
     const sin = Math.sin(wRotation)
     const maxY =
@@ -3209,10 +3302,13 @@ export class WeaponSystem extends System {
     return maxY >= this.groundTopY
   }
 
-  private checkStandableSurfaceCollision(weapon: WeaponComponent): boolean {
+  private checkStandableSurfaceCollision(
+    weapon: WeaponComponent,
+    transform: WeaponTransform
+  ): boolean {
     if (this.standableSurfaces.length === 0) return false
 
-    this.getWeaponBottomPoint(weapon, this.tempWeaponBottomPoint)
+    this.getWeaponBottomPoint(weapon, transform, this.tempWeaponBottomPoint)
     const pointX = this.tempWeaponBottomPoint.x
     const pointY = this.tempWeaponBottomPoint.y
 
@@ -3229,14 +3325,15 @@ export class WeaponSystem extends System {
 
   private getWeaponBottomPoint(
     weapon: WeaponComponent,
+    transform: WeaponTransform,
     out: { x: number; y: number }
   ): void {
     const halfWidth = weapon.width / 2
     const halfHeight = weapon.height / 2
-    const cos = Math.cos(weapon.visual.rotation)
-    const sin = Math.sin(weapon.visual.rotation)
-    const centerX = weapon.visual.x
-    const centerY = weapon.visual.y
+    const cos = Math.cos(transform.rotation)
+    const sin = Math.sin(transform.rotation)
+    const centerX = transform.x
+    const centerY = transform.y
     let bottomX = centerX
     let bottomY = centerY
 
