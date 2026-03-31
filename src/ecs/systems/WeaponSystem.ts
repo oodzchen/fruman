@@ -124,8 +124,8 @@ const PARRY_WINDOW_FRAMES =
   (DEFAULT_PARRY_WINDOW_MS * DEFAULT_FRAME_RATE) / 1000
 const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
 const BIG_HAMMER_SIZE_LEVEL = 2
-const GIANT_SWORD_SIZE_LEVEL = 3
-const HEAVY_SWORD_SIZE_LEVEL = 2
+const GREAT_SWORD_SIZE_LEVEL = 3
+const GIANT_SWORD_SIZE_LEVEL = 4
 const BIG_HAMMER_JUMP_SHAKE_INTENSITY_PX = 14
 const BIG_HAMMER_JUMP_SHAKE_DURATION_MS = 180
 const GIANT_SWORD_JUMP_SHAKE_INTENSITY_PX = 11
@@ -1310,7 +1310,7 @@ export class WeaponSystem extends System {
           entity,
           SOUND_DB_BIG_HAMMER_HIT_ROCK
         )
-      } else if (this.isHeavySword(weapon)) {
+      } else if (this.isGreatSword(weapon)) {
         this.statsSystem?.playSound(SOUND_IDS.HEAVY_SWORD_HIT_GROUND)
         this.emitSoundAt(
           weapon.visual.x,
@@ -3158,19 +3158,19 @@ export class WeaponSystem extends System {
     )
   }
 
+  private isGreatSword(weapon: Entity['weapon']): boolean {
+    return (
+      !!weapon &&
+      weapon.weaponType === 'sword' &&
+      weapon.sizeLevel >= GREAT_SWORD_SIZE_LEVEL
+    )
+  }
+
   private isGiantSword(weapon: Entity['weapon']): boolean {
     return (
       !!weapon &&
       weapon.weaponType === 'sword' &&
       weapon.sizeLevel >= GIANT_SWORD_SIZE_LEVEL
-    )
-  }
-
-  private isHeavySword(weapon: Entity['weapon']): boolean {
-    return (
-      !!weapon &&
-      weapon.weaponType === 'sword' &&
-      weapon.sizeLevel >= HEAVY_SWORD_SIZE_LEVEL
     )
   }
 

@@ -107,7 +107,7 @@ export class FollowSystem extends System {
 
       if (inRetreat) {
         if (follow.retreatDir === 0) {
-          follow.retreatDir = (-stableFacing) as -1 | 1
+          follow.retreatDir = -stableFacing as -1 | 1
         }
         entity.input.moveDirection = follow.retreatDir
         entity.input.sprintRequested = true
