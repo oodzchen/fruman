@@ -11,6 +11,7 @@ import {
   ENEMY_ALERT_RANGE_MULTIPLIER,
   ENEMY_LEAP_ATTACK_CHANCE,
   ENEMY_LEAP_ATTACK_COOLDOWN_MS,
+  ENEMY_LEAP_ATTACK_MAX_DISTANCE_MULTIPLIER,
   ENEMY_LEAP_ATTACK_MAX_DURATION_MS,
   ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER,
   ENEMY_PACE_MIN_DISTANCE,
@@ -568,6 +569,8 @@ export class EnemyAISystem extends System {
               ai.leapAttackCooldownEndTimestamp <= now &&
               distance >
                 weaponRange * ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER &&
+              distance <
+                weaponRange * ENEMY_LEAP_ATTACK_MAX_DISTANCE_MULTIPLIER &&
               Math.random() < ENEMY_LEAP_ATTACK_CHANCE
             ) {
               this.startLeapAttack(entity, ai, stableFacing, now)
