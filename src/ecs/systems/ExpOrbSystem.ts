@@ -51,10 +51,7 @@ export class ExpOrbSystem {
                   (lv.level - 1) * PLAYER_HEALTH_PER_LEVEL,
                 100
               )
-              player.stats.health = Math.min(
-                player.stats.health + PLAYER_HEALTH_PER_LEVEL,
-                player.stats.maxHealth
-              )
+              player.stats.health = player.stats.maxHealth
               player.stats.hudVisibleTimer = player.stats.combatExitTimeout
             }
           }
