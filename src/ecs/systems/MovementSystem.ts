@@ -548,8 +548,12 @@ export class MovementSystem extends System {
       return
     }
 
-    // 地面攻击时锁定位移，空中攻击允许移动
-    if (isInAttackAction && entity.movement.isGrounded) {
+    // 地面攻击时锁定位移，空中攻击和跳跃攻击允许移动
+    if (
+      isInAttackAction &&
+      entity.movement.isGrounded &&
+      entity.enemyAI?.state !== 'leapAttack'
+    ) {
       direction = 0
     }
 
@@ -597,7 +601,8 @@ export class MovementSystem extends System {
         entity.weapon.attackPhase === 'pause' ||
         entity.weapon.attackPhase === 'recover')
 
-    if (isInAttackAction) {
+    const isLeapAttack = entity.enemyAI?.state === 'leapAttack'
+    if (isInAttackAction && !isLeapAttack) {
       return
     }
 

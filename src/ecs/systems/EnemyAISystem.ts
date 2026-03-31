@@ -9,6 +9,10 @@ import {
   ENEMY_ALERT_ACCEL_RANGE_MULTIPLIER,
   ENEMY_ALERT_PACE_SPEED_MULTIPLIER,
   ENEMY_ALERT_RANGE_MULTIPLIER,
+  ENEMY_LEAP_ATTACK_CHANCE,
+  ENEMY_LEAP_ATTACK_COOLDOWN_MS,
+  ENEMY_LEAP_ATTACK_MAX_DURATION_MS,
+  ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER,
   ENEMY_PACE_MIN_DISTANCE,
   ENEMY_PACE_MIN_PAUSE_MS,
   ENEMY_PACE_MIN_SWITCH_INTERVAL_MS,
@@ -179,6 +183,12 @@ export class EnemyAISystem extends System {
         ai.lastFacing = facing
       }
       const stableFacing = ai.lastFacing
+
+      // 跳跃攻击优先处理：每帧执行，绕过冷却/巡逻/警戒等干扰
+      if (ai.state === 'leapAttack') {
+        this.handleLeapAttack(entity, ai, facing, now)
+        continue
+      }
 
       // Red Tape System: High proficiency enemies wait their turn
       ai.isRedTapeActive = false
@@ -552,6 +562,17 @@ export class EnemyAISystem extends System {
               this.startProbeState(entity, ai, effectiveAttackDesire)
               continue
             }
+            // 跳跃攻击：距离较远时有概率直扑目标
+            if (
+              entity.movement?.isGrounded &&
+              ai.leapAttackCooldownEndTimestamp <= now &&
+              distance >
+                weaponRange * ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER &&
+              Math.random() < ENEMY_LEAP_ATTACK_CHANCE
+            ) {
+              this.startLeapAttack(entity, ai, stableFacing, now)
+              continue
+            }
           }
 
           entity.input.moveDirection = stableFacing
@@ -615,42 +636,7 @@ export class EnemyAISystem extends System {
             ai.lastPositionUpdateTime = now
           }
         } else {
-          ai.state = 'combo'
-          ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
-          ai.lastFacing = stableFacing
-          if (entity.weapon) {
-            const movesetId =
-              ai.movesetId ||
-              (entity.attackSlots?.normal.hasMoveset
-                ? entity.attackSlots.normal.movesetId
-                : '')
-            if (movesetId) {
-              const moveset = ATTACK_MOVESETS[movesetId]
-              if (moveset) {
-                const seq = moveset.sequences.find(
-                  (s: any) => s.id === moveset.defaultSequenceId
-                )
-                if (seq) {
-                  ai.comboSwingTarget = seq.moves.length
-                }
-              }
-            }
-            entity.weapon.attackQueued = false
-            if (entity.weapon.attackPhase === 'idle') {
-              entity.weapon.comboCount = 0
-              entity.weapon.nextSwingDirection = 'toFront'
-              entity.weapon.swingDirection = 'toFront'
-              ai.comboSwingsDone = 0
-            } else {
-              ai.comboSwingsDone = entity.weapon.comboCount
-            }
-          } else {
-            ai.comboSwingsDone = 0
-          }
-          entity.input.moveDirection = 0
-          entity.input.sprintRequested = false
-          ai.stuckTimer = 0
-          this.queueAttack(entity, stableFacing, ai)
+          this.enterComboState(entity, ai, stableFacing)
         }
         continue
       }
@@ -1518,6 +1504,130 @@ export class EnemyAISystem extends System {
           }
         }
       }
+    }
+  }
+
+  private enterComboState(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    facing: number
+  ): void {
+    if (!entity.input) return
+    ai.state = 'combo'
+    ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+    ai.lastFacing = facing as -1 | 1
+    if (entity.weapon) {
+      const movesetId =
+        ai.movesetId ||
+        (entity.attackSlots?.normal.hasMoveset
+          ? entity.attackSlots.normal.movesetId
+          : '')
+      if (movesetId) {
+        const moveset = ATTACK_MOVESETS[movesetId]
+        if (moveset) {
+          const seq = moveset.sequences.find(
+            (s: any) => s.id === moveset.defaultSequenceId
+          )
+          if (seq) {
+            ai.comboSwingTarget = seq.moves.length
+          }
+        }
+      }
+      entity.weapon.attackQueued = false
+      if (entity.weapon.attackPhase === 'idle') {
+        entity.weapon.comboCount = 0
+        entity.weapon.nextSwingDirection = 'toFront'
+        entity.weapon.swingDirection = 'toFront'
+        ai.comboSwingsDone = 0
+      } else {
+        ai.comboSwingsDone = entity.weapon.comboCount
+      }
+    } else {
+      ai.comboSwingsDone = 0
+    }
+    entity.input.moveDirection = 0
+    entity.input.sprintRequested = false
+    ai.stuckTimer = 0
+    this.queueAttack(entity, facing, ai)
+  }
+
+  private startLeapAttack(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    facing: number,
+    now: number
+  ): void {
+    if (!entity.input) return
+    ai.state = 'leapAttack'
+    ai.leapAttackStage = 1
+    ai.leapAttackTimestamp = now
+    ai.comboSwingsDone = 0
+    entity.input.jumpRequested = true
+    entity.input.inputBuffer.bufferAction('jump')
+    entity.input.moveDirection = facing as -1 | 1
+    entity.input.sprintRequested = true
+    entity.input.blockRequested = false
+    if (entity.movement) {
+      entity.movement.moveSpeed = ai.moveSpeed
+    }
+  }
+
+  private handleLeapAttack(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    facing: number,
+    now: number
+  ): void {
+    if (!entity.input || !entity.movement) return
+
+    entity.input.blockRequested = false
+
+    const elapsed = now - ai.leapAttackTimestamp
+
+    if (elapsed > ENEMY_LEAP_ATTACK_MAX_DURATION_MS) {
+      this.endLeapAttack(entity, ai, now, 'approach')
+      return
+    }
+
+    // stage 1: 等待离地，维持跳跃力
+    if (ai.leapAttackStage === 1) {
+      entity.input.jumpRequested = true
+      if (!entity.movement.isGrounded) {
+        ai.leapAttackStage = 2
+        this.queueAttack(entity, facing, ai)
+      }
+      entity.input.moveDirection = facing as -1 | 1
+      entity.input.sprintRequested = true
+      return
+    }
+
+    // stage 2: 空中飞行+攻击中，持续冲向目标，落地后交给combo
+    entity.input.moveDirection = facing as -1 | 1
+    entity.input.sprintRequested = true
+
+    if (entity.movement.isGrounded && elapsed > 100) {
+      this.endLeapAttack(entity, ai, now, 'combo')
+      ai.lastFacing = facing as -1 | 1
+      ai.comboSwingsDone = entity.weapon?.comboCount ?? 1
+      ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+      ai.stuckTimer = 0
+      ai.lastDecisionTimestamp = 0
+    }
+  }
+
+  private endLeapAttack(
+    entity: Entity,
+    ai: EnemyAIComponent,
+    now: number,
+    nextState: 'approach' | 'combo' | null
+  ): void {
+    ai.leapAttackStage = 0
+    ai.leapAttackCooldownEndTimestamp = now + ENEMY_LEAP_ATTACK_COOLDOWN_MS
+    if (entity.input) {
+      entity.input.sprintRequested = false
+    }
+    if (nextState) {
+      ai.state = nextState
     }
   }
 

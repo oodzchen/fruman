@@ -962,8 +962,14 @@ export class EnemyAIComponent extends Component {
   lastPaceSwitchTimestamp = 0
   nextPaceResumeTimestamp = 0
   moveSpeed = DEFAULT_ENEMY_MOVE_SPEED
-  state: 'approach' | 'combo' | 'retreat' | 'pacing' | 'probe' | 'alert' =
-    'approach'
+  state:
+    | 'approach'
+    | 'combo'
+    | 'retreat'
+    | 'pacing'
+    | 'probe'
+    | 'alert'
+    | 'leapAttack' = 'approach'
   initialPatrolMode: EnemyPatrolMode = 'patrol'
   comboSwingsDone = 0
   comboSwingTarget = 5
@@ -1013,6 +1019,9 @@ export class EnemyAIComponent extends Component {
   obstacleJumpDirection: -1 | 1 = 1
   jumpStartTimestamp = 0
   jumpStartPosition = { x: 0, y: 0 }
+  leapAttackStage = 0 // 0: inactive, 1: airborne
+  leapAttackTimestamp = 0
+  leapAttackCooldownEndTimestamp = 0
 
   // Patrol properties
   patrolWaypoints: { x: number; y: number }[] = []
@@ -1096,6 +1105,9 @@ export class EnemyAIComponent extends Component {
     this.jumpStartTimestamp = 0
     this.jumpStartPosition.x = 0
     this.jumpStartPosition.y = 0
+    this.leapAttackStage = 0
+    this.leapAttackTimestamp = 0
+    this.leapAttackCooldownEndTimestamp = 0
     this.patrolWaypoints = []
     this.currentWaypointIndex = 0
     this.patrolResumeTimestamp = 0

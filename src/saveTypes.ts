@@ -9,6 +9,7 @@ export type EnemyAIState =
   | 'pacing'
   | 'probe'
   | 'alert'
+  | 'leapAttack'
 
 export interface SaveMeta {
   id: string
