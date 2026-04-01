@@ -32,6 +32,16 @@ import {
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WIDTH,
+  GRAPE_GRAVITY_SCALE,
+  GRAPE_MAX_SPEED,
+  GRAPE_MIN_FORCE_RATIO,
+  GRAPE_MIN_SPEED,
+  GRAPE_MIN_WINDUP_MS,
+  GRAPE_PROJECTILE_DENSITY,
+  GRAPE_PROJECTILE_LIFETIME_MS,
+  GRAPE_PROJECTILE_RADIUS,
+  GRAPE_PROJECTILE_RESTITUTION,
+  GRAPE_RECOVER_MS,
   JUMP_ATTACK_DAMAGE_SCALE_DENOMINATOR,
   JUMP_ATTACK_DAMAGE_SCALE_NUMERATOR,
   MASK_WEAPON,
@@ -50,10 +60,17 @@ import {
 } from '../../constants'
 import type {
   MainModule,
+  WeaponTemplate,
   WeaponType,
   WeaponVisualType,
   b2BodyId,
 } from '../../types'
+import {
+  getGrapeChargeRangeScale,
+  isRangedAttackWeaponVisualType,
+  isRangedWeaponType,
+  isSecondaryWeaponType,
+} from '../../weaponTypeUtils'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
 import type { AttackMoveData, ImpactLevel } from '../AttackMoveData'
@@ -96,6 +113,7 @@ import {
   copyTransform,
   getFrontTransform,
   getOffsetFromTransform,
+  getRangedAimRotation,
   getStrikeTransforms,
   getSwingTransforms,
   getThrustTransforms,
@@ -134,6 +152,9 @@ const BIG_HAMMER_FINISHER_SHAKE_INTENSITY_PX = 16
 const BIG_HAMMER_FINISHER_SHAKE_DURATION_MS = 210
 const GIANT_SWORD_FINISHER_SHAKE_INTENSITY_PX = 13
 const GIANT_SWORD_FINISHER_SHAKE_DURATION_MS = 190
+const DEFAULT_PROJECTILE_DENSITY = 0.1
+const DEFAULT_PROJECTILE_RESTITUTION = 0.4
+const DEFAULT_PROJECTILE_LIFETIME_MS = 2500
 
 export type ObstacleCollider = {
   bodyId: b2BodyId
@@ -422,7 +443,7 @@ export class WeaponSystem extends System {
     // 崩塌解除后启动武器回收动画
     if (weapon.isDropped && !weapon.isRecovering) {
       if (
-        weapon.weaponType === 'bow' &&
+        isRangedWeaponType(weapon.weaponType) &&
         entity.stats &&
         !entity.stats.isInCombat
       ) {
@@ -462,7 +483,7 @@ export class WeaponSystem extends System {
 
     this.tryEmitLandingCameraShake(entity, weapon)
 
-    if (weapon.weaponType === 'bow' && entity.stats) {
+    if (isRangedWeaponType(weapon.weaponType) && entity.stats) {
       this.updateBowWeapon(entity, weapon, playerPos, inputFacing, deltaMs)
       return
     }
@@ -803,7 +824,7 @@ export class WeaponSystem extends System {
       defender.weapon.parryCounterActive = false
     }
     const weaponType = attacker.weapon?.weaponType
-    const isRangedAttack = weaponType === 'bow' || weaponType === 'arrow'
+    const isRangedAttack = isRangedAttackWeaponVisualType(weaponType)
     if (attacker.weapon && !isRangedAttack) {
       this.resetAttackStateForInterrupt(attacker.weapon)
       if (attacker.input?.inputBuffer) {
@@ -866,7 +887,7 @@ export class WeaponSystem extends System {
         ? entity.input.lastMoveDirection
         : weapon.attackFacing || 1
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    if (weapon.weaponType === 'bow') {
+    if (isRangedWeaponType(weapon.weaponType)) {
       getFrontTransform(
         playerPos,
         facing,
@@ -1025,7 +1046,7 @@ export class WeaponSystem extends System {
     const baseImpactLevel =
       (WEAPON_IMPACT_LEVEL as Record<string, ImpactLevel>)[weapon.weaponType] ??
       'medium'
-    if (weapon.weaponType === 'arrow') {
+    if (weapon.weaponType === 'arrow' || weapon.weaponType === 'grapeShot') {
       return baseImpactLevel
     }
     const template = WEAPON_DEFAULT_DATA[weapon.weaponType]
@@ -1189,7 +1210,7 @@ export class WeaponSystem extends System {
     if (!weapon) {
       return { numerator: 3, denominator: 3 }
     }
-    if (weapon.weaponType === 'arrow') {
+    if (weapon.weaponType === 'arrow' || weapon.weaponType === 'grapeShot') {
       return { numerator: 3, denominator: 3 }
     }
     const template = WEAPON_DEFAULT_DATA[weapon.weaponType]
@@ -1238,15 +1259,121 @@ export class WeaponSystem extends System {
     return move ? move.recoverMs : DEFAULT_WEAPON_ATTACK_RECOVER_MS
   }
 
+  private getRangedTemplate(weapon: Entity['weapon']): WeaponTemplate {
+    return weapon?.weaponType === 'grape'
+      ? WEAPON_DEFAULT_DATA.grape
+      : WEAPON_DEFAULT_DATA.bow
+  }
+
+  private getRangedMinWindupMs(weapon: Entity['weapon']): number {
+    const baseMs =
+      weapon?.weaponType === 'grape' ? GRAPE_MIN_WINDUP_MS : BOW_MIN_WINDUP_MS
+    return this.scaleWindupDuration(baseMs, weapon)
+  }
+
+  private getRangedMinForceRatio(weapon: Entity['weapon']): number {
+    const baseRatio =
+      weapon?.weaponType === 'grape'
+        ? GRAPE_MIN_FORCE_RATIO
+        : BOW_MIN_FORCE_RATIO
+    return Math.max(
+      baseRatio,
+      Math.min(1, this.getRangedMinWindupMs(weapon) / BOW_MAX_DRAW_MS)
+    )
+  }
+
+  private getRangedRecoverMs(weapon: Entity['weapon']): number {
+    return weapon?.weaponType === 'grape' ? GRAPE_RECOVER_MS : BOW_RECOVER_MS
+  }
+
+  private getRangedLaunchSpeed(
+    weapon: Entity['weapon'],
+    drawRatio: number
+  ): number {
+    const clamped = Math.max(0, Math.min(1, drawRatio))
+    if (weapon?.weaponType === 'grape') {
+      const baseSpeed =
+        GRAPE_MIN_SPEED + (GRAPE_MAX_SPEED - GRAPE_MIN_SPEED) * clamped
+      return baseSpeed * getGrapeChargeRangeScale(clamped)
+    }
+    return BOW_MIN_SPEED + (BOW_MAX_SPEED - BOW_MIN_SPEED) * clamped
+  }
+
+  private getRangedGravityScale(weapon: Entity['weapon']): number {
+    return weapon?.weaponType === 'grape'
+      ? GRAPE_GRAVITY_SCALE
+      : BOW_GRAVITY_SCALE
+  }
+
+  private getRangedProjectileVisualType(
+    weapon: Entity['weapon']
+  ): Extract<WeaponVisualType, 'arrow' | 'grapeShot'> {
+    return weapon?.weaponType === 'grape' ? 'grapeShot' : 'arrow'
+  }
+
+  private getRangedProjectileDensity(weapon: Entity['weapon']): number {
+    return weapon?.weaponType === 'grape'
+      ? GRAPE_PROJECTILE_DENSITY
+      : DEFAULT_PROJECTILE_DENSITY
+  }
+
+  private getRangedProjectileRestitution(weapon: Entity['weapon']): number {
+    return weapon?.weaponType === 'grape'
+      ? GRAPE_PROJECTILE_RESTITUTION
+      : DEFAULT_PROJECTILE_RESTITUTION
+  }
+
+  private getRangedProjectileLifetimeMs(weapon: Entity['weapon']): number {
+    return weapon?.weaponType === 'grape'
+      ? GRAPE_PROJECTILE_LIFETIME_MS
+      : DEFAULT_PROJECTILE_LIFETIME_MS
+  }
+
+  private getRangedProjectileRadius(
+    weapon: Entity['weapon'],
+    projectileThickness: number
+  ): number {
+    if (weapon?.weaponType === 'grape') {
+      return GRAPE_PROJECTILE_RADIUS
+    }
+    return Math.max(0.08, projectileThickness)
+  }
+
+  private isRangedProjectileSticky(weapon: Entity['weapon']): boolean {
+    return weapon?.weaponType !== 'grape'
+  }
+
+  private playRangedFireSound(entity: Entity, weapon: Entity['weapon']): void {
+    if (!weapon) {
+      return
+    }
+    if (weapon?.weaponType === 'grape') {
+      const grapeWeapon = weapon
+      this.statsSystem?.playSound(SOUND_IDS.GRAPE_FIRE)
+      this.emitSoundAt(
+        grapeWeapon.visual.x,
+        grapeWeapon.visual.y,
+        entity,
+        SOUND_DB_BOW_SNAP
+      )
+      return
+    }
+
+    this.statsSystem?.playSound(SOUND_IDS.BOW_SNAP)
+    this.emitSoundAt(
+      weapon.visual.x,
+      weapon.visual.y,
+      entity,
+      SOUND_DB_BOW_SNAP
+    )
+  }
+
   private getBowMinWindupMs(weapon: Entity['weapon']): number {
-    return this.scaleWindupDuration(BOW_MIN_WINDUP_MS, weapon)
+    return this.getRangedMinWindupMs(weapon)
   }
 
   private getBowMinForceRatio(weapon: Entity['weapon']): number {
-    return Math.max(
-      BOW_MIN_FORCE_RATIO,
-      Math.min(1, this.getBowMinWindupMs(weapon) / BOW_MAX_DRAW_MS)
-    )
+    return this.getRangedMinForceRatio(weapon)
   }
 
   private handleWindupPhase(entity: Entity, weapon: Entity['weapon']): void {
@@ -1832,6 +1959,7 @@ export class WeaponSystem extends System {
             ? weapon.bowDrawRatio
             : Math.max(weapon.bowDrawRatio, minForceRatio)
           lockedAimAngle = this.getBowAimAngleForPosition(
+            weapon,
             playerPos,
             radius,
             lockedTargetX,
@@ -1981,6 +2109,7 @@ export class WeaponSystem extends System {
         ? weapon.bowDrawRatio
         : Math.max(weapon.bowDrawRatio, minForceRatio)
       const freeAimAngle = this.getBowAimAngleForPosition(
+        weapon,
         playerPos,
         radius,
         reticleX,
@@ -1992,7 +2121,10 @@ export class WeaponSystem extends System {
       const offset = radius + 0.2
       weapon.visual.x = playerPos.x + Math.cos(freeAimAngle) * offset
       weapon.visual.y = playerPos.y + Math.sin(freeAimAngle) * offset
-      weapon.visual.rotation = freeAimAngle + Math.PI / 2
+      weapon.visual.rotation = getRangedAimRotation(
+        weapon.weaponType,
+        freeAimAngle
+      )
       weapon.attackFacing = Math.cos(freeAimAngle) >= 0 ? 1 : -1
     } else if (hasAimLock && aimAngle !== null) {
       weapon.bowAimAngle = aimAngle
@@ -2002,7 +2134,7 @@ export class WeaponSystem extends System {
       const offset = radius + 0.2
       weapon.visual.x = playerPos.x + Math.cos(aimAngle) * offset
       weapon.visual.y = playerPos.y + Math.sin(aimAngle) * offset
-      weapon.visual.rotation = aimAngle + Math.PI / 2
+      weapon.visual.rotation = getRangedAimRotation(weapon.weaponType, aimAngle)
       weapon.attackFacing = Math.cos(aimAngle) >= 0 ? 1 : -1
     } else if (inCombat) {
       weapon.bowHasAim = false
@@ -2035,13 +2167,13 @@ export class WeaponSystem extends System {
       weapon.bowRecoverElapsedMs += deltaMs
       const recoverRatio = Math.min(
         1,
-        weapon.bowRecoverElapsedMs / BOW_RECOVER_MS
+        weapon.bowRecoverElapsedMs / this.getRangedRecoverMs(weapon)
       )
       weapon.bowDrawRatio = Math.max(
         0,
         weapon.bowReleaseRatio * (1 - recoverRatio)
       )
-      if (weapon.bowRecoverElapsedMs >= BOW_RECOVER_MS) {
+      if (weapon.bowRecoverElapsedMs >= this.getRangedRecoverMs(weapon)) {
         weapon.bowRecoverElapsedMs = 0
         weapon.bowReleaseRatio = 0
         weapon.bowDrawRatio = 0
@@ -2176,16 +2308,23 @@ export class WeaponSystem extends System {
     bodyDef.linearDamping = 0.05
     bodyDef.motionLocks.angularZ = true
     bodyDef.isBullet = true
-    bodyDef.gravityScale = BOW_GRAVITY_SCALE
+    bodyDef.gravityScale = this.getRangedGravityScale(weapon)
     physics.bodyId = b2CreateBody(this.worldId, bodyDef)
 
     const arrowWeapon = this.arrowPools.acquireWeapon()
-    const bowTemplate = WEAPON_DEFAULT_DATA.bow
-    const bowBaseWidth = bowTemplate.width > 0 ? bowTemplate.width : 1
-    const bowScale = Math.max(0.5, weapon.width / bowBaseWidth)
-    const arrowLength = DEFAULT_WEAPON_WIDTH * 0.9 * bowScale
-    const arrowThickness = DEFAULT_WEAPON_HEIGHT * 0.15 * bowScale
-    const arrowSpeed = this.getBowLaunchSpeed(drawRatio)
+    const rangedTemplate = this.getRangedTemplate(weapon)
+    const rangedBaseWidth = rangedTemplate.width > 0 ? rangedTemplate.width : 1
+    const rangedScale = Math.max(0.5, weapon.width / rangedBaseWidth)
+    const projectileVisualType = this.getRangedProjectileVisualType(weapon)
+    const arrowLength =
+      projectileVisualType === 'grapeShot'
+        ? GRAPE_PROJECTILE_RADIUS * 2
+        : DEFAULT_WEAPON_WIDTH * 0.9 * rangedScale
+    const arrowThickness =
+      projectileVisualType === 'grapeShot'
+        ? GRAPE_PROJECTILE_RADIUS * 2
+        : DEFAULT_WEAPON_HEIGHT * 0.15 * rangedScale
+    const arrowSpeed = this.getRangedLaunchSpeed(weapon, drawRatio)
     const minForceRatio = this.getBowMinForceRatio(weapon)
     const forceDenom = 1 - minForceRatio
     const forceRatio =
@@ -2202,11 +2341,11 @@ export class WeaponSystem extends System {
 
     const circle = this.arrowCircle
     circle.center.Set(0, 0)
-    circle.radius = Math.max(0.08, arrowThickness)
+    circle.radius = this.getRangedProjectileRadius(weapon, arrowThickness)
     const shapeDef = this.arrowShapeDef
-    shapeDef.density = 0.1
+    shapeDef.density = this.getRangedProjectileDensity(weapon)
     shapeDef.material.friction = 0.2
-    shapeDef.material.restitution = 0.4
+    shapeDef.material.restitution = this.getRangedProjectileRestitution(weapon)
     shapeDef.filter.categoryBits = CATEGORY_WEAPON
     shapeDef.filter.maskBits = MASK_WEAPON
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
@@ -2227,7 +2366,7 @@ export class WeaponSystem extends System {
     arrowWeapon.blockWidthTarget = arrowLength
     arrowWeapon.cornerRadius = 0
     arrowWeapon.weight = 0
-    arrowWeapon.weaponType = 'arrow'
+    arrowWeapon.weaponType = projectileVisualType
     arrowWeapon.attackDamage = weapon.attackDamage * forceMultiplier
     arrowWeapon.postureDamage = weapon.postureDamage * forceMultiplier
     arrowWeapon.toughnessDamage = weapon.toughnessDamage * forceMultiplier
@@ -2243,12 +2382,13 @@ export class WeaponSystem extends System {
     arrow.ownerId = entity.id
     arrow.factionId = arrowFaction
     arrow.enemyFactions = entity.faction?.enemyFactions ?? []
+    arrow.projectileType = projectileVisualType
     arrow.velocityX = Math.cos(aimAngle) * launchSpeed
     arrow.velocityY = Math.sin(aimAngle) * launchSpeed
-    arrow.gravity = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE
+    arrow.gravity = DEFAULT_GRAVITY * this.getRangedGravityScale(weapon)
     arrow.hitRadius = circle.radius
     arrow.elapsedMs = 0
-    arrow.lifetimeMs = 2500
+    arrow.lifetimeMs = this.getRangedProjectileLifetimeMs(weapon)
     arrow.prevX = arrowTransform.x
     arrow.prevY = arrowTransform.y
     arrow.hasPrev = true
@@ -2256,18 +2396,7 @@ export class WeaponSystem extends System {
 
     this.arrowPools.registerSpawn(arrowFaction)
     weapon.bowAmmo = Math.max(0, weapon.bowAmmo - 1)
-    this.statsSystem?.playSound(SOUND_IDS.BOW_SNAP)
-    this.emitSoundAt(
-      weapon.visual.x,
-      weapon.visual.y,
-      entity,
-      SOUND_DB_BOW_SNAP
-    )
-  }
-
-  private getBowLaunchSpeed(drawRatio: number): number {
-    const clamped = Math.max(0, Math.min(1, drawRatio))
-    return BOW_MIN_SPEED + (BOW_MAX_SPEED - BOW_MIN_SPEED) * clamped
+    this.playRangedFireSound(entity, weapon)
   }
 
   private getBowAimAngleForTarget(
@@ -2288,6 +2417,7 @@ export class WeaponSystem extends System {
       ? weapon.bowDrawRatio
       : Math.max(weapon.bowDrawRatio, minForceRatio)
     return this.getBowAimAngleForPosition(
+      weapon,
       playerPos,
       radius,
       target.transform.x,
@@ -2297,15 +2427,17 @@ export class WeaponSystem extends System {
   }
 
   private getBowAimAngleForPosition(
+    weapon: Entity['weapon'],
     playerPos: { x: number; y: number },
     radius: number,
     targetX: number,
     targetY: number,
     drawRatio: number
   ): number {
-    const speed = this.getBowLaunchSpeed(drawRatio) * 1.5
+    const speed = this.getRangedLaunchSpeed(weapon, drawRatio) * 1.5
     const offset = radius + 0.2
     let aimAngle = this.getBowAimAngle(
+      weapon,
       playerPos.x,
       playerPos.y,
       targetX,
@@ -2315,12 +2447,20 @@ export class WeaponSystem extends System {
 
     const originX = playerPos.x + Math.cos(aimAngle) * offset
     const originY = playerPos.y + Math.sin(aimAngle) * offset
-    aimAngle = this.getBowAimAngle(originX, originY, targetX, targetY, speed)
+    aimAngle = this.getBowAimAngle(
+      weapon,
+      originX,
+      originY,
+      targetX,
+      targetY,
+      speed
+    )
 
     return aimAngle
   }
 
   private getBowAimAngle(
+    weapon: Entity['weapon'],
     originX: number,
     originY: number,
     targetX: number,
@@ -2334,7 +2474,7 @@ export class WeaponSystem extends System {
       return dyUp >= 0 ? -Math.PI / 2 : Math.PI / 2
     }
 
-    const g = DEFAULT_GRAVITY * BOW_GRAVITY_SCALE
+    const g = DEFAULT_GRAVITY * this.getRangedGravityScale(weapon)
     const v2 = speed * speed
     const disc = v2 * v2 - g * (g * dxAbs * dxAbs + 2 * dyUp * v2)
     if (disc < 0) {
@@ -2351,7 +2491,7 @@ export class WeaponSystem extends System {
   }
 
   private getSlotForWeaponType(weaponType: WeaponVisualType): WeaponSlotId {
-    return weaponType === 'bow' ? 'secondary' : 'main'
+    return isSecondaryWeaponType(weaponType) ? 'secondary' : 'main'
   }
 
   private getSlotData(
@@ -2966,7 +3106,7 @@ export class WeaponSystem extends System {
   private triggerFreeAimIfMouseMode(entity: Entity): void {
     if (
       entity.weapon &&
-      entity.weapon.weaponType === 'bow' &&
+      isRangedWeaponType(entity.weapon.weaponType) &&
       entity.input &&
       entity.input.mouseAimActive
     ) {
@@ -2977,7 +3117,7 @@ export class WeaponSystem extends System {
   startAttack(entity: Entity, movesetIdOverride?: string): void {
     if (!entity.transform || !entity.input || !entity.weapon) return
     if (!entity.weapon.isEquipped) return
-    if (entity.weapon.weaponType === 'bow') return
+    if (isRangedWeaponType(entity.weapon.weaponType)) return
     if (entity.stats?.isDead) return
     if (entity.isStunned()) {
       entity.input.inputBuffer.clearAll()

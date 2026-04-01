@@ -1,12 +1,18 @@
 import type { AudioManager } from './AudioManager'
 import { BowTrajectoryCalculator } from './BowTrajectory'
 import {
+  BOW_GRAVITY_SCALE,
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
   BOW_MIN_WINDUP_MS,
   DEATH_CROSS_DURATION_MS,
   DEATH_PRE_SPLATTER_PAUSE_MS,
   DEFAULT_PLAYER_RADIUS,
+  GRAPE_GRAVITY_SCALE,
+  GRAPE_MAX_SPEED,
+  GRAPE_MIN_FORCE_RATIO,
+  GRAPE_MIN_SPEED,
+  GRAPE_MIN_WINDUP_MS,
   GRAPPLE_ANCHOR_HIGHLIGHT_SCALE,
   WEAPON_DEFAULT_DATA,
 } from './constants'
@@ -24,6 +30,7 @@ import {
 } from './renderer/HudWeaponSlotRenderer'
 import { ParticleSystem } from './renderer/ParticleSystem'
 import { renderWeapon as renderWeaponShape } from './renderer/WeaponRenderer'
+import { getGrapeChargeRangeScale } from './weaponTypeUtils'
 import {
   ENTITY_STRIDE,
   FLAGS,
@@ -300,6 +307,7 @@ export class ClientRenderer {
     let playerY = 0
     let playerDrawRatio = 0
     let playerDrawActive = false
+    let playerWeaponType: number = WEAPON_TYPES.SWORD
     let playerGrappleActive = false
     let playerGrappleTargetX = 0
     let playerGrappleTargetY = 0
@@ -320,6 +328,7 @@ export class ClientRenderer {
         playerY = buf[offset + OFFSETS.Y]
         playerDrawRatio = buf[offset + OFFSETS.WEAPON_DRAW]
         playerDrawActive = buf[offset + OFFSETS.WEAPON_DRAW_ACTIVE] === 1
+        playerWeaponType = buf[offset + OFFSETS.WEAPON_TYPE]
         playerGrappleActive = buf[offset + OFFSETS.GRAPPLE_ACTIVE] === 1
         playerGrappleTargetX = buf[offset + OFFSETS.GRAPPLE_TARGET_X]
         playerGrappleTargetY = buf[offset + OFFSETS.GRAPPLE_TARGET_Y]
@@ -531,10 +540,7 @@ export class ClientRenderer {
     }
 
     if (playerFreeAimActive) {
-      const minForceRatio = Math.max(
-        BOW_MIN_FORCE_RATIO,
-        Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
-      )
+      const minForceRatio = this.getRangedMinForceRatio(playerWeaponType)
       const effectiveDrawRatio = playerDrawActive
         ? playerDrawRatio
         : Math.max(playerDrawRatio, minForceRatio)
@@ -544,7 +550,8 @@ export class ClientRenderer {
           playerY,
           playerFreeAimX,
           playerFreeAimY,
-          effectiveDrawRatio
+          effectiveDrawRatio,
+          playerWeaponType
         )
       }
       this.drawFreeAimReticle(
@@ -552,7 +559,8 @@ export class ClientRenderer {
         playerY,
         playerFreeAimX,
         playerFreeAimY,
-        effectiveDrawRatio
+        effectiveDrawRatio,
+        playerWeaponType
       )
     }
   }
@@ -593,14 +601,16 @@ export class ClientRenderer {
     playerY: number,
     reticleX: number,
     reticleY: number,
-    drawRatio: number
+    drawRatio: number,
+    weaponType: number
   ): void {
     const clampedPos = this.clampReticleToViewport(
       playerX,
       playerY,
       reticleX,
       reticleY,
-      drawRatio
+      drawRatio,
+      weaponType
     )
     const centerX = clampedPos.x * this.pixelsPerMeter
     const centerY = clampedPos.y * this.pixelsPerMeter
@@ -1276,28 +1286,8 @@ export class ClientRenderer {
     const mainX = startX
     const secondaryX = startX + HUD_SLOT_SIZE + HUD_SLOT_SPACING
 
-    const mainWeaponKind =
-      mainType === WEAPON_TYPES.BOW
-        ? 'bow'
-        : mainType === WEAPON_TYPES.SPEAR
-          ? 'spear'
-          : mainType === WEAPON_TYPES.BIG_HAMMER ||
-              mainType === WEAPON_TYPES.HAMMER
-            ? 'hammer'
-            : mainType === WEAPON_TYPES.HOOK
-              ? 'hook'
-              : 'sword'
-    const secondaryWeaponKind =
-      secondaryType === WEAPON_TYPES.BOW
-        ? 'bow'
-        : secondaryType === WEAPON_TYPES.SPEAR
-          ? 'spear'
-          : secondaryType === WEAPON_TYPES.BIG_HAMMER ||
-              secondaryType === WEAPON_TYPES.HAMMER
-            ? 'hammer'
-            : secondaryType === WEAPON_TYPES.HOOK
-              ? 'hook'
-              : 'sword'
+    const mainWeaponKind = this.getWeaponRenderTypeFromId(mainType)
+    const secondaryWeaponKind = this.getWeaponRenderTypeFromId(secondaryType)
     const mainAmmoValue = mainAmmo < 0 ? 0 : mainAmmo
     const secondaryAmmoValue = secondaryAmmo < 0 ? 0 : secondaryAmmo
 
@@ -1314,7 +1304,7 @@ export class ClientRenderer {
       mainSize,
       mainMax,
       mainAmmoValue,
-      mainWeaponKind === 'bow' ? this.getAmmoText(mainAmmoValue) : ''
+      this.isRangedWeaponTypeId(mainType) ? this.getAmmoText(mainAmmoValue) : ''
     )
     drawHudWeaponSlot(
       this.ctx,
@@ -1329,7 +1319,9 @@ export class ClientRenderer {
       secondarySize,
       secondaryMax,
       secondaryAmmoValue,
-      secondaryWeaponKind === 'bow' ? this.getAmmoText(secondaryAmmoValue) : ''
+      this.isRangedWeaponTypeId(secondaryType)
+        ? this.getAmmoText(secondaryAmmoValue)
+        : ''
     )
 
     const ultimateActiveWeaponType =
@@ -1385,6 +1377,65 @@ export class ClientRenderer {
     return text
   }
 
+  private isRangedWeaponTypeId(weaponType: number): boolean {
+    return weaponType === WEAPON_TYPES.BOW || weaponType === WEAPON_TYPES.GRAPE
+  }
+
+  private getRangedMinForceRatio(weaponType: number): number {
+    if (weaponType === WEAPON_TYPES.GRAPE) {
+      return Math.max(
+        GRAPE_MIN_FORCE_RATIO,
+        Math.min(1, GRAPE_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+      )
+    }
+    return Math.max(
+      BOW_MIN_FORCE_RATIO,
+      Math.min(1, BOW_MIN_WINDUP_MS / BOW_MAX_DRAW_MS)
+    )
+  }
+
+  private getRangedGravityScale(weaponType: number): number {
+    return weaponType === WEAPON_TYPES.GRAPE
+      ? GRAPE_GRAVITY_SCALE
+      : BOW_GRAVITY_SCALE
+  }
+
+  private getRangedLaunchSpeed(weaponType: number, drawRatio: number): number {
+    if (weaponType === WEAPON_TYPES.GRAPE) {
+      const baseSpeed = this.trajectoryCalculator.getLaunchSpeed(
+        drawRatio,
+        GRAPE_MIN_SPEED,
+        GRAPE_MAX_SPEED
+      )
+      return baseSpeed * getGrapeChargeRangeScale(drawRatio)
+    }
+    return this.trajectoryCalculator.getBowSpeed(drawRatio)
+  }
+
+  private getWeaponRenderTypeFromId(
+    weaponType: number
+  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' {
+    if (weaponType === WEAPON_TYPES.BOW) {
+      return 'bow'
+    }
+    if (weaponType === WEAPON_TYPES.GRAPE) {
+      return 'grape'
+    }
+    if (weaponType === WEAPON_TYPES.SPEAR) {
+      return 'spear'
+    }
+    if (
+      weaponType === WEAPON_TYPES.HAMMER ||
+      weaponType === WEAPON_TYPES.BIG_HAMMER
+    ) {
+      return 'hammer'
+    }
+    if (weaponType === WEAPON_TYPES.HOOK) {
+      return 'hook'
+    }
+    return 'sword'
+  }
+
   private renderWeapon(buf: Float32Array, offset: number, flags: number): void {
     if (flags & FLAGS.DEAD) return
     if (flags & FLAGS.VANISHED) return
@@ -1416,6 +1467,15 @@ export class ClientRenderer {
 
     if (weaponType === WEAPON_TYPES.ARROW) {
       this.drawArrowShape(wWidth, wHeight, isAttacking, bodyColor)
+    } else if (weaponType === WEAPON_TYPES.GRAPE_SHOT) {
+      renderWeaponShape(
+        this.ctx,
+        'grapeShot',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking
+      )
     } else if (weaponType === WEAPON_TYPES.BOW) {
       renderWeaponShape(
         this.ctx,
@@ -1449,6 +1509,15 @@ export class ClientRenderer {
           arrowBase
         )
       }
+    } else if (weaponType === WEAPON_TYPES.GRAPE) {
+      renderWeaponShape(
+        this.ctx,
+        'grape',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking
+      )
     } else if (weaponType === WEAPON_TYPES.HOOK) {
       renderWeaponShape(
         this.ctx,
@@ -1812,9 +1881,13 @@ export class ClientRenderer {
     playerY: number,
     reticleX: number,
     reticleY: number,
-    drawRatio: number
+    drawRatio: number,
+    weaponType: number
   ): void {
-    const speed = this.trajectoryCalculator.getBowSpeed(drawRatio) * 1.5
+    const speed = this.getRangedLaunchSpeed(weaponType, drawRatio) * 1.5
+    this.trajectoryCalculator.setGravityScale(
+      this.getRangedGravityScale(weaponType)
+    )
     this.trajectoryCalculator.simulateTrajectory(
       playerX,
       playerY,
@@ -1870,7 +1943,8 @@ export class ClientRenderer {
     playerY: number,
     reticleX: number,
     reticleY: number,
-    weaponDrawRatio: number
+    weaponDrawRatio: number,
+    weaponType: number
   ): { x: number; y: number } {
     const viewBounds = this.updateViewBounds()
     const reticlePadding = this.getReticlePaddingMeters()
@@ -1891,7 +1965,10 @@ export class ClientRenderer {
       return this.reticleClampPos
     }
 
-    const speed = this.trajectoryCalculator.getBowSpeed(weaponDrawRatio) * 1.5
+    const speed = this.getRangedLaunchSpeed(weaponType, weaponDrawRatio) * 1.5
+    this.trajectoryCalculator.setGravityScale(
+      this.getRangedGravityScale(weaponType)
+    )
     const intersection = this.trajectoryCalculator.findViewportIntersection(
       playerX,
       playerY,

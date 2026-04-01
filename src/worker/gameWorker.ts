@@ -16,7 +16,6 @@ import {
   DEBUG_DRAW_CAMERA,
   DEBUG_DRAW_SENSORS,
   DEBUG_DRAW_SOUND,
-  DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_CAMERA_ZOOM,
   DEFAULT_CHECKPOINT_RENDER_RADIUS,
   DEFAULT_GRAPPLE_ANCHOR_RENDER_RADIUS,
@@ -112,6 +111,8 @@ import type {
   b2ShapeId,
 } from '../types'
 import {
+  getDefaultPlayerAmmoForWeaponType,
+  isRangedWeaponType,
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
 } from '../weaponTypeUtils'
@@ -261,10 +262,14 @@ function getWeaponTypeId(weaponType: string | undefined): number {
       return WEAPON_TYPES.BIG_HAMMER
     case 'bow':
       return WEAPON_TYPES.BOW
+    case 'grape':
+      return WEAPON_TYPES.GRAPE
     case 'hook':
       return WEAPON_TYPES.HOOK
     case 'arrow':
       return WEAPON_TYPES.ARROW
+    case 'grapeShot':
+      return WEAPON_TYPES.GRAPE_SHOT
     case 'sword':
     default:
       return WEAPON_TYPES.SWORD
@@ -1647,7 +1652,7 @@ function applyWeaponSlotConfig(
   slot.attackDamage = config.attackDamage
   slot.postureDamage = config.postureDamage
   slot.toughnessDamage = config.toughnessDamage
-  if (normalizedConfig.weaponType === 'bow') {
+  if (isRangedWeaponType(normalizedConfig.weaponType)) {
     const ammo = config.bowAmmo ?? defaultBowAmmo
     slot.bowAmmoMax = ammo
     slot.bowAmmo = ammo
@@ -1755,12 +1760,12 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     applyWeaponSlotConfig(
       weaponSlots.main,
       playerProps.mainWeapon,
-      DEFAULT_BOW_AMMO_PLAYER
+      getDefaultPlayerAmmoForWeaponType(playerProps.mainWeapon?.weaponType)
     )
     applyWeaponSlotConfig(
       weaponSlots.secondary,
       playerProps.secondaryWeapon,
-      DEFAULT_BOW_AMMO_PLAYER
+      getDefaultPlayerAmmoForWeaponType(playerProps.secondaryWeapon?.weaponType)
     )
 
     if (weaponSlots.main.hasWeapon) {
@@ -1852,7 +1857,7 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         weapon.toughnessDamage = toughnessDamage
       }
 
-      if (weapon.weaponType === 'bow') {
+      if (isRangedWeaponType(weapon.weaponType)) {
         const bowAmmo = weaponData.bowAmmo
         if (bowAmmo !== undefined && Number.isFinite(bowAmmo)) {
           const ammo = Math.max(0, bowAmmo)
@@ -2121,7 +2126,7 @@ function handleInput(
     if (currKeys.has('a') || currKeys.has('arrowleft')) moveDirection -= 1
     if (currKeys.has('d') || currKeys.has('arrowright')) moveDirection += 1
 
-    const isBowEquipped = playerEntity.weapon?.weaponType === 'bow'
+    const isRangedEquipped = isRangedWeaponType(playerEntity.weapon?.weaponType)
 
     // 绝招期间锁定移动和所有操作
     playerEntity.input.moveDirection =
@@ -2163,7 +2168,7 @@ function handleInput(
     if (
       attackJustPressed &&
       !isPlayerDead &&
-      playerEntity.weapon?.weaponType !== 'bow'
+      !isRangedWeaponType(playerEntity.weapon?.weaponType)
     ) {
       weaponSystem.startAttack(playerEntity)
     }
@@ -2174,15 +2179,15 @@ function handleInput(
     playerEntity.input.freeAimToggleRequested = false
     if (
       !isPlayerDead &&
-      isBowEquipped &&
+      isRangedEquipped &&
       (rightClickJustPressed || freeAimToggleJustPressed)
     ) {
       playerEntity.input.freeAimToggleRequested = true
     }
 
     const blockPressed =
-      (currMouseButtons.has(2) && !isBowEquipped) ||
-      (currKeys.has('k') && !isBowEquipped)
+      (currMouseButtons.has(2) && !isRangedEquipped) ||
+      (currKeys.has('k') && !isRangedEquipped)
     if (blockPressed && !isPlayerDead) {
       playerEntity.input.blockRequested = true
     } else {

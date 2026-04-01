@@ -905,6 +905,7 @@ export class ArrowComponent extends Component {
   ownerId = 0
   factionId: string = Faction.Player
   enemyFactions: string[] = []
+  projectileType: 'arrow' | 'grapeShot' = 'arrow'
   velocityX = 0
   velocityY = 0
   gravity = DEFAULT_GRAVITY
@@ -927,6 +928,7 @@ export class ArrowComponent extends Component {
     this.ownerId = 0
     this.factionId = Faction.Player
     this.enemyFactions = []
+    this.projectileType = 'arrow'
     this.velocityX = 0
     this.velocityY = 0
     this.gravity = DEFAULT_GRAVITY

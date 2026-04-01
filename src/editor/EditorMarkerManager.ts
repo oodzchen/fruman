@@ -2,8 +2,6 @@ import { fabric } from 'fabric'
 
 import {
   CHARACTER_DEFAULT_DATA,
-  DEFAULT_BOW_AMMO_ENEMY,
-  DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_MOVE_SPEED,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_MAX_POSTURE,
@@ -29,7 +27,12 @@ import type {
   NormalAttackMovesetId,
   WeaponType,
 } from '../types'
-import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
+import {
+  getDefaultEnemyAmmoForWeaponType,
+  getDefaultPlayerAmmoForWeaponType,
+  isRangedWeaponType,
+  normalizeWeaponTypeAndSizeLevel,
+} from '../weaponTypeUtils'
 import {
   DEFAULT_ENEMY_TYPE,
   EDITOR_PIXELS_PER_METER,
@@ -796,7 +799,9 @@ export class EditorMarkerManager {
       spawn?.toughnessDamage ?? template.toughnessDamage * scaleFactor
     const bowAmmo =
       spawn?.bowAmmo ??
-      (weaponType === 'bow' ? DEFAULT_BOW_AMMO_PLAYER : undefined)
+      (isRangedWeaponType(weaponType)
+        ? getDefaultPlayerAmmoForWeaponType(weaponType)
+        : undefined)
 
     // Hardcoded ObjectType.Weapon ('weapon')
     const ObjectTypeWeapon = 'weapon' as ObjectType
@@ -1147,6 +1152,9 @@ export class EditorMarkerManager {
     if (weaponType === 'bow') {
       return 'bow'
     }
+    if (weaponType === 'grape') {
+      return 'grape'
+    }
     if (weaponType === 'hammer') {
       return 'hammer'
     }
@@ -1182,7 +1190,9 @@ export class EditorMarkerManager {
           attackDamage: template.attackDamage,
           postureDamage: template.postureDamage,
           toughnessDamage: template.toughnessDamage,
-          bowAmmo: weaponType === 'bow' ? DEFAULT_BOW_AMMO_ENEMY : undefined,
+          bowAmmo: isRangedWeaponType(weaponType)
+            ? getDefaultEnemyAmmoForWeaponType(weaponType)
+            : undefined,
         },
         slot,
         enemyData.marker.left ?? 0,
@@ -1226,7 +1236,9 @@ export class EditorMarkerManager {
           attackDamage: template.attackDamage,
           postureDamage: template.postureDamage,
           toughnessDamage: template.toughnessDamage,
-          bowAmmo: weaponType === 'bow' ? DEFAULT_BOW_AMMO_PLAYER : undefined,
+          bowAmmo: isRangedWeaponType(weaponType)
+            ? getDefaultPlayerAmmoForWeaponType(weaponType)
+            : undefined,
         },
         slot,
         playerData.marker.left ?? 0,

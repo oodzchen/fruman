@@ -76,6 +76,7 @@ export class AudioManager {
         SOUND_IDS.BIG_HAMMER_HIT_ROCK,
         'audios/big-hammer-hit-rock.wav'
       ),
+      this.loadSound(SOUND_IDS.GRAPE_FIRE, 'audios/uncork-the-bottle.wav'),
     ])
   }
 

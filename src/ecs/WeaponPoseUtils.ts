@@ -1,5 +1,6 @@
 import { DEFAULT_WEAPON_VERTICAL_ROTATION_RAD } from '../constants'
 import type { WeaponVisualType } from '../types'
+import { isRangedWeaponType } from '../weaponTypeUtils'
 import type { AttackKind } from './AttackMoveData'
 import type { WeaponRelativeTransform, WeaponTransform } from './Component'
 import type { Entity } from './Entity'
@@ -8,6 +9,23 @@ export const FRONT_SWING_TILT_RAD = Math.PI / 16
 const THRUST_START_RATIO = 35
 const THRUST_END_RATIO = 105
 const THRUST_GRIP_CLEARANCE = 0.06
+
+export function getRangedAimRotation(
+  weaponType: WeaponVisualType,
+  aimAngle: number
+): number {
+  return aimAngle + (weaponType === 'grape' ? -Math.PI / 2 : Math.PI / 2)
+}
+
+function getRangedFrontRotation(
+  weaponType: WeaponVisualType,
+  facing: number
+): number {
+  if (weaponType === 'grape') {
+    return facing === 1 ? -Math.PI / 2 : Math.PI / 2
+  }
+  return facing === 1 ? Math.PI / 2 : -Math.PI / 2
+}
 
 export function setWeaponBackTransform(
   playerPos: { x: number; y: number },
@@ -21,9 +39,10 @@ export function setWeaponBackTransform(
   const halfH = bodyHalfHeight !== undefined ? bodyHalfHeight : radius
   out.x = playerPos.x - facing * (radius + 0.2)
 
-  if (weaponType === 'bow') {
+  if (isRangedWeaponType(weaponType)) {
     out.y = playerPos.y
-    out.rotation = facing === 1 ? -Math.PI / 2 : Math.PI / 2
+    out.rotation =
+      weaponType === 'grape' ? 0 : -getRangedFrontRotation(weaponType, facing)
     return
   }
 
@@ -124,11 +143,11 @@ export function getFrontTransform(
   weaponType: WeaponVisualType,
   weaponWidth: number
 ): void {
-  if (weaponType === 'bow') {
+  if (isRangedWeaponType(weaponType)) {
     const offsetX = radius + 0.2
     out.x = playerPos.x + facing * offsetX
     out.y = playerPos.y
-    out.rotation = facing === 1 ? Math.PI / 2 : -Math.PI / 2
+    out.rotation = getRangedFrontRotation(weaponType, facing)
     return
   }
 

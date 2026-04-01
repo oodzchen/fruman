@@ -5,8 +5,6 @@ import {
   CHARACTER_DEFAULT_DATA,
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
-  DEFAULT_BOW_AMMO_ENEMY,
-  DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_JUMP_BUFFER_WINDOW,
   DEFAULT_JUMP_FORCE,
   DEFAULT_JUMP_FORCE_MULTIPLIER,
@@ -49,6 +47,9 @@ import type {
   b2WorldId,
 } from '../../types'
 import {
+  getDefaultEnemyAmmoForWeaponType,
+  getDefaultPlayerAmmoForWeaponType,
+  isRangedWeaponType,
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
 } from '../../weaponTypeUtils'
@@ -494,7 +495,7 @@ export function createEnemy(
 
           enemy.weaponSlots.main.toughnessDamage = config.toughnessDamage
 
-          if (normalizedConfig.weaponType === 'bow') {
+          if (isRangedWeaponType(normalizedConfig.weaponType)) {
             enemy.weaponSlots.main.bowAmmoMax = config.bowAmmo ?? 0
 
             enemy.weaponSlots.main.bowAmmo = config.bowAmmo ?? 0
@@ -598,7 +599,7 @@ export function createEnemy(
 
           enemy.weaponSlots.secondary.toughnessDamage = config.toughnessDamage
 
-          if (normalizedConfig.weaponType === 'bow') {
+          if (isRangedWeaponType(normalizedConfig.weaponType)) {
             enemy.weaponSlots.secondary.bowAmmoMax = config.bowAmmo ?? 0
 
             enemy.weaponSlots.secondary.bowAmmo = config.bowAmmo ?? 0
@@ -639,9 +640,11 @@ export function createEnemy(
         enemy.weaponSlots.secondary.toughnessDamage =
           bowTemplate.toughnessDamage
 
-        enemy.weaponSlots.secondary.bowAmmoMax = DEFAULT_BOW_AMMO_ENEMY
+        enemy.weaponSlots.secondary.bowAmmoMax =
+          getDefaultEnemyAmmoForWeaponType('bow')
 
-        enemy.weaponSlots.secondary.bowAmmo = DEFAULT_BOW_AMMO_ENEMY
+        enemy.weaponSlots.secondary.bowAmmo =
+          getDefaultEnemyAmmoForWeaponType('bow')
       }
 
       // Determine active slot
@@ -768,9 +771,9 @@ export function createWeapon(
   weapon.attackDamage = template.attackDamage
   weapon.postureDamage = template.postureDamage
   weapon.toughnessDamage = template.toughnessDamage
-  if (weaponType === 'bow') {
-    weapon.bowAmmoMax = DEFAULT_BOW_AMMO_PLAYER
-    weapon.bowAmmo = DEFAULT_BOW_AMMO_PLAYER
+  if (isRangedWeaponType(weaponType)) {
+    weapon.bowAmmoMax = getDefaultPlayerAmmoForWeaponType(weaponType)
+    weapon.bowAmmo = getDefaultPlayerAmmoForWeaponType(weaponType)
   }
 
   // Set initial position to spawn point

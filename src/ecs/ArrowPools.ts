@@ -1,4 +1,9 @@
-import { DEFAULT_BOW_AMMO_ENEMY, DEFAULT_BOW_AMMO_PLAYER } from '../constants'
+import {
+  DEFAULT_BOW_AMMO_ENEMY,
+  DEFAULT_BOW_AMMO_PLAYER,
+  DEFAULT_GRAPE_AMMO_ENEMY,
+  DEFAULT_GRAPE_AMMO_PLAYER,
+} from '../constants'
 import {
   ArrowComponent,
   Faction,
@@ -10,8 +15,14 @@ import type { Entity } from './Entity'
 import type { EntityComponentPool } from './EntityComponentPool'
 import { ObjectPool } from './ObjectPool'
 
-const PLAYER_ARROW_LIMIT = DEFAULT_BOW_AMMO_PLAYER
-const ENEMY_ARROW_LIMIT = DEFAULT_BOW_AMMO_ENEMY
+const PLAYER_ARROW_LIMIT = Math.max(
+  DEFAULT_BOW_AMMO_PLAYER,
+  DEFAULT_GRAPE_AMMO_PLAYER
+)
+const ENEMY_ARROW_LIMIT = Math.max(
+  DEFAULT_BOW_AMMO_ENEMY,
+  DEFAULT_GRAPE_AMMO_ENEMY
+)
 const MAX_ARROWS_TOTAL = PLAYER_ARROW_LIMIT + ENEMY_ARROW_LIMIT
 
 export class ArrowPools implements EntityComponentPool {

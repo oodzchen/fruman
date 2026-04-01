@@ -27,9 +27,11 @@ import {
   ENEMY_PROBE_RANGE_BUFFER_RATIO,
   ENEMY_PROBE_SPEED_MULTIPLIER,
   ENEMY_RETREAT_EXTRA_DISTANCE,
+  GRAPE_MIN_WINDUP_MS,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
+import { isRangedWeaponType } from '../../weaponTypeUtils'
 import { ATTACK_MOVESETS } from '../AttackMoveRegistry'
 import { EnemyAIComponent, Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
@@ -75,12 +77,18 @@ export class EnemyAISystem extends System {
 
   private getArcherBowMinWindupMs(entity: Entity): number {
     const weapon = entity.weapon
-    if (!weapon || weapon.weaponType === 'arrow') {
+    if (
+      !weapon ||
+      weapon.weaponType === 'arrow' ||
+      weapon.weaponType === 'grapeShot'
+    ) {
       return BOW_MIN_WINDUP_MS
     }
+    const baseWindupMs =
+      weapon.weaponType === 'grape' ? GRAPE_MIN_WINDUP_MS : BOW_MIN_WINDUP_MS
     const template = WEAPON_DEFAULT_DATA[weapon.weaponType]
     if (!template) {
-      return BOW_MIN_WINDUP_MS
+      return baseWindupMs
     }
     const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
     const currentLevel =
@@ -88,7 +96,7 @@ export class EnemyAISystem extends System {
         ? weapon.sizeLevel
         : baseLevel
     const numerator = Math.max(1, 3 + (currentLevel - baseLevel))
-    return Math.max(1, Math.floor((BOW_MIN_WINDUP_MS * numerator) / 3))
+    return Math.max(1, Math.floor((baseWindupMs * numerator) / 3))
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -288,7 +296,7 @@ export class EnemyAISystem extends System {
         if (!hasCombatLineOfSight) {
           if (
             ai.enemyType === 'archer' &&
-            entity.weapon?.weaponType === 'bow'
+            isRangedWeaponType(entity.weapon?.weaponType)
           ) {
             ai.forcedChaseDistanceRemaining = 0
             ai.forcedChaseLastX = entity.transform.x
@@ -428,7 +436,7 @@ export class EnemyAISystem extends System {
 
       if (ai.enemyType === 'archer' && entity.weapon && entity.weaponSlots) {
         const meleeSwitchDistance = ai.detectionRange * ARCHER_MELEE_RANGE_RATIO
-        const isUsingBow = entity.weapon.weaponType === 'bow'
+        const isUsingBow = isRangedWeaponType(entity.weapon.weaponType)
         const bowAmmo = this.getArcherBowAmmo(entity)
         const hasBowAmmo = bowAmmo > 0
 
@@ -1731,10 +1739,10 @@ export class EnemyAISystem extends System {
   }
 
   private getArcherBowAmmo(entity: Entity): number {
-    if (entity.weapon?.weaponType === 'bow') {
+    if (isRangedWeaponType(entity.weapon?.weaponType)) {
       return entity.weapon.bowAmmo
     }
-    if (entity.weaponSlots?.secondary.weaponType === 'bow') {
+    if (isRangedWeaponType(entity.weaponSlots?.secondary.weaponType)) {
       return entity.weaponSlots.secondary.bowAmmo
     }
     return 0

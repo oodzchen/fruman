@@ -4,6 +4,7 @@ import {
   DEFAULT_WEAPON_WIDTH,
 } from '../constants'
 import type { WeaponType } from '../types'
+import { isRangedWeaponType } from '../weaponTypeUtils'
 import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
 
 export const HUD_SLOT_SIZE = 46
@@ -107,6 +108,23 @@ export function drawHudWeaponSlot(
       )
       ctx.restore()
       ctx.restore()
+    } else if (renderType === 'grape') {
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+      ctx.fillStyle = HUD_ICON_COLOR
+      ctx.strokeStyle = HUD_ICON_COLOR
+      renderWeaponShape(
+        ctx,
+        'grape',
+        iconWidth,
+        iconHeight,
+        HUD_ICON_COLOR,
+        false,
+        0
+      )
+      ctx.restore()
     } else if (renderType === 'hook') {
       ctx.save()
       ctx.translate(centerX, centerY)
@@ -182,7 +200,7 @@ export function drawHudWeaponSlot(
       ctx.restore()
     }
 
-    if (renderType === 'bow' && ammoText.length > 0) {
+    if (isRangedWeaponType(weaponType) && ammoText.length > 0) {
       const ammoValue = ammo < 0 ? 0 : ammo
       if (ammoValue >= 0) {
         ctx.save()
@@ -407,9 +425,12 @@ function drawHudUltimateSpearTips(
 
 function getHudWeaponRenderType(
   weaponType: WeaponType
-): 'sword' | 'spear' | 'hammer' | 'bow' | 'hook' {
+): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' {
   if (weaponType === 'bow') {
     return 'bow'
+  }
+  if (weaponType === 'grape') {
+    return 'grape'
   }
   if (weaponType === 'spear') {
     return 'spear'

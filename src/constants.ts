@@ -95,8 +95,10 @@ export const IMPACT_LEVEL_KNOCKBACK = {
 // 武器类型对应的默认冲击力等级
 export const WEAPON_IMPACT_LEVEL = {
   bow: 'small',
+  grape: 'small',
   hook: 'small',
   arrow: 'small',
+  grapeShot: 'small',
   sword: 'medium',
   hammer: 'medium',
   spear: 'medium',
@@ -212,6 +214,17 @@ export const BOW_RECOVER_MS = 360
 export const BOW_GRAVITY_SCALE = 0.5
 export const BOW_FREE_AIM_TURN_SPEED = 1.0
 export const BOW_FREE_AIM_MAX_OFFSET = Math.PI * 0.45
+
+export const GRAPE_MIN_WINDUP_MS = 200
+export const GRAPE_MIN_FORCE_RATIO = 0.35
+export const GRAPE_MIN_SPEED = 9
+export const GRAPE_MAX_SPEED = 21
+export const GRAPE_RECOVER_MS = 220
+export const GRAPE_GRAVITY_SCALE = 0.6
+export const GRAPE_PROJECTILE_DENSITY = 0.22
+export const GRAPE_PROJECTILE_RESTITUTION = 0.12
+export const GRAPE_PROJECTILE_RADIUS = 0.16
+export const GRAPE_PROJECTILE_LIFETIME_MS = 2200
 
 // 攻击挥舞半径（米）
 export const DEFAULT_WEAPON_ATTACK_RADIUS = 0.9
@@ -384,6 +397,8 @@ export const MASK_ROPE = CATEGORY_OBSTACLE | CATEGORY_ENEMY
 
 export const DEFAULT_BOW_AMMO_PLAYER = 20
 export const DEFAULT_BOW_AMMO_ENEMY = 50
+export const DEFAULT_GRAPE_AMMO_PLAYER = 100
+export const DEFAULT_GRAPE_AMMO_ENEMY = 100
 
 // 武器模板配置
 // 武器基础数值规则：同类武器每大一个尺寸等级，数值 ×1.2（约 +20%）
@@ -427,6 +442,16 @@ export const WEAPON_DEFAULT_DATA = {
     attackDamage: 1.5,
     postureDamage: 3,
     toughnessDamage: 1,
+  },
+  grape: {
+    width: 0.95,
+    height: 0.95,
+    sizeLevel: 1,
+    sizeMaxLevel: 1,
+    weight: 2,
+    attackDamage: 3,
+    postureDamage: 3,
+    toughnessDamage: 2,
   },
   hook: {
     width: 0.8,

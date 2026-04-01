@@ -137,8 +137,14 @@ export class ArrowSystem extends System {
 
       const dirX = Math.cos(dirAngle)
       const dirY = Math.sin(dirAngle)
-      const headX = entity.transform.x + dirX * entity.weapon.width
-      const headY = entity.transform.y + dirY * entity.weapon.width
+      const headX =
+        arrow.projectileType === 'grapeShot'
+          ? entity.transform.x
+          : entity.transform.x + dirX * entity.weapon.width
+      const headY =
+        arrow.projectileType === 'grapeShot'
+          ? entity.transform.y
+          : entity.transform.y + dirY * entity.weapon.width
       const queryRadius = arrow.hitRadius + DEFAULT_PLAYER_RADIUS
       const nearby = this.spatialHash.query(headX, headY, queryRadius)
       const nearbyCount = this.spatialHash.getQueryResultLength()
@@ -176,7 +182,9 @@ export class ArrowSystem extends System {
               this.tempHitSource,
               attacker
             )
-            if (blocked) {
+            if (arrow.projectileType === 'grapeShot') {
+              this.shatterProjectile(entity, headX, headY)
+            } else if (blocked) {
               this.deflectArrow(entity, dirX, dirY, speed)
             } else {
               this.stickArrow(entity, target, dirAngle + Math.PI / 2)
@@ -304,6 +312,14 @@ export class ArrowSystem extends System {
       return target.input.lastMoveDirection
     }
     return target.weapon?.attackFacing || 1
+  }
+
+  private shatterProjectile(entity: Entity, hitX: number, hitY: number): void {
+    if (this.statsSystem) {
+      this.statsSystem.emitSpark(hitX, hitY)
+      this.statsSystem.emitSpark(hitX + 0.08, hitY - 0.04)
+    }
+    this.destroyArrowEntity(entity)
   }
 
   private destroyArrowEntity(entity: Entity): void {

@@ -1,11 +1,7 @@
 import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
-import {
-  DEFAULT_BOW_AMMO_ENEMY,
-  DEFAULT_BOW_AMMO_PLAYER,
-  WEAPON_DEFAULT_DATA,
-} from '../constants'
+import { WEAPON_DEFAULT_DATA } from '../constants'
 import {
   type AttackMovesetOwner,
   NORMAL_ATTACK_MOVESET_OPTIONS,
@@ -28,6 +24,12 @@ import type {
   NormalAttackMovesetId,
   WeaponType,
 } from '../types'
+import {
+  getDefaultEnemyAmmoForWeaponType,
+  getDefaultPlayerAmmoForWeaponType,
+  isRangedWeaponType,
+  isSecondaryWeaponType,
+} from '../weaponTypeUtils'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import {
   computeWeaponRenderDimensions,
@@ -179,12 +181,15 @@ export class EditorPropertiesPanel {
 
   private getWeaponRenderType(
     weaponType: WeaponType
-  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'hook' {
+  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' {
     if (weaponType === 'hook') {
       return 'hook'
     }
     if (weaponType === 'bow') {
       return 'bow'
+    }
+    if (weaponType === 'grape') {
+      return 'grape'
     }
     if (weaponType === 'hammer') {
       return 'hammer'
@@ -860,7 +865,7 @@ export class EditorPropertiesPanel {
       slot: WeaponSlotPreview,
       weaponValue: string,
       marker: WeaponMarker | undefined,
-      defaultBowAmmo: number
+      _defaultBowAmmo: number
     ) => {
       if (!weaponValue || weaponValue === 'none') {
         resetWeaponSlotPreview(slot)
@@ -885,8 +890,10 @@ export class EditorPropertiesPanel {
       slot.weaponHeight = template.height * scaleFactor
       slot.sizeLevel = sizeLevel
       slot.sizeMaxLevel = template.sizeMaxLevel
-      slot.ammo =
-        weaponType === 'bow' ? (markerMatches?.bowAmmo ?? defaultBowAmmo) : 0
+      slot.ammo = isRangedWeaponType(weaponType)
+        ? (markerMatches?.bowAmmo ??
+          getDefaultPlayerAmmoForWeaponType(weaponType))
+        : 0
     }
 
     const renderWeaponSlotsPreview = () => {
@@ -920,7 +927,9 @@ export class EditorPropertiesPanel {
         mainSlotPreview.sizeLevel,
         mainSlotPreview.sizeMaxLevel,
         mainAmmoValue,
-        mainSlotPreview.weaponType === 'bow' ? getAmmoText(mainAmmoValue) : ''
+        isRangedWeaponType(mainSlotPreview.weaponType)
+          ? getAmmoText(mainAmmoValue)
+          : ''
       )
       drawHudWeaponSlot(
         weaponSlotsCtx,
@@ -935,7 +944,7 @@ export class EditorPropertiesPanel {
         secondarySlotPreview.sizeLevel,
         secondarySlotPreview.sizeMaxLevel,
         secondaryAmmoValue,
-        secondarySlotPreview.weaponType === 'bow'
+        isRangedWeaponType(secondarySlotPreview.weaponType)
           ? getAmmoText(secondaryAmmoValue)
           : ''
       )
@@ -1287,7 +1296,7 @@ export class EditorPropertiesPanel {
         { label: localizer.t('editor_weapon_spear'), value: 'spear' },
         { label: localizer.t('editor_weapon_hammer'), value: 'hammer' },
       ],
-      defaultBowAmmo: DEFAULT_BOW_AMMO_ENEMY,
+      defaultBowAmmo: getDefaultEnemyAmmoForWeaponType('sword'),
       getWeaponType: () => data.mainWeapon,
       setWeaponType: (weaponType) => {
         data.mainWeapon = weaponType
@@ -1306,8 +1315,9 @@ export class EditorPropertiesPanel {
       options: [
         { label: localizer.t('editor_weapon_none'), value: 'none' },
         { label: localizer.t('editor_weapon_bow'), value: 'bow' },
+        { label: localizer.t('editor_weapon_grape'), value: 'grape' },
       ],
-      defaultBowAmmo: DEFAULT_BOW_AMMO_ENEMY,
+      defaultBowAmmo: getDefaultEnemyAmmoForWeaponType('grape'),
       getWeaponType: () => data.secondaryWeapon,
       setWeaponType: (weaponType) => {
         data.secondaryWeapon = weaponType
@@ -1435,7 +1445,7 @@ export class EditorPropertiesPanel {
         { label: localizer.t('editor_weapon_spear'), value: 'spear' },
         { label: localizer.t('editor_weapon_hammer'), value: 'hammer' },
       ],
-      defaultBowAmmo: DEFAULT_BOW_AMMO_PLAYER,
+      defaultBowAmmo: getDefaultPlayerAmmoForWeaponType('sword'),
       getWeaponType: () => data.mainWeapon,
       setWeaponType: (weaponType) => {
         data.mainWeapon = weaponType
@@ -1453,8 +1463,9 @@ export class EditorPropertiesPanel {
       options: [
         { label: localizer.t('editor_weapon_none'), value: 'none' },
         { label: localizer.t('editor_weapon_bow'), value: 'bow' },
+        { label: localizer.t('editor_weapon_grape'), value: 'grape' },
       ],
-      defaultBowAmmo: DEFAULT_BOW_AMMO_PLAYER,
+      defaultBowAmmo: getDefaultPlayerAmmoForWeaponType('grape'),
       getWeaponType: () => data.secondaryWeapon,
       setWeaponType: (weaponType) => {
         data.secondaryWeapon = weaponType
@@ -1535,7 +1546,8 @@ export class EditorPropertiesPanel {
       const weaponType = marker.weaponType
       const template = WEAPON_DEFAULT_DATA[weaponType]
       const category =
-        marker.category ?? (weaponType === 'bow' ? 'secondary' : 'main')
+        marker.category ??
+        (isSecondaryWeaponType(weaponType) ? 'secondary' : 'main')
       data = {
         marker,
         weaponType,
@@ -1562,10 +1574,9 @@ export class EditorPropertiesPanel {
               template,
               marker.sizeLevel ?? template.sizeLevel
             ),
-        bowAmmo:
-          weaponType === 'bow'
-            ? (marker.bowAmmo ?? DEFAULT_BOW_AMMO_PLAYER)
-            : undefined,
+        bowAmmo: isRangedWeaponType(weaponType)
+          ? (marker.bowAmmo ?? getDefaultPlayerAmmoForWeaponType(weaponType))
+          : undefined,
       }
       this.context.weaponMarkerMap.set(marker, data)
     }
@@ -1574,12 +1585,15 @@ export class EditorPropertiesPanel {
 
     const template = WEAPON_DEFAULT_DATA[marker.weaponType]
     const isBow = marker.weaponType === 'bow'
+    const isRanged = isRangedWeaponType(marker.weaponType)
 
     const getSizeName = (level: number): string => {
       if (isBow) {
         return level === 1
           ? localizer.t('editor_weapon_size_bow_1')
           : localizer.t('editor_weapon_size_bow_2')
+      } else if (marker.weaponType === 'grape') {
+        return localizer.t('editor_weapon_size_grape_1')
       } else if (marker.weaponType === 'hammer') {
         return level === 1
           ? localizer.t('editor_weapon_size_hammer_1')
@@ -1662,12 +1676,13 @@ export class EditorPropertiesPanel {
     leftPanel.appendChild(toughnessRow.row)
 
     let bowAmmoInput: HTMLInputElement | null = null
-    if (isBow) {
+    if (isRanged) {
       const ammoRow = EditorUIHelper.createFormRow(
         localizer.t('editor_weapon_prop_bow_ammo')
       )
       bowAmmoInput = EditorUIHelper.createNumberInput({
-        value: data.bowAmmo ?? DEFAULT_BOW_AMMO_PLAYER,
+        value:
+          data.bowAmmo ?? getDefaultPlayerAmmoForWeaponType(marker.weaponType),
         min: '0',
         step: '1',
       })

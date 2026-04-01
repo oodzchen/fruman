@@ -3,7 +3,9 @@ export type WeaponRenderType =
   | 'spear'
   | 'hammer'
   | 'bow'
+  | 'grape'
   | 'arrow'
+  | 'grapeShot'
   | 'hook'
 
 export function renderWeapon(
@@ -19,6 +21,8 @@ export function renderWeapon(
 ): void {
   if (weaponType === 'arrow') {
     renderArrow(ctx, width, height, color, isAttacking, 0)
+  } else if (weaponType === 'grapeShot') {
+    renderGrapeShot(ctx, width, height, color, isAttacking)
   } else if (weaponType === 'bow') {
     renderBow(
       ctx,
@@ -30,6 +34,8 @@ export function renderWeapon(
       bowLineWidthOverride,
       stringLineWidthOverride
     )
+  } else if (weaponType === 'grape') {
+    renderGrape(ctx, width, height, color, isAttacking)
   } else if (weaponType === 'hook') {
     renderHook(ctx, width, height, color, isAttacking)
   } else if (weaponType === 'spear') {
@@ -215,6 +221,73 @@ function renderArrow(
   ctx.lineTo(-headWidth / 2, tipY + headLen)
   ctx.moveTo(0, tipY)
   ctx.lineTo(headWidth / 2, tipY + headLen)
+  ctx.stroke()
+}
+
+function renderGrapeShot(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  color: string,
+  isAttacking: boolean
+): void {
+  const radius = Math.max(2, Math.min(width, height) * 0.5)
+
+  ctx.fillStyle = color
+  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.lineWidth = 2
+
+  ctx.beginPath()
+  ctx.arc(0, 0, radius, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+}
+
+function renderGrape(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  color: string,
+  isAttacking: boolean
+): void {
+  const radius = Math.max(2, Math.min(width, height) * 0.16)
+  const stemWidth = Math.max(2, radius * 0.7)
+  const stemHeight = Math.max(4, radius * 1.2)
+  const stemTop = -height * 0.5
+  const centerY = stemTop + stemHeight + radius * 1.1
+  const leftX = -radius * 1.3
+  const rightX = radius * 1.3
+  const lowerY = centerY + radius * 1.7
+  const bottomY = lowerY + radius * 1.7
+
+  ctx.fillStyle = color
+  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
+
+  ctx.beginPath()
+  ctx.rect(-stemWidth * 0.5, stemTop, stemWidth, stemHeight)
+  ctx.fill()
+  ctx.stroke()
+
+  fillGrapeCircle(ctx, 0, centerY - radius * 1.2, radius)
+  fillGrapeCircle(ctx, leftX, centerY, radius)
+  fillGrapeCircle(ctx, rightX, centerY, radius)
+  fillGrapeCircle(ctx, 0, centerY, radius)
+  fillGrapeCircle(ctx, -radius * 0.7, lowerY, radius)
+  fillGrapeCircle(ctx, radius * 0.7, lowerY, radius)
+  fillGrapeCircle(ctx, 0, bottomY, radius)
+}
+
+function fillGrapeCircle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number
+): void {
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.fill()
   ctx.stroke()
 }
 

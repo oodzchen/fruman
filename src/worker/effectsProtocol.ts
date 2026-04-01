@@ -36,6 +36,7 @@ export const SOUND_IDS = {
   PICKUP_ITEM: 14,
   HEAVY_SWORD_HIT_GROUND: 15,
   BIG_HAMMER_HIT_ROCK: 16,
+  GRAPE_FIRE: 17,
 } as const
 
 export const MAX_EFFECTS = 256

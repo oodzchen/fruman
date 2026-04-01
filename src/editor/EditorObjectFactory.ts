@@ -7,7 +7,10 @@ import {
 } from '../constants'
 import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
 import type { WeaponType } from '../types'
-import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
+import {
+  isSecondaryWeaponType,
+  normalizeWeaponTypeAndSizeLevel,
+} from '../weaponTypeUtils'
 import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
 
 interface WeaponTemplateLike {
@@ -38,7 +41,7 @@ interface EditorObjectFactoryOptions {
   ) => WeaponRenderDimensions
   renderWeapon: (
     ctx: CanvasRenderingContext2D,
-    type: 'sword' | 'spear' | 'hammer' | 'bow' | 'hook',
+    type: 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook',
     width: number,
     height: number,
     color: string,
@@ -52,7 +55,7 @@ type WeaponShape = fabric.Object & {
   weaponHeightPx: number
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
-  weaponRenderType: 'bow' | 'sword' | 'spear' | 'hammer' | 'hook'
+  weaponRenderType: 'bow' | 'grape' | 'sword' | 'spear' | 'hammer' | 'hook'
 }
 
 export class EditorObjectFactory {
@@ -426,13 +429,15 @@ export class EditorObjectFactory {
     const renderType: WeaponShape['weaponRenderType'] =
       weaponType === 'hook'
         ? 'hook'
-        : isBow
-          ? 'bow'
-          : weaponType === 'hammer'
-            ? 'hammer'
-            : weaponType === 'spear'
-              ? 'spear'
-              : 'sword'
+        : weaponType === 'grape'
+          ? 'grape'
+          : isBow
+            ? 'bow'
+            : weaponType === 'hammer'
+              ? 'hammer'
+              : weaponType === 'spear'
+                ? 'spear'
+                : 'sword'
     const renderWeapon = this.renderWeapon
 
     const weaponShape = new (fabric.util.createClass(fabric.Object, {
@@ -507,7 +512,11 @@ export class EditorObjectFactory {
     const weaponType = normalizedConfig.weaponType
     const isBow = weaponType === 'bow'
     const category: WeaponCategory =
-      weaponType === 'hook' ? 'item' : isBow ? 'secondary' : 'main'
+      weaponType === 'hook'
+        ? 'item'
+        : isSecondaryWeaponType(weaponType)
+          ? 'secondary'
+          : 'main'
     const template = templates[weaponType]
     const dims = this.computeWeaponRenderDimensions(
       template,
@@ -531,13 +540,15 @@ export class EditorObjectFactory {
     weaponShape.weaponRenderType =
       weaponType === 'hook'
         ? 'hook'
-        : isBow
-          ? 'bow'
-          : weaponType === 'hammer'
-            ? 'hammer'
-            : weaponType === 'spear'
-              ? 'spear'
-              : 'sword'
+        : weaponType === 'grape'
+          ? 'grape'
+          : isBow
+            ? 'bow'
+            : weaponType === 'hammer'
+              ? 'hammer'
+              : weaponType === 'spear'
+                ? 'spear'
+                : 'sword'
 
     const weaponMarker = new fabric.Group([weaponShape], {
       left: x,

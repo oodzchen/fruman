@@ -30,9 +30,21 @@ export class BowTrajectoryCalculator {
     }
   }
 
-  getBowSpeed(drawRatio: number): number {
+  setGravityScale(gravityScale: number): void {
+    this.gravity = DEFAULT_GRAVITY * gravityScale
+  }
+
+  getLaunchSpeed(
+    drawRatio: number,
+    minSpeed: number,
+    maxSpeed: number
+  ): number {
     const clampedRatio = Math.max(0, Math.min(1, drawRatio ?? 0))
-    return BOW_MIN_SPEED + (BOW_MAX_SPEED - BOW_MIN_SPEED) * clampedRatio
+    return minSpeed + (maxSpeed - minSpeed) * clampedRatio
+  }
+
+  getBowSpeed(drawRatio: number): number {
+    return this.getLaunchSpeed(drawRatio, BOW_MIN_SPEED, BOW_MAX_SPEED)
   }
 
   calculateLaunchAngle(dx: number, dyUp: number, speed: number): number {

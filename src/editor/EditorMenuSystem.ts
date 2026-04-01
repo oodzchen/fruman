@@ -625,12 +625,15 @@ export class EditorMenuSystem {
 
   private getWeaponRenderType(
     weaponType: WeaponType
-  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'hook' {
+  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' {
     if (weaponType === 'hook') {
       return 'hook'
     }
     if (weaponType === 'bow') {
       return 'bow'
+    }
+    if (weaponType === 'grape') {
+      return 'grape'
     }
     if (weaponType === 'hammer') {
       return 'hammer'
