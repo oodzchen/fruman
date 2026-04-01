@@ -73,6 +73,15 @@ export interface MapPolygonShape {
   points: number[]
 }
 
+export interface MapCharacterBodyProfile {
+  points: number[]
+  color?: string
+  eyeX?: number
+  eyeY?: number
+  surfaceDataUrl?: string
+  textureDataUrl?: string
+}
+
 export type MapShape = MapRectShape | MapCircleShape | MapPolygonShape
 
 export interface MapPlacedShape {
@@ -95,6 +104,7 @@ export interface MapEnemy {
   enemyType: EnemyType
   radius?: number
   bodyHeight?: number
+  bodyProfile?: MapCharacterBodyProfile
   moveSpeed?: number
   attackDesire?: number
   parryProficiency?: number
@@ -157,6 +167,7 @@ export interface MapCamera {
 export interface MapPlayerProperties {
   radius?: number
   bodyHeight?: number
+  bodyProfile?: MapCharacterBodyProfile
   moveSpeed?: number
   facing?: number
   maxHealth?: number

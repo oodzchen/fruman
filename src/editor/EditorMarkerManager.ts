@@ -1,5 +1,6 @@
 import { fabric } from 'fabric'
 
+import { getCharacterBodyColor } from '../characterBodyProfile'
 import {
   CHARACTER_DEFAULT_DATA,
   DEFAULT_MOVE_SPEED,
@@ -14,6 +15,7 @@ import { Faction } from '../ecs/Component'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type {
+  MapCharacterBodyProfile,
   MapCheckpoint,
   MapEnemyWeapon,
   MapHookAnchor,
@@ -40,6 +42,7 @@ import {
 } from './EditorConstants'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import type {
+  CharacterBodyShapeObject,
   CheckpointMarker,
   CheckpointMarkerData,
   EnemyMarker,
@@ -96,6 +99,7 @@ export class EditorMarkerManager {
   private checkpointMarkerMap = new Map<fabric.Object, CheckpointMarkerData>()
   private hookAnchorMarkerMap = new Map<fabric.Object, HookAnchorMarkerData>()
   private sunPickupMarkerMap = new Map<fabric.Object, SunPickupMarkerData>()
+  private bodyTextureCache = new Map<string, HTMLImageElement>()
   private tempEnemyPos = { x: 0, y: 0 }
   private tempWeaponTransform = { x: 0, y: 0, rotation: 0 }
 
@@ -120,6 +124,36 @@ export class EditorMarkerManager {
     this.hookAnchorMarkerMap.clear()
     this.sunPickupMarkers.length = 0
     this.sunPickupMarkerMap.clear()
+    this.bodyTextureCache.clear()
+  }
+
+  private getBodyTextureImage(
+    profile: MapCharacterBodyProfile | undefined
+  ): HTMLImageElement | null {
+    const textureDataUrl = profile?.surfaceDataUrl ?? profile?.textureDataUrl
+    if (!textureDataUrl || textureDataUrl.length === 0) {
+      return null
+    }
+    const cached = this.bodyTextureCache.get(textureDataUrl)
+    if (cached) {
+      if (!cached.complete) {
+        cached.addEventListener(
+          'load',
+          () => {
+            this.ctx.requestRender()
+          },
+          { once: true }
+        )
+      }
+      return cached
+    }
+    const image = new Image()
+    image.onload = () => {
+      this.ctx.requestRender()
+    }
+    image.src = textureDataUrl
+    this.bodyTextureCache.set(textureDataUrl, image)
+    return image
   }
 
   getPlayerMarker() {
@@ -294,10 +328,13 @@ export class EditorMarkerManager {
       data.maxToughness > 0
         ? data.maxToughness
         : DEFAULT_PLAYER_MAX_TOUGHNESS
-    const nextColor =
+    const nextBodyProfile = data?.bodyProfile
+    const nextColor = getCharacterBodyColor(
+      nextBodyProfile,
       typeof data?.color === 'string' && data.color.length > 0
         ? data.color
         : PLAYER_BODY_COLOR
+    )
     const nextFacing =
       data?.facing === 1 || data?.facing === -1 ? data.facing : 1
     const nextMoveSpeed =
@@ -341,6 +378,7 @@ export class EditorMarkerManager {
       if (this.playerMarkerData) {
         this.playerMarkerData.radius = nextRadius
         this.playerMarkerData.bodyHeight = nextBodyHeight
+        this.playerMarkerData.bodyProfile = nextBodyProfile
         this.playerMarkerData.moveSpeed = nextMoveSpeed
         this.playerMarkerData.maxHealth = nextMaxHealth
         this.playerMarkerData.maxPosture = nextMaxPosture
@@ -356,6 +394,7 @@ export class EditorMarkerManager {
         this.playerMarkerData.allyFactions = nextAllyFactions
       }
       this.playerMarker.initialNormalMovesetId = nextInitialNormalMovesetId
+      this.playerMarker.bodyProfile = nextBodyProfile
       this.playerMarker.debugNoDamage = nextDebugNoDamage
       this.playerMarker.debugNoDeath = nextDebugNoDeath
       this.playerMarker.factionId = nextFactionId
@@ -375,10 +414,11 @@ export class EditorMarkerManager {
     marker.setCoords()
     marker.radius = nextRadius
     marker.bodyHeight = nextBodyHeight
+    marker.bodyProfile = nextBodyProfile
     marker.maxHealth = nextMaxHealth
     marker.maxPosture = nextMaxPosture
     marker.maxToughness = nextMaxToughness
-    marker.color = nextColor
+    marker.color = getCharacterBodyColor(marker.bodyProfile, nextColor)
     marker.facing = nextFacing
     marker.initialNormalMovesetId = nextInitialNormalMovesetId
     marker.debugNoDamage = nextDebugNoDamage
@@ -398,6 +438,7 @@ export class EditorMarkerManager {
       marker,
       radius: nextRadius,
       bodyHeight: nextBodyHeight,
+      bodyProfile: nextBodyProfile,
       moveSpeed: nextMoveSpeed,
       maxHealth: nextMaxHealth,
       maxPosture: nextMaxPosture,
@@ -450,37 +491,35 @@ export class EditorMarkerManager {
     nextColor: string,
     nextFacing: number
   ) {
-    const body = marker.item(1)
-    const eye = marker.item(3)
+    const body = marker.item(1) as unknown as
+      | CharacterBodyShapeObject
+      | undefined
     const bodyRadiusXPx = nextRadius * EDITOR_PIXELS_PER_METER
     const bodyRadiusYPx =
       nextBodyHeight > 0
         ? (nextBodyHeight * EDITOR_PIXELS_PER_METER) / 2
         : bodyRadiusXPx
-    const eyeRadiusPx = 0.08 * EDITOR_PIXELS_PER_METER
-    const eyeOffsetX = bodyRadiusXPx * 0.5 * nextFacing
-    const eyeOffsetY = -bodyRadiusYPx * 0.5
 
     marker.scaleX = 1
     marker.scaleY = 1
     marker.width = bodyRadiusXPx * 2
     marker.height = bodyRadiusYPx * 2
 
-    if (body instanceof fabric.Ellipse) {
-      body.set('rx', bodyRadiusXPx)
-      body.set('ry', bodyRadiusYPx)
-      body.set('fill', nextColor)
-      body.set('stroke', nextColor)
-    }
-    if (eye instanceof fabric.Circle) {
-      eye.set('radius', eyeRadiusPx)
-      eye.set('left', eyeOffsetX)
-      eye.set('top', eyeOffsetY)
+    if (body) {
+      body.bodyRadiusXPx = bodyRadiusXPx
+      body.bodyRadiusYPx = bodyRadiusYPx
+      body.bodyColor = getCharacterBodyColor(marker.bodyProfile, nextColor)
+      body.bodyFacing = nextFacing
+      body.bodyProfile = marker.bodyProfile ?? null
+      body.bodyTextureImage = this.getBodyTextureImage(marker.bodyProfile)
+      body.width = bodyRadiusXPx * 2
+      body.height = bodyRadiusYPx * 2
+      body.dirty = true
     }
 
     marker.radius = nextRadius
     marker.bodyHeight = nextBodyHeight
-    marker.color = nextColor
+    marker.color = getCharacterBodyColor(marker.bodyProfile, nextColor)
     marker.facing = nextFacing
     this.updatePlayerWeaponVisual(marker)
     marker.setCoords()
@@ -585,6 +624,7 @@ export class EditorMarkerManager {
       y: number
       radius?: number
       bodyHeight?: number
+      bodyProfile?: MapCharacterBodyProfile
       moveSpeed?: number
       attackDesire?: number
       parryProficiency?: number
@@ -619,6 +659,7 @@ export class EditorMarkerManager {
       CHARACTER_DEFAULT_DATA[enemyType] ?? CHARACTER_DEFAULT_DATA.default
     const radius = spawn?.radius ?? template.radius
     const bodyHeight = spawn?.bodyHeight ?? 0
+    const bodyProfile = spawn?.bodyProfile
     const moveSpeed = spawn?.moveSpeed ?? template.moveSpeed
     const attackDesire = spawn?.attackDesire ?? template.attackDesire
     const parryProficiency =
@@ -631,6 +672,7 @@ export class EditorMarkerManager {
     const maxPosture = spawn?.maxPosture ?? template.maxPosture
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
     const color = spawn?.color ?? template.color
+    const resolvedColor = getCharacterBodyColor(bodyProfile, color)
     const facing = spawn?.facing ?? 1
     const initialNormalMovesetId =
       spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('enemy')
@@ -662,11 +704,12 @@ export class EditorMarkerManager {
     const marker = this.objectFactory.createEnemyMarker(
       enemyType,
       radius,
-      color,
+      resolvedColor,
       equipWeapon
     ) as EnemyMarker
     marker.radius = radius
     marker.bodyHeight = bodyHeight
+    marker.bodyProfile = bodyProfile
     marker.moveSpeed = moveSpeed
     marker.attackDesire = attackDesire
     marker.parryProficiency = parryProficiency
@@ -675,7 +718,7 @@ export class EditorMarkerManager {
     marker.maxHealth = maxHealth
     marker.maxPosture = maxPosture
     marker.maxToughness = maxToughness
-    marker.color = color
+    marker.color = resolvedColor
     marker.facing = facing
     marker.initialNormalMovesetId = initialNormalMovesetId
     marker.debugNoDamage = debugNoDamage
@@ -698,6 +741,7 @@ export class EditorMarkerManager {
       enemyType,
       radius,
       bodyHeight,
+      bodyProfile,
       moveSpeed,
       attackDesire,
       parryProficiency,
@@ -706,7 +750,7 @@ export class EditorMarkerManager {
       maxHealth,
       maxPosture,
       maxToughness,
-      color,
+      color: resolvedColor,
       facing,
       initialNormalMovesetId,
       debugNoDamage,
@@ -751,7 +795,13 @@ export class EditorMarkerManager {
       )
     }
 
-    this.updateEnemyMarkerVisual(marker, radius, bodyHeight, color, facing)
+    this.updateEnemyMarkerVisual(
+      marker,
+      radius,
+      bodyHeight,
+      resolvedColor,
+      facing
+    )
     canvas.setActiveObject(marker)
     this.ctx.handleCanvasSelection(marker)
     canvas.renderAll()
@@ -943,8 +993,9 @@ export class EditorMarkerManager {
     nextColor: string,
     nextFacing: number
   ) {
-    const body = marker.item(1)
-    const eye = marker.item(3)
+    const body = marker.item(1) as unknown as
+      | CharacterBodyShapeObject
+      | undefined
     const bodyRadiusXPx = this.ctx.computeEnemyBodyRadiusPx(
       nextRadius,
       EDITOR_PIXELS_PER_METER
@@ -953,30 +1004,27 @@ export class EditorMarkerManager {
       nextBodyHeight > 0
         ? (nextBodyHeight * EDITOR_PIXELS_PER_METER) / 2
         : bodyRadiusXPx
-    const eyeRadiusPx = 0.08 * EDITOR_PIXELS_PER_METER
-    const eyeOffsetX = bodyRadiusXPx * 0.5 * nextFacing
-    const eyeOffsetY = -bodyRadiusYPx * 0.5
 
     marker.scaleX = 1
     marker.scaleY = 1
     marker.width = bodyRadiusXPx * 2
     marker.height = bodyRadiusYPx * 2
 
-    if (body instanceof fabric.Ellipse) {
-      body.set('rx', bodyRadiusXPx)
-      body.set('ry', bodyRadiusYPx)
-      body.set('fill', nextColor)
-      body.set('stroke', nextColor)
-    }
-    if (eye instanceof fabric.Circle) {
-      eye.set('radius', eyeRadiusPx)
-      eye.set('left', eyeOffsetX)
-      eye.set('top', eyeOffsetY)
+    if (body) {
+      body.bodyRadiusXPx = bodyRadiusXPx
+      body.bodyRadiusYPx = bodyRadiusYPx
+      body.bodyColor = getCharacterBodyColor(marker.bodyProfile, nextColor)
+      body.bodyFacing = nextFacing
+      body.bodyProfile = marker.bodyProfile ?? null
+      body.bodyTextureImage = this.getBodyTextureImage(marker.bodyProfile)
+      body.width = bodyRadiusXPx * 2
+      body.height = bodyRadiusYPx * 2
+      body.dirty = true
     }
 
     marker.radius = nextRadius
     marker.bodyHeight = nextBodyHeight
-    marker.color = nextColor
+    marker.color = getCharacterBodyColor(marker.bodyProfile, nextColor)
     marker.facing = nextFacing
     this.updateEnemyWeaponVisual(marker)
     marker.setCoords()

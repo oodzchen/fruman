@@ -1,10 +1,11 @@
 import {
   ATTACK_TOUGHNESS_DENOMINATOR,
   ATTACK_TOUGHNESS_NUMERATOR,
+  CATEGORY_ENEMY,
+  CATEGORY_PLAYER,
   DEATH_CROSS_DURATION_MS,
   DEATH_PRE_SPLATTER_PAUSE_MS,
   DEFAULT_BODY_FRICTION,
-  DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_DEATH_FLASH_DURATION,
   DEFAULT_DEATH_FLATTEN_DURATION,
   DEFAULT_HIT_SHAKE_DURATION_MS,
@@ -19,6 +20,8 @@ import {
   HIT_STUN_LIGHT_MS,
   HIT_STUN_MEDIUM_MS,
   IMPACT_LEVEL_KNOCKBACK,
+  MASK_ENEMY,
+  MASK_PLAYER,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
   SOUND_DB_BODY_HIT,
@@ -32,9 +35,11 @@ import {
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ImpactLevel } from '../AttackMoveData'
+import { createCharacterPhysicsBody } from '../CharacterBodyPhysics'
 import { Faction, PhysicsComponent } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import { forEachPhysicsShapeId } from '../PhysicsShapeUtils'
 import { System } from '../System'
 import type { SoundSystem } from './SoundSystem'
 import type { WeaponSystem } from './WeaponSystem'
@@ -1020,7 +1025,9 @@ export class StatsSystem extends System {
 
     if (entity.physics.shapeId) {
       const { b2Shape_SetFriction } = this.box2d
-      b2Shape_SetFriction(entity.physics.shapeId, 3)
+      forEachPhysicsShapeId(entity.physics, (shapeId) => {
+        b2Shape_SetFriction(shapeId, 3)
+      })
     }
   }
 
@@ -1037,43 +1044,24 @@ export class StatsSystem extends System {
     if (!this.box2d || !this.worldId) return
     if (!entity.transform) return
 
-    const {
-      b2DefaultBodyDef,
-      b2CreateBody,
-      b2BodyType,
-      b2Capsule,
-      b2DefaultShapeDef,
-      b2CreateCapsuleShape,
-    } = this.box2d
-
-    const bodyDef = b2DefaultBodyDef()
-    bodyDef.type = b2BodyType.b2_dynamicBody
-    bodyDef.position.Set(entity.transform.x, entity.transform.y)
-    bodyDef.motionLocks.angularZ = true
-    bodyDef.linearDamping = DEFAULT_BODY_LINEAR_DAMPING
-    const bodyId = b2CreateBody(this.worldId, bodyDef)
-
-    const shape = new b2Capsule()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    const bh = entity.render?.bodyHeight ?? 0
-    const bhRadius = bh > 0 ? bh / 2 : radius
-    const capsuleRadius = Math.min(radius, bhRadius)
-    const centerHalfDist = Math.max(0, bhRadius - capsuleRadius)
-    shape.center1.Set(0, -centerHalfDist)
-    shape.center2.Set(0, centerHalfDist)
-    shape.radius = capsuleRadius
-    const fixtureDef = b2DefaultShapeDef()
-    fixtureDef.density = 1.0
-    fixtureDef.material.friction = DEFAULT_BODY_FRICTION
-    const shapeId = b2CreateCapsuleShape(bodyId, fixtureDef, shape)
-
-    bodyDef.delete()
-    shape.delete()
-    fixtureDef.delete()
+    const isPlayer = entity.faction?.factionId === Faction.Player
+    const bodyResult = createCharacterPhysicsBody(this.box2d, this.worldId, {
+      x: entity.transform.x,
+      y: entity.transform.y,
+      radius,
+      bodyHeight: entity.render?.bodyHeight ?? 0,
+      bodyProfile: entity.render?.bodyProfile ?? undefined,
+      density: 1.0,
+      friction: DEFAULT_BODY_FRICTION,
+      categoryBits: isPlayer ? CATEGORY_PLAYER : CATEGORY_ENEMY,
+      maskBits: isPlayer ? MASK_PLAYER : MASK_ENEMY,
+    })
 
     const physics = new PhysicsComponent()
-    physics.bodyId = bodyId
-    physics.shapeId = shapeId
+    physics.bodyId = bodyResult.bodyId
+    physics.shapeId = bodyResult.shapeId
+    physics.shapeIds = bodyResult.shapeIds
     entity.addComponent(physics)
   }
 

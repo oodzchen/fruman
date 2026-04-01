@@ -6,6 +6,7 @@ import type {
   EditorTreeData,
   EditorTreeNode,
   EditorTreeObjectType,
+  MapCharacterBodyProfile,
   MapEnemyWeapon,
   MapPlacedShape,
   MapSunPickup,
@@ -58,6 +59,7 @@ interface EditorMapSerializerContext {
   getPlayerMarkerData: () => {
     radius: number
     bodyHeight: number
+    bodyProfile?: MapCharacterBodyProfile
     moveSpeed: number
     maxHealth: number
     maxPosture: number
@@ -627,6 +629,7 @@ export class EditorMapSerializer {
     return {
       radius: data.radius,
       bodyHeight: data.bodyHeight || undefined,
+      bodyProfile: data.bodyProfile,
       moveSpeed: data.moveSpeed,
       maxHealth: data.maxHealth,
       maxPosture: data.maxPosture,
@@ -806,6 +809,7 @@ export class EditorMapSerializer {
         enemyType: data.enemyType,
         radius: data.radius,
         bodyHeight: data.bodyHeight || undefined,
+        bodyProfile: data.bodyProfile,
         moveSpeed: data.moveSpeed,
         attackDesire: data.attackDesire,
         parryProficiency: data.parryProficiency,

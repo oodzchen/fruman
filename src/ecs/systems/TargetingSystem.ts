@@ -1,4 +1,8 @@
 import {
+  getCharacterEyeOffsetX,
+  getCharacterEyeOffsetY,
+} from '../../characterBodyProfile'
+import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   ENEMY_DETECTION_RANGE,
@@ -223,8 +227,16 @@ export class TargetingSystem extends System {
     }
 
     const radius = start.render?.radius || 0.5
-    const eyeOffsetX = facingDir >= 0 ? radius * 0.5 : -radius * 0.5
-    const eyeOffsetY = -radius * 0.5
+    const eyeOffsetX = getCharacterEyeOffsetX(
+      start.render?.bodyProfile,
+      radius,
+      facingDir
+    )
+    const eyeOffsetY = getCharacterEyeOffsetY(
+      start.render?.bodyProfile,
+      radius,
+      start.render?.bodyHeight ?? 0
+    )
     const startX = start.transform.x + eyeOffsetX
     const startY = start.transform.y + eyeOffsetY
 
@@ -290,8 +302,13 @@ export class TargetingSystem extends System {
     this.shapeMap.clear()
     for (const entity of entities) {
       if (entity.physics && entity.physics.shapeId) {
-        // 假设 box2d-wasm 的 shapeId 包含 index 属性
-        // 如果 shapeId 是数字则直接使用
+        if (entity.physics.shapeIds.length > 0) {
+          for (let i = 0; i < entity.physics.shapeIds.length; i++) {
+            const key = this.getShapeKey(entity.physics.shapeIds[i])
+            this.shapeMap.set(key, entity)
+          }
+          continue
+        }
         const key = this.getShapeKey(entity.physics.shapeId)
         this.shapeMap.set(key, entity)
       }
@@ -334,8 +351,16 @@ export class TargetingSystem extends System {
 
     // Ray starts from eye position (offset from entity center)
     const entityRadius = entity.render?.radius || 0.5
-    const eyeOffsetX = facingDir >= 0 ? entityRadius * 0.5 : -entityRadius * 0.5
-    const eyeOffsetY = -entityRadius * 0.5
+    const eyeOffsetX = getCharacterEyeOffsetX(
+      entity.render?.bodyProfile,
+      entityRadius,
+      facingDir
+    )
+    const eyeOffsetY = getCharacterEyeOffsetY(
+      entity.render?.bodyProfile,
+      entityRadius,
+      entity.render?.bodyHeight ?? 0
+    )
     const startX = x + eyeOffsetX
     const startY = y + eyeOffsetY
 

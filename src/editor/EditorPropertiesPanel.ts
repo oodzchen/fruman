@@ -1,6 +1,7 @@
 import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
+import { getCharacterBodyColor } from '../characterBodyProfile'
 import { WEAPON_DEFAULT_DATA } from '../constants'
 import {
   type AttackMovesetOwner,
@@ -11,7 +12,7 @@ import {
 } from '../ecs/AttackMoveRegistry'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
-import type { EditorMapData } from '../editorMapTypes'
+import type { EditorMapData, MapCharacterBodyProfile } from '../editorMapTypes'
 import {
   HUD_SLOT_SIZE,
   HUD_SLOT_SPACING,
@@ -30,6 +31,7 @@ import {
   isRangedWeaponType,
   isSecondaryWeaponType,
 } from '../weaponTypeUtils'
+import { EditorCharacterBodyDrawer } from './EditorCharacterBodyDrawer'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import {
   computeWeaponRenderDimensions,
@@ -64,6 +66,7 @@ type CharacterDialogOptions = {
   data: {
     radius: number
     bodyHeight: number
+    bodyProfile?: MapCharacterBodyProfile
     moveSpeed?: number
     attackDesire?: number
     parryProficiency?: number
@@ -105,6 +108,7 @@ type CharacterDialogOptions = {
   onCommit: (values: {
     radius: number
     bodyHeight: number
+    bodyProfile?: MapCharacterBodyProfile
     moveSpeed?: number
     attackDesire?: number
     parryProficiency?: number
@@ -174,9 +178,35 @@ export interface EditorPropertiesPanelContext {
 
 export class EditorPropertiesPanel {
   private context: EditorPropertiesPanelContext
+  private bodyDrawer = new EditorCharacterBodyDrawer()
+  private bodyTextureCache = new Map<string, HTMLImageElement>()
 
   constructor(context: EditorPropertiesPanelContext) {
     this.context = context
+  }
+
+  private getBodyTextureImage(
+    profile: MapCharacterBodyProfile | undefined,
+    onReady?: () => void
+  ): HTMLImageElement | null {
+    const textureDataUrl = profile?.surfaceDataUrl ?? profile?.textureDataUrl
+    if (!textureDataUrl || textureDataUrl.length === 0) {
+      return null
+    }
+    const cached = this.bodyTextureCache.get(textureDataUrl)
+    if (cached) {
+      if (onReady && !cached.complete) {
+        cached.addEventListener('load', onReady, { once: true })
+      }
+      return cached
+    }
+    const image = new Image()
+    if (onReady) {
+      image.onload = onReady
+    }
+    image.src = textureDataUrl
+    this.bodyTextureCache.set(textureDataUrl, image)
+    return image
   }
 
   private getWeaponRenderType(
@@ -648,6 +678,7 @@ export class EditorPropertiesPanel {
     const bodyWidthDefault = defaultDiameter
     const bodyHeightDefault =
       options.data.bodyHeight > 0 ? options.data.bodyHeight : defaultDiameter
+    let bodyProfile = options.data.bodyProfile
 
     const bodyWidthRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_body_width')
@@ -673,27 +704,48 @@ export class EditorPropertiesPanel {
     bodyHeightRow.row.appendChild(bodyHeightInput)
     appearancePanel.appendChild(bodyHeightRow.row)
 
-    // Color (moved to 外观 tab)
-    const colorRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_enemy_prop_color')
+    const bodyDrawRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_body_drawer_label')
     )
-    const colorInput = EditorUIHelper.createTextInput({
-      value: options.data.color,
-    })
-    colorRow.row.appendChild(colorInput)
-
-    const colorPicker = EditorUIHelper.createColorInput(options.data.color)
-    colorPicker.addEventListener('input', () => {
-      colorInput.value = colorPicker.value
-    })
-    colorInput.addEventListener('input', () => {
-      const value = colorInput.value.trim()
-      if (/^#[0-9a-fA-F]{6}$/.test(value)) {
-        colorPicker.value = value
+    const bodyDrawBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_open'),
+      { primary: true }
+    )
+    bodyDrawBtn.addEventListener('click', async () => {
+      const bodyWidthVal = Number.parseFloat(bodyWidthInput.value)
+      const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
+      const currentWidth =
+        Number.isFinite(bodyWidthVal) && bodyWidthVal > 0
+          ? bodyWidthVal
+          : defaultDiameter
+      const currentHeight =
+        Number.isFinite(bodyHeightVal) && bodyHeightVal > 0
+          ? bodyHeightVal
+          : currentWidth
+      const nextBodyProfile = await this.bodyDrawer.show({
+        title: localizer.t('editor_body_drawer_title'),
+        initialProfile: bodyProfile,
+        initialColor: getCharacterBodyColor(bodyProfile, options.data.color),
+        defaultBodyWidth: currentWidth,
+        defaultBodyHeight: currentHeight,
+      })
+      if (nextBodyProfile === undefined) {
+        return
       }
+      bodyProfile = nextBodyProfile ?? undefined
+      if (bodyProfile) {
+        options.data.color = getCharacterBodyColor(
+          bodyProfile,
+          options.data.color
+        )
+      }
+      options.marker.bodyProfile = bodyProfile
+      options.data.bodyProfile = bodyProfile
+      updateCharacterVisualFromInputs()
+      renderCharacterPreview()
     })
-    colorRow.row.appendChild(colorPicker)
-    appearancePanel.appendChild(colorRow.row)
+    bodyDrawRow.row.appendChild(bodyDrawBtn)
+    appearancePanel.appendChild(bodyDrawRow.row)
 
     const mainBinding =
       options.weaponBindings.find((binding) => binding.slot === 'main') ?? null
@@ -801,11 +853,8 @@ export class EditorPropertiesPanel {
     footerPanel.appendChild(buttonRow)
 
     // Preview rendering
-    const colorRegex = /^#[0-9a-fA-F]{6}$/
-    const getValidColor = () => {
-      const value = colorInput.value.trim()
-      return colorRegex.test(value) ? value : options.data.color
-    }
+    const getBodyColor = () =>
+      getCharacterBodyColor(bodyProfile, options.data.color)
 
     type WeaponSlotPreview = {
       hasWeapon: boolean
@@ -963,8 +1012,12 @@ export class EditorPropertiesPanel {
       const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
       const bodyHeight =
         Number.isFinite(bodyHeightVal) && bodyHeightVal > 0 ? bodyHeightVal : 0
-      const color = getValidColor()
+      const color = getBodyColor()
       const facing = Number.parseInt(facingSelect.value, 10)
+      const bodyTextureImage = this.getBodyTextureImage(
+        bodyProfile,
+        renderCharacterPreview
+      )
 
       if (options.weaponBindings.length > 0) {
         if (mainBinding && mainWeaponSelect) {
@@ -1048,7 +1101,9 @@ export class EditorPropertiesPanel {
         bodyHeight,
         color,
         previewPixelsPerMeter,
-        facing
+        facing,
+        bodyProfile ?? null,
+        bodyTextureImage
       )
       if (facing >= 0) {
         renderMainWeapon()
@@ -1070,7 +1125,7 @@ export class EditorPropertiesPanel {
           options.marker,
           radiusMeters,
           bodyHeight,
-          getValidColor(),
+          getBodyColor(),
           facing
         )
         this.context.requestRender()
@@ -1086,16 +1141,6 @@ export class EditorPropertiesPanel {
     bodyHeightInput.addEventListener('input', () => {
       updateCharacterVisualFromInputs()
       renderCharacterPreview()
-    })
-    colorPicker.addEventListener('input', () => {
-      updateCharacterVisualFromInputs()
-      renderCharacterPreview()
-    })
-    colorInput.addEventListener('input', () => {
-      renderCharacterPreview()
-      if (colorRegex.test(colorInput.value.trim())) {
-        updateCharacterVisualFromInputs()
-      }
     })
     facingSelect.addEventListener('change', () => {
       updateCharacterVisualFromInputs()
@@ -1126,7 +1171,7 @@ export class EditorPropertiesPanel {
         retreatDelayInput !== null
           ? Number.parseFloat(retreatDelayInput.value)
           : undefined
-      const color = getValidColor()
+      const color = getBodyColor()
       const initialNormalMovesetId =
         initialAttackModuleSelect.value as NormalAttackMovesetId
       const moveSpeed = speedInput ? Number.parseFloat(speedInput.value) : 0
@@ -1153,8 +1198,7 @@ export class EditorPropertiesPanel {
         !Number.isFinite(maxPosture) ||
         maxPosture < 0 ||
         !Number.isFinite(maxToughness) ||
-        maxToughness < 0 ||
-        color.length === 0
+        maxToughness < 0
       ) {
         return
       }
@@ -1223,6 +1267,7 @@ export class EditorPropertiesPanel {
       options.onCommit({
         radius,
         bodyHeight,
+        bodyProfile,
         moveSpeed: options.showMoveSpeed ? moveSpeed : undefined,
         attackDesire: options.showAttackDesire ? attackDesire : undefined,
         parryProficiency: options.showParry ? parryProficiency : undefined,
@@ -1354,6 +1399,7 @@ export class EditorPropertiesPanel {
       onCommit: (values) => {
         data.radius = values.radius
         data.bodyHeight = values.bodyHeight
+        data.bodyProfile = values.bodyProfile
         data.moveSpeed = values.moveSpeed ?? data.moveSpeed
         data.attackDesire = values.attackDesire ?? data.attackDesire
         data.parryProficiency = values.parryProficiency ?? data.parryProficiency
@@ -1396,6 +1442,7 @@ export class EditorPropertiesPanel {
 
         marker.radius = data.radius
         marker.bodyHeight = data.bodyHeight
+        marker.bodyProfile = data.bodyProfile
         marker.moveSpeed = data.moveSpeed
         marker.attackDesire = data.attackDesire
         marker.parryProficiency = data.parryProficiency
@@ -1497,6 +1544,7 @@ export class EditorPropertiesPanel {
       onCommit: (values) => {
         data.radius = values.radius
         data.bodyHeight = values.bodyHeight
+        data.bodyProfile = values.bodyProfile
         data.moveSpeed = values.moveSpeed ?? data.moveSpeed
         data.maxHealth = values.maxHealth
         data.maxPosture = values.maxPosture
@@ -1517,6 +1565,7 @@ export class EditorPropertiesPanel {
 
         marker.radius = data.radius
         marker.bodyHeight = data.bodyHeight
+        marker.bodyProfile = data.bodyProfile
         marker.maxHealth = data.maxHealth
         marker.maxPosture = data.maxPosture
         marker.maxToughness = data.maxToughness

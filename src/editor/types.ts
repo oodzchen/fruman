@@ -1,6 +1,6 @@
 import { fabric } from 'fabric'
 
-import type { WeaponCategory } from '../editorMapTypes'
+import type { MapCharacterBodyProfile, WeaponCategory } from '../editorMapTypes'
 import type {
   EnemyDetectionRangeLevel,
   EnemyPatrolMode,
@@ -33,6 +33,7 @@ export type PlayerMarker = fabric.Group & {
   editorShape: 'player-marker'
   radius: number
   bodyHeight: number
+  bodyProfile?: MapCharacterBodyProfile
   maxHealth: number
   maxPosture: number
   maxToughness: number
@@ -53,6 +54,7 @@ export type EnemyMarker = fabric.Group & {
   enemyType: EnemyType
   radius: number
   bodyHeight: number
+  bodyProfile?: MapCharacterBodyProfile
   moveSpeed: number
   attackDesire: number
   parryProficiency: number
@@ -107,6 +109,16 @@ export type WeaponShape = fabric.Object & {
   weaponRenderType: 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook'
 }
 
+export type CharacterBodyShapeObject = fabric.Object & {
+  bodyRadiusXPx: number
+  bodyRadiusYPx: number
+  bodyColor: string
+  bodyFacing: number
+  eyeColor: string
+  bodyProfile: MapCharacterBodyProfile | null
+  bodyTextureImage: HTMLImageElement | null
+}
+
 export type ShapeResetData =
   | { kind: 'rect'; width: number; height: number }
   | { kind: 'circle'; radius: number }
@@ -126,6 +138,7 @@ export interface EnemyMarkerData {
   enemyType: EnemyType
   radius: number
   bodyHeight: number
+  bodyProfile?: MapCharacterBodyProfile
   moveSpeed: number
   attackDesire: number
   parryProficiency: number
@@ -157,6 +170,7 @@ export interface PlayerMarkerData {
   marker: PlayerMarker
   radius: number
   bodyHeight: number
+  bodyProfile?: MapCharacterBodyProfile
   moveSpeed: number
   maxHealth: number
   maxPosture: number

@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 83
+export const ENTITY_STRIDE = 84
 
 export const OFFSETS = {
   ID: 0,
@@ -84,6 +84,7 @@ export const OFFSETS = {
   UNBOND_FLASH_PROGRESS: 80, // 解绑动画进度 1.0→0.0，>0 表示动画进行中
   PLAYER_LEVEL: 81,
   PLAYER_EXP_RATIO100: 82, // 当前经验 / 升级所需经验 × 100（整数 0-100）
+  BODY_PROFILE_INDEX: 83,
 }
 
 export const FLAGS = {

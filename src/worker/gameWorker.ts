@@ -8,6 +8,12 @@ import {
 } from 'poly-decomp-es'
 
 import {
+  PLAYER_BODY_PROFILE_INDEX,
+  getCharacterBodyColor,
+  getEnemyBodyProfileIndex,
+  isValidCharacterBodyProfile,
+} from '../characterBodyProfile'
+import {
   CATEGORY_GROUND,
   CATEGORY_OBSTACLE,
   CATEGORY_WEAPON,
@@ -1674,6 +1680,7 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     typeof playerProps?.bodyHeight === 'number' && playerProps.bodyHeight > 0
       ? playerProps.bodyHeight
       : 0
+  const playerBodyProfile = playerProps?.bodyProfile
   playerEntity = createPlayer(
     world,
     box2d,
@@ -1682,8 +1689,21 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     map ? map.playerSpawn.y : groundY - 0.6,
     groundY,
     playerRadius,
-    playerBodyHeight
+    playerBodyHeight,
+    playerBodyProfile
   )
+  if (playerEntity.render) {
+    playerEntity.render.bodyProfile = playerBodyProfile ?? null
+    playerEntity.render.bodyProfileIndex = isValidCharacterBodyProfile(
+      playerBodyProfile
+    )
+      ? PLAYER_BODY_PROFILE_INDEX
+      : 0
+    playerEntity.render.color = getCharacterBodyColor(
+      playerBodyProfile,
+      playerProps?.color ?? playerEntity.render.color
+    )
+  }
 
   if (playerEntity.stats && playerProps) {
     const nextMaxHealth =
@@ -1948,6 +1968,13 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         enemy.enemyType,
         enemy
       )
+      if (created.render) {
+        created.render.bodyProfileIndex = isValidCharacterBodyProfile(
+          enemy.bodyProfile
+        )
+          ? getEnemyBodyProfileIndex(i)
+          : 0
+      }
       if (created.attackSlots) {
         const nextMovesetId = isNormalAttackMovesetId(
           enemy.initialNormalMovesetId
@@ -3262,6 +3289,8 @@ function sendState() {
     }
 
     stateBuffer[offset + OFFSETS.BODY_HEIGHT] = e.render?.bodyHeight ?? 0
+    stateBuffer[offset + OFFSETS.BODY_PROFILE_INDEX] =
+      e.render?.bodyProfileIndex ?? 0
 
     // 独立武器实体（地面武器）：只要有weapon组件就显示
     // 角色实体：只有装备时才显示武器
@@ -3731,7 +3760,13 @@ function updateParam(id?: string, value?: number) {
   if (playerEntity.physics) {
     if (id === 'bodyFriction') {
       const { b2Shape_SetFriction } = box2d
-      b2Shape_SetFriction(playerEntity.physics.shapeId, value)
+      if (playerEntity.physics.shapeIds.length > 0) {
+        for (let i = 0; i < playerEntity.physics.shapeIds.length; i++) {
+          b2Shape_SetFriction(playerEntity.physics.shapeIds[i], value)
+        }
+      } else {
+        b2Shape_SetFriction(playerEntity.physics.shapeId, value)
+      }
       if (playerEntity.movement) {
         playerEntity.movement.bodyFriction = value
         if (playerEntity.movement.isGrounded) {
@@ -4584,6 +4619,13 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       enemyType,
       mapEnemy
     )
+    if (created.render && mapEnemy) {
+      created.render.bodyProfileIndex = isValidCharacterBodyProfile(
+        mapEnemy.bodyProfile
+      )
+        ? getEnemyBodyProfileIndex(savedState.spawnIndex)
+        : 0
+    }
     applyStateToEntity(created, savedState)
   }
 
@@ -4608,6 +4650,13 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       enemyType,
       mapEnemy
     )
+    if (created.render && mapEnemy) {
+      created.render.bodyProfileIndex = isValidCharacterBodyProfile(
+        mapEnemy.bodyProfile
+      )
+        ? getEnemyBodyProfileIndex(savedState.spawnIndex)
+        : 0
+    }
     applyStateToEntity(created, savedState)
   }
 

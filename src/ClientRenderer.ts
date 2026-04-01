@@ -1,6 +1,10 @@
 import type { AudioManager } from './AudioManager'
 import { BowTrajectoryCalculator } from './BowTrajectory'
 import {
+  getCharacterBodyColor,
+  getCharacterBodyProfileFromMap,
+} from './characterBodyProfile'
+import {
   BOW_GRAVITY_SCALE,
   BOW_MAX_DRAW_MS,
   BOW_MIN_FORCE_RATIO,
@@ -17,6 +21,7 @@ import {
   WEAPON_DEFAULT_DATA,
 } from './constants'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
+import type { EditorMapData } from './editorMapTypes'
 import { renderBody } from './renderer/BodyRenderer'
 import {
   HUD_AMMO_ALPHA,
@@ -121,6 +126,8 @@ export class ClientRenderer {
   private handshakeIconLoaded = false
   private wavingHandIcon: HTMLImageElement
   private wavingHandIconLoaded = false
+  private characterBodyMap: EditorMapData | null = null
+  private characterBodyTextureCache = new Map<string, HTMLImageElement>()
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
@@ -142,6 +149,26 @@ export class ClientRenderer {
 
   setAudioManager(audioManager: AudioManager): void {
     this.audioManager = audioManager
+  }
+
+  setCharacterBodyMap(map: EditorMapData | null): void {
+    this.characterBodyMap = map
+  }
+
+  private getCharacterBodyTexture(
+    textureDataUrl: string | undefined
+  ): HTMLImageElement | null {
+    if (!textureDataUrl || textureDataUrl.length === 0) {
+      return null
+    }
+    const cached = this.characterBodyTextureCache.get(textureDataUrl)
+    if (cached) {
+      return cached
+    }
+    const image = new Image()
+    image.src = textureDataUrl
+    this.characterBodyTextureCache.set(textureDataUrl, image)
+    return image
   }
 
   updateState(
@@ -673,6 +700,14 @@ export class ClientRenderer {
 
     const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
     const bodyHeightPx = buf[offset + OFFSETS.BODY_HEIGHT] * this.pixelsPerMeter
+    const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
+    const bodyProfile = getCharacterBodyProfileFromMap(
+      this.characterBodyMap,
+      bodyProfileIndex
+    )
+    const bodyTexture = this.getCharacterBodyTexture(
+      bodyProfile?.surfaceDataUrl ?? bodyProfile?.textureDataUrl
+    )
     if (rollAngle !== 0) {
       if (radius > 0) {
         // 非圆形体型旋转时，调整 Y 偏移使视觉最低点始终贴在物理底部
@@ -694,15 +729,21 @@ export class ClientRenderer {
     if (radius > 0) {
       const direction = buf[offset + OFFSETS.MOVE_DIR]
       const outlineWidthPx = hasFollowBound ? Math.max(1, radius >> 3) : 0
+      const bodyColor = getCharacterBodyColor(
+        bodyProfile,
+        this.getColorString(colorInt)
+      )
       renderBody(
         this.ctx,
         radius,
-        this.getColorString(colorInt),
+        bodyColor,
         this.pixelsPerMeter,
         direction,
         bodyHeightPx || undefined,
         hasFollowBound ? FOLLOW_BOUND_BORDER_COLOR : '',
-        outlineWidthPx
+        outlineWidthPx,
+        bodyProfile,
+        bodyTexture
       )
     }
 

@@ -1,5 +1,6 @@
 import { WEAPON_DEFAULT_DATA } from '../constants'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
+import type { MapCharacterBodyProfile } from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
 import type { WeaponType } from '../types'
 
@@ -42,13 +43,26 @@ export function renderEnemyPreviewToContext(
   bodyHeightMeters: number,
   bodyColor: string,
   pixelsPerMeter: number,
-  facing = 1
+  facing = 1,
+  bodyProfile: MapCharacterBodyProfile | null = null,
+  bodyTexture: CanvasImageSource | null = null
 ): void {
   const bodyRadius = computeEnemyBodyRadiusPx(radiusMeters, pixelsPerMeter)
   const bodyHeightPx =
     bodyHeightMeters > 0 ? bodyHeightMeters * pixelsPerMeter : undefined
   ctx.save()
   ctx.translate(centerX, centerY)
-  renderBody(ctx, bodyRadius, bodyColor, pixelsPerMeter, facing, bodyHeightPx)
+  renderBody(
+    ctx,
+    bodyRadius,
+    bodyColor,
+    pixelsPerMeter,
+    facing,
+    bodyHeightPx,
+    '',
+    0,
+    bodyProfile,
+    bodyTexture
+  )
   ctx.restore()
 }

@@ -6,12 +6,14 @@ import {
   DEFAULT_WEAPON_GROUND_ROTATION_RAD,
 } from '../constants'
 import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
+import { renderBody } from '../renderer/BodyRenderer'
 import type { WeaponType } from '../types'
 import {
   isSecondaryWeaponType,
   normalizeWeaponTypeAndSizeLevel,
 } from '../weaponTypeUtils'
 import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
+import type { CharacterBodyShapeObject } from './types'
 
 interface WeaponTemplateLike {
   width: number
@@ -90,32 +92,57 @@ export class EditorObjectFactory {
     this.renderWeapon = options.renderWeapon
   }
 
+  private createCharacterBodyShape(color: string): CharacterBodyShapeObject {
+    const pixelsPerMeter = this.pixelsPerMeter
+    const bodyShapeClass = fabric.util.createClass(fabric.Object, {
+      type: 'customCharacterBody',
+      bodyRadiusXPx: 0,
+      bodyRadiusYPx: 0,
+      bodyColor: color,
+      bodyFacing: 1,
+      eyeColor: '#000000',
+      bodyProfile: null,
+      bodyTextureImage: null,
+      initialize(options?: fabric.IObjectOptions) {
+        this.callSuper('initialize', options)
+      },
+      _render(ctx: CanvasRenderingContext2D) {
+        const self = this as CharacterBodyShapeObject
+        renderBody(
+          ctx,
+          self.bodyRadiusXPx,
+          self.bodyColor,
+          pixelsPerMeter,
+          self.bodyFacing,
+          self.bodyRadiusYPx * 2,
+          '',
+          0,
+          self.bodyProfile,
+          self.bodyTextureImage,
+          true,
+          self.eyeColor
+        )
+      },
+    })
+
+    return new bodyShapeClass({
+      originX: 'center',
+      originY: 'center',
+      objectCaching: false,
+      selectable: false,
+    }) as CharacterBodyShapeObject
+  }
+
   createPlayerMarker() {
     const radius = this.defaultPlayerRadius * this.pixelsPerMeter
-    const eyeRadius = 0.08 * this.pixelsPerMeter
-    const eyeOffsetX = radius * 0.5
-    const eyeOffsetY = -radius * 0.5
-    const body = new fabric.Ellipse({
-      rx: radius,
-      ry: radius,
-      fill: this.playerBodyColor,
-      stroke: this.playerBodyColor,
-      strokeWidth: 3,
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-    })
-    const eye = new fabric.Circle({
-      radius: eyeRadius,
-      fill: this.playerEyeColor,
-      stroke: this.playerEyeColor,
-      strokeWidth: 1,
-      originX: 'center',
-      originY: 'center',
-      left: eyeOffsetX,
-      top: eyeOffsetY,
-      objectCaching: false,
-    })
+    const body = this.createCharacterBodyShape(this.playerBodyColor)
+    body.bodyRadiusXPx = radius
+    body.bodyRadiusYPx = radius
+    body.bodyColor = this.playerBodyColor
+    body.bodyFacing = 1
+    body.eyeColor = this.playerEyeColor
+    body.width = radius * 2
+    body.height = radius * 2
     const renderWeapon = this.renderWeapon
     const weaponShapeClass = fabric.util.createClass(fabric.Object, {
       type: 'customPlayerWeapon',
@@ -153,19 +180,16 @@ export class EditorObjectFactory {
       visible: false,
     }) as WeaponShape
 
-    const group = new fabric.Group(
-      [weaponBackShape, body, weaponFrontShape, eye],
-      {
-        originX: 'center',
-        originY: 'center',
-        selectable: true,
-        hasControls: false,
-        lockRotation: true,
-        lockScalingX: true,
-        lockScalingY: true,
-        objectCaching: false,
-      }
-    )
+    const group = new fabric.Group([weaponBackShape, body, weaponFrontShape], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    })
     ;(group as unknown as { editorShape: string }).editorShape = 'player-marker'
     ;(group as unknown as { weaponBackShape: WeaponShape }).weaponBackShape =
       weaponBackShape
@@ -315,30 +339,14 @@ export class EditorObjectFactory {
       radiusMeters,
       this.pixelsPerMeter
     )
-    const eyeRadius = 0.08 * this.pixelsPerMeter
-    const eyeOffsetX = radius * 0.5
-    const eyeOffsetY = -radius * 0.5
-    const body = new fabric.Ellipse({
-      rx: radius,
-      ry: radius,
-      fill: color,
-      stroke: color,
-      strokeWidth: 3,
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-    })
-    const eye = new fabric.Circle({
-      radius: eyeRadius,
-      fill: this.enemyEyeColor,
-      stroke: this.enemyEyeColor,
-      strokeWidth: 1,
-      originX: 'center',
-      originY: 'center',
-      left: eyeOffsetX,
-      top: eyeOffsetY,
-      objectCaching: false,
-    })
+    const body = this.createCharacterBodyShape(color)
+    body.bodyRadiusXPx = radius
+    body.bodyRadiusYPx = radius
+    body.bodyColor = color
+    body.bodyFacing = 1
+    body.eyeColor = this.enemyEyeColor
+    body.width = radius * 2
+    body.height = radius * 2
     const renderWeapon = this.renderWeapon
     const weaponShapeClass = fabric.util.createClass(fabric.Object, {
       type: 'customEnemyWeapon',
@@ -376,21 +384,18 @@ export class EditorObjectFactory {
       visible: false,
     }) as WeaponShape
 
-    const group = new fabric.Group(
-      [weaponBackShape, body, weaponFrontShape, eye],
-      {
-        width: radius * 2,
-        height: radius * 2,
-        originX: 'center',
-        originY: 'center',
-        selectable: true,
-        hasControls: false,
-        lockRotation: true,
-        lockScalingX: true,
-        lockScalingY: true,
-        objectCaching: false,
-      }
-    )
+    const group = new fabric.Group([weaponBackShape, body, weaponFrontShape], {
+      width: radius * 2,
+      height: radius * 2,
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+    })
     ;(group as unknown as { editorShape: string }).editorShape = 'enemy-marker'
     ;(group as unknown as { enemyType: string }).enemyType = enemyType
     ;(group as unknown as { color: string }).color = color

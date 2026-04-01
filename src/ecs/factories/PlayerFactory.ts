@@ -1,10 +1,10 @@
+import { getCharacterBodyColor } from '../../characterBodyProfile'
 import {
   CATEGORY_ENEMY,
   CATEGORY_PLAYER,
   CATEGORY_WEAPON,
   CHARACTER_DEFAULT_DATA,
   DEFAULT_BODY_FRICTION,
-  DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_JUMP_BUFFER_WINDOW,
   DEFAULT_JUMP_FORCE,
   DEFAULT_JUMP_FORCE_MULTIPLIER,
@@ -37,6 +37,7 @@ import {
   MASK_WEAPON,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
+import type { MapCharacterBodyProfile } from '../../editorMapTypes'
 import type {
   EnemyDetectionRangeLevel,
   EnemyPatrolMode,
@@ -57,6 +58,7 @@ import {
   getDefaultAttackMovesetIdForWeaponType,
   getUltimateMovesetIdForWeaponType,
 } from '../AttackMoveRegistry'
+import { createCharacterPhysicsBody } from '../CharacterBodyPhysics'
 import {
   AttackSlotsComponent,
   EnemyAIComponent,
@@ -77,6 +79,7 @@ import {
   WeaponSlotsComponent,
 } from '../Component'
 import type { Entity } from '../Entity'
+import { forEachPhysicsShapeId } from '../PhysicsShapeUtils'
 import type { World } from '../World'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
@@ -115,7 +118,8 @@ export function createPlayer(
   y: number,
   groundTopY: number,
   radius: number = DEFAULT_PLAYER_RADIUS,
-  bodyHeight = 0
+  bodyHeight = 0,
+  bodyProfile?: MapCharacterBodyProfile
 ): Entity {
   const entity = world.createEntity()
 
@@ -125,40 +129,20 @@ export function createPlayer(
   entity.addComponent(transform)
 
   const physics = new PhysicsComponent()
-  const {
-    b2DefaultBodyDef,
-    b2CreateBody,
-    b2BodyType,
-    b2Capsule,
-    b2DefaultShapeDef,
-    b2CreateCapsuleShape,
-  } = box2d
-
-  const bodyDef = b2DefaultBodyDef()
-  bodyDef.type = b2BodyType.b2_dynamicBody
-  bodyDef.position.Set(x, y)
-  bodyDef.motionLocks.angularZ = true
-  bodyDef.linearDamping = DEFAULT_BODY_LINEAR_DAMPING
-  physics.bodyId = b2CreateBody(worldId, bodyDef)
-
-  const shape = new b2Capsule()
-  const bodyHeightRadius = bodyHeight > 0 ? bodyHeight / 2 : radius
-  // 胶囊 radius 取宽高半径的较小值，确保物理体高度严格等于 bodyHeight
-  const capsuleRadius = Math.min(radius, bodyHeightRadius)
-  const centerHalfDist = Math.max(0, bodyHeightRadius - capsuleRadius)
-  shape.center1.Set(0, -centerHalfDist)
-  shape.center2.Set(0, centerHalfDist)
-  shape.radius = capsuleRadius
-  const fixtureDef = b2DefaultShapeDef()
-  fixtureDef.density = 1.0
-  fixtureDef.material.friction = DEFAULT_BODY_FRICTION
-  fixtureDef.filter.categoryBits = CATEGORY_PLAYER
-  fixtureDef.filter.maskBits = MASK_PLAYER
-  physics.shapeId = b2CreateCapsuleShape(physics.bodyId, fixtureDef, shape)
-
-  bodyDef.delete()
-  shape.delete()
-  fixtureDef.delete()
+  const bodyResult = createCharacterPhysicsBody(box2d, worldId, {
+    x,
+    y,
+    radius,
+    bodyHeight,
+    bodyProfile,
+    density: 1.0,
+    friction: DEFAULT_BODY_FRICTION,
+    categoryBits: CATEGORY_PLAYER,
+    maskBits: MASK_PLAYER,
+  })
+  physics.bodyId = bodyResult.bodyId
+  physics.shapeId = bodyResult.shapeId
+  physics.shapeIds = bodyResult.shapeIds
 
   entity.addComponent(physics)
   // ... (rest of function unchanged)
@@ -197,6 +181,7 @@ export function createPlayer(
   const render = new RenderComponent()
   render.radius = radius
   render.bodyHeight = bodyHeight
+  render.bodyProfile = bodyProfile ?? null
   entity.addComponent(render)
 
   const faction = new FactionComponent()
@@ -277,6 +262,7 @@ export interface EnemySpawnConfig {
   equipWeapon?: boolean
   radius?: number
   bodyHeight?: number
+  bodyProfile?: MapCharacterBodyProfile
   moveSpeed?: number
   attackDesire?: number
   parryProficiency?: number
@@ -343,7 +329,8 @@ export function createEnemy(
     y,
     groundTopY,
     radius,
-    bodyHeight
+    bodyHeight,
+    options?.bodyProfile
   )
 
   // 重置敌人的脱战超时为10秒
@@ -407,10 +394,12 @@ export function createEnemy(
 
   if (enemy.physics) {
     const { b2Shape_GetFilter, b2Shape_SetFilter } = box2d
-    const filter = b2Shape_GetFilter(enemy.physics.shapeId)
-    filter.categoryBits = CATEGORY_ENEMY
-    filter.maskBits = MASK_ENEMY
-    b2Shape_SetFilter(enemy.physics.shapeId, filter)
+    forEachPhysicsShapeId(enemy.physics, (shapeId) => {
+      const filter = b2Shape_GetFilter(shapeId)
+      filter.categoryBits = CATEGORY_ENEMY
+      filter.maskBits = MASK_ENEMY
+      b2Shape_SetFilter(shapeId, filter)
+    })
   }
 
   if (enemy.faction) {
@@ -420,7 +409,8 @@ export function createEnemy(
   }
 
   if (enemy.render) {
-    enemy.render.color = color
+    enemy.render.color = getCharacterBodyColor(options?.bodyProfile, color)
+    enemy.render.bodyProfile = options?.bodyProfile ?? null
   }
 
   if (enemy.movement) {

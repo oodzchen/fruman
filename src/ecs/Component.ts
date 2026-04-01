@@ -28,6 +28,7 @@ import {
   FOLLOW_PREFERRED_DISTANCE,
   FOOTSTEP_INTERVAL_MS,
 } from '../constants'
+import type { MapCharacterBodyProfile } from '../editorMapTypes'
 import type {
   EnemyPatrolMode,
   EnemyType,
@@ -65,6 +66,7 @@ export class TransformComponent extends Component {
 export class PhysicsComponent extends Component {
   bodyId!: b2BodyId
   shapeId!: b2ShapeId
+  shapeIds: b2ShapeId[] = []
   posX = 0
   posY = 0
   prevX = 0
@@ -76,6 +78,7 @@ export class PhysicsComponent extends Component {
   reset(): void {
     this.bodyId = 0 as unknown as b2BodyId
     this.shapeId = 0 as unknown as b2ShapeId
+    this.shapeIds.length = 0
     this.posX = 0
     this.posY = 0
     this.prevX = 0
@@ -265,6 +268,8 @@ export class InputComponent extends Component {
 export class RenderComponent extends Component {
   radius = 0.5
   bodyHeight = 0
+  bodyProfileIndex = 0
+  bodyProfile: MapCharacterBodyProfile | null = null
   color = '#FF7A1A'
   borderColor = '#FFD700'
   visible = true
@@ -272,6 +277,8 @@ export class RenderComponent extends Component {
   reset(): void {
     this.radius = 0.5
     this.bodyHeight = 0
+    this.bodyProfileIndex = 0
+    this.bodyProfile = null
     this.color = '#FF7A1A'
     this.borderColor = '#FFD700'
     this.visible = true

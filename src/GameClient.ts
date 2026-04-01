@@ -238,6 +238,7 @@ export class GameClient {
     this.previewActive = true
     this.setPreviewExitVisible(true)
     this.currentMapData = map
+    this.renderer.setCharacterBodyMap(map)
 
     if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
       this.targetZoom = map.camera.zoom
@@ -308,6 +309,7 @@ export class GameClient {
       }
     } else if (msg.type === 'map_data') {
       this.currentMapData = msg.map
+      this.renderer.setCharacterBodyMap(msg.map)
       if (
         msg.map.camera &&
         msg.map.camera.zoom > 0 &&

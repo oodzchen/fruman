@@ -23,6 +23,7 @@ import type { MainModule } from '../../types'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import { forEachPhysicsShapeId } from '../PhysicsShapeUtils'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { SoundSystem } from './SoundSystem'
@@ -275,7 +276,9 @@ export class MovementSystem extends System {
     if (entity.movement.currentFriction === targetFriction) return
 
     const { b2Shape_SetFriction } = this.box2d
-    b2Shape_SetFriction(entity.physics.shapeId, targetFriction)
+    forEachPhysicsShapeId(entity.physics, (shapeId) => {
+      b2Shape_SetFriction(shapeId, targetFriction)
+    })
     entity.movement.currentFriction = targetFriction
   }
 
@@ -461,9 +464,11 @@ export class MovementSystem extends System {
 
     // 修改碰撞掩码以穿过敌人
     const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
-    const filter = b2Shape_GetFilter(entity.physics.shapeId)
-    filter.maskBits = MASK_PLAYER_ROLLING
-    b2Shape_SetFilter(entity.physics.shapeId, filter)
+    forEachPhysicsShapeId(entity.physics, (shapeId) => {
+      const filter = b2Shape_GetFilter(shapeId)
+      filter.maskBits = MASK_PLAYER_ROLLING
+      b2Shape_SetFilter(shapeId, filter)
+    })
 
     // 开始翻滚时立即更新一次物理状态
     this.updateRollPhysics(entity)
@@ -490,9 +495,11 @@ export class MovementSystem extends System {
 
     // 恢复碰撞掩码
     const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
-    const filter = b2Shape_GetFilter(entity.physics.shapeId)
-    filter.maskBits = MASK_PLAYER
-    b2Shape_SetFilter(entity.physics.shapeId, filter)
+    forEachPhysicsShapeId(entity.physics, (shapeId) => {
+      const filter = b2Shape_GetFilter(shapeId)
+      filter.maskBits = MASK_PLAYER
+      b2Shape_SetFilter(shapeId, filter)
+    })
   }
 
   private handleMove(entity: Entity): void {
@@ -684,11 +691,12 @@ export class MovementSystem extends System {
       b2Body_ApplyLinearImpulseToCenter,
       b2Body_SetLinearVelocity,
       b2Body_GetMass,
-      b2Shape_SetFriction,
     } = this.box2d
 
     // 立即设置摩擦力为0，防止起跳第一帧若贴墙产生摩擦导致跳跃高度降低
-    b2Shape_SetFriction(entity.physics.shapeId, DEFAULT_WALL_SLIDE_FRICTION)
+    forEachPhysicsShapeId(entity.physics, (shapeId) => {
+      this.box2d.b2Shape_SetFriction(shapeId, DEFAULT_WALL_SLIDE_FRICTION)
+    })
     entity.movement.currentFriction = DEFAULT_WALL_SLIDE_FRICTION
 
     const mass = b2Body_GetMass(entity.physics.bodyId)
