@@ -233,6 +233,7 @@ export class DialogManager {
         this.startHoldToConfirm()
         return
       }
+      this.blockKeyUntilRelease(key)
       selectedButton.click()
       return
     }
@@ -712,6 +713,7 @@ export class DialogManager {
       this.inputBox.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault()
+          this.blockKeyUntilRelease('Enter')
           const value = this.inputBox?.value.trim() || ''
           this.close(value)
         } else if (e.key === 'Escape') {

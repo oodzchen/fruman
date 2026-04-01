@@ -184,8 +184,7 @@ export class EditorMapListManager {
 
     this.currentMapMeta = meta
     this.refreshMapMetas()
-    this.context.onMapLoaded(meta, initialData)
-    this.context.onShowEditorView()
+    this.openMapInEditor(meta, initialData, null)
   }
 
   public async handleRenameSelectedMap() {
@@ -598,25 +597,36 @@ export class EditorMapListManager {
   }
 
   private async loadMap(mapId: string) {
-    this.context.onShowEditorView()
     const stored = await loadEditorMapData(mapId)
     const viewState = await loadEditorMapViewState(mapId)
     const meta = this.findMapMeta(mapId)
-    if (meta) {
-      this.currentMapMeta = meta
-    } else if (this.currentMapMeta?.id !== mapId) {
+    let nextMeta = meta
+    if (!nextMeta && this.currentMapMeta?.id !== mapId) {
       const now = Date.now()
-      this.currentMapMeta = {
+      nextMeta = {
         id: mapId,
         name: mapId,
         createdAt: now,
         updatedAt: now,
       }
     }
+    if (!nextMeta) {
+      return
+    }
     const data = stored ?? this.context.mapSerializer.buildDefaultMapData()
+    this.openMapInEditor(nextMeta, data, viewState)
+  }
+
+  private openMapInEditor(
+    meta: EditorMapMeta,
+    data: EditorMapData,
+    viewState: EditorViewportState | null
+  ) {
+    this.currentMapMeta = meta
+    this.context.onShowEditorView()
     this.context.mapSerializer.applyMapData(data)
     this.context.applyEditorTreeData(data)
     this.context.applyEditorViewportState(viewState)
-    this.context.onMapLoaded(this.currentMapMeta, data)
+    this.context.onMapLoaded(meta, data)
   }
 }
