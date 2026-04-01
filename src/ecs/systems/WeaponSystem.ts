@@ -303,6 +303,10 @@ export class WeaponSystem extends System {
 
     for (const entity of entities) {
       if (!entity.weapon || entity.weapon.groundHitSoundPending === 0) continue
+      if (!entity.weapon.isEquipped || !entity.stats) {
+        entity.weapon.groundHitSoundPending = 0
+        continue
+      }
       const weapon = entity.weapon
       const soundId = weapon.groundHitSoundPending
       weapon.groundHitSoundPending = 0
@@ -1328,13 +1332,7 @@ export class WeaponSystem extends System {
       this.startRebound(entity, playerPos, now)
       return
     }
-    if (
-      !weapon.groundHitSoundTriggered &&
-      this.shouldTriggerHeavyGroundHitSound(entity, weapon)
-    ) {
-      weapon.groundHitSoundTriggered = true
-      weapon.groundHitSoundPending = this.getHeavyGroundHitSoundId(weapon)
-    }
+    this.tryQueueHeavyGroundHitSound(entity, weapon)
     this.checkEntityHits(entity, weapon)
     if (t >= 1) {
       this.tryEmitCompletedFinalSwingCameraShake(entity, weapon)
@@ -1381,6 +1379,7 @@ export class WeaponSystem extends System {
     }
 
     copyTransform(weapon.visual, weapon.attackStartTransform)
+    this.tryQueueHeavyGroundHitSound(entity, weapon)
 
     if (entity.movement && !entity.movement.isGrounded) {
       this.checkEntityHits(entity, weapon)
@@ -1543,6 +1542,7 @@ export class WeaponSystem extends System {
     )
 
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+    this.tryQueueHeavyGroundHitSound(entity, weapon)
 
     if (t >= 1) {
       weapon.attackPhase = 'idle'
@@ -3204,8 +3204,31 @@ export class WeaponSystem extends System {
     weapon: WeaponComponent
   ): boolean {
     if (this.getHeavyGroundHitSoundId(weapon) === 0) return false
+    if (!weapon.isEquipped) return false
+    if (weapon.isDropping || weapon.isDropped || weapon.isRecovering)
+      return false
+    if (!this.isHeavyGroundHitEligiblePhase(weapon)) return false
     if (!this.checkGroundCollision(weapon)) return false
+    if (!this.isGroundImpactShakeTimingValid(entity)) return false
     return !this.hasActiveParryWeaponCollision(entity, weapon)
+  }
+
+  private tryQueueHeavyGroundHitSound(
+    entity: Entity,
+    weapon: WeaponComponent
+  ): void {
+    if (weapon.groundHitSoundTriggered) return
+    if (!this.shouldTriggerHeavyGroundHitSound(entity, weapon)) return
+    weapon.groundHitSoundTriggered = true
+    weapon.groundHitSoundPending = this.getHeavyGroundHitSoundId(weapon)
+  }
+
+  private isHeavyGroundHitEligiblePhase(weapon: WeaponComponent): boolean {
+    return (
+      weapon.attackPhase === 'swing' ||
+      weapon.attackPhase === 'pause' ||
+      weapon.attackPhase === 'recover'
+    )
   }
 
   private hasActiveParryWeaponCollision(
@@ -3795,6 +3818,7 @@ export class WeaponSystem extends System {
 
     weapon.lastAttackTimestamp = now
     weapon.hitEntityIds.clear()
+    weapon.groundHitSoundTriggered = true
     weapon.groundHitSoundPending = 0
   }
 

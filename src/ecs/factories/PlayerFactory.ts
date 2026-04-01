@@ -48,7 +48,6 @@ import type {
   WeaponType,
   b2WorldId,
 } from '../../types'
-import type { LegacyWeaponType } from '../../weaponTypeUtils'
 import {
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
@@ -265,7 +264,7 @@ export function createPlayer(
 }
 
 export interface EnemyWeaponConfig {
-  weaponType: WeaponType | LegacyWeaponType
+  weaponType: WeaponType
   sizeLevel: number
   attackDamage: number
   postureDamage: number

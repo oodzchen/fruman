@@ -1,27 +1,8 @@
-import type { WeaponType, WeaponVisualType } from './types'
-
-export type LegacyWeaponType = 'shortSword' | 'longSword' | 'bigHammer'
-export type LegacyWeaponVisualType = LegacyWeaponType | WeaponVisualType
-
-export function isLegacyWeaponType(
-  weaponType: string
-): weaponType is LegacyWeaponType {
-  return (
-    weaponType === 'shortSword' ||
-    weaponType === 'longSword' ||
-    weaponType === 'bigHammer'
-  )
-}
+import type { WeaponType } from './types'
 
 export function normalizeWeaponType(
   weaponType: string | undefined
 ): WeaponType | undefined {
-  if (weaponType === 'shortSword' || weaponType === 'longSword') {
-    return 'sword'
-  }
-  if (weaponType === 'bigHammer') {
-    return 'hammer'
-  }
   if (
     weaponType === 'sword' ||
     weaponType === 'spear' ||
@@ -41,16 +22,6 @@ export function normalizeWeaponTypeAndSizeLevel(
   const normalizedWeaponType = normalizeWeaponType(weaponType)
   if (!normalizedWeaponType) {
     return null
-  }
-
-  if (weaponType === 'shortSword') {
-    return { weaponType: 'sword', sizeLevel: 1 }
-  }
-  if (weaponType === 'longSword') {
-    return { weaponType: 'sword', sizeLevel: 3 }
-  }
-  if (weaponType === 'bigHammer') {
-    return { weaponType: 'hammer', sizeLevel: 2 }
   }
 
   return {

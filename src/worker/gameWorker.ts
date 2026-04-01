@@ -258,7 +258,6 @@ function getWeaponTypeId(weaponType: string | undefined): number {
     case 'spear':
       return WEAPON_TYPES.SPEAR
     case 'hammer':
-    case 'bigHammer':
       return WEAPON_TYPES.BIG_HAMMER
     case 'bow':
       return WEAPON_TYPES.BOW
@@ -4259,11 +4258,13 @@ function extractGroundWeaponsState(): SaveGroundWeaponState[] {
 
     const transform = entity.transform
     const weapon = entity.weapon
+    const normalizedWeaponType = normalizeWeaponType(weapon.weaponType)
+    if (!normalizedWeaponType) continue
 
     weapons.push({
       spawnIndex,
       position: { x: transform?.x ?? 0, y: transform?.y ?? 0 },
-      weaponType: weapon.weaponType,
+      weaponType: normalizedWeaponType,
       sizeLevel: weapon.sizeLevel,
       width: weapon.width,
       height: weapon.height,

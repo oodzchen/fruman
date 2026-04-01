@@ -5,9 +5,8 @@ import type {
   NormalAttackMovesetId,
   WeaponType,
 } from './types'
-import type { LegacyWeaponType } from './weaponTypeUtils'
 
-export type MapWeaponType = WeaponType | LegacyWeaponType
+export type MapWeaponType = WeaponType
 
 export type MapObjectKind = 'ground' | 'obstacle'
 

@@ -1502,7 +1502,7 @@ export class ClientRenderer {
     const groundY = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_GROUND_Y]
     const ppm = this.pixelsPerMeter
 
-    // 巨剑尺寸：10x longSword（长16m，厚3m）
+    // 巨剑尺寸：10x 大剑基准尺寸（长16m，厚3m）
     const GIANT_LEN = 16 * ppm
     const GIANT_THICK = 3 * ppm
     const screenH = this.ctx.canvas.height
