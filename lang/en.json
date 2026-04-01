@@ -47,7 +47,7 @@
   "editor_object_empty": "Empty",
   "editor_object_player": "Player",
   "editor_object_enemy": "Enemy",
-  "editor_object_weapon": "Weapon Item",
+  "editor_object_weapon": "Weapon",
   "editor_object_camera": "Camera",
   "editor_object_checkpoint": "Checkpoint",
   "editor_object_hookAnchor": "Grapple Anchor",

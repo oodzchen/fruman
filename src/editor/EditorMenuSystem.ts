@@ -327,6 +327,13 @@ export class EditorMenuSystem {
           this.handleMenuBack()
           return
         }
+        const weaponType = item.dataset.weapon as WeaponType | undefined
+        const category = item.dataset.category as WeaponCategory | undefined
+        if (weaponType && category) {
+          this.ctx.onWeaponSelected(weaponType, category)
+          this.hideObjectTypeMenu()
+          return
+        }
         const sunPickup = item.dataset.sunpickup
         if (sunPickup) {
           this.ctx.onSunPickupSelected(sunPickup === 'large')
@@ -520,8 +527,14 @@ export class EditorMenuSystem {
     })
 
     this.propSubmenuItems.forEach((item) => {
+      const weapon = item.dataset.weapon
       const sunpickup = item.dataset.sunpickup
-      if (sunpickup) {
+      if (weapon) {
+        this.setWeaponMenuItemContent(
+          item,
+          localizer.t(`editor_weapon_${weapon}`)
+        )
+      } else if (sunpickup) {
         item.textContent = localizer.t(`editor_prop_${sunpickup}`)
       }
     })
@@ -540,6 +553,13 @@ export class EditorMenuSystem {
   ): void {
     const weaponType = item.dataset.weapon as WeaponType | undefined
     if (!weaponType) {
+      item.classList.remove('editor-submenu-item-weapon')
+      item.textContent = label
+      return
+    }
+
+    if (weaponType === 'hook') {
+      item.classList.remove('editor-submenu-item-weapon')
       item.textContent = label
       return
     }
@@ -785,6 +805,7 @@ export class EditorMenuSystem {
   }
 
   showGroundSubmenu() {
+    this.hideSiblingSubmenus(EditorSubmenuMode.Ground)
     this.positionGroundSubmenu()
     this.groundSubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Ground, true)
@@ -803,6 +824,7 @@ export class EditorMenuSystem {
   }
 
   showObstacleSubmenu() {
+    this.hideSiblingSubmenus(EditorSubmenuMode.Obstacle)
     this.positionObstacleSubmenu()
     this.obstacleSubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Obstacle, true)
@@ -821,18 +843,7 @@ export class EditorMenuSystem {
   }
 
   showWeaponMenu() {
-    const hasHook = this.ctx.hasWeaponType('hook')
-    this.weaponItems.forEach((item) => {
-      if (item.dataset.weapon === 'hook') {
-        if (hasHook) {
-          item.disabled = true
-          item.classList.add('disabled')
-        } else {
-          item.disabled = false
-          item.classList.remove('disabled')
-        }
-      }
-    })
+    this.hideSiblingSubmenus(EditorSubmenuMode.Weapon)
     this.positionWeaponMenu()
     this.weaponMenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Weapon, true)
@@ -851,6 +862,7 @@ export class EditorMenuSystem {
   }
 
   showEnemySubmenu() {
+    this.hideSiblingSubmenus(EditorSubmenuMode.Enemy)
     this.positionEnemySubmenu()
     this.enemySubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Enemy, true)
@@ -869,6 +881,19 @@ export class EditorMenuSystem {
   }
 
   showPropSubmenu() {
+    const hasHook = this.ctx.hasWeaponType('hook')
+    this.propSubmenuItems.forEach((item) => {
+      if (item.dataset.weapon === 'hook') {
+        if (hasHook) {
+          item.disabled = true
+          item.classList.add('disabled')
+        } else {
+          item.disabled = false
+          item.classList.remove('disabled')
+        }
+      }
+    })
+    this.hideSiblingSubmenus(EditorSubmenuMode.Prop)
     this.positionPropSubmenu()
     this.propSubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Prop, true)
@@ -967,6 +992,24 @@ export class EditorMenuSystem {
     if (!wasVisible) {
       menu.classList.remove('is-visible')
       menu.style.visibility = ''
+    }
+  }
+
+  private hideSiblingSubmenus(exclude: EditorSubmenuMode): void {
+    if (exclude !== EditorSubmenuMode.Ground) {
+      this.hideGroundSubmenu()
+    }
+    if (exclude !== EditorSubmenuMode.Obstacle) {
+      this.hideObstacleSubmenu()
+    }
+    if (exclude !== EditorSubmenuMode.Weapon) {
+      this.hideWeaponMenu()
+    }
+    if (exclude !== EditorSubmenuMode.Enemy) {
+      this.hideEnemySubmenu()
+    }
+    if (exclude !== EditorSubmenuMode.Prop) {
+      this.hidePropSubmenu()
     }
   }
 

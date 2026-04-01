@@ -52,7 +52,7 @@
   "editor_object_empty": "空",
   "editor_object_player": "玩家",
   "editor_object_enemy": "敌人",
-  "editor_object_weapon": "武器道具",
+  "editor_object_weapon": "武器",
   "editor_object_camera": "摄像机",
   "editor_object_checkpoint": "存档点",
   "editor_object_hookAnchor": "钩索锚点",
