@@ -1320,6 +1320,7 @@ export class WeaponSystem extends System {
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (this.checkObstacleCollision(weapon)) {
+      weapon.attackCollisionSource = 'obstacle'
       weapon.isColliding = true
       this.statsSystem?.playSound(SOUND_IDS.SWORD_HIT_OBSTACLE)
       this.emitSoundAt(
@@ -1329,7 +1330,7 @@ export class WeaponSystem extends System {
         SOUND_DB_SWORD_HIT_OBSTACLE
       )
       this.applyPushback(entity, weapon)
-      this.startRebound(entity, playerPos, now)
+      this.startRebound(entity, playerPos, now, 'obstacle')
       return
     }
     this.tryQueueHeavyGroundHitSound(entity, weapon)
@@ -3141,6 +3142,7 @@ export class WeaponSystem extends System {
     weapon.attackStartedAirborne = !(entity.movement?.isGrounded ?? true)
     weapon.landingShakeTriggered = false
     weapon.impactShakeTriggered = false
+    weapon.attackCollisionSource = 'none'
     weapon.groundHitSoundTriggered = false
     weapon.groundHitSoundPending = 0
   }
@@ -3150,6 +3152,7 @@ export class WeaponSystem extends System {
     weapon.attackStartedAirborne = false
     weapon.landingShakeTriggered = false
     weapon.impactShakeTriggered = false
+    weapon.attackCollisionSource = 'none'
     weapon.groundHitSoundTriggered = false
     weapon.groundHitSoundPending = 0
   }
@@ -3207,6 +3210,7 @@ export class WeaponSystem extends System {
     if (!weapon.isEquipped) return false
     if (weapon.isDropping || weapon.isDropped || weapon.isRecovering)
       return false
+    if (weapon.attackCollisionSource !== 'none') return false
     if (!this.isHeavyGroundHitEligiblePhase(weapon)) return false
     if (!this.checkGroundCollision(weapon)) return false
     if (!this.isGroundImpactShakeTimingValid(entity)) return false
@@ -3219,6 +3223,7 @@ export class WeaponSystem extends System {
   ): void {
     if (weapon.groundHitSoundTriggered) return
     if (!this.shouldTriggerHeavyGroundHitSound(entity, weapon)) return
+    weapon.attackCollisionSource = 'ground'
     weapon.groundHitSoundTriggered = true
     weapon.groundHitSoundPending = this.getHeavyGroundHitSoundId(weapon)
   }
@@ -3777,7 +3782,8 @@ export class WeaponSystem extends System {
   private startRebound(
     entity: Entity,
     playerPos: { x: number; y: number },
-    now: number
+    now: number,
+    collisionSource: 'weapon' | 'obstacle' = 'weapon'
   ): void {
     if (!entity.weapon) return
     const weapon = entity.weapon
@@ -3818,6 +3824,7 @@ export class WeaponSystem extends System {
 
     weapon.lastAttackTimestamp = now
     weapon.hitEntityIds.clear()
+    weapon.attackCollisionSource = collisionSource
     weapon.groundHitSoundTriggered = true
     weapon.groundHitSoundPending = 0
   }
