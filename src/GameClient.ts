@@ -456,13 +456,16 @@ export class GameClient {
           if (this.isEditorOverlayVisible()) {
             return
           }
+          if (e.defaultPrevented) {
+            return
+          }
           e.preventDefault()
           if (this.previewActive) {
             this.togglePreviewPause()
             return
           }
           if (this.menuManager.isVisible()) {
-            if (this.menuManager.getMode() === MenuMode.Start) {
+            if (this.menuManager.getMode() !== MenuMode.Pause) {
               return
             }
             this.menuManager.hide()
