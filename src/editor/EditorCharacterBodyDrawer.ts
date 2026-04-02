@@ -1,3 +1,10 @@
+import {
+  isSimple,
+  makeCCW,
+  removeCollinearPoints,
+  removeDuplicatePoints,
+} from 'poly-decomp-es'
+
 import { localizer } from '../Localizer'
 import {
   CHARACTER_BODY_DRAW_HALF,
@@ -13,6 +20,8 @@ import { renderBodyEye } from '../renderer/BodyRenderer'
 import { EditorUIHelper } from './EditorUIHelper'
 
 type BodyDrawMode = 'shape' | 'erase' | 'texture' | 'eye'
+type DecompPoint = [number, number]
+type DecompPolygon = DecompPoint[]
 
 interface EditorCharacterBodyDrawerOptions {
   title: string
@@ -30,6 +39,7 @@ const MASK_ALPHA_THRESHOLD = 16
 const MAX_PROFILE_POINTS = 96
 const EYE_CURSOR_SIZE = 14
 const DRAWER_HISTORY_MAX_ENTRIES = 64
+const PROFILE_POINT_PRECISION = 0.0001
 
 interface EditorCharacterBodyDrawerHistorySnapshot {
   mask: ImageData
@@ -1217,26 +1227,76 @@ export class EditorCharacterBodyDrawer {
   }
 
   private limitLoopPoints(points: number[], maxPoints: number): number[] {
-    const normalized = this.removeCollinearLoopPoints(points)
+    const normalized = this.normalizeProfileLoop(points)
+    if (!normalized) {
+      return []
+    }
     if (normalized.length / 2 <= maxPoints) {
       return normalized
     }
+
     const source = normalized.slice()
+    let bestValid = source
     let epsilon = 0.5
-    let simplified = source
-    while (simplified.length / 2 > maxPoints && epsilon <= 16) {
-      simplified = this.simplifyClosedLoop(source, epsilon)
+    while (epsilon <= 16) {
+      const simplified = this.normalizeProfileLoop(
+        this.simplifyClosedLoop(source, epsilon)
+      )
+      if (simplified && simplified.length >= 6) {
+        if (simplified.length < bestValid.length) {
+          bestValid = simplified
+        }
+        if (simplified.length / 2 <= maxPoints) {
+          return simplified
+        }
+      }
       epsilon *= 2
     }
-    if (simplified.length / 2 <= maxPoints) {
-      return simplified
-    }
-    const step = Math.ceil(simplified.length / 2 / maxPoints)
+
+    const step = Math.ceil(bestValid.length / 2 / maxPoints)
     const sampled: number[] = []
-    for (let i = 0; i < simplified.length; i += step * 2) {
-      sampled.push(simplified[i], simplified[i + 1])
+    for (let i = 0; i < bestValid.length; i += step * 2) {
+      sampled.push(bestValid[i], bestValid[i + 1])
     }
-    return this.removeCollinearLoopPoints(sampled)
+    const normalizedSampled = this.normalizeProfileLoop(sampled)
+    if (normalizedSampled && normalizedSampled.length / 2 <= maxPoints) {
+      return normalizedSampled
+    }
+
+    return bestValid
+  }
+
+  private normalizeProfileLoop(points: number[]): number[] | null {
+    const polygon = this.buildDecompPolygon(points)
+    if (!polygon || !isSimple(polygon)) {
+      return null
+    }
+    makeCCW(polygon)
+    return this.flattenDecompPolygon(polygon)
+  }
+
+  private buildDecompPolygon(points: number[]): DecompPolygon | null {
+    if (points.length < 6) {
+      return null
+    }
+
+    const polygon: DecompPolygon = []
+    for (let i = 0; i < points.length; i += 2) {
+      polygon.push([points[i], points[i + 1]])
+    }
+    removeDuplicatePoints(polygon, PROFILE_POINT_PRECISION)
+    removeCollinearPoints(polygon, PROFILE_POINT_PRECISION)
+    return polygon.length >= 3 ? polygon : null
+  }
+
+  private flattenDecompPolygon(polygon: DecompPolygon): number[] {
+    const result = new Array<number>(polygon.length * 2)
+    for (let i = 0; i < polygon.length; i++) {
+      const offset = i * 2
+      result[offset] = polygon[i][0]
+      result[offset + 1] = polygon[i][1]
+    }
+    return result
   }
 
   private removeCollinearLoopPoints(points: number[]): number[] {

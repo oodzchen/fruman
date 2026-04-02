@@ -1,4 +1,5 @@
 import {
+  decomp,
   isSimple,
   makeCCW,
   quickDecomp,
@@ -13,6 +14,8 @@ import type { MainModule, b2ShapeId, b2WorldId } from '../types'
 
 type DecompPoint = [number, number]
 type DecompPolygon = DecompPoint[]
+const DECOMP_POINT_EPSILON = 0.0001
+const BOX2D_MAX_POLYGON_VERTICES = 8
 
 export interface CharacterBodyPhysicsConfig {
   x: number
@@ -109,13 +112,8 @@ function appendCharacterPolygonShapes(
   localPoints: number[],
   outShapeIds: b2ShapeId[]
 ): boolean {
-  const polygon: DecompPolygon = []
-  for (let i = 0; i < localPoints.length; i += 2) {
-    polygon.push([localPoints[i], localPoints[i + 1]])
-  }
-  removeDuplicatePoints(polygon, 0.0001)
-  removeCollinearPoints(polygon, 0.0001)
-  if (polygon.length < 3) {
+  const polygon = buildDecompPolygon(localPoints)
+  if (!polygon) {
     return false
   }
 
@@ -123,30 +121,93 @@ function appendCharacterPolygonShapes(
   if (isSimple(polygon)) {
     makeCCW(polygon)
     convexPolygons = quickDecomp(polygon)
+    if (!convexPolygons || convexPolygons.length === 0) {
+      const exactPolygons = decomp(polygon)
+      convexPolygons = exactPolygons === false ? null : exactPolygons
+    }
   }
   if (!convexPolygons || convexPolygons.length === 0) {
-    convexPolygons = [polygon]
+    return false
   }
 
-  const { b2CreatePolygonShape, b2ComputeHull, b2MakePolygon, b2Vec2 } = box2d
   for (let i = 0; i < convexPolygons.length; i++) {
-    const convex = convexPolygons[i]
-    if (convex.length < 3) {
-      continue
-    }
-    const points: InstanceType<MainModule['b2Vec2']>[] = []
-    for (let j = 0; j < convex.length; j++) {
-      points.push(new b2Vec2(convex[j][0], convex[j][1]))
-    }
-    const hull = b2ComputeHull(points)
-    const polygonShape = b2MakePolygon(hull, 0)
-    outShapeIds.push(b2CreatePolygonShape(bodyId, shapeDef, polygonShape))
-    hull.delete()
-    polygonShape.delete()
-    for (let j = 0; j < points.length; j++) {
-      points[j].delete()
-    }
+    appendConvexPolygonShape(
+      box2d,
+      bodyId,
+      shapeDef,
+      convexPolygons[i],
+      outShapeIds
+    )
   }
 
   return outShapeIds.length > 0
+}
+
+function buildDecompPolygon(localPoints: number[]): DecompPolygon | null {
+  const polygon: DecompPolygon = []
+  for (let i = 0; i < localPoints.length; i += 2) {
+    polygon.push([localPoints[i], localPoints[i + 1]])
+  }
+  removeDuplicatePoints(polygon, DECOMP_POINT_EPSILON)
+  removeCollinearPoints(polygon, DECOMP_POINT_EPSILON)
+  return polygon.length >= 3 ? polygon : null
+}
+
+function appendConvexPolygonShape(
+  box2d: MainModule,
+  bodyId: ReturnType<MainModule['b2CreateBody']>,
+  shapeDef: ReturnType<MainModule['b2DefaultShapeDef']>,
+  convexPolygon: DecompPolygon,
+  outShapeIds: b2ShapeId[]
+): void {
+  if (convexPolygon.length < 3) {
+    return
+  }
+  if (convexPolygon.length <= BOX2D_MAX_POLYGON_VERTICES) {
+    appendPolygonShape(box2d, bodyId, shapeDef, convexPolygon, outShapeIds)
+    return
+  }
+
+  const pointCount = convexPolygon.length
+  let startIndex = 1
+  while (startIndex < pointCount - 1) {
+    const endIndex = Math.min(
+      pointCount - 1,
+      startIndex + BOX2D_MAX_POLYGON_VERTICES - 2
+    )
+    const splitPolygon: DecompPolygon = [convexPolygon[0]]
+    for (let i = startIndex; i <= endIndex; i++) {
+      splitPolygon.push(convexPolygon[i])
+    }
+    appendPolygonShape(box2d, bodyId, shapeDef, splitPolygon, outShapeIds)
+    startIndex = endIndex
+  }
+}
+
+function appendPolygonShape(
+  box2d: MainModule,
+  bodyId: ReturnType<MainModule['b2CreateBody']>,
+  shapeDef: ReturnType<MainModule['b2DefaultShapeDef']>,
+  polygon: DecompPolygon,
+  outShapeIds: b2ShapeId[]
+): void {
+  if (polygon.length < 3) {
+    return
+  }
+
+  const { b2CreatePolygonShape, b2ComputeHull, b2MakePolygon, b2Vec2 } = box2d
+  const points: InstanceType<MainModule['b2Vec2']>[] = []
+  for (let i = 0; i < polygon.length; i++) {
+    points.push(new b2Vec2(polygon[i][0], polygon[i][1]))
+  }
+
+  const hull = b2ComputeHull(points)
+  const polygonShape = b2MakePolygon(hull, 0)
+  outShapeIds.push(b2CreatePolygonShape(bodyId, shapeDef, polygonShape))
+
+  hull.delete()
+  polygonShape.delete()
+  for (let i = 0; i < points.length; i++) {
+    points[i].delete()
+  }
 }
