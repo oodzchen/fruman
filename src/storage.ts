@@ -119,6 +119,18 @@ interface StoredMapViewRecord {
   view: EditorViewportState
 }
 
+function compareEditorMapMetaOrder(a: EditorMapMeta, b: EditorMapMeta): number {
+  const aDefault = a.isDefault === true ? 1 : 0
+  const bDefault = b.isDefault === true ? 1 : 0
+  if (aDefault !== bDefault) {
+    return bDefault - aDefault
+  }
+  if (a.createdAt !== b.createdAt) {
+    return b.createdAt - a.createdAt
+  }
+  return a.id.localeCompare(b.id)
+}
+
 export async function listEditorMaps(): Promise<EditorMapMeta[]> {
   try {
     const db = await openDB()
@@ -133,7 +145,7 @@ export async function listEditorMaps(): Promise<EditorMapMeta[]> {
           resolve([])
           return
         }
-        result.sort((a, b) => b.updatedAt - a.updatedAt)
+        result.sort(compareEditorMapMetaOrder)
         resolve(result)
       }
 
