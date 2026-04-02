@@ -26,6 +26,7 @@ import {
 import { computeCameraOffsetFromCenter } from './EditorCoordinateUtils'
 import type { EditorMarkerManager } from './EditorMarkerManager'
 import type { EditorShapeManager } from './EditorShapeManager'
+import type { EditorTerrainLayerManager } from './EditorTerrainLayerManager'
 import type { ObjectType } from './types'
 
 interface EditorObjectLike {
@@ -52,6 +53,7 @@ interface EditorMapSerializerContext {
 
   markerManager: EditorMarkerManager
   shapeManager: EditorShapeManager
+  terrainManager: EditorTerrainLayerManager
 
   spawnCameraViewFrame: (camera?: EditorMapData['camera']) => void
   renderObjectTree: () => void
@@ -147,6 +149,11 @@ export class EditorMapSerializer {
     const hookAnchors = this.serializeHookAnchors(hookAnchorIndexMap)
     const sunPickupIndexMap = new Map<fabric.Object, number>()
     const sunPickups = this.serializeSunPickups(sunPickupIndexMap)
+    const terrainIndexMap = new Map<fabric.Object, number>()
+    const terrain = this.ctx.terrainManager.serialize(
+      terrainIndexMap,
+      this.ctx.getEditorObjects()
+    )
     const editorTree = this.serializeEditorTree({
       shapeIndexMap,
       npcIndexMap,
@@ -154,6 +161,7 @@ export class EditorMapSerializer {
       checkpointIndexMap,
       hookAnchorIndexMap,
       sunPickupIndexMap,
+      terrainIndexMap,
     })
     return {
       version: 1,
@@ -164,6 +172,7 @@ export class EditorMapSerializer {
       player,
       camera,
       shapes,
+      terrain,
       npcs,
       weapons,
       checkpoints,
@@ -187,6 +196,7 @@ export class EditorMapSerializer {
     this.ctx.setCustomNpcTemplates(data.npcTemplates ?? [])
     this.ctx.resizeEditorCanvas()
     this.ctx.clearEditorScene()
+    this.ctx.terrainManager.applySerializedData(data.terrain)
     this.ctx.markerManager.spawnPlayerMarker(data.playerSpawn, data.player)
     this.ctx.spawnCameraViewFrame(data.camera)
     this.applyPlacedShapes(data.shapes)
@@ -507,6 +517,7 @@ export class EditorMapSerializer {
     checkpointIndexMap: Map<fabric.Object, number>
     hookAnchorIndexMap: Map<fabric.Object, number>
     sunPickupIndexMap: Map<fabric.Object, number>
+    terrainIndexMap: Map<fabric.Object, number>
   }): EditorTreeData | null {
     const editorObjects = this.ctx.getEditorObjects()
     if (editorObjects.length === 0) {
@@ -561,6 +572,12 @@ export class EditorMapSerializer {
         dataItem.type === 'sunPickupLarge'
       ) {
         const index = data.sunPickupIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'terrain') {
+        const index = data.terrainIndexMap.get(dataItem.object)
         if (index === undefined) {
           return null
         }

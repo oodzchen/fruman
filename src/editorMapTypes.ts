@@ -1,3 +1,4 @@
+import type { MapTerrainData } from './terrain/TerrainTypes'
 import type {
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
@@ -21,6 +22,7 @@ export type EditorTreeObjectType =
   | 'camera'
   | 'checkpoint'
   | 'hookAnchor'
+  | 'terrain'
   | 'ground'
   | 'obstacle'
   | 'sunPickupSmall'
@@ -238,6 +240,7 @@ export interface EditorMapData {
   checkpoints?: MapCheckpoint[]
   hookAnchors?: MapHookAnchor[]
   sunPickups?: MapSunPickup[]
+  terrain?: MapTerrainData
   npcTemplates?: MapNpcTemplate[]
   editorTree?: EditorTreeData
   factions?: string[]

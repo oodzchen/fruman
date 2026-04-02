@@ -414,7 +414,8 @@
       .editor-panel-header {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: space-between;
+        gap: 8px;
         margin-bottom: 12px;
       }
       .editor-panel-toggle {
@@ -432,6 +433,11 @@
       .editor-panel-toggle:hover {
         color: var(--ui-color);
         background: var(--ui-highlight);
+      }
+      .editor-panel-toggle.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.32);
       }
       .editor-panel-collapsed {
         position: absolute;
@@ -1018,6 +1024,10 @@
               <div id="editorSidebar" class="editor-sidebar">
                 <div class="editor-panel-header">
                   <button
+                    id="editorSelectMode"
+                    class="editor-panel-toggle"
+                  ></button>
+                  <button
                     id="editorPanelCollapse"
                     class="editor-panel-toggle"
                   ></button>
@@ -1051,6 +1061,10 @@
                     data-type="hookAnchor"
                   ></button>
                   <button class="editor-object-item" data-type="prop"></button>
+                  <button
+                    class="editor-object-item"
+                    data-type="terrain"
+                  ></button>
                   <button
                     class="editor-object-item"
                     data-type="ground"
@@ -1106,6 +1120,21 @@
                   class="editor-submenu-item"
                   data-sunpickup="large"
                 ></button>
+                <button
+                  class="editor-submenu-item editor-submenu-back"
+                  data-action="back"
+                ></button>
+              </div>
+              <div id="editorTerrainSubmenu" class="editor-submenu">
+                <button class="editor-submenu-item" data-brush="grass"></button>
+                <button class="editor-submenu-item" data-brush="dirt"></button>
+                <button class="editor-submenu-item" data-brush="stone"></button>
+                <button class="editor-submenu-item" data-brush="wood"></button>
+                <button
+                  class="editor-submenu-item"
+                  data-brush="leaves"
+                ></button>
+                <button class="editor-submenu-item" data-brush="erase"></button>
                 <button
                   class="editor-submenu-item editor-submenu-back"
                   data-action="back"

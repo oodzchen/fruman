@@ -9,6 +9,8 @@ import { PatternCreator } from './renderer/PatternCreator'
 import { ShapeRenderer } from './renderer/ShapeRenderer'
 import type { SaveData } from './saveTypes'
 import { getDefaultMap } from './storage'
+import { hasTerrainContent } from './terrain/TerrainDataUtils'
+import { TerrainRenderer } from './terrain/TerrainRenderer'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
@@ -836,6 +838,7 @@ export class GameClient {
     )
 
     // Draw Static Environment (Ground/Obstacles)
+    this.drawTerrain()
     this.drawGround()
     this.drawObstacles()
 
@@ -929,6 +932,19 @@ export class GameClient {
         lineWidth: 2,
         drawStroke: true,
       }
+    )
+  }
+
+  private drawTerrain() {
+    const terrain = this.currentMapData?.terrain
+    if (!terrain || !hasTerrainContent(terrain)) {
+      return
+    }
+    TerrainRenderer.drawTerrain(
+      this.ctx,
+      terrain,
+      terrain.cellSize * this.pixelsPerMeter,
+      { drawStroke: true }
     )
   }
 

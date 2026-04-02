@@ -261,6 +261,10 @@ export class EditorClipboardManager {
     if (this.ctx.markerManager.isPlayerMarker(target)) {
       return false
     }
+    const data = this.ctx.objectManager.getEditorObjectMap().get(target)
+    if (data?.type === ObjectType.Terrain) {
+      return false
+    }
     return true
   }
 

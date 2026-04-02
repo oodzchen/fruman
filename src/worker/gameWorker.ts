@@ -107,6 +107,8 @@ import type {
   SaveWeaponSlotState,
 } from '../saveTypes'
 import { ensureDefaultMap } from '../storage'
+import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
+import { hasTerrainContent } from '../terrain/TerrainDataUtils'
 import type {
   MainModule,
   WeaponType,
@@ -975,6 +977,10 @@ function createEnvironmentFromMap(map: EditorMapData): void {
   const hasExplicitGround = map.shapes.some(
     (placed) => placed.objectKind === 'ground'
   )
+  const terrain = map.terrain
+  if (terrain && hasTerrainContent(terrain)) {
+    createTerrainFromMap(terrain)
+  }
   for (let i = 0; i < map.shapes.length; i++) {
     const placed = map.shapes[i]
     if (placed.objectKind === 'ground') {
@@ -986,6 +992,47 @@ function createEnvironmentFromMap(map: EditorMapData): void {
         registerStandableSurfaceFromPlacedShape(placed)
       }
     }
+  }
+}
+
+function createTerrainFromMap(
+  terrain: NonNullable<EditorMapData['terrain']>
+): void {
+  const rects = TerrainCollisionBuilder.buildRectangles(terrain)
+  if (rects.length === 0) {
+    return
+  }
+  const cellSize = terrain.cellSize
+  for (let i = 0; i < rects.length; i++) {
+    const rect = rects[i]
+    const halfWidth = rect.widthCells * cellSize * 0.5
+    const halfHeight = rect.heightCells * cellSize * 0.5
+    const centerX = rect.cellX * cellSize + halfWidth
+    const centerY = rect.cellY * cellSize + halfHeight
+    const rectShape: Extract<MapPlacedShape['shape'], { kind: 'rect' }> = {
+      kind: 'rect',
+      center: { x: centerX, y: centerY },
+      halfWidth,
+      halfHeight,
+      rotationRad: 0,
+    }
+    const bodyResult = createStaticRectBody(
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      0,
+      CATEGORY_OBSTACLE,
+      obstacleFriction
+    )
+    registerObstacleFromRect(rectShape, bodyResult)
+    standableSurfaces.push({
+      bodyId: 0 as unknown as b2BodyId,
+      centerX,
+      centerY,
+      width: halfWidth,
+      height: halfHeight,
+    })
   }
 }
 

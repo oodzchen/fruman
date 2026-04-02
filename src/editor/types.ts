@@ -1,6 +1,7 @@
 import { fabric } from 'fabric'
 
 import type { MapCharacterBodyProfile, WeaponCategory } from '../editorMapTypes'
+import type { TerrainMaterialId } from '../terrain/TerrainTypes'
 import type {
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
@@ -19,6 +20,7 @@ export enum ObjectType {
   HookAnchor = 'hookAnchor',
   Ground = 'ground',
   Obstacle = 'obstacle',
+  Terrain = 'terrain',
   SunPickupSmall = 'sunPickupSmall',
   SunPickupLarge = 'sunPickupLarge',
 }
@@ -99,6 +101,15 @@ export type CheckpointMarker = fabric.Group & {
 
 export type HookAnchorMarker = fabric.Group & {
   editorShape: 'hook-anchor-marker'
+}
+
+export type TerrainRegionProxy = fabric.Group & {
+  editorShape: 'terrain-region-proxy'
+  terrainLayerId: number
+  terrainMaterialId: TerrainMaterialId
+  terrainCellKeys: number[]
+  terrainAnchorLeft: number
+  terrainAnchorTop: number
 }
 
 export type WeaponShape = fabric.Object & {

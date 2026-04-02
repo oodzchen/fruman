@@ -3,11 +3,13 @@ import { localizer } from '../Localizer'
 
 export interface EditorSidebarContext {
   onCollapseChange?: (collapsed: boolean) => void
+  onSelectMode?: () => void
   getCurrentView: () => EditorView
 }
 
 export class EditorSidebarManager {
   private editorSidebar: HTMLDivElement
+  private editorSelectModeBtn: HTMLButtonElement
   private editorPanelCollapseBtn: HTMLButtonElement
   private editorPanelCollapsedBtn: HTMLButtonElement
   private editorObjectPanel: HTMLDivElement
@@ -18,12 +20,14 @@ export class EditorSidebarManager {
     this.context = context
 
     const sidebar = document.getElementById('editorSidebar')
+    const selectModeBtn = document.getElementById('editorSelectMode')
     const panelCollapseBtn = document.getElementById('editorPanelCollapse')
     const panelCollapsedBtn = document.getElementById('editorPanelCollapsed')
     const objectPanel = document.getElementById('editorObjectPanel')
 
     if (
       !(sidebar instanceof HTMLDivElement) ||
+      !(selectModeBtn instanceof HTMLButtonElement) ||
       !(panelCollapseBtn instanceof HTMLButtonElement) ||
       !(panelCollapsedBtn instanceof HTMLButtonElement) ||
       !(objectPanel instanceof HTMLDivElement)
@@ -32,6 +36,7 @@ export class EditorSidebarManager {
     }
 
     this.editorSidebar = sidebar
+    this.editorSelectModeBtn = selectModeBtn
     this.editorPanelCollapseBtn = panelCollapseBtn
     this.editorPanelCollapsedBtn = panelCollapsedBtn
     this.editorObjectPanel = objectPanel
@@ -40,6 +45,10 @@ export class EditorSidebarManager {
   }
 
   private setupEventListeners() {
+    this.editorSelectModeBtn.addEventListener('click', () => {
+      this.context.onSelectMode?.()
+    })
+
     this.editorPanelCollapseBtn.addEventListener('click', () => {
       this.setCollapsed(true)
     })
@@ -85,7 +94,16 @@ export class EditorSidebarManager {
     return this.collapsed
   }
 
+  public setSelectModeActive(active: boolean) {
+    if (active) {
+      this.editorSelectModeBtn.classList.add('is-selected')
+      return
+    }
+    this.editorSelectModeBtn.classList.remove('is-selected')
+  }
+
   public updateLocalization() {
+    this.editorSelectModeBtn.textContent = localizer.t('editor_select_mode')
     this.editorPanelCollapseBtn.textContent = localizer.t(
       'editor_panel_collapse'
     )

@@ -8,6 +8,13 @@ import type {
   MapNpcTemplate,
 } from './editorMapTypes'
 import type { SaveData, SaveMeta, SaveNpcState } from './saveTypes'
+import { inferTerrainMaterialId } from './terrain/TerrainDataUtils'
+import {
+  DEFAULT_TERRAIN_RANDOM_SEED,
+  type MapTerrainData,
+  TERRAIN_CELL_SIZE_METERS,
+  TERRAIN_CHUNK_SIZE,
+} from './terrain/TerrainTypes'
 import type { NpcType } from './types'
 
 const DB_NAME = 'sl2d'
@@ -531,8 +538,79 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
     ...data,
     player: normalizeMapPlayer(data.player),
     npcs: rawNpcs.map(normalizeMapNpc),
+    terrain: normalizeMapTerrain(data.terrain),
     npcTemplates: (data.npcTemplates ?? []).map(normalizeMapNpcTemplate),
     editorTree,
+  }
+}
+
+function normalizeMapTerrain(
+  terrain: EditorMapData['terrain']
+): MapTerrainData | undefined {
+  if (!terrain) {
+    return undefined
+  }
+  const chunkSize =
+    terrain.chunkSize > 0 ? Math.floor(terrain.chunkSize) : TERRAIN_CHUNK_SIZE
+  const normalizeChunks = (
+    chunks: ReadonlyArray<{
+      chunkX: number
+      chunkY: number
+      cells: ArrayLike<number>
+    }>
+  ) =>
+    chunks.map((chunk) => {
+      const cellCount = chunkSize * chunkSize
+      const cells = new Array<number>(cellCount)
+      for (let i = 0; i < cellCount; i++) {
+        cells[i] = (chunk.cells[i] ?? 0) | 0
+      }
+      return {
+        chunkX: chunk.chunkX | 0,
+        chunkY: chunk.chunkY | 0,
+        cells,
+      }
+    })
+  const normalizedLayers =
+    terrain.layers && terrain.layers.length > 0
+      ? terrain.layers
+          .map((layer) => {
+            const chunks = normalizeChunks(layer.chunks)
+            if (chunks.length === 0) {
+              return null
+            }
+            return {
+              materialId: layer.materialId ?? inferTerrainMaterialId(chunks),
+              offsetCellX: layer.offsetCellX | 0,
+              offsetCellY: layer.offsetCellY | 0,
+              chunks,
+            }
+          })
+          .filter((layer): layer is NonNullable<typeof layer> => layer !== null)
+      : []
+  if (normalizedLayers.length === 0) {
+    if (!Array.isArray(terrain.chunks) || terrain.chunks.length === 0) {
+      return undefined
+    }
+    const legacyChunks = normalizeChunks(terrain.chunks)
+    if (legacyChunks.length === 0) {
+      return undefined
+    }
+    normalizedLayers.push({
+      materialId: inferTerrainMaterialId(legacyChunks),
+      offsetCellX: 0,
+      offsetCellY: 0,
+      chunks: legacyChunks,
+    })
+  }
+  return {
+    version: 2,
+    cellSize:
+      terrain.cellSize > 0 ? terrain.cellSize : TERRAIN_CELL_SIZE_METERS,
+    chunkSize,
+    randomSeed: terrain.randomSeed ?? DEFAULT_TERRAIN_RANDOM_SEED,
+    chunks: [],
+    layers: normalizedLayers,
   }
 }
 

@@ -19,8 +19,13 @@ interface EditorCanvasEventHandlerContext {
   hidePolygonMenu: () => void
   handleEditablePolygonContextMenuEvent: (event: MouseEvent) => void
   handleEditablePolygonPointerDown: (opt: fabric.IEvent<Event>) => boolean
+  handleTerrainPointerDown: (opt: fabric.IEvent<Event>) => boolean
+  handleTerrainPointerMove: (opt: fabric.IEvent<Event>) => boolean
+  handleTerrainPointerUp: () => boolean
+  restoreCanvasCursor: () => void
   handleCanvasSelection: (objects: fabric.Object[]) => void
-  onObjectModified: () => void
+  onObjectMoving: (target: fabric.Object | null) => void
+  onObjectModified: (target: fabric.Object | null) => void
   onPolygonEdited: () => void
 }
 
@@ -114,6 +119,11 @@ export class EditorCanvasEventHandler {
     }
     if (evt.button === 0) {
       this.ctx.hidePolygonMenu()
+      if (this.ctx.handleTerrainPointerDown(opt)) {
+        evt.preventDefault()
+        evt.stopPropagation()
+        return
+      }
       if (opt.target && this.ctx.editorObjectMap.has(opt.target)) {
         this.ctx.snapManager.prepareSnapCandidates(opt.target)
       } else {
@@ -129,6 +139,10 @@ export class EditorCanvasEventHandler {
   private handleMouseMove = (opt: fabric.IEvent<Event>) => {
     const canvas = this.ctx.fabricCanvas()
     if (!canvas) {
+      return
+    }
+
+    if (this.ctx.handleTerrainPointerMove(opt)) {
       return
     }
 
@@ -154,7 +168,7 @@ export class EditorCanvasEventHandler {
     if (this.ctx.getIsPanning()) {
       this.ctx.setIsPanning(false)
       canvas.selection = true
-      canvas.defaultCursor = 'default'
+      this.ctx.restoreCanvasCursor()
       const vpt = canvas.viewportTransform
       if (vpt) {
         canvas.setViewportTransform(vpt)
@@ -165,6 +179,9 @@ export class EditorCanvasEventHandler {
           obj.setCoords()
         }
       })
+    }
+    if (this.ctx.handleTerrainPointerUp()) {
+      return
     }
     if (!this.ctx.getIsPanning()) {
       this.ctx.snapManager.hideSnapGuides()
@@ -178,12 +195,13 @@ export class EditorCanvasEventHandler {
       return
     }
     this.ctx.snapManager.handleObjectMoving(target)
+    this.ctx.onObjectMoving(target)
   }
 
-  private handleObjectModified = () => {
+  private handleObjectModified = (opt: fabric.IEvent<Event>) => {
     this.ctx.snapManager.hideSnapGuides()
     this.ctx.snapManager.clearSnapCandidates()
-    this.ctx.onObjectModified()
+    this.ctx.onObjectModified(opt.target ?? null)
   }
 
   private handleSelectionCreated = (opt: fabric.IEvent<Event>) => {

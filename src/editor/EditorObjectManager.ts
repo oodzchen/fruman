@@ -114,7 +114,11 @@ export class EditorObjectManager {
     return this.editorObjects.some((obj) => obj.type === type)
   }
 
-  registerEditorObject(type: ObjectType, object: fabric.Object) {
+  registerEditorObject(
+    type: ObjectType,
+    object: fabric.Object,
+    preferredName?: string
+  ) {
     const existing = this.editorObjectMap.get(object)
     if (existing) {
       return existing
@@ -124,7 +128,9 @@ export class EditorObjectManager {
     const defaultNameBase = this.getDefaultObjectNameBase(type, object)
     const nextCount = (this.defaultNameCounts.get(defaultNameBase) ?? 0) + 1
     this.defaultNameCounts.set(defaultNameBase, nextCount)
-    const name = `${defaultNameBase}${nextCount}`
+    const generatedName = `${defaultNameBase}${nextCount}`
+    const name =
+      preferredName && preferredName.length > 0 ? preferredName : generatedName
     const data: EditorObjectData = { id, name, type, object, parentId: null }
     this.editorObjects.push(data)
     this.editorObjectMap.set(object, data)
@@ -168,22 +174,20 @@ export class EditorObjectManager {
     if (!canvas) {
       return
     }
-    // Only move top-level objects on the canvas.
-    // Children within groups are managed by their parent group's internal stacking.
-    let canvasIndex = 0
-    for (let i = 0; i < this.editorObjects.length; i++) {
-      const data = this.editorObjects[i]
-      const obj = data.object
-      if (obj.canvas !== canvas) {
-        continue
-      }
-      canvas.moveTo(obj, canvasIndex++)
-    }
+    const terrainCanvasIndex = this.moveObjectsByType(
+      canvas,
+      ObjectType.Terrain,
+      0
+    )
+    this.moveObjectsByType(canvas, null, terrainCanvasIndex)
     if (
       this.focusedEditorObject &&
       this.focusedEditorObject.canvas === canvas
     ) {
-      this.bringFocusedObjectToFront(this.focusedEditorObject)
+      const focusedData = this.editorObjectMap.get(this.focusedEditorObject)
+      if (focusedData?.type !== ObjectType.Terrain) {
+        this.bringFocusedObjectToFront(this.focusedEditorObject)
+      }
     }
     canvas.requestRenderAll()
   }
@@ -191,6 +195,26 @@ export class EditorObjectManager {
   private bringFocusedObjectToFront(object: fabric.Object) {
     object.bringToFront()
     this.ctx.onBringToFront(object)
+  }
+
+  private moveObjectsByType(
+    canvas: fabric.Canvas,
+    type: ObjectType | null,
+    canvasIndex: number
+  ): number {
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const data = this.editorObjects[i]
+      if ((type === null) === (data.type === ObjectType.Terrain)) {
+        continue
+      }
+      const obj = data.object
+      if (obj.canvas !== canvas) {
+        continue
+      }
+      canvas.moveTo(obj, canvasIndex)
+      canvasIndex += 1
+    }
+    return canvasIndex
   }
 
   getEditorObjectById(id: number) {

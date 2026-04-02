@@ -59,6 +59,8 @@ import {
 import { EditorShapeManager } from './editor/EditorShapeManager'
 import { EditorSidebarManager } from './editor/EditorSidebarManager'
 import { EditorSnapManager } from './editor/EditorSnapManager'
+import { EditorTerrainBrushController } from './editor/EditorTerrainBrushController'
+import { EditorTerrainLayerManager } from './editor/EditorTerrainLayerManager'
 import { EditorThumbnailCapture } from './editor/EditorThumbnailCapture'
 import { EditorToolbarManager } from './editor/EditorToolbarManager'
 import {
@@ -72,6 +74,7 @@ import {
   ObjectType,
   type PlayerMarker,
   type ShapeResetData,
+  type TerrainRegionProxy,
   type WeaponMarker,
   type WeaponMarkerData,
   type WeaponShape,
@@ -177,6 +180,8 @@ export class EditorManager {
   private snapManager!: EditorSnapManager
   private patternManager!: EditorPatternManager
   private cameraManager!: EditorCameraManager
+  private terrainManager!: EditorTerrainLayerManager
+  private terrainBrushController!: EditorTerrainBrushController
   private customNpcTemplates: MapNpcTemplate[] = []
 
   constructor() {
@@ -216,6 +221,7 @@ export class EditorManager {
           this.menuSystem.hideAll()
         }
       },
+      onSelectMode: () => this.enterSelectionMode(),
     })
 
     this.dialogManager = new DialogManager(
@@ -315,6 +321,22 @@ export class EditorManager {
       fabricCanvas: () => this.fabricCanvas,
     })
 
+    this.terrainManager = new EditorTerrainLayerManager({
+      getFabricCanvas: () => this.fabricCanvas,
+      requestRender: () => this.fabricCanvas?.requestRenderAll(),
+      pixelsPerMeter: EDITOR_PIXELS_PER_METER,
+      registerEditorObject: (type, obj, preferredName) =>
+        this.objectManager.registerEditorObject(type, obj, preferredName),
+      unregisterEditorObject: (obj) =>
+        this.objectManager.unregisterEditorObject(obj),
+    })
+
+    this.terrainBrushController = new EditorTerrainBrushController({
+      getCanvas: () => this.fabricCanvas,
+      terrainManager: this.terrainManager,
+      onCommit: () => this.captureHistorySnapshot(),
+    })
+
     this.shapeManager = new EditorShapeManager({
       polygonEditor: this.polygonEditor,
 
@@ -364,6 +386,7 @@ export class EditorManager {
 
       markerManager: this.markerManager,
       shapeManager: this.shapeManager,
+      terrainManager: this.terrainManager,
 
       spawnCameraViewFrame: (camera) =>
         this.cameraManager.spawnCameraViewFrame(camera, ObjectType.Camera),
@@ -559,6 +582,10 @@ export class EditorManager {
       hasWeaponType: (weaponType) =>
         this.markerManager.hasWeaponType(weaponType),
       onObjectTypeSelected: (type) => this.handleObjectClick(type),
+      onTerrainBrushSelected: (brushId) => {
+        this.terrainBrushController.selectBrush(brushId)
+        this.setActiveObjectType(ObjectType.Terrain)
+      },
       onGroundShapeSelected: (shape) => {
         const spawn = this.consumePanelMenuSpawn()
         if (spawn) {
@@ -691,9 +718,18 @@ export class EditorManager {
         this.handleEditablePolygonContextMenuEvent(event),
       handleEditablePolygonPointerDown: (opt) =>
         this.handleEditablePolygonPointerDown(opt as fabric.IEvent<MouseEvent>),
+      handleTerrainPointerDown: (opt) =>
+        this.terrainBrushController.handlePointerDown(opt),
+      handleTerrainPointerMove: (opt) =>
+        this.terrainBrushController.handlePointerMove(opt),
+      handleTerrainPointerUp: () =>
+        this.terrainBrushController.handlePointerUp(),
+      restoreCanvasCursor: () =>
+        this.terrainBrushController.restoreCanvasCursor(),
       handleCanvasSelection: (objects) =>
         this.objectManager.handleCanvasSelection(objects),
-      onObjectModified: () => this.handleObjectModified(),
+      onObjectMoving: (target) => this.handleObjectMoving(target),
+      onObjectModified: (target) => this.handleObjectModified(target),
       onPolygonEdited: () => this.captureHistorySnapshot(),
     })
 
@@ -769,6 +805,7 @@ export class EditorManager {
   private updateLocalization() {
     this.toolbarManager.updateLocalization()
     this.sidebarManager.updateLocalization()
+    this.sidebarManager.setSelectModeActive(this.activeObjectType === null)
     this.mapListManager.updateLocalization()
     this.menuSystem.updateLocalization()
     this.renderObjectTree()
@@ -987,6 +1024,12 @@ export class EditorManager {
       this.menuSystem.showGroundSubmenu()
       return
     }
+    if (type === ObjectType.Terrain) {
+      this.setActiveObjectType(ObjectType.Terrain)
+      this.hideAllSubmenus()
+      this.menuSystem.showTerrainSubmenu()
+      return
+    }
     if (type === ObjectType.Obstacle) {
       this.setActiveObjectType(ObjectType.Obstacle)
       this.hideAllSubmenus()
@@ -1146,6 +1189,7 @@ export class EditorManager {
     this.shapeManager.clearAllShapeResetData()
     this.cameraManager.getCameraViews().length = 0
     this.cameraManager.getCameraViewMap().clear()
+    this.terrainManager.clear()
 
     this.markerManager.clear()
     this.objectManager.clear()
@@ -1456,6 +1500,18 @@ export class EditorManager {
 
   private setActiveObjectType(type: ObjectType | null) {
     this.activeObjectType = type
+    if (type !== ObjectType.Terrain) {
+      this.terrainBrushController.clearBrush()
+    }
+    this.terrainManager.setInteractionEnabled(type === null)
+    this.sidebarManager.setSelectModeActive(type === null)
+  }
+
+  private enterSelectionMode() {
+    this.hideAllSubmenus()
+    this.menuSystem.hideObjectTypeMenu()
+    this.contextMenu.hide()
+    this.setActiveObjectType(null)
   }
 
   private resetDragState() {
@@ -1480,11 +1536,22 @@ export class EditorManager {
     return this.polygonEditor.handleEditablePolygonPointerDown(opt)
   }
 
-  private handleObjectModified() {
+  private handleObjectModified(target: fabric.Object | null) {
     if (!this.visible || this.currentView !== EditorView.Editor) {
       return
     }
+    if (this.terrainManager.handleModifiedTarget(target)) {
+      this.captureHistorySnapshot()
+      return
+    }
     this.captureHistorySnapshot()
+  }
+
+  private handleObjectMoving(target: fabric.Object | null) {
+    if (!this.visible || this.currentView !== EditorView.Editor) {
+      return
+    }
+    this.terrainManager.handleMovingTarget(target)
   }
 
   private captureHistorySnapshot() {
@@ -1845,6 +1912,7 @@ export class EditorManager {
   private applyEditorTreeData(data: EditorMapData) {
     const tree = data.editorTree
     if (!tree || tree.nodes.length === 0) {
+      this.renderObjectTree()
       return
     }
     if (tree.nodes.length !== tree.parents.length) {
@@ -1856,6 +1924,7 @@ export class EditorManager {
     }
 
     const shapeObjects: EditorObjectData[] = []
+    const terrainObjects: EditorObjectData[] = []
     const npcObjects: EditorObjectData[] = []
     const weaponObjects: EditorObjectData[] = []
     const checkpointObjects: EditorObjectData[] = []
@@ -1871,6 +1940,8 @@ export class EditorManager {
         dataItem.type === ObjectType.Obstacle
       ) {
         shapeObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.Terrain) {
+        terrainObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Npc) {
         npcObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Weapon) {
@@ -1892,6 +1963,7 @@ export class EditorManager {
     }
 
     const resolved: EditorObjectData[] = []
+    const resolvedIdSet = new Set<number>()
     for (let i = 0; i < tree.nodes.length; i++) {
       const node = tree.nodes[i]
       let resolvedData: EditorObjectData | null = null
@@ -1908,6 +1980,12 @@ export class EditorManager {
         const index = node.index ?? -1
         resolvedData =
           index >= 0 && index < shapeObjects.length ? shapeObjects[index] : null
+      } else if (node.type === 'terrain') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < terrainObjects.length
+            ? terrainObjects[index]
+            : null
       } else if (node.type === 'npc' || node.type === 'enemy') {
         const index = node.index ?? -1
         resolvedData =
@@ -1959,6 +2037,15 @@ export class EditorManager {
         resolvedData.name = node.name
       }
       resolved.push(resolvedData)
+      resolvedIdSet.add(resolvedData.id)
+    }
+
+    for (let i = 0; i < editorObjects.length; i++) {
+      const dataItem = editorObjects[i]
+      if (resolvedIdSet.has(dataItem.id)) {
+        continue
+      }
+      resolved.push(dataItem)
     }
 
     const order: number[] = new Array(resolved.length)
@@ -1983,6 +2070,16 @@ export class EditorManager {
     }
     const active = canvas.getActiveObject()
     if (!active || !this.objectManager.getEditorObjectMap().has(active)) {
+      return
+    }
+    if (this.terrainManager.isTerrainProxy(active)) {
+      const cellDeltaX = dx === 0 ? 0 : dx > 0 ? 1 : -1
+      const cellDeltaY = dy === 0 ? 0 : dy > 0 ? 1 : -1
+      if (
+        this.terrainManager.moveProxyByCellDelta(active, cellDeltaX, cellDeltaY)
+      ) {
+        this.captureHistorySnapshot()
+      }
       return
     }
     const currentLeft = Math.round(active.left ?? 0)
@@ -2139,6 +2236,9 @@ export class EditorManager {
   // ========================================
 
   private isDeletableShape(object: fabric.Object) {
+    if (this.terrainManager.isTerrainProxy(object)) {
+      return true
+    }
     if (this.cameraManager.isCameraFrame(object)) {
       return true
     }
@@ -2176,6 +2276,16 @@ export class EditorManager {
     clientX: number,
     clientY: number
   ) {
+    if (this.terrainManager.isTerrainProxy(target)) {
+      this.showPolygonMenuWithActions(
+        ['rename', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
     if (this.cameraManager.isCameraFrame(target)) {
       this.showPolygonMenuWithActions(
         ['copy', 'paste', 'zoom', 'reset', 'rename', 'delete'],
@@ -2289,6 +2399,12 @@ export class EditorManager {
     return data?.type === ObjectType.Empty
   }
 
+  private isTerrainProxy(
+    object: fabric.Object | null
+  ): object is TerrainRegionProxy {
+    return this.terrainManager.isTerrainProxy(object)
+  }
+
   private createEmptyNode(centerX: number, centerY: number) {
     const group = new fabric.Group([], {
       originX: 'center',
@@ -2353,12 +2469,20 @@ export class EditorManager {
       return
     }
     canvas.discardActiveObject()
+    const terrainTargets: fabric.Object[] = []
     for (let i = 0; i < ids.length; i++) {
       const data = this.objectManager.getEditorObjectById(ids[i])
       if (!data) continue
+      if (this.isTerrainProxy(data.object)) {
+        terrainTargets.push(data.object)
+        continue
+      }
       this.objectManager.unregisterEditorObject(data.object)
       canvas.remove(data.object)
       this.shapeManager.deleteShapeResetData(data.object)
+    }
+    if (terrainTargets.length > 0) {
+      this.terrainManager.deleteProxyObjects(terrainTargets)
     }
     canvas.requestRenderAll()
     this.contextMenu.hide()
@@ -2452,6 +2576,14 @@ export class EditorManager {
       }
       if (canvas.getActiveObject() === target) {
         canvas.discardActiveObject()
+      }
+      if (this.isTerrainProxy(target)) {
+        const changed = this.terrainManager.deleteProxyObjects([target])
+        this.contextMenu.hide()
+        if (changed) {
+          this.captureHistorySnapshot()
+        }
+        return
       }
       if (this.cameraManager.isCameraFrame(target)) {
         this.cameraManager.removeCameraView(target)
@@ -2590,6 +2722,7 @@ export class EditorManager {
 
   private ensureFabricCanvas() {
     if (this.fabricCanvas) {
+      this.terrainManager.attachToCanvas()
       return
     }
 
@@ -2602,6 +2735,8 @@ export class EditorManager {
     })
     this.fabricCanvas.uniformScaling = false
     this.fabricCanvas.uniScaleKey = 'shiftKey'
+    this.terrainManager.attachToCanvas()
+    this.terrainBrushController.restoreCanvasCursor()
 
     this.canvasEventHandler.attachEventListeners()
 
@@ -2689,6 +2824,12 @@ export class EditorManager {
     this.fabricCanvas.setDimensions(
       { width: `${viewportWidth}px`, height: `${viewportHeight}px` },
       { cssOnly: true }
+    )
+    this.terrainManager.resizeCanvas(
+      targetWidth,
+      targetHeight,
+      viewportWidth,
+      viewportHeight
     )
 
     this.fabricCanvas.calcOffset()
