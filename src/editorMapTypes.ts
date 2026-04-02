@@ -120,9 +120,7 @@ export interface MapNpcWeapon {
   bowAmmo?: number
 }
 
-export interface MapNpc {
-  x: number
-  y: number
+export interface MapNpcConfig {
   npcType: NpcType
   enemyType?: NpcType
   radius?: number
@@ -152,6 +150,16 @@ export interface MapNpc {
   npcFactions?: string[]
   enemyFactions?: string[]
   allyFactions?: string[]
+}
+
+export interface MapNpc extends MapNpcConfig {
+  x: number
+  y: number
+}
+
+export interface MapNpcTemplate extends MapNpcConfig {
+  id: string
+  name: string
 }
 
 export interface MapCheckpoint {
@@ -230,6 +238,7 @@ export interface EditorMapData {
   checkpoints?: MapCheckpoint[]
   hookAnchors?: MapHookAnchor[]
   sunPickups?: MapSunPickup[]
+  npcTemplates?: MapNpcTemplate[]
   editorTree?: EditorTreeData
   factions?: string[]
 }

@@ -161,10 +161,9 @@ export function renderBodyEye(
   const facing = facingDirection < 0 ? -1 : 1
   const eyeX = getCharacterEyeDrawX(bodyProfile) * scaleX * facing
   const eyeY = getCharacterEyeDrawY(bodyProfile) * scaleY
-  const baseRadius = Math.max(4, Math.min(radiusPx, radiusYPx) * 0.18)
-  const eyeRadius = Math.max(5, Math.round(baseRadius))
-  const eyeWhiteRadius = Math.max(3.5, eyeRadius - 0.5)
-  const pupilRadius = Math.max(2.5, eyeWhiteRadius - 0.5)
+  const eyeRadius = 5
+  const eyeWhiteRadius = 4
+  const pupilRadius = 3
   const highlightRadius = Math.max(1.5, Math.round(pupilRadius * 0.4))
   const highlightX = -Math.max(1, Math.round(pupilRadius * 0.28))
   const highlightY = -Math.max(1, Math.round(pupilRadius * 0.32))

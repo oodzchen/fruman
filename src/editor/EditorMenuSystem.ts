@@ -1,6 +1,6 @@
 import { localizer } from '../Localizer'
 import { WEAPON_DEFAULT_DATA } from '../constants'
-import type { WeaponCategory } from '../editorMapTypes'
+import type { MapNpcTemplate, WeaponCategory } from '../editorMapTypes'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type { NpcType, WeaponType } from '../types'
 import { getWeaponGroundRotationRad } from '../weaponTypeUtils'
@@ -23,6 +23,10 @@ export interface EditorMenuSystemContext {
     size?: number
   ) => void
   onNpcSelected: (npcType: NpcType) => void
+  getCustomNpcTemplates: () => MapNpcTemplate[]
+  onCustomNpcTemplateSelected: (templateId: string) => void
+  onEditCustomNpcTemplate: (templateId: string) => void | Promise<void>
+  onCreateCustomNpcTemplate: () => void | Promise<void>
   onSunPickupSelected: (isLarge: boolean) => void
   onPanelMenuAdd: () => void
   onPanelMenuPaste: () => void
@@ -39,6 +43,9 @@ export class EditorMenuSystem {
   private obstacleSubmenu: HTMLDivElement
   private weaponMenu: HTMLDivElement
   private npcSubmenu: HTMLDivElement
+  private npcCustomTemplateList: HTMLDivElement
+  private npcCustomTemplateTitle: HTMLDivElement
+  private npcTemplateAddBtn: HTMLButtonElement
   private propSubmenu: HTMLDivElement
   private groundMenuItem: HTMLButtonElement
   private obstacleMenuItem: HTMLButtonElement
@@ -50,7 +57,7 @@ export class EditorMenuSystem {
   private obstacleSubmenuItems: NodeListOf<HTMLButtonElement>
   private weaponItems: NodeListOf<HTMLButtonElement>
   private weaponGroupTitles: NodeListOf<HTMLDivElement>
-  private npcSubmenuItems: NodeListOf<HTMLButtonElement>
+  private npcSubmenuItems: HTMLButtonElement[] = []
   private propSubmenuItems: NodeListOf<HTMLButtonElement>
   private propSubmenuBackBtn: HTMLButtonElement
   private objectTypeMenuBackBtn: HTMLButtonElement
@@ -81,6 +88,13 @@ export class EditorMenuSystem {
     const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
     const weaponMenu = document.getElementById('editorWeaponMenu')
     const npcSubmenu = document.getElementById('editorNpcSubmenu')
+    const npcCustomTemplateList = document.getElementById(
+      'editorNpcCustomTemplateList'
+    )
+    const npcCustomTemplateTitle = document.getElementById(
+      'editorNpcCustomTemplateTitle'
+    )
+    const npcTemplateAddBtn = document.getElementById('editorNpcTemplateAddBtn')
     const propSubmenu = document.getElementById('editorPropSubmenu')
 
     const groundMenuItem = document.querySelector<HTMLButtonElement>(
@@ -114,9 +128,6 @@ export class EditorMenuSystem {
     const weaponGroupTitles = document.querySelectorAll<HTMLDivElement>(
       '#editorWeaponMenu .editor-submenu-group-title'
     )
-    const npcSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorNpcSubmenu .editor-submenu-item'
-    )
     const propSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorPropSubmenu .editor-submenu-item'
     )
@@ -149,6 +160,9 @@ export class EditorMenuSystem {
       !(obstacleSubmenu instanceof HTMLDivElement) ||
       !(weaponMenu instanceof HTMLDivElement) ||
       !(npcSubmenu instanceof HTMLDivElement) ||
+      !(npcCustomTemplateList instanceof HTMLDivElement) ||
+      !(npcCustomTemplateTitle instanceof HTMLDivElement) ||
+      !(npcTemplateAddBtn instanceof HTMLButtonElement) ||
       !(propSubmenu instanceof HTMLDivElement) ||
       !(groundMenuItem instanceof HTMLButtonElement) ||
       !(obstacleMenuItem instanceof HTMLButtonElement) ||
@@ -173,6 +187,9 @@ export class EditorMenuSystem {
     this.obstacleSubmenu = obstacleSubmenu
     this.weaponMenu = weaponMenu
     this.npcSubmenu = npcSubmenu
+    this.npcCustomTemplateList = npcCustomTemplateList
+    this.npcCustomTemplateTitle = npcCustomTemplateTitle
+    this.npcTemplateAddBtn = npcTemplateAddBtn
     this.propSubmenu = propSubmenu
     this.groundMenuItem = groundMenuItem
     this.obstacleMenuItem = obstacleMenuItem
@@ -184,7 +201,6 @@ export class EditorMenuSystem {
     this.obstacleSubmenuItems = obstacleSubmenuItems
     this.weaponItems = weaponItems
     this.weaponGroupTitles = weaponGroupTitles
-    this.npcSubmenuItems = npcSubmenuItems
     this.propSubmenuItems = propSubmenuItems
     this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
     this.groundSubmenuBackBtn = groundSubmenuBackBtn
@@ -207,10 +223,11 @@ export class EditorMenuSystem {
 
     this.boundHandleMenuItemMouseEnter =
       this.handleMenuItemMouseEnter.bind(this)
+    this.renderCustomNpcTemplateItems()
     this.setupEventListeners()
   }
 
-  private getMenuItems(mode: EditorSubmenuMode): NodeListOf<HTMLButtonElement> {
+  private getMenuItems(mode: EditorSubmenuMode): ArrayLike<HTMLButtonElement> {
     switch (mode) {
       case EditorSubmenuMode.Object:
         return this.editorObjectItems
@@ -301,21 +318,50 @@ export class EditorMenuSystem {
     })
     this.bindMenuItems(this.weaponItems, EditorSubmenuMode.Weapon)
 
-    this.npcSubmenuItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const action = item.dataset.action
-        if (action === 'back') {
-          this.handleMenuBack()
-          return
-        }
-        const npcType = item.dataset.npc as NpcType | undefined
-        if (npcType) {
-          this.ctx.onNpcSelected(npcType)
+    this.npcSubmenu.addEventListener('click', (event) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) {
+        return
+      }
+      const editBtn = target.closest<HTMLButtonElement>(
+        '.editor-submenu-template-edit'
+      )
+      if (editBtn && this.npcSubmenu.contains(editBtn)) {
+        const templateId = editBtn.dataset.npcTemplateId
+        if (templateId) {
           this.hideObjectTypeMenu()
+          void this.ctx.onEditCustomNpcTemplate(templateId)
         }
-      })
+        return
+      }
+      const item = target.closest<HTMLButtonElement>('.editor-submenu-item')
+      if (!item || !this.npcSubmenu.contains(item)) {
+        return
+      }
+      const action = item.dataset.action
+      if (action === 'back') {
+        this.handleMenuBack()
+        return
+      }
+      const npcType = item.dataset.npc as NpcType | undefined
+      if (npcType) {
+        this.ctx.onNpcSelected(npcType)
+        this.hideObjectTypeMenu()
+        return
+      }
+      const templateId = item.dataset.npcTemplateId
+      if (templateId) {
+        this.ctx.onCustomNpcTemplateSelected(templateId)
+        this.hideObjectTypeMenu()
+      }
     })
     this.bindMenuItems(this.npcSubmenuItems, EditorSubmenuMode.Npc)
+
+    this.npcTemplateAddBtn.addEventListener('pointerdown', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      void this.ctx.onCreateCustomNpcTemplate()
+    })
 
     this.propSubmenuItems.forEach((item) => {
       item.addEventListener('click', () => {
@@ -380,14 +426,17 @@ export class EditorMenuSystem {
   }
 
   private bindMenuItems(
-    items: NodeListOf<HTMLButtonElement>,
+    items: ArrayLike<HTMLButtonElement>,
     mode: EditorSubmenuMode
   ) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
       item.dataset.menuIndex = String(i)
       item.dataset.menuMode = mode
-      item.addEventListener('mouseenter', this.boundHandleMenuItemMouseEnter)
+      if (item.dataset.menuHoverBound !== '1') {
+        item.dataset.menuHoverBound = '1'
+        item.addEventListener('mouseenter', this.boundHandleMenuItemMouseEnter)
+      }
     }
   }
 
@@ -516,12 +565,10 @@ export class EditorMenuSystem {
       }
     })
 
-    this.npcSubmenuItems.forEach((item) => {
-      const npc = item.dataset.npc
-      if (npc) {
-        item.textContent = localizer.t(`editor_enemy_${npc}`)
-      }
-    })
+    this.npcCustomTemplateTitle.textContent = localizer.t(
+      'editor_npc_template_group'
+    )
+    this.renderCustomNpcTemplateItems()
 
     this.propSubmenuItems.forEach((item) => {
       const weapon = item.dataset.weapon
@@ -862,6 +909,7 @@ export class EditorMenuSystem {
   }
 
   showNpcSubmenu() {
+    this.renderCustomNpcTemplateItems()
     this.hideSiblingSubmenus(EditorSubmenuMode.Npc)
     this.positionNpcSubmenu()
     this.npcSubmenu.classList.add('is-visible')
@@ -1022,5 +1070,50 @@ export class EditorMenuSystem {
         item.classList.remove('is-selected')
       }
     })
+  }
+
+  refreshCustomNpcTemplates() {
+    this.renderCustomNpcTemplateItems()
+  }
+
+  private renderCustomNpcTemplateItems() {
+    this.npcCustomTemplateList.innerHTML = ''
+    const templates = this.ctx.getCustomNpcTemplates()
+    for (let i = 0; i < templates.length; i++) {
+      const template = templates[i]
+      const row = document.createElement('div')
+      row.className = 'editor-submenu-template-row'
+
+      const item = document.createElement('button')
+      item.className = 'editor-submenu-item'
+      item.dataset.npcTemplateId = template.id
+      item.textContent = template.name
+
+      const editBtn = document.createElement('button')
+      editBtn.className = 'editor-submenu-template-edit'
+      editBtn.dataset.npcTemplateId = template.id
+      editBtn.type = 'button'
+      editBtn.textContent = '✎'
+      editBtn.title = localizer.t('editor_npc_template_edit')
+
+      row.appendChild(item)
+      row.appendChild(editBtn)
+      this.npcCustomTemplateList.appendChild(row)
+    }
+
+    const npcItems = this.npcSubmenu.querySelectorAll<HTMLButtonElement>(
+      '.editor-submenu-item'
+    )
+    this.npcSubmenuItems = Array.from(npcItems)
+    this.npcSubmenuItems.forEach((item) => {
+      const npc = item.dataset.npc
+      if (npc) {
+        item.textContent = localizer.t(`editor_enemy_${npc}`)
+      }
+    })
+    this.bindMenuItems(this.npcSubmenuItems, EditorSubmenuMode.Npc)
+    if (this.menuMode === EditorSubmenuMode.Npc) {
+      this.menuNavigator.setMode(EditorSubmenuMode.Npc, false)
+    }
   }
 }

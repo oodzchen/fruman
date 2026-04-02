@@ -7,6 +7,7 @@ import type {
   EditorTreeNode,
   EditorTreeObjectType,
   MapCharacterBodyProfile,
+  MapNpcTemplate,
   MapNpcWeapon,
   MapPlacedShape,
   MapSunPickup,
@@ -94,6 +95,8 @@ interface EditorMapSerializerContext {
 
   getFactions: () => string[]
   setFactions: (factions: string[]) => void
+  getCustomNpcTemplates: () => MapNpcTemplate[]
+  setCustomNpcTemplates: (templates: MapNpcTemplate[]) => void
 }
 
 export class EditorMapSerializer {
@@ -122,6 +125,7 @@ export class EditorMapSerializer {
       weapons: [],
       checkpoints: [],
       hookAnchors: [],
+      npcTemplates: [],
     }
   }
 
@@ -165,6 +169,7 @@ export class EditorMapSerializer {
       checkpoints,
       hookAnchors,
       sunPickups,
+      npcTemplates: this.ctx.getCustomNpcTemplates(),
       editorTree: editorTree ?? undefined,
       factions: this.ctx.getFactions(),
     }
@@ -179,6 +184,7 @@ export class EditorMapSerializer {
     if (data.factions) {
       this.ctx.setFactions(data.factions)
     }
+    this.ctx.setCustomNpcTemplates(data.npcTemplates ?? [])
     this.ctx.resizeEditorCanvas()
     this.ctx.clearEditorScene()
     this.ctx.markerManager.spawnPlayerMarker(data.playerSpawn, data.player)

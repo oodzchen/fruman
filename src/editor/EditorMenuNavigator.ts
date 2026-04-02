@@ -8,8 +8,10 @@ export enum EditorSubmenuMode {
   Prop = 'prop',
 }
 
+type EditorMenuItemList = ArrayLike<HTMLButtonElement>
+
 interface EditorMenuNavigatorContext {
-  getMenuItems: (mode: EditorSubmenuMode) => NodeListOf<HTMLButtonElement>
+  getMenuItems: (mode: EditorSubmenuMode) => EditorMenuItemList
   getCurrentMode: () => EditorSubmenuMode
   setCurrentMode: (mode: EditorSubmenuMode) => void
   getCurrentSelectedIndex: () => number
@@ -23,7 +25,7 @@ export class EditorMenuNavigator {
     this.ctx = ctx
   }
 
-  findFirstSelectableIndex(items: NodeListOf<HTMLButtonElement>): number {
+  findFirstSelectableIndex(items: EditorMenuItemList): number {
     for (let i = 0; i < items.length; i++) {
       if (!items[i].disabled) {
         return i
@@ -33,7 +35,7 @@ export class EditorMenuNavigator {
   }
 
   findNextSelectableIndex(
-    items: NodeListOf<HTMLButtonElement>,
+    items: EditorMenuItemList,
     startIndex: number,
     delta: number
   ): number {

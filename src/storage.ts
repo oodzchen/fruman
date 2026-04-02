@@ -5,6 +5,7 @@ import type {
   EditorTreeNode,
   EditorViewportState,
   MapNpc,
+  MapNpcTemplate,
 } from './editorMapTypes'
 import type { SaveData, SaveMeta, SaveNpcState } from './saveTypes'
 import type { NpcType } from './types'
@@ -478,6 +479,7 @@ function buildDefaultMapData(
     npcs: [],
     weapons: [],
     checkpoints: [],
+    npcTemplates: [],
   }
 }
 
@@ -491,6 +493,14 @@ function normalizeMapNpc(npc: MapNpc): MapNpc {
     ...npc,
     npcType: npc.npcType ?? npc.enemyType ?? ('default' as NpcType),
     npcFactions: npc.npcFactions ?? npc.enemyFactions,
+  }
+}
+
+function normalizeMapNpcTemplate(template: MapNpcTemplate): MapNpcTemplate {
+  return {
+    ...template,
+    npcType: template.npcType ?? template.enemyType ?? ('default' as NpcType),
+    npcFactions: template.npcFactions ?? template.enemyFactions,
   }
 }
 
@@ -521,6 +531,7 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
     ...data,
     player: normalizeMapPlayer(data.player),
     npcs: rawNpcs.map(normalizeMapNpc),
+    npcTemplates: (data.npcTemplates ?? []).map(normalizeMapNpcTemplate),
     editorTree,
   }
 }

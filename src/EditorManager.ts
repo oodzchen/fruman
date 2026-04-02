@@ -80,6 +80,7 @@ import type {
   EditorMapData,
   EditorMapMeta,
   EditorViewportState,
+  MapNpcTemplate,
   MapNpcWeapon,
   MapPlacedShape,
   MapWeapon,
@@ -176,6 +177,7 @@ export class EditorManager {
   private snapManager!: EditorSnapManager
   private patternManager!: EditorPatternManager
   private cameraManager!: EditorCameraManager
+  private customNpcTemplates: MapNpcTemplate[] = []
 
   constructor() {
     const overlay = document.getElementById('editorOverlay')
@@ -387,6 +389,10 @@ export class EditorManager {
       setFactions: (factions) => {
         this.factions = factions
       },
+      getCustomNpcTemplates: () => this.customNpcTemplates,
+      setCustomNpcTemplates: (templates) => {
+        this.setCustomNpcTemplates(templates)
+      },
     })
 
     this.historyManager = new EditorHistoryManager(
@@ -597,6 +603,16 @@ export class EditorManager {
           this.markerManager.spawnNpcMarker(npcType)
         }
         this.captureHistorySnapshot()
+      },
+      getCustomNpcTemplates: () => this.customNpcTemplates,
+      onCustomNpcTemplateSelected: (templateId) => {
+        this.handleCustomNpcTemplateSelected(templateId)
+      },
+      onEditCustomNpcTemplate: async (templateId) => {
+        await this.handleEditCustomNpcTemplate(templateId)
+      },
+      onCreateCustomNpcTemplate: async () => {
+        await this.handleCreateCustomNpcTemplate()
       },
       onSunPickupSelected: (isLarge) => {
         const spawn = this.consumePanelMenuSpawn()
@@ -1476,6 +1492,131 @@ export class EditorManager {
     this.historyManager.capture()
   }
 
+  private setCustomNpcTemplates(templates: MapNpcTemplate[]) {
+    this.customNpcTemplates = templates
+    this.menuSystem?.refreshCustomNpcTemplates()
+  }
+
+  private buildDefaultCustomNpcTemplateName(): string {
+    let index = this.customNpcTemplates.length + 1
+    while (true) {
+      const candidate = localizer
+        .t('editor_npc_template_default_name')
+        .replace('{0}', String(index))
+      if (
+        !this.customNpcTemplates.some((template) => template.name === candidate)
+      ) {
+        return candidate
+      }
+      index += 1
+    }
+  }
+
+  private createCustomNpcTemplateId(): string {
+    const now = Date.now().toString(36)
+    const random = Math.floor(Math.random() * 1e6).toString(36)
+    return `npc-template-${now}-${random}`
+  }
+
+  private async handleCreateCustomNpcTemplate() {
+    const defaultName = this.buildDefaultCustomNpcTemplateName()
+    const input = await this.dialogManager.prompt(
+      localizer.t('editor_npc_template_create_prompt'),
+      defaultName
+    )
+    if (input === null) {
+      return
+    }
+
+    const name = input.trim().length > 0 ? input.trim() : defaultName
+    const template = await this.propertiesPanel.showNpcTemplateCreationDialog({
+      id: this.createCustomNpcTemplateId(),
+      name,
+    })
+    if (!template) {
+      return
+    }
+
+    this.setCustomNpcTemplates([...this.customNpcTemplates, template])
+    this.captureHistorySnapshot()
+    await this.persistCurrentMapDataSilently()
+  }
+
+  private async handleEditCustomNpcTemplate(templateId: string) {
+    const index = this.customNpcTemplates.findIndex(
+      (item) => item.id === templateId
+    )
+    if (index < 0) {
+      return
+    }
+
+    const currentTemplate = this.customNpcTemplates[index]
+    const updatedTemplate =
+      await this.propertiesPanel.showNpcTemplateEditDialog(currentTemplate)
+    if (!updatedTemplate) {
+      return
+    }
+
+    const nextTemplates = [...this.customNpcTemplates]
+    nextTemplates[index] = updatedTemplate
+    this.setCustomNpcTemplates(nextTemplates)
+    this.captureHistorySnapshot()
+    await this.persistCurrentMapDataSilently()
+  }
+
+  private handleCustomNpcTemplateSelected(templateId: string) {
+    const template = this.customNpcTemplates.find(
+      (item) => item.id === templateId
+    )
+    if (!template) {
+      return
+    }
+    const spawn = this.consumePanelMenuSpawn()
+    const spawnConfig = {
+      radius: template.radius,
+      bodyHeight: template.bodyHeight,
+      bodyProfile: template.bodyProfile,
+      moveSpeed: template.moveSpeed,
+      attackDesire: template.attackDesire,
+      parryProficiency: template.parryProficiency,
+      initialPatrolMode: template.initialPatrolMode,
+      detectionRangeLevel: template.detectionRangeLevel,
+      maxHealth: template.maxHealth,
+      maxPosture: template.maxPosture,
+      maxToughness: template.maxToughness,
+      color: template.color,
+      facing: template.facing,
+      initialNormalMovesetId: template.initialNormalMovesetId,
+      debugNoDamage: template.debugNoDamage,
+      debugNoDeath: template.debugNoDeath,
+      redTapeEnabled: template.redTapeEnabled,
+      retreatEnabled: template.retreatEnabled,
+      retreatDelaySec: template.retreatDelaySec,
+      canBeFollower: template.canBeFollower,
+      equipWeapon: template.equipWeapon,
+      mainWeapon: template.mainWeapon,
+      secondaryWeapon: template.secondaryWeapon,
+      factionId: template.factionId,
+      npcFactions: template.npcFactions,
+      allyFactions: template.allyFactions,
+    }
+    if (spawn) {
+      this.markerManager.spawnNpcMarker(template.npcType, {
+        ...spawnConfig,
+        x: spawn.x * this.invPixelsPerMeter,
+        y: spawn.y * this.invPixelsPerMeter,
+      })
+    } else {
+      const viewportCenter = this.getViewportCenter()
+      this.markerManager.spawnNpcMarker(template.npcType, {
+        ...spawnConfig,
+        x: viewportCenter.x * this.invPixelsPerMeter,
+        y: viewportCenter.y * this.invPixelsPerMeter,
+      })
+    }
+    this.captureHistorySnapshot()
+  }
+
   private acquireTreeEntry(): EditorTreeHistoryEntry {
     const entry = this.treeEntryPool.pop()
     if (entry) {
@@ -1658,6 +1799,33 @@ export class EditorManager {
       this.dialogManager.hideLoading()
       await this.dialogManager.alert(localizer.t('editor_save_failed'))
       console.error('[editor] save error', error)
+      return false
+    }
+  }
+
+  private async persistCurrentMapDataSilently(): Promise<boolean> {
+    const data = this.mapSerializer.serializeCurrentMapData()
+    const meta = await this.mapListManager.ensureMapMeta(data)
+    if (!meta) {
+      return false
+    }
+
+    try {
+      const savedMeta = await saveEditorMap(meta, data)
+      if (!savedMeta) {
+        await this.dialogManager.alert(localizer.t('editor_save_failed'))
+        return false
+      }
+      this.currentMapMeta = savedMeta
+      this.lastSavedHistoryId = this.historyManager.getCurrentEntryId()
+      this.mapListManager.refreshMapMetas()
+      if (savedMeta.isDefault && this.onDefaultMapChangedCallback) {
+        this.onDefaultMapChangedCallback(savedMeta)
+      }
+      return true
+    } catch (error) {
+      await this.dialogManager.alert(localizer.t('editor_save_failed'))
+      console.error('[editor] silent save error', error)
       return false
     }
   }

@@ -75,6 +75,10 @@ const CANVAS_ZOOM_DEFAULT_PERCENT = 100
 const DEFAULT_CONTOUR_SEGMENTS = 16
 const MAX_EDITOR_CONTOUR_POINTS = 96
 const LEGACY_PROFILE_REFERENCE_SIZE = 128
+const DEFAULT_BODY_BLOOD_COLOR = '#7a1010'
+const DEFAULT_EDITOR_EYE_RADIUS = 8
+const DEFAULT_EDITOR_EYE_WHITE_RADIUS = 6
+const DEFAULT_EDITOR_PUPIL_RADIUS = 5
 const CORE_LAYER_ID = 1
 const EYE_LAYER_ID = 2
 const BROW_LAYER_ID = 3
@@ -535,7 +539,7 @@ export class EditorCharacterBodyDrawer {
     )
     const bloodColorInput = EditorUIHelper.createColorInput('#7a1010')
     bloodColorInput.value =
-      options.initialProfile?.bloodColor ?? colorInput.value
+      options.initialProfile?.bloodColor ?? DEFAULT_BODY_BLOOD_COLOR
     bloodColorRow.row.appendChild(bloodColorInput)
     sidebar.appendChild(bloodColorRow.row)
 
@@ -1337,9 +1341,6 @@ export class EditorCharacterBodyDrawer {
       colorInput.value = snapshot.color
       bloodColorInput.value = snapshot.bloodColor
       bloodColorAssigned = snapshot.bloodColorAssigned
-      if (!bloodColorAssigned) {
-        bloodColorInput.value = colorInput.value
-      }
       mode = snapshot.mode
       eyeX = snapshot.eyeX
       eyeY = snapshot.eyeY
@@ -1904,10 +1905,7 @@ export class EditorCharacterBodyDrawer {
       return {
         centerX: contourBounds.centerX + eyeX,
         centerY: contourBounds.centerY + eyeY,
-        radius: Math.max(
-          6,
-          Math.round(Math.min(contourBounds.width, contourBounds.height) * 0.09)
-        ),
+        radius: DEFAULT_EDITOR_EYE_RADIUS,
       }
     }
 
@@ -2186,12 +2184,9 @@ export class EditorCharacterBodyDrawer {
       }
       ctx.save()
       ctx.translate(contourBounds.centerX, contourBounds.centerY)
-      const eyeRadius = Math.max(
-        5,
-        Math.round(Math.min(contourBounds.width, contourBounds.height) * 0.09)
-      )
-      const eyeWhiteRadius = Math.max(3, eyeRadius - 1)
-      const pupilRadius = Math.max(2, eyeWhiteRadius - 1)
+      const eyeRadius = DEFAULT_EDITOR_EYE_RADIUS
+      const eyeWhiteRadius = DEFAULT_EDITOR_EYE_WHITE_RADIUS
+      const pupilRadius = DEFAULT_EDITOR_PUPIL_RADIUS
       const highlightRadius = Math.max(1, Math.round((pupilRadius * 2) / 5))
       ctx.fillStyle = '#201710'
       ctx.beginPath()
@@ -2708,15 +2703,9 @@ export class EditorCharacterBodyDrawer {
     })
     colorInput.addEventListener('input', () => {
       settingsChanged = true
-      if (!bloodColorAssigned) {
-        bloodColorInput.value = colorInput.value
-      }
       updateCursorVisual()
     })
     colorInput.addEventListener('change', () => {
-      if (!bloodColorAssigned) {
-        bloodColorInput.value = colorInput.value
-      }
       flushSettingHistory()
     })
     bloodColorInput.addEventListener('input', () => {
@@ -3245,9 +3234,10 @@ export class EditorCharacterBodyDrawer {
                 outputCtx,
                 layers,
                 getLayerOrderSnapshot(),
+                colorInput.value,
                 eyeX,
                 eyeY,
-                bloodColorAssigned ? bloodColorInput.value : undefined,
+                bloodColorInput.value,
                 exportBaseWidth,
                 exportBaseHeight,
                 exportReferenceWidth,
@@ -3354,9 +3344,10 @@ export class EditorCharacterBodyDrawer {
     outputCtx: CanvasRenderingContext2D,
     layers: EditorBodyLayer[],
     layerOrder: number[],
+    color: string,
     eyeX: number,
     eyeY: number,
-    bloodColor: string | undefined,
+    bloodColor: string,
     exportBaseWidth: number,
     exportBaseHeight: number,
     exportReferenceWidth: number,
@@ -3440,6 +3431,7 @@ export class EditorCharacterBodyDrawer {
       points: simplified,
       width,
       height,
+      color,
       bloodColor,
       eyeX: Math.round(eyeX * 1000) / 1000,
       eyeY: Math.round(eyeY * 1000) / 1000,
@@ -3869,12 +3861,9 @@ export class EditorCharacterBodyDrawer {
         continue
       }
       if (layer.kind === 'eye') {
-        const eyeRadius = Math.max(
-          5,
-          Math.round((Math.min(coreWidth, coreHeight) * 9) / 100)
-        )
-        const eyeWhiteRadius = Math.max(3, eyeRadius - 1)
-        const pupilRadius = Math.max(2, eyeWhiteRadius - 1)
+        const eyeRadius = DEFAULT_EDITOR_EYE_RADIUS
+        const eyeWhiteRadius = DEFAULT_EDITOR_EYE_WHITE_RADIUS
+        const pupilRadius = DEFAULT_EDITOR_PUPIL_RADIUS
         const highlightRadius = Math.max(1, Math.round((pupilRadius * 2) / 5))
         compositeCtx.save()
         compositeCtx.translate(coreCenterX, coreCenterY)
