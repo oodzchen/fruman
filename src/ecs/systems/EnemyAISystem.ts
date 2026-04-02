@@ -33,7 +33,12 @@ import {
 import type { MainModule, b2WorldId } from '../../types'
 import { isRangedWeaponType } from '../../weaponTypeUtils'
 import { ATTACK_MOVESETS } from '../AttackMoveRegistry'
-import { EnemyAIComponent, Faction } from '../Component'
+import {
+  EnemyAIComponent,
+  Faction,
+  type WeaponSlotData,
+  type WeaponSlotId,
+} from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import { System } from '../System'
@@ -75,7 +80,7 @@ export class EnemyAISystem extends System {
     this.weaponSystem = weaponSystem
   }
 
-  private getArcherBowMinWindupMs(entity: Entity): number {
+  private getRangedMinWindupMs(entity: Entity): number {
     const weapon = entity.weapon
     if (
       !weapon ||
@@ -294,10 +299,7 @@ export class EnemyAISystem extends System {
         )
         ai.forcedChaseLastX = entity.transform.x
         if (!hasCombatLineOfSight) {
-          if (
-            ai.enemyType === 'archer' &&
-            isRangedWeaponType(entity.weapon?.weaponType)
-          ) {
+          if (this.isUsingRangedWeapon(entity)) {
             ai.forcedChaseDistanceRemaining = 0
             ai.forcedChaseLastX = entity.transform.x
           } else {
@@ -434,13 +436,20 @@ export class EnemyAISystem extends System {
         entity.input.lockLostTimer = 0
       }
 
-      if (ai.enemyType === 'archer' && entity.weapon && entity.weaponSlots) {
+      if (entity.weapon && entity.weaponSlots) {
         const meleeSwitchDistance = ai.detectionRange * ARCHER_MELEE_RANGE_RATIO
-        const isUsingBow = isRangedWeaponType(entity.weapon.weaponType)
-        const bowAmmo = this.getArcherBowAmmo(entity)
-        const hasBowAmmo = bowAmmo > 0
+        const rangedSlotId = this.getRangedWeaponSlotId(entity)
+        const meleeSlotId = this.getMeleeWeaponSlotId(entity)
+        const rangedAmmo =
+          rangedSlotId !== null
+            ? this.getWeaponSlotAmmo(entity, rangedSlotId)
+            : 0
+        const shouldUseRanged =
+          rangedSlotId !== null &&
+          rangedAmmo > 0 &&
+          (distance > meleeSwitchDistance || meleeSlotId === null)
 
-        if (distance > meleeSwitchDistance && hasBowAmmo) {
+        if (shouldUseRanged && rangedSlotId !== null) {
           // 远程逻辑
           // 只要有视野或者已经锁定，就维持远程攻击状态（防止射击间隙的射线检测失败导致丢失目标）
           const isLocked = entity.input.lockedTargetId === target.id
@@ -451,12 +460,12 @@ export class EnemyAISystem extends System {
             entity.input.facingOverride = stableFacing
 
             if (this.weaponSystem) {
-              if (entity.weaponSlots.activeSlot !== 'secondary') {
-                this.weaponSystem.switchWeaponSlot(entity, 'secondary')
+              if (entity.weaponSlots.activeSlot !== rangedSlotId) {
+                this.weaponSystem.switchWeaponSlot(entity, rangedSlotId)
               } else {
                 // 已经在用弓，执行连续射击逻辑
                 const weapon = entity.weapon
-                const minWindupMs = this.getArcherBowMinWindupMs(entity)
+                const minWindupMs = this.getRangedMinWindupMs(entity)
                 // 如果正在后摇（recovery），等待；否则开始或保持蓄力
                 if (weapon.bowRecoverElapsedMs > 0) {
                   entity.input.attackRequested = false
@@ -487,11 +496,14 @@ export class EnemyAISystem extends System {
             this.handlePatrol(entity, ai, now)
             continue
           }
-        } else {
+        } else if (meleeSlotId !== null) {
           // 近战逻辑 (<= meleeSwitchDistance)
           // 无论是否有视野，如果距离很近，都尝试切近战并追击（如果有视野直接打，无视野追过去）
-          if (this.weaponSystem && entity.weaponSlots.activeSlot !== 'main') {
-            this.weaponSystem.switchWeaponSlot(entity, 'main')
+          if (
+            this.weaponSystem &&
+            entity.weaponSlots.activeSlot !== meleeSlotId
+          ) {
+            this.weaponSystem.switchWeaponSlot(entity, meleeSlotId)
             entity.input.attackRequested = false
           }
           // 不使用 continue，让逻辑流转到下方的 approach/combo 状态处理近战行为
@@ -1738,13 +1750,65 @@ export class EnemyAISystem extends System {
     return entityRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
   }
 
-  private getArcherBowAmmo(entity: Entity): number {
-    if (isRangedWeaponType(entity.weapon?.weaponType)) {
-      return entity.weapon.bowAmmo
+  private isUsingRangedWeapon(entity: Entity): boolean {
+    return (
+      !!entity.weapon?.isEquipped &&
+      isRangedWeaponType(entity.weapon.weaponType)
+    )
+  }
+
+  private getWeaponSlot(
+    entity: Entity,
+    slotId: WeaponSlotId
+  ): WeaponSlotData | null {
+    if (!entity.weaponSlots) {
+      return null
     }
-    if (isRangedWeaponType(entity.weaponSlots?.secondary.weaponType)) {
-      return entity.weaponSlots.secondary.bowAmmo
+    return slotId === 'main'
+      ? entity.weaponSlots.main
+      : entity.weaponSlots.secondary
+  }
+
+  private getRangedWeaponSlotId(entity: Entity): WeaponSlotId | null {
+    if (this.isUsingRangedWeapon(entity) && entity.weaponSlots) {
+      return entity.weaponSlots.activeSlot
     }
-    return 0
+    if (
+      entity.weaponSlots?.main.hasWeapon &&
+      isRangedWeaponType(entity.weaponSlots.main.weaponType)
+    ) {
+      return 'main'
+    }
+    if (
+      entity.weaponSlots?.secondary.hasWeapon &&
+      isRangedWeaponType(entity.weaponSlots.secondary.weaponType)
+    ) {
+      return 'secondary'
+    }
+    return null
+  }
+
+  private getMeleeWeaponSlotId(entity: Entity): WeaponSlotId | null {
+    if (
+      entity.weaponSlots?.main.hasWeapon &&
+      !isRangedWeaponType(entity.weaponSlots.main.weaponType)
+    ) {
+      return 'main'
+    }
+    if (
+      entity.weaponSlots?.secondary.hasWeapon &&
+      !isRangedWeaponType(entity.weaponSlots.secondary.weaponType)
+    ) {
+      return 'secondary'
+    }
+    return null
+  }
+
+  private getWeaponSlotAmmo(entity: Entity, slotId: WeaponSlotId): number {
+    const slot = this.getWeaponSlot(entity, slotId)
+    if (!slot || !slot.hasWeapon || !isRangedWeaponType(slot.weaponType)) {
+      return 0
+    }
+    return slot.bowAmmo
   }
 }
