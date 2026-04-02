@@ -1,12 +1,12 @@
 import { fabric } from 'fabric'
 
-import type { MapEnemyWeapon, MapPlayerProperties } from '../editorMapTypes'
+import type { MapNpcWeapon, MapPlayerProperties } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
 import type {
-  EnemyDetectionRangeLevel,
-  EnemyPatrolMode,
-  EnemyType,
   NormalAttackMovesetId,
+  NpcDetectionRangeLevel,
+  NpcPatrolMode,
+  NpcType,
   WeaponType,
 } from '../types'
 import type { EditorCameraManager } from './EditorCameraManager'
@@ -35,8 +35,8 @@ import { ObjectType } from './types'
 import type {
   CameraFrame,
   CheckpointMarker,
-  EnemyMarker,
   HookAnchorMarker,
+  NpcMarker,
   PlayerMarker,
   ShapeResetData,
   WeaponMarker,
@@ -45,7 +45,7 @@ import type {
 type ClipboardKind =
   | 'none'
   | 'shape'
-  | 'enemy'
+  | 'npc'
   | 'player'
   | 'weapon'
   | 'camera'
@@ -115,54 +115,54 @@ export class EditorClipboardManager {
     points: this.resetPointPairs,
   }
 
-  private enemyType: EnemyType = 'default'
-  private enemyRadius = 0
-  private enemyMoveSpeed = 0
-  private enemyAttackDesire = 0
-  private enemyParryProficiency = 0
-  private enemyInitialPatrolMode: EnemyPatrolMode = 'guard'
-  private enemyDetectionRangeLevel: EnemyDetectionRangeLevel = 'near'
-  private enemyMaxHealth = 0
-  private enemyMaxPosture = 0
-  private enemyMaxToughness = 0
-  private enemyColor = ''
-  private enemyFacing = 1
-  private enemyInitialNormalMovesetId: NormalAttackMovesetId = 'sword_default'
-  private enemyDebugNoDamage = false
-  private enemyDebugNoDeath = false
-  private enemyRedTapeEnabled = false
-  private enemyRetreatEnabled = false
-  private enemyRetreatDelaySec = 0
-  private enemyCanBeFollower = false
-  private enemyEquipWeapon = false
-  private enemyFactionId = ''
-  private enemyEnemyFactions: string[] = []
-  private enemyAllyFactions: string[] = []
-  private enemyHasMainWeapon = false
-  private enemyHasSecondaryWeapon = false
-  private enemyMainWeaponData: MapEnemyWeapon = {
+  private npcType: NpcType = 'default'
+  private npcRadius = 0
+  private npcMoveSpeed = 0
+  private npcAttackDesire = 0
+  private npcParryProficiency = 0
+  private npcInitialPatrolMode: NpcPatrolMode = 'guard'
+  private npcDetectionRangeLevel: NpcDetectionRangeLevel = 'near'
+  private npcMaxHealth = 0
+  private npcMaxPosture = 0
+  private npcMaxToughness = 0
+  private npcColor = ''
+  private npcFacing = 1
+  private npcInitialNormalMovesetId: NormalAttackMovesetId = 'sword_default'
+  private npcDebugNoDamage = false
+  private npcDebugNoDeath = false
+  private npcRedTapeEnabled = false
+  private npcRetreatEnabled = false
+  private npcRetreatDelaySec = 0
+  private npcCanBeFollower = false
+  private npcEquipWeapon = false
+  private npcFactionId = ''
+  private npcFactions: string[] = []
+  private npcAllyFactions: string[] = []
+  private npcHasMainWeapon = false
+  private npcHasSecondaryWeapon = false
+  private npcMainWeaponData: MapNpcWeapon = {
     weaponType: 'sword',
     sizeLevel: 1,
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
   }
-  private enemySecondaryWeaponData: MapEnemyWeapon = {
+  private npcSecondaryWeaponData: MapNpcWeapon = {
     weaponType: 'sword',
     sizeLevel: 1,
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
   }
-  private enemySpawnConfig = {
+  private npcSpawnConfig = {
     x: 0,
     y: 0,
     radius: 0,
     moveSpeed: 0,
     attackDesire: 0,
     parryProficiency: 0,
-    initialPatrolMode: 'guard' as EnemyPatrolMode,
-    detectionRangeLevel: 'near' as EnemyDetectionRangeLevel,
+    initialPatrolMode: 'guard' as NpcPatrolMode,
+    detectionRangeLevel: 'near' as NpcDetectionRangeLevel,
     maxHealth: 0,
     maxPosture: 0,
     maxToughness: 0,
@@ -176,10 +176,10 @@ export class EditorClipboardManager {
     retreatDelaySec: 0,
     canBeFollower: false,
     equipWeapon: false,
-    mainWeapon: undefined as MapEnemyWeapon | undefined,
-    secondaryWeapon: undefined as MapEnemyWeapon | undefined,
+    mainWeapon: undefined as MapNpcWeapon | undefined,
+    secondaryWeapon: undefined as MapNpcWeapon | undefined,
     factionId: undefined as string | undefined,
-    enemyFactions: undefined as string[] | undefined,
+    npcFactions: undefined as string[] | undefined,
     allyFactions: undefined as string[] | undefined,
   }
 
@@ -194,18 +194,18 @@ export class EditorClipboardManager {
   private playerDebugNoDamage = false
   private playerDebugNoDeath = false
   private playerFactionId = ''
-  private playerEnemyFactions: string[] = []
+  private playerNpcFactions: string[] = []
   private playerAllyFactions: string[] = []
   private playerHasMainWeapon = false
   private playerHasSecondaryWeapon = false
-  private playerMainWeaponData: MapEnemyWeapon = {
+  private playerMainWeaponData: MapNpcWeapon = {
     weaponType: 'sword',
     sizeLevel: 1,
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,
   }
-  private playerSecondaryWeaponData: MapEnemyWeapon = {
+  private playerSecondaryWeaponData: MapNpcWeapon = {
     weaponType: 'sword',
     sizeLevel: 1,
     attackDamage: 0,
@@ -316,8 +316,8 @@ export class EditorClipboardManager {
     if (this.ctx.markerManager.isPlayerMarker(target)) {
       return this.copyPlayerMarker(target)
     }
-    if (this.ctx.markerManager.isEnemyMarker(target)) {
-      return this.copyEnemyMarker(target)
+    if (this.ctx.markerManager.isNpcMarker(target)) {
+      return this.copyNpcMarker(target)
     }
     if (this.ctx.markerManager.isWeaponMarker(target)) {
       return this.copyWeaponMarker(target)
@@ -359,8 +359,8 @@ export class EditorClipboardManager {
       case 'shape':
         result = this.pasteShape(appliedOffset)
         break
-      case 'enemy':
-        result = this.pasteEnemy(appliedOffset)
+      case 'npc':
+        result = this.pasteNpc(appliedOffset)
         break
       case 'player':
         result = this.pastePlayer(appliedOffset)
@@ -632,75 +632,74 @@ export class EditorClipboardManager {
     return shapeObject
   }
 
-  private copyEnemyMarker(target: EnemyMarker): boolean {
-    const enemyData = this.ctx.markerManager.getEnemyMarkerMap().get(target)
-    if (!enemyData) {
+  private copyNpcMarker(target: NpcMarker): boolean {
+    const npcData = this.ctx.markerManager.getNpcMarkerMap().get(target)
+    if (!npcData) {
       return false
     }
-    this.kind = 'enemy'
+    this.kind = 'npc'
     this.sourceLeft = target.left ?? 0
     this.sourceTop = target.top ?? 0
-    this.enemyType = enemyData.enemyType
-    this.enemyRadius = enemyData.radius
-    this.enemyMoveSpeed = enemyData.moveSpeed
-    this.enemyAttackDesire = enemyData.attackDesire
-    this.enemyParryProficiency = enemyData.parryProficiency
-    this.enemyInitialPatrolMode = enemyData.initialPatrolMode
-    this.enemyDetectionRangeLevel = enemyData.detectionRangeLevel
-    this.enemyMaxHealth = enemyData.maxHealth
-    this.enemyMaxPosture = enemyData.maxPosture
-    this.enemyMaxToughness = enemyData.maxToughness
-    this.enemyColor = enemyData.color
-    this.enemyFacing = enemyData.facing
-    this.enemyInitialNormalMovesetId = enemyData.initialNormalMovesetId
-    this.enemyDebugNoDamage = enemyData.debugNoDamage
-    this.enemyDebugNoDeath = enemyData.debugNoDeath
-    this.enemyRedTapeEnabled = enemyData.redTapeEnabled
-    this.enemyRetreatEnabled = enemyData.retreatEnabled
-    this.enemyRetreatDelaySec = enemyData.retreatDelaySec
-    this.enemyCanBeFollower = enemyData.canBeFollower
-    this.enemyEquipWeapon = enemyData.equipWeapon
-    this.enemyFactionId = enemyData.factionId
-    this.enemyEnemyFactions.length = 0
-    for (let i = 0; i < enemyData.enemyFactions.length; i++) {
-      this.enemyEnemyFactions.push(enemyData.enemyFactions[i])
+    this.npcType = npcData.npcType
+    this.npcRadius = npcData.radius
+    this.npcMoveSpeed = npcData.moveSpeed
+    this.npcAttackDesire = npcData.attackDesire
+    this.npcParryProficiency = npcData.parryProficiency
+    this.npcInitialPatrolMode = npcData.initialPatrolMode
+    this.npcDetectionRangeLevel = npcData.detectionRangeLevel
+    this.npcMaxHealth = npcData.maxHealth
+    this.npcMaxPosture = npcData.maxPosture
+    this.npcMaxToughness = npcData.maxToughness
+    this.npcColor = npcData.color
+    this.npcFacing = npcData.facing
+    this.npcInitialNormalMovesetId = npcData.initialNormalMovesetId
+    this.npcDebugNoDamage = npcData.debugNoDamage
+    this.npcDebugNoDeath = npcData.debugNoDeath
+    this.npcRedTapeEnabled = npcData.redTapeEnabled
+    this.npcRetreatEnabled = npcData.retreatEnabled
+    this.npcRetreatDelaySec = npcData.retreatDelaySec
+    this.npcCanBeFollower = npcData.canBeFollower
+    this.npcEquipWeapon = npcData.equipWeapon
+    this.npcFactionId = npcData.factionId
+    this.npcFactions.length = 0
+    for (let i = 0; i < npcData.npcFactions.length; i++) {
+      this.npcFactions.push(npcData.npcFactions[i])
     }
-    this.enemyAllyFactions.length = 0
-    for (let i = 0; i < enemyData.allyFactions.length; i++) {
-      this.enemyAllyFactions.push(enemyData.allyFactions[i])
+    this.npcAllyFactions.length = 0
+    for (let i = 0; i < npcData.allyFactions.length; i++) {
+      this.npcAllyFactions.push(npcData.allyFactions[i])
     }
-    this.enemyHasMainWeapon = false
-    this.enemyHasSecondaryWeapon = false
+    this.npcHasMainWeapon = false
+    this.npcHasSecondaryWeapon = false
     const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
-    if (enemyData.mainWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(enemyData.mainWeaponMarker)
+    if (npcData.mainWeaponMarker) {
+      const weaponData = weaponMarkerMap.get(npcData.mainWeaponMarker)
       if (weaponData) {
-        this.enemyHasMainWeapon = true
-        this.enemyMainWeaponData.weaponType = weaponData.weaponType
-        this.enemyMainWeaponData.sizeLevel = weaponData.sizeLevel
-        this.enemyMainWeaponData.attackDamage = weaponData.attackDamage
-        this.enemyMainWeaponData.postureDamage = weaponData.postureDamage
-        this.enemyMainWeaponData.toughnessDamage = weaponData.toughnessDamage
-        this.enemyMainWeaponData.bowAmmo = weaponData.bowAmmo
+        this.npcHasMainWeapon = true
+        this.npcMainWeaponData.weaponType = weaponData.weaponType
+        this.npcMainWeaponData.sizeLevel = weaponData.sizeLevel
+        this.npcMainWeaponData.attackDamage = weaponData.attackDamage
+        this.npcMainWeaponData.postureDamage = weaponData.postureDamage
+        this.npcMainWeaponData.toughnessDamage = weaponData.toughnessDamage
+        this.npcMainWeaponData.bowAmmo = weaponData.bowAmmo
       }
     }
-    if (enemyData.secondaryWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(enemyData.secondaryWeaponMarker)
+    if (npcData.secondaryWeaponMarker) {
+      const weaponData = weaponMarkerMap.get(npcData.secondaryWeaponMarker)
       if (weaponData) {
-        this.enemyHasSecondaryWeapon = true
-        this.enemySecondaryWeaponData.weaponType = weaponData.weaponType
-        this.enemySecondaryWeaponData.sizeLevel = weaponData.sizeLevel
-        this.enemySecondaryWeaponData.attackDamage = weaponData.attackDamage
-        this.enemySecondaryWeaponData.postureDamage = weaponData.postureDamage
-        this.enemySecondaryWeaponData.toughnessDamage =
-          weaponData.toughnessDamage
-        this.enemySecondaryWeaponData.bowAmmo = weaponData.bowAmmo
+        this.npcHasSecondaryWeapon = true
+        this.npcSecondaryWeaponData.weaponType = weaponData.weaponType
+        this.npcSecondaryWeaponData.sizeLevel = weaponData.sizeLevel
+        this.npcSecondaryWeaponData.attackDamage = weaponData.attackDamage
+        this.npcSecondaryWeaponData.postureDamage = weaponData.postureDamage
+        this.npcSecondaryWeaponData.toughnessDamage = weaponData.toughnessDamage
+        this.npcSecondaryWeaponData.bowAmmo = weaponData.bowAmmo
       }
     }
     return true
   }
 
-  private pasteEnemy(offset: number): fabric.Object | null {
+  private pasteNpc(offset: number): fabric.Object | null {
     const canvas = this.ctx.getCanvas()
     if (!canvas) {
       return null
@@ -708,41 +707,37 @@ export class EditorClipboardManager {
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     const spawnX = (this.pasteBaseLeft + offset) * invPixelsPerMeter
     const spawnY = (this.pasteBaseTop + offset) * invPixelsPerMeter
-    this.enemySpawnConfig.x = spawnX
-    this.enemySpawnConfig.y = spawnY
-    this.enemySpawnConfig.radius = this.enemyRadius
-    this.enemySpawnConfig.moveSpeed = this.enemyMoveSpeed
-    this.enemySpawnConfig.attackDesire = this.enemyAttackDesire
-    this.enemySpawnConfig.parryProficiency = this.enemyParryProficiency
-    this.enemySpawnConfig.initialPatrolMode = this.enemyInitialPatrolMode
-    this.enemySpawnConfig.detectionRangeLevel = this.enemyDetectionRangeLevel
-    this.enemySpawnConfig.maxHealth = this.enemyMaxHealth
-    this.enemySpawnConfig.maxPosture = this.enemyMaxPosture
-    this.enemySpawnConfig.maxToughness = this.enemyMaxToughness
-    this.enemySpawnConfig.color = this.enemyColor
-    this.enemySpawnConfig.facing = this.enemyFacing
-    this.enemySpawnConfig.initialNormalMovesetId =
-      this.enemyInitialNormalMovesetId
-    this.enemySpawnConfig.debugNoDamage = this.enemyDebugNoDamage
-    this.enemySpawnConfig.debugNoDeath = this.enemyDebugNoDeath
-    this.enemySpawnConfig.redTapeEnabled = this.enemyRedTapeEnabled
-    this.enemySpawnConfig.retreatEnabled = this.enemyRetreatEnabled
-    this.enemySpawnConfig.canBeFollower = this.enemyCanBeFollower
-    this.enemySpawnConfig.retreatDelaySec = this.enemyRetreatDelaySec
-    this.enemySpawnConfig.equipWeapon = this.enemyEquipWeapon
-    this.enemySpawnConfig.mainWeapon = this.enemyHasMainWeapon
-      ? this.enemyMainWeaponData
+    this.npcSpawnConfig.x = spawnX
+    this.npcSpawnConfig.y = spawnY
+    this.npcSpawnConfig.radius = this.npcRadius
+    this.npcSpawnConfig.moveSpeed = this.npcMoveSpeed
+    this.npcSpawnConfig.attackDesire = this.npcAttackDesire
+    this.npcSpawnConfig.parryProficiency = this.npcParryProficiency
+    this.npcSpawnConfig.initialPatrolMode = this.npcInitialPatrolMode
+    this.npcSpawnConfig.detectionRangeLevel = this.npcDetectionRangeLevel
+    this.npcSpawnConfig.maxHealth = this.npcMaxHealth
+    this.npcSpawnConfig.maxPosture = this.npcMaxPosture
+    this.npcSpawnConfig.maxToughness = this.npcMaxToughness
+    this.npcSpawnConfig.color = this.npcColor
+    this.npcSpawnConfig.facing = this.npcFacing
+    this.npcSpawnConfig.initialNormalMovesetId = this.npcInitialNormalMovesetId
+    this.npcSpawnConfig.debugNoDamage = this.npcDebugNoDamage
+    this.npcSpawnConfig.debugNoDeath = this.npcDebugNoDeath
+    this.npcSpawnConfig.redTapeEnabled = this.npcRedTapeEnabled
+    this.npcSpawnConfig.retreatEnabled = this.npcRetreatEnabled
+    this.npcSpawnConfig.canBeFollower = this.npcCanBeFollower
+    this.npcSpawnConfig.retreatDelaySec = this.npcRetreatDelaySec
+    this.npcSpawnConfig.equipWeapon = this.npcEquipWeapon
+    this.npcSpawnConfig.mainWeapon = this.npcHasMainWeapon
+      ? this.npcMainWeaponData
       : undefined
-    this.enemySpawnConfig.secondaryWeapon = this.enemyHasSecondaryWeapon
-      ? this.enemySecondaryWeaponData
+    this.npcSpawnConfig.secondaryWeapon = this.npcHasSecondaryWeapon
+      ? this.npcSecondaryWeaponData
       : undefined
-    this.enemySpawnConfig.factionId = this.enemyFactionId
-    this.enemySpawnConfig.enemyFactions = this.enemyEnemyFactions
-    this.enemySpawnConfig.allyFactions = this.enemyAllyFactions
-    this.ctx.markerManager.spawnEnemyMarker(
-      this.enemyType,
-      this.enemySpawnConfig
-    )
+    this.npcSpawnConfig.factionId = this.npcFactionId
+    this.npcSpawnConfig.npcFactions = this.npcFactions
+    this.npcSpawnConfig.allyFactions = this.npcAllyFactions
+    this.ctx.markerManager.spawnNpcMarker(this.npcType, this.npcSpawnConfig)
     return canvas.getActiveObject() ?? null
   }
 
@@ -765,9 +760,9 @@ export class EditorClipboardManager {
     this.playerDebugNoDamage = playerData.debugNoDamage
     this.playerDebugNoDeath = playerData.debugNoDeath
     this.playerFactionId = playerData.factionId
-    this.playerEnemyFactions.length = 0
-    for (let i = 0; i < playerData.enemyFactions.length; i++) {
-      this.playerEnemyFactions.push(playerData.enemyFactions[i])
+    this.playerNpcFactions.length = 0
+    for (let i = 0; i < playerData.npcFactions.length; i++) {
+      this.playerNpcFactions.push(playerData.npcFactions[i])
     }
     this.playerAllyFactions.length = 0
     for (let i = 0; i < playerData.allyFactions.length; i++) {
@@ -835,7 +830,7 @@ export class EditorClipboardManager {
       ? this.playerSecondaryWeaponData
       : undefined
     this.playerProperties.factionId = this.playerFactionId
-    this.playerProperties.enemyFactions = this.playerEnemyFactions
+    this.playerProperties.npcFactions = this.playerNpcFactions
     this.playerProperties.allyFactions = this.playerAllyFactions
     this.ctx.markerManager.spawnPlayerMarker(
       this.playerSpawn,

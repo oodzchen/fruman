@@ -13,7 +13,7 @@ import type {
 } from '../types'
 import type { AttackMoveData, AttackMoveset } from './AttackMoveData'
 
-export type AttackMovesetOwner = 'player' | 'enemy'
+export type AttackMovesetOwner = 'player' | 'npc'
 
 export const NORMAL_ATTACK_MOVESET_OPTIONS: Array<{
   value: NormalAttackMovesetId
@@ -487,7 +487,7 @@ export function getUltimateMovesetIdForWeaponType(
 export function getDefaultNormalAttackMovesetId(
   owner: AttackMovesetOwner
 ): NormalAttackMovesetId {
-  return owner === 'enemy' ? 'sword_default' : 'sword_default'
+  return owner === 'npc' ? 'sword_default' : 'sword_default'
 }
 
 export function isNormalAttackMovesetId(

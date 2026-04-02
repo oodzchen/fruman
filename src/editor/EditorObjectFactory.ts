@@ -4,7 +4,7 @@ import {
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
 } from '../constants'
-import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
+import type { MapNpcWeapon, WeaponCategory } from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
 import type { WeaponType } from '../types'
 import {
@@ -33,8 +33,8 @@ interface EditorObjectFactoryOptions {
   defaultPlayerRadius: number
   playerBodyColor: string
   playerEyeColor: string
-  enemyEyeColor: string
-  computeEnemyBodyRadiusPx: (radiusMeters: number, ppm: number) => number
+  npcEyeColor: string
+  computeNpcBodyRadiusPx: (radiusMeters: number, ppm: number) => number
   computeWeaponRenderDimensions: (
     template: WeaponTemplateLike,
     sizeLevel: number,
@@ -65,11 +65,8 @@ export class EditorObjectFactory {
   private defaultPlayerRadius: number
   private playerBodyColor: string
   private playerEyeColor: string
-  private enemyEyeColor: string
-  private computeEnemyBodyRadiusPx: (
-    radiusMeters: number,
-    ppm: number
-  ) => number
+  private npcEyeColor: string
+  private computeNpcBodyRadiusPx: (radiusMeters: number, ppm: number) => number
   private computeWeaponRenderDimensions: (
     template: WeaponTemplateLike,
     sizeLevel: number,
@@ -83,8 +80,8 @@ export class EditorObjectFactory {
     this.defaultPlayerRadius = options.defaultPlayerRadius
     this.playerBodyColor = options.playerBodyColor
     this.playerEyeColor = options.playerEyeColor
-    this.enemyEyeColor = options.enemyEyeColor
-    this.computeEnemyBodyRadiusPx = options.computeEnemyBodyRadiusPx
+    this.npcEyeColor = options.npcEyeColor
+    this.computeNpcBodyRadiusPx = options.computeNpcBodyRadiusPx
     this.computeWeaponRenderDimensions = options.computeWeaponRenderDimensions
     this.renderWeapon = options.renderWeapon
   }
@@ -326,13 +323,13 @@ export class EditorObjectFactory {
     return group
   }
 
-  createEnemyMarker(
-    enemyType: string,
+  createNpcMarker(
+    npcType: string,
     radiusMeters: number,
     color: string,
     equipWeapon: boolean
   ) {
-    const radius = this.computeEnemyBodyRadiusPx(
+    const radius = this.computeNpcBodyRadiusPx(
       radiusMeters,
       this.pixelsPerMeter
     )
@@ -341,12 +338,12 @@ export class EditorObjectFactory {
     body.bodyRadiusYPx = radius
     body.bodyColor = color
     body.bodyFacing = 1
-    body.eyeColor = this.enemyEyeColor
+    body.eyeColor = this.npcEyeColor
     body.width = radius * 2
     body.height = radius * 2
     const renderWeapon = this.renderWeapon
     const weaponShapeClass = fabric.util.createClass(fabric.Object, {
-      type: 'customEnemyWeapon',
+      type: 'customNpcWeapon',
       weaponWidthPx: 0,
       weaponHeightPx: 0,
       weaponBoundingWidthPx: 0,
@@ -393,8 +390,8 @@ export class EditorObjectFactory {
       lockScalingY: true,
       objectCaching: false,
     })
-    ;(group as unknown as { editorShape: string }).editorShape = 'enemy-marker'
-    ;(group as unknown as { enemyType: string }).enemyType = enemyType
+    ;(group as unknown as { editorShape: string }).editorShape = 'npc-marker'
+    ;(group as unknown as { npcType: string }).npcType = npcType
     ;(group as unknown as { color: string }).color = color
     ;(group as unknown as { equipWeapon: boolean }).equipWeapon = equipWeapon
     ;(group as unknown as { weaponBackShape: WeaponShape }).weaponBackShape =
@@ -499,8 +496,8 @@ export class EditorObjectFactory {
     return group
   }
 
-  createEnemyWeaponMarkerFromConfig(
-    config: MapEnemyWeapon,
+  createNpcWeaponMarkerFromConfig(
+    config: MapNpcWeapon,
     slot: 'main' | 'secondary',
     x: number,
     y: number,

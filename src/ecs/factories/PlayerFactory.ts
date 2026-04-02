@@ -41,16 +41,16 @@ import {
 } from '../../constants'
 import type { MapCharacterBodyProfile } from '../../editorMapTypes'
 import type {
-  EnemyDetectionRangeLevel,
-  EnemyPatrolMode,
-  EnemyType,
   MainModule,
   NormalAttackMovesetId,
+  NpcDetectionRangeLevel,
+  NpcPatrolMode,
+  NpcType,
   WeaponType,
   b2WorldId,
 } from '../../types'
 import {
-  getDefaultEnemyAmmoForWeaponType,
+  getDefaultNpcAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
   getWeaponGroundRotationRad,
   isRangedWeaponType,
@@ -64,7 +64,6 @@ import {
 import { createCharacterPhysicsBody } from '../CharacterBodyPhysics'
 import {
   AttackSlotsComponent,
-  EnemyAIComponent,
   Faction,
   FactionComponent,
   FollowComponent,
@@ -72,6 +71,7 @@ import {
   InputComponent,
   LevelComponent,
   MovementComponent,
+  NpcAIComponent,
   PhysicsComponent,
   RenderComponent,
   SensorComponent,
@@ -190,7 +190,7 @@ export function createPlayer(
 
   const faction = new FactionComponent()
   faction.factionId = Faction.Player
-  faction.enemyFactions = [Faction.Enemy]
+  faction.npcFactions = [Faction.Enemy]
   entity.addComponent(faction)
 
   const sensor = new SensorComponent()
@@ -253,7 +253,7 @@ export function createPlayer(
   return entity
 }
 
-export interface EnemyWeaponConfig {
+export interface NpcWeaponConfig {
   weaponType: WeaponType
   sizeLevel: number
   attackDamage: number
@@ -262,7 +262,7 @@ export interface EnemyWeaponConfig {
   bowAmmo?: number
 }
 
-export interface EnemySpawnConfig {
+export interface NpcSpawnConfig {
   equipWeapon?: boolean
   radius?: number
   bodyHeight?: number
@@ -270,7 +270,7 @@ export interface EnemySpawnConfig {
   moveSpeed?: number
   attackDesire?: number
   parryProficiency?: number
-  initialPatrolMode?: EnemyPatrolMode
+  initialPatrolMode?: NpcPatrolMode
   maxHealth?: number
   maxPosture?: number
   maxToughness?: number
@@ -282,29 +282,30 @@ export interface EnemySpawnConfig {
   retreatEnabled?: boolean
   retreatDelaySec?: number
   canBeFollower?: boolean
-  detectionRangeLevel?: EnemyDetectionRangeLevel
-  mainWeapon?: EnemyWeaponConfig
-  secondaryWeapon?: EnemyWeaponConfig
+  detectionRangeLevel?: NpcDetectionRangeLevel
+  mainWeapon?: NpcWeaponConfig
+  secondaryWeapon?: NpcWeaponConfig
   initialNormalMovesetId?: NormalAttackMovesetId
   factionId?: string
+  npcFactions?: string[]
   enemyFactions?: string[]
   allyFactions?: string[]
 }
 
-export function createEnemy(
+export function createNpc(
   world: World,
   box2d: MainModule,
   worldId: b2WorldId,
   x: number,
   y: number,
   groundTopY: number,
-  enemyType: EnemyType = 'default',
-  options?: EnemySpawnConfig
+  npcType: NpcType = 'default',
+  options?: NpcSpawnConfig
 ): Entity {
   // Use default template if the specific type exists, otherwise fallback to default
   const template =
-    enemyType in CHARACTER_DEFAULT_DATA
-      ? CHARACTER_DEFAULT_DATA[enemyType as keyof typeof CHARACTER_DEFAULT_DATA]
+    npcType in CHARACTER_DEFAULT_DATA
+      ? CHARACTER_DEFAULT_DATA[npcType as keyof typeof CHARACTER_DEFAULT_DATA]
       : CHARACTER_DEFAULT_DATA.default
 
   const hasOptions = options !== undefined
@@ -325,7 +326,7 @@ export function createEnemy(
   const debugNoDamage = options?.debugNoDamage === true
   const debugNoDeath = options?.debugNoDeath === true
   const initialNormalMovesetId = options?.initialNormalMovesetId ?? ''
-  const enemy = createPlayer(
+  const npc = createPlayer(
     world,
     box2d,
     worldId,
@@ -337,26 +338,26 @@ export function createEnemy(
     options?.bodyProfile
   )
 
-  // 重置敌人的脱战超时为10秒
-  if (enemy.stats) {
-    enemy.stats.combatExitTimeout = 10000
-    enemy.stats.maxHealth = maxHealth
-    enemy.stats.health = maxHealth
-    enemy.stats.maxPosture = maxPosture
-    enemy.stats.posture = maxPosture
-    enemy.stats.maxToughness = maxToughness
-    enemy.stats.toughness = maxToughness
-    enemy.stats.debugNoDamage = debugNoDamage
-    enemy.stats.debugNoDeath = debugNoDeath
+  // 重置 NPC 的脱战超时为10秒
+  if (npc.stats) {
+    npc.stats.combatExitTimeout = 10000
+    npc.stats.maxHealth = maxHealth
+    npc.stats.health = maxHealth
+    npc.stats.maxPosture = maxPosture
+    npc.stats.posture = maxPosture
+    npc.stats.maxToughness = maxToughness
+    npc.stats.toughness = maxToughness
+    npc.stats.debugNoDamage = debugNoDamage
+    npc.stats.debugNoDeath = debugNoDeath
   }
 
-  const ai = new EnemyAIComponent()
+  const ai = new NpcAIComponent()
   ai.attackDesire = attackDesire
   ai.parryProficiency = parryProficiency
   ai.redTapeEnabled = options?.redTapeEnabled === true
   ai.retreatEnabled = options?.retreatEnabled === true
   ai.retreatDelayMs = Math.round((options?.retreatDelaySec ?? 0) * 1000)
-  ai.enemyType = enemyType
+  ai.npcType = npcType
   ai.initialPatrolMode = initialPatrolMode
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
@@ -365,7 +366,7 @@ export function createEnemy(
     ai.detectionRange =
       ENEMY_DETECTION_RANGE *
       ENEMY_DETECTION_RANGE_MULTIPLIERS[options.detectionRangeLevel]
-  } else if (enemyType === 'archer') {
+  } else if (npcType === 'archer') {
     // 旧地图兼容：弓箭手默认中等视野
     ai.detectionRange = ENEMY_DETECTION_RANGE * 2
   }
@@ -380,25 +381,25 @@ export function createEnemy(
       { x: x + 5, y: y },
     ]
   }
-  enemy.addComponent(ai)
+  npc.addComponent(ai)
 
   if (options?.canBeFollower === true) {
     const follow = new FollowComponent()
-    enemy.addComponent(follow)
+    npc.addComponent(follow)
   }
 
-  if (enemy.input) {
-    enemy.input.lastMoveDirection = facing
+  if (npc.input) {
+    npc.input.lastMoveDirection = facing
   }
 
-  if (enemy.sensor) {
-    enemy.sensor.radius = ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
-    enemy.sensor.fov = (160 * Math.PI) / 180 // +/- 80 degrees
+  if (npc.sensor) {
+    npc.sensor.radius = ai.detectionRange * ENEMY_ALERT_RANGE_MULTIPLIER
+    npc.sensor.fov = (160 * Math.PI) / 180 // +/- 80 degrees
   }
 
-  if (enemy.physics) {
+  if (npc.physics) {
     const { b2Shape_GetFilter, b2Shape_SetFilter } = box2d
-    forEachPhysicsShapeId(enemy.physics, (shapeId) => {
+    forEachPhysicsShapeId(npc.physics, (shapeId) => {
       const filter = b2Shape_GetFilter(shapeId)
       filter.categoryBits = CATEGORY_ENEMY
       filter.maskBits = MASK_ENEMY
@@ -406,47 +407,48 @@ export function createEnemy(
     })
   }
 
-  if (enemy.faction) {
-    enemy.faction.factionId = options?.factionId ?? Faction.Enemy
-    enemy.faction.enemyFactions = options?.enemyFactions ?? [Faction.Player]
-    enemy.faction.allyFactions = options?.allyFactions ?? []
+  if (npc.faction) {
+    npc.faction.factionId = options?.factionId ?? Faction.Enemy
+    npc.faction.npcFactions = options?.npcFactions ??
+      options?.enemyFactions ?? [Faction.Player]
+    npc.faction.allyFactions = options?.allyFactions ?? []
   }
 
-  if (enemy.render) {
-    enemy.render.color = getCharacterBodyColor(options?.bodyProfile, color)
-    enemy.render.bloodColor = getCharacterBloodColor(options?.bodyProfile, '')
-    enemy.render.bodyProfile = options?.bodyProfile ?? null
+  if (npc.render) {
+    npc.render.color = getCharacterBodyColor(options?.bodyProfile, color)
+    npc.render.bloodColor = getCharacterBloodColor(options?.bodyProfile, '')
+    npc.render.bodyProfile = options?.bodyProfile ?? null
   }
 
-  if (enemy.movement) {
-    enemy.movement.moveSpeed = moveSpeed
+  if (npc.movement) {
+    npc.movement.moveSpeed = moveSpeed
   }
 
-  if (enemy.attackSlots) {
+  if (npc.attackSlots) {
     const defaultWeaponType =
       normalizeWeaponType(
         options?.mainWeapon?.weaponType ?? options?.secondaryWeapon?.weaponType
       ) ?? 'sword'
-    enemy.attackSlots.normal.hasMoveset = true
-    enemy.attackSlots.normal.movesetId =
+    npc.attackSlots.normal.hasMoveset = true
+    npc.attackSlots.normal.movesetId =
       initialNormalMovesetId ||
       getDefaultAttackMovesetIdForWeaponType(defaultWeaponType) ||
       getDefaultAttackMovesetIdForWeaponType('sword')
-    if (enemy.enemyAI) {
-      enemy.enemyAI.movesetId = enemy.attackSlots.normal.movesetId
+    if (npc.npcAI) {
+      npc.npcAI.movesetId = npc.attackSlots.normal.movesetId
     }
   }
 
-  if (equipWeapon && enemy.weapon && enemy.transform) {
-    const followX = enemy.transform.x - facing * (radius + 0.2)
-    const followY = enemy.transform.y + radius * -0.2
+  if (equipWeapon && npc.weapon && npc.transform) {
+    const followX = npc.transform.x - facing * (radius + 0.2)
+    const followY = npc.transform.y + radius * -0.2
     const equippedTransform = {
       x: followX,
       y: followY,
       rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
     }
 
-    if (enemy.weaponSlots) {
+    if (npc.weaponSlots) {
       // Main Weapon Setup
 
       if (options?.mainWeapon) {
@@ -456,7 +458,7 @@ export function createEnemy(
           config.sizeLevel
         )
         if (!normalizedConfig) {
-          enemy.weaponSlots.main.hasWeapon = false
+          npc.weaponSlots.main.hasWeapon = false
         } else {
           const template = WEAPON_DEFAULT_DATA[normalizedConfig.weaponType]
           const scaleFactor = computeWeaponScaleFactor(
@@ -464,43 +466,43 @@ export function createEnemy(
             normalizedConfig.sizeLevel
           )
 
-          enemy.weaponSlots.main.hasWeapon = true
+          npc.weaponSlots.main.hasWeapon = true
 
-          enemy.weaponSlots.main.weaponType = normalizedConfig.weaponType
-          enemy.weaponSlots.main.movesetId =
+          npc.weaponSlots.main.weaponType = normalizedConfig.weaponType
+          npc.weaponSlots.main.movesetId =
             getDefaultAttackMovesetIdForWeaponType(normalizedConfig.weaponType)
 
-          enemy.weaponSlots.main.width = template.width * scaleFactor
+          npc.weaponSlots.main.width = template.width * scaleFactor
 
-          enemy.weaponSlots.main.height = template.height * scaleFactor
+          npc.weaponSlots.main.height = template.height * scaleFactor
 
-          enemy.weaponSlots.main.baseWidth = template.width * scaleFactor
+          npc.weaponSlots.main.baseWidth = template.width * scaleFactor
 
-          enemy.weaponSlots.main.sizeLevel = normalizedConfig.sizeLevel
+          npc.weaponSlots.main.sizeLevel = normalizedConfig.sizeLevel
 
-          enemy.weaponSlots.main.sizeMaxLevel = template.sizeMaxLevel
+          npc.weaponSlots.main.sizeMaxLevel = template.sizeMaxLevel
 
-          enemy.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+          npc.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
 
-          enemy.weaponSlots.main.weight = template.weight * scaleFactor
+          npc.weaponSlots.main.weight = template.weight * scaleFactor
 
-          enemy.weaponSlots.main.attackDamage = config.attackDamage
+          npc.weaponSlots.main.attackDamage = config.attackDamage
 
-          enemy.weaponSlots.main.postureDamage = config.postureDamage
+          npc.weaponSlots.main.postureDamage = config.postureDamage
 
-          enemy.weaponSlots.main.toughnessDamage = config.toughnessDamage
+          npc.weaponSlots.main.toughnessDamage = config.toughnessDamage
 
           if (isRangedWeaponType(normalizedConfig.weaponType)) {
-            enemy.weaponSlots.main.bowAmmoMax = config.bowAmmo ?? 0
+            npc.weaponSlots.main.bowAmmoMax = config.bowAmmo ?? 0
 
-            enemy.weaponSlots.main.bowAmmo = config.bowAmmo ?? 0
+            npc.weaponSlots.main.bowAmmo = config.bowAmmo ?? 0
           } else {
-            enemy.weaponSlots.main.bowAmmoMax = 0
+            npc.weaponSlots.main.bowAmmoMax = 0
 
-            enemy.weaponSlots.main.bowAmmo = 0
+            npc.weaponSlots.main.bowAmmo = 0
           }
         }
-      } else if (!hasOptions || enemyType !== 'archer') {
+      } else if (!hasOptions || npcType !== 'archer') {
         // Default main weapon (Sword) if no options provided or if explicitly requested via lack of config
 
         // Note: If options IS provided but mainWeapon is undefined, we assume NO main weapon unless default fallback is desired.
@@ -511,42 +513,42 @@ export function createEnemy(
 
         // If options provided but mainWeapon is missing, we leave it empty?
 
-        // The previous code forced sword if enemyType != archer.
+        // The previous code forced sword if npcType != archer.
 
         // Let's default to sword ONLY if options is undefined (legacy behavior)
 
         if (!options?.mainWeapon) {
           const swordTemplate = WEAPON_DEFAULT_DATA.sword
 
-          enemy.weaponSlots.main.hasWeapon = true
+          npc.weaponSlots.main.hasWeapon = true
 
-          enemy.weaponSlots.main.weaponType = 'sword'
-          enemy.weaponSlots.main.movesetId =
+          npc.weaponSlots.main.weaponType = 'sword'
+          npc.weaponSlots.main.movesetId =
             getDefaultAttackMovesetIdForWeaponType('sword')
 
-          enemy.weaponSlots.main.width = swordTemplate.width
+          npc.weaponSlots.main.width = swordTemplate.width
 
-          enemy.weaponSlots.main.height = swordTemplate.height
+          npc.weaponSlots.main.height = swordTemplate.height
 
-          enemy.weaponSlots.main.baseWidth = swordTemplate.width
+          npc.weaponSlots.main.baseWidth = swordTemplate.width
 
-          enemy.weaponSlots.main.sizeLevel = swordTemplate.sizeLevel
+          npc.weaponSlots.main.sizeLevel = swordTemplate.sizeLevel
 
-          enemy.weaponSlots.main.sizeMaxLevel = swordTemplate.sizeMaxLevel
+          npc.weaponSlots.main.sizeMaxLevel = swordTemplate.sizeMaxLevel
 
-          enemy.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+          npc.weaponSlots.main.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
 
-          enemy.weaponSlots.main.weight = swordTemplate.weight
+          npc.weaponSlots.main.weight = swordTemplate.weight
 
-          enemy.weaponSlots.main.attackDamage = swordTemplate.attackDamage
+          npc.weaponSlots.main.attackDamage = swordTemplate.attackDamage
 
-          enemy.weaponSlots.main.postureDamage = swordTemplate.postureDamage
+          npc.weaponSlots.main.postureDamage = swordTemplate.postureDamage
 
-          enemy.weaponSlots.main.toughnessDamage = swordTemplate.toughnessDamage
+          npc.weaponSlots.main.toughnessDamage = swordTemplate.toughnessDamage
 
-          enemy.weaponSlots.main.bowAmmoMax = 0
+          npc.weaponSlots.main.bowAmmoMax = 0
 
-          enemy.weaponSlots.main.bowAmmo = 0
+          npc.weaponSlots.main.bowAmmo = 0
         }
       }
 
@@ -559,7 +561,7 @@ export function createEnemy(
           config.sizeLevel
         )
         if (!normalizedConfig) {
-          enemy.weaponSlots.secondary.hasWeapon = false
+          npc.weaponSlots.secondary.hasWeapon = false
         } else {
           const template = WEAPON_DEFAULT_DATA[normalizedConfig.weaponType]
           const scaleFactor = computeWeaponScaleFactor(
@@ -567,79 +569,77 @@ export function createEnemy(
             normalizedConfig.sizeLevel
           )
 
-          enemy.weaponSlots.secondary.hasWeapon = true
+          npc.weaponSlots.secondary.hasWeapon = true
 
-          enemy.weaponSlots.secondary.weaponType = normalizedConfig.weaponType
-          enemy.weaponSlots.secondary.movesetId =
+          npc.weaponSlots.secondary.weaponType = normalizedConfig.weaponType
+          npc.weaponSlots.secondary.movesetId =
             getDefaultAttackMovesetIdForWeaponType(normalizedConfig.weaponType)
 
-          enemy.weaponSlots.secondary.width = template.width * scaleFactor
+          npc.weaponSlots.secondary.width = template.width * scaleFactor
 
-          enemy.weaponSlots.secondary.height = template.height * scaleFactor
+          npc.weaponSlots.secondary.height = template.height * scaleFactor
 
-          enemy.weaponSlots.secondary.baseWidth = template.width * scaleFactor
+          npc.weaponSlots.secondary.baseWidth = template.width * scaleFactor
 
-          enemy.weaponSlots.secondary.sizeLevel = normalizedConfig.sizeLevel
+          npc.weaponSlots.secondary.sizeLevel = normalizedConfig.sizeLevel
 
-          enemy.weaponSlots.secondary.sizeMaxLevel = template.sizeMaxLevel
+          npc.weaponSlots.secondary.sizeMaxLevel = template.sizeMaxLevel
 
-          enemy.weaponSlots.secondary.cornerRadius =
-            DEFAULT_WEAPON_CORNER_RADIUS
+          npc.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
 
-          enemy.weaponSlots.secondary.weight = template.weight * scaleFactor
+          npc.weaponSlots.secondary.weight = template.weight * scaleFactor
 
-          enemy.weaponSlots.secondary.attackDamage = config.attackDamage
+          npc.weaponSlots.secondary.attackDamage = config.attackDamage
 
-          enemy.weaponSlots.secondary.postureDamage = config.postureDamage
+          npc.weaponSlots.secondary.postureDamage = config.postureDamage
 
-          enemy.weaponSlots.secondary.toughnessDamage = config.toughnessDamage
+          npc.weaponSlots.secondary.toughnessDamage = config.toughnessDamage
 
           if (isRangedWeaponType(normalizedConfig.weaponType)) {
-            enemy.weaponSlots.secondary.bowAmmoMax = config.bowAmmo ?? 0
+            npc.weaponSlots.secondary.bowAmmoMax = config.bowAmmo ?? 0
 
-            enemy.weaponSlots.secondary.bowAmmo = config.bowAmmo ?? 0
+            npc.weaponSlots.secondary.bowAmmo = config.bowAmmo ?? 0
           } else {
-            enemy.weaponSlots.secondary.bowAmmoMax = 0
+            npc.weaponSlots.secondary.bowAmmoMax = 0
 
-            enemy.weaponSlots.secondary.bowAmmo = 0
+            npc.weaponSlots.secondary.bowAmmo = 0
           }
         }
-      } else if (enemyType === 'archer' && !hasOptions) {
+      } else if (npcType === 'archer' && !hasOptions) {
         // Default archer secondary (Bow)
 
         const bowTemplate = WEAPON_DEFAULT_DATA.bow
 
-        enemy.weaponSlots.secondary.hasWeapon = true
+        npc.weaponSlots.secondary.hasWeapon = true
 
-        enemy.weaponSlots.secondary.weaponType = 'bow'
-        enemy.weaponSlots.secondary.movesetId = ''
+        npc.weaponSlots.secondary.weaponType = 'bow'
+        npc.weaponSlots.secondary.movesetId = ''
 
-        enemy.weaponSlots.secondary.width = bowTemplate.width
+        npc.weaponSlots.secondary.width = bowTemplate.width
 
-        enemy.weaponSlots.secondary.height = bowTemplate.height
+        npc.weaponSlots.secondary.height = bowTemplate.height
 
-        enemy.weaponSlots.secondary.baseWidth = bowTemplate.width
+        npc.weaponSlots.secondary.baseWidth = bowTemplate.width
 
-        enemy.weaponSlots.secondary.sizeLevel = bowTemplate.sizeLevel
+        npc.weaponSlots.secondary.sizeLevel = bowTemplate.sizeLevel
 
-        enemy.weaponSlots.secondary.sizeMaxLevel = bowTemplate.sizeMaxLevel
+        npc.weaponSlots.secondary.sizeMaxLevel = bowTemplate.sizeMaxLevel
 
-        enemy.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
+        npc.weaponSlots.secondary.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
 
-        enemy.weaponSlots.secondary.weight = bowTemplate.weight
+        npc.weaponSlots.secondary.weight = bowTemplate.weight
 
-        enemy.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
+        npc.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
 
-        enemy.weaponSlots.secondary.postureDamage = bowTemplate.postureDamage
+        npc.weaponSlots.secondary.postureDamage = bowTemplate.postureDamage
 
-        enemy.weaponSlots.secondary.toughnessDamage =
-          bowTemplate.toughnessDamage
+        npc.weaponSlots.secondary.toughnessDamage = bowTemplate.toughnessDamage
 
-        enemy.weaponSlots.secondary.bowAmmoMax =
-          getDefaultEnemyAmmoForWeaponType('bow')
+        npc.weaponSlots.secondary.bowAmmoMax =
+          getDefaultNpcAmmoForWeaponType('bow')
 
-        enemy.weaponSlots.secondary.bowAmmo =
-          getDefaultEnemyAmmoForWeaponType('bow')
+        npc.weaponSlots.secondary.bowAmmo =
+          getDefaultNpcAmmoForWeaponType('bow')
       }
 
       // Determine active slot
@@ -657,84 +657,83 @@ export function createEnemy(
       // Others: main (sword) active.
 
       if (options?.mainWeapon) {
-        enemy.weaponSlots.activeSlot = 'main'
+        npc.weaponSlots.activeSlot = 'main'
       } else if (options?.secondaryWeapon) {
-        enemy.weaponSlots.activeSlot = 'secondary'
+        npc.weaponSlots.activeSlot = 'secondary'
       } else {
         // Fallback defaults
 
-        enemy.weaponSlots.activeSlot =
-          enemyType === 'archer' ? 'secondary' : 'main'
+        npc.weaponSlots.activeSlot = npcType === 'archer' ? 'secondary' : 'main'
       }
 
       // Apply active slot to WeaponComponent
 
       const activeSlot =
-        enemy.weaponSlots.activeSlot === 'main'
-          ? enemy.weaponSlots.main
-          : enemy.weaponSlots.secondary
+        npc.weaponSlots.activeSlot === 'main'
+          ? npc.weaponSlots.main
+          : npc.weaponSlots.secondary
 
       if (activeSlot.hasWeapon && activeSlot.weaponType) {
         const weaponType = activeSlot.weaponType as WeaponType
 
         const template = WEAPON_DEFAULT_DATA[weaponType]
 
-        applyWeaponSizeLevel(enemy.weapon, template, activeSlot.sizeLevel)
+        applyWeaponSizeLevel(npc.weapon, template, activeSlot.sizeLevel)
 
-        enemy.weapon.sizeMaxLevel = activeSlot.sizeMaxLevel
+        npc.weapon.sizeMaxLevel = activeSlot.sizeMaxLevel
 
-        enemy.weapon.cornerRadius = activeSlot.cornerRadius
+        npc.weapon.cornerRadius = activeSlot.cornerRadius
 
-        enemy.weapon.weaponType = activeSlot.weaponType
-        enemy.weapon.movesetId =
+        npc.weapon.weaponType = activeSlot.weaponType
+        npc.weapon.movesetId =
           activeSlot.movesetId ||
           getDefaultAttackMovesetIdForWeaponType(activeSlot.weaponType)
-        if (enemy.enemyAI && enemy.attackSlots?.normal.hasMoveset) {
-          enemy.attackSlots.normal.movesetId = enemy.weapon.movesetId
-          enemy.enemyAI.movesetId = enemy.weapon.movesetId
+        if (npc.npcAI && npc.attackSlots?.normal.hasMoveset) {
+          npc.attackSlots.normal.movesetId = npc.weapon.movesetId
+          npc.npcAI.movesetId = npc.weapon.movesetId
         }
 
-        enemy.weapon.attackDamage = activeSlot.attackDamage
+        npc.weapon.attackDamage = activeSlot.attackDamage
 
-        enemy.weapon.postureDamage = activeSlot.postureDamage
+        npc.weapon.postureDamage = activeSlot.postureDamage
 
-        enemy.weapon.toughnessDamage = activeSlot.toughnessDamage
+        npc.weapon.toughnessDamage = activeSlot.toughnessDamage
 
-        enemy.weapon.bowAmmoMax = activeSlot.bowAmmoMax
+        npc.weapon.bowAmmoMax = activeSlot.bowAmmoMax
 
-        enemy.weapon.bowAmmo = activeSlot.bowAmmo
+        npc.weapon.bowAmmo = activeSlot.bowAmmo
       }
 
-      enemy.weapon.isEquipped = activeSlot.hasWeapon
+      npc.weapon.isEquipped = activeSlot.hasWeapon
     } else {
-      // No weapon slots component (shouldn't happen for enemies created here, but safe fallback)
+      // No weapon slots component (shouldn't happen for npcs created here, but safe fallback)
 
-      enemy.weapon.isEquipped = false
+      npc.weapon.isEquipped = false
     }
-    enemy.weapon.position = { x: followX, y: followY }
-    enemy.weapon.visual = { ...equippedTransform }
-    enemy.weapon.attackStartTransform = { ...equippedTransform }
-    enemy.weapon.swingStartTransform = { ...equippedTransform }
-    enemy.weapon.swingEndTransform = { ...equippedTransform }
-    enemy.weapon.attackStartOffset = {
-      dx: followX - enemy.transform.x,
-      dy: followY - enemy.transform.y,
+    npc.weapon.position = { x: followX, y: followY }
+    npc.weapon.visual = { ...equippedTransform }
+    npc.weapon.attackStartTransform = { ...equippedTransform }
+    npc.weapon.swingStartTransform = { ...equippedTransform }
+    npc.weapon.swingEndTransform = { ...equippedTransform }
+    npc.weapon.attackStartOffset = {
+      dx: followX - npc.transform.x,
+      dy: followY - npc.transform.y,
       rotation: DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
     }
-    enemy.weapon.swingStartOffset = { ...enemy.weapon.attackStartOffset }
-    enemy.weapon.swingEndOffset = { ...enemy.weapon.attackStartOffset }
-    enemy.weapon.attackFacing = facing
-    enemy.weapon.attackPhase = 'idle'
-    enemy.weapon.attackQueued = false
+    npc.weapon.swingStartOffset = { ...npc.weapon.attackStartOffset }
+    npc.weapon.swingEndOffset = { ...npc.weapon.attackStartOffset }
+    npc.weapon.attackFacing = facing
+    npc.weapon.attackPhase = 'idle'
+    npc.weapon.attackQueued = false
     // 武器重量由MovementSystem自动读取
   }
 
-  if (enemyType === 'archer' && enemy.input) {
-    enemy.input.lastMoveDirection = facing
-    enemy.input.facingOverride = facing
+  if (npcType === 'archer' && npc.input) {
+    npc.input.lastMoveDirection = facing
+    npc.input.facingOverride = facing
   }
 
-  return enemy
+  return npc
 }
 
 export function createWeapon(

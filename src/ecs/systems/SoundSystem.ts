@@ -203,7 +203,7 @@ export class SoundSystem extends System {
 
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i]
-      if (!entity.enemyAI || !entity.transform) continue
+      if (!entity.npcAI || !entity.transform) continue
       if (entity.id === wave.sourceEntityId) continue
       if (entity.stats?.isDead || entity.stats?.isVanished) continue
 
@@ -213,7 +213,7 @@ export class SoundSystem extends System {
       }
 
       const hearingRange =
-        entity.enemyAI.detectionRange * ENEMY_HEARING_RANGE_MULTIPLIER
+        entity.npcAI.detectionRange * ENEMY_HEARING_RANGE_MULTIPLIER
       const dx = entity.transform.x - wave.x
       const dy = entity.transform.y - wave.y
       const distanceSq = dx * dx + dy * dy
@@ -228,10 +228,10 @@ export class SoundSystem extends System {
   }
 
   private triggerSoundAlert(entity: Entity, source?: Entity): void {
-    if (entity.enemyAI) {
-      entity.enemyAI.alertChaseActive = true
-      entity.enemyAI.alertTimeRemainingMs = 0
-      entity.enemyAI.state = 'approach'
+    if (entity.npcAI) {
+      entity.npcAI.alertChaseActive = true
+      entity.npcAI.alertTimeRemainingMs = 0
+      entity.npcAI.state = 'approach'
     }
     if (entity.stats) {
       entity.stats.isInCombat = true

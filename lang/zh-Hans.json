@@ -174,7 +174,7 @@
   "editor_enemy_detection_medium": "中等",
   "editor_enemy_detection_far": "远",
   "editor_faction_prop_faction": "所属阵营",
-  "editor_faction_prop_enemy_factions": "敌对阵营",
+  "editor_faction_prop_npc_factions": "敌对阵营",
   "editor_faction_prop_ally_factions": "结盟阵营",
   "editor_faction_new": "+新建",
   "editor_faction_new_prompt": "请输入新阵营名称",

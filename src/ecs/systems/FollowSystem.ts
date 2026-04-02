@@ -46,7 +46,7 @@ export class FollowSystem extends System {
         continue
       }
       if (entity.movement && entity.movement.knockbackEndTime > now) continue
-      // 战斗中由 EnemyAI 负责，不干预
+      // 战斗中由 NpcAI 负责，不干预
       if (entity.stats?.isInCombat) continue
 
       if (follow.followTargetId === null) {
@@ -84,7 +84,7 @@ export class FollowSystem extends System {
         continue
       }
 
-      // stableFacing：只有 |dx| >= minDistance 时才更新朝向，阈值远大于 EnemyAI 的 0.4，
+      // stableFacing：只有 |dx| >= minDistance 时才更新朝向，阈值远大于 NpcAI 的 0.4，
       // 彻底避免 dx≈0 时每帧翻转
       const rawFacing = dx >= 0 ? 1 : -1
       if (Math.abs(dx) >= follow.minDistance) {

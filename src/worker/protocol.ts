@@ -7,8 +7,8 @@ import type { EditorMapData } from '../editorMapTypes'
 import type {
   SaveCheckpointState,
   SaveData,
-  SaveEnemyState,
   SaveGroundWeaponState,
+  SaveNpcState,
   SavePlayerState,
 } from '../saveTypes'
 
@@ -179,7 +179,7 @@ export type WorkerSaveResponseMessage = {
   playTimeMs: number
   activeCheckpoint: SaveCheckpointState | null
   player: SavePlayerState
-  enemies: SaveEnemyState[]
+  npcs: SaveNpcState[]
   groundWeapons: SaveGroundWeaponState[]
   camera: { x: number; y: number; zoom: number }
 }

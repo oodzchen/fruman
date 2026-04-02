@@ -4,7 +4,7 @@ export enum EditorSubmenuMode {
   Ground = 'ground',
   Obstacle = 'obstacle',
   Weapon = 'weapon',
-  Enemy = 'enemy',
+  Npc = 'npc',
   Prop = 'prop',
 }
 

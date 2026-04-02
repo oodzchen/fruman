@@ -2,17 +2,17 @@ import { fabric } from 'fabric'
 
 import type { MapCharacterBodyProfile, WeaponCategory } from '../editorMapTypes'
 import type {
-  EnemyDetectionRangeLevel,
-  EnemyPatrolMode,
-  EnemyType,
   NormalAttackMovesetId,
+  NpcDetectionRangeLevel,
+  NpcPatrolMode,
+  NpcType,
   WeaponType,
 } from '../types'
 
 export enum ObjectType {
   Empty = 'empty',
   Player = 'player',
-  Enemy = 'enemy',
+  Npc = 'npc',
   Weapon = 'weapon',
   Camera = 'camera',
   Checkpoint = 'checkpoint',
@@ -43,23 +43,23 @@ export type PlayerMarker = fabric.Group & {
   debugNoDamage: boolean
   debugNoDeath: boolean
   factionId: string
-  enemyFactions: string[]
+  npcFactions: string[]
   allyFactions: string[]
   weaponBackShape?: WeaponShape
   weaponFrontShape?: WeaponShape
 }
 
-export type EnemyMarker = fabric.Group & {
-  editorShape: 'enemy-marker'
-  enemyType: EnemyType
+export type NpcMarker = fabric.Group & {
+  editorShape: 'npc-marker'
+  npcType: NpcType
   radius: number
   bodyHeight: number
   bodyProfile?: MapCharacterBodyProfile
   moveSpeed: number
   attackDesire: number
   parryProficiency: number
-  initialPatrolMode: EnemyPatrolMode
-  detectionRangeLevel: EnemyDetectionRangeLevel
+  initialPatrolMode: NpcPatrolMode
+  detectionRangeLevel: NpcDetectionRangeLevel
   maxHealth: number
   maxPosture: number
   maxToughness: number
@@ -74,7 +74,7 @@ export type EnemyMarker = fabric.Group & {
   canBeFollower: boolean
   equipWeapon: boolean
   factionId: string
-  enemyFactions: string[]
+  npcFactions: string[]
   allyFactions: string[]
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
@@ -133,17 +133,17 @@ export interface CameraViewData {
   baseHeight: number
 }
 
-export interface EnemyMarkerData {
-  marker: EnemyMarker
-  enemyType: EnemyType
+export interface NpcMarkerData {
+  marker: NpcMarker
+  npcType: NpcType
   radius: number
   bodyHeight: number
   bodyProfile?: MapCharacterBodyProfile
   moveSpeed: number
   attackDesire: number
   parryProficiency: number
-  initialPatrolMode: EnemyPatrolMode
-  detectionRangeLevel: EnemyDetectionRangeLevel
+  initialPatrolMode: NpcPatrolMode
+  detectionRangeLevel: NpcDetectionRangeLevel
   maxHealth: number
   maxPosture: number
   maxToughness: number
@@ -158,7 +158,7 @@ export interface EnemyMarkerData {
   canBeFollower: boolean
   equipWeapon: boolean
   factionId: string
-  enemyFactions: string[]
+  npcFactions: string[]
   allyFactions: string[]
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker
@@ -181,7 +181,7 @@ export interface PlayerMarkerData {
   debugNoDamage: boolean
   debugNoDeath: boolean
   factionId: string
-  enemyFactions: string[]
+  npcFactions: string[]
   allyFactions: string[]
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker

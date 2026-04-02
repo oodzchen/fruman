@@ -1,7 +1,7 @@
 import type { EditorMapData } from './editorMapTypes'
-import type { EnemyType, WeaponType } from './types'
+import type { NpcType, WeaponType } from './types'
 
-export type EnemyAIState =
+export type NpcAIState =
   | 'approach'
   | 'combo'
   | 'retreat'
@@ -55,10 +55,11 @@ export interface SavePlayerState {
   activeSlot: 'main' | 'secondary'
 }
 
-export interface SaveEnemyState {
+export interface SaveNpcState {
   spawnIndex: number
   id?: string
-  enemyType?: EnemyType
+  npcType?: NpcType
+  enemyType?: NpcType
   position: { x: number; y: number }
   facing: number
   health: number
@@ -66,7 +67,7 @@ export interface SaveEnemyState {
   toughness: number
   isDead: boolean
   isVanished: boolean
-  aiState: EnemyAIState
+  aiState: NpcAIState
   currentWaypointIndex: number
   mainWeapon: SaveWeaponSlotState | null
   secondaryWeapon: SaveWeaponSlotState | null
@@ -105,7 +106,8 @@ export interface SaveData {
   worldStateReady: boolean
   activeCheckpoint?: SaveCheckpointState | null
   player: SavePlayerState
-  enemies: SaveEnemyState[]
+  npcs: SaveNpcState[]
+  enemies?: SaveNpcState[]
   groundWeapons: SaveGroundWeaponState[]
   camera: { x: number; y: number; zoom: number }
 }

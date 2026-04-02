@@ -83,8 +83,8 @@ export class StatsSystem extends System {
   private soundSystem: SoundSystem | null = null
   private bloodEffectsEnabled = false
   private colorCache = new Map<string, number>()
-  onEnemyDeath?: (x: number, y: number) => void
-  onEnemyVanish?: (x: number, y: number) => void
+  onNpcDeath?: (x: number, y: number) => void
+  onNpcVanish?: (x: number, y: number) => void
 
   constructor(box2d?: MainModule, worldId?: b2WorldId) {
     super()
@@ -130,8 +130,8 @@ export class StatsSystem extends System {
               )
             }
             this.playSound(SOUND_IDS.DEATH_SPLASH)
-            if (entity.enemyAI && entity.transform) {
-              this.onEnemyVanish?.(entity.transform.x, entity.transform.y)
+            if (entity.npcAI && entity.transform) {
+              this.onNpcVanish?.(entity.transform.x, entity.transform.y)
             }
           }
 
@@ -192,18 +192,18 @@ export class StatsSystem extends System {
             entity.weapon.hitEntityIds.clear()
           }
 
-          if (entity.enemyAI) {
-            entity.enemyAI.state = 'approach'
-            entity.enemyAI.comboSwingsDone = 0
-            entity.enemyAI.probeSwitchTimerMs = 0
-            entity.enemyAI.probePaceTimerMs = 0
-            entity.enemyAI.probePaceDirection = 1
-            entity.enemyAI.probePaceMovedDistance = 0
-            entity.enemyAI.probeLastPositionX = 0
-            entity.enemyAI.probeLastPositionY = 0
-            entity.enemyAI.probeHasTriggered = false
+          if (entity.npcAI) {
+            entity.npcAI.state = 'approach'
+            entity.npcAI.comboSwingsDone = 0
+            entity.npcAI.probeSwitchTimerMs = 0
+            entity.npcAI.probePaceTimerMs = 0
+            entity.npcAI.probePaceDirection = 1
+            entity.npcAI.probePaceMovedDistance = 0
+            entity.npcAI.probeLastPositionX = 0
+            entity.npcAI.probeLastPositionY = 0
+            entity.npcAI.probeHasTriggered = false
             if (entity.movement) {
-              entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+              entity.movement.moveSpeed = entity.npcAI.moveSpeed
             }
           }
         }
@@ -243,7 +243,7 @@ export class StatsSystem extends System {
 
       // 战斗状态管理
       if (entity.stats.isInCombat) {
-        const isPlayer = !entity.enemyAI
+        const isPlayer = !entity.npcAI
 
         if (isPlayer) {
           // 玩家：基于deltaTime累积计时，每次战斗动作重置
@@ -577,34 +577,34 @@ export class StatsSystem extends System {
     }
     // 受击后短暂显示血条（与战斗状态无关）
     entity.stats.healthBarTimerMs = 3000
-    if (entity.enemyAI && hitSource && entity.transform) {
+    if (entity.npcAI && hitSource && entity.transform) {
       const dx = hitSource.x - entity.transform.x
-      entity.enemyAI.forcedChaseDirection = dx >= 0 ? 1 : -1
-      entity.enemyAI.forcedChaseDistanceRemaining =
-        entity.enemyAI.detectionRange * 2
-      entity.enemyAI.forcedChaseLastX = entity.transform.x
+      entity.npcAI.forcedChaseDirection = dx >= 0 ? 1 : -1
+      entity.npcAI.forcedChaseDistanceRemaining =
+        entity.npcAI.detectionRange * 2
+      entity.npcAI.forcedChaseLastX = entity.transform.x
     }
-    if (entity.enemyAI && weaponType === 'arrow' && entity.stats) {
-      const parryProficiency = entity.enemyAI.parryProficiency
+    if (entity.npcAI && weaponType === 'arrow' && entity.stats) {
+      const parryProficiency = entity.npcAI.parryProficiency
       if (parryProficiency > 50) {
         const shouldDefend =
           parryProficiency >= 100 ||
           Math.random() < (parryProficiency - 50) / 50
         if (shouldDefend) {
-          entity.enemyAI.arrowDefenseTimeRemainingMs =
+          entity.npcAI.arrowDefenseTimeRemainingMs =
             entity.stats.combatExitTimeout
-          entity.enemyAI.arrowDefenseActive = true
-          entity.enemyAI.arrowDefenseSwitchTimerMs =
+          entity.npcAI.arrowDefenseActive = true
+          entity.npcAI.arrowDefenseSwitchTimerMs =
             parryProficiency >= 100 ? 0 : 2000 + Math.random() * 2000
         } else {
-          entity.enemyAI.arrowDefenseTimeRemainingMs = 0
-          entity.enemyAI.arrowDefenseActive = false
-          entity.enemyAI.arrowDefenseSwitchTimerMs = 0
+          entity.npcAI.arrowDefenseTimeRemainingMs = 0
+          entity.npcAI.arrowDefenseActive = false
+          entity.npcAI.arrowDefenseSwitchTimerMs = 0
         }
       } else {
-        entity.enemyAI.arrowDefenseTimeRemainingMs = 0
-        entity.enemyAI.arrowDefenseActive = false
-        entity.enemyAI.arrowDefenseSwitchTimerMs = 0
+        entity.npcAI.arrowDefenseTimeRemainingMs = 0
+        entity.npcAI.arrowDefenseActive = false
+        entity.npcAI.arrowDefenseSwitchTimerMs = 0
       }
     }
 
@@ -670,18 +670,18 @@ export class StatsSystem extends System {
       }
     }
 
-    if (entity.enemyAI && entity.enemyAI.state === 'probe') {
-      entity.enemyAI.state = 'approach'
-      entity.enemyAI.comboSwingsDone = 0
-      entity.enemyAI.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
-      entity.enemyAI.probePaceTimerMs = 0
-      entity.enemyAI.probePaceDirection = 1
-      entity.enemyAI.probePaceMovedDistance = 0
-      entity.enemyAI.probeLastPositionX = 0
-      entity.enemyAI.probeLastPositionY = 0
-      entity.enemyAI.probeHasTriggered = true
+    if (entity.npcAI && entity.npcAI.state === 'probe') {
+      entity.npcAI.state = 'approach'
+      entity.npcAI.comboSwingsDone = 0
+      entity.npcAI.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
+      entity.npcAI.probePaceTimerMs = 0
+      entity.npcAI.probePaceDirection = 1
+      entity.npcAI.probePaceMovedDistance = 0
+      entity.npcAI.probeLastPositionX = 0
+      entity.npcAI.probeLastPositionY = 0
+      entity.npcAI.probeHasTriggered = true
       if (entity.movement) {
-        entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+        entity.movement.moveSpeed = entity.npcAI.moveSpeed
       }
     }
 
@@ -805,18 +805,18 @@ export class StatsSystem extends System {
         }
 
         // 重置敌人AI状态
-        if (entity.enemyAI) {
-          entity.enemyAI.state = 'approach'
-          entity.enemyAI.comboSwingsDone = 0
-          entity.enemyAI.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
-          entity.enemyAI.probePaceTimerMs = 0
-          entity.enemyAI.probePaceDirection = 1
-          entity.enemyAI.probePaceMovedDistance = 0
-          entity.enemyAI.probeLastPositionX = 0
-          entity.enemyAI.probeLastPositionY = 0
-          entity.enemyAI.probeHasTriggered = true
+        if (entity.npcAI) {
+          entity.npcAI.state = 'approach'
+          entity.npcAI.comboSwingsDone = 0
+          entity.npcAI.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
+          entity.npcAI.probePaceTimerMs = 0
+          entity.npcAI.probePaceDirection = 1
+          entity.npcAI.probePaceMovedDistance = 0
+          entity.npcAI.probeLastPositionX = 0
+          entity.npcAI.probeLastPositionY = 0
+          entity.npcAI.probeHasTriggered = true
           if (entity.movement) {
-            entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+            entity.movement.moveSpeed = entity.npcAI.moveSpeed
           }
         }
       }
@@ -928,8 +928,8 @@ export class StatsSystem extends System {
       )
 
       this.dropWeaponsOnDeath(entity)
-      if (entity.enemyAI && entity.transform) {
-        this.onEnemyDeath?.(entity.transform.x, entity.transform.y)
+      if (entity.npcAI && entity.transform) {
+        this.onNpcDeath?.(entity.transform.x, entity.transform.y)
       }
       entity.stats.isDead = true
       entity.stats.isVanished = false

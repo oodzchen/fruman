@@ -30,8 +30,8 @@ import {
 } from '../constants'
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
 import type {
-  EnemyPatrolMode,
-  EnemyType,
+  NpcPatrolMode,
+  NpcType,
   WeaponVisualType,
   b2BodyId,
   b2ShapeId,
@@ -875,13 +875,13 @@ export enum Faction {
 
 export class FactionComponent extends Component {
   factionId: string = Faction.Neutral
-  enemyFactions: string[] = []
+  npcFactions: string[] = []
   allyFactions: string[] = []
   temporaryEnemyIds: string[] = []
 
   reset(): void {
     this.factionId = Faction.Neutral
-    this.enemyFactions = []
+    this.npcFactions = []
     this.allyFactions = []
     this.temporaryEnemyIds = []
   }
@@ -892,7 +892,7 @@ export class FactionComponent extends Component {
 
   canAttack(other: FactionComponent): boolean {
     if (this.factionId === Faction.Neutral) return false
-    return this.enemyFactions.includes(other.factionId)
+    return this.npcFactions.includes(other.factionId)
   }
 
   canAttackEntity(other: FactionComponent, otherId: string): boolean {
@@ -913,7 +913,7 @@ export class FactionComponent extends Component {
 export class ArrowComponent extends Component {
   ownerId = 0
   factionId: string = Faction.Player
-  enemyFactions: string[] = []
+  npcFactions: string[] = []
   projectileType: 'arrow' | 'grapeShot' = 'arrow'
   velocityX = 0
   velocityY = 0
@@ -936,7 +936,7 @@ export class ArrowComponent extends Component {
   reset(): void {
     this.ownerId = 0
     this.factionId = Faction.Player
-    this.enemyFactions = []
+    this.npcFactions = []
     this.projectileType = 'arrow'
     this.velocityX = 0
     this.velocityY = 0
@@ -962,7 +962,7 @@ export class ArrowComponent extends Component {
   }
 }
 
-export class EnemyAIComponent extends Component {
+export class NpcAIComponent extends Component {
   attackDesire = DEFAULT_ENEMY_ATTACK_DESIRE
   parryProficiency = 0
   detectionRange = ENEMY_DETECTION_RANGE
@@ -985,7 +985,7 @@ export class EnemyAIComponent extends Component {
     | 'probe'
     | 'alert'
     | 'leapAttack' = 'approach'
-  initialPatrolMode: EnemyPatrolMode = 'patrol'
+  initialPatrolMode: NpcPatrolMode = 'patrol'
   comboSwingsDone = 0
   comboSwingTarget = 5
   lastFacing: -1 | 1 = 1
@@ -1044,7 +1044,7 @@ export class EnemyAIComponent extends Component {
   patrolResumeTimestamp = 0
   patrolState: 'moving' | 'waiting' = 'moving'
   patrolStuckTimer = 0
-  enemyType: EnemyType = 'default'
+  npcType: NpcType = 'default'
   isRedTapeActive = false
   redTapeEnabled = false
   retreatEnabled = false
@@ -1128,7 +1128,7 @@ export class EnemyAIComponent extends Component {
     this.patrolResumeTimestamp = 0
     this.patrolState = 'moving'
     this.patrolStuckTimer = 0
-    this.enemyType = 'default'
+    this.npcType = 'default'
     this.isRedTapeActive = false
     this.redTapeEnabled = false
     this.retreatEnabled = false
@@ -1138,7 +1138,7 @@ export class EnemyAIComponent extends Component {
   }
 
   getName(): string {
-    return 'EnemyAI'
+    return 'NpcAI'
   }
 }
 

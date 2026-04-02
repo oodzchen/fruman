@@ -184,7 +184,7 @@
   "editor_enemy_detection_medium": "Medium",
   "editor_enemy_detection_far": "Far",
   "editor_faction_prop_faction": "Faction",
-  "editor_faction_prop_enemy_factions": "Enemy Factions",
+  "editor_faction_prop_npc_factions": "Enemy Factions",
   "editor_faction_prop_ally_factions": "Ally Factions",
   "editor_faction_new": "+New",
   "editor_faction_new_prompt": "Enter new faction name",

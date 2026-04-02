@@ -12,8 +12,8 @@ export type b2Polygon = ReturnType<MainModule['b2MakePolygon']>
 export type b2Vec2 = InstanceType<MainModule['b2Vec2']>
 export type b2Rot = InstanceType<MainModule['b2Rot']>
 
-export type EnemyPatrolMode = 'guard' | 'patrol'
-export type EnemyDetectionRangeLevel = 'near' | 'medium' | 'far'
+export type NpcPatrolMode = 'guard' | 'patrol'
+export type NpcDetectionRangeLevel = 'near' | 'medium' | 'far'
 
 export type NormalAttackMovesetId =
   | 'sword_default'
@@ -26,16 +26,16 @@ export type UltimateMovesetId =
   | 'spear_ultimate'
   | 'bow_ultimate'
 
-export interface EnemyTemplate {
+export interface NpcTemplate {
   moveSpeed: number
   radius: number
   attackDesire: number
   color: string
   parryProficiency: number
-  initialPatrolMode: EnemyPatrolMode
+  initialPatrolMode: NpcPatrolMode
 }
 
-export type EnemyType = 'default' | 'archer'
+export type NpcType = 'default' | 'archer'
 
 export interface WeaponTemplate {
   width: number

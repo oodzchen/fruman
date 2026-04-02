@@ -430,18 +430,18 @@ export class MovementSystem extends System {
       entity.stats.posture = entity.stats.maxPosture
 
       // 如果是敌人，重置其AI状态
-      if (entity.enemyAI) {
-        entity.enemyAI.state = 'approach'
-        entity.enemyAI.comboSwingsDone = 0
-        entity.enemyAI.probeSwitchTimerMs = 0
-        entity.enemyAI.probePaceTimerMs = 0
-        entity.enemyAI.probePaceDirection = 1
-        entity.enemyAI.probePaceMovedDistance = 0
-        entity.enemyAI.probeLastPositionX = 0
-        entity.enemyAI.probeLastPositionY = 0
-        entity.enemyAI.probeHasTriggered = false
+      if (entity.npcAI) {
+        entity.npcAI.state = 'approach'
+        entity.npcAI.comboSwingsDone = 0
+        entity.npcAI.probeSwitchTimerMs = 0
+        entity.npcAI.probePaceTimerMs = 0
+        entity.npcAI.probePaceDirection = 1
+        entity.npcAI.probePaceMovedDistance = 0
+        entity.npcAI.probeLastPositionX = 0
+        entity.npcAI.probeLastPositionY = 0
+        entity.npcAI.probeHasTriggered = false
         if (entity.movement) {
-          entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+          entity.movement.moveSpeed = entity.npcAI.moveSpeed
         }
       }
     }
@@ -559,7 +559,7 @@ export class MovementSystem extends System {
     if (
       isInAttackAction &&
       entity.movement.isGrounded &&
-      entity.enemyAI?.state !== 'leapAttack'
+      entity.npcAI?.state !== 'leapAttack'
     ) {
       direction = 0
     }
@@ -572,7 +572,7 @@ export class MovementSystem extends System {
       direction = 0
     }
 
-    if (direction !== 0 && this.isEnemyBlocking(entity, direction)) {
+    if (direction !== 0 && this.isNpcBlocking(entity, direction)) {
       direction = 0
     }
 
@@ -608,7 +608,7 @@ export class MovementSystem extends System {
         entity.weapon.attackPhase === 'pause' ||
         entity.weapon.attackPhase === 'recover')
 
-    const isLeapAttack = entity.enemyAI?.state === 'leapAttack'
+    const isLeapAttack = entity.npcAI?.state === 'leapAttack'
     if (isInAttackAction && !isLeapAttack) {
       return
     }
@@ -771,7 +771,7 @@ export class MovementSystem extends System {
     return factor > 0 ? factor : 1
   }
 
-  private isEnemyBlocking(entity: Entity, direction: number): boolean {
+  private isNpcBlocking(entity: Entity, direction: number): boolean {
     if (!entity.transform || !entity.faction) return false
 
     const myRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
@@ -797,8 +797,8 @@ export class MovementSystem extends System {
 
       const shouldBlock =
         entity.faction.canAttack(other.faction) ||
-        (!!entity.enemyAI &&
-          !!other.enemyAI &&
+        (!!entity.npcAI &&
+          !!other.npcAI &&
           myFactionId === other.faction.factionId)
       if (!shouldBlock) continue
 

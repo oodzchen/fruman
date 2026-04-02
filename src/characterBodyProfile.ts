@@ -3,7 +3,7 @@ import type { EditorMapData, MapCharacterBodyProfile } from './editorMapTypes'
 export const CHARACTER_BODY_DRAW_SIZE = 128
 export const CHARACTER_BODY_DRAW_HALF = CHARACTER_BODY_DRAW_SIZE / 2
 export const PLAYER_BODY_PROFILE_INDEX = 1
-export const ENEMY_BODY_PROFILE_INDEX_START = 2
+export const NPC_BODY_PROFILE_INDEX_START = 2
 export const DEFAULT_CHARACTER_EYE_X = 32
 export const DEFAULT_CHARACTER_EYE_Y = -32
 const MIN_CHARACTER_EYE_COORD = -56
@@ -177,8 +177,8 @@ export function getCharacterEyeOffsetY(
   )
 }
 
-export function getEnemyBodyProfileIndex(enemyIndex: number): number {
-  return ENEMY_BODY_PROFILE_INDEX_START + enemyIndex
+export function getNpcBodyProfileIndex(npcIndex: number): number {
+  return NPC_BODY_PROFILE_INDEX_START + npcIndex
 }
 
 export function getCharacterBodyHeight(
@@ -221,9 +221,9 @@ export function getCharacterBodyProfileFromMap(
   if (profileIndex === PLAYER_BODY_PROFILE_INDEX) {
     return map.player?.bodyProfile ?? null
   }
-  const enemyIndex = profileIndex - ENEMY_BODY_PROFILE_INDEX_START
-  if (enemyIndex < 0 || enemyIndex >= map.enemies.length) {
+  const npcIndex = profileIndex - NPC_BODY_PROFILE_INDEX_START
+  if (npcIndex < 0 || npcIndex >= map.npcs.length) {
     return null
   }
-  return map.enemies[enemyIndex]?.bodyProfile ?? null
+  return map.npcs[npcIndex]?.bodyProfile ?? null
 }

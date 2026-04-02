@@ -41,8 +41,8 @@ export class InteractionSystem extends System {
         continue
       }
 
-      // 优先级2：绑定/解绑追随同伴（仅对玩家有效，玩家无 enemyAI 组件）
-      if (!interactionConsumed && !entity.enemyAI) {
+      // 优先级2：绑定/解绑追随同伴（仅对玩家有效，玩家无 npcAI 组件）
+      if (!interactionConsumed && !entity.npcAI) {
         if (this.tryToggleFollowBind(entity, entities)) {
           interactionConsumed = true
         }

@@ -7,7 +7,7 @@ import type {
   EditorTreeNode,
   EditorTreeObjectType,
   MapCharacterBodyProfile,
-  MapEnemyWeapon,
+  MapNpcWeapon,
   MapPlacedShape,
   MapSunPickup,
 } from '../editorMapTypes'
@@ -74,7 +74,7 @@ interface EditorMapSerializerContext {
     secondaryWeapon?: WeaponType
     secondaryWeaponMarker?: fabric.Object
     factionId: string
-    enemyFactions: string[]
+    npcFactions: string[]
     allyFactions: string[]
   } | null
   getEditorObjects: () => EditorObjectLike[]
@@ -118,7 +118,7 @@ export class EditorMapSerializer {
       playerSpawn: { x: spawnX, y: spawnY },
       camera: { x: 0, y: 0, zoom: DEFAULT_CAMERA_ZOOM },
       shapes: [],
-      enemies: [],
+      npcs: [],
       weapons: [],
       checkpoints: [],
       hookAnchors: [],
@@ -133,8 +133,8 @@ export class EditorMapSerializer {
     const shapes: MapPlacedShape[] = []
     const shapeIndexMap = new Map<fabric.Object, number>()
     this.serializeShapes(shapes, shapeIndexMap)
-    const enemyIndexMap = new Map<fabric.Object, number>()
-    const enemies = this.serializeEnemies(enemyIndexMap)
+    const npcIndexMap = new Map<fabric.Object, number>()
+    const npcs = this.serializeNpcs(npcIndexMap)
     const weaponIndexMap = new Map<fabric.Object, number>()
     const weapons = this.serializeWeapons(weaponIndexMap)
     const checkpointIndexMap = new Map<fabric.Object, number>()
@@ -145,7 +145,7 @@ export class EditorMapSerializer {
     const sunPickups = this.serializeSunPickups(sunPickupIndexMap)
     const editorTree = this.serializeEditorTree({
       shapeIndexMap,
-      enemyIndexMap,
+      npcIndexMap,
       weaponIndexMap,
       checkpointIndexMap,
       hookAnchorIndexMap,
@@ -160,7 +160,7 @@ export class EditorMapSerializer {
       player,
       camera,
       shapes,
-      enemies,
+      npcs,
       weapons,
       checkpoints,
       hookAnchors,
@@ -184,7 +184,8 @@ export class EditorMapSerializer {
     this.ctx.markerManager.spawnPlayerMarker(data.playerSpawn, data.player)
     this.ctx.spawnCameraViewFrame(data.camera)
     this.applyPlacedShapes(data.shapes)
-    this.applyEnemies(data.enemies)
+    const npcs = data.npcs ?? data.enemies ?? []
+    this.applyNpcs(npcs)
     this.applyWeapons(data.weapons)
     this.applyCheckpoints(data.checkpoints)
     this.applyHookAnchors(data.hookAnchors)
@@ -344,10 +345,10 @@ export class EditorMapSerializer {
     )
   }
 
-  private applyEnemies(enemies: EditorMapData['enemies']) {
-    for (let i = 0; i < enemies.length; i++) {
-      const enemy = enemies[i]
-      this.ctx.markerManager.spawnEnemyMarker(enemy.enemyType, enemy)
+  private applyNpcs(npcs: EditorMapData['npcs']) {
+    for (let i = 0; i < npcs.length; i++) {
+      const npc = npcs[i]
+      this.ctx.markerManager.spawnNpcMarker(npc.npcType, npc)
     }
   }
 
@@ -495,7 +496,7 @@ export class EditorMapSerializer {
 
   private serializeEditorTree(data: {
     shapeIndexMap: Map<fabric.Object, number>
-    enemyIndexMap: Map<fabric.Object, number>
+    npcIndexMap: Map<fabric.Object, number>
     weaponIndexMap: Map<fabric.Object, number>
     checkpointIndexMap: Map<fabric.Object, number>
     hookAnchorIndexMap: Map<fabric.Object, number>
@@ -525,8 +526,8 @@ export class EditorMapSerializer {
         }
         node.index = index
         node.objectKind = dataItem.type === 'ground' ? 'ground' : 'obstacle'
-      } else if (dataItem.type === 'enemy') {
-        const index = data.enemyIndexMap.get(dataItem.object)
+      } else if (dataItem.type === 'npc') {
+        const index = data.npcIndexMap.get(dataItem.object)
         if (index === undefined) {
           return null
         }
@@ -596,7 +597,7 @@ export class EditorMapSerializer {
       return undefined
     }
     const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
-    let mainWeapon: MapEnemyWeapon | undefined
+    let mainWeapon: MapNpcWeapon | undefined
     if (data.mainWeapon && data.mainWeaponMarker) {
       const weaponData = weaponMarkerMap.get(data.mainWeaponMarker)
       if (weaponData) {
@@ -611,7 +612,7 @@ export class EditorMapSerializer {
       }
     }
 
-    let secondaryWeapon: MapEnemyWeapon | undefined
+    let secondaryWeapon: MapNpcWeapon | undefined
     if (data.secondaryWeapon && data.secondaryWeaponMarker) {
       const weaponData = weaponMarkerMap.get(data.secondaryWeaponMarker)
       if (weaponData) {
@@ -642,7 +643,7 @@ export class EditorMapSerializer {
       mainWeapon,
       secondaryWeapon,
       factionId: data.factionId,
-      enemyFactions: data.enemyFactions,
+      npcFactions: data.npcFactions,
       allyFactions: data.allyFactions,
     }
   }
@@ -761,16 +762,16 @@ export class EditorMapSerializer {
     }
   }
 
-  private serializeEnemies(indexMap?: Map<fabric.Object, number>) {
-    const enemies: EditorMapData['enemies'] = []
-    const enemyMarkers = this.ctx.markerManager.getEnemyMarkers()
+  private serializeNpcs(indexMap?: Map<fabric.Object, number>) {
+    const npcs: EditorMapData['npcs'] = []
+    const npcMarkers = this.ctx.markerManager.getNpcMarkers()
     const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
-    for (let i = 0; i < enemyMarkers.length; i++) {
-      const data = enemyMarkers[i]
+    for (let i = 0; i < npcMarkers.length; i++) {
+      const data = npcMarkers[i]
       const marker = data.marker
 
-      let mainWeapon: MapEnemyWeapon | undefined
+      let mainWeapon: MapNpcWeapon | undefined
       if (data.mainWeapon && data.mainWeaponMarker) {
         const weaponData = weaponMarkerMap.get(data.mainWeaponMarker)
         if (weaponData) {
@@ -785,7 +786,7 @@ export class EditorMapSerializer {
         }
       }
 
-      let secondaryWeapon: MapEnemyWeapon | undefined
+      let secondaryWeapon: MapNpcWeapon | undefined
       if (data.secondaryWeapon && data.secondaryWeaponMarker) {
         const weaponData = weaponMarkerMap.get(data.secondaryWeaponMarker)
         if (weaponData) {
@@ -801,12 +802,12 @@ export class EditorMapSerializer {
       }
 
       if (indexMap) {
-        indexMap.set(marker, enemies.length)
+        indexMap.set(marker, npcs.length)
       }
-      enemies.push({
+      npcs.push({
         x: (marker.left ?? 0) * invPixelsPerMeter,
         y: (marker.top ?? 0) * invPixelsPerMeter,
-        enemyType: data.enemyType,
+        npcType: data.npcType,
         radius: data.radius,
         bodyHeight: data.bodyHeight || undefined,
         bodyProfile: data.bodyProfile,
@@ -831,11 +832,11 @@ export class EditorMapSerializer {
         mainWeapon,
         secondaryWeapon,
         factionId: data.factionId,
-        enemyFactions: data.enemyFactions,
+        npcFactions: data.npcFactions,
         allyFactions: data.allyFactions,
       })
     }
-    return enemies
+    return npcs
   }
 
   private serializeWeapons(indexMap?: Map<fabric.Object, number>) {

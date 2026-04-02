@@ -11,7 +11,7 @@ import {
   PLAYER_BODY_PROFILE_INDEX,
   getCharacterBloodColor,
   getCharacterBodyColor,
-  getEnemyBodyProfileIndex,
+  getNpcBodyProfileIndex,
   isValidCharacterBodyProfile,
 } from '../characterBodyProfile'
 import {
@@ -71,18 +71,18 @@ import { SpatialHash } from '../ecs/SpatialHash'
 import { World } from '../ecs/World'
 import {
   applyWeaponSizeLevel,
-  createEnemy,
+  createNpc,
   createPlayer,
   createWeapon,
 } from '../ecs/factories/PlayerFactory'
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
 import { CheckpointSystem } from '../ecs/systems/CheckpointSystem'
-import { EnemyAISystem } from '../ecs/systems/EnemyAISystem'
 import { ExpOrbSystem } from '../ecs/systems/ExpOrbSystem'
 import { FollowSystem } from '../ecs/systems/FollowSystem'
 import { GrappleSystem } from '../ecs/systems/GrappleSystem'
 import { InteractionSystem } from '../ecs/systems/InteractionSystem'
 import { MovementSystem } from '../ecs/systems/MovementSystem'
+import { NpcAISystem } from '../ecs/systems/NpcAISystem'
 import { PhysicsSystem } from '../ecs/systems/PhysicsSystem'
 import { SoundSystem } from '../ecs/systems/SoundSystem'
 import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
@@ -94,15 +94,15 @@ import {
 } from '../ecs/systems/WeaponSystem'
 import type {
   EditorMapData,
-  MapEnemy,
-  MapEnemyWeapon,
+  MapNpc,
+  MapNpcWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
 import type {
   SaveCheckpointState,
   SaveData,
-  SaveEnemyState,
   SaveGroundWeaponState,
+  SaveNpcState,
   SavePlayerState,
   SaveWeaponSlotState,
 } from '../saveTypes'
@@ -161,14 +161,14 @@ let worldId: ReturnType<MainModule['b2CreateWorld']>
 let world: World
 let spatialHash: SpatialHash
 let playerEntity: Entity
-let enemyEntity: Entity | null = null
+let npcEntity: Entity | null = null
 
 let physicsSystem: PhysicsSystem
 let movementSystem: MovementSystem
 let statsSystem: StatsSystem
 let weaponSystem: WeaponSystem
 let arrowSystem: ArrowSystem
-let enemyAISystem: EnemyAISystem
+let npcAISystem: NpcAISystem
 let followSystem: FollowSystem
 let soundSystem: SoundSystem
 let targetingSystem: TargetingSystem
@@ -211,7 +211,7 @@ let tempZeroVec: InstanceType<MainModule['b2Vec2']> | null = null
 let tempSetTransformRot: b2Rot | null = null
 
 const PLAYER_PERSISTENT_ID = 'player'
-let nextPersistentEnemyId = 1
+let nextPersistentNpcId = 1
 const TARGET_FPS = 60
 const TIME_STEP = 1 / TARGET_FPS
 const FIXED_STEP_MS = Math.floor(TIME_STEP * 1000)
@@ -465,7 +465,7 @@ async function init(width: number, height: number, ppm: number) {
   createEnvironment()
 
   initializeSystems()
-  enemyEntity = null
+  npcEntity = null
   createPlayerAndWeapon(groundTopY, activeMapData)
 
   // Initialize camera to center on player
@@ -549,7 +549,7 @@ function registerComponents() {
   componentRegistry.registerComponent('AttackSlots')
   componentRegistry.registerComponent('Arrow')
   componentRegistry.registerComponent('Faction')
-  componentRegistry.registerComponent('EnemyAI')
+  componentRegistry.registerComponent('NpcAI')
   componentRegistry.registerComponent('Checkpoint')
   componentRegistry.registerComponent('Grapple')
   componentRegistry.registerComponent('GrappleAnchor')
@@ -575,7 +575,7 @@ function initializeSystems() {
     ctx.postMessage(playerDeadMessage)
   })
   soundSystem = new SoundSystem()
-  enemyAISystem = new EnemyAISystem(box2d, worldId)
+  npcAISystem = new NpcAISystem(box2d, worldId)
   followSystem = new FollowSystem()
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
@@ -586,7 +586,7 @@ function initializeSystems() {
   interactionSystem = new InteractionSystem()
   statsSystem.setWeaponSystem(weaponSystem)
   statsSystem.setSoundSystem(soundSystem)
-  enemyAISystem.setWeaponSystem(weaponSystem)
+  npcAISystem.setWeaponSystem(weaponSystem)
   movementSystem.setSoundSystem(soundSystem)
   movementSystem.setStatsSystem(statsSystem)
   grappleSystem.setStatsSystem(statsSystem)
@@ -597,7 +597,7 @@ function initializeSystems() {
   sunPickupSystem.setEffectsEmitter(effectsEmitter)
   expOrbSystem = new ExpOrbSystem()
   expOrbSystem.setEffectsEmitter(effectsEmitter)
-  statsSystem.onEnemyVanish = (x: number, y: number) => {
+  statsSystem.onNpcVanish = (x: number, y: number) => {
     const {
       b2DefaultBodyDef,
       b2CreateBody,
@@ -709,7 +709,7 @@ function initializeSystems() {
   world.addSystem(statsSystem)
   world.addSystem(checkpointSystem)
   world.addSystem(soundSystem)
-  world.addSystem(enemyAISystem)
+  world.addSystem(npcAISystem)
   world.addSystem(followSystem)
   world.addSystem(movementSystem)
   world.addSystem(grappleSystem)
@@ -1622,7 +1622,7 @@ function applyWeaponSlotConfig(
     bowAmmo: number
     bowAmmoMax: number
   },
-  config: MapEnemyWeapon | undefined,
+  config: MapNpcWeapon | undefined,
   defaultBowAmmo: number
 ) {
   if (!config) {
@@ -1745,9 +1745,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
 
   if (playerEntity.faction && playerProps?.factionId) {
     playerEntity.faction.factionId = playerProps.factionId
-    playerEntity.faction.enemyFactions = playerProps.enemyFactions ?? [
-      Faction.Enemy,
-    ]
+    playerEntity.faction.npcFactions = playerProps.npcFactions ??
+      playerProps.enemyFactions ?? [Faction.Enemy]
     playerEntity.faction.allyFactions = playerProps.allyFactions ?? []
   }
 
@@ -1897,8 +1896,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
 
   // 暂时注释掉敌人以便测试跌落伤害
   /*
-  // Default enemy in the middle area
-  enemyEntity = createEnemy(
+  // Default NPC in the middle area
+  npcEntity = createNpc(
     world,
     box2d,
     worldId,
@@ -1908,8 +1907,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     ENEMY_SPAWNS.default.type
   )
 
-  // Leftmost default enemy outside alert range
-  createEnemy(
+  // Leftmost default NPC outside alert range
+  createNpc(
     world,
     box2d,
     worldId,
@@ -1919,14 +1918,14 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     ENEMY_SPAWNS.left.type
   )
 
-  // Archer enemy on top of the tallest obstacle near player spawn
+  // Archer NPC on top of the tallest obstacle near player spawn
   const archerTopY = groundY - ARCHER_SPAWN_CONFIG.obstacleHalfHeight * 2
   const archerSpawnX =
     ARCHER_SPAWN_CONFIG.obstacleX -
     ARCHER_SPAWN_CONFIG.obstacleHalfWidth +
     ARCHER_SPAWN_CONFIG.edgeOffset
   const archerSpawnY = archerTopY + ARCHER_SPAWN_CONFIG.yOffsetFromTop
-  createEnemy(
+  createNpc(
     world,
     box2d,
     worldId,
@@ -1936,8 +1935,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     ARCHER_SPAWN_CONFIG.type
   )
 
-  // Large enemy between 2nd and 3rd obstacle
-  createEnemy(
+  // Large NPC between 2nd and 3rd obstacle
+  createNpc(
     world,
     box2d,
     worldId,
@@ -1947,8 +1946,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     ENEMY_SPAWNS.large.type
   )
 
-  // Fast (Small) enemy after the last obstacle
-  createEnemy(
+  // Fast (Small) NPC after the last obstacle
+  createNpc(
     world,
     box2d,
     worldId,
@@ -1959,62 +1958,61 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
   )
   */
 
-  if (map && map.enemies.length > 0) {
-    enemyEntity = null
-    for (let i = 0; i < map.enemies.length; i++) {
-      const enemy = map.enemies[i]
-      const created = createEnemy(
+  if (map && map.npcs.length > 0) {
+    npcEntity = null
+    for (let i = 0; i < map.npcs.length; i++) {
+      const npc = map.npcs[i]
+      const created = createNpc(
         world,
         box2d,
         worldId,
-        enemy.x,
-        enemy.y,
+        npc.x,
+        npc.y,
         groundY,
-        enemy.enemyType,
-        enemy
+        npc.npcType,
+        npc
       )
       if (created.render) {
         created.render.bodyProfileIndex = isValidCharacterBodyProfile(
-          enemy.bodyProfile
+          npc.bodyProfile
         )
-          ? getEnemyBodyProfileIndex(i)
+          ? getNpcBodyProfileIndex(i)
           : 0
       }
       if (created.attackSlots) {
         const nextMovesetId = isNormalAttackMovesetId(
-          enemy.initialNormalMovesetId
+          npc.initialNormalMovesetId
         )
-          ? enemy.initialNormalMovesetId
+          ? npc.initialNormalMovesetId
           : getDefaultAttackMovesetIdForWeaponType(
               normalizeWeaponType(
-                enemy.mainWeapon?.weaponType ??
-                  enemy.secondaryWeapon?.weaponType
+                npc.mainWeapon?.weaponType ?? npc.secondaryWeapon?.weaponType
               ) ?? 'sword'
-            ) || getDefaultNormalAttackMovesetId('enemy')
+            ) || getDefaultNormalAttackMovesetId('npc')
         created.attackSlots.normal.hasMoveset = true
         created.attackSlots.normal.movesetId = nextMovesetId
         if (created.weapon) {
           created.weapon.movesetId = nextMovesetId
         }
-        if (created.enemyAI) {
-          created.enemyAI.movesetId = nextMovesetId
+        if (created.npcAI) {
+          created.npcAI.movesetId = nextMovesetId
         }
       }
-      if (created.enemyAI) {
-        created.enemyAI.mapSpawnIndex = i
+      if (created.npcAI) {
+        created.npcAI.mapSpawnIndex = i
       }
       if (created.stats && !created.stats.persistentId) {
-        const nextId = `enemy-${i + 1}`
+        const nextId = `npc-${i + 1}`
         created.stats.persistentId = nextId
-        syncEnemyIdCounter(nextId)
+        syncNpcIdCounter(nextId)
       }
-      if (!enemyEntity) {
-        enemyEntity = created
+      if (!npcEntity) {
+        npcEntity = created
       }
     }
   }
 
-  enemyAISystem.setPlayer(playerEntity)
+  npcAISystem.setPlayer(playerEntity)
   soundSystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)
   checkpointSystem.setPlayer(playerEntity)
@@ -2513,7 +2511,7 @@ function easeOutCubic(t: number): number {
 function updateCamera(playerX: number) {
   // --- Horizontal Logic ---
   const canvasWidthInMeters = canvasWidth / (pixelsPerMeter * zoom)
-  let isEnemyLocked = false
+  let isNpcLocked = false
   let targetEntityX = 0
 
   if (
@@ -2528,7 +2526,7 @@ function updateCamera(playerX: number) {
         playerEntity.input.lockedTargetId = null
       } else {
         targetEntityX = targetEntity.transform.x
-        isEnemyLocked = true
+        isNpcLocked = true
       }
     }
   }
@@ -2536,7 +2534,7 @@ function updateCamera(playerX: number) {
   const centerX = canvasWidth / 2
   let desiredCameraX = camera.x
 
-  if (isEnemyLocked) {
+  if (isNpcLocked) {
     const midPointX = (playerX + targetEntityX) * 0.5
     desiredCameraX = midPointX - centerX / pixelsPerMeter
   } else {
@@ -2916,8 +2914,8 @@ function cleanupDestroyedEntities() {
       entity.removeComponent('Weapon')
     }
     if (entity.stats?.isVanished && !isPlayer) {
-      if (enemyEntity && enemyEntity.id === entity.id) {
-        enemyEntity = null
+      if (npcEntity && npcEntity.id === entity.id) {
+        npcEntity = null
       }
       spatialHash.removeEntity(entity)
       world.destroyEntity(entity)
@@ -3046,7 +3044,7 @@ function collectSoundListenerDebugData(
 
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
-    if (!entity.enemyAI || !entity.transform) continue
+    if (!entity.npcAI || !entity.transform) continue
     if (entity.stats?.isDead || entity.stats?.isVanished) continue
 
     let debugListener = debugSoundListeners[listenerCount]
@@ -3064,7 +3062,7 @@ function collectSoundListenerDebugData(
     debugListener.x = entity.transform.x
     debugListener.y = entity.transform.y
     debugListener.radius =
-      entity.enemyAI.detectionRange * ENEMY_HEARING_RANGE_MULTIPLIER
+      entity.npcAI.detectionRange * ENEMY_HEARING_RANGE_MULTIPLIER
 
     listenerCount += 1
   }
@@ -3596,10 +3594,10 @@ function restart() {
 
   createEnvironment()
   initializeSystems()
-  enemyEntity = null
+  npcEntity = null
   createPlayerAndWeapon(groundTopY, activeMapData)
 
-  enemyAISystem.setPlayer(playerEntity)
+  npcAISystem.setPlayer(playerEntity)
   soundSystem.setPlayer(playerEntity)
   targetingSystem.setPlayer(playerEntity)
 
@@ -3876,24 +3874,26 @@ function setEntityTransformFromSave(
   entity.physics.hasPrev = true
 }
 
-function ensureEnemyPersistentId(entity: Entity): string {
+function ensureNpcPersistentId(entity: Entity): string {
   if (!entity.stats) return ''
   if (entity.stats.persistentId) {
     return entity.stats.persistentId
   }
-  const nextId = `enemy-${nextPersistentEnemyId}`
-  nextPersistentEnemyId += 1
+  const nextId = `npc-${nextPersistentNpcId}`
+  nextPersistentNpcId += 1
   entity.stats.persistentId = nextId
   return nextId
 }
 
-function syncEnemyIdCounter(persistentId: string): void {
-  if (!persistentId.startsWith('enemy-')) return
-  const suffix = persistentId.slice(6)
+function syncNpcIdCounter(persistentId: string): void {
+  const hasNpcPrefix = persistentId.startsWith('npc-')
+  const hasEnemyPrefix = persistentId.startsWith('enemy-')
+  if (!hasNpcPrefix && !hasEnemyPrefix) return
+  const suffix = persistentId.slice(hasNpcPrefix ? 4 : 6)
   const parsed = Number.parseInt(suffix, 10)
   if (!Number.isFinite(parsed) || parsed <= 0) return
-  if (parsed >= nextPersistentEnemyId) {
-    nextPersistentEnemyId = parsed + 1
+  if (parsed >= nextPersistentNpcId) {
+    nextPersistentNpcId = parsed + 1
   }
 }
 
@@ -4241,33 +4241,33 @@ function extractPlayerState(): SavePlayerState {
   }
 }
 
-function extractEnemiesState(): SaveEnemyState[] {
-  const enemies: SaveEnemyState[] = []
+function extractNpcsState(): SaveNpcState[] {
+  const npcs: SaveNpcState[] = []
   const entities = world.getEntities()
 
   let spawnIndex = 0
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
-    if (!entity.enemyAI || !entity.faction) continue
+    if (!entity.npcAI || !entity.faction) continue
 
     const transform = entity.transform
     const stats = entity.stats
     const input = entity.input
     const weaponSlots = entity.weaponSlots
     const weapon = entity.weapon
-    const enemyAI = entity.enemyAI
+    const npcAI = entity.npcAI
 
     if (weaponSlots && weapon) {
       syncActiveSlotFromWeapon(weaponSlots, weapon)
     }
 
-    const persistentId = stats ? ensureEnemyPersistentId(entity) : ''
+    const persistentId = stats ? ensureNpcPersistentId(entity) : ''
     const nextSpawnIndex =
-      enemyAI.mapSpawnIndex >= 0 ? enemyAI.mapSpawnIndex : spawnIndex
-    enemies.push({
+      npcAI.mapSpawnIndex >= 0 ? npcAI.mapSpawnIndex : spawnIndex
+    npcs.push({
       spawnIndex: nextSpawnIndex,
       id: persistentId || undefined,
-      enemyType: enemyAI.enemyType,
+      npcType: npcAI.npcType,
       position: { x: transform?.x ?? 0, y: transform?.y ?? 0 },
       facing: input?.lastMoveDirection ?? 1,
       health: stats?.health ?? 100,
@@ -4275,20 +4275,20 @@ function extractEnemiesState(): SaveEnemyState[] {
       toughness: stats?.toughness ?? 100,
       isDead: stats?.isDead ?? false,
       isVanished: stats?.isVanished ?? false,
-      aiState: enemyAI.state,
-      currentWaypointIndex: enemyAI.currentWaypointIndex,
+      aiState: npcAI.state,
+      currentWaypointIndex: npcAI.currentWaypointIndex,
       mainWeapon: weaponSlots ? extractWeaponSlotState(weaponSlots.main) : null,
       secondaryWeapon: weaponSlots
         ? extractWeaponSlotState(weaponSlots.secondary)
         : null,
       activeSlot: weaponSlots?.activeSlot ?? 'main',
     })
-    if (enemyAI.mapSpawnIndex < 0) {
+    if (npcAI.mapSpawnIndex < 0) {
       spawnIndex++
     }
   }
 
-  return enemies
+  return npcs
 }
 
 function extractGroundWeaponsState(): SaveGroundWeaponState[] {
@@ -4343,7 +4343,7 @@ function exportGameState(saveId: string): void {
     playTimeMs,
     activeCheckpoint,
     player: extractPlayerState(),
-    enemies: extractEnemiesState(),
+    npcs: extractNpcsState(),
     groundWeapons: extractGroundWeaponsState(),
     camera: { x: camera.x, y: camera.y, zoom },
   }
@@ -4404,7 +4404,7 @@ function loadFromSave(saveData: SaveData): void {
   }
 
   if (saveData.worldStateReady !== false) {
-    restoreEnemiesState(saveData.enemies)
+    restoreNpcsState(saveData.npcs)
     restoreGroundWeaponsState(saveData.groundWeapons)
   }
 
@@ -4475,18 +4475,18 @@ function restorePlayerWeapons(playerState: SaveData['player']): void {
   }
 }
 
-function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
+function restoreNpcsState(npcsState: SaveNpcState[]): void {
   if (!world || !box2d) return
 
   const entities = world.getEntities()
-  const currentEnemies: Entity[] = []
+  const currentNpcs: Entity[] = []
   const currentById = new Map<string, Entity>()
   const currentWithoutId: Entity[] = []
 
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
-    if (!entity.enemyAI || !entity.faction) continue
-    currentEnemies.push(entity)
+    if (!entity.npcAI || !entity.faction) continue
+    currentNpcs.push(entity)
     if (entity.stats?.persistentId) {
       currentById.set(entity.stats.persistentId, entity)
     } else {
@@ -4494,10 +4494,10 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
     }
   }
 
-  const savedById = new Map<string, SaveEnemyState>()
-  const savedWithoutId: SaveEnemyState[] = []
-  for (let i = 0; i < enemiesState.length; i++) {
-    const savedState = enemiesState[i]
+  const savedById = new Map<string, SaveNpcState>()
+  const savedWithoutId: SaveNpcState[] = []
+  for (let i = 0; i < npcsState.length; i++) {
+    const savedState = npcsState[i]
     if (savedState.id) {
       savedById.set(savedState.id, savedState)
     } else {
@@ -4507,26 +4507,26 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
 
   const usedEntities = new Set<Entity>()
 
-  const resolveEnemyMapConfig = (
-    savedState: SaveEnemyState
-  ): MapEnemy | undefined => {
+  const resolveNpcMapConfig = (
+    savedState: SaveNpcState
+  ): MapNpc | undefined => {
     if (!activeMapData) {
       return undefined
     }
-    const mapEnemies = activeMapData.enemies
+    const mapNpcs = activeMapData.npcs
     const spawnIndex = savedState.spawnIndex
     if (
       !Number.isInteger(spawnIndex) ||
       spawnIndex < 0 ||
-      spawnIndex >= mapEnemies.length
+      spawnIndex >= mapNpcs.length
     ) {
       return undefined
     }
-    return mapEnemies[spawnIndex]
+    return mapNpcs[spawnIndex]
   }
 
-  const applyStateToEntity = (entity: Entity, savedState: SaveEnemyState) => {
-    const mapEnemy = resolveEnemyMapConfig(savedState)
+  const applyStateToEntity = (entity: Entity, savedState: SaveNpcState) => {
+    const mapNpc = resolveNpcMapConfig(savedState)
     setEntityTransformFromSave(
       entity,
       savedState.position.x,
@@ -4536,15 +4536,15 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       entity.stats.health = savedState.health
       entity.stats.posture = savedState.posture
       entity.stats.toughness = savedState.toughness
-      entity.stats.debugNoDamage = mapEnemy?.debugNoDamage === true
-      entity.stats.debugNoDeath = mapEnemy?.debugNoDeath === true
+      entity.stats.debugNoDamage = mapNpc?.debugNoDamage === true
+      entity.stats.debugNoDeath = mapNpc?.debugNoDeath === true
       entity.stats.isDead = savedState.isDead
       entity.stats.isVanished = savedState.isVanished
       if (savedState.id) {
         entity.stats.persistentId = savedState.id
-        syncEnemyIdCounter(savedState.id)
+        syncNpcIdCounter(savedState.id)
       } else {
-        ensureEnemyPersistentId(entity)
+        ensureNpcPersistentId(entity)
       }
     }
 
@@ -4552,11 +4552,11 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       entity.input.lastMoveDirection = savedState.facing
     }
 
-    if (entity.enemyAI) {
-      entity.enemyAI.state = savedState.aiState
-      entity.enemyAI.currentWaypointIndex = savedState.currentWaypointIndex
-      entity.enemyAI.lastPosition.x = savedState.position.x
-      entity.enemyAI.lastPosition.y = savedState.position.y
+    if (entity.npcAI) {
+      entity.npcAI.state = savedState.aiState
+      entity.npcAI.currentWaypointIndex = savedState.currentWaypointIndex
+      entity.npcAI.lastPosition.x = savedState.position.x
+      entity.npcAI.lastPosition.y = savedState.position.y
     }
 
     if (entity.weaponSlots && entity.weapon) {
@@ -4584,8 +4584,8 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
           entity.weapon.movesetId.length > 0
         entity.attackSlots.normal.movesetId = entity.weapon.movesetId
       }
-      if (entity.enemyAI) {
-        entity.enemyAI.movesetId = entity.weapon.movesetId
+      if (entity.npcAI) {
+        entity.npcAI.movesetId = entity.weapon.movesetId
       }
     }
 
@@ -4612,23 +4612,23 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       applyStateToEntity(entity, savedState)
       continue
     }
-    const mapEnemy = resolveEnemyMapConfig(savedState)
-    const enemyType = mapEnemy?.enemyType ?? savedState.enemyType ?? 'default'
-    const created = createEnemy(
+    const mapNpc = resolveNpcMapConfig(savedState)
+    const npcType = mapNpc?.npcType ?? savedState.npcType ?? 'default'
+    const created = createNpc(
       world,
       box2d,
       worldId,
       savedState.position.x,
       savedState.position.y,
       groundTopY,
-      enemyType,
-      mapEnemy
+      npcType,
+      mapNpc
     )
-    if (created.render && mapEnemy) {
+    if (created.render && mapNpc) {
       created.render.bodyProfileIndex = isValidCharacterBodyProfile(
-        mapEnemy.bodyProfile
+        mapNpc.bodyProfile
       )
-        ? getEnemyBodyProfileIndex(savedState.spawnIndex)
+        ? getNpcBodyProfileIndex(savedState.spawnIndex)
         : 0
     }
     applyStateToEntity(created, savedState)
@@ -4643,30 +4643,30 @@ function restoreEnemiesState(enemiesState: SaveEnemyState[]): void {
       applyStateToEntity(entity, savedState)
       continue
     }
-    const mapEnemy = resolveEnemyMapConfig(savedState)
-    const enemyType = mapEnemy?.enemyType ?? savedState.enemyType ?? 'default'
-    const created = createEnemy(
+    const mapNpc = resolveNpcMapConfig(savedState)
+    const npcType = mapNpc?.npcType ?? savedState.npcType ?? 'default'
+    const created = createNpc(
       world,
       box2d,
       worldId,
       savedState.position.x,
       savedState.position.y,
       groundTopY,
-      enemyType,
-      mapEnemy
+      npcType,
+      mapNpc
     )
-    if (created.render && mapEnemy) {
+    if (created.render && mapNpc) {
       created.render.bodyProfileIndex = isValidCharacterBodyProfile(
-        mapEnemy.bodyProfile
+        mapNpc.bodyProfile
       )
-        ? getEnemyBodyProfileIndex(savedState.spawnIndex)
+        ? getNpcBodyProfileIndex(savedState.spawnIndex)
         : 0
     }
     applyStateToEntity(created, savedState)
   }
 
-  for (let i = 0; i < currentEnemies.length; i++) {
-    const entity = currentEnemies[i]
+  for (let i = 0; i < currentNpcs.length; i++) {
+    const entity = currentNpcs[i]
     if (usedEntities.has(entity)) continue
     if (entity.stats) {
       entity.stats.isDead = true

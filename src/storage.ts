@@ -2,9 +2,12 @@ import { DEFAULT_CAMERA_ZOOM } from './constants'
 import type {
   EditorMapData,
   EditorMapMeta,
+  EditorTreeNode,
   EditorViewportState,
+  MapNpc,
 } from './editorMapTypes'
-import type { SaveData, SaveMeta } from './saveTypes'
+import type { SaveData, SaveMeta, SaveNpcState } from './saveTypes'
+import type { NpcType } from './types'
 
 const DB_NAME = 'sl2d'
 const DB_VERSION = 5
@@ -157,7 +160,7 @@ export async function loadEditorMapData(
           resolve(null)
           return
         }
-        resolve(result.data)
+        resolve(normalizeEditorMapData(result.data))
       }
 
       request.onerror = () => resolve(null)
@@ -460,7 +463,7 @@ function buildDefaultMapData(
     playerSpawn: { x: playerSpawnX, y: playerSpawnY },
     camera: { x: 0, y: 0, zoom: DEFAULT_CAMERA_ZOOM },
     shapes: [groundShape, ...obstacleShapes],
-    enemies: [],
+    npcs: [],
     weapons: [],
     checkpoints: [],
   }
@@ -469,6 +472,60 @@ function buildDefaultMapData(
 interface StoredSaveDataRecord {
   id: string
   data: SaveData
+}
+
+function normalizeMapNpc(npc: MapNpc): MapNpc {
+  return {
+    ...npc,
+    npcType: npc.npcType ?? npc.enemyType ?? ('default' as NpcType),
+    npcFactions: npc.npcFactions ?? npc.enemyFactions,
+  }
+}
+
+function normalizeMapPlayer(
+  player: EditorMapData['player']
+): EditorMapData['player'] {
+  if (!player) return player
+  return {
+    ...player,
+    npcFactions: player.npcFactions ?? player.enemyFactions,
+  }
+}
+
+function normalizeEditorMapData(data: EditorMapData): EditorMapData {
+  const rawNpcs = data.npcs ?? data.enemies ?? []
+  const editorTree = data.editorTree
+    ? {
+        ...data.editorTree,
+        nodes: data.editorTree.nodes.map<EditorTreeNode>((node) =>
+          node.type === 'enemy'
+            ? { ...node, type: 'npc' }
+            : { ...node, type: node.type }
+        ),
+      }
+    : undefined
+
+  return {
+    ...data,
+    player: normalizeMapPlayer(data.player),
+    npcs: rawNpcs.map(normalizeMapNpc),
+    editorTree,
+  }
+}
+
+function normalizeSaveNpcState(npc: SaveNpcState): SaveNpcState {
+  return {
+    ...npc,
+    npcType: npc.npcType ?? npc.enemyType ?? ('default' as NpcType),
+  }
+}
+
+function normalizeSaveData(saveData: SaveData): SaveData {
+  return {
+    ...saveData,
+    mapData: normalizeEditorMapData(saveData.mapData),
+    npcs: (saveData.npcs ?? saveData.enemies ?? []).map(normalizeSaveNpcState),
+  }
 }
 
 export async function listSaves(): Promise<SaveMeta[]> {
@@ -512,7 +569,7 @@ export async function loadSaveData(saveId: string): Promise<SaveData | null> {
           resolve(null)
           return
         }
-        resolve(result.data)
+        resolve(normalizeSaveData(result.data))
       }
 
       request.onerror = () => resolve(null)
@@ -568,7 +625,7 @@ export async function createSave(
         secondaryWeapon: null,
         activeSlot: 'main',
       },
-      enemies: [],
+      npcs: [],
       groundWeapons: [],
       camera: {
         x: mapData.camera.x,

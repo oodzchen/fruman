@@ -24,13 +24,13 @@ import {
 } from '../renderer/HudWeaponSlotRenderer'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type {
-  EnemyDetectionRangeLevel,
-  EnemyPatrolMode,
   NormalAttackMovesetId,
+  NpcDetectionRangeLevel,
+  NpcPatrolMode,
   WeaponType,
 } from '../types'
 import {
-  getDefaultEnemyAmmoForWeaponType,
+  getDefaultNpcAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
   getWeaponGroundRotationRad,
   isRangedWeaponType,
@@ -40,13 +40,13 @@ import { EditorCharacterBodyDrawer } from './EditorCharacterBodyDrawer'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import {
   computeWeaponRenderDimensions,
-  renderEnemyPreviewToContext,
+  renderNpcPreviewToContext,
 } from './EditorRenderUtils'
 import { EditorUIHelper } from './EditorUIHelper'
 import type {
   EditorObjectData,
-  EnemyMarker,
-  EnemyMarkerData,
+  NpcMarker,
+  NpcMarkerData,
   PlayerMarker,
   PlayerMarkerData,
   WeaponMarker,
@@ -67,7 +67,7 @@ type CharacterWeaponBinding = {
 
 type CharacterDialogOptions = {
   title: string
-  marker: EnemyMarker | PlayerMarker
+  marker: NpcMarker | PlayerMarker
   data: {
     radius: number
     bodyHeight: number
@@ -75,8 +75,8 @@ type CharacterDialogOptions = {
     moveSpeed?: number
     attackDesire?: number
     parryProficiency?: number
-    initialPatrolMode?: EnemyPatrolMode
-    detectionRangeLevel?: EnemyDetectionRangeLevel
+    initialPatrolMode?: NpcPatrolMode
+    detectionRangeLevel?: NpcDetectionRangeLevel
     maxHealth: number
     maxPosture: number
     maxToughness: number
@@ -90,7 +90,7 @@ type CharacterDialogOptions = {
     retreatDelaySec?: number
     canBeFollower?: boolean
     factionId: string
-    enemyFactions: string[]
+    npcFactions: string[]
     allyFactions: string[]
   }
   attackMovesetOwner: AttackMovesetOwner
@@ -104,7 +104,7 @@ type CharacterDialogOptions = {
   showCanBeFollower?: boolean
   weaponBindings: CharacterWeaponBinding[]
   updateMarkerVisual: (
-    marker: EnemyMarker | PlayerMarker,
+    marker: NpcMarker | PlayerMarker,
     radiusMeters: number,
     bodyHeightMeters: number,
     color: string,
@@ -117,8 +117,8 @@ type CharacterDialogOptions = {
     moveSpeed?: number
     attackDesire?: number
     parryProficiency?: number
-    initialPatrolMode?: EnemyPatrolMode
-    detectionRangeLevel?: EnemyDetectionRangeLevel
+    initialPatrolMode?: NpcPatrolMode
+    detectionRangeLevel?: NpcDetectionRangeLevel
     facing: number
     initialNormalMovesetId: NormalAttackMovesetId
     maxHealth: number
@@ -132,7 +132,7 @@ type CharacterDialogOptions = {
     retreatDelaySec?: number
     canBeFollower?: boolean
     factionId: string
-    enemyFactions: string[]
+    npcFactions: string[]
     allyFactions: string[]
     mainWeaponType?: WeaponType
     mainWeaponMarker?: WeaponMarker
@@ -144,7 +144,7 @@ type CharacterDialogOptions = {
 export interface EditorPropertiesPanelContext {
   getFabricCanvas: () => fabric.Canvas | null
   weaponMarkerMap: Map<fabric.Object, WeaponMarkerData>
-  enemyMarkerMap: Map<fabric.Object, EnemyMarkerData>
+  npcMarkerMap: Map<fabric.Object, NpcMarkerData>
   playerMarkerData: () => PlayerMarkerData | null
   editorObjectMap: Map<fabric.Object, EditorObjectData>
   objectFactory: EditorObjectFactory
@@ -154,8 +154,8 @@ export interface EditorPropertiesPanelContext {
   addFaction: (id: string) => void
   applyMapSnapshot: (data: EditorMapData) => void
   onHistoryCapture: () => void
-  getOrCreateEnemyWeaponMarker: (
-    enemyData: EnemyMarkerData,
+  getOrCreateNpcWeaponMarker: (
+    npcData: NpcMarkerData,
     weaponType: WeaponType,
     slot: 'main' | 'secondary'
   ) => WeaponMarker | null
@@ -164,8 +164,8 @@ export interface EditorPropertiesPanelContext {
     weaponType: WeaponType,
     slot: 'main' | 'secondary'
   ) => WeaponMarker | null
-  updateEnemyMarkerVisual: (
-    marker: EnemyMarker,
+  updateNpcMarkerVisual: (
+    marker: NpcMarker,
     radiusMeters: number,
     bodyHeightMeters: number,
     color: string,
@@ -364,7 +364,7 @@ export class EditorPropertiesPanel {
       const patrolRow = EditorUIHelper.createFormRow(
         localizer.t('editor_enemy_prop_patrol_mode')
       )
-      const patrolModes: EnemyPatrolMode[] = ['patrol', 'guard']
+      const patrolModes: NpcPatrolMode[] = ['patrol', 'guard']
       patrolSelect = EditorUIHelper.createSelect({
         options: patrolModes.map((mode) => ({
           value: mode,
@@ -381,7 +381,7 @@ export class EditorPropertiesPanel {
       const detectionRangeRow = EditorUIHelper.createFormRow(
         localizer.t('editor_enemy_prop_detection_range')
       )
-      const levels: EnemyDetectionRangeLevel[] = ['near', 'medium', 'far']
+      const levels: NpcDetectionRangeLevel[] = ['near', 'medium', 'far']
       detectionRangeSelect = EditorUIHelper.createSelect({
         options: levels.map((lvl) => ({
           value: lvl,
@@ -440,16 +440,16 @@ export class EditorPropertiesPanel {
       basicPanel.appendChild(container)
       return container
     }
-    const enemyFactionContainer = createFactionSection(
-      'editor_faction_prop_enemy_factions'
+    const npcFactionContainer = createFactionSection(
+      'editor_faction_prop_npc_factions'
     )
     const allyFactionContainer = createFactionSection(
       'editor_faction_prop_ally_factions'
     )
 
-    const getEnemyFactionSelected = (): string[] => {
+    const getNpcFactionSelected = (): string[] => {
       const result: string[] = []
-      enemyFactionContainer
+      npcFactionContainer
         .querySelectorAll<HTMLInputElement>('input[type=checkbox]')
         .forEach((cb) => {
           if (cb.checked) result.push(cb.value)
@@ -486,22 +486,22 @@ export class EditorPropertiesPanel {
     }
 
     const rebuildFactionCheckboxes = (
-      overrideEnemy?: string[],
+      overrideNpc?: string[],
       overrideAlly?: string[]
     ) => {
       const currentFaction = factionSelectEl.value
-      const enemySel = overrideEnemy ?? getEnemyFactionSelected()
+      const npcSel = overrideNpc ?? getNpcFactionSelected()
       const allySel = overrideAlly ?? getAllyFactionSelected()
       const factions = this.context.getFactions()
 
-      enemyFactionContainer.innerHTML = ''
+      npcFactionContainer.innerHTML = ''
       allyFactionContainer.innerHTML = ''
 
       for (const fid of factions) {
         if (fid === currentFaction) continue
-        const isEnemy = enemySel.includes(fid)
+        const isNpc = npcSel.includes(fid)
         const isAlly = allySel.includes(fid)
-        createFactionCheckbox(enemyFactionContainer, fid, isEnemy, (f, v) => {
+        createFactionCheckbox(npcFactionContainer, fid, isNpc, (f, v) => {
           if (v) {
             const allyCb = allyFactionContainer.querySelector<HTMLInputElement>(
               `input[value="${f}"]`
@@ -511,18 +511,17 @@ export class EditorPropertiesPanel {
         })
         createFactionCheckbox(allyFactionContainer, fid, isAlly, (f, v) => {
           if (v) {
-            const enemyCb =
-              enemyFactionContainer.querySelector<HTMLInputElement>(
-                `input[value="${f}"]`
-              )
-            if (enemyCb) enemyCb.checked = false
+            const npcCb = npcFactionContainer.querySelector<HTMLInputElement>(
+              `input[value="${f}"]`
+            )
+            if (npcCb) npcCb.checked = false
           }
         })
       }
     }
 
     rebuildFactionCheckboxes(
-      options.data.enemyFactions,
+      options.data.npcFactions,
       options.data.allyFactions
     )
     factionSelectEl.addEventListener('change', () => rebuildFactionCheckboxes())
@@ -1124,7 +1123,7 @@ export class EditorPropertiesPanel {
       if (facing < 0) {
         renderMainWeapon()
       }
-      renderEnemyPreviewToContext(
+      renderNpcPreviewToContext(
         previewCtx,
         centerX,
         centerY,
@@ -1221,10 +1220,10 @@ export class EditorPropertiesPanel {
         ? Number.parseFloat(parryInput.value)
         : 0
       const initialPatrolMode = patrolSelect
-        ? (patrolSelect.value as EnemyPatrolMode)
+        ? (patrolSelect.value as NpcPatrolMode)
         : undefined
       const detectionRangeLevel = detectionRangeSelect
-        ? (detectionRangeSelect.value as EnemyDetectionRangeLevel)
+        ? (detectionRangeSelect.value as NpcDetectionRangeLevel)
         : undefined
 
       if (
@@ -1327,7 +1326,7 @@ export class EditorPropertiesPanel {
         retreatDelaySec,
         canBeFollower,
         factionId: factionSelectEl.value,
-        enemyFactions: getEnemyFactionSelected(),
+        npcFactions: getNpcFactionSelected(),
         allyFactions: getAllyFactionSelected(),
         mainWeaponType,
         mainWeaponMarker,
@@ -1363,13 +1362,13 @@ export class EditorPropertiesPanel {
     dialog.show(viewport)
   }
 
-  public async showEnemyPropertiesDialog(marker: EnemyMarker) {
-    const data = this.context.enemyMarkerMap.get(marker)
+  public async showNpcPropertiesDialog(marker: NpcMarker) {
+    const data = this.context.npcMarkerMap.get(marker)
     if (!data) {
       return
     }
     const editorData = this.context.editorObjectMap.get(marker)
-    const enemyTypeLocal = localizer.t(`editor_enemy_${data.enemyType}`)
+    const npcTypeLocal = localizer.t(`editor_enemy_${data.npcType}`)
     const objectName = editorData?.name ?? ''
     const mainBinding: CharacterWeaponBinding = {
       label: localizer.t('editor_weapon_category_main'),
@@ -1380,7 +1379,7 @@ export class EditorPropertiesPanel {
         { label: localizer.t('editor_weapon_spear'), value: 'spear' },
         { label: localizer.t('editor_weapon_hammer'), value: 'hammer' },
       ],
-      defaultBowAmmo: getDefaultEnemyAmmoForWeaponType('sword'),
+      defaultBowAmmo: getDefaultNpcAmmoForWeaponType('sword'),
       getWeaponType: () => data.mainWeapon,
       setWeaponType: (weaponType) => {
         data.mainWeapon = weaponType
@@ -1391,7 +1390,7 @@ export class EditorPropertiesPanel {
         data.mainWeaponMarker = weaponMarker
       },
       ensureWeaponMarker: (weaponType) =>
-        this.context.getOrCreateEnemyWeaponMarker(data, weaponType, 'main'),
+        this.context.getOrCreateNpcWeaponMarker(data, weaponType, 'main'),
     }
     const secondaryBinding: CharacterWeaponBinding = {
       label: localizer.t('editor_weapon_category_secondary'),
@@ -1401,7 +1400,7 @@ export class EditorPropertiesPanel {
         { label: localizer.t('editor_weapon_bow'), value: 'bow' },
         { label: localizer.t('editor_weapon_grape'), value: 'grape' },
       ],
-      defaultBowAmmo: getDefaultEnemyAmmoForWeaponType('grape'),
+      defaultBowAmmo: getDefaultNpcAmmoForWeaponType('grape'),
       getWeaponType: () => data.secondaryWeapon,
       setWeaponType: (weaponType) => {
         data.secondaryWeapon = weaponType
@@ -1412,18 +1411,14 @@ export class EditorPropertiesPanel {
         data.secondaryWeaponMarker = weaponMarker
       },
       ensureWeaponMarker: (weaponType) =>
-        this.context.getOrCreateEnemyWeaponMarker(
-          data,
-          weaponType,
-          'secondary'
-        ),
+        this.context.getOrCreateNpcWeaponMarker(data, weaponType, 'secondary'),
     }
 
     await this.showCharacterPropertiesDialog({
-      title: `[${enemyTypeLocal}] ${objectName}`,
+      title: `[${npcTypeLocal}] ${objectName}`,
       marker,
       data,
-      attackMovesetOwner: 'enemy',
+      attackMovesetOwner: 'npc',
       showMoveSpeed: true,
       showAttackDesire: true,
       showParry: true,
@@ -1434,7 +1429,7 @@ export class EditorPropertiesPanel {
       showCanBeFollower: true,
       weaponBindings: [mainBinding, secondaryBinding],
       updateMarkerVisual: (m, r, bh, c, f) =>
-        this.context.updateEnemyMarkerVisual(m as EnemyMarker, r, bh, c, f),
+        this.context.updateNpcMarkerVisual(m as NpcMarker, r, bh, c, f),
       onCommit: (values) => {
         data.radius = values.radius
         data.bodyHeight = values.bodyHeight
@@ -1470,7 +1465,7 @@ export class EditorPropertiesPanel {
           data.canBeFollower = values.canBeFollower
         }
         data.factionId = values.factionId
-        data.enemyFactions = values.enemyFactions
+        data.npcFactions = values.npcFactions
         data.allyFactions = values.allyFactions
 
         data.mainWeapon = values.mainWeaponType
@@ -1501,10 +1496,10 @@ export class EditorPropertiesPanel {
         marker.canBeFollower = data.canBeFollower
         marker.equipWeapon = data.equipWeapon
         marker.factionId = data.factionId
-        marker.enemyFactions = data.enemyFactions
+        marker.npcFactions = data.npcFactions
         marker.allyFactions = data.allyFactions
 
-        this.context.updateEnemyMarkerVisual(
+        this.context.updateNpcMarkerVisual(
           marker,
           data.radius,
           data.bodyHeight,
@@ -1594,7 +1589,7 @@ export class EditorPropertiesPanel {
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
         data.factionId = values.factionId
-        data.enemyFactions = values.enemyFactions
+        data.npcFactions = values.npcFactions
         data.allyFactions = values.allyFactions
 
         data.mainWeapon = values.mainWeaponType
@@ -1614,7 +1609,7 @@ export class EditorPropertiesPanel {
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
         marker.factionId = data.factionId
-        marker.enemyFactions = data.enemyFactions
+        marker.npcFactions = data.npcFactions
         marker.allyFactions = data.allyFactions
 
         this.context.updatePlayerMarkerVisual(

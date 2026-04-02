@@ -30,7 +30,7 @@ TransformComponent      - 位置、旋转、缩放
 PhysicsComponent        - Box2D物理体、速度缓存
 MovementComponent       - 移动速度、跳跃参数、接地状态
 InputComponent          - 输入状态、InputBuffer
-EnemyAIComponent        - AI状态机、巡逻点、目标、感知系统
+NpcAIComponent        - AI状态机、巡逻点、目标、感知系统
 StatsComponent          - 血量、韧性、姿态、跌落伤害
 WeaponComponent         - 武器类型、攻击状态、连击
 WeaponSlotsComponent    - 多武器槽、切换系统
@@ -47,7 +47,7 @@ Worker线程中的更新顺序：
 ```
 1. PhysicsSystem      - Box2D世界步进（60Hz固定时间步）
 2. MovementSystem     - 处理移动、跳跃、蹬墙跳
-3. EnemyAISystem      - AI决策生成输入（节流200ms）
+3. NpcAISystem      - AI决策生成输入（节流200ms）
 4. TargetingSystem    - 目标锁定和追踪
 5. WeaponSystem       - 武器状态机、连击系统
 6. ArrowSystem        - 箭矢飞行和碰撞检测
@@ -159,7 +159,7 @@ src/
 │   ├── systems/                     # 9个游戏系统
 │   │   ├── PhysicsSystem.ts
 │   │   ├── MovementSystem.ts
-│   │   ├── EnemyAISystem.ts
+│   │   ├── NpcAISystem.ts
 │   │   ├── TargetingSystem.ts
 │   │   ├── WeaponSystem.ts
 │   │   ├── ArrowSystem.ts
@@ -225,7 +225,7 @@ public/audios/                       # 音效资源（7个WAV文件）
 - [x] `src/ecs/systems/WeaponSystem.ts` - 武器状态机、连击系统
 - [x] `src/ecs/systems/ArrowSystem.ts` - 箭矢系统（替代ProjectileSystem）
 - [x] `src/ecs/systems/StatsSystem.ts` - 属性系统、伤害计算（替代CombatSystem）
-- [x] `src/ecs/systems/EnemyAISystem.ts` - 敌人AI状态机
+- [x] `src/ecs/systems/NpcAISystem.ts` - 敌人AI状态机
 - [x] `src/ecs/systems/TargetingSystem.ts` - 目标锁定系统
 
 ### 阶段4：附加系统 - 已完成
@@ -373,10 +373,10 @@ worker.postMessage({
 
 ```typescript
 // 创建时决定能力
-const basicEnemy = createEnemy(world, box2d, worldId, x, y, 'basic')
+const basicEnemy = createNpc(world, box2d, worldId, x, y, 'basic')
 // basicEnemy.Movement.maxWallJumps = 0（无蹬墙跳）
 
-const advancedEnemy = createEnemy(world, box2d, worldId, x, y, 'advanced')
+const advancedEnemy = createNpc(world, box2d, worldId, x, y, 'advanced')
 // advancedEnemy.Movement.maxWallJumps = 1（有蹬墙跳）
 ```
 
@@ -415,7 +415,7 @@ function onPickupDash(player: Entity) {
 Worker线程：
   PhysicsSystem:      5ms   (Box2D step + 批量同步)
   MovementSystem:     2ms   (移动+跳跃逻辑)
-  EnemyAISystem:      0.3ms (节流200ms，每帧少量决策)
+  NpcAISystem:      0.3ms (节流200ms，每帧少量决策)
   TargetingSystem:    1ms   (目标查询)
   WeaponSystem:       2ms   (武器状态更新)
   ArrowSystem:        1ms   (箭矢更新)
@@ -435,7 +435,7 @@ Worker线程：
 - 对象池：ArrowPools避免箭矢频繁创建销毁
 - 空间分区：SpatialHash加速范围查询
 - 视锥剔除：ClientRenderer只渲染可见实体
-- AI节流：EnemyAISystem降低决策频率
+- AI节流：NpcAISystem降低决策频率
 - 零拷贝：SharedArrayBuffer避免序列化
 
 ---
@@ -517,7 +517,7 @@ src/ecs/SpatialHash.ts           - 空间分区索引
 ```
 src/ecs/systems/PhysicsSystem.ts      - Box2D物理模拟
 src/ecs/systems/MovementSystem.ts     - 移动和跳跃
-src/ecs/systems/EnemyAISystem.ts      - 敌人AI
+src/ecs/systems/NpcAISystem.ts      - 敌人AI
 src/ecs/systems/TargetingSystem.ts    - 目标锁定
 src/ecs/systems/WeaponSystem.ts       - 武器状态机
 src/ecs/systems/ArrowSystem.ts        - 箭矢系统

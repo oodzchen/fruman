@@ -6,7 +6,7 @@ import type { WeaponType } from '../types'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
 
-export function computeEnemyBodyRadiusPx(
+export function computeNpcBodyRadiusPx(
   radiusMeters: number,
   pixelsPerMeter: number
 ): number {
@@ -35,7 +35,7 @@ export function computeWeaponRenderDimensions(
   }
 }
 
-export function renderEnemyPreviewToContext(
+export function renderNpcPreviewToContext(
   ctx: CanvasRenderingContext2D,
   centerX: number,
   centerY: number,
@@ -47,7 +47,7 @@ export function renderEnemyPreviewToContext(
   bodyProfile: MapCharacterBodyProfile | null = null,
   bodyTexture: CanvasImageSource | null = null
 ): void {
-  const bodyRadius = computeEnemyBodyRadiusPx(radiusMeters, pixelsPerMeter)
+  const bodyRadius = computeNpcBodyRadiusPx(radiusMeters, pixelsPerMeter)
   const bodyHeightPx =
     bodyHeightMeters > 0 ? bodyHeightMeters * pixelsPerMeter : undefined
   ctx.save()

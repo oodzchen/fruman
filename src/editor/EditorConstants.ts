@@ -1,6 +1,6 @@
 import { fabric } from 'fabric'
 
-import type { EnemyType } from '../types'
+import type { NpcType } from '../types'
 
 // ========================================
 // 对象池
@@ -27,7 +27,7 @@ export const EDITOR_PIXELS_PER_METER = 50
 
 export const DEBUG_EDITOR_MENU = false
 
-export const DEFAULT_ENEMY_TYPE: EnemyType = 'default'
+export const DEFAULT_NPC_TYPE: NpcType = 'default'
 
 export const EDITOR_HISTORY_MAX_ENTRIES = 60
 export const EDITOR_NUDGE_STEP_PX = 1
@@ -51,7 +51,7 @@ export const CAMERA_ICON_FILL = 'rgba(230, 230, 230, 0.18)'
 
 export const PLAYER_BODY_COLOR = '#FF7A1A'
 export const PLAYER_EYE_COLOR = '#000000'
-export const ENEMY_EYE_COLOR = '#000000'
+export const NPC_EYE_COLOR = '#000000'
 export const HOOK_ANCHOR_COLOR = '#c6b07a'
 export const HOOK_ANCHOR_BORDER_COLOR = '#6d5a3f'
 

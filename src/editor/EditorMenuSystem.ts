@@ -2,7 +2,7 @@ import { localizer } from '../Localizer'
 import { WEAPON_DEFAULT_DATA } from '../constants'
 import type { WeaponCategory } from '../editorMapTypes'
 import { renderWeapon } from '../renderer/WeaponRenderer'
-import type { EnemyType, WeaponType } from '../types'
+import type { NpcType, WeaponType } from '../types'
 import { getWeaponGroundRotationRad } from '../weaponTypeUtils'
 import { DEBUG_EDITOR_MENU } from './EditorConstants'
 import { EditorMenuNavigator, EditorSubmenuMode } from './EditorMenuNavigator'
@@ -22,7 +22,7 @@ export interface EditorMenuSystemContext {
     category: WeaponCategory,
     size?: number
   ) => void
-  onEnemySelected: (enemyType: EnemyType) => void
+  onNpcSelected: (npcType: NpcType) => void
   onSunPickupSelected: (isLarge: boolean) => void
   onPanelMenuAdd: () => void
   onPanelMenuPaste: () => void
@@ -38,26 +38,26 @@ export class EditorMenuSystem {
   private groundSubmenu: HTMLDivElement
   private obstacleSubmenu: HTMLDivElement
   private weaponMenu: HTMLDivElement
-  private enemySubmenu: HTMLDivElement
+  private npcSubmenu: HTMLDivElement
   private propSubmenu: HTMLDivElement
   private groundMenuItem: HTMLButtonElement
   private obstacleMenuItem: HTMLButtonElement
   private weaponMenuItem: HTMLButtonElement
-  private enemyMenuItem: HTMLButtonElement
+  private npcMenuItem: HTMLButtonElement
   private propMenuItem: HTMLButtonElement
   private editorObjectItems: NodeListOf<HTMLButtonElement>
   private groundSubmenuItems: NodeListOf<HTMLButtonElement>
   private obstacleSubmenuItems: NodeListOf<HTMLButtonElement>
   private weaponItems: NodeListOf<HTMLButtonElement>
   private weaponGroupTitles: NodeListOf<HTMLDivElement>
-  private enemySubmenuItems: NodeListOf<HTMLButtonElement>
+  private npcSubmenuItems: NodeListOf<HTMLButtonElement>
   private propSubmenuItems: NodeListOf<HTMLButtonElement>
   private propSubmenuBackBtn: HTMLButtonElement
   private objectTypeMenuBackBtn: HTMLButtonElement
   private groundSubmenuBackBtn: HTMLButtonElement
   private obstacleSubmenuBackBtn: HTMLButtonElement
   private weaponMenuBackBtn: HTMLButtonElement
-  private enemySubmenuBackBtn: HTMLButtonElement
+  private npcSubmenuBackBtn: HTMLButtonElement
   private readonly weaponPreviewPixelsPerMeter = 16
 
   private menuNavigator: EditorMenuNavigator
@@ -80,7 +80,7 @@ export class EditorMenuSystem {
     const groundSubmenu = document.getElementById('editorGroundSubmenu')
     const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
     const weaponMenu = document.getElementById('editorWeaponMenu')
-    const enemySubmenu = document.getElementById('editorEnemySubmenu')
+    const npcSubmenu = document.getElementById('editorNpcSubmenu')
     const propSubmenu = document.getElementById('editorPropSubmenu')
 
     const groundMenuItem = document.querySelector<HTMLButtonElement>(
@@ -92,8 +92,8 @@ export class EditorMenuSystem {
     const weaponMenuItem = document.querySelector<HTMLButtonElement>(
       '.editor-object-item[data-type="weapon"]'
     )
-    const enemyMenuItem = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="enemy"]'
+    const npcMenuItem = document.querySelector<HTMLButtonElement>(
+      '.editor-object-item[data-type="npc"]'
     )
     const propMenuItem = document.querySelector<HTMLButtonElement>(
       '.editor-object-item[data-type="prop"]'
@@ -114,8 +114,8 @@ export class EditorMenuSystem {
     const weaponGroupTitles = document.querySelectorAll<HTMLDivElement>(
       '#editorWeaponMenu .editor-submenu-group-title'
     )
-    const enemySubmenuItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorEnemySubmenu .editor-submenu-item'
+    const npcSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
+      '#editorNpcSubmenu .editor-submenu-item'
     )
     const propSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorPropSubmenu .editor-submenu-item'
@@ -133,8 +133,8 @@ export class EditorMenuSystem {
     const weaponMenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorWeaponMenu .editor-submenu-item[data-action="back"]'
     )
-    const enemySubmenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorEnemySubmenu .editor-submenu-item[data-action="back"]'
+    const npcSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
+      '#editorNpcSubmenu .editor-submenu-item[data-action="back"]'
     )
     const propSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorPropSubmenu .editor-submenu-item[data-action="back"]'
@@ -148,18 +148,18 @@ export class EditorMenuSystem {
       !(groundSubmenu instanceof HTMLDivElement) ||
       !(obstacleSubmenu instanceof HTMLDivElement) ||
       !(weaponMenu instanceof HTMLDivElement) ||
-      !(enemySubmenu instanceof HTMLDivElement) ||
+      !(npcSubmenu instanceof HTMLDivElement) ||
       !(propSubmenu instanceof HTMLDivElement) ||
       !(groundMenuItem instanceof HTMLButtonElement) ||
       !(obstacleMenuItem instanceof HTMLButtonElement) ||
       !(weaponMenuItem instanceof HTMLButtonElement) ||
-      !(enemyMenuItem instanceof HTMLButtonElement) ||
+      !(npcMenuItem instanceof HTMLButtonElement) ||
       !(propMenuItem instanceof HTMLButtonElement) ||
       !(objectTypeMenuBackBtn instanceof HTMLButtonElement) ||
       !(groundSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(obstacleSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(weaponMenuBackBtn instanceof HTMLButtonElement) ||
-      !(enemySubmenuBackBtn instanceof HTMLButtonElement) ||
+      !(npcSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(propSubmenuBackBtn instanceof HTMLButtonElement)
     ) {
       throw new Error('EditorMenuSystem: required elements not found')
@@ -172,25 +172,25 @@ export class EditorMenuSystem {
     this.groundSubmenu = groundSubmenu
     this.obstacleSubmenu = obstacleSubmenu
     this.weaponMenu = weaponMenu
-    this.enemySubmenu = enemySubmenu
+    this.npcSubmenu = npcSubmenu
     this.propSubmenu = propSubmenu
     this.groundMenuItem = groundMenuItem
     this.obstacleMenuItem = obstacleMenuItem
     this.weaponMenuItem = weaponMenuItem
-    this.enemyMenuItem = enemyMenuItem
+    this.npcMenuItem = npcMenuItem
     this.propMenuItem = propMenuItem
     this.editorObjectItems = editorObjectItems
     this.groundSubmenuItems = groundSubmenuItems
     this.obstacleSubmenuItems = obstacleSubmenuItems
     this.weaponItems = weaponItems
     this.weaponGroupTitles = weaponGroupTitles
-    this.enemySubmenuItems = enemySubmenuItems
+    this.npcSubmenuItems = npcSubmenuItems
     this.propSubmenuItems = propSubmenuItems
     this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
     this.groundSubmenuBackBtn = groundSubmenuBackBtn
     this.obstacleSubmenuBackBtn = obstacleSubmenuBackBtn
     this.weaponMenuBackBtn = weaponMenuBackBtn
-    this.enemySubmenuBackBtn = enemySubmenuBackBtn
+    this.npcSubmenuBackBtn = npcSubmenuBackBtn
     this.propSubmenuBackBtn = propSubmenuBackBtn
 
     this.menuNavigator = new EditorMenuNavigator({
@@ -220,8 +220,8 @@ export class EditorMenuSystem {
         return this.obstacleSubmenuItems
       case EditorSubmenuMode.Weapon:
         return this.weaponItems
-      case EditorSubmenuMode.Enemy:
-        return this.enemySubmenuItems
+      case EditorSubmenuMode.Npc:
+        return this.npcSubmenuItems
       case EditorSubmenuMode.Prop:
         return this.propSubmenuItems
       default:
@@ -301,21 +301,21 @@ export class EditorMenuSystem {
     })
     this.bindMenuItems(this.weaponItems, EditorSubmenuMode.Weapon)
 
-    this.enemySubmenuItems.forEach((item) => {
+    this.npcSubmenuItems.forEach((item) => {
       item.addEventListener('click', () => {
         const action = item.dataset.action
         if (action === 'back') {
           this.handleMenuBack()
           return
         }
-        const enemyType = item.dataset.enemy as EnemyType | undefined
-        if (enemyType) {
-          this.ctx.onEnemySelected(enemyType)
+        const npcType = item.dataset.npc as NpcType | undefined
+        if (npcType) {
+          this.ctx.onNpcSelected(npcType)
           this.hideObjectTypeMenu()
         }
       })
     })
-    this.bindMenuItems(this.enemySubmenuItems, EditorSubmenuMode.Enemy)
+    this.bindMenuItems(this.npcSubmenuItems, EditorSubmenuMode.Npc)
 
     this.propSubmenuItems.forEach((item) => {
       item.addEventListener('click', () => {
@@ -374,7 +374,7 @@ export class EditorMenuSystem {
     this.weaponMenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
-    this.enemySubmenu.addEventListener('pointerdown', (event) => {
+    this.npcSubmenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
   }
@@ -432,8 +432,8 @@ export class EditorMenuSystem {
       }
       return
     }
-    if (this.menuMode === EditorSubmenuMode.Enemy) {
-      this.hideEnemySubmenu()
+    if (this.menuMode === EditorSubmenuMode.Npc) {
+      this.hideNpcSubmenu()
       if (this.isObjectTypeMenuVisible()) {
         this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
       }
@@ -516,10 +516,10 @@ export class EditorMenuSystem {
       }
     })
 
-    this.enemySubmenuItems.forEach((item) => {
-      const enemy = item.dataset.enemy
-      if (enemy) {
-        item.textContent = localizer.t(`editor_enemy_${enemy}`)
+    this.npcSubmenuItems.forEach((item) => {
+      const npc = item.dataset.npc
+      if (npc) {
+        item.textContent = localizer.t(`editor_enemy_${npc}`)
       }
     })
 
@@ -540,7 +540,7 @@ export class EditorMenuSystem {
     this.groundSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.obstacleSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.weaponMenuBackBtn.textContent = localizer.t('menu_back')
-    this.enemySubmenuBackBtn.textContent = localizer.t('menu_back')
+    this.npcSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.propSubmenuBackBtn.textContent = localizer.t('menu_back')
   }
 
@@ -692,7 +692,7 @@ export class EditorMenuSystem {
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideWeaponMenu()
-    this.hideEnemySubmenu()
+    this.hideNpcSubmenu()
     this.hidePropSubmenu()
   }
 
@@ -700,7 +700,7 @@ export class EditorMenuSystem {
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideWeaponMenu()
-    this.hideEnemySubmenu()
+    this.hideNpcSubmenu()
     this.hidePropSubmenu()
   }
 
@@ -711,7 +711,7 @@ export class EditorMenuSystem {
       this.groundSubmenu.classList.contains('is-visible') ||
       this.obstacleSubmenu.classList.contains('is-visible') ||
       this.weaponMenu.classList.contains('is-visible') ||
-      this.enemySubmenu.classList.contains('is-visible') ||
+      this.npcSubmenu.classList.contains('is-visible') ||
       this.propSubmenu.classList.contains('is-visible')
     )
   }
@@ -723,7 +723,7 @@ export class EditorMenuSystem {
       this.groundSubmenu.contains(target) ||
       this.obstacleSubmenu.contains(target) ||
       this.weaponMenu.contains(target) ||
-      this.enemySubmenu.contains(target) ||
+      this.npcSubmenu.contains(target) ||
       this.propSubmenu.contains(target)
     )
   }
@@ -731,7 +731,7 @@ export class EditorMenuSystem {
   showPanelMenu(clientX: number, clientY: number) {
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
-    this.hideEnemySubmenu()
+    this.hideNpcSubmenu()
     this.hideObjectTypeMenu()
     this.panelMenuX = clientX
     this.panelMenuY = clientY
@@ -760,7 +760,7 @@ export class EditorMenuSystem {
     this.hidePanelMenu()
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
-    this.hideEnemySubmenu()
+    this.hideNpcSubmenu()
     this.setObjectTypeHighlight(null)
     this.objectTypeMenuX = clientX
     this.objectTypeMenuY = clientY
@@ -795,7 +795,7 @@ export class EditorMenuSystem {
     this.hideGroundSubmenu()
     this.hideObstacleSubmenu()
     this.hideWeaponMenu()
-    this.hideEnemySubmenu()
+    this.hideNpcSubmenu()
     this.hidePropSubmenu()
     this.menuNavigator.setMode(EditorSubmenuMode.None, false)
   }
@@ -861,17 +861,17 @@ export class EditorMenuSystem {
     }
   }
 
-  showEnemySubmenu() {
-    this.hideSiblingSubmenus(EditorSubmenuMode.Enemy)
-    this.positionEnemySubmenu()
-    this.enemySubmenu.classList.add('is-visible')
-    this.menuNavigator.setMode(EditorSubmenuMode.Enemy, true)
-    this.setObjectTypeHighlight(ObjectType.Enemy)
+  showNpcSubmenu() {
+    this.hideSiblingSubmenus(EditorSubmenuMode.Npc)
+    this.positionNpcSubmenu()
+    this.npcSubmenu.classList.add('is-visible')
+    this.menuNavigator.setMode(EditorSubmenuMode.Npc, true)
+    this.setObjectTypeHighlight(ObjectType.Npc)
   }
 
-  hideEnemySubmenu() {
-    this.enemySubmenu.classList.remove('is-visible')
-    if (this.menuMode === EditorSubmenuMode.Enemy) {
+  hideNpcSubmenu() {
+    this.npcSubmenu.classList.remove('is-visible')
+    if (this.menuMode === EditorSubmenuMode.Npc) {
       if (this.objectTypeMenu.classList.contains('is-visible')) {
         this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
       } else {
@@ -927,8 +927,8 @@ export class EditorMenuSystem {
     this.positionShapeSubmenu(this.weaponMenuItem, this.weaponMenu)
   }
 
-  positionEnemySubmenu() {
-    this.positionShapeSubmenu(this.enemyMenuItem, this.enemySubmenu)
+  positionNpcSubmenu() {
+    this.positionShapeSubmenu(this.npcMenuItem, this.npcSubmenu)
   }
 
   handleWindowResize() {
@@ -1005,8 +1005,8 @@ export class EditorMenuSystem {
     if (exclude !== EditorSubmenuMode.Weapon) {
       this.hideWeaponMenu()
     }
-    if (exclude !== EditorSubmenuMode.Enemy) {
-      this.hideEnemySubmenu()
+    if (exclude !== EditorSubmenuMode.Npc) {
+      this.hideNpcSubmenu()
     }
     if (exclude !== EditorSubmenuMode.Prop) {
       this.hidePropSubmenu()

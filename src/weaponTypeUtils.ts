@@ -58,7 +58,7 @@ export function getDefaultPlayerAmmoForWeaponType(
     : DEFAULT_BOW_AMMO_PLAYER
 }
 
-export function getDefaultEnemyAmmoForWeaponType(
+export function getDefaultNpcAmmoForWeaponType(
   weaponType: string | undefined
 ): number {
   return weaponType === 'grape'

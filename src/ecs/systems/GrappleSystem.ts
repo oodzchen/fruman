@@ -52,7 +52,7 @@ const JOINT_INVALID = 0 as unknown as b2JointId
 
 export class GrappleSystem extends System {
   private readonly pullModeAnchor = 0
-  private readonly pullModeEnemy = 1
+  private readonly pullModeNpc = 1
   private readonly pullModePlayerLinear = 2
   private readonly pullModePlayerArc = 3
   private readonly pullModeAnchorTether = 4
@@ -318,10 +318,10 @@ export class GrappleSystem extends System {
               grapple.cooldownEndTime = this.currentTimeMs
               grapple.desiredDistanceSq = desiredDistance * desiredDistance
               this.statsSystem?.playSound(SOUND_IDS.GRAPPLE_PULL_START)
-              this.triggerEnemyAggro(entity, lockedTarget)
+              this.triggerNpcAggro(entity, lockedTarget)
               if (targetToughness <= playerToughness) {
-                grapple.pullMode = this.pullModeEnemy
-                this.applyEnemyStun(lockedTarget, grapple.pullDurationMs)
+                grapple.pullMode = this.pullModeNpc
+                this.applyNpcStun(lockedTarget, grapple.pullDurationMs)
               } else {
                 const isGrounded = lockedTarget.movement?.isGrounded ?? false
                 grapple.pullMode = isGrounded
@@ -521,7 +521,7 @@ export class GrappleSystem extends System {
     const radius = entity.render?.radius ?? 0.5
     const clearance = radius + 0.1
 
-    if (grapple.pullMode === this.pullModeEnemy) {
+    if (grapple.pullMode === this.pullModeNpc) {
       const targetEntity = this.getEntityById(grapple.targetEntityId)
       if (!targetEntity || !targetEntity.transform || !targetEntity.physics) {
         this.stopPull(entity, grapple, false)
@@ -530,13 +530,13 @@ export class GrappleSystem extends System {
       if (grapple.pullElapsedMs >= grapple.pullDurationMs) {
         this.stopLinearMotion(targetEntity)
         this.stopPull(entity, grapple, false)
-        this.applyEnemyStun(targetEntity, DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS)
+        this.applyNpcStun(targetEntity, DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS)
         return
       }
       if (distSq <= grapple.desiredDistanceSq) {
         this.stopLinearMotion(targetEntity)
         this.stopPull(entity, grapple, true)
-        this.applyEnemyStun(targetEntity, DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS)
+        this.applyNpcStun(targetEntity, DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS)
         return
       }
       this.applyLinearPull(targetEntity, entity, grapple.pullSpeed)
@@ -597,7 +597,7 @@ export class GrappleSystem extends System {
     ) {
       grapple.retainAirMomentum = true
     }
-    if (grapple.pullMode === this.pullModeEnemy) {
+    if (grapple.pullMode === this.pullModeNpc) {
       grapple.cooldownEndTime =
         this.currentTimeMs + DEFAULT_GRAPPLE_ENEMY_COOLDOWN_MS
     } else if (allowImmediateRetry) {
@@ -665,7 +665,7 @@ export class GrappleSystem extends System {
     return DEFAULT_WEAPON_ATTACK_RADIUS + targetRadius
   }
 
-  private applyEnemyStun(entity: Entity, durationMs: number): void {
+  private applyNpcStun(entity: Entity, durationMs: number): void {
     if (!entity.movement) return
     if (durationMs <= 0) return
     entity.movement.knockbackDuration = durationMs
@@ -673,21 +673,21 @@ export class GrappleSystem extends System {
     entity.movement.knockbackEndTime = this.currentTimeMs + durationMs
   }
 
-  private triggerEnemyAggro(attacker: Entity, target: Entity): void {
-    if (!target.enemyAI) return
-    if (!target.enemyAI || !target.input) return
+  private triggerNpcAggro(attacker: Entity, target: Entity): void {
+    if (!target.npcAI) return
+    if (!target.npcAI || !target.input) return
     if (target.stats?.isDead) return
 
-    target.enemyAI.alertChaseActive = true
-    target.enemyAI.alertTimeRemainingMs = 0
-    target.enemyAI.state = 'approach'
-    target.enemyAI.targetLostTimer = 0
+    target.npcAI.alertChaseActive = true
+    target.npcAI.alertTimeRemainingMs = 0
+    target.npcAI.state = 'approach'
+    target.npcAI.targetLostTimer = 0
     if (attacker.transform && target.transform) {
       const dx = attacker.transform.x - target.transform.x
-      target.enemyAI.forcedChaseDirection = dx >= 0 ? 1 : -1
-      target.enemyAI.forcedChaseDistanceRemaining =
-        target.enemyAI.detectionRange * 2
-      target.enemyAI.forcedChaseLastX = target.transform.x
+      target.npcAI.forcedChaseDirection = dx >= 0 ? 1 : -1
+      target.npcAI.forcedChaseDistanceRemaining =
+        target.npcAI.detectionRange * 2
+      target.npcAI.forcedChaseLastX = target.transform.x
     }
 
     target.input.lockedTargetId = attacker.id

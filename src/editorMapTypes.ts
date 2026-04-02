@@ -1,8 +1,8 @@
 import type {
-  EnemyDetectionRangeLevel,
-  EnemyPatrolMode,
-  EnemyType,
   NormalAttackMovesetId,
+  NpcDetectionRangeLevel,
+  NpcPatrolMode,
+  NpcType,
   WeaponType,
 } from './types'
 
@@ -15,6 +15,7 @@ export type WeaponCategory = 'main' | 'secondary' | 'item'
 export type EditorTreeObjectType =
   | 'empty'
   | 'player'
+  | 'npc'
   | 'enemy'
   | 'weapon'
   | 'camera'
@@ -110,7 +111,7 @@ export interface MapPlacedShape {
   shape: MapShape
 }
 
-export interface MapEnemyWeapon {
+export interface MapNpcWeapon {
   weaponType: MapWeaponType
   sizeLevel: number
   attackDamage: number
@@ -119,18 +120,19 @@ export interface MapEnemyWeapon {
   bowAmmo?: number
 }
 
-export interface MapEnemy {
+export interface MapNpc {
   x: number
   y: number
-  enemyType: EnemyType
+  npcType: NpcType
+  enemyType?: NpcType
   radius?: number
   bodyHeight?: number
   bodyProfile?: MapCharacterBodyProfile
   moveSpeed?: number
   attackDesire?: number
   parryProficiency?: number
-  initialPatrolMode?: EnemyPatrolMode
-  detectionRangeLevel?: EnemyDetectionRangeLevel
+  initialPatrolMode?: NpcPatrolMode
+  detectionRangeLevel?: NpcDetectionRangeLevel
   maxHealth?: number
   maxPosture?: number
   maxToughness?: number
@@ -144,9 +146,10 @@ export interface MapEnemy {
   retreatDelaySec?: number
   canBeFollower?: boolean
   equipWeapon?: boolean
-  mainWeapon?: MapEnemyWeapon
-  secondaryWeapon?: MapEnemyWeapon
+  mainWeapon?: MapNpcWeapon
+  secondaryWeapon?: MapNpcWeapon
   factionId?: string
+  npcFactions?: string[]
   enemyFactions?: string[]
   allyFactions?: string[]
 }
@@ -198,9 +201,10 @@ export interface MapPlayerProperties {
   debugNoDamage?: boolean
   debugNoDeath?: boolean
   initialNormalMovesetId?: NormalAttackMovesetId
-  mainWeapon?: MapEnemyWeapon
-  secondaryWeapon?: MapEnemyWeapon
+  mainWeapon?: MapNpcWeapon
+  secondaryWeapon?: MapNpcWeapon
   factionId?: string
+  npcFactions?: string[]
   enemyFactions?: string[]
   allyFactions?: string[]
 }
@@ -220,7 +224,8 @@ export interface EditorMapData {
   player?: MapPlayerProperties
   camera: MapCamera
   shapes: MapPlacedShape[]
-  enemies: MapEnemy[]
+  npcs: MapNpc[]
+  enemies?: MapNpc[]
   weapons?: MapWeapon[]
   checkpoints?: MapCheckpoint[]
   hookAnchors?: MapHookAnchor[]

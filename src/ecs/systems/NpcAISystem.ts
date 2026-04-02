@@ -34,8 +34,8 @@ import type { MainModule, b2WorldId } from '../../types'
 import { isRangedWeaponType } from '../../weaponTypeUtils'
 import { ATTACK_MOVESETS } from '../AttackMoveRegistry'
 import {
-  EnemyAIComponent,
   Faction,
+  NpcAIComponent,
   type WeaponSlotData,
   type WeaponSlotId,
 } from '../Component'
@@ -47,7 +47,7 @@ import type { WeaponSystem } from './WeaponSystem'
 const ARCHER_MELEE_RANGE_RATIO = 0.25
 const ENEMY_LOCK_LOST_TIMEOUT_MS = 3000
 
-export class EnemyAISystem extends System {
+export class NpcAISystem extends System {
   private player?: Entity
   private weaponSystem?: WeaponSystem
   private box2d: MainModule
@@ -61,7 +61,7 @@ export class EnemyAISystem extends System {
     const transformType = componentRegistry.getComponentType('Transform')
     const inputType = componentRegistry.getComponentType('Input')
     const factionType = componentRegistry.getComponentType('Faction')
-    const aiType = componentRegistry.getComponentType('EnemyAI')
+    const aiType = componentRegistry.getComponentType('NpcAI')
     const sensorType = componentRegistry.getComponentType('Sensor')
     this.setRequiredComponents([
       transformType,
@@ -124,16 +124,16 @@ export class EnemyAISystem extends System {
     let activeAttackers = 0
     for (const entity of entities) {
       if (
-        !!entity.enemyAI &&
+        !!entity.npcAI &&
         !entity.stats?.isDead &&
-        entity.enemyAI.state === 'combo'
+        entity.npcAI.state === 'combo'
       ) {
         activeAttackers++
       }
     }
 
     for (const entity of entities) {
-      if (!entity.transform || !entity.input || !entity.enemyAI) continue
+      if (!entity.transform || !entity.input || !entity.npcAI) continue
 
       // Resolve target: prefer sensor-detected, fall back to lockedTargetId, then player
       let target = this.player
@@ -156,15 +156,15 @@ export class EnemyAISystem extends System {
         !entity.faction.canAttackEntity(target.faction, target.id.toString())
       ) {
         if (entity.stats?.isInCombat) entity.stats.isInCombat = false
-        entity.enemyAI.forcedChaseDistanceRemaining = 0
-        entity.enemyAI.alertChaseActive = false
+        entity.npcAI.forcedChaseDistanceRemaining = 0
+        entity.npcAI.alertChaseActive = false
         if (entity.input.lockedTargetId !== null) {
           entity.input.lockedTargetId = null
           entity.input.lockLostTimer = 0
         }
         if (entity.weapon) entity.weapon.attackQueued = false
-        if (entity.enemyAI.retreatEnabled) {
-          this.handlePatrol(entity, entity.enemyAI, now)
+        if (entity.npcAI.retreatEnabled) {
+          this.handlePatrol(entity, entity.npcAI, now)
         } else {
           entity.input.moveDirection = 0
           entity.input.sprintRequested = false
@@ -187,7 +187,7 @@ export class EnemyAISystem extends System {
         continue
       }
 
-      const ai = entity.enemyAI
+      const ai = entity.npcAI
 
       const dx = target.transform.x - entity.transform.x
       const dy = target.transform.y - entity.transform.y
@@ -204,7 +204,7 @@ export class EnemyAISystem extends System {
         continue
       }
 
-      // Red Tape System: High proficiency enemies wait their turn
+      // Red Tape System: High proficiency npcs wait their turn
       ai.isRedTapeActive = false
       if (
         ai.redTapeEnabled &&
@@ -673,7 +673,7 @@ export class EnemyAISystem extends System {
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
 
-        // For skilled enemies, check distance between attacks
+        // For skilled npcs, check distance between attacks
         if (
           ai.parryProficiency >= 50 &&
           entity.weapon &&
@@ -856,7 +856,7 @@ export class EnemyAISystem extends System {
 
   private updateParryState(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     isPlayerSwinging: boolean,
     distance: number,
     weaponRange: number,
@@ -917,7 +917,7 @@ export class EnemyAISystem extends System {
 
   private tryTriggerObstacleJump(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     now: number
   ): boolean {
     if (
@@ -945,11 +945,7 @@ export class EnemyAISystem extends System {
     return false
   }
 
-  private handlePatrol(
-    entity: Entity,
-    ai: EnemyAIComponent,
-    now: number
-  ): void {
+  private handlePatrol(entity: Entity, ai: NpcAIComponent, now: number): void {
     if (!entity.input || !entity.transform) return
 
     entity.input.attackRequested = false
@@ -1139,7 +1135,7 @@ export class EnemyAISystem extends System {
 
   private updateAlertState(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     distance: number,
     hasAlertLineOfSight: boolean,
     deltaMs: number,
@@ -1273,7 +1269,7 @@ export class EnemyAISystem extends System {
 
   private clearAlertState(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     target: Entity
   ): void {
     if (ai.state === 'alert') {
@@ -1299,7 +1295,7 @@ export class EnemyAISystem extends System {
 
   private updateProbeCycle(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     effectiveAttackDesire: number,
     deltaMs: number,
     isEngaged: boolean,
@@ -1388,7 +1384,7 @@ export class EnemyAISystem extends System {
 
   private startProbeState(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     effectiveAttackDesire: number
   ): void {
     ai.state = 'probe'
@@ -1411,7 +1407,7 @@ export class EnemyAISystem extends System {
 
   private handleProbeState(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     distance: number,
     weaponRange: number,
     facing: number,
@@ -1479,7 +1475,7 @@ export class EnemyAISystem extends System {
 
   private handleObstacleJump(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     now: number,
     facing: number
   ): void {
@@ -1538,7 +1534,7 @@ export class EnemyAISystem extends System {
 
   private enterComboState(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     facing: number
   ): void {
     if (!entity.input) return
@@ -1582,7 +1578,7 @@ export class EnemyAISystem extends System {
 
   private startLeapAttack(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     facing: number,
     now: number
   ): void {
@@ -1603,7 +1599,7 @@ export class EnemyAISystem extends System {
 
   private handleLeapAttack(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     facing: number,
     now: number
   ): void {
@@ -1646,7 +1642,7 @@ export class EnemyAISystem extends System {
 
   private endLeapAttack(
     entity: Entity,
-    ai: EnemyAIComponent,
+    ai: NpcAIComponent,
     now: number,
     nextState: 'approach' | 'combo' | null
   ): void {
@@ -1663,7 +1659,7 @@ export class EnemyAISystem extends System {
   private queueAttack(
     entity: Entity,
     facing: number,
-    ai: Entity['enemyAI']
+    ai: Entity['npcAI']
   ): void {
     if (!entity.weapon || !entity.input || !ai) return
     if (!entity.weapon.isEquipped) return
@@ -1696,40 +1692,40 @@ export class EnemyAISystem extends System {
 
   private resetEnemies(entities: Entity[]): void {
     for (const entity of entities) {
-      if (!entity.input || !entity.enemyAI) continue
+      if (!entity.input || !entity.npcAI) continue
       entity.input.moveDirection = 0
       entity.input.facingOverride = null
       entity.input.blockRequested = false
-      if (entity.enemyAI) {
-        entity.enemyAI.state = 'approach'
-        entity.enemyAI.probeSwitchTimerMs = 0
-        entity.enemyAI.probePaceTimerMs = 0
-        entity.enemyAI.probePaceDirection = 1
-        entity.enemyAI.probePaceMovedDistance = 0
-        entity.enemyAI.probeLastPositionX = 0
-        entity.enemyAI.probeLastPositionY = 0
-        entity.enemyAI.probeHasTriggered = false
-        entity.enemyAI.forcedChaseDistanceRemaining = 0
-        entity.enemyAI.paceMovedDistance = 0
-        entity.enemyAI.paceLastPositionX = 0
-        entity.enemyAI.paceLastPositionY = 0
-        entity.enemyAI.arrowDefenseTimeRemainingMs = 0
-        entity.enemyAI.arrowDefenseSwitchTimerMs = 0
-        entity.enemyAI.arrowDefenseActive = false
-        entity.enemyAI.bowHoldTimerMs = 0
-        entity.enemyAI.bowCooldownTimerMs = 0
-        entity.enemyAI.archerShotCheckPending = false
-        entity.enemyAI.alertTimeRemainingMs = 0
-        entity.enemyAI.alertPaceDirection = 1
-        entity.enemyAI.alertPaceMovedDistance = 0
-        entity.enemyAI.alertPaceLastPositionX = 0
-        entity.enemyAI.alertPaceLastPositionY = 0
-        entity.enemyAI.alertLastPaceSwitchTimestamp = 0
-        entity.enemyAI.alertNextPaceResumeTimestamp = 0
-        entity.enemyAI.alertChaseActive = false
+      if (entity.npcAI) {
+        entity.npcAI.state = 'approach'
+        entity.npcAI.probeSwitchTimerMs = 0
+        entity.npcAI.probePaceTimerMs = 0
+        entity.npcAI.probePaceDirection = 1
+        entity.npcAI.probePaceMovedDistance = 0
+        entity.npcAI.probeLastPositionX = 0
+        entity.npcAI.probeLastPositionY = 0
+        entity.npcAI.probeHasTriggered = false
+        entity.npcAI.forcedChaseDistanceRemaining = 0
+        entity.npcAI.paceMovedDistance = 0
+        entity.npcAI.paceLastPositionX = 0
+        entity.npcAI.paceLastPositionY = 0
+        entity.npcAI.arrowDefenseTimeRemainingMs = 0
+        entity.npcAI.arrowDefenseSwitchTimerMs = 0
+        entity.npcAI.arrowDefenseActive = false
+        entity.npcAI.bowHoldTimerMs = 0
+        entity.npcAI.bowCooldownTimerMs = 0
+        entity.npcAI.archerShotCheckPending = false
+        entity.npcAI.alertTimeRemainingMs = 0
+        entity.npcAI.alertPaceDirection = 1
+        entity.npcAI.alertPaceMovedDistance = 0
+        entity.npcAI.alertPaceLastPositionX = 0
+        entity.npcAI.alertPaceLastPositionY = 0
+        entity.npcAI.alertLastPaceSwitchTimestamp = 0
+        entity.npcAI.alertNextPaceResumeTimestamp = 0
+        entity.npcAI.alertChaseActive = false
       }
-      if (entity.movement && entity.enemyAI) {
-        entity.movement.moveSpeed = entity.enemyAI.moveSpeed
+      if (entity.movement && entity.npcAI) {
+        entity.movement.moveSpeed = entity.npcAI.moveSpeed
       }
       if (entity.weapon) {
         entity.weapon.attackQueued = false

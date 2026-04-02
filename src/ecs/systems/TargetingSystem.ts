@@ -118,13 +118,13 @@ export class TargetingSystem extends System {
         input.lockedTargetId = null
       } else {
         // 主动搜索可视范围内最近的敌人，必须有视线
-        const nearestEnemy = this.findNearestVisibleEnemy(
+        const nearestNpc = this.findNearestVisibleNpc(
           player,
           entities,
           ENEMY_DETECTION_RANGE * 2.0
         )
-        if (nearestEnemy) {
-          input.lockedTargetId = nearestEnemy.id
+        if (nearestNpc) {
+          input.lockedTargetId = nearestNpc.id
           input.lockLostTimer = 0
         }
       }
@@ -260,14 +260,14 @@ export class TargetingSystem extends System {
     return !output.hit
   }
 
-  private findNearestVisibleEnemy(
+  private findNearestVisibleNpc(
     player: Entity,
     entities: Entity[],
     maxRange: number
   ): Entity | null {
     if (!player.transform || !player.faction) return null
 
-    let nearestEnemy: Entity | null = null
+    let nearestNpc: Entity | null = null
     let minDistSq = maxRange * maxRange
 
     for (const entity of entities) {
@@ -292,10 +292,10 @@ export class TargetingSystem extends System {
       if (!this.hasLineOfSight(player, entity)) continue
 
       minDistSq = distSq
-      nearestEnemy = entity
+      nearestNpc = entity
     }
 
-    return nearestEnemy
+    return nearestNpc
   }
 
   private rebuildShapeMap(entities: Entity[]): void {
@@ -483,13 +483,13 @@ export class TargetingSystem extends System {
     if (detectedHostileId !== null) {
       entity.sensor.detectedTargetId = detectedHostileId
 
-      // Auto-combat state for player/enemies upon detection
+      // Auto-combat state for player/npcs upon detection
       if (entity.stats && !entity.stats.isInCombat) {
         let shouldEnterCombat = true
-        if (entity.enemyAI) {
+        if (entity.npcAI) {
           shouldEnterCombat =
             closestDistSq <=
-            entity.enemyAI.detectionRange * entity.enemyAI.detectionRange
+            entity.npcAI.detectionRange * entity.npcAI.detectionRange
         }
         if (shouldEnterCombat) {
           entity.stats.isInCombat = true

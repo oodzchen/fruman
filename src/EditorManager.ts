@@ -21,14 +21,14 @@ import {
   CAMERA_ICON_FILL,
   CAMERA_ICON_STROKE,
   DEBUG_EDITOR_MENU,
-  DEFAULT_ENEMY_TYPE,
+  DEFAULT_NPC_TYPE,
   EDITOR_HISTORY_MAX_ENTRIES,
   EDITOR_NUDGE_STEP_PX,
   EDITOR_PIXELS_PER_METER,
   EDITOR_VIEW_MAX_ZOOM_SCALED,
   EDITOR_VIEW_MIN_ZOOM_SCALED,
   EDITOR_VIEW_ZOOM_SCALE,
-  ENEMY_EYE_COLOR,
+  NPC_EYE_COLOR,
   PLAYER_BODY_COLOR,
   PLAYER_EYE_COLOR,
   acquirePoint,
@@ -52,9 +52,9 @@ import {
 } from './editor/EditorPolygonEditor'
 import { EditorPropertiesPanel } from './editor/EditorPropertiesPanel'
 import {
-  computeEnemyBodyRadiusPx,
+  computeNpcBodyRadiusPx,
   computeWeaponRenderDimensions,
-  renderEnemyPreviewToContext,
+  renderNpcPreviewToContext,
 } from './editor/EditorRenderUtils'
 import { EditorShapeManager } from './editor/EditorShapeManager'
 import { EditorSidebarManager } from './editor/EditorSidebarManager'
@@ -66,9 +66,9 @@ import {
   type CameraViewData,
   type EditorMap,
   type EditorObjectData,
-  type EnemyMarker,
-  type EnemyMarkerData,
   type GroundShapeType,
+  type NpcMarker,
+  type NpcMarkerData,
   ObjectType,
   type PlayerMarker,
   type ShapeResetData,
@@ -80,7 +80,7 @@ import type {
   EditorMapData,
   EditorMapMeta,
   EditorViewportState,
-  MapEnemyWeapon,
+  MapNpcWeapon,
   MapPlacedShape,
   MapWeapon,
   WeaponCategory,
@@ -96,7 +96,7 @@ import {
   saveEditorMapMeta,
   saveEditorMapViewState,
 } from './storage'
-import type { EnemyPatrolMode, EnemyType, WeaponType } from './types'
+import type { NpcPatrolMode, NpcType, WeaponType } from './types'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
 
@@ -168,9 +168,9 @@ export class EditorManager {
   private focusOptions: FocusOptions = { preventScroll: true }
   // Markers are now managed by EditorMarkerManager
   // private playerMarker: PlayerMarker | null = null
-  // private enemyMarkers: EnemyMarkerData[] = []
+  // private npcMarkers: NpcMarkerData[] = []
   // private weaponMarkers: WeaponMarkerData[] = []
-  // private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
+  // private npcMarkerMap = new Map<fabric.Object, NpcMarkerData>()
   // private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
   private readonly invPixelsPerMeter = 1 / EDITOR_PIXELS_PER_METER
   private snapManager!: EditorSnapManager
@@ -231,8 +231,8 @@ export class EditorManager {
       defaultPlayerRadius: DEFAULT_PLAYER_RADIUS,
       playerBodyColor: PLAYER_BODY_COLOR,
       playerEyeColor: PLAYER_EYE_COLOR,
-      enemyEyeColor: ENEMY_EYE_COLOR,
-      computeEnemyBodyRadiusPx,
+      npcEyeColor: NPC_EYE_COLOR,
+      computeNpcBodyRadiusPx,
       computeWeaponRenderDimensions: (template, sizeLevel, ppm, isBow) =>
         computeWeaponRenderDimensions(
           template as WeaponTemplate,
@@ -252,8 +252,8 @@ export class EditorManager {
         if (this.markerManager.isPlayerMarker(obj)) {
           this.markerManager.removePlayerMarker(obj)
         }
-        if (this.markerManager.isEnemyMarker(obj)) {
-          this.markerManager.removeEnemyMarker(obj)
+        if (this.markerManager.isNpcMarker(obj)) {
+          this.markerManager.removeNpcMarker(obj)
         }
         if (this.markerManager.isWeaponMarker(obj)) {
           this.markerManager.removeWeaponMarker(obj)
@@ -290,7 +290,7 @@ export class EditorManager {
         handleCanvasSelection: (obj) =>
           this.objectManager.handleCanvasSelection(obj ? [obj] : []),
 
-        computeEnemyBodyRadiusPx,
+        computeNpcBodyRadiusPx,
 
         computeWeaponRenderDimensions: (template, sizeLevel, ppm, isBow) =>
           computeWeaponRenderDimensions(
@@ -417,7 +417,7 @@ export class EditorManager {
     this.propertiesPanel = new EditorPropertiesPanel({
       getFabricCanvas: () => this.fabricCanvas,
       weaponMarkerMap: this.markerManager.getWeaponMarkerMap(),
-      enemyMarkerMap: this.markerManager.getEnemyMarkerMap(),
+      npcMarkerMap: this.markerManager.getNpcMarkerMap(),
       playerMarkerData: () => this.markerManager.getPlayerMarkerData(),
       editorObjectMap: this.objectManager.getEditorObjectMap(),
       objectFactory: this.objectFactory,
@@ -425,12 +425,12 @@ export class EditorManager {
       getMapSnapshot: () => this.getMapSnapshot(),
       applyMapSnapshot: (data) => this.applyMapSnapshot(data),
       onHistoryCapture: () => this.captureHistorySnapshot(),
-      getOrCreateEnemyWeaponMarker: (d, w, s) =>
-        this.markerManager.getOrCreateEnemyWeaponMarker(d, w, s),
+      getOrCreateNpcWeaponMarker: (d, w, s) =>
+        this.markerManager.getOrCreateNpcWeaponMarker(d, w, s),
       getOrCreatePlayerWeaponMarker: (d, w, s) =>
         this.markerManager.getOrCreatePlayerWeaponMarker(d, w, s),
-      updateEnemyMarkerVisual: (m, r, bh, c, f) =>
-        this.markerManager.updateEnemyMarkerVisual(m, r, bh, c, f),
+      updateNpcMarkerVisual: (m, r, bh, c, f) =>
+        this.markerManager.updateNpcMarkerVisual(m, r, bh, c, f),
       updatePlayerMarkerVisual: (m, r, bh, c, f) =>
         this.markerManager.updatePlayerMarkerVisual(m, r, bh, c, f),
       updateWeaponMarkerVisual: (m, s) =>
@@ -586,15 +586,15 @@ export class EditorManager {
         }
         this.captureHistorySnapshot()
       },
-      onEnemySelected: (enemyType) => {
+      onNpcSelected: (npcType) => {
         const spawn = this.consumePanelMenuSpawn()
         if (spawn) {
-          this.markerManager.spawnEnemyMarker(enemyType, {
+          this.markerManager.spawnNpcMarker(npcType, {
             x: spawn.x * this.invPixelsPerMeter,
             y: spawn.y * this.invPixelsPerMeter,
           })
         } else {
-          this.markerManager.spawnEnemyMarker(enemyType)
+          this.markerManager.spawnNpcMarker(npcType)
         }
         this.captureHistorySnapshot()
       },
@@ -1030,10 +1030,10 @@ export class EditorManager {
       return
     }
 
-    if (type === ObjectType.Enemy) {
+    if (type === ObjectType.Npc) {
       this.setActiveObjectType(type)
       this.hideAllSubmenus()
-      this.menuSystem.showEnemySubmenu()
+      this.menuSystem.showNpcSubmenu()
       return
     }
 
@@ -1688,7 +1688,7 @@ export class EditorManager {
     }
 
     const shapeObjects: EditorObjectData[] = []
-    const enemyObjects: EditorObjectData[] = []
+    const npcObjects: EditorObjectData[] = []
     const weaponObjects: EditorObjectData[] = []
     const checkpointObjects: EditorObjectData[] = []
     const hookAnchorObjects: EditorObjectData[] = []
@@ -1703,8 +1703,8 @@ export class EditorManager {
         dataItem.type === ObjectType.Obstacle
       ) {
         shapeObjects.push(dataItem)
-      } else if (dataItem.type === ObjectType.Enemy) {
-        enemyObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.Npc) {
+        npcObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Weapon) {
         weaponObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Checkpoint) {
@@ -1740,10 +1740,10 @@ export class EditorManager {
         const index = node.index ?? -1
         resolvedData =
           index >= 0 && index < shapeObjects.length ? shapeObjects[index] : null
-      } else if (node.type === 'enemy') {
+      } else if (node.type === 'npc' || node.type === 'enemy') {
         const index = node.index ?? -1
         resolvedData =
-          index >= 0 && index < enemyObjects.length ? enemyObjects[index] : null
+          index >= 0 && index < npcObjects.length ? npcObjects[index] : null
       } else if (node.type === 'weapon') {
         const index = node.index ?? -1
         resolvedData =
@@ -1977,7 +1977,7 @@ export class EditorManager {
     if (this.markerManager.isPlayerMarker(object)) {
       return true
     }
-    if (this.markerManager.isEnemyMarker(object)) {
+    if (this.markerManager.isNpcMarker(object)) {
       return true
     }
     if (this.markerManager.isWeaponMarker(object)) {
@@ -2028,7 +2028,7 @@ export class EditorManager {
       )
       return
     }
-    if (this.markerManager.isEnemyMarker(target)) {
+    if (this.markerManager.isNpcMarker(target)) {
       this.showPolygonMenuWithActions(
         ['copy', 'paste', 'properties', 'rename', 'delete'],
         target,
@@ -2268,8 +2268,8 @@ export class EditorManager {
         await this.propertiesPanel.showWeaponPropertiesDialog(target)
       } else if (this.markerManager.isPlayerMarker(target)) {
         await this.propertiesPanel.showPlayerPropertiesDialog(target)
-      } else if (this.markerManager.isEnemyMarker(target)) {
-        await this.propertiesPanel.showEnemyPropertiesDialog(target)
+      } else if (this.markerManager.isNpcMarker(target)) {
+        await this.propertiesPanel.showNpcPropertiesDialog(target)
       }
       this.contextMenu.hide()
       return
@@ -2291,8 +2291,8 @@ export class EditorManager {
       if (this.markerManager.isPlayerMarker(target)) {
         this.markerManager.removePlayerMarker(target)
       }
-      if (this.markerManager.isEnemyMarker(target)) {
-        this.markerManager.removeEnemyMarker(target)
+      if (this.markerManager.isNpcMarker(target)) {
+        this.markerManager.removeNpcMarker(target)
       }
       if (this.markerManager.isCheckpointMarker(target)) {
         this.markerManager.removeCheckpointMarker(target)

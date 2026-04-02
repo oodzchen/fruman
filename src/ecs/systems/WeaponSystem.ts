@@ -2383,7 +2383,7 @@ export class WeaponSystem extends System {
     const arrow = this.arrowPools.acquireArrow()
     arrow.ownerId = entity.id
     arrow.factionId = arrowFaction
-    arrow.enemyFactions = entity.faction?.enemyFactions ?? []
+    arrow.npcFactions = entity.faction?.npcFactions ?? []
     arrow.projectileType = projectileVisualType
     arrow.velocityX = Math.cos(aimAngle) * launchSpeed
     arrow.velocityY = Math.sin(aimAngle) * launchSpeed
@@ -2530,8 +2530,8 @@ export class WeaponSystem extends System {
     if (entity.weapon) {
       entity.weapon.movesetId = movesetId
     }
-    if (entity.enemyAI) {
-      entity.enemyAI.movesetId = movesetId
+    if (entity.npcAI) {
+      entity.npcAI.movesetId = movesetId
     }
     if (entity.weapon?.weaponType) {
       this.applyUltimateMoveset(entity, entity.weapon.weaponType)
@@ -3025,7 +3025,7 @@ export class WeaponSystem extends System {
     let facing =
       weapon?.attackFacing ??
       entity.input?.lastMoveDirection ??
-      entity.enemyAI?.lastFacing ??
+      entity.npcAI?.lastFacing ??
       1
     if (facing === 0) {
       facing = 1

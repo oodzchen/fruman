@@ -17,26 +17,26 @@ import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type {
   MapCharacterBodyProfile,
   MapCheckpoint,
-  MapEnemyWeapon,
   MapHookAnchor,
+  MapNpcWeapon,
   MapPlayerProperties,
   WeaponCategory,
 } from '../editorMapTypes'
 import type {
-  EnemyDetectionRangeLevel,
-  EnemyPatrolMode,
-  EnemyType,
   NormalAttackMovesetId,
+  NpcDetectionRangeLevel,
+  NpcPatrolMode,
+  NpcType,
   WeaponType,
 } from '../types'
 import {
-  getDefaultEnemyAmmoForWeaponType,
+  getDefaultNpcAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
   isRangedWeaponType,
   normalizeWeaponTypeAndSizeLevel,
 } from '../weaponTypeUtils'
 import {
-  DEFAULT_ENEMY_TYPE,
+  DEFAULT_NPC_TYPE,
   EDITOR_PIXELS_PER_METER,
   PLAYER_BODY_COLOR,
 } from './EditorConstants'
@@ -45,10 +45,10 @@ import type {
   CharacterBodyShapeObject,
   CheckpointMarker,
   CheckpointMarkerData,
-  EnemyMarker,
-  EnemyMarkerData,
   HookAnchorMarker,
   HookAnchorMarkerData,
+  NpcMarker,
+  NpcMarkerData,
   ObjectType,
   PlayerMarker,
   PlayerMarkerData,
@@ -73,7 +73,7 @@ interface EditorMarkerManagerContext {
   getViewportCenter: () => { x: number; y: number }
   registerEditorObject: (type: ObjectType, object: fabric.Object) => void
   handleCanvasSelection: (object: fabric.Object) => void
-  computeEnemyBodyRadiusPx: (radiusMeters: number, ppm: number) => number
+  computeNpcBodyRadiusPx: (radiusMeters: number, ppm: number) => number
   computeWeaponRenderDimensions: (
     template: WeaponTemplate,
     sizeLevel: number,
@@ -89,18 +89,18 @@ export class EditorMarkerManager {
 
   private playerMarker: PlayerMarker | null = null
   private playerMarkerData: PlayerMarkerData | null = null
-  private enemyMarkers: EnemyMarkerData[] = []
+  private npcMarkers: NpcMarkerData[] = []
   private weaponMarkers: WeaponMarkerData[] = []
   private checkpointMarkers: CheckpointMarkerData[] = []
   private hookAnchorMarkers: HookAnchorMarkerData[] = []
   private sunPickupMarkers: SunPickupMarkerData[] = []
-  private enemyMarkerMap = new Map<fabric.Object, EnemyMarkerData>()
+  private npcMarkerMap = new Map<fabric.Object, NpcMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
   private checkpointMarkerMap = new Map<fabric.Object, CheckpointMarkerData>()
   private hookAnchorMarkerMap = new Map<fabric.Object, HookAnchorMarkerData>()
   private sunPickupMarkerMap = new Map<fabric.Object, SunPickupMarkerData>()
   private bodyTextureCache = new Map<string, HTMLImageElement>()
-  private tempEnemyPos = { x: 0, y: 0 }
+  private tempNpcPos = { x: 0, y: 0 }
   private tempWeaponTransform = { x: 0, y: 0, rotation: 0 }
 
   constructor(
@@ -114,8 +114,8 @@ export class EditorMarkerManager {
   clear() {
     this.playerMarker = null
     this.playerMarkerData = null
-    this.enemyMarkers.length = 0
-    this.enemyMarkerMap.clear()
+    this.npcMarkers.length = 0
+    this.npcMarkerMap.clear()
     this.weaponMarkers.length = 0
     this.weaponMarkerMap.clear()
     this.checkpointMarkers.length = 0
@@ -164,8 +164,8 @@ export class EditorMarkerManager {
     return this.playerMarkerData
   }
 
-  getEnemyMarkers() {
-    return this.enemyMarkers
+  getNpcMarkers() {
+    return this.npcMarkers
   }
 
   getWeaponMarkers() {
@@ -205,8 +205,8 @@ export class EditorMarkerManager {
     return this.hookAnchorMarkerMap
   }
 
-  getEnemyMarkerMap() {
-    return this.enemyMarkerMap
+  getNpcMarkerMap() {
+    return this.npcMarkerMap
   }
 
   isPlayerMarker(object: fabric.Object | null): object is PlayerMarker {
@@ -216,10 +216,10 @@ export class EditorMarkerManager {
     )
   }
 
-  isEnemyMarker(object: fabric.Object | null): object is EnemyMarker {
+  isNpcMarker(object: fabric.Object | null): object is NpcMarker {
     return (
       object instanceof fabric.Group &&
-      (object as EnemyMarker).editorShape === 'enemy-marker'
+      (object as NpcMarker).editorShape === 'npc-marker'
     )
   }
 
@@ -251,14 +251,14 @@ export class EditorMarkerManager {
     }
   }
 
-  removeEnemyMarker(marker: fabric.Object) {
-    const data = this.enemyMarkerMap.get(marker)
+  removeNpcMarker(marker: fabric.Object) {
+    const data = this.npcMarkerMap.get(marker)
     if (data) {
-      const index = this.enemyMarkers.indexOf(data)
+      const index = this.npcMarkers.indexOf(data)
       if (index !== -1) {
-        this.enemyMarkers.splice(index, 1)
+        this.npcMarkers.splice(index, 1)
       }
-      this.enemyMarkerMap.delete(marker)
+      this.npcMarkerMap.delete(marker)
     }
   }
 
@@ -352,7 +352,8 @@ export class EditorMarkerManager {
         ? data.bodyHeight
         : 0
     const nextFactionId = data?.factionId ?? Faction.Player
-    const nextEnemyFactions = data?.enemyFactions ?? [Faction.Enemy]
+    const nextNpcFactions = data?.npcFactions ??
+      data?.enemyFactions ?? [Faction.Enemy]
     const nextAllyFactions = data?.allyFactions ?? []
     let spawnX: number
     let spawnY: number
@@ -390,7 +391,7 @@ export class EditorMarkerManager {
         this.playerMarkerData.debugNoDamage = nextDebugNoDamage
         this.playerMarkerData.debugNoDeath = nextDebugNoDeath
         this.playerMarkerData.factionId = nextFactionId
-        this.playerMarkerData.enemyFactions = nextEnemyFactions
+        this.playerMarkerData.npcFactions = nextNpcFactions
         this.playerMarkerData.allyFactions = nextAllyFactions
       }
       this.playerMarker.initialNormalMovesetId = nextInitialNormalMovesetId
@@ -398,7 +399,7 @@ export class EditorMarkerManager {
       this.playerMarker.debugNoDamage = nextDebugNoDamage
       this.playerMarker.debugNoDeath = nextDebugNoDeath
       this.playerMarker.factionId = nextFactionId
-      this.playerMarker.enemyFactions = nextEnemyFactions
+      this.playerMarker.npcFactions = nextNpcFactions
       this.playerMarker.allyFactions = nextAllyFactions
       canvas.setActiveObject(this.playerMarker)
       this.ctx.handleCanvasSelection(this.playerMarker)
@@ -424,7 +425,7 @@ export class EditorMarkerManager {
     marker.debugNoDamage = nextDebugNoDamage
     marker.debugNoDeath = nextDebugNoDeath
     marker.factionId = nextFactionId
-    marker.enemyFactions = nextEnemyFactions
+    marker.npcFactions = nextNpcFactions
     marker.allyFactions = nextAllyFactions
     this.updatePlayerMarkerVisual(
       marker,
@@ -449,7 +450,7 @@ export class EditorMarkerManager {
       debugNoDamage: nextDebugNoDamage,
       debugNoDeath: nextDebugNoDeath,
       factionId: nextFactionId,
-      enemyFactions: nextEnemyFactions,
+      npcFactions: nextNpcFactions,
       allyFactions: nextAllyFactions,
     }
     if (data?.mainWeapon) {
@@ -580,10 +581,10 @@ export class EditorMarkerManager {
     weaponFrontShape.width = weaponBoundingWidthPx
     weaponFrontShape.height = weaponBoundingHeightPx
 
-    this.tempEnemyPos.x = 0
-    this.tempEnemyPos.y = 0
+    this.tempNpcPos.x = 0
+    this.tempNpcPos.y = 0
     setWeaponBackTransform(
-      this.tempEnemyPos,
+      this.tempNpcPos,
       marker.facing,
       this.tempWeaponTransform,
       marker.radius,
@@ -617,8 +618,8 @@ export class EditorMarkerManager {
     }
   }
 
-  spawnEnemyMarker(
-    enemyType: EnemyType = DEFAULT_ENEMY_TYPE,
+  spawnNpcMarker(
+    npcType: NpcType = DEFAULT_NPC_TYPE,
     spawn?: {
       x: number
       y: number
@@ -628,8 +629,8 @@ export class EditorMarkerManager {
       moveSpeed?: number
       attackDesire?: number
       parryProficiency?: number
-      initialPatrolMode?: EnemyPatrolMode
-      detectionRangeLevel?: EnemyDetectionRangeLevel
+      initialPatrolMode?: NpcPatrolMode
+      detectionRangeLevel?: NpcDetectionRangeLevel
       maxHealth?: number
       maxPosture?: number
       maxToughness?: number
@@ -643,9 +644,10 @@ export class EditorMarkerManager {
       retreatDelaySec?: number
       canBeFollower?: boolean
       equipWeapon?: boolean
-      mainWeapon?: MapEnemyWeapon
-      secondaryWeapon?: MapEnemyWeapon
+      mainWeapon?: MapNpcWeapon
+      secondaryWeapon?: MapNpcWeapon
       factionId?: string
+      npcFactions?: string[]
       enemyFactions?: string[]
       allyFactions?: string[]
     }
@@ -656,7 +658,7 @@ export class EditorMarkerManager {
       return
     }
     const template =
-      CHARACTER_DEFAULT_DATA[enemyType] ?? CHARACTER_DEFAULT_DATA.default
+      CHARACTER_DEFAULT_DATA[npcType] ?? CHARACTER_DEFAULT_DATA.default
     const radius = spawn?.radius ?? template.radius
     const bodyHeight = spawn?.bodyHeight ?? 0
     const bodyProfile = spawn?.bodyProfile
@@ -666,8 +668,8 @@ export class EditorMarkerManager {
       spawn?.parryProficiency ?? template.parryProficiency
     const initialPatrolMode =
       spawn?.initialPatrolMode ?? template.initialPatrolMode
-    const detectionRangeLevel: EnemyDetectionRangeLevel =
-      spawn?.detectionRangeLevel ?? (enemyType === 'archer' ? 'medium' : 'near')
+    const detectionRangeLevel: NpcDetectionRangeLevel =
+      spawn?.detectionRangeLevel ?? (npcType === 'archer' ? 'medium' : 'near')
     const maxHealth = spawn?.maxHealth ?? template.maxHealth
     const maxPosture = spawn?.maxPosture ?? template.maxPosture
     const maxToughness = spawn?.maxToughness ?? template.maxToughness
@@ -675,7 +677,7 @@ export class EditorMarkerManager {
     const resolvedColor = getCharacterBodyColor(bodyProfile, color)
     const facing = spawn?.facing ?? 1
     const initialNormalMovesetId =
-      spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('enemy')
+      spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('npc')
     const debugNoDamage = spawn?.debugNoDamage === true
     const debugNoDeath = spawn?.debugNoDeath === true
     const redTapeEnabled = spawn?.redTapeEnabled === true
@@ -685,7 +687,8 @@ export class EditorMarkerManager {
     const equipWeapon =
       spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
     const factionId = spawn?.factionId ?? Faction.Enemy
-    const enemyFactions = spawn?.enemyFactions ?? [Faction.Player]
+    const npcFactions = spawn?.npcFactions ??
+      spawn?.enemyFactions ?? [Faction.Player]
     const allyFactions = spawn?.allyFactions ?? []
     let centerX: number
     let centerY: number
@@ -698,15 +701,15 @@ export class EditorMarkerManager {
       centerY = center.y
     }
 
-    // Hardcoded ObjectType.Enemy ('enemy')
-    const ObjectTypeEnemy = 'enemy' as ObjectType
+    // Hardcoded ObjectType.Npc ('npc')
+    const objectTypeNpc = 'npc' as ObjectType
 
-    const marker = this.objectFactory.createEnemyMarker(
-      enemyType,
+    const marker = this.objectFactory.createNpcMarker(
+      npcType,
       radius,
       resolvedColor,
       equipWeapon
-    ) as EnemyMarker
+    ) as NpcMarker
     marker.radius = radius
     marker.bodyHeight = bodyHeight
     marker.bodyProfile = bodyProfile
@@ -729,16 +732,16 @@ export class EditorMarkerManager {
     marker.canBeFollower = canBeFollower
     marker.equipWeapon = equipWeapon
     marker.factionId = factionId
-    marker.enemyFactions = enemyFactions
+    marker.npcFactions = npcFactions
     marker.allyFactions = allyFactions
     marker.left = centerX
     marker.top = centerY
     marker.setCoords()
     canvas.add(marker)
-    this.ctx.registerEditorObject(ObjectTypeEnemy, marker)
-    const enemyData: EnemyMarkerData = {
+    this.ctx.registerEditorObject(objectTypeNpc, marker)
+    const npcData: NpcMarkerData = {
       marker,
-      enemyType,
+      npcType,
       radius,
       bodyHeight,
       bodyProfile,
@@ -761,7 +764,7 @@ export class EditorMarkerManager {
       canBeFollower,
       equipWeapon,
       factionId,
-      enemyFactions,
+      npcFactions,
       allyFactions,
       mainWeapon: normalizeWeaponTypeAndSizeLevel(
         spawn?.mainWeapon?.weaponType,
@@ -772,12 +775,12 @@ export class EditorMarkerManager {
         spawn?.secondaryWeapon?.sizeLevel
       )?.weaponType,
     }
-    this.enemyMarkers.push(enemyData)
-    this.enemyMarkerMap.set(marker, enemyData)
+    this.npcMarkers.push(npcData)
+    this.npcMarkerMap.set(marker, npcData)
 
     if (spawn?.mainWeapon) {
-      this.createEnemyWeaponFromConfig(
-        enemyData,
+      this.createNpcWeaponFromConfig(
+        npcData,
         spawn.mainWeapon,
         'main',
         centerX,
@@ -786,8 +789,8 @@ export class EditorMarkerManager {
     }
 
     if (spawn?.secondaryWeapon) {
-      this.createEnemyWeaponFromConfig(
-        enemyData,
+      this.createNpcWeaponFromConfig(
+        npcData,
         spawn.secondaryWeapon,
         'secondary',
         centerX,
@@ -795,7 +798,7 @@ export class EditorMarkerManager {
       )
     }
 
-    this.updateEnemyMarkerVisual(
+    this.updateNpcMarkerVisual(
       marker,
       radius,
       bodyHeight,
@@ -986,8 +989,8 @@ export class EditorMarkerManager {
     canvas.renderAll()
   }
 
-  updateEnemyMarkerVisual(
-    marker: EnemyMarker,
+  updateNpcMarkerVisual(
+    marker: NpcMarker,
     nextRadius: number,
     nextBodyHeight: number,
     nextColor: string,
@@ -996,7 +999,7 @@ export class EditorMarkerManager {
     const body = marker.item(1) as unknown as
       | CharacterBodyShapeObject
       | undefined
-    const bodyRadiusXPx = this.ctx.computeEnemyBodyRadiusPx(
+    const bodyRadiusXPx = this.ctx.computeNpcBodyRadiusPx(
       nextRadius,
       EDITOR_PIXELS_PER_METER
     )
@@ -1026,28 +1029,28 @@ export class EditorMarkerManager {
     marker.bodyHeight = nextBodyHeight
     marker.color = getCharacterBodyColor(marker.bodyProfile, nextColor)
     marker.facing = nextFacing
-    this.updateEnemyWeaponVisual(marker)
+    this.updateNpcWeaponVisual(marker)
     marker.setCoords()
   }
 
-  private updateEnemyWeaponVisual(marker: EnemyMarker) {
+  private updateNpcWeaponVisual(marker: NpcMarker) {
     const weaponBackShape = marker.weaponBackShape
     const weaponFrontShape = marker.weaponFrontShape
     if (!weaponBackShape || !weaponFrontShape) {
       return
     }
 
-    const enemyData = this.enemyMarkerMap.get(marker)
-    if (!enemyData || !marker.equipWeapon) {
+    const npcData = this.npcMarkerMap.get(marker)
+    if (!npcData || !marker.equipWeapon) {
       weaponBackShape.visible = false
       weaponFrontShape.visible = false
       return
     }
 
     const weaponMarker =
-      enemyData.mainWeaponMarker ?? enemyData.secondaryWeaponMarker
+      npcData.mainWeaponMarker ?? npcData.secondaryWeaponMarker
     const weaponType =
-      enemyData.mainWeapon ?? enemyData.secondaryWeapon ?? undefined
+      npcData.mainWeapon ?? npcData.secondaryWeapon ?? undefined
 
     if (!weaponType) {
       weaponBackShape.visible = false
@@ -1088,10 +1091,10 @@ export class EditorMarkerManager {
     weaponFrontShape.width = weaponBoundingWidthPx
     weaponFrontShape.height = weaponBoundingHeightPx
 
-    this.tempEnemyPos.x = 0
-    this.tempEnemyPos.y = 0
+    this.tempNpcPos.x = 0
+    this.tempNpcPos.y = 0
     setWeaponBackTransform(
-      this.tempEnemyPos,
+      this.tempNpcPos,
       marker.facing,
       this.tempWeaponTransform,
       marker.radius,
@@ -1154,24 +1157,24 @@ export class EditorMarkerManager {
     marker.height = dims.boundingHeightPx
     marker.setCoords()
 
-    let updatedEnemy = false
-    for (let i = 0; i < this.enemyMarkers.length; i++) {
-      const enemyData = this.enemyMarkers[i]
+    let updatedNpc = false
+    for (let i = 0; i < this.npcMarkers.length; i++) {
+      const npcData = this.npcMarkers[i]
       if (
-        enemyData.mainWeaponMarker === marker ||
-        enemyData.secondaryWeaponMarker === marker
+        npcData.mainWeaponMarker === marker ||
+        npcData.secondaryWeaponMarker === marker
       ) {
-        this.updateEnemyMarkerVisual(
-          enemyData.marker,
-          enemyData.radius,
-          enemyData.bodyHeight,
-          enemyData.color,
-          enemyData.facing
+        this.updateNpcMarkerVisual(
+          npcData.marker,
+          npcData.radius,
+          npcData.bodyHeight,
+          npcData.color,
+          npcData.facing
         )
-        updatedEnemy = true
+        updatedNpc = true
       }
     }
-    if (updatedEnemy) {
+    if (updatedNpc) {
       this.ctx.requestRender()
     }
     const playerData = this.playerMarkerData
@@ -1212,26 +1215,26 @@ export class EditorMarkerManager {
     return 'sword'
   }
 
-  getOrCreateEnemyWeaponMarker(
-    enemyData: EnemyMarkerData,
+  getOrCreateNpcWeaponMarker(
+    npcData: NpcMarkerData,
     weaponType: WeaponType,
     slot: 'main' | 'secondary'
   ): WeaponMarker | null {
     const markerKey =
       slot === 'main' ? 'mainWeaponMarker' : 'secondaryWeaponMarker'
     const weaponKey = slot === 'main' ? 'mainWeapon' : 'secondaryWeapon'
-    let weaponMarker = enemyData[markerKey]
+    let weaponMarker = npcData[markerKey]
 
     if (weaponMarker && weaponMarker.weaponType !== weaponType) {
       this.weaponMarkerMap.delete(weaponMarker)
       weaponMarker = undefined
-      enemyData[markerKey] = undefined
-      enemyData[weaponKey] = undefined
+      npcData[markerKey] = undefined
+      npcData[weaponKey] = undefined
     }
 
     if (!weaponMarker) {
       const template = WEAPON_DEFAULT_DATA[weaponType]
-      const result = this.objectFactory.createEnemyWeaponMarkerFromConfig(
+      const result = this.objectFactory.createNpcWeaponMarkerFromConfig(
         {
           weaponType,
           sizeLevel: template.sizeLevel,
@@ -1239,20 +1242,20 @@ export class EditorMarkerManager {
           postureDamage: template.postureDamage,
           toughnessDamage: template.toughnessDamage,
           bowAmmo: isRangedWeaponType(weaponType)
-            ? getDefaultEnemyAmmoForWeaponType(weaponType)
+            ? getDefaultNpcAmmoForWeaponType(weaponType)
             : undefined,
         },
         slot,
-        enemyData.marker.left ?? 0,
-        enemyData.marker.top ?? 0,
+        npcData.marker.left ?? 0,
+        npcData.marker.top ?? 0,
         WEAPON_DEFAULT_DATA
       )
 
       weaponMarker = result.weaponMarker as WeaponMarker
       const weaponData = result.weaponData as WeaponMarkerData
       this.weaponMarkerMap.set(weaponMarker, weaponData)
-      enemyData[markerKey] = weaponMarker
-      enemyData[weaponKey] = weaponType
+      npcData[markerKey] = weaponMarker
+      npcData[weaponKey] = weaponType
     }
 
     return weaponMarker
@@ -1277,7 +1280,7 @@ export class EditorMarkerManager {
 
     if (!weaponMarker) {
       const template = WEAPON_DEFAULT_DATA[weaponType]
-      const result = this.objectFactory.createEnemyWeaponMarkerFromConfig(
+      const result = this.objectFactory.createNpcWeaponMarkerFromConfig(
         {
           weaponType,
           sizeLevel: template.sizeLevel,
@@ -1304,15 +1307,15 @@ export class EditorMarkerManager {
     return weaponMarker
   }
 
-  private createEnemyWeaponFromConfig(
-    enemyData: EnemyMarkerData,
-    config: MapEnemyWeapon,
+  private createNpcWeaponFromConfig(
+    npcData: NpcMarkerData,
+    config: MapNpcWeapon,
     slot: 'main' | 'secondary',
     x: number,
     y: number
   ) {
     const { weaponMarker, weaponData } =
-      this.objectFactory.createEnemyWeaponMarkerFromConfig(
+      this.objectFactory.createNpcWeaponMarkerFromConfig(
         config,
         slot,
         x,
@@ -1327,21 +1330,21 @@ export class EditorMarkerManager {
     this.weaponMarkerMap.set(typedWeaponMarker, typedWeaponData)
 
     if (slot === 'main') {
-      enemyData.mainWeaponMarker = typedWeaponMarker
+      npcData.mainWeaponMarker = typedWeaponMarker
     } else {
-      enemyData.secondaryWeaponMarker = typedWeaponMarker
+      npcData.secondaryWeaponMarker = typedWeaponMarker
     }
   }
 
   private createPlayerWeaponFromConfig(
     playerData: PlayerMarkerData,
-    config: MapEnemyWeapon,
+    config: MapNpcWeapon,
     slot: 'main' | 'secondary',
     x: number,
     y: number
   ) {
     const { weaponMarker, weaponData } =
-      this.objectFactory.createEnemyWeaponMarkerFromConfig(
+      this.objectFactory.createNpcWeaponMarkerFromConfig(
         config,
         slot,
         x,

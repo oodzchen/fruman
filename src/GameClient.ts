@@ -338,7 +338,7 @@ export class GameClient {
       worldStateReady: true,
       activeCheckpoint: msg.activeCheckpoint,
       player: msg.player,
-      enemies: msg.enemies,
+      npcs: msg.npcs,
       groundWeapons: msg.groundWeapons,
       camera: msg.camera,
       meta: {
