@@ -53,6 +53,7 @@ export class NpcAISystem extends System {
   private box2d: MainModule
   private worldId: b2WorldId
   private currentTimeMs = 0
+  private entityLookup?: (id: number) => Entity | undefined
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
@@ -78,6 +79,10 @@ export class NpcAISystem extends System {
 
   setWeaponSystem(weaponSystem: WeaponSystem): void {
     this.weaponSystem = weaponSystem
+  }
+
+  setEntityLookup(lookup: (id: number) => Entity | undefined): void {
+    this.entityLookup = lookup
   }
 
   private getRangedMinWindupMs(entity: Entity): number {
@@ -114,12 +119,6 @@ export class NpcAISystem extends System {
     this.currentTimeMs += deltaMs
     const now = this.currentTimeMs
 
-    // Build entity lookup map for target resolution
-    const entityMap = new Map<number, Entity>()
-    for (const e of entities) {
-      entityMap.set(e.id, e)
-    }
-
     // Count active attackers (Red Tape System)
     let activeAttackers = 0
     for (const entity of entities) {
@@ -138,13 +137,16 @@ export class NpcAISystem extends System {
       // Resolve target: prefer sensor-detected, fall back to lockedTargetId, then player
       let target = this.player
       if (entity.sensor?.detectedTargetId != null) {
-        const sensed = entityMap.get(entity.sensor.detectedTargetId)
+        const sensed = this.getEntityById(
+          entity.sensor.detectedTargetId,
+          entities
+        )
         if (sensed?.transform && !sensed.stats?.isDead) target = sensed
       } else if (
         entity.input.lockedTargetId != null &&
         entity.input.lockedTargetId !== this.player.id
       ) {
-        const locked = entityMap.get(entity.input.lockedTargetId)
+        const locked = this.getEntityById(entity.input.lockedTargetId, entities)
         if (locked?.transform && !locked.stats?.isDead) target = locked
       }
       if (!target.transform) continue
@@ -1806,5 +1808,18 @@ export class NpcAISystem extends System {
       return 0
     }
     return slot.bowAmmo
+  }
+
+  private getEntityById(id: number, entities: Entity[]): Entity | undefined {
+    if (this.entityLookup) {
+      return this.entityLookup(id)
+    }
+    for (let i = 0; i < entities.length; i++) {
+      const entity = entities[i]
+      if (entity.id === id) {
+        return entity
+      }
+    }
+    return undefined
   }
 }

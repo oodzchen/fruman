@@ -423,6 +423,9 @@ const debugCameraData: CameraDebugData = {
 const emptySoundWaves: SoundWaveDebugData[] = []
 const emptySoundListeners: SoundListenerDebugData[] = []
 const emptySensors: SensorDebugData[] = []
+const playerEntityView: Entity[] = []
+const sunPickupEntityBuffer: Entity[] = []
+const expOrbEntityBuffer: Entity[] = []
 
 // Loop Logic
 let lastTime = performance.now()
@@ -699,8 +702,10 @@ function initializeSystems() {
   targetingSystem = new TargetingSystem(box2d, worldId)
 
   const entityLookup = world.getEntityById.bind(world)
+  npcAISystem.setEntityLookup(entityLookup)
   movementSystem.setEntityLookup(entityLookup)
   targetingSystem.setEntityLookup(entityLookup)
+  targetingSystem.setSpatialHash(spatialHash)
   weaponSystem.setEntityLookup(entityLookup)
   followSystem.setEntityLookup(entityLookup)
 
@@ -2459,8 +2464,9 @@ function fixedUpdate() {
 
   world.update(TIME_STEP)
 
-  const sunPickups = entities.filter((e) => e.sunPickup)
-  sunPickupSystem.update(sunPickups, [playerEntity], TIME_STEP)
+  collectPickupEntities(entities)
+  playerEntityView[0] = playerEntity
+  sunPickupSystem.update(sunPickupEntityBuffer, playerEntityView, TIME_STEP)
   for (const e of sunPickupSystem.getPendingRemove()) {
     if (e.physics) {
       box2d.b2DestroyBody(e.physics.bodyId)
@@ -2469,8 +2475,7 @@ function fixedUpdate() {
     world.destroyEntity(e)
   }
 
-  const expOrbs = entities.filter((e) => e.expOrb)
-  expOrbSystem.update(expOrbs, [playerEntity], TIME_STEP)
+  expOrbSystem.update(expOrbEntityBuffer, playerEntityView, TIME_STEP)
   for (const e of expOrbSystem.getPendingRemove()) {
     if (e.physics) {
       box2d.b2DestroyBody(e.physics.bodyId)
@@ -2502,6 +2507,21 @@ function update() {
   }
 
   sendState()
+}
+
+function collectPickupEntities(entities: Entity[]): void {
+  sunPickupEntityBuffer.length = 0
+  expOrbEntityBuffer.length = 0
+
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (entity.sunPickup) {
+      sunPickupEntityBuffer.push(entity)
+    }
+    if (entity.expOrb) {
+      expOrbEntityBuffer.push(entity)
+    }
+  }
 }
 
 function easeOutCubic(t: number): number {

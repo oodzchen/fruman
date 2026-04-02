@@ -7,29 +7,19 @@ import {
   CATEGORY_OBSTACLE,
   ENEMY_DETECTION_RANGE,
 } from '../../constants'
-import type { MainModule, b2ShapeId, b2WorldId } from '../../types'
+import type { MainModule, b2WorldId } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 
 const VERTEX_OFFSETS = [-1, -1, 1, -1, 1, 1, -1, 1]
 
-type ShapeIdKeySource = {
-  index?: number
-  index1?: number
-  world0?: number
-  revision?: number
-  generation?: number
-}
-
 export class TargetingSystem extends System {
   private box2d: MainModule
   private worldId: b2WorldId
-  private shapeMap = new Map<number, Entity>()
   private player?: Entity
-  private shapeMapDirty = true
-  private shapeMapRebuildInterval = 1000
-  private shapeMapRebuildTimerMs = 0
+  private spatialHash: SpatialHash | null = null
   private rayStart: InstanceType<MainModule['b2Vec2']>
   private rayTranslation: InstanceType<MainModule['b2Vec2']>
   private rayFilter: ReturnType<MainModule['b2DefaultQueryFilter']>
@@ -49,8 +39,8 @@ export class TargetingSystem extends System {
     this.rayFilter = box2d.b2DefaultQueryFilter()
   }
 
-  markShapeMapDirty(): void {
-    this.shapeMapDirty = true
+  setSpatialHash(spatialHash: SpatialHash): void {
+    this.spatialHash = spatialHash
   }
 
   setPlayer(player: Entity): void {
@@ -63,19 +53,8 @@ export class TargetingSystem extends System {
 
   update(entities: Entity[], deltaTime: number): void {
     const deltaMs = deltaTime > 0 ? deltaTime * 1000 : 0
-    this.shapeMapRebuildTimerMs += deltaMs
 
-    // 1. 只在必要时重建 Shape ID 映射表
-    if (
-      this.shapeMapDirty ||
-      this.shapeMapRebuildTimerMs >= this.shapeMapRebuildInterval
-    ) {
-      this.rebuildShapeMap(entities)
-      this.shapeMapDirty = false
-      this.shapeMapRebuildTimerMs = 0
-    }
-
-    // 2. 更新所有带有传感器的实体
+    // 1. 更新所有带有传感器的实体
     for (const entity of entities) {
       if (!entity.transform || !entity.sensor) continue
       if (entity.stats?.isDead || entity.stats?.isVanished) continue
@@ -90,7 +69,7 @@ export class TargetingSystem extends System {
       this.updateSensor(entity, entities)
     }
 
-    // 3. 处理玩家锁定逻辑
+    // 2. 处理玩家锁定逻辑
     if (this.player) {
       this.handlePlayerLock(this.player, entities, deltaMs)
     }
@@ -139,12 +118,17 @@ export class TargetingSystem extends System {
         const switchDir = input.lockSwitchIntent
         let bestId: number | null = null
         let minDistance = Infinity
+        const switchRange = ENEMY_DETECTION_RANGE * 2.0
+        const candidates = this.getNearbyEntities(
+          entities,
+          player.transform.x,
+          player.transform.y,
+          switchRange
+        )
+        const candidateCount = this.getNearbyEntityCount(entities)
 
-        // Search inside scan results first? Or global?
-        // Let's use global but check visibility if we can, or just distance.
-        // Given the request for "Raycast detection", locking should probably imply visibility.
-        // But for switching, maybe we just search entities list.
-        for (const entity of entities) {
+        for (let i = 0; i < candidateCount; i++) {
+          const entity = candidates[i]
           if (entity.id === player.id || entity.id === currentTarget.id)
             continue
           if (
@@ -269,8 +253,16 @@ export class TargetingSystem extends System {
 
     let nearestNpc: Entity | null = null
     let minDistSq = maxRange * maxRange
+    const candidates = this.getNearbyEntities(
+      entities,
+      player.transform.x,
+      player.transform.y,
+      maxRange
+    )
+    const candidateCount = this.getNearbyEntityCount(entities)
 
-    for (const entity of entities) {
+    for (let i = 0; i < candidateCount; i++) {
+      const entity = candidates[i]
       if (entity.id === player.id) continue
       if (
         !entity.faction ||
@@ -298,38 +290,14 @@ export class TargetingSystem extends System {
     return nearestNpc
   }
 
-  private rebuildShapeMap(entities: Entity[]): void {
-    this.shapeMap.clear()
-    for (const entity of entities) {
-      if (entity.physics && entity.physics.shapeId) {
-        if (entity.physics.shapeIds.length > 0) {
-          for (let i = 0; i < entity.physics.shapeIds.length; i++) {
-            const key = this.getShapeKey(entity.physics.shapeIds[i])
-            this.shapeMap.set(key, entity)
-          }
-          continue
-        }
-        const key = this.getShapeKey(entity.physics.shapeId)
-        this.shapeMap.set(key, entity)
-      }
-    }
-  }
-
-  private getShapeKey(shapeId: b2ShapeId | number): number {
-    if (typeof shapeId === 'number') return shapeId
-    const shape = shapeId as ShapeIdKeySource
-    const index = shape.index ?? shape.index1 ?? 0
-    const world0 = shape.world0 ?? 0
-    const revision = shape.revision ?? shape.generation ?? 0
-    return (index << 16) | (world0 << 8) | revision
-  }
-
   private updateSensor(entity: Entity, entities: Entity[]): void {
     if (!entity.transform || !entity.sensor) return
 
     const { radius } = entity.sensor
     const { x, y } = entity.transform
     const radiusSq = radius * radius
+    const nearbyEntities = this.getNearbyEntities(entities, x, y, radius)
+    const nearbyCount = this.getNearbyEntityCount(entities)
 
     let facingDir = 1
     if (entity.input) {
@@ -366,7 +334,8 @@ export class TargetingSystem extends System {
 
     // 预判：视野范围内非敌对但已锁定自己且处于战斗状态的单位，提前标记为临时敌人
     if (entity.faction) {
-      for (const target of entities) {
+      for (let i = 0; i < nearbyCount; i++) {
+        const target = nearbyEntities[i]
         if (target.id === entity.id) continue
         if (!target.transform || !target.faction) continue
         if (target.stats?.isDead || target.stats?.isVanished) continue
@@ -401,7 +370,8 @@ export class TargetingSystem extends System {
     // 射线未命中任何障碍物 = 视线畅通；命中障碍物 = 视线被阻断
     filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
 
-    for (const target of entities) {
+    for (let i = 0; i < nearbyCount; i++) {
+      const target = nearbyEntities[i]
       if (target.id === entity.id) continue
       if (!target.transform) continue
       if (!entity.faction || !target.faction) continue
@@ -504,6 +474,25 @@ export class TargetingSystem extends System {
 
   private processScanResults(_entity: Entity): void {
     // Logic moved to updateSensor to avoid double loops
+  }
+
+  private getNearbyEntities(
+    entities: Entity[],
+    x: number,
+    y: number,
+    radius: number
+  ): Entity[] {
+    if (!this.spatialHash) {
+      return entities
+    }
+    return this.spatialHash.query(x, y, radius)
+  }
+
+  private getNearbyEntityCount(entities: Entity[]): number {
+    if (!this.spatialHash) {
+      return entities.length
+    }
+    return this.spatialHash.getQueryResultLength()
   }
 
   private getEntityById(id: number, entities: Entity[]): Entity | undefined {
