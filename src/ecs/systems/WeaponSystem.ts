@@ -156,6 +156,7 @@ const GIANT_SWORD_FINISHER_SHAKE_DURATION_MS = 190
 const DEFAULT_PROJECTILE_DENSITY = 0.1
 const DEFAULT_PROJECTILE_RESTITUTION = 0.4
 const DEFAULT_PROJECTILE_LIFETIME_MS = 2500
+const DEATH_WEAPON_DROP_CHANCE_DENOMINATOR = 2
 
 export type ObstacleCollider = {
   bodyId: b2BodyId
@@ -3039,12 +3040,14 @@ export class WeaponSystem extends System {
     ) => {
       if (!slot.hasWeapon) return
       this.fillWeaponDropDataFromSlot(slot, this.tempWeaponDropData)
-      this.dropWeapon(
-        transform.x + offsetX,
-        transform.y,
-        dropFacing,
-        this.tempWeaponDropData
-      )
+      if (this.shouldDropWeaponOnDeath()) {
+        this.dropWeapon(
+          transform.x + offsetX,
+          transform.y,
+          dropFacing,
+          this.tempWeaponDropData
+        )
+      }
       slot.hasWeapon = false
     }
 
@@ -3076,9 +3079,20 @@ export class WeaponSystem extends System {
 
     if (weapon && weapon.isEquipped) {
       this.fillWeaponDropDataFromWeapon(weapon, this.tempWeaponDropData)
-      this.dropWeapon(transform.x, transform.y, facing, this.tempWeaponDropData)
+      if (this.shouldDropWeaponOnDeath()) {
+        this.dropWeapon(
+          transform.x,
+          transform.y,
+          facing,
+          this.tempWeaponDropData
+        )
+      }
       weapon.isEquipped = false
     }
+  }
+
+  private shouldDropWeaponOnDeath(): boolean {
+    return ((Math.random() * DEATH_WEAPON_DROP_CHANCE_DENOMINATOR) | 0) === 0
   }
 
   switchWeaponSlot(entity: Entity, slotId: WeaponSlotId): void {

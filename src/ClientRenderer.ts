@@ -451,22 +451,11 @@ export class ClientRenderer {
       if (flags & FLAGS.VANISHED) continue
       if (!(flags & FLAGS.VISIBLE)) continue
 
-      if (flags & FLAGS.EXP_ORB) {
-        const wx = buf[offset + OFFSETS.X]
-        const wy = buf[offset + OFFSETS.Y]
-        this.drawExpOrbIcon(wx, wy)
-        continue
-      }
-      if (flags & FLAGS.SUN_PICKUP_SMALL) {
-        const wx = buf[offset + OFFSETS.X]
-        const wy = buf[offset + OFFSETS.Y]
-        this.drawSunPickupIcon(wx, wy, false)
-        continue
-      }
-      if (flags & FLAGS.SUN_PICKUP_LARGE) {
-        const wx = buf[offset + OFFSETS.X]
-        const wy = buf[offset + OFFSETS.Y]
-        this.drawSunPickupIcon(wx, wy, true)
+      if (
+        flags & FLAGS.EXP_ORB ||
+        flags & FLAGS.SUN_PICKUP_SMALL ||
+        flags & FLAGS.SUN_PICKUP_LARGE
+      ) {
         continue
       }
 
@@ -508,6 +497,7 @@ export class ClientRenderer {
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
     this.drawSensorDebug()
     this.drawSoundDebug()
+    this.renderTopLayerPickups(buf)
 
     // Draw follow bond icons
     if (playerOffset !== -1) {
@@ -591,6 +581,29 @@ export class ClientRenderer {
         effectiveDrawRatio,
         playerWeaponType
       )
+    }
+  }
+
+  private renderTopLayerPickups(buf: Float32Array): void {
+    for (let i = 0; i < this.entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      const flags = buf[offset + OFFSETS.FLAGS]
+      if (flags & FLAGS.VANISHED) continue
+      if (!(flags & FLAGS.VISIBLE)) continue
+
+      const wx = buf[offset + OFFSETS.X]
+      const wy = buf[offset + OFFSETS.Y]
+      if (flags & FLAGS.EXP_ORB) {
+        this.drawExpOrbIcon(wx, wy)
+        continue
+      }
+      if (flags & FLAGS.SUN_PICKUP_SMALL) {
+        this.drawSunPickupIcon(wx, wy, false)
+        continue
+      }
+      if (flags & FLAGS.SUN_PICKUP_LARGE) {
+        this.drawSunPickupIcon(wx, wy, true)
+      }
     }
   }
 
