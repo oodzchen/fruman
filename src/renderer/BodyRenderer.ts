@@ -59,8 +59,30 @@ export function renderBody(
         : radiusPx * 2
   const bodyHalfWidthPx = bodyWidthPx * 0.5
   const bodyHalfHeightPx = bodyHeightResolvedPx * 0.5
+  const profileReferenceWidth = getBodyPointReferenceSize(bodyProfile, 'x')
+  const profileReferenceHeight = getBodyPointReferenceSize(bodyProfile, 'y')
+  const surfaceScaleX = (bodyHalfWidthPx * 2) / profileReferenceWidth
+  const surfaceScaleY = (bodyHalfHeightPx * 2) / profileReferenceHeight
   const mirrorBody = !!bodyProfile && bodyProfile.points.length >= 6
   const hasSurfaceTexture = !!bodyProfile?.surfaceDataUrl && !!textureImage
+  const surfaceWidthPx =
+    typeof bodyProfile?.surfaceWidth === 'number' &&
+    bodyProfile.surfaceWidth > 0
+      ? bodyProfile.surfaceWidth * surfaceScaleX
+      : bodyWidthPx
+  const surfaceHeightPx =
+    typeof bodyProfile?.surfaceHeight === 'number' &&
+    bodyProfile.surfaceHeight > 0
+      ? bodyProfile.surfaceHeight * surfaceScaleY
+      : bodyHeightResolvedPx
+  const surfaceOffsetXPx =
+    typeof bodyProfile?.surfaceOffsetX === 'number'
+      ? bodyProfile.surfaceOffsetX * surfaceScaleX
+      : 0
+  const surfaceOffsetYPx =
+    typeof bodyProfile?.surfaceOffsetY === 'number'
+      ? bodyProfile.surfaceOffsetY * surfaceScaleY
+      : 0
 
   ctx.save()
   if (mirrorBody && facingDirection < 0) {
@@ -74,17 +96,27 @@ export function renderBody(
   }
 
   if (textureImage) {
-    ctx.save()
-    traceBodyPath(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
-    ctx.clip()
-    ctx.drawImage(
-      textureImage,
-      -bodyHalfWidthPx,
-      -bodyHalfHeightPx,
-      bodyWidthPx,
-      bodyHeightResolvedPx
-    )
-    ctx.restore()
+    if (hasSurfaceTexture) {
+      ctx.drawImage(
+        textureImage,
+        surfaceOffsetXPx - surfaceWidthPx * 0.5,
+        surfaceOffsetYPx - surfaceHeightPx * 0.5,
+        surfaceWidthPx,
+        surfaceHeightPx
+      )
+    } else {
+      ctx.save()
+      traceBodyPath(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
+      ctx.clip()
+      ctx.drawImage(
+        textureImage,
+        -bodyHalfWidthPx,
+        -bodyHalfHeightPx,
+        bodyWidthPx,
+        bodyHeightResolvedPx
+      )
+      ctx.restore()
+    }
   }
 
   if (!hasSurfaceTexture) {
@@ -95,7 +127,7 @@ export function renderBody(
   }
   ctx.restore()
 
-  if (showEye) {
+  if (showEye && !bodyProfile?.embeddedEye) {
     renderBodyEye(
       ctx,
       bodyHalfWidthPx,

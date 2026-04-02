@@ -81,8 +81,26 @@ export interface MapCharacterBodyProfile {
   bloodColor?: string
   eyeX?: number
   eyeY?: number
+  embeddedEye?: boolean
+  surfaceOffsetX?: number
+  surfaceOffsetY?: number
+  surfaceWidth?: number
+  surfaceHeight?: number
+  layerOrder?: number[]
+  layers?: MapCharacterBodyVisualLayer[]
   surfaceDataUrl?: string
   textureDataUrl?: string
+}
+
+export interface MapCharacterBodyVisualLayer {
+  id: number
+  name: string
+  kind: 'brow' | 'paint'
+  offsetX: number
+  offsetY: number
+  width: number
+  height: number
+  dataUrl: string
 }
 
 export type MapShape = MapRectShape | MapCircleShape | MapPolygonShape
