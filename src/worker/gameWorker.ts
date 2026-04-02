@@ -9,6 +9,7 @@ import {
 
 import {
   PLAYER_BODY_PROFILE_INDEX,
+  getCharacterBloodColor,
   getCharacterBodyColor,
   getEnemyBodyProfileIndex,
   isValidCharacterBodyProfile,
@@ -1702,6 +1703,10 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     playerEntity.render.color = getCharacterBodyColor(
       playerBodyProfile,
       playerProps?.color ?? playerEntity.render.color
+    )
+    playerEntity.render.bloodColor = getCharacterBloodColor(
+      playerBodyProfile,
+      ''
     )
   }
 

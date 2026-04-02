@@ -1,4 +1,7 @@
-import { getCharacterBodyColor } from '../../characterBodyProfile'
+import {
+  getCharacterBloodColor,
+  getCharacterBodyColor,
+} from '../../characterBodyProfile'
 import {
   CATEGORY_ENEMY,
   CATEGORY_PLAYER,
@@ -182,6 +185,7 @@ export function createPlayer(
   render.radius = radius
   render.bodyHeight = bodyHeight
   render.bodyProfile = bodyProfile ?? null
+  render.bloodColor = getCharacterBloodColor(bodyProfile, '')
   entity.addComponent(render)
 
   const faction = new FactionComponent()
@@ -410,6 +414,7 @@ export function createEnemy(
 
   if (enemy.render) {
     enemy.render.color = getCharacterBodyColor(options?.bodyProfile, color)
+    enemy.render.bloodColor = getCharacterBloodColor(options?.bodyProfile, '')
     enemy.render.bodyProfile = options?.bodyProfile ?? null
   }
 

@@ -1,9 +1,33 @@
 import {
-  CHARACTER_BODY_DRAW_SIZE,
+  getCharacterBodyProfileHeight,
+  getCharacterBodyProfileWidth,
   getCharacterEyeDrawX,
   getCharacterEyeDrawY,
 } from '../characterBodyProfile'
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
+
+function getBodyPointReferenceSize(
+  bodyProfile: MapCharacterBodyProfile | null,
+  axis: 'x' | 'y'
+): number {
+  if (!bodyProfile || bodyProfile.points.length < 6) {
+    return 128
+  }
+  const useBounds =
+    getCharacterBodyProfileWidth(bodyProfile) > 0 ||
+    getCharacterBodyProfileHeight(bodyProfile) > 0
+  if (!useBounds) {
+    return 128
+  }
+  let minValue = bodyProfile.points[axis === 'x' ? 0 : 1]
+  let maxValue = minValue
+  for (let i = axis === 'x' ? 0 : 1; i < bodyProfile.points.length; i += 2) {
+    const value = bodyProfile.points[i]
+    if (value < minValue) minValue = value
+    if (value > maxValue) maxValue = value
+  }
+  return Math.max(1, maxValue - minValue)
+}
 
 export function renderBody(
   ctx: CanvasRenderingContext2D,
@@ -23,7 +47,18 @@ export function renderBody(
     return
   }
 
-  const radiusYPx = bodyHeightPx > 0 ? bodyHeightPx / 2 : radiusPx
+  const bodyWidthPx =
+    getCharacterBodyProfileWidth(bodyProfile) > 0
+      ? getCharacterBodyProfileWidth(bodyProfile) * pixelsPerMeter
+      : radiusPx * 2
+  const bodyHeightResolvedPx =
+    getCharacterBodyProfileHeight(bodyProfile) > 0
+      ? getCharacterBodyProfileHeight(bodyProfile) * pixelsPerMeter
+      : bodyHeightPx > 0
+        ? bodyHeightPx
+        : radiusPx * 2
+  const bodyHalfWidthPx = bodyWidthPx * 0.5
+  const bodyHalfHeightPx = bodyHeightResolvedPx * 0.5
   const mirrorBody = !!bodyProfile && bodyProfile.points.length >= 6
   const hasSurfaceTexture = !!bodyProfile?.surfaceDataUrl && !!textureImage
 
@@ -34,20 +69,20 @@ export function renderBody(
 
   if (!hasSurfaceTexture) {
     ctx.fillStyle = bodyColor
-    traceBodyPath(ctx, radiusPx, radiusYPx, bodyProfile)
+    traceBodyPath(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
     ctx.fill()
   }
 
   if (textureImage) {
     ctx.save()
-    traceBodyPath(ctx, radiusPx, radiusYPx, bodyProfile)
+    traceBodyPath(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
     ctx.clip()
     ctx.drawImage(
       textureImage,
-      -radiusPx,
-      -radiusYPx,
-      radiusPx * 2,
-      radiusYPx * 2
+      -bodyHalfWidthPx,
+      -bodyHalfHeightPx,
+      bodyWidthPx,
+      bodyHeightResolvedPx
     )
     ctx.restore()
   }
@@ -55,7 +90,7 @@ export function renderBody(
   if (!hasSurfaceTexture) {
     ctx.strokeStyle = bodyColor
     ctx.lineWidth = 3
-    traceBodyPath(ctx, radiusPx, radiusYPx, bodyProfile)
+    traceBodyPath(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
     ctx.stroke()
   }
   ctx.restore()
@@ -63,8 +98,8 @@ export function renderBody(
   if (showEye) {
     renderBodyEye(
       ctx,
-      radiusPx,
-      radiusYPx,
+      bodyHalfWidthPx,
+      bodyHalfHeightPx,
       pixelsPerMeter,
       facingDirection,
       bodyProfile,
@@ -75,7 +110,7 @@ export function renderBody(
   if (outlineWidthPx > 0 && outlineColor.length > 0) {
     ctx.strokeStyle = outlineColor
     ctx.lineWidth = outlineWidthPx
-    traceBodyPath(ctx, radiusPx, radiusYPx, bodyProfile)
+    traceBodyPath(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
     ctx.stroke()
   }
 }
@@ -89,8 +124,8 @@ export function renderBodyEye(
   bodyProfile: MapCharacterBodyProfile | null = null,
   pupilColor = '#14110d'
 ): void {
-  const scaleX = (radiusPx * 2) / CHARACTER_BODY_DRAW_SIZE
-  const scaleY = (radiusYPx * 2) / CHARACTER_BODY_DRAW_SIZE
+  const scaleX = (radiusPx * 2) / getBodyPointReferenceSize(bodyProfile, 'x')
+  const scaleY = (radiusYPx * 2) / getBodyPointReferenceSize(bodyProfile, 'y')
   const facing = facingDirection < 0 ? -1 : 1
   const eyeX = getCharacterEyeDrawX(bodyProfile) * scaleX * facing
   const eyeY = getCharacterEyeDrawY(bodyProfile) * scaleY
@@ -144,8 +179,8 @@ function traceBodyPath(
     return
   }
 
-  const scaleX = (radiusPx * 2) / CHARACTER_BODY_DRAW_SIZE
-  const scaleY = (radiusYPx * 2) / CHARACTER_BODY_DRAW_SIZE
+  const scaleX = (radiusPx * 2) / getBodyPointReferenceSize(bodyProfile, 'x')
+  const scaleY = (radiusYPx * 2) / getBodyPointReferenceSize(bodyProfile, 'y')
   const points = bodyProfile.points
   ctx.moveTo(points[0] * scaleX, points[1] * scaleY)
   for (let i = 2; i < points.length; i += 2) {

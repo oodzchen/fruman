@@ -75,7 +75,10 @@ export interface MapPolygonShape {
 
 export interface MapCharacterBodyProfile {
   points: number[]
+  width?: number
+  height?: number
   color?: string
+  bloodColor?: string
   eyeX?: number
   eyeY?: number
   surfaceDataUrl?: string

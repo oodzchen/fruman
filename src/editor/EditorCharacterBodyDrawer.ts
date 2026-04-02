@@ -7,19 +7,15 @@ import {
 
 import { localizer } from '../Localizer'
 import {
-  CHARACTER_BODY_DRAW_HALF,
-  CHARACTER_BODY_DRAW_SIZE,
   DEFAULT_CHARACTER_EYE_X,
   DEFAULT_CHARACTER_EYE_Y,
-  clampCharacterEyeCoord,
   getCharacterEyeDrawX,
   getCharacterEyeDrawY,
 } from '../characterBodyProfile'
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
-import { renderBodyEye } from '../renderer/BodyRenderer'
 import { EditorUIHelper } from './EditorUIHelper'
 
-type BodyDrawMode = 'shape' | 'erase' | 'texture' | 'eye'
+type BodyDrawMode = 'contour' | 'shape' | 'fill' | 'erase' | 'texture' | 'eye'
 type DecompPoint = [number, number]
 type DecompPolygon = DecompPoint[]
 
@@ -38,8 +34,22 @@ const DEFAULT_BRUSH_SIZE = 8
 const MASK_ALPHA_THRESHOLD = 16
 const MAX_PROFILE_POINTS = 96
 const EYE_CURSOR_SIZE = 14
-const DRAWER_HISTORY_MAX_ENTRIES = 64
+const DRAWER_HISTORY_MAX_ENTRIES = 8
 const PROFILE_POINT_PRECISION = 0.0001
+const CONTOUR_CURSOR_SIZE = 10
+const CONTOUR_MIN_POINT_COUNT = 3
+const CONTOUR_GUIDE_POINT_RADIUS = 3
+const CONTOUR_SELECT_DISTANCE_SQ = 100
+const CONTOUR_EDGE_SELECT_DISTANCE_SQ = 100
+const DRAW_WORLD_SIZE = DISPLAY_SIZE * 3
+const DRAW_WORLD_HALF = DRAW_WORLD_SIZE / 2
+const CANVAS_ZOOM_MIN_PERCENT = 25
+const CANVAS_ZOOM_MAX_PERCENT = 300
+const CANVAS_ZOOM_STEP_PERCENT = 25
+const CANVAS_ZOOM_DEFAULT_PERCENT = 100
+const DEFAULT_CONTOUR_SEGMENTS = 16
+const MAX_EDITOR_CONTOUR_POINTS = 96
+const LEGACY_PROFILE_REFERENCE_SIZE = 128
 
 interface EditorCharacterBodyDrawerHistorySnapshot {
   mask: ImageData
@@ -47,8 +57,12 @@ interface EditorCharacterBodyDrawerHistorySnapshot {
   texture: ImageData
   brushSize: string
   color: string
+  bloodColor: string
+  bloodColorAssigned: boolean
   eyeX: number
   eyeY: number
+  contourPoints: number[]
+  contourClosed: boolean
 }
 
 interface EditorCharacterBodyDrawerHistoryContext {
@@ -178,14 +192,14 @@ export class EditorCharacterBodyDrawer {
   private outputCanvas = document.createElement('canvas')
 
   constructor() {
-    this.maskCanvas.width = CHARACTER_BODY_DRAW_SIZE
-    this.maskCanvas.height = CHARACTER_BODY_DRAW_SIZE
-    this.shapeCanvas.width = CHARACTER_BODY_DRAW_SIZE
-    this.shapeCanvas.height = CHARACTER_BODY_DRAW_SIZE
-    this.textureCanvas.width = CHARACTER_BODY_DRAW_SIZE
-    this.textureCanvas.height = CHARACTER_BODY_DRAW_SIZE
-    this.outputCanvas.width = CHARACTER_BODY_DRAW_SIZE
-    this.outputCanvas.height = CHARACTER_BODY_DRAW_SIZE
+    this.maskCanvas.width = DRAW_WORLD_SIZE
+    this.maskCanvas.height = DRAW_WORLD_SIZE
+    this.shapeCanvas.width = DRAW_WORLD_SIZE
+    this.shapeCanvas.height = DRAW_WORLD_SIZE
+    this.textureCanvas.width = DRAW_WORLD_SIZE
+    this.textureCanvas.height = DRAW_WORLD_SIZE
+    this.outputCanvas.width = LEGACY_PROFILE_REFERENCE_SIZE
+    this.outputCanvas.height = LEGACY_PROFILE_REFERENCE_SIZE
   }
 
   async show(
@@ -223,14 +237,19 @@ export class EditorCharacterBodyDrawer {
       'width:220px;max-width:100%;display:flex;flex-direction:column;gap:12px;flex:0 0 auto;overflow-y:auto;'
     content.appendChild(sidebar)
 
+    const canvasColumn = document.createElement('div')
+    canvasColumn.style.cssText =
+      'flex:1 1 320px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-width:0;min-height:0;overflow:hidden;'
+    content.appendChild(canvasColumn)
+
     const canvasWrap = document.createElement('div')
     canvasWrap.style.cssText =
-      'flex:1 1 320px;display:flex;align-items:center;justify-content:center;min-width:0;overflow:auto;position:relative;'
-    content.appendChild(canvasWrap)
+      'flex:1 1 auto;width:100%;display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;position:relative;'
+    canvasColumn.appendChild(canvasWrap)
 
     const drawCanvas = document.createElement('canvas')
-    drawCanvas.width = CHARACTER_BODY_DRAW_SIZE
-    drawCanvas.height = CHARACTER_BODY_DRAW_SIZE
+    drawCanvas.width = DISPLAY_SIZE
+    drawCanvas.height = DISPLAY_SIZE
     drawCanvas.style.cssText = [
       `width:${DISPLAY_SIZE}px`,
       `height:${DISPLAY_SIZE}px`,
@@ -264,6 +283,79 @@ export class EditorCharacterBodyDrawer {
     ].join(';')
     canvasWrap.appendChild(cursorEl)
 
+    const canvasFooter = document.createElement('div')
+    canvasFooter.style.cssText =
+      'flex:0 0 auto;width:100%;min-height:52px;padding-top:10px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;box-sizing:border-box;'
+    canvasColumn.appendChild(canvasFooter)
+
+    const alertEl = document.createElement('div')
+    alertEl.style.cssText = [
+      'min-height:16px',
+      'font-size:11px',
+      'line-height:1.4',
+      'text-align:center',
+      'color:#e2b73c',
+      'display:none',
+      'width:100%',
+    ].join(';')
+    canvasFooter.appendChild(alertEl)
+
+    const zoomRow = document.createElement('div')
+    zoomRow.style.cssText =
+      'display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;width:100%;'
+    const zoomLabel = document.createElement('span')
+    zoomLabel.textContent = localizer.t('editor_body_drawer_zoom')
+    zoomLabel.style.cssText =
+      'font-size:11px;color:rgba(255,255,255,0.78);line-height:1;'
+    const zoomSlider = document.createElement('input')
+    zoomSlider.type = 'range'
+    zoomSlider.min = String(CANVAS_ZOOM_MIN_PERCENT)
+    zoomSlider.max = String(CANVAS_ZOOM_MAX_PERCENT)
+    zoomSlider.step = String(CANVAS_ZOOM_STEP_PERCENT)
+    zoomSlider.value = String(CANVAS_ZOOM_DEFAULT_PERCENT)
+    zoomSlider.style.cssText = 'width:160px;max-width:160px;cursor:pointer;'
+    const zoomValueText = document.createElement('span')
+    zoomValueText.textContent = `${CANVAS_ZOOM_DEFAULT_PERCENT}%`
+    zoomValueText.style.cssText =
+      'min-width:40px;font-size:11px;line-height:1;text-align:right;color:rgba(255,255,255,0.92);'
+    zoomRow.appendChild(zoomLabel)
+    zoomRow.appendChild(zoomSlider)
+    zoomRow.appendChild(zoomValueText)
+    canvasFooter.appendChild(zoomRow)
+
+    const contourMenu = document.createElement('div')
+    contourMenu.style.cssText = [
+      'position:absolute',
+      'display:none',
+      'flex-direction:column',
+      'gap:4px',
+      'padding:6px',
+      'background:rgba(10,9,7,0.96)',
+      'border:1px solid rgba(255,255,255,0.16)',
+      'z-index:2',
+      'min-width:112px',
+      'box-sizing:border-box',
+    ].join(';')
+    const addContourPointBtn = EditorUIHelper.createButton(
+      localizer.t('editor_polygon_menu_add_point')
+    )
+    const removeContourPointBtn = EditorUIHelper.createButton(
+      localizer.t('editor_polygon_menu_remove_point')
+    )
+    contourMenu.style.padding = '0'
+    contourMenu.style.border = 'none'
+    addContourPointBtn.style.padding = '6px 10px'
+    addContourPointBtn.style.fontSize = '11px'
+    addContourPointBtn.style.border = 'none'
+    addContourPointBtn.style.background = 'rgba(255,255,255,0.08)'
+    removeContourPointBtn.style.padding = '6px 10px'
+    removeContourPointBtn.style.fontSize = '11px'
+    removeContourPointBtn.style.border = 'none'
+    removeContourPointBtn.style.background = 'rgba(255,255,255,0.08)'
+    contourMenu.appendChild(addContourPointBtn)
+    contourMenu.appendChild(removeContourPointBtn)
+    canvasWrap.appendChild(contourMenu)
+
     const info = document.createElement('div')
     info.textContent = localizer.t('editor_body_drawer_hint')
     info.style.cssText =
@@ -275,6 +367,8 @@ export class EditorCharacterBodyDrawer {
       marginTop: '0',
       justifyContent: 'flex-start',
     })
+    modeRow.style.flexWrap = 'wrap'
+    modeRow.style.alignItems = 'stretch'
     sidebar.appendChild(modeRow)
 
     const brushRow = EditorUIHelper.createFormRow(
@@ -309,6 +403,16 @@ export class EditorCharacterBodyDrawer {
       options.initialProfile?.color ?? options.initialColor ?? colorInput.value
     colorRow.row.appendChild(colorInput)
     sidebar.appendChild(colorRow.row)
+
+    const bloodColorRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_body_drawer_blood_color'),
+      { labelWidth: '68px', marginBottom: '0' }
+    )
+    const bloodColorInput = EditorUIHelper.createColorInput('#7a1010')
+    bloodColorInput.value =
+      options.initialProfile?.bloodColor ?? colorInput.value
+    bloodColorRow.row.appendChild(bloodColorInput)
+    sidebar.appendChild(bloodColorRow.row)
 
     const actionRow = document.createElement('div')
     actionRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;'
@@ -352,7 +456,7 @@ export class EditorCharacterBodyDrawer {
       return undefined
     }
 
-    let mode: BodyDrawMode = 'shape'
+    let mode: BodyDrawMode = 'contour'
     let pointerActive = false
     let pointerChanged = false
     let settingsChanged = false
@@ -361,32 +465,58 @@ export class EditorCharacterBodyDrawer {
     let eyeX = DEFAULT_CHARACTER_EYE_X
     let eyeY = DEFAULT_CHARACTER_EYE_Y
     let resolved = false
+    let contourClosed = false
+    let contourPoints: number[] = []
+    let selectedContourIndex = -1
+    let contourDragPointIndex = -1
+    let pendingContourClose = false
+    let contourMenuPointIndex = -1
+    let contourMenuInsertAfterIndex = -1
+    let contourMenuInsertX = 0
+    let contourMenuInsertY = 0
+    let hoverX = 0
+    let hoverY = 0
+    let hoverVisible = false
+    let canvasZoomPercent = CANVAS_ZOOM_DEFAULT_PERCENT
+    let canvasPanActive = false
+    let lastPanClientX = 0
+    let lastPanClientY = 0
+    let viewportScale = 1
+    let viewOriginX = DRAW_WORLD_HALF - DISPLAY_SIZE * 0.5
+    let viewOriginY = DRAW_WORLD_HALF - DISPLAY_SIZE * 0.5
+    let shapeStrokeAnchored = false
+    let bloodColorAssigned =
+      typeof options.initialProfile?.bloodColor === 'string'
+    const exportBaseWidth =
+      options.defaultBodyWidth && options.defaultBodyWidth > 0
+        ? options.defaultBodyWidth
+        : 1
+    const exportBaseHeight =
+      options.defaultBodyHeight && options.defaultBodyHeight > 0
+        ? options.defaultBodyHeight
+        : exportBaseWidth
+    let exportReferenceWidth = LEGACY_PROFILE_REFERENCE_SIZE
+    let exportReferenceHeight = LEGACY_PROFILE_REFERENCE_SIZE
 
     const captureHistorySnapshot =
       (): EditorCharacterBodyDrawerHistorySnapshot => {
         return {
-          mask: maskCtx.getImageData(
-            0,
-            0,
-            CHARACTER_BODY_DRAW_SIZE,
-            CHARACTER_BODY_DRAW_SIZE
-          ),
-          shape: shapeCtx.getImageData(
-            0,
-            0,
-            CHARACTER_BODY_DRAW_SIZE,
-            CHARACTER_BODY_DRAW_SIZE
-          ),
+          mask: maskCtx.getImageData(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE),
+          shape: shapeCtx.getImageData(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE),
           texture: textureCtx.getImageData(
             0,
             0,
-            CHARACTER_BODY_DRAW_SIZE,
-            CHARACTER_BODY_DRAW_SIZE
+            DRAW_WORLD_SIZE,
+            DRAW_WORLD_SIZE
           ),
           brushSize: brushSlider.value,
           color: colorInput.value,
+          bloodColor: bloodColorInput.value,
+          bloodColorAssigned,
           eyeX,
           eyeY,
+          contourPoints: contourPoints.slice(),
+          contourClosed,
         }
       }
 
@@ -398,10 +528,20 @@ export class EditorCharacterBodyDrawer {
       textureCtx.putImageData(snapshot.texture, 0, 0)
       syncBrushValue(snapshot.brushSize)
       colorInput.value = snapshot.color
+      bloodColorInput.value = snapshot.bloodColor
+      bloodColorAssigned = snapshot.bloodColorAssigned
+      if (!bloodColorAssigned) {
+        bloodColorInput.value = colorInput.value
+      }
       eyeX = snapshot.eyeX
       eyeY = snapshot.eyeY
+      contourPoints = snapshot.contourPoints.slice()
+      contourClosed = snapshot.contourClosed
       renderComposite()
+      updateAlert()
+      updateConfirmState()
       updateCursorVisual()
+      updateModeButtons()
     }
 
     const flushSettingHistory = () => {
@@ -420,9 +560,16 @@ export class EditorCharacterBodyDrawer {
       DRAWER_HISTORY_MAX_ENTRIES
     )
 
+    const contourBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_mode_contour'),
+      { primary: true }
+    )
     const shapeBtn = EditorUIHelper.createButton(
       localizer.t('editor_body_drawer_mode_shape'),
       { primary: true }
+    )
+    const fillBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_mode_fill')
     )
     const eraseBtn = EditorUIHelper.createButton(
       localizer.t('editor_body_drawer_mode_erase')
@@ -433,7 +580,34 @@ export class EditorCharacterBodyDrawer {
     const eyeBtn = EditorUIHelper.createButton(
       localizer.t('editor_body_drawer_mode_eye')
     )
+    const modeButtons = [
+      contourBtn,
+      shapeBtn,
+      fillBtn,
+      eraseBtn,
+      textureBtn,
+      eyeBtn,
+    ]
+    for (let i = 0; i < modeButtons.length; i++) {
+      const button = modeButtons[i]
+      button.style.flex = '1 1 calc(50% - 8px)'
+      button.style.minWidth = '84px'
+      button.style.padding = '6px 10px'
+      button.style.fontSize = '11px'
+      button.style.lineHeight = '1.2'
+      button.style.whiteSpace = 'nowrap'
+      button.style.writingMode = 'horizontal-tb'
+      button.style.textOrientation = 'mixed'
+      button.style.textAlign = 'center'
+      button.style.boxSizing = 'border-box'
+    }
+    resetShapeBtn.style.padding = '6px 10px'
+    resetShapeBtn.style.fontSize = '11px'
+    clearTextureBtn.style.padding = '6px 10px'
+    clearTextureBtn.style.fontSize = '11px'
+    modeRow.appendChild(contourBtn)
     modeRow.appendChild(shapeBtn)
+    modeRow.appendChild(fillBtn)
     modeRow.appendChild(eraseBtn)
     modeRow.appendChild(textureBtn)
     modeRow.appendChild(eyeBtn)
@@ -446,6 +620,348 @@ export class EditorCharacterBodyDrawer {
       return Math.max(MIN_BRUSH_SIZE, Math.min(MAX_BRUSH_SIZE, parsed))
     }
 
+    const getContourPointCount = (): number => contourPoints.length / 2
+
+    const getContourBounds = (): {
+      minX: number
+      minY: number
+      maxX: number
+      maxY: number
+      width: number
+      height: number
+      centerX: number
+      centerY: number
+    } | null => {
+      if (contourPoints.length < 2) {
+        return null
+      }
+      let minX = contourPoints[0]
+      let maxX = contourPoints[0]
+      let minY = contourPoints[1]
+      let maxY = contourPoints[1]
+      for (let i = 2; i < contourPoints.length; i += 2) {
+        const pointX = contourPoints[i]
+        const pointY = contourPoints[i + 1]
+        if (pointX < minX) minX = pointX
+        if (pointX > maxX) maxX = pointX
+        if (pointY < minY) minY = pointY
+        if (pointY > maxY) maxY = pointY
+      }
+      const width = Math.max(1, maxX - minX)
+      const height = Math.max(1, maxY - minY)
+      return {
+        minX,
+        minY,
+        maxX,
+        maxY,
+        width,
+        height,
+        centerX: Math.round((minX + maxX) * 0.5),
+        centerY: Math.round((minY + maxY) * 0.5),
+      }
+    }
+
+    const setExportReferenceFromBounds = (
+      bounds: ReturnType<typeof getContourBounds> | null
+    ) => {
+      if (!bounds) {
+        return
+      }
+      exportReferenceWidth = Math.max(1, bounds.width)
+      exportReferenceHeight = Math.max(1, bounds.height)
+    }
+
+    const getCanvasLocalPoint = (
+      event: Pick<MouseEvent, 'clientX' | 'clientY'>
+    ): { x: number; y: number } => {
+      const rect = drawCanvas.getBoundingClientRect()
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      }
+    }
+
+    const getVisibleWorldSize = (scale: number): number =>
+      scale > 0 ? DISPLAY_SIZE / scale : DISPLAY_SIZE
+
+    const clampViewOrigin = (
+      originX: number,
+      originY: number
+    ): { x: number; y: number } => {
+      const visibleWorldSize = getVisibleWorldSize(viewportScale)
+      const limit = DRAW_WORLD_SIZE - visibleWorldSize
+      if (limit <= 0) {
+        const centeredOrigin = Math.round(limit * 0.5)
+        return { x: centeredOrigin, y: centeredOrigin }
+      }
+      return {
+        x: Math.max(0, Math.min(limit, Math.round(originX))),
+        y: Math.max(0, Math.min(limit, Math.round(originY))),
+      }
+    }
+
+    const clampBodyPoint = (
+      pointX: number,
+      pointY: number
+    ): { x: number; y: number } => {
+      return {
+        x: Math.max(0, Math.min(DRAW_WORLD_SIZE - 1, Math.round(pointX))),
+        y: Math.max(0, Math.min(DRAW_WORLD_SIZE - 1, Math.round(pointY))),
+      }
+    }
+
+    const bodyToCanvasPoint = (
+      pointX: number,
+      pointY: number
+    ): { x: number; y: number } => {
+      return {
+        x: (pointX - viewOriginX) * viewportScale,
+        y: (pointY - viewOriginY) * viewportScale,
+      }
+    }
+
+    const hideContourMenu = () => {
+      contourMenu.style.display = 'none'
+      contourMenuPointIndex = -1
+      contourMenuInsertAfterIndex = -1
+    }
+
+    const showContourMenu = (
+      clientX: number,
+      clientY: number,
+      pointIndex: number,
+      insertAfterIndex: number,
+      insertX: number,
+      insertY: number
+    ) => {
+      contourMenuPointIndex = pointIndex
+      contourMenuInsertAfterIndex = pointIndex >= 0 ? -1 : insertAfterIndex
+      contourMenuInsertX = insertX
+      contourMenuInsertY = insertY
+      addContourPointBtn.style.display =
+        pointIndex < 0 && insertAfterIndex >= 0 ? 'block' : 'none'
+      removeContourPointBtn.style.display = pointIndex >= 0 ? 'block' : 'none'
+      contourMenu.style.display =
+        pointIndex >= 0 || (pointIndex < 0 && insertAfterIndex >= 0)
+          ? 'flex'
+          : 'none'
+      if (contourMenu.style.display === 'none') {
+        return
+      }
+      contourMenu.style.left = '0px'
+      contourMenu.style.top = '0px'
+      const wrapRect = canvasWrap.getBoundingClientRect()
+      const menuRect = contourMenu.getBoundingClientRect()
+      let left = clientX - wrapRect.left
+      let top = clientY - wrapRect.top
+      if (left + menuRect.width > wrapRect.width - 4) {
+        left = wrapRect.width - menuRect.width - 4
+      }
+      if (top + menuRect.height > wrapRect.height - 4) {
+        top = wrapRect.height - menuRect.height - 4
+      }
+      if (left < 4) {
+        left = 4
+      }
+      if (top < 4) {
+        top = 4
+      }
+      contourMenu.style.left = `${left}px`
+      contourMenu.style.top = `${top}px`
+    }
+
+    const applyCanvasZoom = (
+      zoomPercent: number,
+      focusClientX?: number,
+      focusClientY?: number
+    ) => {
+      const previousScale = viewportScale
+      const focusPoint =
+        typeof focusClientX === 'number' && typeof focusClientY === 'number'
+          ? getCanvasLocalPoint({
+              clientX: focusClientX,
+              clientY: focusClientY,
+            })
+          : { x: DISPLAY_SIZE / 2, y: DISPLAY_SIZE / 2 }
+      const focusWorldX =
+        previousScale > 0 ? focusPoint.x / previousScale + viewOriginX : 0
+      const focusWorldY =
+        previousScale > 0 ? focusPoint.y / previousScale + viewOriginY : 0
+      canvasZoomPercent = Math.max(
+        CANVAS_ZOOM_MIN_PERCENT,
+        Math.min(CANVAS_ZOOM_MAX_PERCENT, zoomPercent)
+      )
+      viewportScale = Math.round((canvasZoomPercent * 1000) / 100) / 1000
+      zoomSlider.value = String(canvasZoomPercent)
+      zoomValueText.textContent = `${canvasZoomPercent}%`
+      const clampedOrigin = clampViewOrigin(
+        focusWorldX - focusPoint.x / viewportScale,
+        focusWorldY - focusPoint.y / viewportScale
+      )
+      viewOriginX = clampedOrigin.x
+      viewOriginY = clampedOrigin.y
+      if (
+        typeof focusClientX !== 'number' ||
+        typeof focusClientY !== 'number'
+      ) {
+        const centeredOrigin = clampViewOrigin(
+          DRAW_WORLD_HALF - getVisibleWorldSize(viewportScale) * 0.5,
+          DRAW_WORLD_HALF - getVisibleWorldSize(viewportScale) * 0.5
+        )
+        viewOriginX = centeredOrigin.x
+        viewOriginY = centeredOrigin.y
+      }
+      updateCursorVisual()
+      if (hoverVisible) {
+        updateCursorPosition({ x: hoverX, y: hoverY })
+      }
+      renderComposite()
+    }
+
+    const canUsePaintModes = (): boolean => contourClosed
+
+    const setButtonDisabled = (
+      button: HTMLButtonElement,
+      disabled: boolean
+    ) => {
+      button.disabled = disabled
+      button.style.opacity = disabled ? '0.4' : '1'
+      button.style.cursor = disabled ? 'default' : 'pointer'
+    }
+
+    const updateConfirmState = () => {
+      confirmBtn.disabled = !contourClosed
+      confirmBtn.style.opacity = contourClosed ? '1' : '0.45'
+      confirmBtn.style.cursor = contourClosed ? 'pointer' : 'default'
+    }
+
+    const updateAlert = () => {
+      if (contourClosed) {
+        alertEl.style.display = 'none'
+        return
+      }
+      alertEl.textContent = localizer.t('editor_body_drawer_contour_alert')
+      alertEl.style.display = 'block'
+    }
+
+    const getContourHitDistanceSq = (baseDistanceSq: number): number => {
+      const baseDistance = Math.max(1, Math.round(Math.sqrt(baseDistanceSq)))
+      const scaledDistance = Math.max(
+        2,
+        Math.round(baseDistance / viewportScale)
+      )
+      return scaledDistance * scaledDistance
+    }
+
+    const getNearestContourPointIndex = (
+      pointX: number,
+      pointY: number,
+      maxDistanceSq: number
+    ): number => {
+      let bestIndex = -1
+      let bestDistanceSq = maxDistanceSq
+      for (let i = 0; i < contourPoints.length; i += 2) {
+        const dx = pointX - contourPoints[i]
+        const dy = pointY - contourPoints[i + 1]
+        const distanceSq = dx * dx + dy * dy
+        if (distanceSq > bestDistanceSq) {
+          continue
+        }
+        bestDistanceSq = distanceSq
+        bestIndex = i / 2
+      }
+      return bestIndex
+    }
+
+    const getEdgeProjection = (
+      px: number,
+      py: number,
+      ax: number,
+      ay: number,
+      bx: number,
+      by: number
+    ): { x: number; y: number; distanceSq: number; factorScaled: number } => {
+      const dx = bx - ax
+      const dy = by - ay
+      if (dx === 0 && dy === 0) {
+        const rx = px - ax
+        const ry = py - ay
+        return {
+          x: ax,
+          y: ay,
+          distanceSq: rx * rx + ry * ry,
+          factorScaled: 0,
+        }
+      }
+      const lengthSq = dx * dx + dy * dy
+      let factorScaled = Math.round(
+        (((px - ax) * dx + (py - ay) * dy) * 1024) / lengthSq
+      )
+      if (factorScaled < 0) {
+        factorScaled = 0
+      } else if (factorScaled > 1024) {
+        factorScaled = 1024
+      }
+      const projectedX = ax + Math.round((dx * factorScaled) / 1024)
+      const projectedY = ay + Math.round((dy * factorScaled) / 1024)
+      const rx = px - projectedX
+      const ry = py - projectedY
+      return {
+        x: projectedX,
+        y: projectedY,
+        distanceSq: rx * rx + ry * ry,
+        factorScaled,
+      }
+    }
+
+    const getNearestContourEdge = (
+      pointX: number,
+      pointY: number,
+      maxDistanceSq: number
+    ): { insertAfterIndex: number; x: number; y: number } | null => {
+      const pointCount = getContourPointCount()
+      if (pointCount < 2) {
+        return null
+      }
+      const edgeCount = contourClosed ? pointCount : pointCount - 1
+      let bestInsertAfterIndex = -1
+      let bestDistanceSq = maxDistanceSq
+      let bestX = 0
+      let bestY = 0
+      for (let i = 0; i < edgeCount; i++) {
+        const nextIndex = (i + 1) % pointCount
+        const currentOffset = i * 2
+        const nextOffset = nextIndex * 2
+        const projection = getEdgeProjection(
+          pointX,
+          pointY,
+          contourPoints[currentOffset],
+          contourPoints[currentOffset + 1],
+          contourPoints[nextOffset],
+          contourPoints[nextOffset + 1]
+        )
+        if (
+          projection.distanceSq > bestDistanceSq ||
+          projection.factorScaled <= 0 ||
+          projection.factorScaled >= 1024
+        ) {
+          continue
+        }
+        bestDistanceSq = projection.distanceSq
+        bestInsertAfterIndex = i
+        bestX = projection.x
+        bestY = projection.y
+      }
+      if (bestInsertAfterIndex < 0) {
+        return null
+      }
+      return {
+        insertAfterIndex: bestInsertAfterIndex,
+        x: bestX,
+        y: bestY,
+      }
+    }
+
     const updateModeButtons = () => {
       const applyActive = (button: HTMLButtonElement, active: boolean) => {
         button.style.background = active
@@ -455,70 +971,280 @@ export class EditorCharacterBodyDrawer {
           ? 'rgba(255,255,255,0.4)'
           : 'rgba(255,255,255,0.25)'
       }
+      applyActive(contourBtn, mode === 'contour')
       applyActive(shapeBtn, mode === 'shape')
+      applyActive(fillBtn, mode === 'fill')
       applyActive(eraseBtn, mode === 'erase')
       applyActive(textureBtn, mode === 'texture')
       applyActive(eyeBtn, mode === 'eye')
+      setButtonDisabled(shapeBtn, !canUsePaintModes())
+      setButtonDisabled(fillBtn, !canUsePaintModes())
+      setButtonDisabled(eraseBtn, !canUsePaintModes())
+      setButtonDisabled(textureBtn, !canUsePaintModes())
+      setButtonDisabled(eyeBtn, !canUsePaintModes())
+      setButtonDisabled(clearTextureBtn, !canUsePaintModes())
     }
 
     const updateCursorVisual = () => {
-      const rect = drawCanvas.getBoundingClientRect()
       const sizePx =
         mode === 'eye'
           ? EYE_CURSOR_SIZE
-          : Math.max(
-              2,
-              Math.round(
-                (getBrushSize() * rect.width) / CHARACTER_BODY_DRAW_SIZE
-              )
-            )
+          : mode === 'contour' || mode === 'fill'
+            ? CONTOUR_CURSOR_SIZE
+            : Math.max(2, Math.round(getBrushSize() * viewportScale))
       cursorEl.style.width = `${sizePx}px`
       cursorEl.style.height = `${sizePx}px`
+      if (mode === 'contour' || mode === 'fill') {
+        cursorEl.style.borderRadius = '2px'
+        cursorEl.style.borderColor = 'rgba(70,42,0,0.95)'
+        cursorEl.style.boxShadow = '0 0 0 1px rgba(255,231,163,0.92)'
+        cursorEl.style.background =
+          mode === 'fill' ? colorInput.value : 'rgba(245,208,96,0.88)'
+        return
+      }
+      cursorEl.style.borderRadius = '50%'
       cursorEl.style.borderColor = 'rgba(0,0,0,0.95)'
       cursorEl.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.95)'
       cursorEl.style.background =
         mode === 'erase' ? 'rgba(245,245,240,0.92)' : colorInput.value
     }
 
-    const renderComposite = () => {
-      drawCtx.clearRect(
-        0,
-        0,
-        CHARACTER_BODY_DRAW_SIZE,
-        CHARACTER_BODY_DRAW_SIZE
-      )
+    const clearBodyShape = () => {
+      maskCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      shapeCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+    }
 
-      drawCtx.drawImage(this.shapeCanvas, 0, 0)
+    const fillBodyShape = () => {
+      shapeCtx.save()
+      shapeCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      shapeCtx.fillStyle = colorInput.value
+      shapeCtx.fillRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      shapeCtx.globalCompositeOperation = 'destination-in'
+      shapeCtx.drawImage(this.maskCanvas, 0, 0)
+      shapeCtx.restore()
+      renderComposite()
+    }
+
+    const drawContourFill = () => {
+      if (!contourClosed || contourPoints.length < 6) {
+        return
+      }
+      clearBodyShape()
+      maskCtx.save()
+      maskCtx.fillStyle = '#ffffff'
+      maskCtx.beginPath()
+      maskCtx.moveTo(contourPoints[0], contourPoints[1])
+      for (let i = 2; i < contourPoints.length; i += 2) {
+        maskCtx.lineTo(contourPoints[i], contourPoints[i + 1])
+      }
+      maskCtx.closePath()
+      maskCtx.fill()
+      maskCtx.restore()
+
+      shapeCtx.save()
+      shapeCtx.fillStyle = colorInput.value
+      shapeCtx.beginPath()
+      shapeCtx.moveTo(contourPoints[0], contourPoints[1])
+      for (let i = 2; i < contourPoints.length; i += 2) {
+        shapeCtx.lineTo(contourPoints[i], contourPoints[i + 1])
+      }
+      shapeCtx.closePath()
+      shapeCtx.fill()
+      shapeCtx.restore()
+    }
+
+    const beginContour = (pointX: number, pointY: number) => {
+      contourClosed = false
+      contourPoints = [pointX, pointY]
+      selectedContourIndex = 0
+      contourDragPointIndex = -1
+      pendingContourClose = false
+      clearBodyShape()
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      renderComposite()
+    }
+
+    const closeContour = () => {
+      contourClosed = true
+      drawContourFill()
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      renderComposite()
+    }
+
+    const appendContourPoint = (pointX: number, pointY: number) => {
+      contourPoints.push(pointX, pointY)
+      selectedContourIndex = getContourPointCount() - 1
+      renderComposite()
+      updateAlert()
+    }
+
+    const insertContourPointAfter = (
+      pointIndex: number,
+      pointX: number,
+      pointY: number
+    ): boolean => {
+      const pointCount = getContourPointCount()
+      if (pointIndex < 0 || pointIndex >= pointCount) {
+        return false
+      }
+      const insertOffset = (pointIndex + 1) * 2
+      contourPoints.splice(insertOffset, 0, pointX, pointY)
+      selectedContourIndex = pointIndex + 1
+      updateContourGeometry()
+      return true
+    }
+
+    const updateContourGeometry = () => {
+      if (contourClosed && getContourPointCount() >= CONTOUR_MIN_POINT_COUNT) {
+        drawContourFill()
+      } else {
+        contourClosed = false
+        clearBodyShape()
+      }
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      renderComposite()
+    }
+
+    const moveContourPoint = (
+      pointIndex: number,
+      pointX: number,
+      pointY: number
+    ) => {
+      if (pointIndex < 0 || pointIndex >= getContourPointCount()) {
+        return
+      }
+      const offset = pointIndex * 2
+      contourPoints[offset] = pointX
+      contourPoints[offset + 1] = pointY
+      updateContourGeometry()
+    }
+
+    const deleteSelectedContourPoint = (): boolean => {
+      if (
+        selectedContourIndex < 0 ||
+        selectedContourIndex >= getContourPointCount()
+      ) {
+        return false
+      }
+      const removeOffset = selectedContourIndex * 2
+      contourPoints.splice(removeOffset, 2)
+      const remainingCount = getContourPointCount()
+      if (remainingCount === 0) {
+        contourClosed = false
+        selectedContourIndex = -1
+      } else if (remainingCount < CONTOUR_MIN_POINT_COUNT) {
+        contourClosed = false
+        selectedContourIndex = Math.min(
+          selectedContourIndex,
+          remainingCount - 1
+        )
+      } else {
+        selectedContourIndex = Math.min(
+          selectedContourIndex,
+          remainingCount - 1
+        )
+      }
+      updateContourGeometry()
+      return true
+    }
+
+    const buildDefaultContourPoints = (): number[] => {
+      const safeWidth =
+        options.defaultBodyWidth && options.defaultBodyWidth > 0
+          ? options.defaultBodyWidth
+          : 1
+      const safeHeight =
+        options.defaultBodyHeight && options.defaultBodyHeight > 0
+          ? options.defaultBodyHeight
+          : safeWidth
+      const baseRadius = 52
+      let radiusX = baseRadius
+      let radiusY = Math.round((baseRadius * safeHeight) / safeWidth)
+      if (radiusY > baseRadius) {
+        radiusY = baseRadius
+        radiusX = Math.round((baseRadius * safeWidth) / safeHeight)
+      }
+      radiusX = Math.max(8, radiusX)
+      radiusY = Math.max(8, radiusY)
+      const points = new Array<number>(DEFAULT_CONTOUR_SEGMENTS * 2)
+      for (let i = 0; i < DEFAULT_CONTOUR_SEGMENTS; i++) {
+        const angle =
+          (Math.PI * 2 * i) / DEFAULT_CONTOUR_SEGMENTS - Math.PI * 0.5
+        const offset = i * 2
+        points[offset] = DRAW_WORLD_HALF + Math.round(Math.cos(angle) * radiusX)
+        points[offset + 1] =
+          DRAW_WORLD_HALF + Math.round(Math.sin(angle) * radiusY)
+      }
+      return points
+    }
+
+    const renderComposite = () => {
+      drawCtx.clearRect(0, 0, DISPLAY_SIZE, DISPLAY_SIZE)
+      drawCtx.fillStyle = '#090705'
+      drawCtx.fillRect(0, 0, DISPLAY_SIZE, DISPLAY_SIZE)
+      drawCtx.imageSmoothingEnabled = false
 
       drawCtx.save()
+      drawCtx.setTransform(
+        viewportScale,
+        0,
+        0,
+        viewportScale,
+        -viewOriginX * viewportScale,
+        -viewOriginY * viewportScale
+      )
+      drawCtx.drawImage(this.shapeCanvas, 0, 0)
       drawCtx.globalCompositeOperation = 'source-atop'
       drawCtx.drawImage(this.textureCanvas, 0, 0)
-      drawCtx.restore()
+      drawCtx.globalCompositeOperation = 'source-over'
 
-      drawCtx.save()
-      drawCtx.globalCompositeOperation = 'destination-over'
-      drawCtx.fillStyle = '#090705'
-      drawCtx.fillRect(0, 0, CHARACTER_BODY_DRAW_SIZE, CHARACTER_BODY_DRAW_SIZE)
-      drawCtx.restore()
-
-      drawCtx.save()
-      drawCtx.translate(CHARACTER_BODY_DRAW_HALF, CHARACTER_BODY_DRAW_HALF)
-      renderBodyEye(
-        drawCtx,
-        CHARACTER_BODY_DRAW_HALF,
-        CHARACTER_BODY_DRAW_HALF,
-        CHARACTER_BODY_DRAW_SIZE,
-        1,
-        { points: [], eyeX, eyeY },
-        '#17120e'
-      )
-      drawCtx.restore()
-
-      if (mode === 'eye') {
+      const contourBounds = getContourBounds()
+      if (contourClosed && contourBounds) {
         drawCtx.save()
-        drawCtx.translate(CHARACTER_BODY_DRAW_HALF, CHARACTER_BODY_DRAW_HALF)
+        drawCtx.translate(contourBounds.centerX, contourBounds.centerY)
+        const eyeRadius = Math.max(
+          5 / viewportScale,
+          Math.round(Math.min(contourBounds.width, contourBounds.height) * 0.09)
+        )
+        const eyeWhiteRadius = Math.max(3 / viewportScale, eyeRadius - 1)
+        const pupilRadius = Math.max(2 / viewportScale, eyeWhiteRadius - 1)
+        const highlightRadius = Math.max(1 / viewportScale, pupilRadius * 0.4)
+        drawCtx.fillStyle = '#201710'
+        drawCtx.beginPath()
+        drawCtx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2)
+        drawCtx.fill()
+        drawCtx.fillStyle = '#f4ecdc'
+        drawCtx.beginPath()
+        drawCtx.arc(eyeX, eyeY, eyeWhiteRadius, 0, Math.PI * 2)
+        drawCtx.fill()
+        drawCtx.fillStyle = '#17120e'
+        drawCtx.beginPath()
+        drawCtx.arc(eyeX, eyeY, pupilRadius, 0, Math.PI * 2)
+        drawCtx.fill()
+        drawCtx.fillStyle = 'rgba(255,255,255,0.95)'
+        drawCtx.beginPath()
+        drawCtx.arc(
+          eyeX - Math.max(1 / viewportScale, pupilRadius * 0.3),
+          eyeY - Math.max(1 / viewportScale, pupilRadius * 0.3),
+          highlightRadius,
+          0,
+          Math.PI * 2
+        )
+        drawCtx.fill()
+        drawCtx.restore()
+      }
+
+      if (contourClosed && mode === 'eye' && contourBounds) {
+        drawCtx.save()
+        drawCtx.translate(contourBounds.centerX, contourBounds.centerY)
         drawCtx.strokeStyle = 'rgba(255,245,220,0.95)'
-        drawCtx.lineWidth = 1
+        drawCtx.lineWidth = Math.max(1 / viewportScale, 0.5)
         drawCtx.beginPath()
         drawCtx.arc(eyeX, eyeY, 10, 0, Math.PI * 2)
         drawCtx.stroke()
@@ -531,20 +1257,51 @@ export class EditorCharacterBodyDrawer {
         drawCtx.restore()
       }
 
-      drawCtx.strokeStyle = 'rgba(255,255,255,0.18)'
-      drawCtx.lineWidth = 1
-      drawCtx.strokeRect(
-        0.5,
-        0.5,
-        CHARACTER_BODY_DRAW_SIZE - 1,
-        CHARACTER_BODY_DRAW_SIZE - 1
-      )
-      drawCtx.beginPath()
-      drawCtx.moveTo(CHARACTER_BODY_DRAW_HALF + 0.5, 0)
-      drawCtx.lineTo(CHARACTER_BODY_DRAW_HALF + 0.5, CHARACTER_BODY_DRAW_SIZE)
-      drawCtx.moveTo(0, CHARACTER_BODY_DRAW_HALF + 0.5)
-      drawCtx.lineTo(CHARACTER_BODY_DRAW_SIZE, CHARACTER_BODY_DRAW_HALF + 0.5)
-      drawCtx.stroke()
+      if (contourPoints.length >= 2) {
+        drawCtx.save()
+        drawCtx.strokeStyle = contourClosed
+          ? 'rgba(255,236,166,0.92)'
+          : 'rgba(245,208,96,0.95)'
+        drawCtx.fillStyle = 'rgba(245,208,96,0.95)'
+        drawCtx.lineWidth = Math.max(1 / viewportScale, 0.5)
+        drawCtx.beginPath()
+        drawCtx.moveTo(contourPoints[0], contourPoints[1])
+        for (let i = 2; i < contourPoints.length; i += 2) {
+          drawCtx.lineTo(contourPoints[i], contourPoints[i + 1])
+        }
+        if (contourClosed) {
+          drawCtx.closePath()
+        } else if (mode === 'contour' && hoverVisible) {
+          drawCtx.lineTo(hoverX, hoverY)
+        }
+        drawCtx.stroke()
+
+        for (let i = 0; i < contourPoints.length; i += 2) {
+          const pointIndex = i / 2
+          const baseRadius =
+            pointIndex === selectedContourIndex
+              ? CONTOUR_GUIDE_POINT_RADIUS + 3
+              : i === 0 && !contourClosed
+                ? CONTOUR_GUIDE_POINT_RADIUS + 1
+                : CONTOUR_GUIDE_POINT_RADIUS
+          const radius = Math.max(1, Math.round(baseRadius / viewportScale))
+          drawCtx.fillStyle =
+            pointIndex === selectedContourIndex
+              ? 'rgba(255,248,212,0.98)'
+              : 'rgba(245,208,96,0.95)'
+          drawCtx.beginPath()
+          drawCtx.arc(
+            contourPoints[i],
+            contourPoints[i + 1],
+            radius,
+            0,
+            Math.PI * 2
+          )
+          drawCtx.fill()
+        }
+        drawCtx.restore()
+      }
+      drawCtx.restore()
     }
 
     const syncBrushValue = (value: string) => {
@@ -558,42 +1315,32 @@ export class EditorCharacterBodyDrawer {
       updateCursorVisual()
     }
 
-    const getCanvasPoint = (event: PointerEvent): { x: number; y: number } => {
-      const rect = drawCanvas.getBoundingClientRect()
-      const relX = (event.clientX - rect.left) / rect.width
-      const relY = (event.clientY - rect.top) / rect.height
-      const x = Math.max(
-        0,
-        Math.min(
-          CHARACTER_BODY_DRAW_SIZE - 1,
-          Math.round(relX * CHARACTER_BODY_DRAW_SIZE)
-        )
+    const getCanvasPoint = (
+      event: Pick<MouseEvent, 'clientX' | 'clientY'>
+    ): { x: number; y: number } => {
+      const canvasPoint = getCanvasLocalPoint(event)
+      return clampBodyPoint(
+        canvasPoint.x / viewportScale + viewOriginX,
+        canvasPoint.y / viewportScale + viewOriginY
       )
-      const y = Math.max(
-        0,
-        Math.min(
-          CHARACTER_BODY_DRAW_SIZE - 1,
-          Math.round(relY * CHARACTER_BODY_DRAW_SIZE)
-        )
-      )
-      return { x, y }
     }
 
     const updateCursorPosition = (point: { x: number; y: number }) => {
-      const drawRect = drawCanvas.getBoundingClientRect()
       const wrapRect = canvasWrap.getBoundingClientRect()
-      cursorEl.style.left = `${((point.x + 0.5) * drawRect.width) / CHARACTER_BODY_DRAW_SIZE + drawRect.left - wrapRect.left}px`
-      cursorEl.style.top = `${((point.y + 0.5) * drawRect.height) / CHARACTER_BODY_DRAW_SIZE + drawRect.top - wrapRect.top}px`
+      const drawRect = drawCanvas.getBoundingClientRect()
+      const screenPoint = bodyToCanvasPoint(point.x + 0.5, point.y + 0.5)
+      cursorEl.style.left = `${screenPoint.x + drawRect.left - wrapRect.left}px`
+      cursorEl.style.top = `${screenPoint.y + drawRect.top - wrapRect.top}px`
       cursorEl.style.display = 'block'
     }
 
     const updateEyePosition = (point: { x: number; y: number }) => {
-      const nextEyeX = clampCharacterEyeCoord(
-        point.x - CHARACTER_BODY_DRAW_HALF
-      )
-      const nextEyeY = clampCharacterEyeCoord(
-        point.y - CHARACTER_BODY_DRAW_HALF
-      )
+      const contourBounds = getContourBounds()
+      if (!contourBounds) {
+        return
+      }
+      const nextEyeX = point.x - contourBounds.centerX
+      const nextEyeY = point.y - contourBounds.centerY
       if (nextEyeX === eyeX && nextEyeY === eyeY) {
         return
       }
@@ -601,6 +1348,31 @@ export class EditorCharacterBodyDrawer {
       eyeY = nextEyeY
       pointerChanged = true
       renderComposite()
+    }
+
+    const isPointInsideBodyMask = (pointX: number, pointY: number): boolean => {
+      return (
+        maskCtx.getImageData(pointX, pointY, 1, 1).data[3] >=
+        MASK_ALPHA_THRESHOLD
+      )
+    }
+
+    const syncContourFromMask = (): boolean => {
+      const nextContourPoints = this.buildEditorContourFromMask(maskCtx)
+      if (!nextContourPoints || nextContourPoints.length < 6) {
+        return false
+      }
+      contourPoints = nextContourPoints
+      contourClosed = true
+      selectedContourIndex = Math.min(
+        selectedContourIndex < 0 ? 0 : selectedContourIndex,
+        getContourPointCount() - 1
+      )
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      renderComposite()
+      return true
     }
 
     const strokePath = (
@@ -692,148 +1464,168 @@ export class EditorCharacterBodyDrawer {
     }
 
     const loadInitialProfile = async () => {
-      maskCtx.clearRect(
-        0,
-        0,
-        CHARACTER_BODY_DRAW_SIZE,
-        CHARACTER_BODY_DRAW_SIZE
-      )
-      shapeCtx.clearRect(
-        0,
-        0,
-        CHARACTER_BODY_DRAW_SIZE,
-        CHARACTER_BODY_DRAW_SIZE
-      )
-      textureCtx.clearRect(
-        0,
-        0,
-        CHARACTER_BODY_DRAW_SIZE,
-        CHARACTER_BODY_DRAW_SIZE
-      )
+      clearBodyShape()
+      textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      contourPoints = []
+      contourClosed = false
+      selectedContourIndex = -1
+      contourDragPointIndex = -1
+      pendingContourClose = false
 
       const profile = options.initialProfile
       eyeX = getCharacterEyeDrawX(profile)
       eyeY = getCharacterEyeDrawY(profile)
       if (profile && profile.points.length >= 6) {
-        maskCtx.save()
-        maskCtx.translate(CHARACTER_BODY_DRAW_HALF, CHARACTER_BODY_DRAW_HALF)
-        maskCtx.fillStyle = '#ffffff'
-        maskCtx.beginPath()
-        maskCtx.moveTo(profile.points[0], profile.points[1])
-        shapeCtx.save()
-        shapeCtx.translate(CHARACTER_BODY_DRAW_HALF, CHARACTER_BODY_DRAW_HALF)
-        shapeCtx.fillStyle = colorInput.value
-        shapeCtx.beginPath()
-        shapeCtx.moveTo(profile.points[0], profile.points[1])
-        for (let i = 2; i < profile.points.length; i += 2) {
-          maskCtx.lineTo(profile.points[i], profile.points[i + 1])
-          shapeCtx.lineTo(profile.points[i], profile.points[i + 1])
+        contourPoints = new Array<number>(profile.points.length)
+        for (let i = 0; i < profile.points.length; i += 2) {
+          contourPoints[i] = profile.points[i] + DRAW_WORLD_HALF
+          contourPoints[i + 1] = profile.points[i + 1] + DRAW_WORLD_HALF
         }
-        maskCtx.closePath()
-        shapeCtx.closePath()
-        maskCtx.fill()
-        shapeCtx.fill()
-        maskCtx.restore()
-        shapeCtx.restore()
+        contourClosed = true
+        drawContourFill()
 
         const surfaceDataUrl = profile.surfaceDataUrl
+        const contourBounds = getContourBounds()
         if (surfaceDataUrl) {
           const image = await this.loadImage(surfaceDataUrl)
-          if (image) {
+          if (image && contourBounds) {
             shapeCtx.drawImage(
               image,
-              0,
-              0,
-              CHARACTER_BODY_DRAW_SIZE,
-              CHARACTER_BODY_DRAW_SIZE
+              contourBounds.minX,
+              contourBounds.minY,
+              contourBounds.width,
+              contourBounds.height
             )
           }
         } else if (profile.textureDataUrl) {
           const image = await this.loadImage(profile.textureDataUrl)
-          if (image) {
+          if (image && contourBounds) {
             textureCtx.drawImage(
               image,
-              0,
-              0,
-              CHARACTER_BODY_DRAW_SIZE,
-              CHARACTER_BODY_DRAW_SIZE
+              contourBounds.minX,
+              contourBounds.minY,
+              contourBounds.width,
+              contourBounds.height
             )
           }
         }
+        selectedContourIndex = 0
       } else {
-        this.paintDefaultShape(
-          maskCtx,
-          shapeCtx,
-          options.defaultBodyWidth ?? 1,
-          options.defaultBodyHeight ?? 1,
-          colorInput.value
-        )
+        contourPoints = buildDefaultContourPoints()
+        contourClosed = true
+        selectedContourIndex = 0
+        drawContourFill()
       }
+      setExportReferenceFromBounds(getContourBounds())
+      mode = contourClosed ? 'shape' : 'contour'
       renderComposite()
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      updateCursorVisual()
     }
 
+    contourBtn.addEventListener('click', () => {
+      hideContourMenu()
+      mode = 'contour'
+      updateModeButtons()
+      updateCursorVisual()
+      renderComposite()
+    })
     shapeBtn.addEventListener('click', () => {
+      if (!canUsePaintModes()) {
+        return
+      }
+      hideContourMenu()
       mode = 'shape'
       updateModeButtons()
       updateCursorVisual()
     })
+    fillBtn.addEventListener('click', () => {
+      if (!canUsePaintModes()) {
+        return
+      }
+      hideContourMenu()
+      mode = 'fill'
+      updateModeButtons()
+      updateCursorVisual()
+    })
     eraseBtn.addEventListener('click', () => {
+      if (!canUsePaintModes()) {
+        return
+      }
+      hideContourMenu()
       mode = 'erase'
       updateModeButtons()
       updateCursorVisual()
     })
     textureBtn.addEventListener('click', () => {
+      if (!canUsePaintModes()) {
+        return
+      }
+      hideContourMenu()
       mode = 'texture'
       updateModeButtons()
       updateCursorVisual()
     })
     eyeBtn.addEventListener('click', () => {
+      if (!canUsePaintModes()) {
+        return
+      }
+      hideContourMenu()
       mode = 'eye'
       updateModeButtons()
       updateCursorVisual()
     })
     resetShapeBtn.addEventListener('click', () => {
       flushSettingHistory()
-      maskCtx.clearRect(
-        0,
-        0,
-        CHARACTER_BODY_DRAW_SIZE,
-        CHARACTER_BODY_DRAW_SIZE
-      )
-      shapeCtx.clearRect(
-        0,
-        0,
-        CHARACTER_BODY_DRAW_SIZE,
-        CHARACTER_BODY_DRAW_SIZE
-      )
+      hideContourMenu()
+      clearBodyShape()
+      contourPoints = []
+      contourClosed = false
+      selectedContourIndex = -1
+      contourDragPointIndex = -1
+      pendingContourClose = false
+      hoverVisible = false
+      mode = 'contour'
       eyeX = DEFAULT_CHARACTER_EYE_X
       eyeY = DEFAULT_CHARACTER_EYE_Y
-      this.paintDefaultShape(
-        maskCtx,
-        shapeCtx,
-        options.defaultBodyWidth ?? 1,
-        options.defaultBodyHeight ?? 1,
-        colorInput.value
-      )
       renderComposite()
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      updateCursorVisual()
       historyManager.capture()
     })
     clearTextureBtn.addEventListener('click', () => {
+      if (!canUsePaintModes()) {
+        return
+      }
+      hideContourMenu()
       flushSettingHistory()
-      textureCtx.clearRect(
-        0,
-        0,
-        CHARACTER_BODY_DRAW_SIZE,
-        CHARACTER_BODY_DRAW_SIZE
-      )
+      textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       renderComposite()
       historyManager.capture()
     })
     colorInput.addEventListener('input', () => {
       settingsChanged = true
+      if (!bloodColorAssigned) {
+        bloodColorInput.value = colorInput.value
+      }
       updateCursorVisual()
     })
     colorInput.addEventListener('change', () => {
+      if (!bloodColorAssigned) {
+        bloodColorInput.value = colorInput.value
+      }
+      flushSettingHistory()
+    })
+    bloodColorInput.addEventListener('input', () => {
+      settingsChanged = true
+      bloodColorAssigned = true
+    })
+    bloodColorInput.addEventListener('change', () => {
+      bloodColorAssigned = true
       flushSettingHistory()
     })
     brushSlider.addEventListener('input', () => {
@@ -843,24 +1635,191 @@ export class EditorCharacterBodyDrawer {
     brushSlider.addEventListener('change', () => {
       flushSettingHistory()
     })
+    zoomSlider.addEventListener('input', () => {
+      const parsed = Number.parseInt(zoomSlider.value, 10)
+      if (!Number.isFinite(parsed)) {
+        return
+      }
+      applyCanvasZoom(parsed)
+    })
+    addContourPointBtn.addEventListener('click', () => {
+      const insertAfterIndex = contourMenuInsertAfterIndex
+      const insertX = contourMenuInsertX
+      const insertY = contourMenuInsertY
+      hideContourMenu()
+      if (insertContourPointAfter(insertAfterIndex, insertX, insertY)) {
+        historyManager.capture()
+      }
+    })
+    removeContourPointBtn.addEventListener('click', () => {
+      const pointIndex = contourMenuPointIndex
+      hideContourMenu()
+      if (pointIndex >= 0) {
+        selectedContourIndex = pointIndex
+      }
+      if (deleteSelectedContourPoint()) {
+        historyManager.capture()
+      }
+    })
+
+    drawCanvas.addEventListener(
+      'contextmenu',
+      (event) => {
+        if (mode !== 'contour') {
+          hideContourMenu()
+          return
+        }
+        const point = getCanvasPoint(event as PointerEvent)
+        const pointIndex = getNearestContourPointIndex(
+          point.x,
+          point.y,
+          getContourHitDistanceSq(CONTOUR_SELECT_DISTANCE_SQ)
+        )
+        const edge = getNearestContourEdge(
+          point.x,
+          point.y,
+          getContourHitDistanceSq(CONTOUR_EDGE_SELECT_DISTANCE_SQ)
+        )
+        if (pointIndex >= 0) {
+          selectedContourIndex = pointIndex
+        }
+        showContourMenu(
+          event.clientX,
+          event.clientY,
+          pointIndex,
+          edge?.insertAfterIndex ?? -1,
+          edge?.x ?? 0,
+          edge?.y ?? 0
+        )
+        renderComposite()
+        event.preventDefault()
+        event.stopPropagation()
+      },
+      true
+    )
+
+    drawCanvas.addEventListener(
+      'wheel',
+      (event) => {
+        hideContourMenu()
+        const nextZoom = Math.round(
+          canvasZoomPercent * Math.pow(0.999, event.deltaY)
+        )
+        applyCanvasZoom(nextZoom, event.clientX, event.clientY)
+        event.preventDefault()
+        event.stopPropagation()
+      },
+      { passive: false }
+    )
 
     drawCanvas.addEventListener('pointerenter', (event) => {
       const point = getCanvasPoint(event)
+      hoverX = point.x
+      hoverY = point.y
+      hoverVisible = true
       updateCursorPosition(point)
       updateCursorVisual()
+      if (mode === 'contour') {
+        renderComposite()
+      }
     })
     drawCanvas.addEventListener('pointerleave', () => {
+      hoverVisible = false
       if (!pointerActive) {
         cursorEl.style.display = 'none'
+      }
+      if (mode === 'contour') {
+        renderComposite()
       }
     })
 
     drawCanvas.addEventListener(
       'pointerdown',
       (event) => {
+        hideContourMenu()
+        if (event.button === 1) {
+          canvasPanActive = true
+          lastPanClientX = event.clientX
+          lastPanClientY = event.clientY
+          drawCanvas.setPointerCapture(event.pointerId)
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
         flushSettingHistory()
         const point = getCanvasPoint(event)
+        hoverX = point.x
+        hoverY = point.y
+        hoverVisible = true
         updateCursorPosition(point)
+        if (mode === 'contour') {
+          const pointCount = getContourPointCount()
+          const nearestIndex = getNearestContourPointIndex(
+            point.x,
+            point.y,
+            getContourHitDistanceSq(CONTOUR_SELECT_DISTANCE_SQ)
+          )
+          if (nearestIndex >= 0) {
+            const wasSelectedStart =
+              !contourClosed &&
+              nearestIndex === 0 &&
+              selectedContourIndex === 0 &&
+              pointCount >= CONTOUR_MIN_POINT_COUNT
+            selectedContourIndex = nearestIndex
+            contourDragPointIndex = nearestIndex
+            pendingContourClose = wasSelectedStart
+            pointerActive = true
+            pointerChanged = false
+            lastX = point.x
+            lastY = point.y
+            drawCanvas.setPointerCapture(event.pointerId)
+            renderComposite()
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          selectedContourIndex = -1
+          contourDragPointIndex = -1
+          pendingContourClose = false
+          if (contourClosed) {
+            renderComposite()
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          if (pointCount === 0) {
+            beginContour(point.x, point.y)
+            historyManager.capture()
+          } else {
+            appendContourPoint(point.x, point.y)
+            historyManager.capture()
+          }
+          updateCursorVisual()
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
+        if (mode === 'shape') {
+          shapeStrokeAnchored = isPointInsideBodyMask(point.x, point.y)
+          if (!shapeStrokeAnchored) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+        } else if (mode === 'fill') {
+          if (!isPointInsideBodyMask(point.x, point.y)) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          fillBodyShape()
+          historyManager.capture()
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        } else {
+          shapeStrokeAnchored = false
+        }
         pointerActive = true
         pointerChanged = false
         lastX = point.x
@@ -881,7 +1840,41 @@ export class EditorCharacterBodyDrawer {
       'pointermove',
       (event) => {
         const point = getCanvasPoint(event)
+        hoverX = point.x
+        hoverY = point.y
+        hoverVisible = true
+        if (canvasPanActive) {
+          const clampedOrigin = clampViewOrigin(
+            viewOriginX - (event.clientX - lastPanClientX) / viewportScale,
+            viewOriginY - (event.clientY - lastPanClientY) / viewportScale
+          )
+          viewOriginX = clampedOrigin.x
+          viewOriginY = clampedOrigin.y
+          lastPanClientX = event.clientX
+          lastPanClientY = event.clientY
+          renderComposite()
+          updateCursorPosition({ x: hoverX, y: hoverY })
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
         updateCursorPosition(point)
+        if (mode === 'contour') {
+          if (pointerActive && contourDragPointIndex >= 0) {
+            if (point.x !== lastX || point.y !== lastY) {
+              pointerChanged = true
+              pendingContourClose = false
+              moveContourPoint(contourDragPointIndex, point.x, point.y)
+              lastX = point.x
+              lastY = point.y
+            }
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          renderComposite()
+          return
+        }
         if (!pointerActive) {
           return
         }
@@ -899,29 +1892,84 @@ export class EditorCharacterBodyDrawer {
     )
 
     const stopPointer = (event: PointerEvent) => {
+      if (canvasPanActive) {
+        canvasPanActive = false
+        if (drawCanvas.hasPointerCapture(event.pointerId)) {
+          drawCanvas.releasePointerCapture(event.pointerId)
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       if (!pointerActive) {
         return
       }
+      const wasContourDrag = mode === 'contour'
       pointerActive = false
+      if (wasContourDrag) {
+        if (drawCanvas.hasPointerCapture(event.pointerId)) {
+          drawCanvas.releasePointerCapture(event.pointerId)
+        }
+        if (pendingContourClose && !pointerChanged) {
+          closeContour()
+          historyManager.capture()
+        } else if (pointerChanged) {
+          historyManager.capture()
+        }
+        contourDragPointIndex = -1
+        pendingContourClose = false
+        pointerChanged = false
+        cursorEl.style.display = 'none'
+        hoverVisible = false
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+      const shouldSyncContourFromMask = mode === 'shape' && pointerChanged
       if (pointerChanged) {
+        if (shouldSyncContourFromMask) {
+          syncContourFromMask()
+        }
         pointerChanged = false
         historyManager.capture()
       }
+      shapeStrokeAnchored = false
       if (drawCanvas.hasPointerCapture(event.pointerId)) {
         drawCanvas.releasePointerCapture(event.pointerId)
       }
       cursorEl.style.display = 'none'
+      hoverVisible = false
       event.preventDefault()
       event.stopPropagation()
     }
     drawCanvas.addEventListener('pointerup', stopPointer, true)
     drawCanvas.addEventListener('pointercancel', stopPointer, true)
+    modal.addEventListener(
+      'pointerdown',
+      (event) => {
+        if (!contourMenu.contains(event.target as Node)) {
+          hideContourMenu()
+        }
+      },
+      true
+    )
 
     modal.addEventListener(
       'keydown',
       (event) => {
         if (settingsChanged) {
           settingsChanged = false
+        }
+        if (
+          mode === 'contour' &&
+          (event.key === 'Delete' || event.key === 'Backspace')
+        ) {
+          if (deleteSelectedContourPoint()) {
+            historyManager.capture()
+          }
+          event.preventDefault()
+          event.stopPropagation()
+          return
         }
         if (!(event.ctrlKey || event.metaKey)) {
           return
@@ -954,6 +2002,10 @@ export class EditorCharacterBodyDrawer {
     const promise = new Promise<MapCharacterBodyProfile | null | undefined>(
       (resolve) => {
         confirmBtn.addEventListener('click', () => {
+          if (!contourClosed) {
+            updateAlert()
+            return
+          }
           resolve(
             finish(
               this.buildProfile(
@@ -962,7 +2014,12 @@ export class EditorCharacterBodyDrawer {
                 textureCtx,
                 outputCtx,
                 eyeX,
-                eyeY
+                eyeY,
+                bloodColorAssigned ? bloodColorInput.value : undefined,
+                exportBaseWidth,
+                exportBaseHeight,
+                exportReferenceWidth,
+                exportReferenceHeight
               )
             )
           )
@@ -980,58 +2037,10 @@ export class EditorCharacterBodyDrawer {
 
     updateModeButtons()
     syncBrushValue(String(DEFAULT_BRUSH_SIZE))
+    applyCanvasZoom(CANVAS_ZOOM_DEFAULT_PERCENT)
     await loadInitialProfile()
     historyManager.reset()
     return promise
-  }
-
-  private paintDefaultShape(
-    maskCtx: CanvasRenderingContext2D,
-    shapeCtx: CanvasRenderingContext2D,
-    widthMeters: number,
-    heightMeters: number,
-    color: string
-  ): void {
-    const safeWidth = widthMeters > 0 ? widthMeters : 1
-    const safeHeight = heightMeters > 0 ? heightMeters : safeWidth
-    const maxRadius = 52
-    let radiusX = maxRadius
-    let radiusY = Math.round((maxRadius * safeHeight) / safeWidth)
-    if (radiusY > maxRadius) {
-      radiusY = maxRadius
-      radiusX = Math.round((maxRadius * safeWidth) / safeHeight)
-    }
-    radiusX = Math.max(8, radiusX)
-    radiusY = Math.max(8, radiusY)
-
-    maskCtx.save()
-    shapeCtx.save()
-    maskCtx.fillStyle = '#ffffff'
-    shapeCtx.fillStyle = color
-    maskCtx.beginPath()
-    shapeCtx.beginPath()
-    maskCtx.ellipse(
-      CHARACTER_BODY_DRAW_HALF,
-      CHARACTER_BODY_DRAW_HALF,
-      radiusX,
-      radiusY,
-      0,
-      0,
-      Math.PI * 2
-    )
-    shapeCtx.ellipse(
-      CHARACTER_BODY_DRAW_HALF,
-      CHARACTER_BODY_DRAW_HALF,
-      radiusX,
-      radiusY,
-      0,
-      0,
-      Math.PI * 2
-    )
-    maskCtx.fill()
-    shapeCtx.fill()
-    maskCtx.restore()
-    shapeCtx.restore()
   }
 
   private async loadImage(url: string): Promise<HTMLImageElement | null> {
@@ -1043,15 +2052,16 @@ export class EditorCharacterBodyDrawer {
     })
   }
 
-  private buildProfile(
+  private readMaskFill(
     maskCtx: CanvasRenderingContext2D,
-    shapeCtx: CanvasRenderingContext2D,
-    textureCtx: CanvasRenderingContext2D,
-    outputCtx: CanvasRenderingContext2D,
-    eyeX: number,
-    eyeY: number
-  ): MapCharacterBodyProfile | null {
-    const size = CHARACTER_BODY_DRAW_SIZE
+    size: number
+  ): {
+    filled: Uint8Array
+    minX: number
+    minY: number
+    maxX: number
+    maxY: number
+  } | null {
     const imageData = maskCtx.getImageData(0, 0, size, size).data
     const filled = new Uint8Array(size * size)
     let minX = size
@@ -1077,32 +2087,98 @@ export class EditorCharacterBodyDrawer {
       return null
     }
 
-    const loops = this.extractMaskLoops(filled, size, size)
+    return {
+      filled,
+      minX,
+      minY,
+      maxX,
+      maxY,
+    }
+  }
+
+  private buildEditorContourFromMask(
+    maskCtx: CanvasRenderingContext2D
+  ): number[] | null {
+    const maskFill = this.readMaskFill(maskCtx, DRAW_WORLD_SIZE)
+    if (!maskFill) {
+      return null
+    }
+    const loop = this.pickLargestLoop(
+      this.extractMaskLoops(maskFill.filled, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+    )
+    if (!loop || loop.length < 6) {
+      return null
+    }
+    const limited = this.limitEditorLoopPoints(loop, MAX_EDITOR_CONTOUR_POINTS)
+    return limited.length >= 6 ? limited : null
+  }
+
+  private buildProfile(
+    maskCtx: CanvasRenderingContext2D,
+    shapeCtx: CanvasRenderingContext2D,
+    textureCtx: CanvasRenderingContext2D,
+    outputCtx: CanvasRenderingContext2D,
+    eyeX: number,
+    eyeY: number,
+    bloodColor: string | undefined,
+    exportBaseWidth: number,
+    exportBaseHeight: number,
+    exportReferenceWidth: number,
+    exportReferenceHeight: number
+  ): MapCharacterBodyProfile | null {
+    const size = DRAW_WORLD_SIZE
+    const maskFill = this.readMaskFill(maskCtx, size)
+    if (!maskFill) {
+      return null
+    }
+
+    const loops = this.extractMaskLoops(maskFill.filled, size, size)
     const loop = this.pickLargestLoop(loops)
     if (!loop || loop.length < 6) {
       return null
     }
 
-    const normalized = this.normalizeLoop(loop, minX, minY, maxX + 1, maxY + 1)
-    const simplified = this.limitLoopPoints(normalized, MAX_PROFILE_POINTS)
+    const centered = this.centerLoop(
+      loop,
+      Math.round((maskFill.minX + maskFill.maxX + 1) * 0.5),
+      Math.round((maskFill.minY + maskFill.maxY + 1) * 0.5)
+    )
+    const simplified = this.limitEditorLoopPoints(centered, MAX_PROFILE_POINTS)
     if (simplified.length < 6) {
       return null
     }
+    const width = Math.max(
+      0.01,
+      Math.round(
+        (exportBaseWidth * (maskFill.maxX + 1 - maskFill.minX) * 1000) /
+          Math.max(1, exportReferenceWidth)
+      ) / 1000
+    )
+    const height = Math.max(
+      0.01,
+      Math.round(
+        (exportBaseHeight * (maskFill.maxY + 1 - maskFill.minY) * 1000) /
+          Math.max(1, exportReferenceHeight)
+      ) / 1000
+    )
 
     const surfaceDataUrl = this.buildSurfaceDataUrl(
       shapeCtx,
       textureCtx,
       outputCtx,
-      minX,
-      minY,
-      maxX + 1,
-      maxY + 1
+      maskFill.minX,
+      maskFill.minY,
+      maskFill.maxX + 1,
+      maskFill.maxY + 1
     )
 
     return {
       points: simplified,
-      eyeX,
-      eyeY,
+      width,
+      height,
+      bloodColor,
+      eyeX: Math.round(eyeX * 1000) / 1000,
+      eyeY: Math.round(eyeY * 1000) / 1000,
       surfaceDataUrl: surfaceDataUrl ?? undefined,
     }
   }
@@ -1203,25 +2279,15 @@ export class EditorCharacterBodyDrawer {
     return area * 0.5
   }
 
-  private normalizeLoop(
+  private centerLoop(
     points: number[],
-    minX: number,
-    minY: number,
-    maxX: number,
-    maxY: number
+    centerX: number,
+    centerY: number
   ): number[] {
-    const width = Math.max(1, maxX - minX)
-    const height = Math.max(1, maxY - minY)
-    const centerX = (minX + maxX) * 0.5
-    const centerY = (minY + maxY) * 0.5
     const normalized = new Array<number>(points.length)
     for (let i = 0; i < points.length; i += 2) {
-      normalized[i] = Math.round(
-        ((points[i] - centerX) * CHARACTER_BODY_DRAW_SIZE) / width
-      )
-      normalized[i + 1] = Math.round(
-        ((points[i + 1] - centerY) * CHARACTER_BODY_DRAW_SIZE) / height
-      )
+      normalized[i] = points[i] - centerX
+      normalized[i + 1] = points[i + 1] - centerY
     }
     return normalized
   }
@@ -1239,6 +2305,46 @@ export class EditorCharacterBodyDrawer {
     let bestValid = source
     let epsilon = 0.5
     while (epsilon <= 16) {
+      const simplified = this.normalizeProfileLoop(
+        this.simplifyClosedLoop(source, epsilon)
+      )
+      if (simplified && simplified.length >= 6) {
+        if (simplified.length < bestValid.length) {
+          bestValid = simplified
+        }
+        if (simplified.length / 2 <= maxPoints) {
+          return simplified
+        }
+      }
+      epsilon *= 2
+    }
+
+    const step = Math.ceil(bestValid.length / 2 / maxPoints)
+    const sampled: number[] = []
+    for (let i = 0; i < bestValid.length; i += step * 2) {
+      sampled.push(bestValid[i], bestValid[i + 1])
+    }
+    const normalizedSampled = this.normalizeProfileLoop(sampled)
+    if (normalizedSampled && normalizedSampled.length / 2 <= maxPoints) {
+      return normalizedSampled
+    }
+
+    return bestValid
+  }
+
+  private limitEditorLoopPoints(points: number[], maxPoints: number): number[] {
+    const normalized = this.normalizeProfileLoop(points)
+    if (!normalized) {
+      return []
+    }
+    if (normalized.length / 2 <= maxPoints) {
+      return normalized
+    }
+
+    const source = normalized.slice()
+    let bestValid = source
+    let epsilon = 1
+    while (epsilon <= 32) {
       const simplified = this.normalizeProfileLoop(
         this.simplifyClosedLoop(source, epsilon)
       )
@@ -1418,42 +2524,36 @@ export class EditorCharacterBodyDrawer {
     maxX: number,
     maxY: number
   ): string | null {
-    outputCtx.clearRect(
-      0,
-      0,
-      CHARACTER_BODY_DRAW_SIZE,
-      CHARACTER_BODY_DRAW_SIZE
-    )
+    const width = Math.max(1, maxX - minX)
+    const height = Math.max(1, maxY - minY)
+    this.outputCanvas.width = width
+    this.outputCanvas.height = height
+    outputCtx.clearRect(0, 0, width, height)
     outputCtx.drawImage(
       shapeCtx.canvas,
       minX,
       minY,
-      maxX - minX,
-      maxY - minY,
+      width,
+      height,
       0,
       0,
-      CHARACTER_BODY_DRAW_SIZE,
-      CHARACTER_BODY_DRAW_SIZE
+      width,
+      height
     )
     outputCtx.globalCompositeOperation = 'source-atop'
     outputCtx.drawImage(
       textureCtx.canvas,
       minX,
       minY,
-      maxX - minX,
-      maxY - minY,
+      width,
+      height,
       0,
       0,
-      CHARACTER_BODY_DRAW_SIZE,
-      CHARACTER_BODY_DRAW_SIZE
+      width,
+      height
     )
     outputCtx.globalCompositeOperation = 'source-over'
-    const alpha = outputCtx.getImageData(
-      0,
-      0,
-      CHARACTER_BODY_DRAW_SIZE,
-      CHARACTER_BODY_DRAW_SIZE
-    ).data
+    const alpha = outputCtx.getImageData(0, 0, width, height).data
     for (let i = 3; i < alpha.length; i += 4) {
       if (alpha[i] >= MASK_ALPHA_THRESHOLD) {
         return this.outputCanvas.toDataURL('image/png')

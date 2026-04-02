@@ -1,7 +1,11 @@
 import { fabric } from 'fabric'
 
 import { localizer } from '../Localizer'
-import { getCharacterBodyColor } from '../characterBodyProfile'
+import {
+  getCharacterBodyColor,
+  getCharacterBodyProfileHeight,
+  getCharacterBodyProfileWidth,
+} from '../characterBodyProfile'
 import { WEAPON_DEFAULT_DATA } from '../constants'
 import {
   type AttackMovesetOwner,
@@ -676,10 +680,17 @@ export class EditorPropertiesPanel {
 
     // === 外观 Tab ===
     const defaultDiameter = options.data.radius * 2
-    const bodyWidthDefault = defaultDiameter
-    const bodyHeightDefault =
-      options.data.bodyHeight > 0 ? options.data.bodyHeight : defaultDiameter
     let bodyProfile = options.data.bodyProfile
+    const bodyWidthDefault =
+      getCharacterBodyProfileWidth(bodyProfile) > 0
+        ? getCharacterBodyProfileWidth(bodyProfile)
+        : defaultDiameter
+    const bodyHeightDefault =
+      getCharacterBodyProfileHeight(bodyProfile) > 0
+        ? getCharacterBodyProfileHeight(bodyProfile)
+        : options.data.bodyHeight > 0
+          ? options.data.bodyHeight
+          : bodyWidthDefault
 
     const bodyWidthRow = EditorUIHelper.createFormRow(
       localizer.t('editor_enemy_prop_body_width')
@@ -687,7 +698,6 @@ export class EditorPropertiesPanel {
     const bodyWidthInput = EditorUIHelper.createNumberInput({
       value: bodyWidthDefault,
       min: '0.5',
-      max: '2.0',
       step: '0.1',
     })
     bodyWidthRow.row.appendChild(bodyWidthInput)
@@ -699,7 +709,6 @@ export class EditorPropertiesPanel {
     const bodyHeightInput = EditorUIHelper.createNumberInput({
       value: bodyHeightDefault,
       min: '0.5',
-      max: '2.0',
       step: '0.1',
     })
     bodyHeightRow.row.appendChild(bodyHeightInput)
@@ -734,6 +743,16 @@ export class EditorPropertiesPanel {
         return
       }
       bodyProfile = nextBodyProfile ?? undefined
+      if (bodyProfile) {
+        const nextProfileWidth = getCharacterBodyProfileWidth(bodyProfile)
+        const nextProfileHeight = getCharacterBodyProfileHeight(bodyProfile)
+        if (nextProfileWidth > 0) {
+          bodyWidthInput.value = String(nextProfileWidth)
+        }
+        if (nextProfileHeight > 0) {
+          bodyHeightInput.value = String(nextProfileHeight)
+        }
+      }
       if (bodyProfile) {
         options.data.color = getCharacterBodyColor(
           bodyProfile,
@@ -890,7 +909,7 @@ export class EditorPropertiesPanel {
     const previewPlayerPos = { x: 0, y: 0 }
     const previewWeaponTransform = { x: 0, y: 0, rotation: 0 }
     const weaponAmmoTextCache: string[] = []
-    const previewPixelsPerMeter = 60
+    const previewBasePixelsPerMeter = 60
     const previewWeaponColor = '#b4bdc7'
 
     const getAmmoText = (ammo: number): string => {
@@ -1013,6 +1032,17 @@ export class EditorPropertiesPanel {
       const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
       const bodyHeight =
         Number.isFinite(bodyHeightVal) && bodyHeightVal > 0 ? bodyHeightVal : 0
+      const previewBodyWidth = Math.max(0.5, radius * 2)
+      const previewBodyHeight = Math.max(
+        0.5,
+        bodyHeight > 0 ? bodyHeight : radius * 2
+      )
+      const fitScaleX = (previewCanvas.width * 0.52) / previewBodyWidth
+      const fitScaleY = (previewCanvas.height * 0.42) / previewBodyHeight
+      const previewPixelsPerMeter = Math.max(
+        16,
+        Math.floor(Math.min(previewBasePixelsPerMeter, fitScaleX, fitScaleY))
+      )
       const color = getBodyColor()
       const facing = Number.parseInt(facingSelect.value, 10)
       const bodyTextureImage = this.getBodyTextureImage(
@@ -1116,6 +1146,14 @@ export class EditorPropertiesPanel {
       const bodyWidthVal = Number.parseFloat(bodyWidthInput.value)
       const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
       const facing = Number.parseInt(facingSelect.value, 10)
+      if (bodyProfile) {
+        if (Number.isFinite(bodyWidthVal) && bodyWidthVal > 0) {
+          bodyProfile.width = bodyWidthVal
+        }
+        if (Number.isFinite(bodyHeightVal) && bodyHeightVal > 0) {
+          bodyProfile.height = bodyHeightVal
+        }
+      }
       if (Number.isFinite(bodyWidthVal) && bodyWidthVal > 0) {
         const radiusMeters = bodyWidthVal / 2
         const bodyHeight =

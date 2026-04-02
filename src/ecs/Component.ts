@@ -271,6 +271,7 @@ export class RenderComponent extends Component {
   bodyProfileIndex = 0
   bodyProfile: MapCharacterBodyProfile | null = null
   color = '#FF7A1A'
+  bloodColor = ''
   borderColor = '#FFD700'
   visible = true
 
@@ -280,6 +281,7 @@ export class RenderComponent extends Component {
     this.bodyProfileIndex = 0
     this.bodyProfile = null
     this.color = '#FF7A1A'
+    this.bloodColor = ''
     this.borderColor = '#FFD700'
     this.visible = true
   }

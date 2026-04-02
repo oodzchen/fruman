@@ -118,7 +118,9 @@ export class StatsSystem extends System {
             // 动画开始时立即移除碰撞体，避免尸体碰撞框阻挡其他物体
             this.removePhysics(entity)
             if (entity.render && entity.transform && this.effectsEmitter) {
-              const colorInt = this.parseColor(entity.render.color)
+              const colorInt = this.parseColor(
+                entity.render.bloodColor || entity.render.color
+              )
               const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
               this.effectsEmitter.emitDeath(
                 entity.transform.x,
@@ -762,7 +764,9 @@ export class StatsSystem extends System {
           const invDistance = distance > 0 ? 1 / distance : 0
           const hitX = entity.transform.x - dirX * invDistance * radius
           const hitY = entity.transform.y - dirY * invDistance * radius
-          const colorInt = this.parseColor(entity.render.color)
+          const colorInt = this.parseColor(
+            entity.render.bloodColor || entity.render.color
+          )
           this.effectsEmitter.emitBlood(hitX, hitY, colorInt)
         }
         this.playSound(

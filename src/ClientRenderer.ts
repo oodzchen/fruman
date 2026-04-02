@@ -3,6 +3,8 @@ import { BowTrajectoryCalculator } from './BowTrajectory'
 import {
   getCharacterBodyColor,
   getCharacterBodyProfileFromMap,
+  getCharacterBodyProfileHeight,
+  getCharacterBodyProfileWidth,
 } from './characterBodyProfile'
 import {
   BOW_GRAVITY_SCALE,
@@ -708,18 +710,34 @@ export class ClientRenderer {
     const bodyTexture = this.getCharacterBodyTexture(
       bodyProfile?.surfaceDataUrl ?? bodyProfile?.textureDataUrl
     )
+    const profileWidthPx =
+      getCharacterBodyProfileWidth(bodyProfile) > 0
+        ? getCharacterBodyProfileWidth(bodyProfile) * this.pixelsPerMeter
+        : 0
+    const profileHeightPx =
+      getCharacterBodyProfileHeight(bodyProfile) > 0
+        ? getCharacterBodyProfileHeight(bodyProfile) * this.pixelsPerMeter
+        : 0
+    const bodyRenderHalfWidthPx =
+      profileWidthPx > 0 ? profileWidthPx * 0.5 : radius
+    const bodyRenderHalfHeightPx =
+      profileHeightPx > 0
+        ? profileHeightPx * 0.5
+        : bodyHeightPx > 0
+          ? bodyHeightPx * 0.5
+          : radius
     if (rollAngle !== 0) {
-      if (radius > 0) {
+      if (bodyRenderHalfWidthPx > 0) {
         // 非圆形体型旋转时，调整 Y 偏移使视觉最低点始终贴在物理底部
         // 椭圆旋转后最低点 = sqrt(rx² * sin²θ + ry² * cos²θ)
-        const ryPx = bodyHeightPx > 0 ? bodyHeightPx / 2 : radius
-        if (ryPx !== radius) {
+        if (bodyRenderHalfHeightPx !== bodyRenderHalfWidthPx) {
           const sinA = Math.sin(rollAngle)
           const cosA = Math.cos(rollAngle)
           const rotatedLow = Math.sqrt(
-            radius * radius * sinA * sinA + ryPx * ryPx * cosA * cosA
+            bodyRenderHalfWidthPx * bodyRenderHalfWidthPx * sinA * sinA +
+              bodyRenderHalfHeightPx * bodyRenderHalfHeightPx * cosA * cosA
           )
-          this.ctx.translate(0, ryPx - rotatedLow)
+          this.ctx.translate(0, bodyRenderHalfHeightPx - rotatedLow)
         }
       }
       this.ctx.rotate(rollAngle)
