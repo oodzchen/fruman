@@ -22,7 +22,6 @@ import {
   DEFAULT_WEAPON_ATTACK_DAMAGE,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_CORNER_RADIUS,
-  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_POSTURE_DAMAGE,
   DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
@@ -50,6 +49,7 @@ import type {
 import {
   getDefaultEnemyAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
+  getWeaponGroundRotationRad,
   isRangedWeaponType,
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
@@ -771,7 +771,8 @@ export function createWeapon(
     x: x,
     y: y,
   }
-  weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+  const groundRotation = getWeaponGroundRotationRad(weaponType)
+  weapon.rotation = groundRotation
   weapon.isEquipped = false
   weapon.attackPhase = 'idle'
   weapon.attackElapsedMs = 0
@@ -779,12 +780,12 @@ export function createWeapon(
   weapon.attackStartTransform = {
     x: x,
     y: y,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    rotation: groundRotation,
   }
   weapon.visual = {
     x: x,
     y: y,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    rotation: groundRotation,
   }
   weapon.attackQueued = false
   weapon.comboCount = 0
@@ -809,12 +810,12 @@ export function createWeapon(
   weapon.swingStartTransform = {
     x: x,
     y: y,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    rotation: groundRotation,
   }
   weapon.swingEndTransform = {
     x: x,
     y: y,
-    rotation: DEFAULT_WEAPON_GROUND_ROTATION_RAD,
+    rotation: groundRotation,
   }
   weapon.attackRadius = DEFAULT_WEAPON_ATTACK_RADIUS
   weapon.pickupCooldownEndTime = 0 // 初始生成的武器没有拾取冷却

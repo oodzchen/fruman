@@ -1,11 +1,9 @@
 import { localizer } from '../Localizer'
-import {
-  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
-  WEAPON_DEFAULT_DATA,
-} from '../constants'
+import { WEAPON_DEFAULT_DATA } from '../constants'
 import type { WeaponCategory } from '../editorMapTypes'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type { EnemyType, WeaponType } from '../types'
+import { getWeaponGroundRotationRad } from '../weaponTypeUtils'
 import { DEBUG_EDITOR_MENU } from './EditorConstants'
 import { EditorMenuNavigator, EditorSubmenuMode } from './EditorMenuNavigator'
 import { computeWeaponRenderDimensions } from './EditorRenderUtils'
@@ -61,7 +59,6 @@ export class EditorMenuSystem {
   private weaponMenuBackBtn: HTMLButtonElement
   private enemySubmenuBackBtn: HTMLButtonElement
   private readonly weaponPreviewPixelsPerMeter = 16
-  private readonly weaponPreviewAngle = DEFAULT_WEAPON_GROUND_ROTATION_RAD
 
   private menuNavigator: EditorMenuNavigator
   private menuMode: EditorSubmenuMode = EditorSubmenuMode.None
@@ -608,7 +605,7 @@ export class EditorMenuSystem {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.save()
     ctx.translate(Math.round(canvas.width / 2), Math.round(canvas.height / 2))
-    ctx.rotate(this.weaponPreviewAngle)
+    ctx.rotate(getWeaponGroundRotationRad(weaponType))
 
     const maxWidth = canvas.width - 6
     const maxHeight = canvas.height - 4

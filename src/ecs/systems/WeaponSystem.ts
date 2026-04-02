@@ -67,6 +67,7 @@ import type {
 } from '../../types'
 import {
   getGrapeChargeRangeScale,
+  getWeaponGroundRotationRad,
   isRangedAttackWeaponVisualType,
   isRangedWeaponType,
   isSecondaryWeaponType,
@@ -1819,23 +1820,24 @@ export class WeaponSystem extends System {
     weapon.bowAmmoMax = weaponData.bowAmmoMax
 
     const weaponY = y
+    const groundRotation = getWeaponGroundRotationRad(weaponData.weaponType)
     weapon.position.x = x
     weapon.position.y = weaponY
-    weapon.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.rotation = groundRotation
     weapon.isEquipped = false
     weapon.attackPhase = 'idle'
     weapon.visual.x = x
     weapon.visual.y = weaponY
-    weapon.visual.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.visual.rotation = groundRotation
     weapon.attackStartTransform.x = x
     weapon.attackStartTransform.y = weaponY
-    weapon.attackStartTransform.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.attackStartTransform.rotation = groundRotation
     weapon.swingStartTransform.x = x
     weapon.swingStartTransform.y = weaponY
-    weapon.swingStartTransform.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.swingStartTransform.rotation = groundRotation
     weapon.swingEndTransform.x = x
     weapon.swingEndTransform.y = weaponY
-    weapon.swingEndTransform.rotation = DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    weapon.swingEndTransform.rotation = groundRotation
     weapon.attackStartOffset.dx = 0
     weapon.attackStartOffset.dy = 0
     weapon.attackStartOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD

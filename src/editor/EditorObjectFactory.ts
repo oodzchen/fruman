@@ -3,12 +3,12 @@ import { fabric } from 'fabric'
 import {
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
-  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
 } from '../constants'
 import type { MapEnemyWeapon, WeaponCategory } from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
 import type { WeaponType } from '../types'
 import {
+  getWeaponGroundRotationRad,
   isSecondaryWeaponType,
   normalizeWeaponTypeAndSizeLevel,
 } from '../weaponTypeUtils'
@@ -77,9 +77,6 @@ export class EditorObjectFactory {
     isBow: boolean
   ) => WeaponRenderDimensions
   private renderWeapon: EditorObjectFactoryOptions['renderWeapon']
-  private readonly defaultWeaponMarkerAngleDeg = Math.round(
-    (DEFAULT_WEAPON_GROUND_ROTATION_RAD * 180) / Math.PI
-  )
 
   constructor(options: EditorObjectFactoryOptions) {
     this.pixelsPerMeter = options.pixelsPerMeter
@@ -480,7 +477,9 @@ export class EditorObjectFactory {
     const group = new fabric.Group([weaponShape], {
       originX: 'center',
       originY: 'center',
-      angle: this.defaultWeaponMarkerAngleDeg,
+      angle: Math.round(
+        (getWeaponGroundRotationRad(weaponType) * 180) / Math.PI
+      ),
       selectable: true,
       hasControls: false,
       lockScalingX: true,

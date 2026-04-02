@@ -1,10 +1,9 @@
-import {
-  DEFAULT_WEAPON_GROUND_ROTATION_RAD,
-  DEFAULT_WEAPON_HEIGHT,
-  DEFAULT_WEAPON_WIDTH,
-} from '../constants'
+import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from '../constants'
 import type { WeaponType } from '../types'
-import { isRangedWeaponType } from '../weaponTypeUtils'
+import {
+  getWeaponGroundRotationRad,
+  isRangedWeaponType,
+} from '../weaponTypeUtils'
 import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
 
 export const HUD_SLOT_SIZE = 46
@@ -74,11 +73,12 @@ export function drawHudWeaponSlot(
     const iconHeight = slotHeight * iconScale
     const centerX = x + size * 0.5
     const centerY = y + size * 0.5
+    const iconRotation = getWeaponGroundRotationRad(weaponType)
 
     if (renderType === 'bow') {
       ctx.save()
       ctx.translate(centerX, centerY)
-      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.rotate(iconRotation)
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR
@@ -109,9 +109,10 @@ export function drawHudWeaponSlot(
       ctx.restore()
       ctx.restore()
     } else if (renderType === 'grape') {
+      const grapeOffsetPx = Math.max(2, Math.floor(size / 12))
       ctx.save()
-      ctx.translate(centerX, centerY)
-      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.translate(centerX - grapeOffsetPx, centerY - grapeOffsetPx)
+      ctx.rotate(iconRotation)
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR
@@ -128,7 +129,7 @@ export function drawHudWeaponSlot(
     } else if (renderType === 'hook') {
       ctx.save()
       ctx.translate(centerX, centerY)
-      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.rotate(iconRotation)
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR
@@ -145,7 +146,7 @@ export function drawHudWeaponSlot(
     } else if (renderType === 'hammer') {
       ctx.save()
       ctx.translate(centerX, centerY)
-      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.rotate(iconRotation)
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR
@@ -174,7 +175,7 @@ export function drawHudWeaponSlot(
       ctx.rect(x, y, size, size)
       ctx.clip()
       ctx.translate(centerX, centerY)
-      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.rotate(iconRotation)
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR
@@ -192,7 +193,7 @@ export function drawHudWeaponSlot(
     } else {
       ctx.save()
       ctx.translate(centerX, centerY)
-      ctx.rotate(DEFAULT_WEAPON_GROUND_ROTATION_RAD)
+      ctx.rotate(iconRotation)
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR

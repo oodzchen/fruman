@@ -33,6 +33,7 @@ import {
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
+import { getWeaponStaggerDropRotationRad } from '../../weaponTypeUtils'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ImpactLevel } from '../AttackMoveData'
 import { createCharacterPhysicsBody } from '../CharacterBodyPhysics'
@@ -460,7 +461,9 @@ export class StatsSystem extends System {
       const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
       weapon.dropEndOffset.dx = 0
       weapon.dropEndOffset.dy = radius - DEFAULT_WEAPON_HEIGHT / 2
-      weapon.dropEndOffset.rotation = 0
+      weapon.dropEndOffset.rotation = getWeaponStaggerDropRotationRad(
+        weapon.weaponType
+      )
     }
   }
 

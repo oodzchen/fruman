@@ -28,6 +28,7 @@ import type {
 import {
   getDefaultEnemyAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
+  getWeaponGroundRotationRad,
   isRangedWeaponType,
   isSecondaryWeaponType,
 } from '../weaponTypeUtils'
@@ -1778,6 +1779,7 @@ export class EditorPropertiesPanel {
 
       previewCtx.save()
       previewCtx.translate(centerX, centerY)
+      previewCtx.rotate(getWeaponGroundRotationRad(marker.weaponType))
       renderWeapon(
         previewCtx,
         previewType,
