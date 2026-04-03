@@ -33,6 +33,7 @@ export interface EditorTreeNode {
   index?: number
   objectKind?: MapObjectKind
   name?: string
+  isGroupContainer?: boolean
 }
 
 export interface EditorTreeData {

@@ -12,6 +12,9 @@ export type ContextMenuAction =
   | 'equilateral'
   | 'zoom'
   | 'rename'
+  | 'group'
+  | 'convertGroup'
+  | 'ungroup'
   | 'properties'
   | 'copy'
   | 'paste'
@@ -22,6 +25,10 @@ export interface EditorContextMenuContext {
   onAction: (action: ContextMenuAction) => void
   canPaste: () => boolean
   canCopy: (target: fabric.Object) => boolean
+  isActionDisabled: (
+    action: ContextMenuAction,
+    target: fabric.Object | null
+  ) => boolean
 }
 
 export class EditorContextMenu {
@@ -157,7 +164,8 @@ export class EditorContextMenu {
       const isPasteDisabled = action === 'paste' && !this.ctx.canPaste()
       const isCopyDisabled =
         action === 'copy' && !!this.target && !this.ctx.canCopy(this.target)
-      if (isPasteDisabled || isCopyDisabled) {
+      const isActionDisabled = this.ctx.isActionDisabled(action, this.target)
+      if (isPasteDisabled || isCopyDisabled || isActionDisabled) {
         button.disabled = true
         button.classList.add('disabled')
         continue
@@ -205,6 +213,12 @@ export class EditorContextMenu {
         return 'editor_camera_menu_zoom'
       case 'rename':
         return 'editor_object_menu_rename'
+      case 'group':
+        return 'editor_object_menu_group'
+      case 'convertGroup':
+        return 'editor_object_menu_convert_group'
+      case 'ungroup':
+        return 'editor_object_menu_ungroup'
       case 'properties':
         return 'editor_weapon_menu_properties'
       case 'copy':

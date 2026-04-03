@@ -43,6 +43,7 @@ import { ObjectType } from './types'
 import type {
   CameraFrame,
   CheckpointMarker,
+  EditorEmptyObject,
   HookAnchorMarker,
   NpcMarker,
   PlayerMarker,
@@ -52,6 +53,7 @@ import type {
 
 type ClipboardKind =
   | 'none'
+  | 'tree'
   | 'shape'
   | 'terrain'
   | 'npc'
@@ -75,6 +77,111 @@ interface EditorClipboardManagerContext {
   handleCanvasSelection: (object: fabric.Object | null) => void
   isEditablePolygon: (obj: fabric.Object | null) => obj is EditablePolygon
   hasObjectOfType: (type: ObjectType) => boolean
+  createEmptyObject: (
+    left: number,
+    top: number,
+    isGroupContainer: boolean
+  ) => EditorEmptyObject
+}
+
+type ClipboardTreeNode =
+  | ClipboardEmptyTreeNode
+  | ClipboardShapeTreeNode
+  | ClipboardTerrainTreeNode
+  | ClipboardNpcTreeNode
+  | ClipboardWeaponTreeNode
+  | ClipboardCheckpointTreeNode
+  | ClipboardHookAnchorTreeNode
+
+interface ClipboardTreeNodeBase {
+  kind:
+    | 'empty'
+    | 'shape'
+    | 'terrain'
+    | 'npc'
+    | 'weapon'
+    | 'checkpoint'
+    | 'hookAnchor'
+  parentIndex: number
+  offsetX: number
+  offsetY: number
+}
+
+interface ClipboardEmptyTreeNode extends ClipboardTreeNodeBase {
+  kind: 'empty'
+  isGroupContainer: boolean
+}
+
+interface ClipboardShapeTreeNode extends ClipboardTreeNodeBase {
+  kind: 'shape'
+  objectType: ObjectType.Ground | ObjectType.Obstacle
+  shapeKind: 'rect' | 'circle' | 'polygon'
+  shapeIsEditable: boolean
+  width: number
+  height: number
+  radius: number
+  angle: number
+  scaleX: number
+  scaleY: number
+  points: number[]
+  resetKind: ShapeResetData['kind']
+  resetWidth: number
+  resetHeight: number
+  resetRadius: number
+  resetPoints: number[]
+}
+
+interface ClipboardTerrainTreeNode extends ClipboardTreeNodeBase {
+  kind: 'terrain'
+  snapshot: TerrainClipboardLayerSnapshot
+}
+
+interface ClipboardNpcTreeNode extends ClipboardTreeNodeBase {
+  kind: 'npc'
+  npcType: NpcType
+  radius: number
+  moveSpeed: number
+  attackDesire: number
+  parryProficiency: number
+  initialPatrolMode: NpcPatrolMode
+  detectionRangeLevel: NpcDetectionRangeLevel
+  maxHealth: number
+  maxPosture: number
+  maxToughness: number
+  color: string
+  facing: number
+  initialNormalMovesetId: NormalAttackMovesetId
+  debugNoDamage: boolean
+  debugNoDeath: boolean
+  redTapeEnabled: boolean
+  retreatEnabled: boolean
+  retreatDelaySec: number
+  canBeFollower: boolean
+  equipWeapon: boolean
+  factionId: string
+  npcFactions: string[]
+  allyFactions: string[]
+  mainWeapon?: MapNpcWeapon
+  secondaryWeapon?: MapNpcWeapon
+}
+
+interface ClipboardWeaponTreeNode extends ClipboardTreeNodeBase {
+  kind: 'weapon'
+  weaponType: WeaponType
+  category: WeaponCategory
+  sizeLevel: number
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
+  bowAmmo?: number
+}
+
+interface ClipboardCheckpointTreeNode extends ClipboardTreeNodeBase {
+  kind: 'checkpoint'
+}
+
+interface ClipboardHookAnchorTreeNode extends ClipboardTreeNodeBase {
+  kind: 'hookAnchor'
 }
 
 type RectResetData = Extract<ShapeResetData, { kind: 'rect' }>
@@ -90,6 +197,7 @@ export class EditorClipboardManager {
   private pasteIndex = 0
   private pasteBaseLeft = 0
   private pasteBaseTop = 0
+  private treeNodes: ClipboardTreeNode[] = []
 
   private shapeObjectType: ObjectType | null = null
   private shapeKind: 'rect' | 'circle' | 'polygon' = 'rect'
@@ -269,11 +377,26 @@ export class EditorClipboardManager {
   }
 
   canCopy(target: fabric.Object): boolean {
-    if (this.ctx.cameraManager.isCameraFrame(target)) {
+    const data = this.ctx.objectManager.getEditorObjectMap().get(target)
+    if (!data) {
       return false
     }
-    if (this.ctx.markerManager.isPlayerMarker(target)) {
+    if (!this.canCopySingleObject(target, data.type)) {
       return false
+    }
+    const rootId = data.id
+    const editorObjects = this.ctx.objectManager.getEditorObjects()
+    for (let i = 0; i < editorObjects.length; i++) {
+      const candidate = editorObjects[i]
+      if (
+        candidate.id === rootId ||
+        !this.isDescendantOf(candidate.id, rootId)
+      ) {
+        continue
+      }
+      if (!this.canCopySingleObject(candidate.object, candidate.type)) {
+        return false
+      }
     }
     return true
   }
@@ -282,9 +405,11 @@ export class EditorClipboardManager {
     this.batchTargets.length = 0
     this.batchPasteIndex = 0
     for (let i = 0; i < targets.length; i++) {
-      if (this.canCopy(targets[i])) {
-        this.batchTargets.push(targets[i])
+      const target = targets[i]
+      if (!this.canCopy(target) || this.hasSelectedAncestor(target, targets)) {
+        continue
       }
+      this.batchTargets.push(target)
     }
     if (this.batchTargets.length === 0) return false
     this.kind = 'none'
@@ -324,6 +449,10 @@ export class EditorClipboardManager {
     this.pasteIndex = 0
     this.batchTargets.length = 0
     this.batchPasteIndex = 0
+    this.treeNodes.length = 0
+    if (this.shouldUseTreeClipboard(target)) {
+      return this.copyTree(target)
+    }
     if (this.ctx.cameraManager.isCameraFrame(target)) {
       return this.copyCameraFrame(target)
     }
@@ -373,6 +502,9 @@ export class EditorClipboardManager {
       : offset
     let result: fabric.Object | null = null
     switch (this.kind) {
+      case 'tree':
+        result = this.pasteTree(appliedOffset)
+        break
       case 'shape':
         result = this.pasteShape(appliedOffset)
         break
@@ -405,6 +537,805 @@ export class EditorClipboardManager {
       this.pasteIndex += 1
     }
     return result
+  }
+
+  private canCopySingleObject(
+    target: fabric.Object,
+    type: ObjectType
+  ): boolean {
+    if (this.ctx.cameraManager.isCameraFrame(target)) {
+      return false
+    }
+    if (this.ctx.markerManager.isPlayerMarker(target)) {
+      return false
+    }
+    if (type === ObjectType.Empty) {
+      return true
+    }
+    if (this.ctx.terrainManager.isTerrainProxy(target)) {
+      return true
+    }
+    if (this.ctx.markerManager.isNpcMarker(target)) {
+      return true
+    }
+    if (this.ctx.markerManager.isWeaponMarker(target)) {
+      return true
+    }
+    if (this.ctx.markerManager.isCheckpointMarker(target)) {
+      return true
+    }
+    if (this.ctx.markerManager.isHookAnchorMarker(target)) {
+      return true
+    }
+    return type === ObjectType.Ground || type === ObjectType.Obstacle
+  }
+
+  private shouldUseTreeClipboard(target: fabric.Object): boolean {
+    const data = this.ctx.objectManager.getEditorObjectMap().get(target)
+    if (!data) {
+      return false
+    }
+    if (data.type === ObjectType.Empty) {
+      return true
+    }
+    const rootId = data.id
+    const editorObjects = this.ctx.objectManager.getEditorObjects()
+    for (let i = 0; i < editorObjects.length; i++) {
+      if (this.isDescendantOf(editorObjects[i].id, rootId)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private hasSelectedAncestor(
+    target: fabric.Object,
+    targets: readonly fabric.Object[]
+  ): boolean {
+    const data = this.ctx.objectManager.getEditorObjectMap().get(target)
+    if (!data) {
+      return false
+    }
+    for (let i = 0; i < targets.length; i++) {
+      const candidate = targets[i]
+      if (candidate === target) {
+        continue
+      }
+      const candidateData = this.ctx.objectManager
+        .getEditorObjectMap()
+        .get(candidate)
+      if (candidateData && this.isDescendantOf(data.id, candidateData.id)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private isDescendantOf(candidateId: number, ancestorId: number): boolean {
+    let current = this.ctx.objectManager.getEditorObjectById(candidateId)
+    while (current && current.parentId !== null) {
+      if (current.parentId === ancestorId) {
+        return true
+      }
+      current = this.ctx.objectManager.getEditorObjectById(current.parentId)
+    }
+    return false
+  }
+
+  private isObjectDescendantOfRoot(
+    object: fabric.Object,
+    ancestorId: number
+  ): boolean {
+    const data = this.ctx.objectManager.getEditorObjectMap().get(object)
+    if (!data) {
+      return false
+    }
+    return this.isDescendantOf(data.id, ancestorId)
+  }
+
+  private getObjectWorldReferencePoint(object: fabric.Object): fabric.Point {
+    return object.getPointByOrigin(
+      object.originX ?? 'left',
+      object.originY ?? 'top'
+    )
+  }
+
+  private copyTree(target: fabric.Object): boolean {
+    const rootData = this.ctx.objectManager.getEditorObjectMap().get(target)
+    if (!rootData || !this.canCopy(target)) {
+      return false
+    }
+    const rootPoint = this.getObjectWorldReferencePoint(target)
+    this.sourceLeft = rootPoint.x
+    this.sourceTop = rootPoint.y
+    this.treeNodes.length = 0
+    const success = this.appendTreeNode(rootData, -1, rootPoint.x, rootPoint.y)
+    if (!success || this.treeNodes.length === 0) {
+      this.kind = 'none'
+      this.treeNodes.length = 0
+      return false
+    }
+    this.kind = 'tree'
+    return true
+  }
+
+  private appendTreeNode(
+    data: ReturnType<EditorObjectManager['getEditorObjectById']>,
+    parentIndex: number,
+    rootLeft: number,
+    rootTop: number
+  ): boolean {
+    if (!data) {
+      return false
+    }
+    const point = this.getObjectWorldReferencePoint(data.object)
+    const node = this.createTreeNodeSnapshot(
+      data.object,
+      data.type,
+      parentIndex,
+      point.x - rootLeft,
+      point.y - rootTop
+    )
+    if (!node) {
+      return false
+    }
+    const nodeIndex = this.treeNodes.length
+    this.treeNodes.push(node)
+    const editorObjects = this.ctx.objectManager.getEditorObjects()
+    for (let i = 0; i < editorObjects.length; i++) {
+      const childData = editorObjects[i]
+      if (childData.parentId !== data.id) {
+        continue
+      }
+      if (!this.appendTreeNode(childData, nodeIndex, rootLeft, rootTop)) {
+        return false
+      }
+    }
+    return true
+  }
+
+  private createTreeNodeSnapshot(
+    target: fabric.Object,
+    type: ObjectType,
+    parentIndex: number,
+    offsetX: number,
+    offsetY: number
+  ): ClipboardTreeNode | null {
+    const targetData = this.ctx.objectManager.getEditorObjectMap().get(target)
+    if (!targetData) {
+      return null
+    }
+    if (type === ObjectType.Empty) {
+      return {
+        kind: 'empty',
+        parentIndex,
+        offsetX,
+        offsetY,
+        isGroupContainer:
+          (target as Partial<EditorEmptyObject>).isGroupContainer === true,
+      }
+    }
+
+    if (this.ctx.terrainManager.isTerrainProxy(target)) {
+      const snapshot = this.ctx.terrainManager.createClipboardSnapshot(target)
+      if (!snapshot) {
+        return null
+      }
+      return {
+        kind: 'terrain',
+        parentIndex,
+        offsetX,
+        offsetY,
+        snapshot: this.cloneTerrainSnapshot(snapshot),
+      }
+    }
+
+    if (this.ctx.markerManager.isNpcMarker(target)) {
+      const npcData = this.ctx.markerManager.getNpcMarkerMap().get(target)
+      if (!npcData) {
+        return null
+      }
+      return {
+        kind: 'npc',
+        parentIndex,
+        offsetX,
+        offsetY,
+        npcType: npcData.npcType,
+        radius: npcData.radius,
+        moveSpeed: npcData.moveSpeed,
+        attackDesire: npcData.attackDesire,
+        parryProficiency: npcData.parryProficiency,
+        initialPatrolMode: npcData.initialPatrolMode,
+        detectionRangeLevel: npcData.detectionRangeLevel,
+        maxHealth: npcData.maxHealth,
+        maxPosture: npcData.maxPosture,
+        maxToughness: npcData.maxToughness,
+        color: npcData.color,
+        facing: npcData.facing,
+        initialNormalMovesetId: npcData.initialNormalMovesetId,
+        debugNoDamage: npcData.debugNoDamage,
+        debugNoDeath: npcData.debugNoDeath,
+        redTapeEnabled: npcData.redTapeEnabled,
+        retreatEnabled: npcData.retreatEnabled,
+        retreatDelaySec: npcData.retreatDelaySec,
+        canBeFollower: npcData.canBeFollower,
+        equipWeapon: npcData.equipWeapon,
+        factionId: npcData.factionId,
+        npcFactions: npcData.npcFactions.slice(),
+        allyFactions: npcData.allyFactions.slice(),
+        mainWeapon:
+          npcData.mainWeaponMarker &&
+          !this.isObjectDescendantOfRoot(
+            npcData.mainWeaponMarker,
+            targetData.id
+          )
+            ? this.copyWeaponMarkerData(npcData.mainWeaponMarker)
+            : undefined,
+        secondaryWeapon:
+          npcData.secondaryWeaponMarker &&
+          !this.isObjectDescendantOfRoot(
+            npcData.secondaryWeaponMarker,
+            targetData.id
+          )
+            ? this.copyWeaponMarkerData(npcData.secondaryWeaponMarker)
+            : undefined,
+      }
+    }
+
+    if (this.ctx.markerManager.isWeaponMarker(target)) {
+      const weaponData = this.ctx.markerManager.getWeaponMarkerMap().get(target)
+      if (!weaponData) {
+        return null
+      }
+      return {
+        kind: 'weapon',
+        parentIndex,
+        offsetX,
+        offsetY,
+        weaponType: weaponData.weaponType,
+        category: weaponData.category,
+        sizeLevel: weaponData.sizeLevel,
+        attackDamage: weaponData.attackDamage,
+        postureDamage: weaponData.postureDamage,
+        toughnessDamage: weaponData.toughnessDamage,
+        bowAmmo: weaponData.bowAmmo,
+      }
+    }
+
+    if (this.ctx.markerManager.isCheckpointMarker(target)) {
+      return {
+        kind: 'checkpoint',
+        parentIndex,
+        offsetX,
+        offsetY,
+      }
+    }
+
+    if (this.ctx.markerManager.isHookAnchorMarker(target)) {
+      return {
+        kind: 'hookAnchor',
+        parentIndex,
+        offsetX,
+        offsetY,
+      }
+    }
+
+    if (
+      (type === ObjectType.Ground || type === ObjectType.Obstacle) &&
+      (target instanceof fabric.Rect ||
+        target instanceof fabric.Circle ||
+        target instanceof fabric.Polygon)
+    ) {
+      return this.createShapeTreeNode(
+        target,
+        type,
+        parentIndex,
+        offsetX,
+        offsetY
+      )
+    }
+
+    return null
+  }
+
+  private createShapeTreeNode(
+    target: fabric.Rect | fabric.Circle | fabric.Polygon,
+    type: ObjectType.Ground | ObjectType.Obstacle,
+    parentIndex: number,
+    offsetX: number,
+    offsetY: number
+  ): ClipboardShapeTreeNode {
+    const node: ClipboardShapeTreeNode = {
+      kind: 'shape',
+      parentIndex,
+      offsetX,
+      offsetY,
+      objectType: type,
+      shapeKind: 'rect',
+      shapeIsEditable: false,
+      width: 0,
+      height: 0,
+      radius: 0,
+      angle: target.angle ?? 0,
+      scaleX: target.scaleX ?? 1,
+      scaleY: target.scaleY ?? 1,
+      points: [],
+      resetKind: 'rect',
+      resetWidth: 0,
+      resetHeight: 0,
+      resetRadius: 0,
+      resetPoints: [],
+    }
+
+    if (target instanceof fabric.Rect) {
+      node.shapeKind = 'rect'
+      node.width = target.width ?? 0
+      node.height = target.height ?? 0
+    } else if (target instanceof fabric.Circle) {
+      node.shapeKind = 'circle'
+      node.radius = target.radius ?? 0
+    } else {
+      node.shapeKind = 'polygon'
+      node.shapeIsEditable = this.ctx.isEditablePolygon(target)
+      const points = target.points ?? []
+      node.points = new Array<number>(points.length * 2)
+      const offsetPoint = target.pathOffset
+      const offsetPointX = offsetPoint.x
+      const offsetPointY = offsetPoint.y
+      for (let i = 0; i < points.length; i++) {
+        const baseIndex = i * 2
+        node.points[baseIndex] = points[i].x - offsetPointX
+        node.points[baseIndex + 1] = points[i].y - offsetPointY
+      }
+    }
+
+    const resetData = this.ctx.shapeManager.getShapeResetData(target)
+    if (!resetData) {
+      if (target instanceof fabric.Rect) {
+        node.resetKind = 'rect'
+        node.resetWidth = target.width ?? 0
+        node.resetHeight = target.height ?? 0
+      } else if (target instanceof fabric.Circle) {
+        node.resetKind = 'circle'
+        node.resetRadius = target.radius ?? 0
+      } else {
+        node.resetKind = 'polygon'
+        const points = target.points ?? []
+        node.resetPoints = new Array<number>(points.length * 2)
+        const offsetPoint = target.pathOffset
+        const offsetPointX = offsetPoint.x
+        const offsetPointY = offsetPoint.y
+        for (let i = 0; i < points.length; i++) {
+          const baseIndex = i * 2
+          node.resetPoints[baseIndex] = points[i].x - offsetPointX
+          node.resetPoints[baseIndex + 1] = points[i].y - offsetPointY
+        }
+      }
+      return node
+    }
+
+    node.resetKind = resetData.kind
+    if (resetData.kind === 'rect') {
+      node.resetWidth = resetData.width
+      node.resetHeight = resetData.height
+    } else if (resetData.kind === 'circle') {
+      node.resetRadius = resetData.radius
+    } else {
+      node.resetPoints = new Array<number>(resetData.points.length * 2)
+      for (let i = 0; i < resetData.points.length; i++) {
+        const baseIndex = i * 2
+        node.resetPoints[baseIndex] = resetData.points[i][0]
+        node.resetPoints[baseIndex + 1] = resetData.points[i][1]
+      }
+    }
+
+    return node
+  }
+
+  private copyWeaponMarkerData(marker: WeaponMarker): MapNpcWeapon | undefined {
+    const weaponData = this.ctx.markerManager.getWeaponMarkerMap().get(marker)
+    if (!weaponData) {
+      return undefined
+    }
+    return {
+      weaponType: weaponData.weaponType,
+      sizeLevel: weaponData.sizeLevel,
+      attackDamage: weaponData.attackDamage,
+      postureDamage: weaponData.postureDamage,
+      toughnessDamage: weaponData.toughnessDamage,
+      bowAmmo: weaponData.bowAmmo,
+    }
+  }
+
+  private cloneTerrainSnapshot(
+    snapshot: TerrainClipboardLayerSnapshot
+  ): TerrainClipboardLayerSnapshot {
+    const chunks = new Array<MapTerrainChunk>(snapshot.chunks.length)
+    for (let i = 0; i < snapshot.chunks.length; i++) {
+      const sourceChunk = snapshot.chunks[i]
+      const cells = new Array<number>(sourceChunk.cells.length)
+      for (
+        let cellIndex = 0;
+        cellIndex < sourceChunk.cells.length;
+        cellIndex++
+      ) {
+        cells[cellIndex] = sourceChunk.cells[cellIndex] | 0
+      }
+      chunks[i] = {
+        chunkX: sourceChunk.chunkX,
+        chunkY: sourceChunk.chunkY,
+        cells,
+      }
+    }
+    return {
+      materialId: snapshot.materialId,
+      offsetCellX: snapshot.offsetCellX,
+      offsetCellY: snapshot.offsetCellY,
+      chunks,
+    }
+  }
+
+  private pasteTree(offset: number): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas || this.treeNodes.length === 0) {
+      return null
+    }
+    const rootLeft = this.pasteBaseLeft + offset
+    const rootTop = this.pasteBaseTop + offset
+    const createdObjects = new Array<fabric.Object>(this.treeNodes.length)
+    const assignedChildIds: number[] = []
+    const assignedParentIds: Array<number | null> = []
+    for (let i = 0; i < this.treeNodes.length; i++) {
+      const node = this.treeNodes[i]
+      const object = this.createObjectFromTreeNode(
+        node,
+        rootLeft + node.offsetX,
+        rootTop + node.offsetY
+      )
+      if (!object) {
+        this.cleanupCreatedTreeObjects(createdObjects)
+        return null
+      }
+      createdObjects[i] = object
+      if (node.parentIndex >= 0) {
+        const childData = this.ctx.objectManager
+          .getEditorObjectMap()
+          .get(object)
+        const parentObject = createdObjects[node.parentIndex]
+        const parentData =
+          parentObject &&
+          this.ctx.objectManager.getEditorObjectMap().get(parentObject)
+        if (!childData || !parentData) {
+          this.cleanupCreatedTreeObjects(createdObjects)
+          return null
+        }
+        assignedChildIds.push(childData.id)
+        assignedParentIds.push(parentData.id)
+      }
+    }
+
+    if (
+      assignedChildIds.length > 0 &&
+      !this.ctx.objectManager.applyParentAssignments(
+        assignedChildIds,
+        assignedParentIds
+      )
+    ) {
+      this.cleanupCreatedTreeObjects(createdObjects)
+      return null
+    }
+
+    for (let i = 0; i < createdObjects.length; i++) {
+      const object = createdObjects[i]
+      if (object) {
+        object.setCoords()
+      }
+    }
+
+    const rootObject = createdObjects[0] ?? null
+    if (!rootObject) {
+      return null
+    }
+    canvas.setActiveObject(rootObject)
+    this.ctx.handleCanvasSelection(rootObject)
+    canvas.requestRenderAll()
+    return rootObject
+  }
+
+  private cleanupCreatedTreeObjects(
+    objects: readonly (fabric.Object | undefined)[]
+  ) {
+    const terrainObjects: fabric.Object[] = []
+    const canvas = this.ctx.getCanvas()
+    for (let i = objects.length - 1; i >= 0; i--) {
+      const object = objects[i]
+      if (!object) {
+        continue
+      }
+      if (this.ctx.terrainManager.isTerrainProxy(object)) {
+        terrainObjects.push(object)
+        continue
+      }
+      this.ctx.objectManager.unregisterEditorObject(object)
+      canvas?.remove(object)
+      this.ctx.shapeManager.deleteShapeResetData(object)
+    }
+    if (terrainObjects.length > 0) {
+      this.ctx.terrainManager.deleteProxyObjects(terrainObjects)
+    }
+  }
+
+  private createObjectFromTreeNode(
+    node: ClipboardTreeNode,
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    if (node.kind === 'empty') {
+      return this.createEmptyObject(
+        targetLeft,
+        targetTop,
+        node.isGroupContainer
+      )
+    }
+    if (node.kind === 'shape') {
+      return this.createShapeObject(node, targetLeft, targetTop)
+    }
+    if (node.kind === 'terrain') {
+      return this.createTerrainObject(node, targetLeft, targetTop)
+    }
+    if (node.kind === 'npc') {
+      return this.createNpcObject(node, targetLeft, targetTop)
+    }
+    if (node.kind === 'weapon') {
+      return this.createWeaponObject(node, targetLeft, targetTop)
+    }
+    if (node.kind === 'checkpoint') {
+      return this.createCheckpointObject(targetLeft, targetTop)
+    }
+    return this.createHookAnchorObject(targetLeft, targetTop)
+  }
+
+  private createEmptyObject(
+    targetLeft: number,
+    targetTop: number,
+    isGroupContainer: boolean
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const object = this.ctx.createEmptyObject(
+      targetLeft,
+      targetTop,
+      isGroupContainer
+    )
+    canvas.add(object)
+    this.ctx.objectManager.registerEditorObject(ObjectType.Empty, object)
+    object.setCoords()
+    return object
+  }
+
+  private createShapeObject(
+    node: ClipboardShapeTreeNode,
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const isGround = node.objectType === ObjectType.Ground
+    let shapeObject: fabric.Object | null = null
+    if (node.shapeKind === 'rect') {
+      const options = isGround ? GROUND_RECT_OPTIONS : OBSTACLE_RECT_OPTIONS
+      const rect = new fabric.Rect(options)
+      rect.width = node.width
+      rect.height = node.height
+      rect.scaleX = node.scaleX
+      rect.scaleY = node.scaleY
+      rect.angle = node.angle
+      rect.left = targetLeft
+      rect.top = targetTop
+      rect.setCoords()
+      shapeObject = rect
+    } else if (node.shapeKind === 'circle') {
+      const options = isGround ? GROUND_CIRCLE_OPTIONS : OBSTACLE_CIRCLE_OPTIONS
+      const circle = new fabric.Circle(options)
+      circle.radius = node.radius
+      circle.scaleX = node.scaleX
+      circle.scaleY = node.scaleY
+      circle.angle = node.angle
+      circle.left = targetLeft
+      circle.top = targetTop
+      circle.setCoords()
+      shapeObject = circle
+    } else {
+      const points: fabric.Point[] = new Array(node.points.length >> 1)
+      for (let i = 0; i < points.length; i++) {
+        const baseIndex = i * 2
+        points[i] = acquirePoint(
+          node.points[baseIndex],
+          node.points[baseIndex + 1]
+        )
+      }
+      const options = node.shapeIsEditable
+        ? isGround
+          ? GROUND_EDITABLE_POLYGON_OPTIONS
+          : OBSTACLE_EDITABLE_POLYGON_OPTIONS
+        : isGround
+          ? GROUND_TRIANGLE_OPTIONS
+          : OBSTACLE_TRIANGLE_OPTIONS
+      const polygon = new fabric.Polygon(points, options)
+      if (node.shapeIsEditable) {
+        this.ctx.polygonEditor.setupEditablePolygon(polygon)
+      }
+      polygon.scaleX = node.scaleX
+      polygon.scaleY = node.scaleY
+      polygon.angle = node.angle
+      polygon.left = targetLeft + polygon.pathOffset.x
+      polygon.top = targetTop + polygon.pathOffset.y
+      polygon.setCoords()
+      shapeObject = polygon
+    }
+
+    if (!shapeObject) {
+      return null
+    }
+
+    if (isGround) {
+      this.ctx.patternManager.applyGroundPatternToObject(shapeObject)
+    } else {
+      this.ctx.patternManager.applyObstaclePatternToObject(shapeObject)
+    }
+
+    if (node.resetKind === 'rect') {
+      this.ctx.shapeManager.registerShapeResetData(shapeObject, {
+        kind: 'rect',
+        width: node.resetWidth,
+        height: node.resetHeight,
+      })
+    } else if (node.resetKind === 'circle') {
+      this.ctx.shapeManager.registerShapeResetData(shapeObject, {
+        kind: 'circle',
+        radius: node.resetRadius,
+      })
+    } else {
+      const resetPairs = new Array<[number, number]>(
+        node.resetPoints.length >> 1
+      )
+      for (let i = 0; i < resetPairs.length; i++) {
+        const baseIndex = i * 2
+        resetPairs[i] = [
+          node.resetPoints[baseIndex],
+          node.resetPoints[baseIndex + 1],
+        ]
+      }
+      this.ctx.shapeManager.registerShapeResetData(shapeObject, {
+        kind: node.resetKind,
+        points: resetPairs,
+      })
+    }
+
+    canvas.add(shapeObject)
+    this.ctx.objectManager.registerEditorObject(node.objectType, shapeObject)
+    return shapeObject
+  }
+
+  private createTerrainObject(
+    node: ClipboardTerrainTreeNode,
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    return this.ctx.terrainManager.pasteClipboardSnapshot(
+      this.cloneTerrainSnapshot(node.snapshot),
+      this.sourceLeft + node.offsetX,
+      this.sourceTop + node.offsetY,
+      targetLeft,
+      targetTop
+    )
+  }
+
+  private createNpcObject(
+    node: ClipboardNpcTreeNode,
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.npcSpawnConfig.x = targetLeft * invPixelsPerMeter
+    this.npcSpawnConfig.y = targetTop * invPixelsPerMeter
+    this.npcSpawnConfig.radius = node.radius
+    this.npcSpawnConfig.moveSpeed = node.moveSpeed
+    this.npcSpawnConfig.attackDesire = node.attackDesire
+    this.npcSpawnConfig.parryProficiency = node.parryProficiency
+    this.npcSpawnConfig.initialPatrolMode = node.initialPatrolMode
+    this.npcSpawnConfig.detectionRangeLevel = node.detectionRangeLevel
+    this.npcSpawnConfig.maxHealth = node.maxHealth
+    this.npcSpawnConfig.maxPosture = node.maxPosture
+    this.npcSpawnConfig.maxToughness = node.maxToughness
+    this.npcSpawnConfig.color = node.color
+    this.npcSpawnConfig.facing = node.facing
+    this.npcSpawnConfig.initialNormalMovesetId = node.initialNormalMovesetId
+    this.npcSpawnConfig.debugNoDamage = node.debugNoDamage
+    this.npcSpawnConfig.debugNoDeath = node.debugNoDeath
+    this.npcSpawnConfig.redTapeEnabled = node.redTapeEnabled
+    this.npcSpawnConfig.retreatEnabled = node.retreatEnabled
+    this.npcSpawnConfig.retreatDelaySec = node.retreatDelaySec
+    this.npcSpawnConfig.canBeFollower = node.canBeFollower
+    this.npcSpawnConfig.equipWeapon = node.equipWeapon
+    this.npcSpawnConfig.mainWeapon = node.mainWeapon
+    this.npcSpawnConfig.secondaryWeapon = node.secondaryWeapon
+    this.npcSpawnConfig.factionId = node.factionId
+    this.npcSpawnConfig.npcFactions = node.npcFactions
+    this.npcSpawnConfig.allyFactions = node.allyFactions
+    const previousActive = canvas.getActiveObject()
+    this.ctx.markerManager.spawnNpcMarker(node.npcType, this.npcSpawnConfig)
+    const nextActive = canvas.getActiveObject()
+    return nextActive && nextActive !== previousActive ? nextActive : null
+  }
+
+  private createWeaponObject(
+    node: ClipboardWeaponTreeNode,
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.weaponSpawnConfig.x = targetLeft * invPixelsPerMeter
+    this.weaponSpawnConfig.y = targetTop * invPixelsPerMeter
+    this.weaponSpawnConfig.sizeLevel = node.sizeLevel
+    this.weaponSpawnConfig.attackDamage = node.attackDamage
+    this.weaponSpawnConfig.postureDamage = node.postureDamage
+    this.weaponSpawnConfig.toughnessDamage = node.toughnessDamage
+    this.weaponSpawnConfig.bowAmmo = node.bowAmmo
+    const previousActive = canvas.getActiveObject()
+    this.ctx.markerManager.spawnWeaponMarker(
+      node.weaponType,
+      node.category,
+      this.weaponSpawnConfig
+    )
+    const nextActive = canvas.getActiveObject()
+    return nextActive && nextActive !== previousActive ? nextActive : null
+  }
+
+  private createCheckpointObject(
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.checkpointSpawn.x = targetLeft * invPixelsPerMeter
+    this.checkpointSpawn.y = targetTop * invPixelsPerMeter
+    const previousActive = canvas.getActiveObject()
+    this.ctx.markerManager.spawnCheckpointMarker(this.checkpointSpawn)
+    const nextActive = canvas.getActiveObject()
+    return nextActive && nextActive !== previousActive ? nextActive : null
+  }
+
+  private createHookAnchorObject(
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.hookAnchorSpawn.x = targetLeft * invPixelsPerMeter
+    this.hookAnchorSpawn.y = targetTop * invPixelsPerMeter
+    const previousActive = canvas.getActiveObject()
+    this.ctx.markerManager.spawnHookAnchorMarker(this.hookAnchorSpawn)
+    const nextActive = canvas.getActiveObject()
+    return nextActive && nextActive !== previousActive ? nextActive : null
   }
 
   private copyShape(target: fabric.Object): boolean {

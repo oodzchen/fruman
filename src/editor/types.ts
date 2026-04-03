@@ -31,6 +31,11 @@ export type CameraFrame = fabric.Rect & {
   editorShape: 'camera-frame'
 }
 
+export type EditorEmptyObject = fabric.Group & {
+  editorShape: 'editor-empty'
+  isGroupContainer: boolean
+}
+
 export type PlayerMarker = fabric.Group & {
   editorShape: 'player-marker'
   radius: number

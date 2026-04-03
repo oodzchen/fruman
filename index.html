@@ -545,9 +545,27 @@
         text-align: left;
         font-family: var(--ui-font);
         box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: 6px;
       }
       .editor-object-group .editor-object-node {
         flex: 1;
+      }
+      .editor-object-label {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .editor-object-group-icon {
+        width: 10px;
+        height: 10px;
+        box-sizing: border-box;
+        border: 1px dashed rgba(255, 255, 255, 0.55);
+        opacity: 0.85;
+        flex-shrink: 0;
       }
       .editor-object-node:hover {
         color: var(--ui-color);

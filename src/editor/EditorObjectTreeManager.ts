@@ -1,4 +1,5 @@
-import type { EditorObjectData } from './types'
+import { ObjectType } from './types'
+import type { EditorEmptyObject, EditorObjectData } from './types'
 
 export interface EditorObjectTreeManagerContext {
   editorObjects: EditorObjectData[]
@@ -270,7 +271,16 @@ export class EditorObjectTreeManager {
       node.classList.add('is-selected')
     }
     node.dataset.objectId = String(data.id)
-    node.textContent = data.name
+    if (this.isGroupContainerData(data)) {
+      const icon = document.createElement('span')
+      icon.className = 'editor-object-group-icon'
+      icon.setAttribute('aria-hidden', 'true')
+      node.appendChild(icon)
+    }
+    const label = document.createElement('span')
+    label.className = 'editor-object-label'
+    label.textContent = data.name
+    node.appendChild(label)
     node.addEventListener('dragstart', (event) => {
       this.context.onDragStart(data.id)
       this.clearDragPreview()
@@ -310,6 +320,13 @@ export class EditorObjectTreeManager {
       this.context.onDragEnd()
     })
     return node
+  }
+
+  private isGroupContainerData(data: EditorObjectData): boolean {
+    if (data.type !== ObjectType.Empty) {
+      return false
+    }
+    return (data.object as Partial<EditorEmptyObject>).isGroupContainer === true
   }
 
   private updateDragPreview(id: number, insertAfter: boolean) {

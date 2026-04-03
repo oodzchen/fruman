@@ -66,6 +66,7 @@ import { EditorToolbarManager } from './editor/EditorToolbarManager'
 import {
   type CameraFrame,
   type CameraViewData,
+  type EditorEmptyObject,
   type EditorMap,
   type EditorObjectData,
   type GroundShapeType,
@@ -442,6 +443,8 @@ export class EditorManager {
         this.objectManager.handleCanvasSelection(obj ? [obj] : []),
       isEditablePolygon: (obj) => this.isEditablePolygon(obj),
       hasObjectOfType: (type) => this.hasObjectOfType(type),
+      createEmptyObject: (left, top, isGroupContainer) =>
+        this.createEmptyNode(left, top, isGroupContainer),
     })
 
     this.propertiesPanel = new EditorPropertiesPanel({
@@ -684,6 +687,7 @@ export class EditorManager {
       onAction: (action) => this.handlePolygonMenuAction(action),
       canPaste: () => this.clipboardManager.hasData(),
       canCopy: (target) => this.clipboardManager.canCopy(target),
+      isActionDisabled: (action) => this.isContextMenuActionDisabled(action),
     })
 
     // ShapeManager initialized earlier
@@ -1282,8 +1286,12 @@ export class EditorManager {
     const objects: fabric.Object[] = []
     for (let i = 0; i < ids.length; i++) {
       const data = this.objectManager.getEditorObjectById(ids[i])
-      if (data?.object && data.object.canvas === canvas) {
-        objects.push(data.object)
+      if (!data?.object || data.object.canvas !== canvas) {
+        continue
+      }
+      const target = this.objectManager.getSelectionTarget(data.object)
+      if (!objects.includes(target)) {
+        objects.push(target)
       }
     }
     if (objects.length === 0) {
@@ -1504,7 +1512,9 @@ export class EditorManager {
     if (type !== ObjectType.Terrain) {
       this.terrainBrushController.clearBrush()
     }
-    this.terrainManager.setInteractionEnabled(type === null)
+    this.terrainManager.setInteractionEnabled(
+      !this.terrainBrushController.isBrushSelected()
+    )
     this.sidebarManager.setSelectModeActive(type === null)
   }
 
@@ -1541,6 +1551,7 @@ export class EditorManager {
     if (!this.visible || this.currentView !== EditorView.Editor) {
       return
     }
+    this.syncManagedObjectTarget(target)
     if (this.terrainManager.handleModifiedTarget(target)) {
       this.captureHistorySnapshot()
       return
@@ -1553,6 +1564,7 @@ export class EditorManager {
       return
     }
     this.terrainManager.handleMovingTarget(target)
+    this.syncManagedObjectTarget(target)
   }
 
   private captureHistorySnapshot() {
@@ -1773,6 +1785,7 @@ export class EditorManager {
     if (!applied) {
       return false
     }
+    this.syncAllManagedGroupTargets()
     this.applyCanvasSelectionFromIds(
       this.objectManager.getSelectedEditorObjectIds()
     )
@@ -1798,6 +1811,7 @@ export class EditorManager {
     if (!applied) {
       return false
     }
+    this.syncAllManagedGroupTargets()
     this.applyCanvasSelectionFromIds(
       this.objectManager.getSelectedEditorObjectIds()
     )
@@ -1969,7 +1983,7 @@ export class EditorManager {
       const node = tree.nodes[i]
       let resolvedData: EditorObjectData | null = null
       if (node.type === 'empty') {
-        const group = this.createEmptyNode(0, 0)
+        const group = this.createEmptyNode(0, 0, node.isGroupContainer === true)
         if (group) {
           this.fabricCanvas?.add(group)
           resolvedData = this.objectManager.registerEditorObject(
@@ -2062,6 +2076,7 @@ export class EditorManager {
       }
     }
     this.objectManager.applyTreeSnapshot(order, parentIds)
+    this.syncAllManagedGroupTargets()
   }
 
   private nudgeSelectedObject(dx: number, dy: number) {
@@ -2327,14 +2342,23 @@ export class EditorManager {
       )
       return
     }
-    if (this.isEmptyObject(target)) {
+    if (this.isGroupContainer(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'delete'],
+        ['copy', 'paste', 'ungroup', 'rename', 'delete'],
         target,
         -1,
         clientX,
         clientY
       )
+      return
+    }
+    if (this.isEmptyObject(target)) {
+      const actions: ContextMenuAction[] = ['copy', 'paste', 'rename']
+      if (this.shouldShowConvertGroupAction(target)) {
+        actions.push('convertGroup')
+      }
+      actions.push('delete')
+      this.showPolygonMenuWithActions(actions, target, -1, clientX, clientY)
       return
     }
     if (this.markerManager.isCheckpointMarker(target)) {
@@ -2406,7 +2430,11 @@ export class EditorManager {
     return this.terrainManager.isTerrainProxy(object)
   }
 
-  private createEmptyNode(centerX: number, centerY: number) {
+  private createEmptyNode(
+    centerX: number,
+    centerY: number,
+    isGroupContainer = false
+  ): EditorEmptyObject {
     const group = new fabric.Group([], {
       originX: 'center',
       originY: 'center',
@@ -2416,12 +2444,59 @@ export class EditorManager {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    })
+    }) as EditorEmptyObject
     group.left = centerX
     group.top = centerY
     group.setCoords()
-    ;(group as unknown as { editorShape: string }).editorShape = 'editor-empty'
+    group.editorShape = 'editor-empty'
+    group.isGroupContainer = isGroupContainer
     return group
+  }
+
+  private syncManagedObjectTarget(target: fabric.Object | null) {
+    if (!target) {
+      return
+    }
+    if (this.cameraManager.isCameraFrame(target)) {
+      const data = this.cameraManager.getCameraViewMap().get(target)
+      if (data) {
+        this.cameraManager.syncCameraIcon(data)
+      }
+      return
+    }
+    if (!this.isGroupContainer(target)) {
+      return
+    }
+    const children = target.getObjects()
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
+      if (!this.cameraManager.isCameraFrame(child)) {
+        continue
+      }
+      const data = this.cameraManager.getCameraViewMap().get(child)
+      if (data) {
+        this.cameraManager.syncCameraIcon(data)
+      }
+    }
+  }
+
+  private syncAllManagedGroupTargets() {
+    const editorObjects = this.objectManager.getEditorObjects()
+    for (let i = 0; i < editorObjects.length; i++) {
+      this.syncManagedObjectTarget(editorObjects[i].object)
+    }
+  }
+
+  private isGroupContainer(
+    object: fabric.Object | null
+  ): object is EditorEmptyObject {
+    if (!object) {
+      return false
+    }
+    return (
+      (object as Partial<EditorEmptyObject>).editorShape === 'editor-empty' &&
+      (object as Partial<EditorEmptyObject>).isGroupContainer === true
+    )
   }
 
   // ========================================
@@ -2442,10 +2517,77 @@ export class EditorManager {
     }
     if (!menuTarget) return
     const hasCopyable = this.clipboardManager.canCopy(menuTarget)
-    const actions: ContextMenuAction[] = hasCopyable
-      ? ['copy', 'delete']
-      : ['delete']
+    const actions: ContextMenuAction[] = []
+    if (this.shouldShowGroupAction()) {
+      actions.push('group')
+    }
+    if (hasCopyable) {
+      actions.push('copy')
+    }
+    actions.push('delete')
     this.contextMenu.show(actions, menuTarget, -1, clientX, clientY)
+  }
+
+  private canGroupCurrentSelection(): boolean {
+    return this.objectManager.canGroupObjects(
+      this.objectManager.getSelectedEditorObjectIds()
+    )
+  }
+
+  private shouldShowConvertGroupAction(target: fabric.Object): boolean {
+    const data = this.objectManager.getEditorObjectMap().get(target)
+    if (
+      !data ||
+      data.type !== ObjectType.Empty ||
+      this.isGroupContainer(target)
+    ) {
+      return false
+    }
+    let childCount = 0
+    for (let i = 0; i < this.objectManager.getEditorObjects().length; i++) {
+      const childData = this.objectManager.getEditorObjects()[i]
+      if (childData.parentId !== data.id) {
+        continue
+      }
+      childCount += 1
+      if (childCount >= 2) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private shouldShowGroupAction(): boolean {
+    const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+    if (selectedIds.length < 2) {
+      return false
+    }
+    let sharedParentId: number | null | undefined
+    for (let i = 0; i < selectedIds.length; i++) {
+      const data = this.objectManager.getEditorObjectById(selectedIds[i])
+      if (!data) {
+        return false
+      }
+      if (sharedParentId === undefined) {
+        sharedParentId = data.parentId
+        continue
+      }
+      if (sharedParentId !== data.parentId) {
+        return false
+      }
+    }
+    return true
+  }
+
+  private isContextMenuActionDisabled(action: ContextMenuAction): boolean {
+    if (action === 'group') {
+      return !this.canGroupCurrentSelection()
+    }
+    if (action === 'convertGroup') {
+      const target = this.contextMenu.getTarget()
+      return !target || !this.objectManager.canConvertEmptyObjectToGroup(target)
+    }
+    return false
   }
 
   private getObjectsByIds(ids: number[]): fabric.Object[] {
@@ -2513,6 +2655,28 @@ export class EditorManager {
   private async handlePolygonMenuAction(action: ContextMenuAction) {
     const selectedIds = this.objectManager.getSelectedEditorObjectIds()
     if (selectedIds.length > 1) {
+      if (action === 'group') {
+        if (!this.canGroupCurrentSelection()) {
+          this.contextMenu.hide()
+          return
+        }
+        this.fabricCanvas?.discardActiveObject()
+        const group = this.createEmptyNode(0, 0, true)
+        const groupData = this.objectManager.createGroupObject(
+          selectedIds,
+          group
+        )
+        this.contextMenu.hide()
+        if (!groupData || !this.fabricCanvas) {
+          return
+        }
+        this.fabricCanvas.setActiveObject(group)
+        this.objectManager.handleCanvasSelection([group])
+        this.syncManagedObjectTarget(group)
+        this.fabricCanvas.requestRenderAll()
+        this.captureHistorySnapshot()
+        return
+      }
       if (action === 'copy') {
         const targets = this.getObjectsByIds(selectedIds)
         this.clipboardManager.copyBatch(targets)
@@ -2531,6 +2695,39 @@ export class EditorManager {
       return
     }
     const canvas = target.canvas
+    if (action === 'convertGroup') {
+      if (!this.objectManager.canConvertEmptyObjectToGroup(target)) {
+        this.contextMenu.hide()
+        return
+      }
+      const changed = this.objectManager.convertEmptyObjectToGroup(target)
+      this.contextMenu.hide()
+      if (!changed) {
+        return
+      }
+      canvas.setActiveObject(target)
+      this.objectManager.handleCanvasSelection([target])
+      this.syncManagedObjectTarget(target)
+      canvas.requestRenderAll()
+      this.captureHistorySnapshot()
+      return
+    }
+    if (action === 'ungroup') {
+      if (!this.isGroupContainer(target)) {
+        this.contextMenu.hide()
+        return
+      }
+      const changed = this.objectManager.ungroupObject(target)
+      this.contextMenu.hide()
+      if (!changed) {
+        return
+      }
+      canvas.setActiveObject(target)
+      this.objectManager.handleCanvasSelection([target])
+      canvas.requestRenderAll()
+      this.captureHistorySnapshot()
+      return
+    }
     if (action === 'copy') {
       if (!this.clipboardManager.canCopy(target)) {
         this.contextMenu.hide()

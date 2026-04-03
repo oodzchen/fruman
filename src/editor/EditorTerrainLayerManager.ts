@@ -102,6 +102,11 @@ export class EditorTerrainLayerManager {
   private activeSelectionMoveStartTop = 0
   private activeSelectionMoveAppliedCellDeltaX = 0
   private activeSelectionMoveAppliedCellDeltaY = 0
+  private groupedProxyMoveTarget: fabric.Group | null = null
+  private groupedProxyMoveStartLeft = 0
+  private groupedProxyMoveStartTop = 0
+  private groupedProxyMoveAppliedCellDeltaX = 0
+  private groupedProxyMoveAppliedCellDeltaY = 0
 
   constructor(ctx: EditorTerrainLayerManagerContext) {
     this.ctx = ctx
@@ -135,6 +140,7 @@ export class EditorTerrainLayerManager {
     this.cancelStroke()
     this.resetMovingProxyState()
     this.resetActiveSelectionMoveState()
+    this.resetGroupedProxyMoveState()
     this.removeAllLayerObjects()
     this.layers.length = 0
     this.renderData.layers.length = 0
@@ -451,26 +457,42 @@ export class EditorTerrainLayerManager {
 
   handleMovingTarget(target: fabric.Object | null): boolean {
     if (this.isTerrainProxy(target)) {
+      this.resetGroupedProxyMoveState()
       this.resetActiveSelectionMoveState()
       return this.handleProxyMoving(target)
     }
     this.resetMovingProxyState()
     if (target instanceof fabric.ActiveSelection) {
+      this.resetGroupedProxyMoveState()
       return this.handleActiveSelectionMoving(target)
     }
+    const groupedProxies = this.collectTerrainGroupedProxies(target)
+    if (groupedProxies.length > 0 && target instanceof fabric.Group) {
+      this.resetActiveSelectionMoveState()
+      return this.handleGroupedProxyMoving(target, groupedProxies)
+    }
+    this.resetGroupedProxyMoveState()
     this.resetActiveSelectionMoveState()
     return false
   }
 
   handleModifiedTarget(target: fabric.Object | null): boolean {
     if (this.isTerrainProxy(target)) {
+      this.resetGroupedProxyMoveState()
       this.resetActiveSelectionMoveState()
       return this.finalizeProxyMove(target)
     }
     this.resetMovingProxyState()
     if (target instanceof fabric.ActiveSelection) {
+      this.resetGroupedProxyMoveState()
       return this.finalizeActiveSelectionMove(target)
     }
+    const groupedProxies = this.collectTerrainGroupedProxies(target)
+    if (groupedProxies.length > 0 && target instanceof fabric.Group) {
+      this.resetActiveSelectionMoveState()
+      return this.finalizeGroupedProxyMove(target, groupedProxies)
+    }
+    this.resetGroupedProxyMoveState()
     this.resetActiveSelectionMoveState()
     return false
   }
@@ -975,6 +997,60 @@ export class EditorTerrainLayerManager {
     return changed
   }
 
+  private handleGroupedProxyMoving(
+    group: fabric.Group,
+    proxies: readonly TerrainRegionProxy[]
+  ): boolean {
+    this.ensureGroupedProxyMoveState(group)
+    const cellSizePx = this.getCellSizePx()
+    const currentLeft = Math.round(group.left ?? this.groupedProxyMoveStartLeft)
+    const currentTop = Math.round(group.top ?? this.groupedProxyMoveStartTop)
+    const totalCellDeltaX = this.computeRoundedCellDelta(
+      currentLeft - this.groupedProxyMoveStartLeft,
+      cellSizePx
+    )
+    const totalCellDeltaY = this.computeRoundedCellDelta(
+      currentTop - this.groupedProxyMoveStartTop,
+      cellSizePx
+    )
+    const deltaCellX = totalCellDeltaX - this.groupedProxyMoveAppliedCellDeltaX
+    const deltaCellY = totalCellDeltaY - this.groupedProxyMoveAppliedCellDeltaY
+    const snappedLeft =
+      this.groupedProxyMoveStartLeft + totalCellDeltaX * cellSizePx
+    const snappedTop =
+      this.groupedProxyMoveStartTop + totalCellDeltaY * cellSizePx
+    if (Math.round(group.left ?? 0) !== snappedLeft) {
+      group.left = snappedLeft
+    }
+    if (Math.round(group.top ?? 0) !== snappedTop) {
+      group.top = snappedTop
+    }
+    group.setCoords()
+    if (deltaCellX === 0 && deltaCellY === 0) {
+      this.ctx.requestRender()
+      return false
+    }
+    this.moveTerrainSelectionByCellDelta(proxies, deltaCellX, deltaCellY)
+    this.groupedProxyMoveAppliedCellDeltaX = totalCellDeltaX
+    this.groupedProxyMoveAppliedCellDeltaY = totalCellDeltaY
+    this.ctx.requestRender()
+    return true
+  }
+
+  private finalizeGroupedProxyMove(
+    group: fabric.Group,
+    proxies: readonly TerrainRegionProxy[]
+  ): boolean {
+    const changed =
+      this.groupedProxyMoveTarget === group &&
+      (this.groupedProxyMoveAppliedCellDeltaX !== 0 ||
+        this.groupedProxyMoveAppliedCellDeltaY !== 0)
+    this.refreshGroupedTerrainProxyPositions(group, proxies)
+    this.resetGroupedProxyMoveState(group)
+    this.ctx.requestRender()
+    return changed
+  }
+
   private ensureActiveSelectionMoveState(
     selection: fabric.ActiveSelection
   ): void {
@@ -1012,6 +1088,32 @@ export class EditorTerrainLayerManager {
     this.movingProxyAppliedCellDeltaY = 0
   }
 
+  private ensureGroupedProxyMoveState(group: fabric.Group): void {
+    if (this.groupedProxyMoveTarget === group) {
+      return
+    }
+    this.groupedProxyMoveTarget = group
+    this.groupedProxyMoveStartLeft = Math.round(group.left ?? 0)
+    this.groupedProxyMoveStartTop = Math.round(group.top ?? 0)
+    this.groupedProxyMoveAppliedCellDeltaX = 0
+    this.groupedProxyMoveAppliedCellDeltaY = 0
+  }
+
+  private resetGroupedProxyMoveState(group?: fabric.Group | null): void {
+    if (
+      group &&
+      this.groupedProxyMoveTarget &&
+      this.groupedProxyMoveTarget !== group
+    ) {
+      return
+    }
+    this.groupedProxyMoveTarget = null
+    this.groupedProxyMoveStartLeft = 0
+    this.groupedProxyMoveStartTop = 0
+    this.groupedProxyMoveAppliedCellDeltaX = 0
+    this.groupedProxyMoveAppliedCellDeltaY = 0
+  }
+
   private resetActiveSelectionMoveState(
     selection?: fabric.ActiveSelection | null
   ): void {
@@ -1043,6 +1145,31 @@ export class EditorTerrainLayerManager {
     return proxies
   }
 
+  private collectTerrainGroupedProxies(
+    object: fabric.Object | null
+  ): TerrainRegionProxy[] {
+    if (
+      !object ||
+      this.isTerrainProxy(object) ||
+      object instanceof fabric.ActiveSelection ||
+      !(object instanceof fabric.Group)
+    ) {
+      return []
+    }
+    const objects = object.getObjects()
+    if (objects.length === 0) {
+      return []
+    }
+    const proxies: TerrainRegionProxy[] = []
+    for (let i = 0; i < objects.length; i++) {
+      const child = objects[i]
+      if (this.isTerrainProxy(child)) {
+        proxies.push(child)
+      }
+    }
+    return proxies
+  }
+
   private moveTerrainSelectionByCellDelta(
     proxies: readonly TerrainRegionProxy[],
     cellDeltaX: number,
@@ -1064,6 +1191,32 @@ export class EditorTerrainLayerManager {
       proxy.terrainAnchorLeft += cellDeltaX * cellSizePx
       proxy.terrainAnchorTop += cellDeltaY * cellSizePx
     }
+  }
+
+  private refreshGroupedTerrainProxyPositions(
+    group: fabric.Group,
+    proxies: readonly TerrainRegionProxy[]
+  ): void {
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return
+    }
+    for (let i = 0; i < proxies.length; i++) {
+      const proxy = proxies[i]
+      group.removeWithUpdate(proxy)
+      canvas.add(proxy)
+      proxy.left = proxy.terrainAnchorLeft
+      proxy.top = proxy.terrainAnchorTop
+      proxy.setCoords()
+    }
+    for (let i = 0; i < proxies.length; i++) {
+      const proxy = proxies[i]
+      if (proxy.canvas === canvas) {
+        canvas.remove(proxy)
+      }
+      group.addWithUpdate(proxy)
+    }
+    group.setCoords()
   }
 
   private applyLayerCellDelta(

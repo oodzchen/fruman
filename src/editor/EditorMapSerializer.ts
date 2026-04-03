@@ -424,8 +424,9 @@ export class EditorMapSerializer {
       return base.playerSpawn
     }
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
-    const x = (marker.left ?? 0) * invPixelsPerMeter
-    const y = (marker.top ?? 0) * invPixelsPerMeter
+    const center = marker.getCenterPoint()
+    const x = center.x * invPixelsPerMeter
+    const y = center.y * invPixelsPerMeter
     return { x, y }
   }
 
@@ -437,8 +438,9 @@ export class EditorMapSerializer {
     const data = cameraViews[0]
     const frame = data.frame
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
-    const centerX = (frame.left ?? 0) * invPixelsPerMeter
-    const centerY = (frame.top ?? 0) * invPixelsPerMeter
+    const center = frame.getCenterPoint()
+    const centerX = center.x * invPixelsPerMeter
+    const centerY = center.y * invPixelsPerMeter
     const zoom = data.zoom > 0 ? data.zoom : 1
     const canvas = this.ctx.getCanvas()
     return computeCameraOffsetFromCenter(
@@ -462,8 +464,9 @@ export class EditorMapSerializer {
     const checkpoints: NonNullable<EditorMapData['checkpoints']> = []
     for (let i = 0; i < markers.length; i++) {
       const marker = markers[i].marker
-      const x = (marker.left ?? 0) * invPixelsPerMeter
-      const y = (marker.top ?? 0) * invPixelsPerMeter
+      const center = marker.getCenterPoint()
+      const x = center.x * invPixelsPerMeter
+      const y = center.y * invPixelsPerMeter
       if (indexMap) {
         indexMap.set(marker, checkpoints.length)
       }
@@ -483,8 +486,9 @@ export class EditorMapSerializer {
     const anchors: NonNullable<EditorMapData['hookAnchors']> = []
     for (let i = 0; i < markers.length; i++) {
       const marker = markers[i].marker
-      const x = (marker.left ?? 0) * invPixelsPerMeter
-      const y = (marker.top ?? 0) * invPixelsPerMeter
+      const center = marker.getCenterPoint()
+      const x = center.x * invPixelsPerMeter
+      const y = center.y * invPixelsPerMeter
       if (indexMap) {
         indexMap.set(marker, anchors.length)
       }
@@ -502,8 +506,9 @@ export class EditorMapSerializer {
     const pickups: MapSunPickup[] = []
     for (let i = 0; i < markers.length; i++) {
       const { marker, isLarge } = markers[i]
-      const x = (marker.left ?? 0) * invPixelsPerMeter
-      const y = (marker.top ?? 0) * invPixelsPerMeter
+      const center = marker.getCenterPoint()
+      const x = center.x * invPixelsPerMeter
+      const y = center.y * invPixelsPerMeter
       if (indexMap) indexMap.set(marker, pickups.length)
       pickups.push({ x, y, isLarge })
     }
@@ -535,6 +540,11 @@ export class EditorMapSerializer {
       const node: EditorTreeNode = {
         type: dataItem.type as EditorTreeObjectType,
         name: dataItem.name,
+      }
+      if (dataItem.type === 'empty') {
+        node.isGroupContainer =
+          (dataItem.object as Partial<{ isGroupContainer: boolean }>)
+            .isGroupContainer === true
       }
       if (dataItem.type === 'ground' || dataItem.type === 'obstacle') {
         const index = data.shapeIndexMap.get(dataItem.object)
@@ -711,8 +721,9 @@ export class EditorMapSerializer {
     rect: fabric.Rect
   ): MapPlacedShape {
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
-    const centerX = (rect.left ?? 0) * invPixelsPerMeter
-    const centerY = (rect.top ?? 0) * invPixelsPerMeter
+    const center = rect.getCenterPoint()
+    const centerX = center.x * invPixelsPerMeter
+    const centerY = center.y * invPixelsPerMeter
     const scaleX = rect.scaleX ?? 1
     const scaleY = rect.scaleY ?? 1
     const widthPx = (rect.width ?? 0) * scaleX
@@ -738,8 +749,9 @@ export class EditorMapSerializer {
     circle: fabric.Circle
   ): MapPlacedShape {
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
-    const centerX = (circle.left ?? 0) * invPixelsPerMeter
-    const centerY = (circle.top ?? 0) * invPixelsPerMeter
+    const center = circle.getCenterPoint()
+    const centerX = center.x * invPixelsPerMeter
+    const centerY = center.y * invPixelsPerMeter
     const scaleX = circle.scaleX ?? 1
     const scaleY = circle.scaleY ?? 1
     const radiusPx = (circle.radius ?? 0) * Math.max(scaleX, scaleY)
@@ -762,8 +774,9 @@ export class EditorMapSerializer {
       return null
     }
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
-    const centerX = (polygon.left ?? 0) * invPixelsPerMeter
-    const centerY = (polygon.top ?? 0) * invPixelsPerMeter
+    const center = polygon.getCenterPoint()
+    const centerX = center.x * invPixelsPerMeter
+    const centerY = center.y * invPixelsPerMeter
     const matrix = polygon.calcTransformMatrix()
     const pathOffset = polygon.pathOffset
     const points: number[] = []
@@ -827,9 +840,10 @@ export class EditorMapSerializer {
       if (indexMap) {
         indexMap.set(marker, npcs.length)
       }
+      const center = marker.getCenterPoint()
       npcs.push({
-        x: (marker.left ?? 0) * invPixelsPerMeter,
-        y: (marker.top ?? 0) * invPixelsPerMeter,
+        x: center.x * invPixelsPerMeter,
+        y: center.y * invPixelsPerMeter,
         npcType: data.npcType,
         radius: data.radius,
         bodyHeight: data.bodyHeight || undefined,
@@ -872,9 +886,10 @@ export class EditorMapSerializer {
       if (indexMap) {
         indexMap.set(marker, weapons.length)
       }
+      const center = marker.getCenterPoint()
       weapons.push({
-        x: (marker.left ?? 0) * invPixelsPerMeter,
-        y: (marker.top ?? 0) * invPixelsPerMeter,
+        x: center.x * invPixelsPerMeter,
+        y: center.y * invPixelsPerMeter,
         weaponType: data.weaponType,
         category: data.category,
         sizeLevel: data.sizeLevel,
