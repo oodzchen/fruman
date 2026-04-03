@@ -607,6 +607,10 @@ function normalizeMapTerrain(
                 typeof layer.renderLayer === 'number'
                   ? layer.renderLayer | 0
                   : getDefaultTerrainRenderLayer(materialId),
+              contourId:
+                typeof layer.contourId === 'number'
+                  ? layer.contourId | 0
+                  : undefined,
               chunks,
             }
           })
@@ -614,29 +618,43 @@ function normalizeMapTerrain(
       : []
   if (normalizedLayers.length === 0) {
     if (!Array.isArray(terrain.chunks) || terrain.chunks.length === 0) {
-      return undefined
+      if (!terrain.contours || terrain.contours.length === 0) {
+        return undefined
+      }
+    } else {
+      const legacyChunks = normalizeChunks(terrain.chunks)
+      if (legacyChunks.length > 0) {
+        const materialId = inferTerrainMaterialId(legacyChunks)
+        normalizedLayers.push({
+          materialId,
+          offsetCellX: 0,
+          offsetCellY: 0,
+          renderLayer: getDefaultTerrainRenderLayer(materialId),
+          contourId: undefined,
+          chunks: legacyChunks,
+        })
+      }
     }
-    const legacyChunks = normalizeChunks(terrain.chunks)
-    if (legacyChunks.length === 0) {
-      return undefined
-    }
-    const materialId = inferTerrainMaterialId(legacyChunks)
-    normalizedLayers.push({
-      materialId,
-      offsetCellX: 0,
-      offsetCellY: 0,
-      renderLayer: getDefaultTerrainRenderLayer(materialId),
-      chunks: legacyChunks,
-    })
   }
   return {
-    version: 2,
+    version:
+      terrain.version === 3 || (terrain.contours?.length ?? 0) > 0 ? 3 : 2,
     cellSize:
       terrain.cellSize > 0 ? terrain.cellSize : TERRAIN_CELL_SIZE_METERS,
     chunkSize,
     randomSeed: terrain.randomSeed ?? DEFAULT_TERRAIN_RANDOM_SEED,
     chunks: [],
     layers: normalizedLayers,
+    contours:
+      terrain.contours?.map((contour) => ({
+        id: contour.id | 0,
+        points: contour.points.map((value) => value | 0),
+        fillMaterialId: contour.fillMaterialId,
+        renderLayer:
+          typeof contour.renderLayer === 'number'
+            ? contour.renderLayer | 0
+            : undefined,
+      })) ?? [],
   }
 }
 

@@ -7,6 +7,7 @@ export type ContextMenuAction =
   | 'add'
   | 'remove'
   | 'delete'
+  | 'fill'
   | 'reset'
   | 'square'
   | 'equilateral'
@@ -44,6 +45,8 @@ export class EditorContextMenu {
   private pointIndex = -1
   private insertX = 0
   private insertY = 0
+  private clientX = 0
+  private clientY = 0
 
   constructor(ctx: EditorContextMenuContext) {
     this.ctx = ctx
@@ -143,6 +146,14 @@ export class EditorContextMenu {
     return this.insertY
   }
 
+  getClientX(): number {
+    return this.clientX
+  }
+
+  getClientY(): number {
+    return this.clientY
+  }
+
   show(
     actions: ContextMenuAction[],
     target: EditablePolygon | fabric.Object,
@@ -160,6 +171,8 @@ export class EditorContextMenu {
     this.pointIndex = index
     this.insertX = insertX ?? 0
     this.insertY = insertY ?? 0
+    this.clientX = clientX
+    this.clientY = clientY
 
     for (let i = 0; i < this.polygonMenuButtons.length; i++) {
       const button = this.polygonMenuButtons[i]
@@ -200,6 +213,8 @@ export class EditorContextMenu {
     this.polygon = null
     this.target = null
     this.pointIndex = -1
+    this.clientX = 0
+    this.clientY = 0
   }
 
   isVisible(): boolean {
@@ -218,6 +233,8 @@ export class EditorContextMenu {
         return 'editor_polygon_menu_remove_point'
       case 'reset':
         return 'editor_polygon_menu_reset_shape'
+      case 'fill':
+        return 'editor_terrain_contour_fill'
       case 'square':
         return 'editor_polygon_menu_make_square'
       case 'equilateral':

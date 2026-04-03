@@ -2,6 +2,7 @@ export enum EditorSubmenuMode {
   None = 'none',
   Object = 'object',
   Terrain = 'terrain',
+  TerrainFill = 'terrainFill',
   Ground = 'ground',
   Obstacle = 'obstacle',
   Weapon = 'weapon',

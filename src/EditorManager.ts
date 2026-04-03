@@ -76,6 +76,7 @@ import {
   ObjectType,
   type PlayerMarker,
   type ShapeResetData,
+  type TerrainContourProxy,
   type TerrainRegionProxy,
   type WeaponMarker,
   type WeaponMarkerData,
@@ -108,6 +109,7 @@ import {
   saveEditorMapViewState,
   saveEditorSetting,
 } from './storage'
+import type { TerrainMaterialId } from './terrain/TerrainTypes'
 import type { NpcPatrolMode, NpcType, WeaponType } from './types'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
@@ -176,6 +178,7 @@ export class EditorManager {
   private panelMenuSpawnY = 0
   private panelMenuSpawnValid = false
   private panelMenuSpawnScratch = { x: 0, y: 0 }
+  private pendingTerrainContourFillTarget: TerrainContourProxy | null = null
   private polygonEditor: EditorPolygonEditor
   private objectFactory: EditorObjectFactory
   private objectManager: EditorObjectManager
@@ -284,6 +287,7 @@ export class EditorManager {
       },
       onSelectionChanged: (obj) => {
         this.cameraManager.refreshCameraFocus(obj)
+        this.terrainManager.handleSelectionChanged(obj)
         this.updateActiveSelectionLockVisual()
       },
       onBringToFront: (obj) => {
@@ -346,6 +350,7 @@ export class EditorManager {
     this.terrainBrushController = new EditorTerrainBrushController({
       getCanvas: () => this.fabricCanvas,
       terrainManager: this.terrainManager,
+      isObjectLocked: (object) => this.objectManager.isObjectLocked(object),
       onCommit: () => this.captureHistorySnapshot(),
     })
 
@@ -611,6 +616,9 @@ export class EditorManager {
       onTerrainBrushSelected: (brushId) => {
         this.terrainBrushController.selectBrush(brushId)
         this.setActiveObjectType(ObjectType.Terrain)
+      },
+      onTerrainFillSelected: (materialId) => {
+        this.handleTerrainContourFillSelected(materialId)
       },
       onGroundShapeSelected: (shape) => {
         const spawn = this.consumePanelMenuSpawn()
@@ -2267,6 +2275,7 @@ export class EditorManager {
     if (!this.fabricCanvas) {
       return
     }
+    this.pendingTerrainContourFillTarget = null
     this.contextMenu.hide()
     const targetInfo = this.fabricCanvas.findTarget(event)
     const target = targetInfo.target ?? null
@@ -2303,6 +2312,28 @@ export class EditorManager {
     event: MouseEvent,
     target: fabric.Object | null
   ) {
+    if (
+      this.isTerrainContourProxy(target) &&
+      this.objectManager.isObjectLocked(target)
+    ) {
+      return false
+    }
+    const contourMenu = this.terrainManager.getContourContextMenuRequest(
+      target,
+      event
+    )
+    if (contourMenu) {
+      this.showPolygonMenuWithActions(
+        contourMenu.actions,
+        contourMenu.target,
+        contourMenu.pointIndex,
+        event.clientX,
+        event.clientY,
+        contourMenu.insertX,
+        contourMenu.insertY
+      )
+      return true
+    }
     if (!this.fabricCanvas) {
       return false
     }
@@ -2387,6 +2418,9 @@ export class EditorManager {
   // ========================================
 
   private isDeletableShape(object: fabric.Object) {
+    if (this.terrainManager.isTerrainContourProxy(object)) {
+      return true
+    }
     if (this.terrainManager.isTerrainProxy(object)) {
       return true
     }
@@ -2429,6 +2463,16 @@ export class EditorManager {
   ) {
     if (this.objectManager.isObjectLocked(target)) {
       this.showPolygonMenuWithActions(['unlock'], target, -1, clientX, clientY)
+      return
+    }
+    if (this.terrainManager.isTerrainContourProxy(target)) {
+      this.showPolygonMenuWithActions(
+        ['fill', 'commonProperties', 'rename', 'lock', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
       return
     }
     if (this.terrainManager.isTerrainProxy(target)) {
@@ -2640,6 +2684,12 @@ export class EditorManager {
     object: fabric.Object | null
   ): object is TerrainRegionProxy {
     return this.terrainManager.isTerrainProxy(object)
+  }
+
+  private isTerrainContourProxy(
+    object: fabric.Object | null
+  ): object is TerrainContourProxy {
+    return this.terrainManager.isTerrainContourProxy(object)
   }
 
   private createEmptyNode(
@@ -2910,6 +2960,10 @@ export class EditorManager {
         continue
       }
       const target = data.object
+      if (this.isTerrainContourProxy(target)) {
+        terrainTargets.push(target)
+        continue
+      }
       if (this.isTerrainProxy(target)) {
         terrainTargets.push(target)
         continue
@@ -3099,8 +3153,12 @@ export class EditorManager {
       return
     }
     if (action === 'commonProperties') {
-      await this.propertiesPanel.showCommonPropertiesDialog(target)
+      const changed =
+        await this.propertiesPanel.showCommonPropertiesDialog(target)
       this.contextMenu.hide()
+      if (changed) {
+        this.captureHistorySnapshot()
+      }
       return
     }
     if (action === 'properties') {
@@ -3112,6 +3170,18 @@ export class EditorManager {
         await this.propertiesPanel.showNpcPropertiesDialog(target)
       }
       this.contextMenu.hide()
+      return
+    }
+    if (action === 'fill') {
+      if (!this.isTerrainContourProxy(target)) {
+        this.contextMenu.hide()
+        return
+      }
+      const clientX = this.contextMenu.getClientX()
+      const clientY = this.contextMenu.getClientY()
+      this.pendingTerrainContourFillTarget = target
+      this.contextMenu.hide()
+      this.menuSystem.showTerrainFillSubmenu(clientX, clientY)
       return
     }
     if (action === 'delete') {
@@ -3215,6 +3285,27 @@ export class EditorManager {
       this.captureHistorySnapshot()
       return
     }
+    if (this.isTerrainContourProxy(target)) {
+      const pointIndex = this.contextMenu.getPointIndex()
+      const insertX = this.contextMenu.getInsertX()
+      const insertY = this.contextMenu.getInsertY()
+      let changed = false
+      if (action === 'add') {
+        changed = this.terrainManager.insertContourPoint(
+          target,
+          pointIndex,
+          insertX,
+          insertY
+        )
+      } else if (action === 'remove') {
+        changed = this.terrainManager.removeContourPoint(target, pointIndex)
+      }
+      this.contextMenu.hide()
+      if (changed) {
+        this.captureHistorySnapshot()
+      }
+      return
+    }
     if (!polygon || !polygon.points || !polygon.canvas) {
       this.contextMenu.hide()
       return
@@ -3242,6 +3333,22 @@ export class EditorManager {
     polygon.canvas.requestRenderAll()
     this.contextMenu.hide()
     this.captureHistorySnapshot()
+  }
+
+  private handleTerrainContourFillSelected(
+    materialId: TerrainMaterialId
+  ): void {
+    const target = this.pendingTerrainContourFillTarget
+    this.pendingTerrainContourFillTarget = null
+    if (!this.isTerrainContourProxy(target)) {
+      this.menuSystem.hideTerrainFillSubmenu()
+      return
+    }
+    const changed = this.terrainManager.fillContour(target, materialId)
+    this.menuSystem.hideTerrainFillSubmenu()
+    if (changed) {
+      this.captureHistorySnapshot()
+    }
   }
 
   // ========================================

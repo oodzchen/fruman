@@ -19,13 +19,25 @@ import {
   TERRAIN_CHUNK_SIZE,
   TERRAIN_DATA_VERSION,
   type TerrainBrushId,
+  type TerrainContourLike,
   type TerrainLayerLike,
   type TerrainMaterialId,
 } from '../terrain/TerrainTypes'
 import {
+  extractFilledCellLoops,
+  getContourBounds,
+  getContourHitDistanceSq,
+  getNearestContourEdge,
+  getNearestContourPointIndex,
+  pickLargestContourLoop,
+  pointInClosedContourScaled2,
+  simplifyContourLoop,
+} from './EditorTerrainContourUtils'
+import {
   type EditorLayeredObject,
   type EditorObjectData,
   ObjectType,
+  type TerrainContourProxy,
   type TerrainRegionProxy,
 } from './types'
 
@@ -36,7 +48,18 @@ interface EditorTerrainLayer {
   offsetCellY: number
   grid: TerrainChunkGrid
   serializedLayer: TerrainLayerLike
+  contourId: number
+  internalOnly: boolean
   proxy: TerrainRegionProxy | null
+}
+
+interface EditorTerrainContour {
+  id: number
+  points: number[]
+  fillMaterialId: TerrainMaterialId | null
+  renderLayer: number
+  fillLayer: EditorTerrainLayer | null
+  proxy: TerrainContourProxy
 }
 
 export interface TerrainClipboardLayerSnapshot {
@@ -66,6 +89,12 @@ type FabricCanvasWithTerrainBackground = fabric.Canvas & {
 }
 
 const EMPTY_TERRAIN_CHUNKS: [] = []
+const TERRAIN_CONTOUR_POINT_RADIUS = 4
+const TERRAIN_CONTOUR_SELECT_DISTANCE_SQ = 144
+const TERRAIN_CONTOUR_EDGE_SELECT_DISTANCE_SQ = 196
+const TERRAIN_CONTOUR_SAMPLE_DISTANCE = 12
+const TERRAIN_CONTOUR_MIN_POINT_COUNT = 3
+const TERRAIN_CONTOUR_CELL_SAMPLE_COUNT = 5
 
 export class EditorTerrainLayerManager {
   private readonly ctx: EditorTerrainLayerManagerContext
@@ -74,6 +103,11 @@ export class EditorTerrainLayerManager {
     fabric.Object,
     EditorTerrainLayer
   >()
+  private readonly contours: EditorTerrainContour[] = []
+  private readonly proxyToContour = new WeakMap<
+    fabric.Object,
+    EditorTerrainContour
+  >()
   private readonly renderData = {
     version: TERRAIN_DATA_VERSION,
     cellSize: TERRAIN_CELL_SIZE_METERS,
@@ -81,6 +115,7 @@ export class EditorTerrainLayerManager {
     randomSeed: DEFAULT_TERRAIN_RANDOM_SEED,
     chunks: EMPTY_TERRAIN_CHUNKS,
     layers: [] as TerrainLayerLike[],
+    contours: [] as TerrainContourLike[],
   }
   private attachedCanvas: FabricCanvasWithTerrainBackground | null = null
   private chunkSize = TERRAIN_CHUNK_SIZE
@@ -88,11 +123,33 @@ export class EditorTerrainLayerManager {
   private randomSeed = DEFAULT_TERRAIN_RANDOM_SEED
   private interactionEnabled = true
   private nextLayerId = 1
+  private nextContourId = 1
+  private contourEditMode = false
+  private activeContourId = -1
+  private selectedContourId = -1
+  private activeContourPointIndex = -1
+  private contourPointerActive = false
+  private contourPointerChanged = false
+  private contourDrawingContour: EditorTerrainContour | null = null
+  private contourDragTarget: EditorTerrainContour | null = null
+  private contourDragPointIndex = -1
+  private contourDragOriginalPoints: number[] | null = null
+  private contourLastPointX = 0
+  private contourLastPointY = 0
+  private contourDragLockedProxy: TerrainContourProxy | null = null
+  private contourDragRestoreLockX = false
+  private contourDragRestoreLockY = false
+  private movingContourTarget: TerrainContourProxy | null = null
+  private movingContourStartLeft = 0
+  private movingContourStartTop = 0
+  private movingContourAppliedDeltaX = 0
+  private movingContourAppliedDeltaY = 0
 
   private strokeBrushId: TerrainBrushId | null = null
   private strokeTargetLayer: EditorTerrainLayer | null = null
   private strokeChanged = false
   private readonly strokeDirtyLayers = new Set<EditorTerrainLayer>()
+  private readonly strokeDirtyContours = new Set<EditorTerrainContour>()
   private readonly strokeCellKeys = new Set<number>()
   private movingProxyTarget: TerrainRegionProxy | null = null
   private movingProxyStartLeft = 0
@@ -140,12 +197,17 @@ export class EditorTerrainLayerManager {
 
   clear(): void {
     this.cancelStroke()
+    this.resetContourInteraction()
+    this.resetMovingContourState()
     this.resetMovingProxyState()
     this.resetActiveSelectionMoveState()
     this.resetGroupedProxyMoveState()
     this.removeAllLayerObjects()
+    this.removeAllContourObjects()
     this.layers.length = 0
+    this.contours.length = 0
     this.renderData.layers.length = 0
+    this.renderData.contours.length = 0
     this.chunkSize = TERRAIN_CHUNK_SIZE
     this.cellSize = TERRAIN_CELL_SIZE_METERS
     this.randomSeed = DEFAULT_TERRAIN_RANDOM_SEED
@@ -155,6 +217,11 @@ export class EditorTerrainLayerManager {
     this.renderData.randomSeed = this.randomSeed
     this.interactionEnabled = true
     this.nextLayerId = 1
+    this.nextContourId = 1
+    this.activeContourId = -1
+    this.selectedContourId = -1
+    this.activeContourPointIndex = -1
+    this.contourEditMode = false
     this.ctx.requestRender()
   }
 
@@ -174,6 +241,16 @@ export class EditorTerrainLayerManager {
     return terrainProxy.editorShape === 'terrain-region-proxy'
   }
 
+  isTerrainContourProxy(
+    object: fabric.Object | null
+  ): object is TerrainContourProxy {
+    if (!object) {
+      return false
+    }
+    const contourProxy = object as fabric.Object & Partial<TerrainContourProxy>
+    return contourProxy.editorShape === 'terrain-contour-proxy'
+  }
+
   setInteractionEnabled(enabled: boolean): void {
     if (this.interactionEnabled === enabled) {
       return
@@ -190,6 +267,54 @@ export class EditorTerrainLayerManager {
       }
       this.applyProxyInteraction(proxy, enabled)
     }
+    for (let i = 0; i < this.contours.length; i++) {
+      this.applyContourProxyInteraction(this.contours[i].proxy, enabled)
+    }
+    this.ctx.requestRender()
+  }
+
+  setContourEditMode(active: boolean): void {
+    if (this.contourEditMode === active) {
+      return
+    }
+    this.contourEditMode = active
+    this.resetMovingContourState()
+    const canvas = this.ctx.getFabricCanvas()
+    if (canvas) {
+      canvas.discardActiveObject()
+    }
+    if (!active) {
+      this.activeContourPointIndex = -1
+      this.activeContourId = -1
+      this.resetContourInteraction()
+    } else {
+      const activeObject = canvas?.getActiveObject() ?? null
+      if (this.isTerrainContourProxy(activeObject)) {
+        this.setActiveContour(this.proxyToContour.get(activeObject) ?? null)
+      }
+    }
+    this.refreshAllContourVisuals()
+    this.ctx.requestRender()
+  }
+
+  handleSelectionChanged(object: fabric.Object | null): void {
+    const previousSelectedContourId = this.selectedContourId
+    this.selectedContourId = this.isTerrainContourProxy(object)
+      ? (this.proxyToContour.get(object)?.id ?? -1)
+      : -1
+    if (
+      !this.contourEditMode &&
+      previousSelectedContourId !== this.selectedContourId
+    ) {
+      this.activeContourPointIndex = -1
+      if (this.selectedContourId < 0) {
+        this.resetContourInteraction()
+      }
+    }
+    if (previousSelectedContourId === this.selectedContourId) {
+      return
+    }
+    this.refreshAllContourVisuals()
     this.ctx.requestRender()
   }
 
@@ -212,39 +337,68 @@ export class EditorTerrainLayerManager {
   }
 
   getProxyRenderLayer(object: fabric.Object | null): number | null {
-    if (!this.isTerrainProxy(object)) {
-      return null
+    if (this.isTerrainProxy(object)) {
+      const layer = this.proxyToLayer.get(object)
+      if (!layer) {
+        return null
+      }
+      return (
+        layer.serializedLayer.renderLayer ??
+        getDefaultTerrainRenderLayer(layer.materialId)
+      )
     }
-    const layer = this.proxyToLayer.get(object)
-    if (!layer) {
-      return null
+    if (this.isTerrainContourProxy(object)) {
+      const contour = this.proxyToContour.get(object)
+      return contour ? contour.renderLayer : null
     }
-    return (
-      layer.serializedLayer.renderLayer ??
-      getDefaultTerrainRenderLayer(layer.materialId)
-    )
+    return null
   }
 
   setProxyRenderLayer(
     object: fabric.Object | null,
     renderLayer: number | undefined
   ): boolean {
-    if (!this.isTerrainProxy(object)) {
+    if (this.isTerrainProxy(object)) {
+      const layer = this.proxyToLayer.get(object)
+      if (!layer) {
+        return false
+      }
+      const nextRenderLayer =
+        typeof renderLayer === 'number'
+          ? renderLayer | 0
+          : getDefaultTerrainRenderLayer(layer.materialId)
+      if (layer.serializedLayer.renderLayer === nextRenderLayer) {
+        ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+        return false
+      }
+      layer.serializedLayer.renderLayer = nextRenderLayer
+      ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+      this.ctx.requestRender()
+      return true
+    }
+    if (!this.isTerrainContourProxy(object)) {
       return false
     }
-    const layer = this.proxyToLayer.get(object)
-    if (!layer) {
+    const contour = this.proxyToContour.get(object)
+    if (!contour) {
       return false
     }
     const nextRenderLayer =
       typeof renderLayer === 'number'
         ? renderLayer | 0
-        : getDefaultTerrainRenderLayer(layer.materialId)
-    if (layer.serializedLayer.renderLayer === nextRenderLayer) {
+        : contour.fillMaterialId
+          ? getDefaultTerrainRenderLayer(contour.fillMaterialId)
+          : getDefaultTerrainRenderLayer('dirt')
+    if (contour.renderLayer === nextRenderLayer) {
       ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
       return false
     }
-    layer.serializedLayer.renderLayer = nextRenderLayer
+    contour.renderLayer = nextRenderLayer
+    if (contour.fillLayer) {
+      contour.fillLayer.serializedLayer.renderLayer = nextRenderLayer
+    }
+    const serializedContour = this.getSerializedContour(contour)
+    serializedContour.renderLayer = nextRenderLayer
     ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
     this.ctx.requestRender()
     return true
@@ -287,31 +441,55 @@ export class EditorTerrainLayerManager {
     indexMap?: Map<fabric.Object, number>,
     orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>
   ): MapTerrainData | undefined {
-    if (this.layers.length === 0) {
+    if (this.layers.length === 0 && this.contours.length === 0) {
       return undefined
     }
     const orderedLayers = this.getOrderedLayers(orderedObjects)
     const layers = new Array<MapTerrainLayer>(orderedLayers.length)
     for (let i = 0; i < orderedLayers.length; i++) {
       const layer = orderedLayers[i]
-      if (indexMap && layer.proxy) {
-        indexMap.set(layer.proxy, i)
-      }
       layers[i] = {
         materialId: layer.materialId,
         offsetCellX: layer.offsetCellX,
         offsetCellY: layer.offsetCellY,
         renderLayer: layer.serializedLayer.renderLayer,
+        contourId: layer.contourId > 0 ? layer.contourId : undefined,
         chunks: layer.grid.serializeChunks(),
       }
     }
+    const orderedContours = this.getOrderedContours(orderedObjects)
+    const contours =
+      this.contours.length > 0
+        ? orderedContours.map<TerrainContourLike>((contour) => ({
+            id: contour.id,
+            points: contour.points.slice(),
+            fillMaterialId: contour.fillMaterialId ?? undefined,
+            renderLayer: contour.renderLayer,
+          }))
+        : undefined
+    if (indexMap) {
+      let terrainObjectIndex = 0
+      for (let i = 0; i < orderedLayers.length; i++) {
+        const proxy = orderedLayers[i].proxy
+        if (!proxy) {
+          continue
+        }
+        indexMap.set(proxy, terrainObjectIndex)
+        terrainObjectIndex += 1
+      }
+      for (let i = 0; i < orderedContours.length; i++) {
+        indexMap.set(orderedContours[i].proxy, terrainObjectIndex)
+        terrainObjectIndex += 1
+      }
+    }
     return {
-      version: TERRAIN_DATA_VERSION,
+      version: 3,
       cellSize: this.cellSize,
       chunkSize: this.chunkSize,
       randomSeed: this.randomSeed,
       chunks: [],
       layers,
+      contours,
     }
   }
 
@@ -328,17 +506,23 @@ export class EditorTerrainLayerManager {
     this.renderData.cellSize = this.cellSize
     this.renderData.chunkSize = this.chunkSize
     this.renderData.randomSeed = this.randomSeed
+    const contourLayerMap = new Map<number, EditorTerrainLayer>()
 
     if (data?.layers && data.layers.length > 0) {
       for (let i = 0; i < data.layers.length; i++) {
         const source = data.layers[i]
-        this.createLayerFromSerialized(
+        const layer = this.createLayerFromSerialized(
           source.materialId,
           source.offsetCellX | 0,
           source.offsetCellY | 0,
           source.renderLayer,
-          source.chunks
+          source.chunks,
+          source.contourId ?? 0,
+          (source.contourId ?? 0) > 0
         )
+        if (layer && layer.contourId > 0) {
+          contourLayerMap.set(layer.contourId, layer)
+        }
       }
     } else if (data && data.chunks.length > 0) {
       this.createLayerFromSerialized(
@@ -350,6 +534,12 @@ export class EditorTerrainLayerManager {
       )
     }
 
+    if (data?.contours && data.contours.length > 0) {
+      for (let i = 0; i < data.contours.length; i++) {
+        this.createContourFromSerialized(data.contours[i], contourLayerMap)
+      }
+    }
+
     this.ctx.requestRender()
   }
 
@@ -358,15 +548,28 @@ export class EditorTerrainLayerManager {
     this.strokeTargetLayer = null
     this.strokeChanged = false
     this.strokeDirtyLayers.clear()
+    this.strokeDirtyContours.clear()
     this.strokeCellKeys.clear()
 
     const brush = getTerrainBrushById(brushId)
     if (brush.mode === 'fill') {
       const layerMaterialId =
         brush.exposedTopMaterialId ?? brush.fillMaterialId ?? 'dirt'
-      this.strokeTargetLayer =
-        this.findTargetLayer(layerMaterialId, cellX, cellY) ??
-        this.createEmptyLayer(layerMaterialId, cellX, cellY)
+      const targetContour = this.findContourTargetForStroke(
+        layerMaterialId,
+        cellX,
+        cellY
+      )
+      if (targetContour) {
+        this.strokeTargetLayer = this.ensureContourFillLayer(
+          targetContour,
+          layerMaterialId
+        )
+      } else {
+        this.strokeTargetLayer =
+          this.findTargetLayer(layerMaterialId, cellX, cellY) ??
+          this.createEmptyLayer(layerMaterialId, cellX, cellY)
+      }
     }
 
     return this.applyStrokeCell(cellX, cellY)
@@ -382,8 +585,17 @@ export class EditorTerrainLayerManager {
     if (brush.mode === 'erase') {
       for (let i = 0; i < this.layers.length; i++) {
         const layer = this.layers[i]
+        if (layer.internalOnly && layer.contourId <= 0) {
+          continue
+        }
         if (this.setWorldCellMaterialCode(layer, cellX, cellY, 0)) {
           this.strokeDirtyLayers.add(layer)
+          if (layer.contourId > 0) {
+            const contour = this.getContourById(layer.contourId)
+            if (contour) {
+              this.strokeDirtyContours.add(contour)
+            }
+          }
           changed = true
         }
       }
@@ -398,6 +610,12 @@ export class EditorTerrainLayerManager {
         )
       ) {
         this.strokeDirtyLayers.add(this.strokeTargetLayer)
+        if (this.strokeTargetLayer.contourId > 0) {
+          const contour = this.getContourById(this.strokeTargetLayer.contourId)
+          if (contour) {
+            this.strokeDirtyContours.add(contour)
+          }
+        }
         changed = true
       }
       this.strokeCellKeys.add(this.packCellCoord(cellX, cellY))
@@ -426,10 +644,37 @@ export class EditorTerrainLayerManager {
       )
     }
 
+    if (brush.mode === 'erase') {
+      const dirtyLayers = Array.from(this.strokeDirtyLayers)
+      for (let i = 0; i < dirtyLayers.length; i++) {
+        const layer = dirtyLayers[i]
+        if (layer.materialId === 'grass') {
+          this.recalculateContourTopCells(
+            layer,
+            getTerrainMaterialCodeById('dirt'),
+            getTerrainMaterialCodeById('grass')
+          )
+        }
+      }
+      if (this.strokeDirtyContours.size > 0) {
+        const dirtyContours = Array.from(this.strokeDirtyContours)
+        for (let i = 0; i < dirtyContours.length; i++) {
+          this.syncContourFromFillLayer(dirtyContours[i])
+        }
+      }
+    } else if (brush.mode === 'fill' && this.strokeDirtyContours.size > 0) {
+      const dirtyContours = Array.from(this.strokeDirtyContours)
+      for (let i = 0; i < dirtyContours.length; i++) {
+        this.syncContourFromFillLayer(dirtyContours[i])
+      }
+    }
+
     if (this.strokeDirtyLayers.size > 0) {
       const dirtyLayers = Array.from(this.strokeDirtyLayers)
       for (let i = 0; i < dirtyLayers.length; i++) {
-        this.refreshLayerProxy(dirtyLayers[i])
+        if (!dirtyLayers[i].internalOnly) {
+          this.refreshLayerProxy(dirtyLayers[i])
+        }
       }
       this.removeEmptyLayers()
       this.ctx.requestRender()
@@ -440,6 +685,7 @@ export class EditorTerrainLayerManager {
     this.strokeTargetLayer = null
     this.strokeChanged = false
     this.strokeDirtyLayers.clear()
+    this.strokeDirtyContours.clear()
     this.strokeCellKeys.clear()
     return changed
   }
@@ -449,10 +695,390 @@ export class EditorTerrainLayerManager {
     this.strokeTargetLayer = null
     this.strokeChanged = false
     this.strokeDirtyLayers.clear()
+    this.strokeDirtyContours.clear()
     this.strokeCellKeys.clear()
   }
 
+  handleSelectionContourPointerDown(opt: fabric.TPointerEventInfo): boolean {
+    if (this.contourEditMode || this.contourPointerActive) {
+      return false
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return false
+    }
+    const mouseEvent = opt.e as MouseEvent
+    if (mouseEvent.button !== 0) {
+      return false
+    }
+    const target = this.isTerrainContourProxy(opt.target ?? null)
+      ? (opt.target as TerrainContourProxy)
+      : null
+    const contour = target ? (this.proxyToContour.get(target) ?? null) : null
+    if (!contour || contour.id !== this.selectedContourId) {
+      return false
+    }
+    const point = canvas.getScenePoint(mouseEvent)
+    const pointX = Math.round(point.x)
+    const pointY = Math.round(point.y)
+    const pointIndex = getNearestContourPointIndex(
+      contour.points,
+      pointX,
+      pointY,
+      this.getContourPointHitDistanceSq()
+    )
+    if (pointIndex < 0) {
+      return false
+    }
+    this.contourPointerActive = true
+    this.contourPointerChanged = false
+    this.contourDrawingContour = null
+    this.contourDragTarget = contour
+    this.contourDragPointIndex = pointIndex
+    this.contourDragOriginalPoints = contour.points.slice()
+    this.activeContourPointIndex = pointIndex
+    this.contourLastPointX = pointX
+    this.contourLastPointY = pointY
+    this.lockContourProxyMovement(contour.proxy)
+    this.refreshContourProxy(contour)
+    this.ctx.requestRender()
+    return true
+  }
+
+  handleSelectionContourPointerMove(opt: fabric.TPointerEventInfo): boolean {
+    if (this.contourEditMode || !this.contourPointerActive) {
+      return false
+    }
+    return this.handleContourPointerMove(opt)
+  }
+
+  handleSelectionContourPointerUp(): boolean {
+    if (this.contourEditMode || !this.contourPointerActive) {
+      return false
+    }
+    return this.handleContourPointerUp()
+  }
+
+  handleContourPointerDown(opt: fabric.TPointerEventInfo): boolean {
+    if (!this.contourEditMode) {
+      return false
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return false
+    }
+    const mouseEvent = opt.e as MouseEvent
+    if (mouseEvent.button !== 0) {
+      return false
+    }
+    const point = canvas.getScenePoint(mouseEvent)
+    const pointX = Math.round(point.x)
+    const pointY = Math.round(point.y)
+    const target = this.isTerrainContourProxy(opt.target ?? null)
+      ? (opt.target as TerrainContourProxy)
+      : null
+    const contour = target ? (this.proxyToContour.get(target) ?? null) : null
+    if (contour) {
+      this.setActiveContour(contour)
+      const pointIndex = getNearestContourPointIndex(
+        contour.points,
+        pointX,
+        pointY,
+        this.getContourPointHitDistanceSq()
+      )
+      if (pointIndex >= 0) {
+        this.contourPointerActive = true
+        this.contourPointerChanged = false
+        this.contourDragTarget = contour
+        this.contourDragPointIndex = pointIndex
+        this.contourDragOriginalPoints = contour.points.slice()
+        this.activeContourPointIndex = pointIndex
+        this.contourLastPointX = pointX
+        this.contourLastPointY = pointY
+        this.lockContourProxyMovement(contour.proxy)
+        this.refreshContourProxy(contour)
+      }
+      this.activeContourPointIndex = pointIndex
+      this.refreshContourProxy(contour)
+      this.ctx.requestRender()
+      return true
+    }
+
+    const newContour = this.createContour(pointX, pointY)
+    this.setActiveContour(newContour)
+    this.contourPointerActive = true
+    this.contourPointerChanged = false
+    this.contourDrawingContour = newContour
+    this.contourDragTarget = null
+    this.contourDragPointIndex = -1
+    this.contourLastPointX = pointX
+    this.contourLastPointY = pointY
+    canvas.discardActiveObject()
+    this.ctx.requestRender()
+    return true
+  }
+
+  handleContourPointerMove(opt: fabric.TPointerEventInfo): boolean {
+    if (!this.contourPointerActive) {
+      return false
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return false
+    }
+    const mouseEvent = opt.e as MouseEvent
+    const point = canvas.getScenePoint(mouseEvent)
+    const pointX = Math.round(point.x)
+    const pointY = Math.round(point.y)
+    if (this.contourDragTarget && this.contourDragPointIndex >= 0) {
+      if (
+        pointX !== this.contourLastPointX ||
+        pointY !== this.contourLastPointY
+      ) {
+        this.contourPointerChanged = true
+        this.moveContourPoint(
+          this.contourDragTarget,
+          this.contourDragPointIndex,
+          pointX,
+          pointY
+        )
+        this.contourLastPointX = pointX
+        this.contourLastPointY = pointY
+      }
+      return true
+    }
+    if (!this.contourDrawingContour) {
+      return true
+    }
+    const dx = pointX - this.contourLastPointX
+    const dy = pointY - this.contourLastPointY
+    if (
+      dx * dx + dy * dy <
+      TERRAIN_CONTOUR_SAMPLE_DISTANCE * TERRAIN_CONTOUR_SAMPLE_DISTANCE
+    ) {
+      return true
+    }
+    this.contourPointerChanged = true
+    this.contourDrawingContour.points.push(pointX, pointY)
+    this.contourLastPointX = pointX
+    this.contourLastPointY = pointY
+    this.refreshContourProxy(this.contourDrawingContour)
+    this.ctx.requestRender()
+    return true
+  }
+
+  handleContourPointerUp(): boolean {
+    if (!this.contourPointerActive) {
+      return false
+    }
+    let changed = false
+    if (this.contourDragTarget) {
+      changed = this.contourPointerChanged
+      if (changed && this.contourDragOriginalPoints) {
+        this.applyContourFillDelta(
+          this.contourDragTarget,
+          this.contourDragOriginalPoints
+        )
+      }
+    } else if (this.contourDrawingContour) {
+      const pointCount = this.contourDrawingContour.points.length / 2
+      if (pointCount < TERRAIN_CONTOUR_MIN_POINT_COUNT) {
+        this.removeContour(this.contourDrawingContour)
+      } else {
+        this.refreshContourProxy(this.contourDrawingContour)
+        changed = true
+      }
+    }
+    this.resetContourInteraction()
+    this.refreshAllContourVisuals()
+    this.ctx.requestRender()
+    return changed
+  }
+
+  getContourContextMenuRequest(
+    target: fabric.Object | null,
+    event: MouseEvent
+  ): {
+    target: TerrainContourProxy
+    actions: (
+      | 'fill'
+      | 'add'
+      | 'remove'
+      | 'commonProperties'
+      | 'rename'
+      | 'lock'
+      | 'delete'
+    )[]
+    pointIndex: number
+    insertX: number
+    insertY: number
+  } | null {
+    if (!this.isTerrainContourProxy(target)) {
+      return null
+    }
+    const contour = this.proxyToContour.get(target)
+    if (!contour) {
+      return null
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return null
+    }
+    const point = canvas.getScenePoint(event)
+    const pointIndex = getNearestContourPointIndex(
+      contour.points,
+      Math.round(point.x),
+      Math.round(point.y),
+      this.getContourPointHitDistanceSq()
+    )
+    const edge = getNearestContourEdge(
+      contour.points,
+      Math.round(point.x),
+      Math.round(point.y),
+      this.getContourEdgeHitDistanceSq()
+    )
+    this.setActiveContour(contour)
+    if (pointIndex >= 0) {
+      this.activeContourPointIndex = pointIndex
+      this.refreshContourProxy(contour)
+      return {
+        target,
+        actions: [
+          'remove',
+          'fill',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
+        pointIndex,
+        insertX: 0,
+        insertY: 0,
+      }
+    }
+    if (edge) {
+      this.activeContourPointIndex = -1
+      this.refreshContourProxy(contour)
+      return {
+        target,
+        actions: [
+          'add',
+          'fill',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
+        pointIndex: edge.insertAfterIndex,
+        insertX: edge.x,
+        insertY: edge.y,
+      }
+    }
+    this.activeContourPointIndex = -1
+    this.refreshContourProxy(contour)
+    return {
+      target,
+      actions: ['fill', 'commonProperties', 'rename', 'lock', 'delete'],
+      pointIndex: -1,
+      insertX: 0,
+      insertY: 0,
+    }
+  }
+
+  insertContourPoint(
+    object: fabric.Object | null,
+    pointIndex: number,
+    pointX: number,
+    pointY: number
+  ): boolean {
+    if (!this.isTerrainContourProxy(object)) {
+      return false
+    }
+    const contour = this.proxyToContour.get(object)
+    if (!contour) {
+      return false
+    }
+    const pointCount = contour.points.length / 2
+    if (pointIndex < 0 || pointIndex >= pointCount) {
+      return false
+    }
+    const previousPoints = contour.points.slice()
+    const insertOffset = (pointIndex + 1) * 2
+    contour.points.splice(
+      insertOffset,
+      0,
+      Math.round(pointX),
+      Math.round(pointY)
+    )
+    this.activeContourPointIndex = pointIndex + 1
+    this.refreshContourProxy(contour)
+    this.applyContourFillDelta(contour, previousPoints)
+    this.ctx.requestRender()
+    return true
+  }
+
+  removeContourPoint(
+    object: fabric.Object | null,
+    pointIndex: number
+  ): boolean {
+    if (!this.isTerrainContourProxy(object)) {
+      return false
+    }
+    const contour = this.proxyToContour.get(object)
+    if (!contour) {
+      return false
+    }
+    const pointCount = contour.points.length / 2
+    if (
+      pointIndex < 0 ||
+      pointIndex >= pointCount ||
+      pointCount <= TERRAIN_CONTOUR_MIN_POINT_COUNT
+    ) {
+      return false
+    }
+    const previousPoints = contour.points.slice()
+    contour.points.splice(pointIndex * 2, 2)
+    this.activeContourPointIndex = Math.min(
+      this.activeContourPointIndex,
+      contour.points.length / 2 - 1
+    )
+    this.refreshContourProxy(contour)
+    this.applyContourFillDelta(contour, previousPoints)
+    this.ctx.requestRender()
+    return true
+  }
+
+  fillContour(
+    object: fabric.Object | null,
+    materialId: TerrainMaterialId
+  ): boolean {
+    if (!this.isTerrainContourProxy(object)) {
+      return false
+    }
+    const contour = this.proxyToContour.get(object)
+    if (!contour) {
+      return false
+    }
+    if (
+      !contour.fillMaterialId &&
+      contour.renderLayer === getDefaultTerrainRenderLayer('dirt')
+    ) {
+      contour.renderLayer = getDefaultTerrainRenderLayer(materialId)
+    }
+    contour.fillMaterialId = materialId
+    ;(contour.proxy as EditorLayeredObject).renderLayer = contour.renderLayer
+    const serializedContour = this.getSerializedContour(contour)
+    serializedContour.fillMaterialId = materialId
+    serializedContour.renderLayer = contour.renderLayer
+    const changed = this.rasterizeContourFill(contour)
+    this.ctx.requestRender()
+    return changed
+  }
+
   handleProxyModified(object: fabric.Object | null): boolean {
+    if (this.isTerrainContourProxy(object)) {
+      return this.handleContourModified(object)
+    }
     if (!this.isTerrainProxy(object)) {
       return false
     }
@@ -500,11 +1126,18 @@ export class EditorTerrainLayerManager {
   }
 
   handleMovingTarget(target: fabric.Object | null): boolean {
+    if (this.isTerrainContourProxy(target)) {
+      this.resetGroupedProxyMoveState()
+      this.resetActiveSelectionMoveState()
+      return this.handleContourMoving(target)
+    }
     if (this.isTerrainProxy(target)) {
+      this.resetMovingContourState()
       this.resetGroupedProxyMoveState()
       this.resetActiveSelectionMoveState()
       return this.handleProxyMoving(target)
     }
+    this.resetMovingContourState()
     this.resetMovingProxyState()
     if (target instanceof fabric.ActiveSelection) {
       this.resetGroupedProxyMoveState()
@@ -521,11 +1154,18 @@ export class EditorTerrainLayerManager {
   }
 
   handleModifiedTarget(target: fabric.Object | null): boolean {
+    if (this.isTerrainContourProxy(target)) {
+      this.resetGroupedProxyMoveState()
+      this.resetActiveSelectionMoveState()
+      return this.finalizeContourMove(target)
+    }
     if (this.isTerrainProxy(target)) {
+      this.resetMovingContourState()
       this.resetGroupedProxyMoveState()
       this.resetActiveSelectionMoveState()
       return this.finalizeProxyMove(target)
     }
+    this.resetMovingContourState()
     this.resetMovingProxyState()
     if (target instanceof fabric.ActiveSelection) {
       this.resetGroupedProxyMoveState()
@@ -545,6 +1185,15 @@ export class EditorTerrainLayerManager {
     let changed = false
     for (let i = 0; i < objects.length; i++) {
       const object = objects[i]
+      if (this.isTerrainContourProxy(object)) {
+        const contour = this.proxyToContour.get(object)
+        if (!contour) {
+          continue
+        }
+        this.removeContour(contour)
+        changed = true
+        continue
+      }
       if (!this.isTerrainProxy(object)) {
         continue
       }
@@ -605,15 +1254,161 @@ export class EditorTerrainLayerManager {
       transform[5]
     )
     terrainCtx.imageSmoothingEnabled = false
+    const movingContour = this.getMovingContourPreview()
+    const movingLayer = movingContour?.fillLayer?.serializedLayer
+    if (!movingContour || !movingLayer) {
+      TerrainRenderer.drawTerrain(
+        terrainCtx,
+        this.renderData,
+        this.getCellSizePx(),
+        {
+          drawStroke: true,
+        }
+      )
+      terrainCtx.restore()
+      return
+    }
     TerrainRenderer.drawTerrain(
       terrainCtx,
       this.renderData,
       this.getCellSizePx(),
       {
         drawStroke: true,
+        shouldDrawLayer: (layer) => layer.sourceLayer !== movingLayer,
+      }
+    )
+    TerrainRenderer.drawTerrain(
+      terrainCtx,
+      this.renderData,
+      this.getCellSizePx(),
+      {
+        drawStroke: true,
+        shouldDrawLayer: (layer) => layer.sourceLayer === movingLayer,
+        getLayerPixelOffset: () => ({
+          x: this.movingContourAppliedDeltaX,
+          y: this.movingContourAppliedDeltaY,
+        }),
       }
     )
     terrainCtx.restore()
+  }
+
+  private handleContourModified(proxy: TerrainContourProxy): boolean {
+    const contour = this.proxyToContour.get(proxy)
+    if (!contour) {
+      return false
+    }
+    const currentLeft = Math.round(proxy.left ?? proxy.terrainContourAnchorLeft)
+    const currentTop = Math.round(proxy.top ?? proxy.terrainContourAnchorTop)
+    const deltaX = currentLeft - proxy.terrainContourAnchorLeft
+    const deltaY = currentTop - proxy.terrainContourAnchorTop
+    if (deltaX === 0 && deltaY === 0) {
+      proxy.left = proxy.terrainContourAnchorLeft
+      proxy.top = proxy.terrainContourAnchorTop
+      proxy.setCoords()
+      this.ctx.requestRender()
+      return false
+    }
+    const cellSizePx = this.getCellSizePx()
+    const cellDeltaX = this.computeRoundedCellDelta(deltaX, cellSizePx)
+    const cellDeltaY = this.computeRoundedCellDelta(deltaY, cellSizePx)
+    if (cellDeltaX === 0 && cellDeltaY === 0) {
+      proxy.left = proxy.terrainContourAnchorLeft
+      proxy.top = proxy.terrainContourAnchorTop
+      proxy.setCoords()
+      this.ctx.requestRender()
+      return false
+    }
+    const snappedDeltaX = cellDeltaX * cellSizePx
+    const snappedDeltaY = cellDeltaY * cellSizePx
+    for (let i = 0; i < contour.points.length; i += 2) {
+      contour.points[i] += snappedDeltaX
+      contour.points[i + 1] += snappedDeltaY
+    }
+    if (contour.fillLayer) {
+      this.applyLayerCellDelta(contour.fillLayer, cellDeltaX, cellDeltaY)
+    }
+    this.refreshContourProxy(contour)
+    this.ctx.requestRender()
+    return true
+  }
+
+  private handleContourMoving(proxy: TerrainContourProxy): boolean {
+    const contour = this.proxyToContour.get(proxy)
+    if (!contour) {
+      this.resetMovingContourState(proxy)
+      return false
+    }
+    if (this.contourDragTarget === contour && this.contourDragPointIndex >= 0) {
+      proxy.left = proxy.terrainContourAnchorLeft
+      proxy.top = proxy.terrainContourAnchorTop
+      proxy.setCoords()
+      return false
+    }
+    this.ensureMovingContourState(proxy)
+    const currentLeft = Math.round(proxy.left ?? this.movingContourStartLeft)
+    const currentTop = Math.round(proxy.top ?? this.movingContourStartTop)
+    const totalDeltaX = currentLeft - this.movingContourStartLeft
+    const totalDeltaY = currentTop - this.movingContourStartTop
+    if (
+      totalDeltaX === this.movingContourAppliedDeltaX &&
+      totalDeltaY === this.movingContourAppliedDeltaY
+    ) {
+      return false
+    }
+    this.movingContourAppliedDeltaX = totalDeltaX
+    this.movingContourAppliedDeltaY = totalDeltaY
+    this.ctx.requestRender()
+    return true
+  }
+
+  private finalizeContourMove(proxy: TerrainContourProxy): boolean {
+    if (this.movingContourTarget !== proxy) {
+      return this.handleContourModified(proxy)
+    }
+    const contour = this.proxyToContour.get(proxy)
+    if (!contour) {
+      this.resetMovingContourState(proxy)
+      return false
+    }
+    const changed =
+      this.movingContourAppliedDeltaX !== 0 ||
+      this.movingContourAppliedDeltaY !== 0
+    if (changed) {
+      const cellSizePx = this.getCellSizePx()
+      const cellDeltaX = this.computeRoundedCellDelta(
+        this.movingContourAppliedDeltaX,
+        cellSizePx
+      )
+      const cellDeltaY = this.computeRoundedCellDelta(
+        this.movingContourAppliedDeltaY,
+        cellSizePx
+      )
+      if (cellDeltaX === 0 && cellDeltaY === 0) {
+        proxy.left = proxy.terrainContourAnchorLeft
+        proxy.top = proxy.terrainContourAnchorTop
+        proxy.setCoords()
+        this.resetMovingContourState(proxy)
+        this.ctx.requestRender()
+        return false
+      }
+      const snappedDeltaX = cellDeltaX * cellSizePx
+      const snappedDeltaY = cellDeltaY * cellSizePx
+      for (let i = 0; i < contour.points.length; i += 2) {
+        contour.points[i] += snappedDeltaX
+        contour.points[i + 1] += snappedDeltaY
+      }
+      if (contour.fillLayer) {
+        this.applyLayerCellDelta(contour.fillLayer, cellDeltaX, cellDeltaY)
+      }
+      this.refreshContourProxy(contour)
+    }
+    proxy.left = proxy.terrainContourAnchorLeft
+    proxy.top = proxy.terrainContourAnchorTop
+    proxy.setCoords()
+    this.resetMovingContourState(proxy)
+    this.ctx.requestRender()
+    return changed
   }
 
   private createLayerFromSerialized(
@@ -625,27 +1420,36 @@ export class EditorTerrainLayerManager {
       chunkX: number
       chunkY: number
       cells: ArrayLike<number>
-    }>
-  ): void {
+    }>,
+    contourId = 0,
+    internalOnly = false
+  ): EditorTerrainLayer | null {
     const layer = this.createEmptyLayer(
       materialId,
       offsetCellX,
       offsetCellY,
-      renderLayer
+      renderLayer,
+      contourId,
+      internalOnly
     )
     layer.grid.loadSerializedChunks(chunks)
     if (!layer.grid.hasCells()) {
       this.removeLayer(layer)
-      return
+      return null
     }
-    this.refreshLayerProxy(layer)
+    if (!layer.internalOnly) {
+      this.refreshLayerProxy(layer)
+    }
+    return layer
   }
 
   private createEmptyLayer(
     materialId: TerrainMaterialId,
     offsetCellX: number,
     offsetCellY: number,
-    renderLayer?: number
+    renderLayer?: number,
+    contourId = 0,
+    internalOnly = false
   ): EditorTerrainLayer {
     const grid = new TerrainChunkGrid(this.chunkSize)
     const layer: EditorTerrainLayer = {
@@ -662,8 +1466,11 @@ export class EditorTerrainLayerManager {
           typeof renderLayer === 'number'
             ? renderLayer | 0
             : getDefaultTerrainRenderLayer(materialId),
+        contourId: contourId > 0 ? contourId : undefined,
         chunks: grid.getChunks(),
       },
+      contourId,
+      internalOnly,
       proxy: null,
     }
     this.nextLayerId += 1
@@ -679,6 +1486,9 @@ export class EditorTerrainLayerManager {
   ): EditorTerrainLayer | null {
     for (let i = this.layers.length - 1; i >= 0; i--) {
       const layer = this.layers[i]
+      if (layer.internalOnly) {
+        continue
+      }
       if (layer.materialId !== materialId) {
         continue
       }
@@ -692,6 +1502,46 @@ export class EditorTerrainLayerManager {
         layer.grid.isCellSolid(localCellX, localCellY + 1)
       ) {
         return layer
+      }
+    }
+    return null
+  }
+
+  private findContourTargetForStroke(
+    materialId: TerrainMaterialId,
+    worldCellX: number,
+    worldCellY: number
+  ): EditorTerrainContour | null {
+    const cellSizePx = this.getCellSizePx()
+    const centerX = worldCellX * cellSizePx + Math.floor(cellSizePx / 2)
+    const centerY = worldCellY * cellSizePx + Math.floor(cellSizePx / 2)
+    const edgeDistanceSq = Math.max(4, cellSizePx * cellSizePx)
+    for (let i = this.contours.length - 1; i >= 0; i--) {
+      const contour = this.contours[i]
+      if (contour.fillMaterialId !== materialId || !contour.fillLayer) {
+        continue
+      }
+      if (
+        pointInClosedContourScaled2(contour.points, centerX * 2, centerY * 2)
+      ) {
+        return contour
+      }
+      if (
+        getNearestContourEdge(contour.points, centerX, centerY, edgeDistanceSq)
+      ) {
+        return contour
+      }
+      const layer = contour.fillLayer
+      const localCellX = worldCellX - layer.offsetCellX
+      const localCellY = worldCellY - layer.offsetCellY
+      if (
+        layer.grid.isCellSolid(localCellX, localCellY) ||
+        layer.grid.isCellSolid(localCellX - 1, localCellY) ||
+        layer.grid.isCellSolid(localCellX + 1, localCellY) ||
+        layer.grid.isCellSolid(localCellX, localCellY - 1) ||
+        layer.grid.isCellSolid(localCellX, localCellY + 1)
+      ) {
+        return contour
       }
     }
     return null
@@ -883,6 +1733,784 @@ export class EditorTerrainLayerManager {
     }
   }
 
+  private removeAllContourObjects(): void {
+    for (let i = 0; i < this.contours.length; i++) {
+      const contour = this.contours[i]
+      this.proxyToContour.delete(contour.proxy)
+      this.ctx.unregisterEditorObject(contour.proxy)
+      if (contour.proxy.canvas) {
+        contour.proxy.canvas.remove(contour.proxy)
+      }
+    }
+  }
+
+  private createContour(startX: number, startY: number): EditorTerrainContour {
+    const contourId = this.nextContourId
+    this.nextContourId += 1
+    const proxy = new fabric.Group([], {
+      left: startX,
+      top: startY,
+      originX: 'left',
+      originY: 'top',
+      selectable: true,
+      hasControls: false,
+      hasBorders: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: false,
+      hoverCursor: 'default',
+      moveCursor: 'move',
+    }) as TerrainContourProxy
+    proxy.editorShape = 'terrain-contour-proxy'
+    proxy.terrainContourId = contourId
+    proxy.terrainContourAnchorLeft = startX
+    proxy.terrainContourAnchorTop = startY
+    ;(proxy as EditorLayeredObject).renderLayer =
+      getDefaultTerrainRenderLayer('dirt')
+    const contour: EditorTerrainContour = {
+      id: contourId,
+      points: [startX, startY],
+      fillMaterialId: null,
+      renderLayer: getDefaultTerrainRenderLayer('dirt'),
+      fillLayer: null,
+      proxy,
+    }
+    this.contours.push(contour)
+    this.renderData.contours.push({
+      id: contour.id,
+      points: contour.points,
+      renderLayer: contour.renderLayer,
+    })
+    this.proxyToContour.set(proxy, contour)
+    this.applyContourProxyInteraction(proxy, this.interactionEnabled)
+    this.refreshContourProxy(contour)
+    const canvas = this.ctx.getFabricCanvas()
+    canvas?.add(proxy)
+    this.ctx.registerEditorObject(
+      ObjectType.Terrain,
+      proxy,
+      this.buildGeneratedContourName()
+    )
+    return contour
+  }
+
+  private createContourFromSerialized(
+    source: TerrainContourLike,
+    contourLayerMap: ReadonlyMap<number, EditorTerrainLayer>
+  ): void {
+    if (!Array.isArray(source.points) || source.points.length < 6) {
+      return
+    }
+    const contour = this.createContour(
+      source.points[0] | 0,
+      source.points[1] | 0
+    )
+    contour.id = source.id | 0
+    contour.points.length = source.points.length
+    for (let i = 0; i < source.points.length; i++) {
+      contour.points[i] = source.points[i] | 0
+    }
+    contour.fillMaterialId = source.fillMaterialId ?? null
+    contour.renderLayer =
+      typeof source.renderLayer === 'number'
+        ? source.renderLayer | 0
+        : contour.fillMaterialId
+          ? getDefaultTerrainRenderLayer(contour.fillMaterialId)
+          : getDefaultTerrainRenderLayer('dirt')
+    contour.fillLayer = contourLayerMap.get(contour.id) ?? null
+    this.nextContourId = Math.max(this.nextContourId, contour.id + 1)
+    const serializedContour = this.getSerializedContour(contour)
+    serializedContour.id = contour.id
+    serializedContour.fillMaterialId = contour.fillMaterialId ?? undefined
+    serializedContour.renderLayer = contour.renderLayer
+    ;(contour.proxy as EditorLayeredObject).renderLayer = contour.renderLayer
+    contour.proxy.terrainContourId = contour.id
+    this.refreshContourProxy(contour)
+    if (contour.fillMaterialId && !contour.fillLayer) {
+      this.rasterizeContourFill(contour)
+    }
+  }
+
+  private getSerializedContour(
+    contour: EditorTerrainContour
+  ): TerrainContourLike {
+    for (let i = 0; i < this.renderData.contours.length; i++) {
+      const candidate = this.renderData.contours[i]
+      if (candidate.id === contour.id) {
+        return candidate
+      }
+    }
+    const serializedContour: TerrainContourLike = {
+      id: contour.id,
+      points: contour.points,
+      fillMaterialId: contour.fillMaterialId ?? undefined,
+      renderLayer: contour.renderLayer,
+    }
+    this.renderData.contours.push(serializedContour)
+    return serializedContour
+  }
+
+  private buildGeneratedContourName(): string {
+    return `${localizer.t('editor_terrain_brush_contour')}${this.contours.length}`
+  }
+
+  private setActiveContour(contour: EditorTerrainContour | null): void {
+    const nextId = contour ? contour.id : -1
+    if (this.activeContourId === nextId) {
+      return
+    }
+    const previous = this.getContourById(this.activeContourId)
+    this.activeContourId = nextId
+    this.activeContourPointIndex = -1
+    if (previous) {
+      this.refreshContourProxy(previous)
+    }
+    if (contour) {
+      this.refreshContourProxy(contour)
+    }
+  }
+
+  private getContourById(id: number): EditorTerrainContour | null {
+    for (let i = 0; i < this.contours.length; i++) {
+      if (this.contours[i].id === id) {
+        return this.contours[i]
+      }
+    }
+    return null
+  }
+
+  private refreshAllContourVisuals(): void {
+    for (let i = 0; i < this.contours.length; i++) {
+      this.refreshContourProxy(this.contours[i])
+    }
+  }
+
+  private refreshContourProxy(contour: EditorTerrainContour): void {
+    const bounds = getContourBounds(contour.points)
+    if (!bounds) {
+      return
+    }
+    const children: fabric.Object[] = []
+    const showContourGuides =
+      (this.contourEditMode && contour.id === this.activeContourId) ||
+      (!this.contourEditMode && contour.id === this.selectedContourId)
+    const relativePoints = new Array<fabric.Point>(contour.points.length / 2)
+    for (let i = 0; i < contour.points.length; i += 2) {
+      relativePoints[i / 2] = new fabric.Point(
+        contour.points[i] - bounds.minX,
+        contour.points[i + 1] - bounds.minY
+      )
+    }
+    if (relativePoints.length >= 3) {
+      children.push(
+        new fabric.Polygon(relativePoints, {
+          left: 0,
+          top: 0,
+          originX: 'left',
+          originY: 'top',
+          fill: 'rgba(255,255,255,0.001)',
+          stroke: showContourGuides ? 'rgba(245,208,96,0.92)' : 'rgba(0,0,0,0)',
+          strokeWidth: showContourGuides ? 2 : 0,
+          selectable: false,
+          evented: false,
+          objectCaching: false,
+        })
+      )
+    } else {
+      children.push(
+        new fabric.Polyline(relativePoints, {
+          left: 0,
+          top: 0,
+          originX: 'left',
+          originY: 'top',
+          fill: 'transparent',
+          stroke: showContourGuides ? 'rgba(245,208,96,0.92)' : 'rgba(0,0,0,0)',
+          strokeWidth: showContourGuides ? 2 : 0,
+          selectable: false,
+          evented: false,
+          objectCaching: false,
+        })
+      )
+    }
+    if (showContourGuides) {
+      for (let i = 0; i < relativePoints.length; i++) {
+        const radius =
+          i === this.activeContourPointIndex
+            ? TERRAIN_CONTOUR_POINT_RADIUS + 2
+            : TERRAIN_CONTOUR_POINT_RADIUS
+        children.push(
+          new fabric.Circle({
+            left: relativePoints[i].x - radius,
+            top: relativePoints[i].y - radius,
+            radius,
+            originX: 'left',
+            originY: 'top',
+            fill:
+              i === this.activeContourPointIndex
+                ? 'rgba(255,248,212,0.98)'
+                : 'rgba(245,208,96,0.95)',
+            stroke: 'rgba(32,24,16,0.92)',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false,
+            objectCaching: false,
+          })
+        )
+      }
+    }
+    const proxy = contour.proxy
+    const existingObjects = proxy.getObjects().slice()
+    for (let i = 0; i < existingObjects.length; i++) {
+      proxy.remove(existingObjects[i])
+    }
+    for (let i = 0; i < children.length; i++) {
+      proxy.add(children[i])
+    }
+    proxy.terrainContourId = contour.id
+    proxy.terrainContourAnchorLeft = bounds.minX
+    proxy.terrainContourAnchorTop = bounds.minY
+    proxy.left = bounds.minX
+    proxy.top = bounds.minY
+    ;(proxy as EditorLayeredObject).renderLayer = contour.renderLayer
+    this.applyContourProxyInteraction(proxy, this.interactionEnabled)
+    proxy.setCoords()
+  }
+
+  private applyContourProxyInteraction(
+    proxy: TerrainContourProxy,
+    enabled: boolean
+  ): void {
+    if (this.contourEditMode) {
+      proxy.selectable = false
+      proxy.evented = true
+      proxy.hasBorders = false
+      proxy.hasControls = false
+      proxy.hoverCursor = 'default'
+      proxy.moveCursor = 'default'
+      return
+    }
+    proxy.selectable = enabled
+    proxy.evented = enabled
+    proxy.hasBorders = enabled
+    proxy.hasControls = false
+    proxy.hoverCursor = 'default'
+    proxy.moveCursor = enabled ? 'move' : 'default'
+  }
+
+  private moveContourPoint(
+    contour: EditorTerrainContour,
+    pointIndex: number,
+    pointX: number,
+    pointY: number
+  ): void {
+    if (pointIndex < 0 || pointIndex * 2 + 1 >= contour.points.length) {
+      return
+    }
+    contour.points[pointIndex * 2] = pointX
+    contour.points[pointIndex * 2 + 1] = pointY
+    this.refreshContourProxy(contour)
+    this.ctx.requestRender()
+  }
+
+  private ensureContourFillLayer(
+    contour: EditorTerrainContour,
+    materialId: TerrainMaterialId
+  ): EditorTerrainLayer {
+    if (contour.fillLayer) {
+      contour.fillLayer.materialId = materialId
+      contour.fillLayer.serializedLayer.materialId = materialId
+      contour.fillLayer.serializedLayer.renderLayer = contour.renderLayer
+      return contour.fillLayer
+    }
+    contour.fillLayer = this.createEmptyLayer(
+      materialId,
+      0,
+      0,
+      contour.renderLayer,
+      contour.id,
+      true
+    )
+    return contour.fillLayer
+  }
+
+  private rasterizeContourFill(contour: EditorTerrainContour): boolean {
+    if (!contour.fillMaterialId) {
+      return false
+    }
+    const bounds = getContourBounds(contour.points)
+    if (!bounds) {
+      return false
+    }
+    const layer = this.ensureContourFillLayer(contour, contour.fillMaterialId)
+    layer.grid = new TerrainChunkGrid(this.chunkSize)
+    layer.serializedLayer.chunks = layer.grid.getChunks()
+    layer.offsetCellX = 0
+    layer.offsetCellY = 0
+    layer.serializedLayer.offsetCellX = 0
+    layer.serializedLayer.offsetCellY = 0
+    layer.serializedLayer.materialId = contour.fillMaterialId
+    layer.serializedLayer.renderLayer = contour.renderLayer
+    layer.serializedLayer.contourId = contour.id
+    const cellSizePx = this.getCellSizePx()
+    const startCellX = Math.floor(bounds.minX / cellSizePx)
+    const endCellX = Math.floor(bounds.maxX / cellSizePx)
+    const startCellY = Math.floor(bounds.minY / cellSizePx)
+    const endCellY = Math.floor(bounds.maxY / cellSizePx)
+    const baseFillMaterialId =
+      contour.fillMaterialId === 'grass' ? 'dirt' : contour.fillMaterialId
+    const fillCode = getTerrainMaterialCodeById(baseFillMaterialId)
+    for (let cellY = startCellY; cellY <= endCellY; cellY++) {
+      for (let cellX = startCellX; cellX <= endCellX; cellX++) {
+        if (
+          !this.isContourCellFilled(contour.points, cellX, cellY, cellSizePx)
+        ) {
+          continue
+        }
+        layer.grid.setCellMaterialCode(cellX, cellY, fillCode)
+      }
+    }
+    if (contour.fillMaterialId === 'grass') {
+      this.recalculateContourTopCells(
+        layer,
+        getTerrainMaterialCodeById('dirt'),
+        getTerrainMaterialCodeById('grass')
+      )
+    }
+    if (!layer.grid.hasCells()) {
+      this.removeLayer(layer)
+      contour.fillLayer = null
+      return false
+    }
+    return true
+  }
+
+  private applyContourFillDelta(
+    contour: EditorTerrainContour,
+    previousPoints: readonly number[]
+  ): boolean {
+    if (!contour.fillMaterialId) {
+      return false
+    }
+    const oldBounds = getContourBounds(previousPoints)
+    const newBounds = getContourBounds(contour.points)
+    if (!oldBounds || !newBounds) {
+      return false
+    }
+    const cellSizePx = this.getCellSizePx()
+    const startCellX = Math.floor(
+      Math.min(oldBounds.minX, newBounds.minX) / cellSizePx
+    )
+    const endCellX = Math.floor(
+      Math.max(oldBounds.maxX, newBounds.maxX) / cellSizePx
+    )
+    const startCellY = Math.floor(
+      Math.min(oldBounds.minY, newBounds.minY) / cellSizePx
+    )
+    const endCellY = Math.floor(
+      Math.max(oldBounds.maxY, newBounds.maxY) / cellSizePx
+    )
+    const width = endCellX - startCellX + 1
+    const height = endCellY - startCellY + 1
+    if (width <= 0 || height <= 0) {
+      return false
+    }
+    const layer = this.ensureContourFillLayer(contour, contour.fillMaterialId)
+    const baseFillMaterialId =
+      contour.fillMaterialId === 'grass' ? 'dirt' : contour.fillMaterialId
+    const fillCode = getTerrainMaterialCodeById(baseFillMaterialId)
+    const previousMask = new Uint8Array(width * height)
+    const nextMask = new Uint8Array(width * height)
+    this.rasterizeContourMask(
+      previousPoints,
+      startCellX,
+      startCellY,
+      endCellX,
+      endCellY,
+      cellSizePx,
+      previousMask
+    )
+    this.rasterizeContourMask(
+      contour.points,
+      startCellX,
+      startCellY,
+      endCellX,
+      endCellY,
+      cellSizePx,
+      nextMask
+    )
+    let changed = false
+    for (let cellY = startCellY; cellY <= endCellY; cellY++) {
+      const rowOffset = (cellY - startCellY) * width
+      for (let cellX = startCellX; cellX <= endCellX; cellX++) {
+        const cellIndex = rowOffset + (cellX - startCellX)
+        const oldValue = previousMask[cellIndex] | 0
+        const nextValue = nextMask[cellIndex] | 0
+        if (oldValue === nextValue) {
+          continue
+        }
+        if (nextValue > 0) {
+          changed =
+            this.setWorldCellMaterialCode(layer, cellX, cellY, fillCode) ||
+            changed
+        } else {
+          changed =
+            this.setWorldCellMaterialCode(layer, cellX, cellY, 0) || changed
+        }
+      }
+    }
+    if (contour.fillMaterialId === 'grass') {
+      this.recalculateContourTopCells(
+        layer,
+        getTerrainMaterialCodeById('dirt'),
+        getTerrainMaterialCodeById('grass')
+      )
+    }
+    if (!layer.grid.hasCells()) {
+      this.removeLayer(layer)
+      contour.fillLayer = null
+    }
+    return changed
+  }
+
+  private rasterizeContourMask(
+    points: readonly number[],
+    startCellX: number,
+    startCellY: number,
+    endCellX: number,
+    endCellY: number,
+    cellSizePx: number,
+    mask: Uint8Array
+  ): void {
+    const width = endCellX - startCellX + 1
+    for (let cellY = startCellY; cellY <= endCellY; cellY++) {
+      const rowOffset = (cellY - startCellY) * width
+      for (let cellX = startCellX; cellX <= endCellX; cellX++) {
+        if (!this.isContourCellFilled(points, cellX, cellY, cellSizePx)) {
+          continue
+        }
+        mask[rowOffset + (cellX - startCellX)] = 1
+      }
+    }
+  }
+
+  private isContourCellFilled(
+    points: readonly number[],
+    cellX: number,
+    cellY: number,
+    cellSizePx: number
+  ): boolean {
+    if (cellSizePx <= 0) {
+      return false
+    }
+    const baseX = cellX * cellSizePx
+    const baseY = cellY * cellSizePx
+    const centerX2 = baseX * 2 + cellSizePx
+    const centerY2 = baseY * 2 + cellSizePx
+    if (!pointInClosedContourScaled2(points, centerX2, centerY2)) {
+      return false
+    }
+    const sampleCount = TERRAIN_CONTOUR_CELL_SAMPLE_COUNT
+    const totalSamples = sampleCount * sampleCount
+    let insideSamples = 0
+    const requiredSamples = Math.floor(totalSamples / 2) + 1
+    const remainingFailLimit = totalSamples - requiredSamples
+    for (let sampleY = 0; sampleY < sampleCount; sampleY++) {
+      const samplePointY =
+        baseY + Math.floor(((sampleY * 2 + 1) * cellSizePx) / (sampleCount * 2))
+      for (let sampleX = 0; sampleX < sampleCount; sampleX++) {
+        const samplePointX =
+          baseX +
+          Math.floor(((sampleX * 2 + 1) * cellSizePx) / (sampleCount * 2))
+        if (
+          pointInClosedContourScaled2(
+            points,
+            samplePointX * 2,
+            samplePointY * 2
+          )
+        ) {
+          insideSamples += 1
+          if (insideSamples >= requiredSamples) {
+            return true
+          }
+          continue
+        }
+        const outsideSamples =
+          sampleY * sampleCount + sampleX + 1 - insideSamples
+        if (outsideSamples > remainingFailLimit) {
+          return false
+        }
+      }
+    }
+    return insideSamples >= requiredSamples
+  }
+
+  private recalculateContourTopCells(
+    layer: EditorTerrainLayer,
+    fillCode: number,
+    topCode: number
+  ): void {
+    const chunks = layer.grid.getChunks()
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex]
+      const chunkBaseX = chunk.chunkX * this.chunkSize
+      const chunkBaseY = chunk.chunkY * this.chunkSize
+      for (let localY = 0; localY < this.chunkSize; localY++) {
+        for (let localX = 0; localX < this.chunkSize; localX++) {
+          const code = chunk.cells[localY * this.chunkSize + localX] | 0
+          if (code !== fillCode && code !== topCode) {
+            continue
+          }
+          const worldCellX = layer.offsetCellX + chunkBaseX + localX
+          const worldCellY = layer.offsetCellY + chunkBaseY + localY
+          this.recalculateSingleTopCell(
+            layer,
+            worldCellX,
+            worldCellY,
+            fillCode,
+            topCode
+          )
+        }
+      }
+    }
+  }
+
+  private syncContourFromFillLayer(contour: EditorTerrainContour): boolean {
+    const layer = contour.fillLayer
+    if (!layer || !layer.grid.hasCells()) {
+      this.removeContour(contour)
+      return true
+    }
+    const nextPoints = this.buildContourPointsFromFillLayer(layer)
+    if (!nextPoints || nextPoints.length < 6) {
+      this.removeContour(contour)
+      return true
+    }
+    if (this.areContourPointsEqual(contour.points, nextPoints)) {
+      return false
+    }
+    contour.points.length = nextPoints.length
+    for (let i = 0; i < nextPoints.length; i++) {
+      contour.points[i] = nextPoints[i]
+    }
+    this.refreshContourProxy(contour)
+    return true
+  }
+
+  private buildContourPointsFromFillLayer(
+    layer: EditorTerrainLayer
+  ): number[] | null {
+    const maskBounds = this.getFilledLayerBounds(layer)
+    if (!maskBounds) {
+      return null
+    }
+    const width = maskBounds.maxCellX - maskBounds.minCellX + 1
+    const height = maskBounds.maxCellY - maskBounds.minCellY + 1
+    const filled = new Uint8Array(width * height)
+    const chunks = layer.grid.getChunks()
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex]
+      const chunkBaseX = chunk.chunkX * this.chunkSize
+      const chunkBaseY = chunk.chunkY * this.chunkSize
+      for (let localY = 0; localY < this.chunkSize; localY++) {
+        for (let localX = 0; localX < this.chunkSize; localX++) {
+          const code = chunk.cells[localY * this.chunkSize + localX] | 0
+          if (code <= 0) {
+            continue
+          }
+          const worldCellX = layer.offsetCellX + chunkBaseX + localX
+          const worldCellY = layer.offsetCellY + chunkBaseY + localY
+          const fillIndex =
+            (worldCellY - maskBounds.minCellY) * width +
+            (worldCellX - maskBounds.minCellX)
+          filled[fillIndex] = 1
+        }
+      }
+    }
+    const loop = pickLargestContourLoop(
+      extractFilledCellLoops(filled, width, height)
+    )
+    if (!loop || loop.length < 6) {
+      return null
+    }
+    const simplifiedLoop = simplifyContourLoop(loop)
+    const cellSizePx = this.getCellSizePx()
+    const points = new Array<number>(simplifiedLoop.length)
+    for (let i = 0; i < simplifiedLoop.length; i += 2) {
+      points[i] = (maskBounds.minCellX + simplifiedLoop[i]) * cellSizePx
+      points[i + 1] = (maskBounds.minCellY + simplifiedLoop[i + 1]) * cellSizePx
+    }
+    return points
+  }
+
+  private getFilledLayerBounds(layer: EditorTerrainLayer): {
+    minCellX: number
+    minCellY: number
+    maxCellX: number
+    maxCellY: number
+  } | null {
+    const chunks = layer.grid.getChunks()
+    let hasFilledCell = false
+    let minCellX = 0
+    let minCellY = 0
+    let maxCellX = 0
+    let maxCellY = 0
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex]
+      const chunkBaseX = chunk.chunkX * this.chunkSize
+      const chunkBaseY = chunk.chunkY * this.chunkSize
+      for (let localY = 0; localY < this.chunkSize; localY++) {
+        for (let localX = 0; localX < this.chunkSize; localX++) {
+          const code = chunk.cells[localY * this.chunkSize + localX] | 0
+          if (code <= 0) {
+            continue
+          }
+          const worldCellX = layer.offsetCellX + chunkBaseX + localX
+          const worldCellY = layer.offsetCellY + chunkBaseY + localY
+          if (!hasFilledCell) {
+            minCellX = worldCellX
+            minCellY = worldCellY
+            maxCellX = worldCellX
+            maxCellY = worldCellY
+            hasFilledCell = true
+            continue
+          }
+          if (worldCellX < minCellX) {
+            minCellX = worldCellX
+          } else if (worldCellX > maxCellX) {
+            maxCellX = worldCellX
+          }
+          if (worldCellY < minCellY) {
+            minCellY = worldCellY
+          } else if (worldCellY > maxCellY) {
+            maxCellY = worldCellY
+          }
+        }
+      }
+    }
+    if (!hasFilledCell) {
+      return null
+    }
+    return {
+      minCellX,
+      minCellY,
+      maxCellX,
+      maxCellY,
+    }
+  }
+
+  private areContourPointsEqual(
+    left: readonly number[],
+    right: readonly number[]
+  ): boolean {
+    if (left.length !== right.length) {
+      return false
+    }
+    for (let i = 0; i < left.length; i++) {
+      if (left[i] !== right[i]) {
+        return false
+      }
+    }
+    return true
+  }
+
+  private removeContour(contour: EditorTerrainContour): void {
+    if (contour.fillLayer) {
+      this.removeLayer(contour.fillLayer)
+      contour.fillLayer = null
+    }
+    const contourIndex = this.contours.indexOf(contour)
+    if (contourIndex >= 0) {
+      this.contours.splice(contourIndex, 1)
+      for (let i = 0; i < this.renderData.contours.length; i++) {
+        if (this.renderData.contours[i].id === contour.id) {
+          this.renderData.contours.splice(i, 1)
+          break
+        }
+      }
+    }
+    this.proxyToContour.delete(contour.proxy)
+    this.ctx.unregisterEditorObject(contour.proxy)
+    if (contour.proxy.canvas) {
+      contour.proxy.canvas.remove(contour.proxy)
+    }
+    if (this.activeContourId === contour.id) {
+      this.activeContourId = -1
+      this.activeContourPointIndex = -1
+    }
+    if (this.selectedContourId === contour.id) {
+      this.selectedContourId = -1
+    }
+  }
+
+  private resetContourInteraction(): void {
+    this.unlockContourProxyMovement()
+    this.contourPointerActive = false
+    this.contourPointerChanged = false
+    this.contourDrawingContour = null
+    this.contourDragTarget = null
+    this.contourDragPointIndex = -1
+    this.contourDragOriginalPoints = null
+    this.contourLastPointX = 0
+    this.contourLastPointY = 0
+  }
+
+  private lockContourProxyMovement(proxy: TerrainContourProxy): void {
+    if (this.contourDragLockedProxy === proxy) {
+      return
+    }
+    this.unlockContourProxyMovement()
+    this.contourDragLockedProxy = proxy
+    this.contourDragRestoreLockX = proxy.lockMovementX === true
+    this.contourDragRestoreLockY = proxy.lockMovementY === true
+    proxy.lockMovementX = true
+    proxy.lockMovementY = true
+    proxy.left = proxy.terrainContourAnchorLeft
+    proxy.top = proxy.terrainContourAnchorTop
+    proxy.setCoords()
+  }
+
+  private unlockContourProxyMovement(): void {
+    const proxy = this.contourDragLockedProxy
+    if (!proxy) {
+      return
+    }
+    proxy.lockMovementX = this.contourDragRestoreLockX
+    proxy.lockMovementY = this.contourDragRestoreLockY
+    proxy.left = proxy.terrainContourAnchorLeft
+    proxy.top = proxy.terrainContourAnchorTop
+    proxy.setCoords()
+    this.contourDragLockedProxy = null
+    this.contourDragRestoreLockX = false
+    this.contourDragRestoreLockY = false
+  }
+
+  private getMovingContourPreview(): EditorTerrainContour | null {
+    const proxy = this.movingContourTarget
+    if (!proxy) {
+      return null
+    }
+    return this.proxyToContour.get(proxy) ?? null
+  }
+
+  private getContourPointHitDistanceSq(): number {
+    const canvas = this.ctx.getFabricCanvas()
+    const viewportScale = canvas?.getZoom() ?? 1
+    return getContourHitDistanceSq(
+      viewportScale,
+      TERRAIN_CONTOUR_SELECT_DISTANCE_SQ
+    )
+  }
+
+  private getContourEdgeHitDistanceSq(): number {
+    const canvas = this.ctx.getFabricCanvas()
+    const viewportScale = canvas?.getZoom() ?? 1
+    return getContourHitDistanceSq(
+      viewportScale,
+      TERRAIN_CONTOUR_EDGE_SELECT_DISTANCE_SQ
+    )
+  }
+
   private getOrderedLayers(
     orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>
   ): EditorTerrainLayer[] {
@@ -910,6 +2538,35 @@ export class EditorTerrainLayerManager {
       }
     }
     return orderedLayers
+  }
+
+  private getOrderedContours(
+    orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>
+  ): EditorTerrainContour[] {
+    if (!orderedObjects || orderedObjects.length === 0) {
+      return this.contours.slice()
+    }
+    const orderedContours: EditorTerrainContour[] = []
+    const included = new Set<number>()
+    for (let i = 0; i < orderedObjects.length; i++) {
+      const objectData = orderedObjects[i]
+      if (objectData.type !== ObjectType.Terrain) {
+        continue
+      }
+      const contour = this.proxyToContour.get(objectData.object)
+      if (!contour || included.has(contour.id)) {
+        continue
+      }
+      included.add(contour.id)
+      orderedContours.push(contour)
+    }
+    for (let i = 0; i < this.contours.length; i++) {
+      const contour = this.contours[i]
+      if (!included.has(contour.id)) {
+        orderedContours.push(contour)
+      }
+    }
+    return orderedContours
   }
 
   private buildGeneratedLayerName(materialId: TerrainMaterialId): string {
@@ -1123,6 +2780,21 @@ export class EditorTerrainLayerManager {
     this.activeSelectionMoveAppliedCellDeltaY = 0
   }
 
+  private ensureMovingContourState(proxy: TerrainContourProxy): void {
+    if (this.movingContourTarget === proxy) {
+      return
+    }
+    this.movingContourTarget = proxy
+    this.movingContourStartLeft = Math.round(
+      proxy.left ?? proxy.terrainContourAnchorLeft
+    )
+    this.movingContourStartTop = Math.round(
+      proxy.top ?? proxy.terrainContourAnchorTop
+    )
+    this.movingContourAppliedDeltaX = 0
+    this.movingContourAppliedDeltaY = 0
+  }
+
   private ensureMovingProxyState(proxy: TerrainRegionProxy): void {
     if (this.movingProxyTarget === proxy) {
       return
@@ -1145,6 +2817,21 @@ export class EditorTerrainLayerManager {
     this.movingProxyStartTop = 0
     this.movingProxyAppliedCellDeltaX = 0
     this.movingProxyAppliedCellDeltaY = 0
+  }
+
+  private resetMovingContourState(proxy?: TerrainContourProxy | null): void {
+    if (
+      proxy &&
+      this.movingContourTarget &&
+      this.movingContourTarget !== proxy
+    ) {
+      return
+    }
+    this.movingContourTarget = null
+    this.movingContourStartLeft = 0
+    this.movingContourStartTop = 0
+    this.movingContourAppliedDeltaX = 0
+    this.movingContourAppliedDeltaY = 0
   }
 
   private ensureGroupedProxyMoveState(group: fabric.Group): void {

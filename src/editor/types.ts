@@ -122,6 +122,13 @@ export type TerrainRegionProxy = fabric.Group & {
   terrainAnchorTop: number
 }
 
+export type TerrainContourProxy = fabric.Group & {
+  editorShape: 'terrain-contour-proxy'
+  terrainContourId: number
+  terrainContourAnchorLeft: number
+  terrainContourAnchorTop: number
+}
+
 export type EditorLayeredObject = fabric.Object & {
   renderLayer?: number
 }

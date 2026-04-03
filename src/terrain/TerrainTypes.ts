@@ -1,4 +1,4 @@
-export const TERRAIN_DATA_VERSION = 2
+export const TERRAIN_DATA_VERSION = 3
 export const TERRAIN_CHUNK_SIZE = 16
 export const TERRAIN_CELL_SIZE_METERS = 0.5
 export const DEFAULT_TERRAIN_RANDOM_SEED = 1
@@ -13,6 +13,7 @@ export type TerrainBrushId =
   | 'stone'
   | 'wood'
   | 'leaves'
+  | 'contour'
   | 'erase'
 
 export interface TerrainMaterialDefinition {
@@ -29,9 +30,16 @@ export interface TerrainMaterialDefinition {
 export interface TerrainBrushDefinition {
   id: TerrainBrushId
   labelKey: string
-  mode: 'fill' | 'erase'
+  mode: 'fill' | 'erase' | 'contour'
   fillMaterialId?: TerrainMaterialId
   exposedTopMaterialId?: TerrainMaterialId
+}
+
+export interface TerrainContourLike {
+  id: number
+  points: number[]
+  fillMaterialId?: TerrainMaterialId
+  renderLayer?: number
 }
 
 export interface TerrainChunkLike {
@@ -45,6 +53,7 @@ export interface TerrainLayerLike {
   offsetCellY: number
   materialId?: TerrainMaterialId
   renderLayer?: number
+  contourId?: number
   chunks: ReadonlyArray<TerrainChunkLike>
 }
 
@@ -55,6 +64,7 @@ export interface TerrainDataLike {
   randomSeed: number
   chunks: ReadonlyArray<TerrainChunkLike>
   layers?: ReadonlyArray<TerrainLayerLike>
+  contours?: ReadonlyArray<TerrainContourLike>
 }
 
 export interface MapTerrainChunk {
@@ -68,13 +78,15 @@ export interface MapTerrainLayer extends TerrainLayerLike {
   offsetCellY: number
   materialId: TerrainMaterialId
   renderLayer?: number
+  contourId?: number
   chunks: MapTerrainChunk[]
 }
 
 export interface MapTerrainData extends TerrainDataLike {
-  version: 1 | 2
+  version: 1 | 2 | 3
   chunks: MapTerrainChunk[]
   layers?: MapTerrainLayer[]
+  contours?: TerrainContourLike[]
 }
 
 export interface TerrainCollisionRect {

@@ -38,7 +38,21 @@ function buildEraseCursorSvg(): string {
 </svg>`
 }
 
+function buildContourCursorSvg(): string {
+  return `<svg xmlns='http://www.w3.org/2000/svg' width='${CURSOR_SIZE}' height='${CURSOR_SIZE}' viewBox='0 0 ${CURSOR_SIZE} ${CURSOR_SIZE}'>
+<path d='M4 9C4 6 6 4 9 4C12 4 14 6 14 9C14 12 12 14 9 14C6 14 4 12 4 9Z' fill='none' stroke='#f2c766' stroke-width='1.5'/>
+<circle cx='9' cy='4' r='1.5' fill='#fff2c1'/>
+<circle cx='14' cy='9' r='1.5' fill='#fff2c1'/>
+<circle cx='9' cy='14' r='1.5' fill='#fff2c1'/>
+<circle cx='4' cy='9' r='1.5' fill='#fff2c1'/>
+<path d='M9 0V18M0 9H18' stroke='rgba(255,255,255,0.92)' stroke-width='1'/>
+</svg>`
+}
+
 function buildCursorSvg(brush: TerrainBrushDefinition): string {
+  if (brush.mode === 'contour') {
+    return buildContourCursorSvg()
+  }
   if (brush.mode === 'erase' || !brush.fillMaterialId) {
     return buildEraseCursorSvg()
   }

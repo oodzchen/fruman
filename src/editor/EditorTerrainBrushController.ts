@@ -7,6 +7,7 @@ import { EditorTerrainLayerManager } from './EditorTerrainLayerManager'
 interface EditorTerrainBrushControllerContext {
   getCanvas: () => fabric.Canvas | null
   terrainManager: EditorTerrainLayerManager
+  isObjectLocked: (object: fabric.Object | null) => boolean
   onCommit: () => void
 }
 
@@ -17,6 +18,7 @@ export class EditorTerrainBrushController {
   private lastCellX = 0
   private lastCellY = 0
   private didDisableSelection = false
+  private didDisableCanvasSelectionForBrush = false
 
   constructor(ctx: EditorTerrainBrushControllerContext) {
     this.ctx = ctx
@@ -24,12 +26,16 @@ export class EditorTerrainBrushController {
 
   selectBrush(brushId: TerrainBrushId): void {
     this.selectedBrushId = brushId
+    this.ctx.terrainManager.setContourEditMode(brushId === 'contour')
+    this.applyCanvasSelectionForBrush()
     this.restoreCanvasCursor()
   }
 
   clearBrush(): void {
     this.selectedBrushId = null
     this.cancelStroke()
+    this.ctx.terrainManager.setContourEditMode(false)
+    this.restoreCanvasSelectionForBrush()
     this.restoreCanvasCursor()
   }
 
@@ -52,15 +58,26 @@ export class EditorTerrainBrushController {
     canvas.defaultCursor = cursor
     canvas.hoverCursor = cursor
     canvas.moveCursor = cursor
+    if (this.selectedBrushId) {
+      this.applyCanvasSelectionForBrush()
+    } else {
+      this.restoreCanvasSelectionForBrush()
+    }
   }
 
   handlePointerDown(opt: fabric.TPointerEventInfo): boolean {
-    if (!this.selectedBrushId) {
-      return false
-    }
     const mouseEvent = opt.e as MouseEvent
     if (mouseEvent.button !== 0) {
       return false
+    }
+    if (this.ctx.isObjectLocked(opt.target ?? null)) {
+      return false
+    }
+    if (!this.selectedBrushId) {
+      return this.ctx.terrainManager.handleSelectionContourPointerDown(opt)
+    }
+    if (this.selectedBrushId === 'contour') {
+      return this.ctx.terrainManager.handleContourPointerDown(opt)
     }
     const canvas = this.ctx.getCanvas()
     if (!canvas) {
@@ -88,6 +105,12 @@ export class EditorTerrainBrushController {
   }
 
   handlePointerMove(opt: fabric.TPointerEventInfo): boolean {
+    if (!this.selectedBrushId) {
+      return this.ctx.terrainManager.handleSelectionContourPointerMove(opt)
+    }
+    if (this.selectedBrushId === 'contour') {
+      return this.ctx.terrainManager.handleContourPointerMove(opt)
+    }
     if (!this.isPainting) {
       return false
     }
@@ -112,6 +135,20 @@ export class EditorTerrainBrushController {
   }
 
   handlePointerUp(): boolean {
+    if (!this.selectedBrushId) {
+      const changed = this.ctx.terrainManager.handleSelectionContourPointerUp()
+      if (changed) {
+        this.ctx.onCommit()
+      }
+      return changed
+    }
+    if (this.selectedBrushId === 'contour') {
+      const changed = this.ctx.terrainManager.handleContourPointerUp()
+      if (changed) {
+        this.ctx.onCommit()
+      }
+      return changed
+    }
     if (!this.isPainting) {
       return false
     }
@@ -128,6 +165,7 @@ export class EditorTerrainBrushController {
     this.isPainting = false
     const changed = this.ctx.terrainManager.finishStroke()
     this.ctx.terrainManager.requestRender()
+    this.restoreCanvasCursor()
     if (changed) {
       this.ctx.onCommit()
     }
@@ -141,6 +179,29 @@ export class EditorTerrainBrushController {
     this.didDisableSelection = false
     this.isPainting = false
     this.ctx.terrainManager.cancelStroke()
+    this.restoreCanvasCursor()
+  }
+
+  private applyCanvasSelectionForBrush(): void {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return
+    }
+    if (this.selectedBrushId && canvas.selection) {
+      canvas.selection = false
+      this.didDisableCanvasSelectionForBrush = true
+      return
+    }
+    this.didDisableCanvasSelectionForBrush = false
+  }
+
+  private restoreCanvasSelectionForBrush(): void {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas || !this.didDisableCanvasSelectionForBrush) {
+      return
+    }
+    canvas.selection = true
+    this.didDisableCanvasSelectionForBrush = false
   }
 
   private applyBrushLine(

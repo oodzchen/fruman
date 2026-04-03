@@ -96,6 +96,11 @@ const TERRAIN_BRUSHES: readonly TerrainBrushDefinition[] = [
     labelKey: 'editor_terrain_brush_erase',
     mode: 'erase',
   },
+  {
+    id: 'contour',
+    labelKey: 'editor_terrain_brush_contour',
+    mode: 'contour',
+  },
 ] as const
 
 const MATERIAL_BY_ID = new Map<TerrainMaterialId, TerrainMaterialDefinition>()

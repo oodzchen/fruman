@@ -2412,7 +2412,9 @@ export class EditorPropertiesPanel {
     })
   }
 
-  public async showCommonPropertiesDialog(target: fabric.Object) {
+  public async showCommonPropertiesDialog(
+    target: fabric.Object
+  ): Promise<boolean> {
     const dialog = EditorUIHelper.createPropertiesDialog(
       localizer.t('editor_common_properties_title')
     )
@@ -2451,33 +2453,35 @@ export class EditorPropertiesPanel {
 
     const viewport = document.getElementById('gameViewport')
     if (!viewport) {
-      return
+      return false
     }
-    dialog.show(viewport)
+    return await new Promise<boolean>((resolve) => {
+      dialog.show(viewport)
 
-    const finish = () => {
-      close()
-    }
+      const finish = (changed: boolean) => {
+        close()
+        resolve(changed)
+      }
 
-    confirmBtn.addEventListener('click', () => {
-      const renderLayer = Number.parseInt(renderLayerInput.value, 10)
-      if (!Number.isFinite(renderLayer)) {
-        finish()
-        return
-      }
-      const changed = this.context.setCommonRenderLayer(target, renderLayer)
-      if (changed) {
-        this.context.requestRender()
-        this.context.onHistoryCapture()
-      }
-      finish()
-    })
+      confirmBtn.addEventListener('click', () => {
+        const renderLayer = Number.parseInt(renderLayerInput.value, 10)
+        if (!Number.isFinite(renderLayer)) {
+          finish(false)
+          return
+        }
+        const changed = this.context.setCommonRenderLayer(target, renderLayer)
+        if (changed) {
+          this.context.requestRender()
+        }
+        finish(changed)
+      })
 
-    cancelBtn.addEventListener('click', finish)
-    modal.addEventListener('click', (event) => {
-      if (event.target === modal) {
-        finish()
-      }
+      cancelBtn.addEventListener('click', () => finish(false))
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+          finish(false)
+        }
+      })
     })
   }
 }

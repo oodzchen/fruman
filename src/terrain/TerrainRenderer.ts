@@ -2,6 +2,7 @@ import {
   getDefaultTerrainRenderLayer,
   isRenderLayerMatch,
 } from '../renderLayers'
+import type { TerrainResolvedLayerView } from './TerrainDataUtils'
 import { getTerrainLayerViews } from './TerrainDataUtils'
 import {
   appendTerrainCellPath,
@@ -13,6 +14,10 @@ import type { TerrainDataLike } from './TerrainTypes'
 export interface TerrainDrawOptions {
   drawStroke?: boolean
   renderLayer?: number
+  shouldDrawLayer?: (layer: TerrainResolvedLayerView) => boolean
+  getLayerPixelOffset?: (
+    layer: TerrainResolvedLayerView
+  ) => { x: number; y: number } | null
 }
 
 interface TerrainVisibleCellBounds {
@@ -36,6 +41,8 @@ export class TerrainRenderer {
 
     const drawStroke = options.drawStroke === true
     const targetLayer = options.renderLayer
+    const shouldDrawLayer = options.shouldDrawLayer
+    const getLayerPixelOffset = options.getLayerPixelOffset
     const layers = getTerrainLayerViews(terrain)
     for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
       const layer = layers[layerIndex]
@@ -49,10 +56,14 @@ export class TerrainRenderer {
       ) {
         continue
       }
+      if (shouldDrawLayer && !shouldDrawLayer(layer)) {
+        continue
+      }
+      const layerPixelOffset = getLayerPixelOffset?.(layer)
       ctx.save()
       ctx.translate(
-        layer.offsetCellX * cellSizeUnits,
-        layer.offsetCellY * cellSizeUnits
+        layer.offsetCellX * cellSizeUnits + (layerPixelOffset?.x ?? 0),
+        layer.offsetCellY * cellSizeUnits + (layerPixelOffset?.y ?? 0)
       )
       this.drawSingleLayer(ctx, layer, chunkSize, cellSizeUnits, drawStroke)
       ctx.restore()
