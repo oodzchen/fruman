@@ -404,12 +404,20 @@ export class EditorClipboardManager {
   copyBatch(targets: fabric.Object[]): boolean {
     this.batchTargets.length = 0
     this.batchPasteIndex = 0
+    const filteredTargets: fabric.Object[] = []
     for (let i = 0; i < targets.length; i++) {
       const target = targets[i]
-      if (!this.canCopy(target) || this.hasSelectedAncestor(target, targets)) {
+      if (this.hasSelectedAncestor(target, targets)) {
         continue
       }
-      this.batchTargets.push(target)
+      filteredTargets.push(target)
+    }
+    for (let i = 0; i < filteredTargets.length; i++) {
+      if (!this.canCopy(filteredTargets[i])) {
+        this.batchTargets.length = 0
+        return false
+      }
+      this.batchTargets.push(filteredTargets[i])
     }
     if (this.batchTargets.length === 0) return false
     this.kind = 'none'
@@ -543,6 +551,9 @@ export class EditorClipboardManager {
     target: fabric.Object,
     type: ObjectType
   ): boolean {
+    if (this.ctx.objectManager.isObjectLocked(target)) {
+      return false
+    }
     if (this.ctx.cameraManager.isCameraFrame(target)) {
       return false
     }

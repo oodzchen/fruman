@@ -266,14 +266,17 @@ export class EditorObjectTreeManager {
     const node = document.createElement('button')
     node.type = 'button'
     node.className = 'editor-object-node'
-    node.draggable = true
+    node.draggable = !data.isLocked
     if (this.context.selectedEditorObjectIds.includes(data.id)) {
       node.classList.add('is-selected')
+    }
+    if (data.isLocked) {
+      node.classList.add('is-locked')
     }
     node.dataset.objectId = String(data.id)
     if (this.isGroupContainerData(data)) {
       const icon = document.createElement('span')
-      icon.className = 'editor-object-group-icon'
+      icon.className = 'editor-object-status editor-object-group-icon'
       icon.setAttribute('aria-hidden', 'true')
       node.appendChild(icon)
     }
@@ -281,7 +284,17 @@ export class EditorObjectTreeManager {
     label.className = 'editor-object-label'
     label.textContent = data.name
     node.appendChild(label)
+    if (data.isLocked) {
+      const lockIcon = document.createElement('span')
+      lockIcon.className = 'editor-object-status editor-object-lock-icon'
+      lockIcon.setAttribute('aria-hidden', 'true')
+      node.appendChild(lockIcon)
+    }
     node.addEventListener('dragstart', (event) => {
+      if (data.isLocked) {
+        event.preventDefault()
+        return
+      }
       this.context.onDragStart(data.id)
       this.clearDragPreview()
       event.dataTransfer?.setData('text/plain', String(data.id))

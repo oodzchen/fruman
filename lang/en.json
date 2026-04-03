@@ -85,6 +85,8 @@
   "editor_object_menu_group": "Group",
   "editor_object_menu_convert_group": "Convert To Group",
   "editor_object_menu_ungroup": "Ungroup",
+  "editor_object_menu_lock": "Lock",
+  "editor_object_menu_unlock": "Unlock",
   "editor_object_menu_copy": "Copy",
   "editor_object_menu_paste": "Paste",
   "editor_confirm_delete_shape": "Delete this shape?",

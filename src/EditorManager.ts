@@ -274,6 +274,7 @@ export class EditorManager {
       },
       onSelectionChanged: (obj) => {
         this.cameraManager.refreshCameraFocus(obj)
+        this.updateActiveSelectionLockVisual()
       },
       onBringToFront: (obj) => {
         if (this.cameraManager.isCameraFrame(obj)) {
@@ -1302,13 +1303,53 @@ export class EditorManager {
     if (objects.length === 1) {
       canvas.setActiveObject(objects[0])
       this.objectManager.handleCanvasSelection(objects)
+      this.updateActiveSelectionLockVisual()
       canvas.requestRenderAll()
       return
     }
     const selection = new fabric.ActiveSelection(objects, { canvas })
     canvas.setActiveObject(selection)
     this.objectManager.handleCanvasSelection(objects)
+    this.updateActiveSelectionLockVisual()
     canvas.requestRenderAll()
+  }
+
+  private selectionContainsLockedObject(
+    objects: readonly fabric.Object[]
+  ): boolean {
+    for (let i = 0; i < objects.length; i++) {
+      if (this.objectManager.isObjectLocked(objects[i])) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private isSelectionLocked(): boolean {
+    return this.objectManager.hasLockedObjects(
+      this.objectManager.getSelectedEditorObjectIds()
+    )
+  }
+
+  private updateActiveSelectionLockVisual() {
+    const active = this.fabricCanvas?.getActiveObject() ?? null
+    if (!(active instanceof fabric.ActiveSelection)) {
+      return
+    }
+    const baseObject = fabric.Object.prototype
+    const isLocked = this.selectionContainsLockedObject(active.getObjects())
+    active.borderColor = isLocked
+      ? 'rgba(190, 66, 66, 0.92)'
+      : baseObject.borderColor
+    active.cornerColor = isLocked
+      ? 'rgba(220, 92, 92, 0.95)'
+      : baseObject.cornerColor
+    active.cornerStrokeColor = isLocked
+      ? 'rgba(42, 8, 8, 0.85)'
+      : baseObject.cornerStrokeColor
+    active.hasControls = !isLocked
+    active.lockMovementX = isLocked
+    active.lockMovementY = isLocked
   }
 
   private getDragSelectionIds(primaryId: number) {
@@ -1544,6 +1585,9 @@ export class EditorManager {
   private handleEditablePolygonPointerDown(
     opt: fabric.IEvent<MouseEvent>
   ): boolean {
+    if (this.objectManager.isObjectLocked(opt.target ?? null)) {
+      return false
+    }
     return this.polygonEditor.handleEditablePolygonPointerDown(opt)
   }
 
@@ -2051,6 +2095,7 @@ export class EditorManager {
       ) {
         resolvedData.name = node.name
       }
+      resolvedData.isLocked = node.isLocked === true
       resolved.push(resolvedData)
       resolvedIdSet.add(resolvedData.id)
     }
@@ -2076,6 +2121,7 @@ export class EditorManager {
       }
     }
     this.objectManager.applyTreeSnapshot(order, parentIds)
+    this.objectManager.applyObjectLockStates()
     this.syncAllManagedGroupTargets()
   }
 
@@ -2086,6 +2132,13 @@ export class EditorManager {
     }
     const active = canvas.getActiveObject()
     if (!active || !this.objectManager.getEditorObjectMap().has(active)) {
+      return
+    }
+    if (
+      this.objectManager.isObjectLocked(active) ||
+      (active instanceof fabric.ActiveSelection &&
+        this.selectionContainsLockedObject(active.getObjects()))
+    ) {
       return
     }
     if (this.terrainManager.isTerrainProxy(active)) {
@@ -2182,6 +2235,9 @@ export class EditorManager {
       !polygon.canvas ||
       !polygon.points
     ) {
+      return false
+    }
+    if (this.objectManager.isObjectLocked(polygon)) {
       return false
     }
     const pointer = polygon.canvas.getPointer(event)
@@ -2292,9 +2348,13 @@ export class EditorManager {
     clientX: number,
     clientY: number
   ) {
+    if (this.objectManager.isObjectLocked(target)) {
+      this.showPolygonMenuWithActions(['unlock'], target, -1, clientX, clientY)
+      return
+    }
     if (this.terrainManager.isTerrainProxy(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'delete'],
+        ['copy', 'paste', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2304,7 +2364,7 @@ export class EditorManager {
     }
     if (this.cameraManager.isCameraFrame(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'zoom', 'reset', 'rename', 'delete'],
+        ['copy', 'paste', 'zoom', 'reset', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2314,7 +2374,7 @@ export class EditorManager {
     }
     if (this.markerManager.isPlayerMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'properties', 'rename', 'delete'],
+        ['copy', 'paste', 'properties', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2324,7 +2384,7 @@ export class EditorManager {
     }
     if (this.markerManager.isNpcMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'properties', 'rename', 'delete'],
+        ['copy', 'paste', 'properties', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2334,7 +2394,7 @@ export class EditorManager {
     }
     if (this.markerManager.isWeaponMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'properties', 'rename', 'delete'],
+        ['copy', 'paste', 'properties', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2344,7 +2404,7 @@ export class EditorManager {
     }
     if (this.isGroupContainer(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'ungroup', 'rename', 'delete'],
+        ['copy', 'paste', 'ungroup', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2357,13 +2417,14 @@ export class EditorManager {
       if (this.shouldShowConvertGroupAction(target)) {
         actions.push('convertGroup')
       }
+      actions.push('lock')
       actions.push('delete')
       this.showPolygonMenuWithActions(actions, target, -1, clientX, clientY)
       return
     }
     if (this.markerManager.isCheckpointMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'delete'],
+        ['copy', 'paste', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2373,7 +2434,7 @@ export class EditorManager {
     }
     if (this.markerManager.isHookAnchorMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'delete'],
+        ['copy', 'paste', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2383,7 +2444,7 @@ export class EditorManager {
     }
     if (target.type === 'rect') {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'reset', 'square', 'delete'],
+        ['copy', 'paste', 'rename', 'reset', 'square', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2393,7 +2454,7 @@ export class EditorManager {
     }
     if (this.isTriangleShape(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'reset', 'equilateral', 'delete'],
+        ['copy', 'paste', 'rename', 'reset', 'equilateral', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2402,7 +2463,7 @@ export class EditorManager {
       return
     }
     this.showPolygonMenuWithActions(
-      ['copy', 'paste', 'rename', 'reset', 'delete'],
+      ['copy', 'paste', 'rename', 'reset', 'lock', 'delete'],
       target,
       -1,
       clientX,
@@ -2516,14 +2577,11 @@ export class EditorManager {
       }
     }
     if (!menuTarget) return
-    const hasCopyable = this.clipboardManager.canCopy(menuTarget)
     const actions: ContextMenuAction[] = []
     if (this.shouldShowGroupAction()) {
       actions.push('group')
     }
-    if (hasCopyable) {
-      actions.push('copy')
-    }
+    actions.push('copy')
     actions.push('delete')
     this.contextMenu.show(actions, menuTarget, -1, clientX, clientY)
   }
@@ -2580,11 +2638,34 @@ export class EditorManager {
   }
 
   private isContextMenuActionDisabled(action: ContextMenuAction): boolean {
+    const target = this.contextMenu.getTarget()
+    const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+    const hasLockedSelection = this.isSelectionLocked()
+    if (action === 'unlock') {
+      return !target || !this.objectManager.isObjectLocked(target)
+    }
+    if (action === 'lock') {
+      return !target || this.objectManager.isObjectLocked(target)
+    }
+    if (target && this.objectManager.isObjectLocked(target)) {
+      return true
+    }
+    if (selectedIds.length > 1) {
+      if (action === 'copy' || action === 'delete' || action === 'group') {
+        return hasLockedSelection
+      }
+    }
+    if (action === 'delete' && target) {
+      const targetId = this.objectManager.getEditorObjectMap().get(target)?.id
+      return (
+        targetId === undefined ||
+        this.objectManager.hasLockedObjects([targetId])
+      )
+    }
     if (action === 'group') {
       return !this.canGroupCurrentSelection()
     }
     if (action === 'convertGroup') {
-      const target = this.contextMenu.getTarget()
       return !target || !this.objectManager.canConvertEmptyObjectToGroup(target)
     }
     return false
@@ -2620,6 +2701,9 @@ export class EditorManager {
   private deleteObjectsWithChildren(ids: readonly number[]): boolean {
     const canvas = this.fabricCanvas
     if (!canvas || ids.length === 0) {
+      return false
+    }
+    if (this.objectManager.hasLockedObjects(ids)) {
       return false
     }
     const subtreeIds = this.objectManager.getSubtreeObjectIds(ids)
@@ -2674,9 +2758,11 @@ export class EditorManager {
       this.contextMenu.hide()
       return
     }
-    this.deleteObjectsWithChildren(ids)
+    const changed = this.deleteObjectsWithChildren(ids)
     this.contextMenu.hide()
-    this.captureHistorySnapshot()
+    if (changed) {
+      this.captureHistorySnapshot()
+    }
   }
 
   private showPolygonMenuWithActions(
@@ -2742,6 +2828,26 @@ export class EditorManager {
       return
     }
     const canvas = target.canvas
+    if (action === 'lock') {
+      const changed = this.objectManager.setObjectLocked(target, true)
+      this.contextMenu.hide()
+      if (changed) {
+        this.updateActiveSelectionLockVisual()
+        canvas.requestRenderAll()
+        this.captureHistorySnapshot()
+      }
+      return
+    }
+    if (action === 'unlock') {
+      const changed = this.objectManager.setObjectLocked(target, false)
+      this.contextMenu.hide()
+      if (changed) {
+        this.updateActiveSelectionLockVisual()
+        canvas.requestRenderAll()
+        this.captureHistorySnapshot()
+      }
+      return
+    }
     if (action === 'convertGroup') {
       if (!this.objectManager.canConvertEmptyObjectToGroup(target)) {
         this.contextMenu.hide()

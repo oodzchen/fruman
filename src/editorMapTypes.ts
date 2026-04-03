@@ -34,6 +34,7 @@ export interface EditorTreeNode {
   objectKind?: MapObjectKind
   name?: string
   isGroupContainer?: boolean
+  isLocked?: boolean
 }
 
 export interface EditorTreeData {

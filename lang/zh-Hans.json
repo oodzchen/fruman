@@ -90,6 +90,8 @@
   "editor_object_menu_group": "分组",
   "editor_object_menu_convert_group": "转换成组",
   "editor_object_menu_ungroup": "解除分组",
+  "editor_object_menu_lock": "锁定",
+  "editor_object_menu_unlock": "解锁",
   "editor_object_menu_copy": "复制",
   "editor_object_menu_paste": "粘贴",
   "editor_confirm_delete_shape": "确认删除该对象？",

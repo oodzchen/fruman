@@ -4,6 +4,10 @@ import { localizer } from '../Localizer'
 import { ObjectType } from './types'
 import type { EditorEmptyObject, EditorObjectData, WeaponMarker } from './types'
 
+const EDITOR_LOCKED_SELECTION_BORDER_COLOR = 'rgba(190, 66, 66, 0.92)'
+const EDITOR_LOCKED_SELECTION_CORNER_COLOR = 'rgba(220, 92, 92, 0.95)'
+const EDITOR_LOCKED_SELECTION_CORNER_STROKE_COLOR = 'rgba(42, 8, 8, 0.85)'
+
 export interface EditorObjectManagerContext {
   fabricCanvas: () => fabric.Canvas | null
   onObjectRemoved: (object: fabric.Object) => void
@@ -117,6 +121,7 @@ export class EditorObjectManager {
       return existing
     }
     const data = this.createEditorObjectData(type, object, preferredName)
+    this.applyObjectLockState(data)
     this.editorObjects.push(data)
     this.editorObjectMap.set(object, data)
     this.applyEditorObjectStacking()
@@ -285,6 +290,49 @@ export class EditorObjectManager {
     return this.resolveSelectableObject(object)
   }
 
+  isObjectLocked(object: fabric.Object | null): boolean {
+    if (!object) {
+      return false
+    }
+    const data = this.editorObjectMap.get(this.resolveSelectableObject(object))
+    return data?.isLocked === true
+  }
+
+  hasLockedObjects(ids: readonly number[]): boolean {
+    const subtreeIds = this.getSubtreeObjectIds(ids)
+    for (let i = 0; i < subtreeIds.length; i++) {
+      const data = this.getEditorObjectById(subtreeIds[i])
+      if (data?.isLocked) {
+        return true
+      }
+    }
+    return false
+  }
+
+  setObjectLocked(object: fabric.Object, locked: boolean): boolean {
+    const target = this.resolveSelectableObject(object)
+    const data = this.editorObjectMap.get(target)
+    if (!data || data.isLocked === locked) {
+      return false
+    }
+    data.isLocked = locked
+    this.applyObjectLockState(data)
+    if (locked && this.renamingEditorObjectId === data.id) {
+      this.renamingEditorObjectId = -1
+    }
+    this.applyEditorObjectStacking()
+    this.ctx.renderObjectTree()
+    return true
+  }
+
+  applyObjectLockStates(): void {
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      this.applyObjectLockState(this.editorObjects[i])
+    }
+    this.applyEditorObjectStacking()
+    this.ctx.renderObjectTree()
+  }
+
   handleCanvasSelection(targets: fabric.Object[]) {
     const previousFocus = this.focusedEditorObject
     const nextIds: number[] = []
@@ -359,6 +407,18 @@ export class EditorObjectManager {
     if (movingData.length === 0) {
       return false
     }
+    for (let i = 0; i < movingData.length; i++) {
+      const data = movingData[i]
+      if (data.isLocked) {
+        return false
+      }
+      if (data.parentId !== null) {
+        const currentParent = this.getEditorObjectById(data.parentId)
+        if (currentParent?.isLocked) {
+          return false
+        }
+      }
+    }
 
     let newParentId: number | null = null
     if (targetId !== null) {
@@ -374,6 +434,9 @@ export class EditorObjectManager {
       }
 
       if (position === 'inside') {
+        if (targetData.isLocked) {
+          return false
+        }
         newParentId = targetId
       } else {
         newParentId = targetData.parentId
@@ -384,6 +447,9 @@ export class EditorObjectManager {
 
     const nextParentData =
       newParentId === null ? null : this.getEditorObjectById(newParentId)
+    if (nextParentData?.isLocked) {
+      return false
+    }
     if (
       nextParentData &&
       this.isGroupContainerObject(nextParentData.object) &&
@@ -455,6 +521,9 @@ export class EditorObjectManager {
       if (!data) {
         return false
       }
+      if (data.isLocked) {
+        return false
+      }
       if (this.isGroupContainerObject(data.object)) {
         return false
       }
@@ -471,7 +540,10 @@ export class EditorObjectManager {
     }
 
     const parentData = this.getEditorObjectById(sharedParentId)
-    return !parentData || !this.isGroupContainerObject(parentData.object)
+    return (
+      (!parentData || !this.isGroupContainerObject(parentData.object)) &&
+      parentData?.isLocked !== true
+    )
   }
 
   createGroupObject(
@@ -552,7 +624,8 @@ export class EditorObjectManager {
     if (
       !data ||
       data.type !== ObjectType.Empty ||
-      this.isGroupContainerObject(object)
+      this.isGroupContainerObject(object) ||
+      data.isLocked
     ) {
       return false
     }
@@ -563,7 +636,7 @@ export class EditorObjectManager {
         continue
       }
       childCount += 1
-      if (this.isGroupContainerObject(childData.object)) {
+      if (this.isGroupContainerObject(childData.object) || childData.isLocked) {
         return false
       }
     }
@@ -583,10 +656,11 @@ export class EditorObjectManager {
   }
 
   ungroupObject(groupObject: fabric.Object): boolean {
-    if (!this.isGroupContainerObject(groupObject)) {
+    const data = this.editorObjectMap.get(groupObject)
+    if (!this.isGroupContainerObject(groupObject) || data?.isLocked) {
       return false
     }
-    this.detachGroupChildren(this.editorObjectMap.get(groupObject)?.id ?? -1)
+    this.detachGroupChildren(data?.id ?? -1)
     groupObject.isGroupContainer = false
     groupObject.setCoords()
     this.applyEditorObjectStacking()
@@ -610,12 +684,15 @@ export class EditorObjectManager {
       if (!childData) {
         return false
       }
+      if (childData.isLocked) {
+        return false
+      }
       const parentId = parentIds[i]
       if (parentId === null) {
         continue
       }
       const parentData = this.getEditorObjectById(parentId)
-      if (!parentData) {
+      if (!parentData || parentData.isLocked) {
         return false
       }
       if (
@@ -652,7 +729,7 @@ export class EditorObjectManager {
 
   beginObjectRename(object: fabric.Object) {
     const data = this.editorObjectMap.get(object)
-    if (!data) {
+    if (!data || data.isLocked) {
       return
     }
     this.renamingEditorObjectId = data.id
@@ -662,6 +739,11 @@ export class EditorObjectManager {
   commitObjectRename(id: number, value: string): boolean {
     const data = this.getEditorObjectById(id)
     if (!data) {
+      this.renamingEditorObjectId = -1
+      this.ctx.renderObjectTree()
+      return false
+    }
+    if (data.isLocked) {
       this.renamingEditorObjectId = -1
       this.ctx.renderObjectTree()
       return false
@@ -829,7 +911,18 @@ export class EditorObjectManager {
     const generatedName = `${defaultNameBase}${nextCount}`
     const name =
       preferredName && preferredName.length > 0 ? preferredName : generatedName
-    return { id, name, type, object, parentId: null }
+    return {
+      id,
+      name,
+      type,
+      object,
+      parentId: null,
+      isLocked: false,
+      hasControlsWhenUnlocked: object.hasControls === true,
+      borderColorWhenUnlocked: object.borderColor,
+      cornerColorWhenUnlocked: object.cornerColor,
+      cornerStrokeColorWhenUnlocked: object.cornerStrokeColor,
+    }
   }
 
   private synchronizeGroupMemberships(): void {
@@ -891,11 +984,30 @@ export class EditorObjectManager {
     _groupId: number
   ): boolean {
     for (let i = 0; i < movingData.length; i++) {
-      if (this.isGroupContainerObject(movingData[i].object)) {
+      if (
+        this.isGroupContainerObject(movingData[i].object) ||
+        movingData[i].isLocked
+      ) {
         return false
       }
     }
     return true
+  }
+
+  private applyObjectLockState(data: EditorObjectData): void {
+    const object = data.object
+    object.lockMovementX = data.isLocked
+    object.lockMovementY = data.isLocked
+    object.hasControls = data.isLocked ? false : data.hasControlsWhenUnlocked
+    object.borderColor = data.isLocked
+      ? EDITOR_LOCKED_SELECTION_BORDER_COLOR
+      : data.borderColorWhenUnlocked
+    object.cornerColor = data.isLocked
+      ? EDITOR_LOCKED_SELECTION_CORNER_COLOR
+      : data.cornerColorWhenUnlocked
+    object.cornerStrokeColor = data.isLocked
+      ? EDITOR_LOCKED_SELECTION_CORNER_STROKE_COLOR
+      : data.cornerStrokeColorWhenUnlocked
   }
 
   private isGroupContainerObject(

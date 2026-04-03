@@ -249,4 +249,9 @@ export interface EditorObjectData {
   type: ObjectType
   object: fabric.Object
   parentId: number | null
+  isLocked: boolean
+  hasControlsWhenUnlocked: boolean
+  borderColorWhenUnlocked?: string
+  cornerColorWhenUnlocked?: string
+  cornerStrokeColorWhenUnlocked?: string
 }

@@ -35,6 +35,7 @@ interface EditorObjectLike {
   parentId: number | null
   type: ObjectType
   object: fabric.Object
+  isLocked: boolean
 }
 
 interface CameraViewLike {
@@ -546,6 +547,7 @@ export class EditorMapSerializer {
           (dataItem.object as Partial<{ isGroupContainer: boolean }>)
             .isGroupContainer === true
       }
+      node.isLocked = dataItem.isLocked === true
       if (dataItem.type === 'ground' || dataItem.type === 'obstacle') {
         const index = data.shapeIndexMap.get(dataItem.object)
         if (index === undefined) {
