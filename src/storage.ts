@@ -7,6 +7,10 @@ import type {
   MapNpc,
   MapNpcTemplate,
 } from './editorMapTypes'
+import {
+  getDefaultShapeRenderLayer,
+  getDefaultTerrainRenderLayer,
+} from './renderLayers'
 import type { SaveData, SaveMeta, SaveNpcState } from './saveTypes'
 import { inferTerrainMaterialId } from './terrain/TerrainDataUtils'
 import {
@@ -537,6 +541,13 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
   return {
     ...data,
     player: normalizeMapPlayer(data.player),
+    shapes: data.shapes.map((shape) => ({
+      ...shape,
+      renderLayer:
+        typeof shape.renderLayer === 'number'
+          ? shape.renderLayer | 0
+          : getDefaultShapeRenderLayer(),
+    })),
     npcs: rawNpcs.map(normalizeMapNpc),
     terrain: normalizeMapTerrain(data.terrain),
     npcTemplates: (data.npcTemplates ?? []).map(normalizeMapNpcTemplate),
@@ -579,10 +590,16 @@ function normalizeMapTerrain(
             if (chunks.length === 0) {
               return null
             }
+            const materialId =
+              layer.materialId ?? inferTerrainMaterialId(chunks)
             return {
-              materialId: layer.materialId ?? inferTerrainMaterialId(chunks),
+              materialId,
               offsetCellX: layer.offsetCellX | 0,
               offsetCellY: layer.offsetCellY | 0,
+              renderLayer:
+                typeof layer.renderLayer === 'number'
+                  ? layer.renderLayer | 0
+                  : getDefaultTerrainRenderLayer(materialId),
               chunks,
             }
           })
@@ -596,10 +613,12 @@ function normalizeMapTerrain(
     if (legacyChunks.length === 0) {
       return undefined
     }
+    const materialId = inferTerrainMaterialId(legacyChunks)
     normalizedLayers.push({
-      materialId: inferTerrainMaterialId(legacyChunks),
+      materialId,
       offsetCellX: 0,
       offsetCellY: 0,
+      renderLayer: getDefaultTerrainRenderLayer(materialId),
       chunks: legacyChunks,
     })
   }
@@ -851,5 +870,42 @@ export async function setLastSaveId(saveId: string): Promise<void> {
     store.put(saveId, LAST_SAVE_KEY)
   } catch {
     // Ignore errors
+  }
+}
+
+export async function loadEditorSetting<T>(key: string): Promise<T | null> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(SETTINGS_STORE, 'readonly')
+      const store = tx.objectStore(SETTINGS_STORE)
+      const request = store.get(key)
+
+      request.onsuccess = () => {
+        const result = request.result as T | undefined
+        resolve(result ?? null)
+      }
+      request.onerror = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function saveEditorSetting(
+  key: string,
+  value: unknown
+): Promise<boolean> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(SETTINGS_STORE, 'readwrite')
+      tx.objectStore(SETTINGS_STORE).put(value, key)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => resolve(false)
+      tx.onabort = () => resolve(false)
+    })
+  } catch {
+    return false
   }
 }

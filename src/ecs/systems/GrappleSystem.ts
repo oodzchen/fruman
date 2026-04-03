@@ -1,5 +1,4 @@
 import {
-  CATEGORY_ROPE,
   DEFAULT_GRAPPLE_ENEMY_COOLDOWN_MS,
   DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS,
   DEFAULT_GRAPPLE_PULL_STOP_DISTANCE,
@@ -17,8 +16,11 @@ import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   GRAPPLE_CLIMB_SPEED,
-  MASK_ROPE,
 } from '../../constants'
+import {
+  getRopeCollisionCategory,
+  getRopeCollisionMask,
+} from '../../physicsLayers'
 import type {
   MainModule,
   b2BodyId,
@@ -194,7 +196,8 @@ export class GrappleSystem extends System {
         entity.transform.x,
         entity.transform.y,
         facing,
-        this.tempTarget
+        this.tempTarget,
+        entity.render?.renderLayer ?? 0
       )
 
       if (!grapple.hasGrapple) {
@@ -241,6 +244,7 @@ export class GrappleSystem extends System {
             entity.transform.y,
             facing,
             this.tempTarget,
+            entity.render?.renderLayer ?? 0,
             grapple.targetX,
             grapple.targetY
           )
@@ -298,7 +302,9 @@ export class GrappleSystem extends System {
             lockedTarget.transform &&
             lockedTarget.physics &&
             lockedTarget.stats &&
-            !lockedTarget.stats.isDead
+            !lockedTarget.stats.isDead &&
+            (lockedTarget.render?.renderLayer ?? 0) ===
+              (entity.render?.renderLayer ?? 0)
           ) {
             const dx = lockedTarget.transform.x - entity.transform.x
             const dy = lockedTarget.transform.y - entity.transform.y
@@ -350,6 +356,7 @@ export class GrappleSystem extends System {
               entity.transform.y,
               facing,
               this.tempTarget,
+              entity.render?.renderLayer ?? 0,
               currentTargetX,
               currentTargetY
             )
@@ -444,6 +451,7 @@ export class GrappleSystem extends System {
     y: number,
     facing: number,
     out: { x: number; y: number },
+    renderLayer: number,
     currentTargetX?: number,
     currentTargetY?: number
   ): boolean {
@@ -456,6 +464,7 @@ export class GrappleSystem extends System {
       const anchor = this.anchorEntities[i]
       const anchorPos = anchor.transform
       if (!anchorPos) continue
+      if ((anchor.render?.renderLayer ?? 0) !== renderLayer) continue
 
       if (
         currentTargetX !== undefined &&
@@ -824,7 +833,11 @@ export class GrappleSystem extends System {
       const centerFactor = i + 1
       const centerX = anchorX + dirX * (centerFactor * linkLength)
       const centerY = anchorY + dirY * (centerFactor * linkLength)
-      const segmentBodyId = this.createRopeSegmentBody(centerX, centerY)
+      const segmentBodyId = this.createRopeSegmentBody(
+        centerX,
+        centerY,
+        entity.render?.renderLayer ?? 0
+      )
       runtime.segmentBodies.push(segmentBodyId)
       const segmentJointId = this.createFixedDistanceJoint(
         previousBodyId,
@@ -1009,7 +1022,11 @@ export class GrappleSystem extends System {
     return bodyId
   }
 
-  private createRopeSegmentBody(x: number, y: number): b2BodyId {
+  private createRopeSegmentBody(
+    x: number,
+    y: number,
+    renderLayer: number
+  ): b2BodyId {
     const bodyDef = this.box2d.b2DefaultBodyDef()
     bodyDef.type = this.box2d.b2BodyType.b2_dynamicBody
     bodyDef.position.Set(x, y)
@@ -1021,8 +1038,8 @@ export class GrappleSystem extends System {
     shapeDef.density = this.ropeDensity
     shapeDef.material.friction = 0.1
     shapeDef.material.restitution = 0
-    shapeDef.filter.categoryBits = CATEGORY_ROPE
-    shapeDef.filter.maskBits = MASK_ROPE
+    shapeDef.filter.categoryBits = getRopeCollisionCategory(renderLayer)
+    shapeDef.filter.maskBits = getRopeCollisionMask(renderLayer)
 
     const circle = new this.box2d.b2Circle()
     circle.center.Set(0, 0)

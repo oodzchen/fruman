@@ -20,6 +20,8 @@ export interface EditorObjectTreeManagerContext {
   onDropToRoot: (dragId: number) => void
   onDragEnd: () => void
   onObjectSelected: (id: number, mode: 'replace' | 'toggle' | 'range') => void
+  onObjectContextMenu: (id: number, clientX: number, clientY: number) => void
+  onCollapsedPathsChanged: (paths: readonly string[]) => void
   selectedEditorObjectIds: number[]
 }
 
@@ -29,7 +31,7 @@ export class EditorObjectTreeManager {
   private dragPreviewId = -1
   private dragPreviewAfter = false
   private dragParentPreviewId = -1
-  private groupOpenMap = new Map<number, boolean>()
+  private collapsedPathSet = new Set<string>()
 
   constructor(context: EditorObjectTreeManagerContext) {
     this.context = context
@@ -57,6 +59,21 @@ export class EditorObjectTreeManager {
         objectId,
         isRange ? 'range' : isToggle ? 'toggle' : 'replace'
       )
+    })
+
+    this.editorObjectTree.addEventListener('contextmenu', (event) => {
+      const target = event.target as HTMLElement | null
+      const node = target?.closest<HTMLButtonElement>('.editor-object-node')
+      if (!node?.dataset.objectId) {
+        return
+      }
+      const objectId = Number.parseInt(node.dataset.objectId, 10)
+      if (!Number.isFinite(objectId)) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      this.context.onObjectContextMenu(objectId, event.clientX, event.clientY)
     })
 
     window.addEventListener('dragover', (event) => {
@@ -157,8 +174,26 @@ export class EditorObjectTreeManager {
       }
     }
 
+    const visiblePathSet = new Set<string>()
     for (let i = 0; i < roots.length; i++) {
-      this.renderObjectNode(roots[i], childrenMap, this.editorObjectTree)
+      this.renderObjectNode(
+        roots[i],
+        childrenMap,
+        this.editorObjectTree,
+        String(i),
+        visiblePathSet
+      )
+    }
+
+    let changed = false
+    this.collapsedPathSet.forEach((path) => {
+      if (!visiblePathSet.has(path)) {
+        this.collapsedPathSet.delete(path)
+        changed = true
+      }
+    })
+    if (changed) {
+      this.notifyCollapsedPathsChanged()
     }
   }
 
@@ -188,18 +223,26 @@ export class EditorObjectTreeManager {
   private renderObjectNode(
     data: EditorObjectData,
     childrenMap: Map<number, EditorObjectData[]>,
-    container: HTMLElement
+    container: HTMLElement,
+    path: string,
+    visiblePathSet: Set<string>
   ) {
     const children = childrenMap.get(data.id) ?? []
     const isRenaming = data.id === this.context.renamingEditorObjectId
     const hasChildren = children.length > 0
 
     if (hasChildren) {
+      visiblePathSet.add(path)
       const details = document.createElement('details')
       details.className = 'editor-object-group'
-      details.open = this.groupOpenMap.get(data.id) ?? true
+      details.open = !this.collapsedPathSet.has(path)
       details.addEventListener('toggle', () => {
-        this.groupOpenMap.set(data.id, details.open)
+        if (details.open) {
+          this.collapsedPathSet.delete(path)
+        } else {
+          this.collapsedPathSet.add(path)
+        }
+        this.notifyCollapsedPathsChanged()
       })
       const summary = document.createElement('summary')
       const toggle = document.createElement('button')
@@ -209,7 +252,6 @@ export class EditorObjectTreeManager {
         event.preventDefault()
         event.stopPropagation()
         details.open = !details.open
-        this.groupOpenMap.set(data.id, details.open)
       })
       summary.appendChild(toggle)
       if (isRenaming) {
@@ -236,7 +278,13 @@ export class EditorObjectTreeManager {
       })
 
       for (let i = 0; i < children.length; i++) {
-        this.renderObjectNode(children[i], childrenMap, childContainer)
+        this.renderObjectNode(
+          children[i],
+          childrenMap,
+          childContainer,
+          `${path}/${i}`,
+          visiblePathSet
+        )
       }
 
       details.appendChild(childContainer)
@@ -421,5 +469,16 @@ export class EditorObjectTreeManager {
 
   public updateContext(updates: Partial<EditorObjectTreeManagerContext>) {
     Object.assign(this.context, updates)
+  }
+
+  public setCollapsedPaths(paths: readonly string[]): void {
+    this.collapsedPathSet.clear()
+    for (let i = 0; i < paths.length; i++) {
+      this.collapsedPathSet.add(paths[i])
+    }
+  }
+
+  private notifyCollapsedPathsChanged(): void {
+    this.context.onCollapsedPathsChanged(Array.from(this.collapsedPathSet))
   }
 }

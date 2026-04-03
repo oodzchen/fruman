@@ -121,12 +121,14 @@ export class CheckpointSystem extends System {
     playerX: number,
     playerY: number
   ): void {
+    const playerLayer = this.player?.render?.renderLayer ?? 0
     let bestEntity: Entity | null = null
     let bestDist = 0
 
     for (let i = 0; i < entities.length; i += 1) {
       const entity = entities[i]
       if (!entity.transform || !entity.checkpoint) continue
+      if ((entity.render?.renderLayer ?? 0) !== playerLayer) continue
 
       const radius = entity.checkpoint.activationRadius
       const radiusSq = radius * radius

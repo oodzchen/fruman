@@ -3,12 +3,14 @@ import type {
   TerrainBrushId,
   TerrainMaterialDefinition,
   TerrainMaterialId,
+  TerrainMaterialTag,
 } from './TerrainTypes'
 
 const TERRAIN_MATERIALS: readonly TerrainMaterialDefinition[] = [
   {
     id: 'dirt',
     code: 1,
+    materialTag: 'ground',
     labelKey: 'editor_terrain_brush_dirt',
     breakable: true,
     hardness: 12,
@@ -18,6 +20,7 @@ const TERRAIN_MATERIALS: readonly TerrainMaterialDefinition[] = [
   {
     id: 'grass',
     code: 2,
+    materialTag: 'ground',
     labelKey: 'editor_terrain_brush_grass',
     breakable: true,
     hardness: 14,
@@ -27,6 +30,7 @@ const TERRAIN_MATERIALS: readonly TerrainMaterialDefinition[] = [
   {
     id: 'stone',
     code: 3,
+    materialTag: 'obstacle',
     labelKey: 'editor_terrain_brush_stone',
     breakable: true,
     hardness: 24,
@@ -36,6 +40,7 @@ const TERRAIN_MATERIALS: readonly TerrainMaterialDefinition[] = [
   {
     id: 'wood',
     code: 4,
+    materialTag: 'ground',
     labelKey: 'editor_terrain_brush_wood',
     breakable: true,
     hardness: 18,
@@ -45,6 +50,7 @@ const TERRAIN_MATERIALS: readonly TerrainMaterialDefinition[] = [
   {
     id: 'leaves',
     code: 5,
+    materialTag: 'foliage',
     labelKey: 'editor_terrain_brush_leaves',
     breakable: true,
     hardness: 8,
@@ -143,6 +149,19 @@ export function getTerrainBrushById(
 
 export function getTerrainMaterialCodeById(id: TerrainMaterialId): number {
   return getTerrainMaterialById(id).code
+}
+
+export function getTerrainMaterialTagById(
+  id: TerrainMaterialId
+): TerrainMaterialTag {
+  return getTerrainMaterialById(id).materialTag
+}
+
+export function getTerrainMaterialTagByCode(
+  code: number
+): TerrainMaterialTag | null {
+  const material = getTerrainMaterialByCode(code)
+  return material ? material.materialTag : null
 }
 
 export function isSolidTerrainCode(code: number): boolean {

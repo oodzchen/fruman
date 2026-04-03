@@ -34,6 +34,10 @@ export class ExpOrbSystem {
       for (let j = 0; j < players.length; j++) {
         const player = players[j]
         if (!player.transform || !player.level || player.stats?.isDead) continue
+        if (
+          (player.render?.renderLayer ?? 0) !== (orb.render?.renderLayer ?? 0)
+        )
+          continue
         const dx = orb.transform.x - player.transform.x
         const dy = orb.transform.y - player.transform.y
         if (dx * dx + dy * dy > eo.pickupRadiusSq) continue

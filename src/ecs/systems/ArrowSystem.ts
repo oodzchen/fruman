@@ -148,11 +148,13 @@ export class ArrowSystem extends System {
       const queryRadius = arrow.hitRadius + DEFAULT_PLAYER_RADIUS
       const nearby = this.spatialHash.query(headX, headY, queryRadius)
       const nearbyCount = this.spatialHash.getQueryResultLength()
+      const arrowLayer = entity.weapon.renderLayer
 
       for (let i = 0; i < nearbyCount; i++) {
         const target = nearby[i]
         if (!target.stats || !target.faction || !target.transform) continue
         if (target.id === arrow.ownerId) continue
+        if ((target.render?.renderLayer ?? 0) !== arrowLayer) continue
         if (!arrow.npcFactions.includes(target.faction.factionId)) continue
 
         const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS

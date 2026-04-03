@@ -9,6 +9,7 @@ export interface TerrainResolvedLayerView extends TerrainDataLike {
   offsetCellX: number
   offsetCellY: number
   materialId?: TerrainMaterialId
+  renderLayer?: number
   layers?: undefined
 }
 
@@ -51,6 +52,7 @@ export function getTerrainLayerViews(
       chunks: terrain.chunks,
       offsetCellX: 0,
       offsetCellY: 0,
+      renderLayer: 0,
     },
   ]
 }
@@ -96,5 +98,6 @@ function createLayerView(
     offsetCellX: layer.offsetCellX | 0,
     offsetCellY: layer.offsetCellY | 0,
     materialId: layer.materialId,
+    renderLayer: layer.renderLayer,
   }
 }

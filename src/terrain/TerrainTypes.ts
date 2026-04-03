@@ -3,6 +3,8 @@ export const TERRAIN_CHUNK_SIZE = 16
 export const TERRAIN_CELL_SIZE_METERS = 0.5
 export const DEFAULT_TERRAIN_RANDOM_SEED = 1
 
+export type TerrainMaterialTag = 'ground' | 'obstacle' | 'foliage'
+
 export type TerrainMaterialId = 'dirt' | 'grass' | 'stone' | 'wood' | 'leaves'
 
 export type TerrainBrushId =
@@ -16,6 +18,7 @@ export type TerrainBrushId =
 export interface TerrainMaterialDefinition {
   id: TerrainMaterialId
   code: number
+  materialTag: TerrainMaterialTag
   labelKey: string
   breakable: boolean
   hardness: number
@@ -41,6 +44,7 @@ export interface TerrainLayerLike {
   offsetCellX: number
   offsetCellY: number
   materialId?: TerrainMaterialId
+  renderLayer?: number
   chunks: ReadonlyArray<TerrainChunkLike>
 }
 
@@ -63,6 +67,7 @@ export interface MapTerrainLayer extends TerrainLayerLike {
   offsetCellX: number
   offsetCellY: number
   materialId: TerrainMaterialId
+  renderLayer?: number
   chunks: MapTerrainChunk[]
 }
 
@@ -77,4 +82,6 @@ export interface TerrainCollisionRect {
   cellY: number
   widthCells: number
   heightCells: number
+  renderLayer: number
+  materialTag: TerrainMaterialTag
 }

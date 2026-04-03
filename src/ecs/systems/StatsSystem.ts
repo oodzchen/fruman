@@ -1,8 +1,6 @@
 import {
   ATTACK_TOUGHNESS_DENOMINATOR,
   ATTACK_TOUGHNESS_NUMERATOR,
-  CATEGORY_ENEMY,
-  CATEGORY_PLAYER,
   DEATH_CROSS_DURATION_MS,
   DEATH_PRE_SPLATTER_PAUSE_MS,
   DEFAULT_BODY_FRICTION,
@@ -20,8 +18,6 @@ import {
   HIT_STUN_LIGHT_MS,
   HIT_STUN_MEDIUM_MS,
   IMPACT_LEVEL_KNOCKBACK,
-  MASK_ENEMY,
-  MASK_PLAYER,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
   SOUND_DB_BODY_HIT,
@@ -32,6 +28,12 @@ import {
   STAGGER_KNOCKBACK_MULTIPLIER,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
+import {
+  getEnemyCollisionCategory,
+  getEnemyCollisionMask,
+  getPlayerCollisionCategory,
+  getPlayerCollisionMask,
+} from '../../physicsLayers'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { getWeaponStaggerDropRotationRad } from '../../weaponTypeUtils'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -84,7 +86,7 @@ export class StatsSystem extends System {
   private bloodEffectsEnabled = false
   private colorCache = new Map<string, number>()
   onNpcDeath?: (x: number, y: number) => void
-  onNpcVanish?: (x: number, y: number) => void
+  onNpcVanish?: (x: number, y: number, renderLayer: number) => void
 
   constructor(box2d?: MainModule, worldId?: b2WorldId) {
     super()
@@ -131,7 +133,11 @@ export class StatsSystem extends System {
             }
             this.playSound(SOUND_IDS.DEATH_SPLASH)
             if (entity.npcAI && entity.transform) {
-              this.onNpcVanish?.(entity.transform.x, entity.transform.y)
+              this.onNpcVanish?.(
+                entity.transform.x,
+                entity.transform.y,
+                entity.render?.renderLayer ?? 0
+              )
             }
           }
 
@@ -1053,6 +1059,7 @@ export class StatsSystem extends System {
 
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const isPlayer = entity.faction?.factionId === Faction.Player
+    const renderLayer = entity.render?.renderLayer ?? 0
     const bodyResult = createCharacterPhysicsBody(this.box2d, this.worldId, {
       x: entity.transform.x,
       y: entity.transform.y,
@@ -1061,8 +1068,12 @@ export class StatsSystem extends System {
       bodyProfile: entity.render?.bodyProfile ?? undefined,
       density: 1.0,
       friction: DEFAULT_BODY_FRICTION,
-      categoryBits: isPlayer ? CATEGORY_PLAYER : CATEGORY_ENEMY,
-      maskBits: isPlayer ? MASK_PLAYER : MASK_ENEMY,
+      categoryBits: isPlayer
+        ? getPlayerCollisionCategory(renderLayer)
+        : getEnemyCollisionCategory(renderLayer),
+      maskBits: isPlayer
+        ? getPlayerCollisionMask(renderLayer)
+        : getEnemyCollisionMask(renderLayer),
     })
 
     const physics = new PhysicsComponent()

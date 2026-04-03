@@ -15,9 +15,6 @@ import {
   isValidCharacterBodyProfile,
 } from '../characterBodyProfile'
 import {
-  CATEGORY_GROUND,
-  CATEGORY_OBSTACLE,
-  CATEGORY_WEAPON,
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
   DEBUG_DRAW_CAMERA,
@@ -43,7 +40,6 @@ import {
   GRAPPLE_ANCHOR_HIGHLIGHT_BORDER_COLOR,
   GRAPPLE_ANCHOR_HIGHLIGHT_COLOR,
   GRAPPLE_LONG_PRESS_MS,
-  MASK_WEAPON,
   PLAYER_MAX_LEVEL,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
@@ -98,6 +94,22 @@ import type {
   MapNpcWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
+import {
+  type MapObjectLayerLookup,
+  buildMapObjectLayerLookup,
+  collectCollisionLayers,
+} from '../mapObjectLayers'
+import {
+  configureCollisionLayers,
+  getCollisionLayerValue,
+  getGroundCollisionCategory,
+  getGroundCollisionMask,
+  getObstacleCollisionCategory,
+  getObstacleCollisionMask,
+  getWeaponCollisionCategory,
+  getWeaponCollisionMask,
+} from '../physicsLayers'
+import { normalizeRenderLayer } from '../renderLayers'
 import type {
   SaveCheckpointState,
   SaveData,
@@ -109,6 +121,7 @@ import type {
 import { ensureDefaultMap } from '../storage'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { hasTerrainContent } from '../terrain/TerrainDataUtils'
+import type { TerrainMaterialTag } from '../terrain/TerrainTypes'
 import type {
   MainModule,
   WeaponType,
@@ -186,6 +199,7 @@ const playerDeadMessage = { type: 'player_dead' } as const
 
 let groundShapeIds: b2ShapeId[] = []
 let activeMapData: EditorMapData | null = null
+let activeMapLayerLookup: MapObjectLayerLookup = buildMapObjectLayerLookup(null)
 let defaultMapData: EditorMapData | null = null
 let isMapPreview = false
 let standableSurfaces: ObstacleCollider[] = []
@@ -198,6 +212,8 @@ let obstacles: {
   centerY: number
   width: number
   height: number
+  renderLayer: number
+  materialTag: TerrainMaterialTag
   radius?: number
   vertices?: { x: number; y: number }[]
   worldVertices?: { x: number; y: number }[]
@@ -248,6 +264,50 @@ function resetDecompScratchPolygon(): void {
     decompPointPool.push(decompScratchPolygon[i])
   }
   decompScratchPolygon.length = 0
+}
+
+function refreshActiveMapCollisionLayers(): void {
+  activeMapLayerLookup = buildMapObjectLayerLookup(activeMapData)
+  configureCollisionLayers(
+    collectCollisionLayers(activeMapData, activeMapLayerLookup)
+  )
+}
+
+function getIndexedLayer(layers: readonly number[], index: number): number {
+  return getCollisionLayerValue(layers[index])
+}
+
+function getPlayerRenderLayer(): number {
+  return getCollisionLayerValue(activeMapLayerLookup.playerLayer)
+}
+
+function getNpcRenderLayer(index: number): number {
+  return getIndexedLayer(activeMapLayerLookup.npcLayers, index)
+}
+
+function getWeaponRenderLayer(index: number): number {
+  return getIndexedLayer(activeMapLayerLookup.weaponLayers, index)
+}
+
+function getCheckpointRenderLayer(index: number): number {
+  return getIndexedLayer(activeMapLayerLookup.checkpointLayers, index)
+}
+
+function getHookAnchorRenderLayer(index: number): number {
+  return getIndexedLayer(activeMapLayerLookup.hookAnchorLayers, index)
+}
+
+function getSunPickupRenderLayer(index: number, isLarge: boolean): number {
+  return getIndexedLayer(
+    isLarge
+      ? activeMapLayerLookup.sunPickupLargeLayers
+      : activeMapLayerLookup.sunPickupSmallLayers,
+    index
+  )
+}
+
+function getPlacedShapeRenderLayer(placed: MapPlacedShape): number {
+  return normalizeRenderLayer(placed.renderLayer, 0)
 }
 
 // Helper for color parsing (simple cache)
@@ -462,6 +522,7 @@ async function init(width: number, height: number, ppm: number) {
   spatialHash = new SpatialHash(5)
 
   registerComponents()
+  refreshActiveMapCollisionLayers()
 
   // Setup Environment
   const groundHeight = 0.5
@@ -602,7 +663,7 @@ function initializeSystems() {
   sunPickupSystem.setEffectsEmitter(effectsEmitter)
   expOrbSystem = new ExpOrbSystem()
   expOrbSystem.setEffectsEmitter(effectsEmitter)
-  statsSystem.onNpcVanish = (x: number, y: number) => {
+  statsSystem.onNpcVanish = (x: number, y: number, renderLayer: number = 0) => {
     const {
       b2DefaultBodyDef,
       b2CreateBody,
@@ -629,8 +690,8 @@ function initializeSystems() {
     shapeDef.density = 0.3
     shapeDef.material.friction = 0.3
     shapeDef.material.restitution = 0.1
-    shapeDef.filter.categoryBits = CATEGORY_WEAPON
-    shapeDef.filter.maskBits = MASK_WEAPON
+    shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+    shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
 
     const circle = new b2Circle()
     circle.center.Set(0, 0)
@@ -651,6 +712,11 @@ function initializeSystems() {
     const physics = new PhysicsComponent()
     physics.bodyId = bodyId
     sun.addComponent(physics)
+
+    const sunRender = new RenderComponent()
+    sunRender.visible = true
+    sunRender.renderLayer = renderLayer
+    sun.addComponent(sunRender)
 
     const p = new SunPickupComponent()
     p.isLarge = false
@@ -675,8 +741,8 @@ function initializeSystems() {
     orbShapeDef.density = 0.3
     orbShapeDef.material.friction = 0.3
     orbShapeDef.material.restitution = 0.1
-    orbShapeDef.filter.categoryBits = CATEGORY_WEAPON
-    orbShapeDef.filter.maskBits = MASK_WEAPON
+    orbShapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+    orbShapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
 
     const orbCircle = new b2Circle()
     orbCircle.center.Set(0, 0)
@@ -696,6 +762,11 @@ function initializeSystems() {
     const orbPhysics = new PhysicsComponent()
     orbPhysics.bodyId = orbBodyId
     orb.addComponent(orbPhysics)
+
+    const orbRender = new RenderComponent()
+    orbRender.visible = true
+    orbRender.renderLayer = renderLayer
+    orb.addComponent(orbRender)
 
     const expOrb = new ExpOrbComponent()
     expOrb.pickupRadiusSq = 1
@@ -761,7 +832,8 @@ function createGround(): b2BodyId {
   const shapeDef = b2DefaultShapeDef()
   shapeDef.material.friction = groundFriction
   shapeDef.material.restitution = 0
-  shapeDef.filter.categoryBits = CATEGORY_GROUND
+  shapeDef.filter.categoryBits = getGroundCollisionCategory(0)
+  shapeDef.filter.maskBits = getGroundCollisionMask(0)
   const shapeId = b2CreatePolygonShape(bodyId, shapeDef, groundBox)
   groundShapeIds.push(shapeId)
 
@@ -827,7 +899,8 @@ function createObstacles() {
       const shapeDef = b2DefaultShapeDef()
       shapeDef.material.friction = obstacleFriction
       shapeDef.material.restitution = 0
-      shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+      shapeDef.filter.categoryBits = getObstacleCollisionCategory(0)
+      shapeDef.filter.maskBits = getObstacleCollisionMask(0)
       const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
 
       // Clean up
@@ -875,6 +948,8 @@ function createObstacles() {
         centerY,
         width: Math.max(Math.abs(minX), Math.abs(maxX)),
         height: Math.abs(minY), // Height approx
+        renderLayer: 0,
+        materialTag: 'obstacle',
         vertices: obs.vertices,
         worldVertices,
       })
@@ -914,7 +989,8 @@ function createObstacles() {
     const capShapeDef = b2DefaultShapeDef()
     capShapeDef.material.friction = obstacleFriction
     capShapeDef.material.restitution = 0
-    capShapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+    capShapeDef.filter.categoryBits = getObstacleCollisionCategory(0)
+    capShapeDef.filter.maskBits = getObstacleCollisionMask(0)
     const capShapeId = b2CreatePolygonShape(capBodyId, capShapeDef, capBox)
 
     // 2. Create Base (Sides with 0 Friction)
@@ -926,7 +1002,8 @@ function createObstacles() {
     const baseShapeDef = b2DefaultShapeDef()
     baseShapeDef.material.friction = 0 // Vertical/Side friction 0
     baseShapeDef.material.restitution = 0
-    baseShapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+    baseShapeDef.filter.categoryBits = getObstacleCollisionCategory(0)
+    baseShapeDef.filter.maskBits = getObstacleCollisionMask(0)
     const mainShapeId = b2CreatePolygonShape(baseBodyId, baseShapeDef, baseBox)
 
     obstacles.push({
@@ -938,6 +1015,8 @@ function createObstacles() {
       centerY: baseY,
       width: obs.width,
       height: baseHalfHeight,
+      renderLayer: 0,
+      materialTag: 'obstacle',
     })
 
     capBodyDef.delete()
@@ -974,22 +1053,43 @@ function createEnvironment(): void {
 }
 
 function createEnvironmentFromMap(map: EditorMapData): void {
-  const hasExplicitGround = map.shapes.some(
-    (placed) => placed.objectKind === 'ground'
-  )
+  const explicitGroundLayers: number[] = []
+  for (let i = 0; i < map.shapes.length; i++) {
+    const placed = map.shapes[i]
+    if (placed.objectKind !== 'ground') continue
+    const renderLayer = getPlacedShapeRenderLayer(placed)
+    let exists = false
+    for (let j = 0; j < explicitGroundLayers.length; j++) {
+      if (explicitGroundLayers[j] === renderLayer) {
+        exists = true
+        break
+      }
+    }
+    if (!exists) {
+      explicitGroundLayers.push(renderLayer)
+    }
+  }
   const terrain = map.terrain
   if (terrain && hasTerrainContent(terrain)) {
     createTerrainFromMap(terrain)
   }
   for (let i = 0; i < map.shapes.length; i++) {
     const placed = map.shapes[i]
+    const renderLayer = getPlacedShapeRenderLayer(placed)
     if (placed.objectKind === 'ground') {
       createGroundShapeFromMap(placed)
-      registerStandableSurfaceFromPlacedShape(placed)
+      registerStandableSurfaceFromPlacedShape(placed, 'ground', renderLayer)
     } else {
       createObstacleShapeFromMap(placed)
+      let hasExplicitGround = false
+      for (let j = 0; j < explicitGroundLayers.length; j++) {
+        if (explicitGroundLayers[j] === renderLayer) {
+          hasExplicitGround = true
+          break
+        }
+      }
       if (!hasExplicitGround) {
-        registerStandableSurfaceFromPlacedShape(placed)
+        registerStandableSurfaceFromPlacedShape(placed, 'obstacle', renderLayer)
       }
     }
   }
@@ -1005,6 +1105,11 @@ function createTerrainFromMap(
   const cellSize = terrain.cellSize
   for (let i = 0; i < rects.length; i++) {
     const rect = rects[i]
+    const materialTag = rect.materialTag
+    const renderLayer = getCollisionLayerValue(rect.renderLayer)
+    if (materialTag === 'foliage') {
+      continue
+    }
     const halfWidth = rect.widthCells * cellSize * 0.5
     const halfHeight = rect.heightCells * cellSize * 0.5
     const centerX = rect.cellX * cellSize + halfWidth
@@ -1022,16 +1127,21 @@ function createTerrainFromMap(
       halfWidth,
       halfHeight,
       0,
-      CATEGORY_OBSTACLE,
-      obstacleFriction
+      renderLayer,
+      materialTag,
+      materialTag === 'obstacle' ? obstacleFriction : groundFriction
     )
-    registerObstacleFromRect(rectShape, bodyResult)
+    if (materialTag === 'obstacle') {
+      registerObstacleFromRect(rectShape, bodyResult, renderLayer, materialTag)
+    }
     standableSurfaces.push({
       bodyId: 0 as unknown as b2BodyId,
       centerX,
       centerY,
       width: halfWidth,
       height: halfHeight,
+      renderLayer,
+      materialTag,
     })
   }
 }
@@ -1041,11 +1151,19 @@ function createCheckpointsFromMap(map: EditorMapData): void {
   const checkpoints = map.checkpoints ?? []
   for (let i = 0; i < checkpoints.length; i++) {
     const checkpoint = checkpoints[i]
-    createCheckpointEntity(checkpoint.x, checkpoint.y)
+    createCheckpointEntity(
+      checkpoint.x,
+      checkpoint.y,
+      getCheckpointRenderLayer(i)
+    )
   }
 }
 
-function createCheckpointEntity(x: number, y: number): void {
+function createCheckpointEntity(
+  x: number,
+  y: number,
+  renderLayer: number
+): void {
   if (!world) return
   const entity = world.createEntity()
   const transform = new TransformComponent()
@@ -1058,6 +1176,7 @@ function createCheckpointEntity(x: number, y: number): void {
   render.color = CHECKPOINT_TREE_TOP_COLOR_INACTIVE
   render.borderColor = CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE
   render.visible = true
+  render.renderLayer = renderLayer
   entity.addComponent(render)
 
   const checkpoint = new CheckpointComponent()
@@ -1069,14 +1188,18 @@ function createGrappleAnchorsFromMap(map: EditorMapData): void {
   const anchors = map.hookAnchors ?? []
   for (let i = 0; i < anchors.length; i++) {
     const anchor = anchors[i]
-    createGrappleAnchorEntity(anchor.x, anchor.y)
+    createGrappleAnchorEntity(anchor.x, anchor.y, getHookAnchorRenderLayer(i))
   }
   if (grappleSystem) {
     grappleSystem.markAnchorsDirty()
   }
 }
 
-function createGrappleAnchorEntity(x: number, y: number): void {
+function createGrappleAnchorEntity(
+  x: number,
+  y: number,
+  renderLayer: number
+): void {
   if (!world) return
   const entity = world.createEntity()
   const transform = new TransformComponent()
@@ -1089,6 +1212,7 @@ function createGrappleAnchorEntity(x: number, y: number): void {
   render.color = GRAPPLE_ANCHOR_COLOR
   render.borderColor = GRAPPLE_ANCHOR_BORDER_COLOR
   render.visible = true
+  render.renderLayer = renderLayer
   entity.addComponent(render)
 
   const anchor = new GrappleAnchorComponent()
@@ -1100,14 +1224,20 @@ function createSunPickupsFromMap(map: EditorMapData): void {
   const pickups = map.sunPickups ?? []
   for (let i = 0; i < pickups.length; i++) {
     const p = pickups[i]
-    createMapSunPickupEntity(p.x, p.y, p.isLarge)
+    createMapSunPickupEntity(
+      p.x,
+      p.y,
+      p.isLarge,
+      getSunPickupRenderLayer(i, p.isLarge)
+    )
   }
 }
 
 function createMapSunPickupEntity(
   x: number,
   y: number,
-  isLarge: boolean
+  isLarge: boolean,
+  renderLayer: number
 ): void {
   if (!world) return
   const {
@@ -1136,8 +1266,8 @@ function createMapSunPickupEntity(
   shapeDef.density = 0.3
   shapeDef.material.friction = 0.3
   shapeDef.material.restitution = 0.1
-  shapeDef.filter.categoryBits = CATEGORY_WEAPON
-  shapeDef.filter.maskBits = MASK_WEAPON
+  shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
 
   const circle = new b2Circle()
   circle.center.Set(0, 0)
@@ -1155,6 +1285,11 @@ function createMapSunPickupEntity(
   physics.bodyId = bodyId
   entity.addComponent(physics)
 
+  const render = new RenderComponent()
+  render.visible = true
+  render.renderLayer = renderLayer
+  entity.addComponent(render)
+
   const p = new SunPickupComponent()
   p.isLarge = isLarge
   p.pickupRadiusSq = isLarge ? 4 : 1
@@ -1162,14 +1297,30 @@ function createMapSunPickupEntity(
 }
 
 function createGroundShapeFromMap(placed: MapPlacedShape): void {
-  createStaticShapeFromMap(placed, CATEGORY_GROUND, groundFriction, false)
+  createStaticShapeFromMap(
+    placed,
+    getPlacedShapeRenderLayer(placed),
+    'ground',
+    groundFriction,
+    false
+  )
 }
 
 function createObstacleShapeFromMap(placed: MapPlacedShape): void {
-  createStaticShapeFromMap(placed, CATEGORY_OBSTACLE, obstacleFriction, true)
+  createStaticShapeFromMap(
+    placed,
+    getPlacedShapeRenderLayer(placed),
+    'obstacle',
+    obstacleFriction,
+    true
+  )
 }
 
-function registerStandableSurfaceFromPlacedShape(placed: MapPlacedShape): void {
+function registerStandableSurfaceFromPlacedShape(
+  placed: MapPlacedShape,
+  materialTag: TerrainMaterialTag,
+  renderLayer: number
+): void {
   const shape = placed.shape
   if (shape.kind === 'rect') {
     const worldVertices =
@@ -1188,6 +1339,8 @@ function registerStandableSurfaceFromPlacedShape(placed: MapPlacedShape): void {
       centerY: shape.center.y,
       width: shape.halfWidth,
       height: shape.halfHeight,
+      renderLayer,
+      materialTag,
       worldVertices,
     })
     return
@@ -1200,6 +1353,8 @@ function registerStandableSurfaceFromPlacedShape(placed: MapPlacedShape): void {
       centerY: shape.center.y,
       width: shape.radius,
       height: shape.radius,
+      renderLayer,
+      materialTag,
       radius: shape.radius,
     })
     return
@@ -1228,13 +1383,16 @@ function registerStandableSurfaceFromPlacedShape(placed: MapPlacedShape): void {
     centerY: shape.center.y,
     width: (maxX - minX) / 2,
     height: (maxY - minY) / 2,
+    renderLayer,
+    materialTag,
     worldVertices,
   })
 }
 
 function createStaticShapeFromMap(
   placed: MapPlacedShape,
-  categoryBits: number,
+  renderLayer: number,
+  materialTag: TerrainMaterialTag,
   friction: number,
   shouldRegisterObstacle: boolean
 ): void {
@@ -1246,11 +1404,12 @@ function createStaticShapeFromMap(
       shape.halfWidth,
       shape.halfHeight,
       shape.rotationRad,
-      categoryBits,
+      renderLayer,
+      materialTag,
       friction
     )
     if (shouldRegisterObstacle) {
-      registerObstacleFromRect(shape, rectResult)
+      registerObstacleFromRect(shape, rectResult, renderLayer)
     }
     return
   }
@@ -1259,16 +1418,23 @@ function createStaticShapeFromMap(
       shape.center.x,
       shape.center.y,
       shape.radius,
-      categoryBits,
+      renderLayer,
+      materialTag,
       friction
     )
     if (shouldRegisterObstacle) {
-      registerObstacleFromCircle(shape, circleResult)
+      registerObstacleFromCircle(shape, circleResult, renderLayer)
     }
     return
   }
   if (shape.kind === 'polygon') {
-    registerPolygonShape(shape, categoryBits, friction, shouldRegisterObstacle)
+    registerPolygonShape(
+      shape,
+      renderLayer,
+      materialTag,
+      friction,
+      shouldRegisterObstacle
+    )
   }
 }
 
@@ -1278,7 +1444,8 @@ function createStaticRectBody(
   halfWidth: number,
   halfHeight: number,
   rotationRad: number,
-  categoryBits: number,
+  renderLayer: number,
+  materialTag: TerrainMaterialTag,
   friction: number
 ): { bodyId: b2BodyId; shapeId: b2ShapeId } {
   const {
@@ -1298,9 +1465,15 @@ function createStaticRectBody(
   const shapeDef = b2DefaultShapeDef()
   shapeDef.material.friction = friction
   shapeDef.material.restitution = 0
-  shapeDef.filter.categoryBits = categoryBits
+  const isGround = materialTag === 'ground'
+  shapeDef.filter.categoryBits = isGround
+    ? getGroundCollisionCategory(renderLayer)
+    : getObstacleCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = isGround
+    ? getGroundCollisionMask(renderLayer)
+    : getObstacleCollisionMask(renderLayer)
   const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
-  if (categoryBits === CATEGORY_GROUND) {
+  if (isGround) {
     groundShapeIds.push(shapeId)
   }
 
@@ -1315,7 +1488,8 @@ function createStaticCircleBody(
   centerX: number,
   centerY: number,
   radius: number,
-  categoryBits: number,
+  renderLayer: number,
+  materialTag: TerrainMaterialTag,
   friction: number
 ): { bodyId: b2BodyId; shapeId: b2ShapeId } {
   const {
@@ -1336,9 +1510,15 @@ function createStaticCircleBody(
   const shapeDef = b2DefaultShapeDef()
   shapeDef.material.friction = friction
   shapeDef.material.restitution = 0
-  shapeDef.filter.categoryBits = categoryBits
+  const isGround = materialTag === 'ground'
+  shapeDef.filter.categoryBits = isGround
+    ? getGroundCollisionCategory(renderLayer)
+    : getObstacleCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = isGround
+    ? getGroundCollisionMask(renderLayer)
+    : getObstacleCollisionMask(renderLayer)
   const shapeId = b2CreateCircleShape(bodyId, shapeDef, circle)
-  if (categoryBits === CATEGORY_GROUND) {
+  if (isGround) {
     groundShapeIds.push(shapeId)
   }
 
@@ -1351,7 +1531,9 @@ function createStaticCircleBody(
 
 function registerObstacleFromRect(
   shape: Extract<MapPlacedShape['shape'], { kind: 'rect' }>,
-  result: { bodyId: b2BodyId; shapeId: b2ShapeId }
+  result: { bodyId: b2BodyId; shapeId: b2ShapeId },
+  renderLayer: number,
+  materialTag: TerrainMaterialTag = 'obstacle'
 ): void {
   const halfWidth = shape.halfWidth
   const halfHeight = shape.halfHeight
@@ -1363,7 +1545,8 @@ function registerObstacleFromRect(
     centerY,
     halfWidth,
     halfHeight,
-    rotationRad
+    rotationRad,
+    renderLayer
   )
   const worldVertices =
     Math.abs(rotationRad) > 0.0001
@@ -1384,18 +1567,29 @@ function registerObstacleFromRect(
     centerY,
     width: halfWidth,
     height: halfHeight,
+    renderLayer,
+    materialTag,
     worldVertices,
   })
 }
 
 function registerObstacleFromCircle(
   shape: Extract<MapPlacedShape['shape'], { kind: 'circle' }>,
-  result: { bodyId: b2BodyId; shapeId: b2ShapeId }
+  result: { bodyId: b2BodyId; shapeId: b2ShapeId },
+  renderLayer: number,
+  materialTag: TerrainMaterialTag = 'obstacle'
 ): void {
   const radius = shape.radius
   const centerX = shape.center.x
   const centerY = shape.center.y
-  const cap = createObstacleCapRect(centerX, centerY, radius, radius, 0)
+  const cap = createObstacleCapRect(
+    centerX,
+    centerY,
+    radius,
+    radius,
+    0,
+    renderLayer
+  )
   obstacles.push({
     bodyId: result.bodyId,
     mainShapeId: result.shapeId,
@@ -1405,13 +1599,16 @@ function registerObstacleFromCircle(
     centerY,
     width: radius,
     height: radius,
+    renderLayer,
+    materialTag,
     radius,
   })
 }
 
 function registerPolygonShape(
   shape: Extract<MapPlacedShape['shape'], { kind: 'polygon' }>,
-  categoryBits: number,
+  renderLayer: number,
+  materialTag: TerrainMaterialTag,
   friction: number,
   shouldRegisterObstacle: boolean
 ): void {
@@ -1437,7 +1634,13 @@ function registerPolygonShape(
   const shapeDef = b2DefaultShapeDef()
   shapeDef.material.friction = friction
   shapeDef.material.restitution = 0
-  shapeDef.filter.categoryBits = categoryBits
+  const isGround = materialTag === 'ground'
+  shapeDef.filter.categoryBits = isGround
+    ? getGroundCollisionCategory(renderLayer)
+    : getObstacleCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = isGround
+    ? getGroundCollisionMask(renderLayer)
+    : getObstacleCollisionMask(renderLayer)
   resetDecompScratchPolygon()
   for (let i = 0; i < shape.points.length; i += 2) {
     const worldX = shape.points[i]
@@ -1482,7 +1685,7 @@ function registerPolygonShape(
     const hull: b2Hull = b2ComputeHull(localPoints)
     const polygon: b2Polygon = b2MakePolygon(hull, 0)
     const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
-    if (categoryBits === CATEGORY_GROUND) {
+    if (isGround) {
       groundShapeIds.push(shapeId)
     }
 
@@ -1515,6 +1718,8 @@ function registerPolygonShape(
         centerY,
         width: halfWidth,
         height: halfHeight,
+        renderLayer,
+        materialTag,
         vertices,
         worldVertices,
       })
@@ -1557,7 +1762,7 @@ function registerPolygonShape(
     const hull: b2Hull = b2ComputeHull(localPoints)
     const polygon: b2Polygon = b2MakePolygon(hull, 0)
     const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
-    if (categoryBits === CATEGORY_GROUND) {
+    if (isGround) {
       groundShapeIds.push(shapeId)
     }
 
@@ -1581,6 +1786,8 @@ function registerPolygonShape(
       centerY,
       width: halfWidth,
       height: halfHeight,
+      renderLayer,
+      materialTag,
       vertices,
       worldVertices,
     })
@@ -1596,7 +1803,8 @@ function createObstacleCapRect(
   centerY: number,
   halfWidth: number,
   halfHeight: number,
-  rotationRad: number
+  rotationRad: number,
+  renderLayer: number
 ): { capBodyId: b2BodyId; capShapeId: b2ShapeId } {
   const {
     b2DefaultBodyDef,
@@ -1620,7 +1828,8 @@ function createObstacleCapRect(
   const shapeDef = b2DefaultShapeDef()
   shapeDef.material.friction = obstacleFriction
   shapeDef.material.restitution = 0
-  shapeDef.filter.categoryBits = CATEGORY_OBSTACLE
+  shapeDef.filter.categoryBits = getObstacleCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getObstacleCollisionMask(renderLayer)
   const capShapeId = b2CreatePolygonShape(bodyId, shapeDef, capBox)
 
   bodyDef.delete()
@@ -1743,7 +1952,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
     groundY,
     playerRadius,
     playerBodyHeight,
-    playerBodyProfile
+    playerBodyProfile,
+    getPlayerRenderLayer()
   )
   if (playerEntity.render) {
     playerEntity.render.bodyProfile = playerBodyProfile ?? null
@@ -1896,7 +2106,8 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         weaponData.x,
         weaponData.y,
         groundY,
-        normalizeWeaponType(weaponData.weaponType) ?? 'sword'
+        normalizeWeaponType(weaponData.weaponType) ?? 'sword',
+        getWeaponRenderLayer(i)
       )
       const weapon = weaponEntity.weapon
       if (!weapon) {
@@ -2022,7 +2233,10 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         npc.y,
         groundY,
         npc.npcType,
-        npc
+        {
+          ...npc,
+          renderLayer: getNpcRenderLayer(i),
+        }
       )
       if (created.render) {
         created.render.bodyProfileIndex = isValidCharacterBodyProfile(
@@ -2152,8 +2366,9 @@ function resetWeaponPhysicsCircle(entity: Entity): void {
   shapeDef.density = 0.5
   shapeDef.material.friction = 0.3
   shapeDef.material.restitution = 0.2
-  shapeDef.filter.categoryBits = CATEGORY_WEAPON
-  shapeDef.filter.maskBits = MASK_WEAPON
+  const renderLayer = entity.weapon.renderLayer
+  shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
 
   const circle = new b2Circle()
   circle.center.Set(0, 0)
@@ -3196,7 +3411,6 @@ function sendState() {
     if (count >= MAX_ENTITIES) break
     if (!e.transform) continue
 
-    // 独立武器实体、太阳拾取和经验球实体不需要 render 组件
     const isStandaloneWeapon = e.weapon && !e.weapon.isEquipped && !e.stats
     if (!isStandaloneWeapon && !e.render && !e.sunPickup && !e.expOrb) continue
 
@@ -3361,6 +3575,8 @@ function sendState() {
     stateBuffer[offset + OFFSETS.BODY_HEIGHT] = e.render?.bodyHeight ?? 0
     stateBuffer[offset + OFFSETS.BODY_PROFILE_INDEX] =
       e.render?.bodyProfileIndex ?? 0
+    stateBuffer[offset + OFFSETS.RENDER_LAYER] =
+      e.render?.renderLayer ?? e.weapon?.renderLayer ?? 0
 
     // 独立武器实体（地面武器）：只要有weapon组件就显示
     // 角色实体：只有装备时才显示武器
@@ -3659,6 +3875,7 @@ function restart() {
   const groundY = canvasHeight / pixelsPerMeter - groundHeight
   groundTopY = groundY - groundHeight
 
+  refreshActiveMapCollisionLayers()
   createEnvironment()
   initializeSystems()
   npcEntity = null
@@ -4376,6 +4593,7 @@ function extractGroundWeaponsState(): SaveGroundWeaponState[] {
     weapons.push({
       spawnIndex,
       position: { x: transform?.x ?? 0, y: transform?.y ?? 0 },
+      renderLayer: entity.render?.renderLayer ?? weapon.renderLayer ?? 0,
       weaponType: normalizedWeaponType,
       sizeLevel: weapon.sizeLevel,
       width: weapon.width,
@@ -4770,6 +4988,20 @@ function restoreGroundWeaponsState(
         savedState.position.x,
         savedState.position.y
       )
+      const renderLayer = getCollisionLayerValue(savedState.renderLayer)
+      if (entity.render) {
+        entity.render.renderLayer = renderLayer
+      }
+      if (entity.weapon) {
+        entity.weapon.renderLayer = renderLayer
+      }
+      if (box2d && entity.physics?.shapeId) {
+        const { b2Shape_GetFilter, b2Shape_SetFilter } = box2d
+        const filter = b2Shape_GetFilter(entity.physics.shapeId)
+        filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+        filter.maskBits = getWeaponCollisionMask(renderLayer)
+        b2Shape_SetFilter(entity.physics.shapeId, filter)
+      }
       applyGroundWeaponState(entity.weapon, savedState)
     } else {
       spatialHash.removeEntity(entity)
@@ -4788,7 +5020,8 @@ function restoreGroundWeaponsState(
         savedState.position.x,
         savedState.position.y,
         groundTopY,
-        savedState.weaponType as WeaponType
+        savedState.weaponType as WeaponType,
+        getCollisionLayerValue(savedState.renderLayer)
       )
       setEntityTransformFromSave(
         created,

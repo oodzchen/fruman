@@ -130,6 +130,8 @@ export class ClientRenderer {
   private wavingHandIconLoaded = false
   private characterBodyMap: EditorMapData | null = null
   private characterBodyTextureCache = new Map<string, HTMLImageElement>()
+  private readonly dynamicRenderLayers: number[] = []
+  private readonly frameRenderLayers: number[] = []
 
   constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
     this.ctx = ctx
@@ -320,9 +322,35 @@ export class ClientRenderer {
     return str
   }
 
-  render(deltaMs: number) {
+  private insertSortedUniqueLayer(target: number[], layer: number): void {
+    for (let i = 0; i < target.length; i++) {
+      const current = target[i]
+      if (current === layer) {
+        return
+      }
+      if (current > layer) {
+        target.splice(i, 0, layer)
+        return
+      }
+    }
+    target.push(layer)
+  }
+
+  private getEntityRenderLayer(buf: Float32Array, offset: number): number {
+    return buf[offset + OFFSETS.RENDER_LAYER] | 0
+  }
+
+  render(
+    deltaMs: number,
+    staticLayers: readonly number[] = [],
+    drawStaticLayer?: (layer: number) => void
+  ) {
     this.lastRenderDeltaSec = deltaMs / 1000
-    if (this.entityCount === 0 && !this.particleSystem.hasActiveParticles())
+    if (
+      this.entityCount === 0 &&
+      staticLayers.length === 0 &&
+      !this.particleSystem.hasActiveParticles()
+    )
       return
     const buf = this.stateBuffer
 
@@ -344,6 +372,7 @@ export class ClientRenderer {
     let playerGrappleStartY = 0
     let playerGrappleVx = 0
     let playerGrappleVy = 0
+    let playerRenderLayer = 0
     for (let i = 0; i < this.entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
@@ -365,6 +394,7 @@ export class ClientRenderer {
         playerGrappleStartY = buf[offset + OFFSETS.GRAPPLE_START_Y]
         playerGrappleVx = buf[offset + OFFSETS.GRAPPLE_VX]
         playerGrappleVy = buf[offset + OFFSETS.GRAPPLE_VY]
+        playerRenderLayer = this.getEntityRenderLayer(buf, offset)
         break
       }
     }
@@ -426,78 +456,90 @@ export class ClientRenderer {
       this.grappleLineHidden = false
     }
 
-    if (shouldDrawGrappleLine) {
-      const hasRopePoints =
-        this.ropePointCount > 1 &&
-        this.incomingView !== null &&
-        playerGrappleActive
-      if (hasRopePoints) {
-        this.drawGrappleRopePoints()
-      } else {
-        this.drawGrappleLine(
-          playerX,
-          playerY,
-          playerGrappleTargetX,
-          playerGrappleTargetY
-        )
-      }
-    }
-
-    // Render Entities
+    this.dynamicRenderLayers.length = 0
     for (let i = 0; i < this.entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
-
       if (flags & FLAGS.VANISHED) continue
       if (!(flags & FLAGS.VISIBLE)) continue
+      this.insertSortedUniqueLayer(
+        this.dynamicRenderLayers,
+        this.getEntityRenderLayer(buf, offset)
+      )
+    }
+    this.frameRenderLayers.length = 0
+    for (let i = 0; i < staticLayers.length; i++) {
+      this.insertSortedUniqueLayer(this.frameRenderLayers, staticLayers[i] | 0)
+    }
+    for (let i = 0; i < this.dynamicRenderLayers.length; i++) {
+      this.insertSortedUniqueLayer(
+        this.frameRenderLayers,
+        this.dynamicRenderLayers[i]
+      )
+    }
+
+    for (
+      let layerIndex = 0;
+      layerIndex < this.frameRenderLayers.length;
+      layerIndex++
+    ) {
+      const layer = this.frameRenderLayers[layerIndex]
+      if (drawStaticLayer) {
+        drawStaticLayer(layer)
+      }
+      if (shouldDrawGrappleLine && layer === playerRenderLayer) {
+        const hasRopePoints =
+          this.ropePointCount > 1 &&
+          this.incomingView !== null &&
+          playerGrappleActive
+        if (hasRopePoints) {
+          this.drawGrappleRopePoints()
+        } else {
+          this.drawGrappleLine(
+            playerX,
+            playerY,
+            playerGrappleTargetX,
+            playerGrappleTargetY
+          )
+        }
+      }
+      for (let i = 0; i < this.entityCount; i++) {
+        const offset = i * ENTITY_STRIDE
+        const flags = buf[offset + OFFSETS.FLAGS]
+        if (flags & FLAGS.VANISHED) continue
+        if (!(flags & FLAGS.VISIBLE)) continue
+        if (this.getEntityRenderLayer(buf, offset) !== layer) continue
+
+        const facing = buf[offset + OFFSETS.MOVE_DIR]
+        const hasWeapon = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
+        const inUltimate =
+          !!(flags & FLAGS.IS_PLAYER) &&
+          buf[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] >= 1
+
+        if (facing < 0 && hasWeapon && !inUltimate) {
+          this.renderWeapon(buf, offset, flags)
+        }
+        this.renderEntity(buf, offset, flags, playerLockedTargetId)
+        if (facing >= 0 && hasWeapon && !inUltimate) {
+          this.renderWeapon(buf, offset, flags)
+        }
+      }
 
       if (
-        flags & FLAGS.EXP_ORB ||
-        flags & FLAGS.SUN_PICKUP_SMALL ||
-        flags & FLAGS.SUN_PICKUP_LARGE
+        layer === playerRenderLayer &&
+        playerOffset !== -1 &&
+        buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] >= 1
       ) {
-        continue
-      }
-
-      const facing = buf[offset + OFFSETS.MOVE_DIR] // 1 or -1
-      const hasWeapon = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
-      // 绝招动画期间手剑跳出循环，最后置顶渲染
-      const inUltimate =
-        !!(flags & FLAGS.IS_PLAYER) &&
-        buf[offset + OFFSETS.ULTIMATE_SWORD_ACTIVE] >= 1
-
-      // Draw weapon behind
-      if (facing < 0 && hasWeapon && !inUltimate) {
-        this.renderWeapon(buf, offset, flags)
-      }
-
-      this.renderEntity(buf, offset, flags, playerLockedTargetId)
-
-      // Draw weapon in front
-      if (facing >= 0 && hasWeapon && !inUltimate) {
-        this.renderWeapon(buf, offset, flags)
+        const playerFlags = buf[playerOffset + OFFSETS.FLAGS]
+        this.renderWeapon(buf, playerOffset, playerFlags)
+        this.renderUltimateSword(playerOffset)
+        this.renderHammerUltimateShockwave(playerOffset)
+        this.renderSpearUltimatePhantoms(playerOffset)
       }
     }
-
-    // 绝招动画期间手剑置顶（不被任何实体遮挡）
-    if (
-      playerOffset !== -1 &&
-      buf[playerOffset + OFFSETS.ULTIMATE_SWORD_ACTIVE] >= 1
-    ) {
-      const playerFlags = buf[playerOffset + OFFSETS.FLAGS]
-      this.renderWeapon(buf, playerOffset, playerFlags)
-    }
-
-    if (playerOffset !== -1) {
-      this.renderUltimateSword(playerOffset)
-      this.renderHammerUltimateShockwave(playerOffset)
-      this.renderSpearUltimatePhantoms(playerOffset)
-    }
-
     this.particleSystem.render(this.ctx, this.pixelsPerMeter)
     this.drawSensorDebug()
     this.drawSoundDebug()
-    this.renderTopLayerPickups(buf)
 
     // Draw follow bond icons
     if (playerOffset !== -1) {
@@ -584,29 +626,6 @@ export class ClientRenderer {
     }
   }
 
-  private renderTopLayerPickups(buf: Float32Array): void {
-    for (let i = 0; i < this.entityCount; i++) {
-      const offset = i * ENTITY_STRIDE
-      const flags = buf[offset + OFFSETS.FLAGS]
-      if (flags & FLAGS.VANISHED) continue
-      if (!(flags & FLAGS.VISIBLE)) continue
-
-      const wx = buf[offset + OFFSETS.X]
-      const wy = buf[offset + OFFSETS.Y]
-      if (flags & FLAGS.EXP_ORB) {
-        this.drawExpOrbIcon(wx, wy)
-        continue
-      }
-      if (flags & FLAGS.SUN_PICKUP_SMALL) {
-        this.drawSunPickupIcon(wx, wy, false)
-        continue
-      }
-      if (flags & FLAGS.SUN_PICKUP_LARGE) {
-        this.drawSunPickupIcon(wx, wy, true)
-      }
-    }
-  }
-
   private drawFollowBondIcon(cx: number, cy: number, alpha: number): void {
     if (!this.handshakeIconLoaded) return
     const ctx = this.ctx
@@ -686,12 +705,38 @@ export class ClientRenderer {
     flags: number,
     playerLockedTargetId: number
   ): void {
+    if (flags & FLAGS.EXP_ORB) {
+      this.drawExpOrbIcon(buf[offset + OFFSETS.X], buf[offset + OFFSETS.Y])
+      return
+    }
+    if (flags & FLAGS.SUN_PICKUP_SMALL) {
+      this.drawSunPickupIcon(
+        buf[offset + OFFSETS.X],
+        buf[offset + OFFSETS.Y],
+        false
+      )
+      return
+    }
+    if (flags & FLAGS.SUN_PICKUP_LARGE) {
+      this.drawSunPickupIcon(
+        buf[offset + OFFSETS.X],
+        buf[offset + OFFSETS.Y],
+        true
+      )
+      return
+    }
     if (flags & FLAGS.GRAPPLE_ANCHOR) {
       this.renderGrappleAnchor(buf, offset, flags)
       return
     }
     if (flags & FLAGS.CHECKPOINT) {
       this.renderCheckpoint(buf, offset, flags)
+      return
+    }
+    const isStandaloneWeapon =
+      buf[offset + OFFSETS.WEAPON_ACTIVE] === 1 &&
+      buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0
+    if (isStandaloneWeapon) {
       return
     }
 

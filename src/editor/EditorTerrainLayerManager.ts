@@ -1,6 +1,7 @@
 import * as fabric from 'fabric'
 
 import { localizer } from '../Localizer'
+import { getDefaultTerrainRenderLayer } from '../renderLayers'
 import { TerrainChunkGrid } from '../terrain/TerrainChunkGrid'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { inferTerrainMaterialId } from '../terrain/TerrainDataUtils'
@@ -22,6 +23,7 @@ import {
   type TerrainMaterialId,
 } from '../terrain/TerrainTypes'
 import {
+  type EditorLayeredObject,
   type EditorObjectData,
   ObjectType,
   type TerrainRegionProxy,
@@ -33,7 +35,7 @@ interface EditorTerrainLayer {
   offsetCellX: number
   offsetCellY: number
   grid: TerrainChunkGrid
-  renderLayer: TerrainLayerLike
+  serializedLayer: TerrainLayerLike
   proxy: TerrainRegionProxy | null
 }
 
@@ -209,6 +211,45 @@ export class EditorTerrainLayerManager {
     }
   }
 
+  getProxyRenderLayer(object: fabric.Object | null): number | null {
+    if (!this.isTerrainProxy(object)) {
+      return null
+    }
+    const layer = this.proxyToLayer.get(object)
+    if (!layer) {
+      return null
+    }
+    return (
+      layer.serializedLayer.renderLayer ??
+      getDefaultTerrainRenderLayer(layer.materialId)
+    )
+  }
+
+  setProxyRenderLayer(
+    object: fabric.Object | null,
+    renderLayer: number | undefined
+  ): boolean {
+    if (!this.isTerrainProxy(object)) {
+      return false
+    }
+    const layer = this.proxyToLayer.get(object)
+    if (!layer) {
+      return false
+    }
+    const nextRenderLayer =
+      typeof renderLayer === 'number'
+        ? renderLayer | 0
+        : getDefaultTerrainRenderLayer(layer.materialId)
+    if (layer.serializedLayer.renderLayer === nextRenderLayer) {
+      ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+      return false
+    }
+    layer.serializedLayer.renderLayer = nextRenderLayer
+    ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+    this.ctx.requestRender()
+    return true
+  }
+
   pasteClipboardSnapshot(
     snapshot: TerrainClipboardLayerSnapshot,
     sourceLeft: number,
@@ -260,6 +301,7 @@ export class EditorTerrainLayerManager {
         materialId: layer.materialId,
         offsetCellX: layer.offsetCellX,
         offsetCellY: layer.offsetCellY,
+        renderLayer: layer.serializedLayer.renderLayer,
         chunks: layer.grid.serializeChunks(),
       }
     }
@@ -294,6 +336,7 @@ export class EditorTerrainLayerManager {
           source.materialId,
           source.offsetCellX | 0,
           source.offsetCellY | 0,
+          source.renderLayer,
           source.chunks
         )
       }
@@ -302,6 +345,7 @@ export class EditorTerrainLayerManager {
         inferTerrainMaterialId(data.chunks),
         0,
         0,
+        undefined,
         data.chunks
       )
     }
@@ -576,13 +620,19 @@ export class EditorTerrainLayerManager {
     materialId: TerrainMaterialId,
     offsetCellX: number,
     offsetCellY: number,
+    renderLayer: number | undefined,
     chunks: ReadonlyArray<{
       chunkX: number
       chunkY: number
       cells: ArrayLike<number>
     }>
   ): void {
-    const layer = this.createEmptyLayer(materialId, offsetCellX, offsetCellY)
+    const layer = this.createEmptyLayer(
+      materialId,
+      offsetCellX,
+      offsetCellY,
+      renderLayer
+    )
     layer.grid.loadSerializedChunks(chunks)
     if (!layer.grid.hasCells()) {
       this.removeLayer(layer)
@@ -594,7 +644,8 @@ export class EditorTerrainLayerManager {
   private createEmptyLayer(
     materialId: TerrainMaterialId,
     offsetCellX: number,
-    offsetCellY: number
+    offsetCellY: number,
+    renderLayer?: number
   ): EditorTerrainLayer {
     const grid = new TerrainChunkGrid(this.chunkSize)
     const layer: EditorTerrainLayer = {
@@ -603,17 +654,21 @@ export class EditorTerrainLayerManager {
       offsetCellX,
       offsetCellY,
       grid,
-      renderLayer: {
+      serializedLayer: {
         offsetCellX,
         offsetCellY,
         materialId,
+        renderLayer:
+          typeof renderLayer === 'number'
+            ? renderLayer | 0
+            : getDefaultTerrainRenderLayer(materialId),
         chunks: grid.getChunks(),
       },
       proxy: null,
     }
     this.nextLayerId += 1
     this.layers.push(layer)
-    this.renderData.layers.push(layer.renderLayer)
+    this.renderData.layers.push(layer.serializedLayer)
     return layer
   }
 
@@ -757,6 +812,8 @@ export class EditorTerrainLayerManager {
       proxy.terrainCellKeys = []
       proxy.terrainAnchorLeft = anchorLeft
       proxy.terrainAnchorTop = anchorTop
+      ;(proxy as EditorLayeredObject).renderLayer =
+        layer.serializedLayer.renderLayer
       this.applyProxyInteraction(proxy, this.interactionEnabled)
       layer.proxy = proxy
       this.proxyToLayer.set(proxy, layer)
@@ -781,6 +838,8 @@ export class EditorTerrainLayerManager {
     proxy.terrainAnchorTop = anchorTop
     proxy.left = anchorLeft
     proxy.top = anchorTop
+    ;(proxy as EditorLayeredObject).renderLayer =
+      layer.serializedLayer.renderLayer
     this.applyProxyInteraction(proxy, this.interactionEnabled)
     proxy.setCoords()
   }
@@ -1226,8 +1285,8 @@ export class EditorTerrainLayerManager {
   ): void {
     layer.offsetCellX += cellDeltaX
     layer.offsetCellY += cellDeltaY
-    layer.renderLayer.offsetCellX = layer.offsetCellX
-    layer.renderLayer.offsetCellY = layer.offsetCellY
+    layer.serializedLayer.offsetCellX = layer.offsetCellX
+    layer.serializedLayer.offsetCellY = layer.offsetCellY
   }
 
   private computeRoundedCellDelta(deltaPx: number, cellSizePx: number): number {

@@ -1,3 +1,7 @@
+import {
+  getDefaultTerrainRenderLayer,
+  isRenderLayerMatch,
+} from '../renderLayers'
 import { getTerrainLayerViews } from './TerrainDataUtils'
 import {
   appendTerrainCellPath,
@@ -8,6 +12,7 @@ import type { TerrainDataLike } from './TerrainTypes'
 
 export interface TerrainDrawOptions {
   drawStroke?: boolean
+  renderLayer?: number
 }
 
 interface TerrainVisibleCellBounds {
@@ -30,9 +35,20 @@ export class TerrainRenderer {
     }
 
     const drawStroke = options.drawStroke === true
+    const targetLayer = options.renderLayer
     const layers = getTerrainLayerViews(terrain)
     for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
       const layer = layers[layerIndex]
+      if (
+        targetLayer !== undefined &&
+        !isRenderLayerMatch(
+          layer.renderLayer,
+          targetLayer,
+          layer.materialId ? getDefaultTerrainRenderLayer(layer.materialId) : 0
+        )
+      ) {
+        continue
+      }
       ctx.save()
       ctx.translate(
         layer.offsetCellX * cellSizeUnits,

@@ -193,6 +193,11 @@ export interface EditorPropertiesPanelContext {
     facing: number
   ) => void
   updateWeaponMarkerVisual: (marker: WeaponMarker, sizeLevel: number) => void
+  getCommonRenderLayer: (target: fabric.Object) => number
+  setCommonRenderLayer: (
+    target: fabric.Object,
+    renderLayer: number | undefined
+  ) => boolean
 }
 
 export class EditorPropertiesPanel {
@@ -2230,6 +2235,75 @@ export class EditorPropertiesPanel {
           cleanup()
         }
       })
+    })
+  }
+
+  public async showCommonPropertiesDialog(target: fabric.Object) {
+    const dialog = EditorUIHelper.createPropertiesDialog(
+      localizer.t('editor_common_properties_title')
+    )
+    const { leftPanel, rightPanel, footerPanel, previewCanvas, modal, close } =
+      dialog
+
+    previewCanvas.style.display = 'none'
+
+    const renderLayerRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_common_properties_render_layer')
+    )
+    const renderLayerInput = EditorUIHelper.createNumberInput({
+      value: this.context.getCommonRenderLayer(target),
+      step: '1',
+    })
+    renderLayerRow.row.appendChild(renderLayerInput)
+    leftPanel.appendChild(renderLayerRow.row)
+
+    const hint = document.createElement('div')
+    hint.textContent = localizer.t('editor_common_properties_render_layer_hint')
+    hint.style.cssText =
+      'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+    rightPanel.appendChild(hint)
+
+    const buttonRow = EditorUIHelper.createButtonRow()
+    const confirmBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_confirm'),
+      { primary: true }
+    )
+    const cancelBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_cancel')
+    )
+    buttonRow.appendChild(confirmBtn)
+    buttonRow.appendChild(cancelBtn)
+    footerPanel.appendChild(buttonRow)
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return
+    }
+    dialog.show(viewport)
+
+    const finish = () => {
+      close()
+    }
+
+    confirmBtn.addEventListener('click', () => {
+      const renderLayer = Number.parseInt(renderLayerInput.value, 10)
+      if (!Number.isFinite(renderLayer)) {
+        finish()
+        return
+      }
+      const changed = this.context.setCommonRenderLayer(target, renderLayer)
+      if (changed) {
+        this.context.requestRender()
+        this.context.onHistoryCapture()
+      }
+      finish()
+    })
+
+    cancelBtn.addEventListener('click', finish)
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        finish()
+      }
     })
   }
 }

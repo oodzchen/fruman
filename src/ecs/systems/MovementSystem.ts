@@ -1,6 +1,4 @@
 import {
-  CATEGORY_GROUND,
-  CATEGORY_OBSTACLE,
   DEFAULT_GRAVITY,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
@@ -13,12 +11,15 @@ import {
   FALL_DAMAGE_KINETIC_THRESHOLD,
   FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR,
   LANDING_MIN_VELOCITY,
-  MASK_PLAYER,
-  MASK_PLAYER_ROLLING,
   PLAYER_WEIGHT_REFERENCE,
   SOUND_DB_LAND,
   SPRINT_HOLD_THRESHOLD_MS,
 } from '../../constants'
+import {
+  getPlayerCollisionMask,
+  isGroundCollisionCategory,
+  isObstacleCollisionCategory,
+} from '../../physicsLayers'
 import type { MainModule } from '../../types'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
@@ -158,10 +159,10 @@ export class MovementSystem extends System {
       const filterB = b2Shape_GetFilter(contact.shapeIdB)
       const categoryA = filterA.categoryBits
       const categoryB = filterB.categoryBits
-      const isGroundA = (categoryA & CATEGORY_GROUND) !== 0
-      const isGroundB = (categoryB & CATEGORY_GROUND) !== 0
-      const isObstacleA = (categoryA & CATEGORY_OBSTACLE) !== 0
-      const isObstacleB = (categoryB & CATEGORY_OBSTACLE) !== 0
+      const isGroundA = isGroundCollisionCategory(categoryA)
+      const isGroundB = isGroundCollisionCategory(categoryB)
+      const isObstacleA = isObstacleCollisionCategory(categoryA)
+      const isObstacleB = isObstacleCollisionCategory(categoryB)
       let isSteepSurface = false
       if (isGroundA || isGroundB || isObstacleA || isObstacleB) {
         const normalX = (normal.x * this.slopeNormalScale) | 0
@@ -464,9 +465,10 @@ export class MovementSystem extends System {
 
     // 修改碰撞掩码以穿过敌人
     const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
+    const renderLayer = entity.render?.renderLayer ?? 0
     forEachPhysicsShapeId(entity.physics, (shapeId) => {
       const filter = b2Shape_GetFilter(shapeId)
-      filter.maskBits = MASK_PLAYER_ROLLING
+      filter.maskBits = getPlayerCollisionMask(renderLayer, true)
       b2Shape_SetFilter(shapeId, filter)
     })
 
@@ -495,9 +497,10 @@ export class MovementSystem extends System {
 
     // 恢复碰撞掩码
     const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
+    const renderLayer = entity.render?.renderLayer ?? 0
     forEachPhysicsShapeId(entity.physics, (shapeId) => {
       const filter = b2Shape_GetFilter(shapeId)
-      filter.maskBits = MASK_PLAYER
+      filter.maskBits = getPlayerCollisionMask(renderLayer)
       b2Shape_SetFilter(shapeId, filter)
     })
   }

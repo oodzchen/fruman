@@ -2,11 +2,8 @@ import {
   getCharacterEyeOffsetX,
   getCharacterEyeOffsetY,
 } from '../../characterBodyProfile'
-import {
-  CATEGORY_GROUND,
-  CATEGORY_OBSTACLE,
-  ENEMY_DETECTION_RANGE,
-} from '../../constants'
+import { ENEMY_DETECTION_RANGE } from '../../constants'
+import { getEnvironmentCollisionMask } from '../../physicsLayers'
 import type { MainModule, b2WorldId } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -231,7 +228,9 @@ export class TargetingSystem extends System {
 
     // Mask: Obstacles and Ground block view. Ignore Players/Enemies for LoS check for locking?
     // Usually locking requires LoS blocked by environment.
-    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
+    filter.maskBits = getEnvironmentCollisionMask(
+      start.render?.renderLayer ?? 0
+    )
 
     const output = b2World_CastRayClosest(
       this.worldId,
@@ -264,6 +263,10 @@ export class TargetingSystem extends System {
     for (let i = 0; i < candidateCount; i++) {
       const entity = candidates[i]
       if (entity.id === player.id) continue
+      if (
+        (entity.render?.renderLayer ?? 0) !== (player.render?.renderLayer ?? 0)
+      )
+        continue
       if (
         !entity.faction ||
         !player.faction.canAttackEntity(entity.faction, entity.id.toString()) ||
@@ -338,6 +341,11 @@ export class TargetingSystem extends System {
         const target = nearbyEntities[i]
         if (target.id === entity.id) continue
         if (!target.transform || !target.faction) continue
+        if (
+          (target.render?.renderLayer ?? 0) !==
+          (entity.render?.renderLayer ?? 0)
+        )
+          continue
         if (target.stats?.isDead || target.stats?.isVanished) continue
         if (
           entity.faction.canAttackEntity(target.faction, target.id.toString())
@@ -368,12 +376,18 @@ export class TargetingSystem extends System {
 
     // 只检测障碍物/地形阻挡，不依赖目标的物理分类
     // 射线未命中任何障碍物 = 视线畅通；命中障碍物 = 视线被阻断
-    filter.maskBits = CATEGORY_OBSTACLE | CATEGORY_GROUND
+    filter.maskBits = getEnvironmentCollisionMask(
+      entity.render?.renderLayer ?? 0
+    )
 
     for (let i = 0; i < nearbyCount; i++) {
       const target = nearbyEntities[i]
       if (target.id === entity.id) continue
       if (!target.transform) continue
+      if (
+        (target.render?.renderLayer ?? 0) !== (entity.render?.renderLayer ?? 0)
+      )
+        continue
       if (!entity.faction || !target.faction) continue
       if (!entity.faction.canAttackEntity(target.faction, target.id.toString()))
         continue

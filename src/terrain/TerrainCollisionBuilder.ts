@@ -1,128 +1,112 @@
-import { getTerrainLayerViews } from './TerrainDataUtils'
-import { isSolidTerrainCode } from './TerrainMaterialRegistry'
-import type { TerrainCollisionRect, TerrainDataLike } from './TerrainTypes'
+import {
+  getDefaultTerrainRenderLayer,
+  normalizeRenderLayer,
+} from '../renderLayers'
+import {
+  type TerrainResolvedLayerView,
+  getTerrainLayerViews,
+} from './TerrainDataUtils'
+import {
+  getTerrainMaterialTagByCode,
+  getTerrainMaterialTagById,
+  isSolidTerrainCode,
+} from './TerrainMaterialRegistry'
+import type {
+  TerrainCollisionRect,
+  TerrainDataLike,
+  TerrainMaterialTag,
+} from './TerrainTypes'
 
 export class TerrainCollisionBuilder {
   static buildRectangles(terrain: TerrainDataLike): TerrainCollisionRect[] {
-    const layers = getTerrainLayerViews(terrain)
-    if (layers.length === 0) {
-      return this.buildSingleLayerRectangles(terrain)
+    const sourceLayers = getTerrainLayerViews(terrain)
+    if (sourceLayers.length === 0) {
+      return []
     }
-    if (layers.length === 1) {
-      return this.offsetRectangles(
-        this.buildSingleLayerRectangles(layers[0]),
-        layers[0].offsetCellX,
-        layers[0].offsetCellY
-      )
-    }
-    const occupiedCells = new Set<number>()
-    for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
-      const layer = layers[layerIndex]
+    const cellTags = new Map<
+      number,
+      { materialTag: TerrainMaterialTag; renderLayer: number }
+    >()
+
+    for (let layerIndex = 0; layerIndex < sourceLayers.length; layerIndex++) {
+      const layer: TerrainResolvedLayerView = sourceLayers[layerIndex]
       const chunkSize = layer.chunkSize
+      const offsetCellX = layer.offsetCellX
+      const offsetCellY = layer.offsetCellY
+      const layerMaterialTag = layer.materialId
+        ? getTerrainMaterialTagById(layer.materialId)
+        : null
+      const layerRenderLayer = layer.materialId
+        ? normalizeRenderLayer(
+            layer.renderLayer,
+            getDefaultTerrainRenderLayer(layer.materialId)
+          )
+        : normalizeRenderLayer(layer.renderLayer, 0)
+
       for (let chunkIndex = 0; chunkIndex < layer.chunks.length; chunkIndex++) {
         const chunk = layer.chunks[chunkIndex]
         const cells = chunk.cells
-        const baseCellX = layer.offsetCellX + chunk.chunkX * chunkSize
-        const baseCellY = layer.offsetCellY + chunk.chunkY * chunkSize
+        const baseCellX = offsetCellX + chunk.chunkX * chunkSize
+        const baseCellY = offsetCellY + chunk.chunkY * chunkSize
         for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
-          if (!isSolidTerrainCode(cells[cellIndex] | 0)) {
+          const code = cells[cellIndex] | 0
+          if (!isSolidTerrainCode(code)) {
             continue
           }
-          occupiedCells.add(
+          const materialTag =
+            layerMaterialTag ?? getTerrainMaterialTagByCode(code)
+          if (!materialTag) {
+            continue
+          }
+          cellTags.set(
             packTerrainCollisionCell(
               baseCellX + (cellIndex % chunkSize),
               baseCellY + Math.floor(cellIndex / chunkSize)
-            )
+            ),
+            {
+              materialTag,
+              renderLayer: layerRenderLayer,
+            }
           )
         }
       }
     }
-    return this.buildPackedCellRectangles(occupiedCells)
-  }
 
-  private static buildSingleLayerRectangles(
-    terrain: TerrainDataLike
-  ): TerrainCollisionRect[] {
+    if (cellTags.size === 0) {
+      return []
+    }
+
+    const groupedCells = new Map<string, Set<number>>()
+    cellTags.forEach((entry, packedCell) => {
+      const key = `${entry.materialTag}:${entry.renderLayer}`
+      let cells = groupedCells.get(key)
+      if (!cells) {
+        cells = new Set<number>()
+        groupedCells.set(key, cells)
+      }
+      cells.add(packedCell)
+    })
+
     const rects: TerrainCollisionRect[] = []
-    const chunkSize = terrain.chunkSize
-    if (chunkSize <= 0) {
-      return rects
-    }
-
-    for (let chunkIndex = 0; chunkIndex < terrain.chunks.length; chunkIndex++) {
-      const chunk = terrain.chunks[chunkIndex]
-      const cells = chunk.cells
-      if (cells.length === 0) {
-        continue
-      }
-      const visited = new Uint8Array(chunkSize * chunkSize)
-      for (let localY = 0; localY < chunkSize; localY++) {
-        for (let localX = 0; localX < chunkSize; localX++) {
-          const startIndex = localY * chunkSize + localX
-          if (visited[startIndex] !== 0) {
-            continue
-          }
-          if (!isSolidTerrainCode(cells[startIndex] | 0)) {
-            continue
-          }
-
-          let widthCells = 1
-          while (localX + widthCells < chunkSize) {
-            const testIndex = startIndex + widthCells
-            if (visited[testIndex] !== 0) {
-              break
-            }
-            if (!isSolidTerrainCode(cells[testIndex] | 0)) {
-              break
-            }
-            widthCells += 1
-          }
-
-          let heightCells = 1
-          while (localY + heightCells < chunkSize) {
-            let rowSolid = true
-            const rowOffset = (localY + heightCells) * chunkSize + localX
-            for (let offsetX = 0; offsetX < widthCells; offsetX++) {
-              const testIndex = rowOffset + offsetX
-              if (visited[testIndex] !== 0) {
-                rowSolid = false
-                break
-              }
-              if (!isSolidTerrainCode(cells[testIndex] | 0)) {
-                rowSolid = false
-                break
-              }
-            }
-            if (!rowSolid) {
-              break
-            }
-            heightCells += 1
-          }
-
-          for (let markY = 0; markY < heightCells; markY++) {
-            const rowOffset = (localY + markY) * chunkSize + localX
-            for (let markX = 0; markX < widthCells; markX++) {
-              visited[rowOffset + markX] = 1
-            }
-          }
-
-          rects.push({
-            cellX: chunk.chunkX * chunkSize + localX,
-            cellY: chunk.chunkY * chunkSize + localY,
-            widthCells,
-            heightCells,
-          })
-        }
-      }
-    }
-
+    groupedCells.forEach((cells, key) => {
+      const separatorIndex = key.lastIndexOf(':')
+      const materialTag = key.slice(0, separatorIndex) as TerrainMaterialTag
+      const renderLayer = Number.parseInt(key.slice(separatorIndex + 1), 10) | 0
+      this.appendPackedCellRectangles(rects, cells, materialTag, renderLayer)
+    })
     return rects
   }
 
-  private static buildPackedCellRectangles(
-    occupiedCells: ReadonlySet<number>
-  ): TerrainCollisionRect[] {
-    const rects: TerrainCollisionRect[] = []
+  private static appendPackedCellRectangles(
+    target: TerrainCollisionRect[],
+    occupiedCells: ReadonlySet<number>,
+    materialTag: TerrainMaterialTag,
+    renderLayer: number
+  ): void {
+    if (occupiedCells.size === 0) {
+      return
+    }
+
     const remaining = new Set<number>(occupiedCells)
     const orderedCells = Array.from(remaining)
     orderedCells.sort(comparePackedTerrainCollisionCells)
@@ -169,29 +153,15 @@ export class TerrainCollisionBuilder {
         }
       }
 
-      rects.push({
+      target.push({
         cellX: startCellX,
         cellY: startCellY,
         widthCells,
         heightCells,
+        renderLayer,
+        materialTag,
       })
     }
-    return rects
-  }
-
-  private static offsetRectangles(
-    rects: TerrainCollisionRect[],
-    offsetCellX: number,
-    offsetCellY: number
-  ): TerrainCollisionRect[] {
-    if (offsetCellX === 0 && offsetCellY === 0) {
-      return rects
-    }
-    for (let i = 0; i < rects.length; i++) {
-      rects[i].cellX += offsetCellX
-      rects[i].cellY += offsetCellY
-    }
-    return rects
   }
 }
 

@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 84
+export const ENTITY_STRIDE = 85
 
 export const OFFSETS = {
   ID: 0,
@@ -85,6 +85,7 @@ export const OFFSETS = {
   PLAYER_LEVEL: 81,
   PLAYER_EXP_RATIO100: 82, // 当前经验 / 升级所需经验 × 100（整数 0-100）
   BODY_PROFILE_INDEX: 83,
+  RENDER_LAYER: 84,
 }
 
 export const FLAGS = {

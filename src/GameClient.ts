@@ -5,6 +5,7 @@ import { localizer } from './Localizer'
 import { MenuAction, MenuManager, MenuMode } from './MenuManager'
 import { saveManager } from './SaveManager'
 import type { EditorMapData } from './editorMapTypes'
+import { collectStaticRenderLayers } from './mapObjectLayers'
 import { PatternCreator } from './renderer/PatternCreator'
 import { ShapeRenderer } from './renderer/ShapeRenderer'
 import type { SaveData } from './saveTypes'
@@ -103,6 +104,7 @@ export class GameClient {
   private groundTopY = 0
   private editorPreview = false
   private currentMapData: EditorMapData | null = null
+  private staticRenderLayers: number[] = []
 
   private currentSaveId: string | null = null
   private currentSaveData: SaveData | null = null
@@ -240,6 +242,7 @@ export class GameClient {
     this.previewActive = true
     this.setPreviewExitVisible(true)
     this.currentMapData = map
+    this.staticRenderLayers = collectStaticRenderLayers(map)
     this.renderer.setCharacterBodyMap(map)
 
     if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
@@ -311,6 +314,7 @@ export class GameClient {
       }
     } else if (msg.type === 'map_data') {
       this.currentMapData = msg.map
+      this.staticRenderLayers = collectStaticRenderLayers(msg.map)
       this.renderer.setCharacterBodyMap(msg.map)
       if (
         msg.map.camera &&
@@ -837,15 +841,12 @@ export class GameClient {
       -this.camera.y * this.pixelsPerMeter
     )
 
-    // Draw Static Environment (Ground/Obstacles)
-    this.drawTerrain()
-    this.drawGround()
-    this.drawObstacles()
-
-    // Draw Entities
-    // Renderer now handles data internally via binary buffer
     const deltaMs = Math.max(0, (deltaTime * 1000) | 0)
-    this.renderer.render(deltaMs)
+    this.renderer.render(deltaMs, this.staticRenderLayers, (layer) => {
+      this.drawTerrain(layer)
+      this.drawGround(layer)
+      this.drawObstacles(layer)
+    })
 
     this.ctx.restore()
 
@@ -897,7 +898,7 @@ export class GameClient {
     ctx.restore()
   }
 
-  private drawGround() {
+  private drawGround(renderLayer: number) {
     if (!this.currentMapData) {
       return
     }
@@ -912,11 +913,12 @@ export class GameClient {
         strokeStyle: '#000',
         lineWidth: 2,
         drawStroke: false,
+        renderLayer,
       }
     )
   }
 
-  private drawObstacles() {
+  private drawObstacles(renderLayer: number) {
     if (!this.currentMapData) {
       return
     }
@@ -931,11 +933,12 @@ export class GameClient {
         strokeStyle: '#000',
         lineWidth: 2,
         drawStroke: true,
+        renderLayer,
       }
     )
   }
 
-  private drawTerrain() {
+  private drawTerrain(renderLayer: number) {
     const terrain = this.currentMapData?.terrain
     if (!terrain || !hasTerrainContent(terrain)) {
       return
@@ -944,7 +947,7 @@ export class GameClient {
       this.ctx,
       terrain,
       terrain.cellSize * this.pixelsPerMeter,
-      { drawStroke: true }
+      { drawStroke: true, renderLayer }
     )
   }
 

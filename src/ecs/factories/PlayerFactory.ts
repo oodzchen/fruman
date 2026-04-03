@@ -3,9 +3,6 @@ import {
   getCharacterBodyColor,
 } from '../../characterBodyProfile'
 import {
-  CATEGORY_ENEMY,
-  CATEGORY_PLAYER,
-  CATEGORY_WEAPON,
   CHARACTER_DEFAULT_DATA,
   DEFAULT_BODY_FRICTION,
   DEFAULT_JUMP_BUFFER_WINDOW,
@@ -34,12 +31,17 @@ import {
   ENEMY_ALERT_RANGE_MULTIPLIER,
   ENEMY_DETECTION_RANGE,
   ENEMY_DETECTION_RANGE_MULTIPLIERS,
-  MASK_ENEMY,
-  MASK_PLAYER,
-  MASK_WEAPON,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type { MapCharacterBodyProfile } from '../../editorMapTypes'
+import {
+  getEnemyCollisionCategory,
+  getEnemyCollisionMask,
+  getPlayerCollisionCategory,
+  getPlayerCollisionMask,
+  getWeaponCollisionCategory,
+  getWeaponCollisionMask,
+} from '../../physicsLayers'
 import type {
   MainModule,
   NormalAttackMovesetId,
@@ -122,7 +124,8 @@ export function createPlayer(
   groundTopY: number,
   radius: number = DEFAULT_PLAYER_RADIUS,
   bodyHeight = 0,
-  bodyProfile?: MapCharacterBodyProfile
+  bodyProfile?: MapCharacterBodyProfile,
+  renderLayer = 0
 ): Entity {
   const entity = world.createEntity()
 
@@ -140,8 +143,8 @@ export function createPlayer(
     bodyProfile,
     density: 1.0,
     friction: DEFAULT_BODY_FRICTION,
-    categoryBits: CATEGORY_PLAYER,
-    maskBits: MASK_PLAYER,
+    categoryBits: getPlayerCollisionCategory(renderLayer),
+    maskBits: getPlayerCollisionMask(renderLayer),
   })
   physics.bodyId = bodyResult.bodyId
   physics.shapeId = bodyResult.shapeId
@@ -185,6 +188,7 @@ export function createPlayer(
   render.radius = radius
   render.bodyHeight = bodyHeight
   render.bodyProfile = bodyProfile ?? null
+  render.renderLayer = renderLayer
   render.bloodColor = getCharacterBloodColor(bodyProfile, '')
   entity.addComponent(render)
 
@@ -221,6 +225,7 @@ export function createPlayer(
   weapon.postureDamage = DEFAULT_WEAPON_POSTURE_DAMAGE
   weapon.toughnessDamage = DEFAULT_WEAPON_TOUGHNESS_DAMAGE
   weapon.isEquipped = false
+  weapon.renderLayer = renderLayer
 
   // 初始化位置和变换为0，因为没有实际武器
   const zeroTransform = { x: 0, y: 0, rotation: 0 }
@@ -290,6 +295,7 @@ export interface NpcSpawnConfig {
   npcFactions?: string[]
   enemyFactions?: string[]
   allyFactions?: string[]
+  renderLayer?: number
 }
 
 export function createNpc(
@@ -326,6 +332,7 @@ export function createNpc(
   const debugNoDamage = options?.debugNoDamage === true
   const debugNoDeath = options?.debugNoDeath === true
   const initialNormalMovesetId = options?.initialNormalMovesetId ?? ''
+  const renderLayer = options?.renderLayer ?? 0
   const npc = createPlayer(
     world,
     box2d,
@@ -335,7 +342,8 @@ export function createNpc(
     groundTopY,
     radius,
     bodyHeight,
-    options?.bodyProfile
+    options?.bodyProfile,
+    renderLayer
   )
 
   // 重置 NPC 的脱战超时为10秒
@@ -401,8 +409,8 @@ export function createNpc(
     const { b2Shape_GetFilter, b2Shape_SetFilter } = box2d
     forEachPhysicsShapeId(npc.physics, (shapeId) => {
       const filter = b2Shape_GetFilter(shapeId)
-      filter.categoryBits = CATEGORY_ENEMY
-      filter.maskBits = MASK_ENEMY
+      filter.categoryBits = getEnemyCollisionCategory(renderLayer)
+      filter.maskBits = getEnemyCollisionMask(renderLayer)
       b2Shape_SetFilter(shapeId, filter)
     })
   }
@@ -418,6 +426,7 @@ export function createNpc(
     npc.render.color = getCharacterBodyColor(options?.bodyProfile, color)
     npc.render.bloodColor = getCharacterBloodColor(options?.bodyProfile, '')
     npc.render.bodyProfile = options?.bodyProfile ?? null
+    npc.render.renderLayer = renderLayer
   }
 
   if (npc.movement) {
@@ -743,7 +752,8 @@ export function createWeapon(
   x: number,
   y: number,
   groundTopY: number,
-  weaponType: WeaponType = 'sword'
+  weaponType: WeaponType = 'sword',
+  renderLayer = 0
 ): Entity {
   const entity = world.createEntity()
 
@@ -757,6 +767,7 @@ export function createWeapon(
 
   const template = WEAPON_DEFAULT_DATA[weaponType]
   const weapon = new WeaponComponent()
+  weapon.renderLayer = renderLayer
   applyWeaponSizeLevel(weapon, template, template.sizeLevel)
   weapon.sizeMaxLevel = template.sizeMaxLevel
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
@@ -826,6 +837,12 @@ export function createWeapon(
 
   entity.addComponent(weapon)
 
+  const render = new RenderComponent()
+  render.radius = 0
+  render.visible = true
+  render.renderLayer = renderLayer
+  entity.addComponent(render)
+
   // 创建物理组件，让武器自然掉落
   const physics = new PhysicsComponent()
   const {
@@ -853,8 +870,8 @@ export function createWeapon(
   shapeDef.density = 0.5
   shapeDef.material.friction = 0.3
   shapeDef.material.restitution = 0.2 // 轻微弹跳
-  shapeDef.filter.categoryBits = CATEGORY_WEAPON
-  shapeDef.filter.maskBits = MASK_WEAPON
+  shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
   physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
 
   entity.addComponent(physics)

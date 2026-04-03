@@ -77,6 +77,7 @@ export interface SaveNpcState {
 export interface SaveGroundWeaponState {
   spawnIndex: number
   position: { x: number; y: number }
+  renderLayer?: number
   weaponType: WeaponType
   sizeLevel: number
   width?: number

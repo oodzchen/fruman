@@ -67,6 +67,7 @@ import {
   type CameraFrame,
   type CameraViewData,
   type EditorEmptyObject,
+  type EditorLayeredObject,
   type EditorMap,
   type EditorObjectData,
   type GroundShapeType,
@@ -90,6 +91,10 @@ import type {
   MapWeapon,
   WeaponCategory,
 } from './editorMapTypes'
+import {
+  getDefaultShapeRenderLayer,
+  normalizeRenderLayer,
+} from './renderLayers'
 import { renderBody } from './renderer/BodyRenderer'
 import { PatternCreator } from './renderer/PatternCreator'
 import { renderWeapon } from './renderer/WeaponRenderer'
@@ -97,9 +102,11 @@ import {
   createEditorMap,
   listEditorMaps,
   loadEditorMapData,
+  loadEditorSetting,
   saveEditorMap,
   saveEditorMapMeta,
   saveEditorMapViewState,
+  saveEditorSetting,
 } from './storage'
 import type { NpcPatrolMode, NpcType, WeaponType } from './types'
 
@@ -110,6 +117,8 @@ interface EditorTreeHistoryEntry {
   parentIds: number[]
   id: number
 }
+
+const EDITOR_TREE_COLLAPSED_PATHS_PREFIX = 'editor-tree-collapsed:'
 
 export enum EditorView {
   MapList,
@@ -184,6 +193,7 @@ export class EditorManager {
   private terrainManager!: EditorTerrainLayerManager
   private terrainBrushController!: EditorTerrainBrushController
   private customNpcTemplates: MapNpcTemplate[] = []
+  private objectTreeCollapsedPaths: string[] = []
 
   constructor() {
     const overlay = document.getElementById('editorOverlay')
@@ -469,6 +479,9 @@ export class EditorManager {
         this.markerManager.updatePlayerMarkerVisual(m, r, bh, c, f),
       updateWeaponMarkerVisual: (m, s) =>
         this.markerManager.updateWeaponMarkerVisual(m, s),
+      getCommonRenderLayer: (target) => this.getEditorObjectRenderLayer(target),
+      setCommonRenderLayer: (target, renderLayer) =>
+        this.setEditorObjectRenderLayer(target, renderLayer),
       getFactions: () => this.factions,
       addFaction: (id) => {
         if (!this.factions.includes(id)) {
@@ -486,6 +499,10 @@ export class EditorManager {
         this.historyManager.reset(data)
         this.lastSavedHistoryId = this.historyManager.getCurrentEntryId()
         this.resetTreeHistory()
+        this.objectTreeCollapsedPaths.length = 0
+        this.objectTreeManager.setCollapsedPaths(this.objectTreeCollapsedPaths)
+        this.renderObjectTree()
+        void this.restoreObjectTreeCollapsedPaths(meta.id)
       },
       applyEditorViewportState: (state) => this.applyEditorViewportState(state),
       applyEditorTreeData: (data) => this.applyEditorTreeData(data),
@@ -557,6 +574,10 @@ export class EditorManager {
         this.resetDragState()
       },
       onObjectSelected: (id, mode) => this.handleObjectTreeSelection(id, mode),
+      onObjectContextMenu: (id, clientX, clientY) =>
+        this.handleObjectTreeContextMenu(id, clientX, clientY),
+      onCollapsedPathsChanged: (paths) =>
+        this.handleObjectTreeCollapsedPathsChanged(paths),
     })
 
     // PatternManager initialized earlier
@@ -1223,6 +1244,64 @@ export class EditorManager {
     this.objectTreeManager.renderObjectTree()
   }
 
+  private handleObjectTreeContextMenu(
+    id: number,
+    clientX: number,
+    clientY: number
+  ) {
+    const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+    if (selectedIds.length > 1 && selectedIds.includes(id)) {
+      this.showMultiSelectContextMenu(clientX, clientY)
+      return
+    }
+    this.objectManager.focusEditorObjectById(id)
+    const data = this.objectManager.getEditorObjectById(id)
+    if (!data) {
+      return
+    }
+    this.showShapeContextMenu(data.object, clientX, clientY)
+  }
+
+  private handleObjectTreeCollapsedPathsChanged(paths: readonly string[]) {
+    const nextPaths: string[] = []
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i]
+      if (typeof path === 'string' && path.length > 0) {
+        nextPaths.push(path)
+      }
+    }
+    this.objectTreeCollapsedPaths = nextPaths
+    const mapId = this.currentMapMeta?.id
+    if (!mapId) {
+      return
+    }
+    void saveEditorSetting(
+      `${EDITOR_TREE_COLLAPSED_PATHS_PREFIX}${mapId}`,
+      nextPaths
+    )
+  }
+
+  private async restoreObjectTreeCollapsedPaths(mapId: string) {
+    const savedPaths = await loadEditorSetting<readonly string[]>(
+      `${EDITOR_TREE_COLLAPSED_PATHS_PREFIX}${mapId}`
+    )
+    if (this.currentMapMeta?.id !== mapId) {
+      return
+    }
+    const nextPaths: string[] = []
+    if (Array.isArray(savedPaths)) {
+      for (let i = 0; i < savedPaths.length; i++) {
+        const path = savedPaths[i]
+        if (typeof path === 'string' && path.length > 0) {
+          nextPaths.push(path)
+        }
+      }
+    }
+    this.objectTreeCollapsedPaths = nextPaths
+    this.objectTreeManager.setCollapsedPaths(nextPaths)
+    this.renderObjectTree()
+  }
+
   private handleObjectTreeSelection(
     id: number,
     mode: 'replace' | 'toggle' | 'range'
@@ -1524,15 +1603,8 @@ export class EditorManager {
     this.menuSystem.hideObjectTypeMenu()
     if (node?.dataset.objectId) {
       const objectId = Number.parseInt(node.dataset.objectId, 10)
-      const selectedIds = this.objectManager.getSelectedEditorObjectIds()
-      if (selectedIds.length > 1 && selectedIds.includes(objectId)) {
-        this.showMultiSelectContextMenu(event.clientX, event.clientY)
-        return
-      }
-      this.objectManager.focusEditorObjectById(objectId)
-      const data = this.objectManager.getEditorObjectById(objectId)
-      if (data) {
-        this.showShapeContextMenu(data.object, event.clientX, event.clientY)
+      if (Number.isFinite(objectId)) {
+        this.handleObjectTreeContextMenu(objectId, event.clientX, event.clientY)
         return
       }
     }
@@ -2095,6 +2167,10 @@ export class EditorManager {
       ) {
         resolvedData.name = node.name
       }
+      this.setEditorObjectRenderLayer(
+        resolvedData.object,
+        typeof node.renderLayer === 'number' ? node.renderLayer : undefined
+      )
       resolvedData.isLocked = node.isLocked === true
       resolved.push(resolvedData)
       resolvedIdSet.add(resolvedData.id)
@@ -2357,7 +2433,7 @@ export class EditorManager {
     }
     if (this.terrainManager.isTerrainProxy(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'lock', 'delete'],
+        ['copy', 'paste', 'commonProperties', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2367,7 +2443,16 @@ export class EditorManager {
     }
     if (this.cameraManager.isCameraFrame(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'zoom', 'reset', 'rename', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'zoom',
+          'reset',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -2377,7 +2462,15 @@ export class EditorManager {
     }
     if (this.markerManager.isPlayerMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'properties', 'rename', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'properties',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -2387,7 +2480,15 @@ export class EditorManager {
     }
     if (this.markerManager.isNpcMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'properties', 'rename', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'properties',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -2397,7 +2498,15 @@ export class EditorManager {
     }
     if (this.markerManager.isWeaponMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'properties', 'rename', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'properties',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -2407,7 +2516,15 @@ export class EditorManager {
     }
     if (this.isGroupContainer(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'ungroup', 'rename', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'ungroup',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -2416,7 +2533,12 @@ export class EditorManager {
       return
     }
     if (this.isEmptyObject(target)) {
-      const actions: ContextMenuAction[] = ['copy', 'paste', 'rename']
+      const actions: ContextMenuAction[] = [
+        'copy',
+        'paste',
+        'commonProperties',
+        'rename',
+      ]
       if (this.shouldShowConvertGroupAction(target)) {
         actions.push('convertGroup')
       }
@@ -2427,7 +2549,7 @@ export class EditorManager {
     }
     if (this.markerManager.isCheckpointMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'lock', 'delete'],
+        ['copy', 'paste', 'commonProperties', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2437,7 +2559,7 @@ export class EditorManager {
     }
     if (this.markerManager.isHookAnchorMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'lock', 'delete'],
+        ['copy', 'paste', 'commonProperties', 'rename', 'lock', 'delete'],
         target,
         -1,
         clientX,
@@ -2447,7 +2569,16 @@ export class EditorManager {
     }
     if (target.type === 'rect') {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'reset', 'square', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'commonProperties',
+          'rename',
+          'reset',
+          'square',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -2457,7 +2588,16 @@ export class EditorManager {
     }
     if (this.isTriangleShape(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'rename', 'reset', 'equilateral', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'commonProperties',
+          'rename',
+          'reset',
+          'equilateral',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -2466,7 +2606,15 @@ export class EditorManager {
       return
     }
     this.showPolygonMenuWithActions(
-      ['copy', 'paste', 'rename', 'reset', 'lock', 'delete'],
+      [
+        'copy',
+        'paste',
+        'commonProperties',
+        'rename',
+        'reset',
+        'lock',
+        'delete',
+      ],
       target,
       -1,
       clientX,
@@ -2682,6 +2830,46 @@ export class EditorManager {
       if (d) result.push(d.object)
     }
     return result
+  }
+
+  private getEditorObjectRenderLayer(target: fabric.Object): number {
+    const terrainRenderLayer = this.terrainManager.getProxyRenderLayer(target)
+    if (terrainRenderLayer !== null) {
+      return normalizeRenderLayer(terrainRenderLayer, terrainRenderLayer)
+    }
+    return normalizeRenderLayer(
+      (target as EditorLayeredObject).renderLayer,
+      getDefaultShapeRenderLayer()
+    )
+  }
+
+  private setEditorObjectRenderLayer(
+    target: fabric.Object,
+    renderLayer: number | undefined
+  ): boolean {
+    const terrainRenderLayer = this.terrainManager.getProxyRenderLayer(target)
+    if (terrainRenderLayer !== null) {
+      const nextRenderLayer = normalizeRenderLayer(
+        renderLayer,
+        terrainRenderLayer
+      )
+      return this.terrainManager.setProxyRenderLayer(target, nextRenderLayer)
+    }
+    const nextRenderLayer = normalizeRenderLayer(
+      renderLayer,
+      getDefaultShapeRenderLayer()
+    )
+    const layeredTarget = target as EditorLayeredObject
+    const currentRenderLayer = normalizeRenderLayer(
+      layeredTarget.renderLayer,
+      getDefaultShapeRenderLayer()
+    )
+    if (currentRenderLayer === nextRenderLayer) {
+      layeredTarget.renderLayer = nextRenderLayer
+      return false
+    }
+    layeredTarget.renderLayer = nextRenderLayer
+    return true
   }
 
   private buildDeleteConfirmMessage(ids: readonly number[]): string {
@@ -2908,6 +3096,11 @@ export class EditorManager {
       if (pasted) {
         this.captureHistorySnapshot()
       }
+      return
+    }
+    if (action === 'commonProperties') {
+      await this.propertiesPanel.showCommonPropertiesDialog(target)
+      this.contextMenu.hide()
       return
     }
     if (action === 'properties') {

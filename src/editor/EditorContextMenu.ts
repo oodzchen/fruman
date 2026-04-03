@@ -17,6 +17,7 @@ export type ContextMenuAction =
   | 'ungroup'
   | 'lock'
   | 'unlock'
+  | 'commonProperties'
   | 'properties'
   | 'copy'
   | 'paste'
@@ -67,6 +68,9 @@ export class EditorContextMenu {
     const polygonMenuSeptenary = document.getElementById(
       'editorPolygonMenuSeptenary'
     )
+    const polygonMenuOctonary = document.getElementById(
+      'editorPolygonMenuOctonary'
+    )
 
     if (
       !(polygonMenu instanceof HTMLDivElement) ||
@@ -76,7 +80,8 @@ export class EditorContextMenu {
       !(polygonMenuQuaternary instanceof HTMLButtonElement) ||
       !(polygonMenuQuinary instanceof HTMLButtonElement) ||
       !(polygonMenuSenary instanceof HTMLButtonElement) ||
-      !(polygonMenuSeptenary instanceof HTMLButtonElement)
+      !(polygonMenuSeptenary instanceof HTMLButtonElement) ||
+      !(polygonMenuOctonary instanceof HTMLButtonElement)
     ) {
       throw new Error('EditorContextMenu: required elements not found')
     }
@@ -90,6 +95,7 @@ export class EditorContextMenu {
       polygonMenuQuinary,
       polygonMenuSenary,
       polygonMenuSeptenary,
+      polygonMenuOctonary,
     ]
 
     this.setupEventListeners()
@@ -230,6 +236,8 @@ export class EditorContextMenu {
         return 'editor_object_menu_lock'
       case 'unlock':
         return 'editor_object_menu_unlock'
+      case 'commonProperties':
+        return 'editor_object_menu_common_properties'
       case 'properties':
         return 'editor_weapon_menu_properties'
       case 'copy':

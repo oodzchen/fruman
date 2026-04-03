@@ -75,6 +75,7 @@ export class InteractionSystem extends System {
     if (!player.transform) return false
     const px = player.transform.x
     const py = player.transform.y
+    const playerLayer = player.render?.renderLayer ?? 0
     const rangeSq = FOLLOW_INTERACTION_RANGE * FOLLOW_INTERACTION_RANGE
     let nearest: Entity | null = null
     let nearestDistSq = rangeSq
@@ -82,6 +83,7 @@ export class InteractionSystem extends System {
     for (let i = 0; i < entities.length; i++) {
       const e = entities[i]
       if (!e.follow || !e.transform) continue
+      if ((e.render?.renderLayer ?? 0) !== playerLayer) continue
       const dx = e.transform.x - px
       const dy = e.transform.y - py
       const distSq = dx * dx + dy * dy

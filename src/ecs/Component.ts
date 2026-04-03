@@ -270,6 +270,7 @@ export class RenderComponent extends Component {
   bodyHeight = 0
   bodyProfileIndex = 0
   bodyProfile: MapCharacterBodyProfile | null = null
+  renderLayer = 0
   color = '#FF7A1A'
   bloodColor = ''
   borderColor = '#FFD700'
@@ -280,6 +281,7 @@ export class RenderComponent extends Component {
     this.bodyHeight = 0
     this.bodyProfileIndex = 0
     this.bodyProfile = null
+    this.renderLayer = 0
     this.color = '#FF7A1A'
     this.bloodColor = ''
     this.borderColor = '#FFD700'
@@ -514,6 +516,7 @@ export class WeaponComponent extends Component {
   width = 0
   height = 0
   baseWidth = 0
+  renderLayer = 0
   sizeLevel = 2
   sizeMaxLevel = 4
   blockWidthStart = 0
@@ -675,6 +678,7 @@ export class WeaponComponent extends Component {
     this.width = 0
     this.height = 0
     this.baseWidth = 0
+    this.renderLayer = 0
     this.sizeLevel = 2
     this.sizeMaxLevel = 4
     this.blockWidthStart = 0

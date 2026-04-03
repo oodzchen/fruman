@@ -1,4 +1,5 @@
 import type { MapPlacedShape } from '../editorMapTypes'
+import { getDefaultShapeRenderLayer, isRenderLayerMatch } from '../renderLayers'
 
 export class ShapeRenderer {
   static drawShapes(
@@ -11,6 +12,7 @@ export class ShapeRenderer {
       strokeStyle?: string
       lineWidth?: number
       drawStroke?: boolean
+      renderLayer?: number
     }
   ): void {
     ctx.fillStyle = options.fillStyle
@@ -24,6 +26,16 @@ export class ShapeRenderer {
     for (let i = 0; i < shapes.length; i++) {
       const placedShape = shapes[i]
       if (placedShape.objectKind !== objectKind) {
+        continue
+      }
+      if (
+        options.renderLayer !== undefined &&
+        !isRenderLayerMatch(
+          placedShape.renderLayer,
+          options.renderLayer,
+          getDefaultShapeRenderLayer()
+        )
+      ) {
         continue
       }
 

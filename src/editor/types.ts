@@ -117,6 +117,10 @@ export type TerrainRegionProxy = fabric.Group & {
   terrainAnchorTop: number
 }
 
+export type EditorLayeredObject = fabric.Object & {
+  renderLayer?: number
+}
+
 export type WeaponShape = fabric.Object & {
   weaponWidthPx: number
   weaponHeightPx: number

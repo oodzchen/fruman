@@ -1,7 +1,5 @@
 import {
   BOW_MIN_WINDUP_MS,
-  CATEGORY_GROUND,
-  CATEGORY_OBSTACLE,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_SPRINT_SPEED,
   DEFAULT_WEAPON_ATTACK_RADIUS,
@@ -136,18 +134,48 @@ export class NpcAISystem extends System {
 
       // Resolve target: prefer sensor-detected, fall back to lockedTargetId, then player
       let target = this.player
+      const entityLayer = entity.render?.renderLayer ?? 0
       if (entity.sensor?.detectedTargetId != null) {
         const sensed = this.getEntityById(
           entity.sensor.detectedTargetId,
           entities
         )
-        if (sensed?.transform && !sensed.stats?.isDead) target = sensed
+        if (
+          sensed?.transform &&
+          !sensed.stats?.isDead &&
+          (sensed.render?.renderLayer ?? 0) === entityLayer
+        ) {
+          target = sensed
+        }
       } else if (
         entity.input.lockedTargetId != null &&
         entity.input.lockedTargetId !== this.player.id
       ) {
         const locked = this.getEntityById(entity.input.lockedTargetId, entities)
-        if (locked?.transform && !locked.stats?.isDead) target = locked
+        if (
+          locked?.transform &&
+          !locked.stats?.isDead &&
+          (locked.render?.renderLayer ?? 0) === entityLayer
+        ) {
+          target = locked
+        }
+      }
+      if ((target.render?.renderLayer ?? 0) !== entityLayer) {
+        if (entity.stats?.isInCombat) entity.stats.isInCombat = false
+        entity.npcAI.forcedChaseDistanceRemaining = 0
+        entity.npcAI.alertChaseActive = false
+        if (entity.input.lockedTargetId !== null) {
+          entity.input.lockedTargetId = null
+          entity.input.lockLostTimer = 0
+        }
+        if (entity.weapon) entity.weapon.attackQueued = false
+        if (entity.npcAI.retreatEnabled) {
+          this.handlePatrol(entity, entity.npcAI, now)
+        } else {
+          entity.input.moveDirection = 0
+          entity.input.sprintRequested = false
+        }
+        continue
       }
       if (!target.transform) continue
 

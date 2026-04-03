@@ -12,6 +12,10 @@ import type {
   MapPlacedShape,
   MapSunPickup,
 } from '../editorMapTypes'
+import {
+  getDefaultShapeRenderLayer,
+  normalizeRenderLayer,
+} from '../renderLayers'
 import type { NormalAttackMovesetId, WeaponType } from '../types'
 import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
 import {
@@ -27,7 +31,7 @@ import { computeCameraOffsetFromCenter } from './EditorCoordinateUtils'
 import type { EditorMarkerManager } from './EditorMarkerManager'
 import type { EditorShapeManager } from './EditorShapeManager'
 import type { EditorTerrainLayerManager } from './EditorTerrainLayerManager'
-import type { ObjectType } from './types'
+import type { EditorLayeredObject, ObjectType } from './types'
 
 interface EditorObjectLike {
   id: number
@@ -246,6 +250,10 @@ export class EditorMapSerializer {
     rect.angle = (shape.rotationRad * 180) / Math.PI
     rect.left = shape.center.x * pixelsPerMeter
     rect.top = shape.center.y * pixelsPerMeter
+    ;(rect as EditorLayeredObject).renderLayer = normalizeRenderLayer(
+      placed.renderLayer,
+      getDefaultShapeRenderLayer()
+    )
     rect.setCoords()
     this.ctx.shapeManager.registerShapeResetData(rect, {
       kind: 'rect',
@@ -287,6 +295,10 @@ export class EditorMapSerializer {
     circle.scaleY = 1
     circle.left = shape.center.x * pixelsPerMeter
     circle.top = shape.center.y * pixelsPerMeter
+    ;(circle as EditorLayeredObject).renderLayer = normalizeRenderLayer(
+      placed.renderLayer,
+      getDefaultShapeRenderLayer()
+    )
     circle.setCoords()
     this.ctx.shapeManager.registerShapeResetData(circle, {
       kind: 'circle',
@@ -339,6 +351,10 @@ export class EditorMapSerializer {
     polygon.scaleX = 1
     polygon.scaleY = 1
     polygon.angle = 0
+    ;(polygon as EditorLayeredObject).renderLayer = normalizeRenderLayer(
+      placed.renderLayer,
+      getDefaultShapeRenderLayer()
+    )
     polygon.setCoords()
     this.ctx.shapeManager.registerShapeResetData(polygon, {
       kind: 'polygon',
@@ -541,6 +557,7 @@ export class EditorMapSerializer {
       const node: EditorTreeNode = {
         type: dataItem.type as EditorTreeObjectType,
         name: dataItem.name,
+        renderLayer: this.getObjectRenderLayer(dataItem.object),
       }
       if (dataItem.type === 'empty') {
         node.isGroupContainer =
@@ -736,6 +753,7 @@ export class EditorMapSerializer {
     const rotationRad = (angleDeg * Math.PI) / 180
     return {
       objectKind,
+      renderLayer: this.getShapeRenderLayer(rect),
       shape: {
         kind: 'rect',
         center: { x: centerX, y: centerY },
@@ -760,6 +778,7 @@ export class EditorMapSerializer {
     const radius = radiusPx * invPixelsPerMeter
     return {
       objectKind,
+      renderLayer: this.getShapeRenderLayer(circle),
       shape: {
         kind: 'circle',
         center: { x: centerX, y: centerY },
@@ -792,6 +811,7 @@ export class EditorMapSerializer {
     }
     return {
       objectKind,
+      renderLayer: this.getShapeRenderLayer(polygon),
       shape: {
         kind: 'polygon',
         center: { x: centerX, y: centerY },
@@ -902,5 +922,24 @@ export class EditorMapSerializer {
       })
     }
     return weapons
+  }
+
+  private getShapeRenderLayer(object: fabric.Object): number {
+    return normalizeRenderLayer(
+      (object as EditorLayeredObject).renderLayer,
+      getDefaultShapeRenderLayer()
+    )
+  }
+
+  private getObjectRenderLayer(object: fabric.Object): number {
+    const terrainRenderLayer =
+      this.ctx.terrainManager.getProxyRenderLayer(object)
+    if (terrainRenderLayer !== null) {
+      return normalizeRenderLayer(terrainRenderLayer, terrainRenderLayer)
+    }
+    return normalizeRenderLayer(
+      (object as EditorLayeredObject).renderLayer,
+      getDefaultShapeRenderLayer()
+    )
   }
 }

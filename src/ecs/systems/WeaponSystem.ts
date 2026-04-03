@@ -8,7 +8,6 @@ import {
   BOW_MIN_SPEED,
   BOW_MIN_WINDUP_MS,
   BOW_RECOVER_MS,
-  CATEGORY_WEAPON,
   DEBUG_ANIMATION_SLOWDOWN,
   DEFAULT_FRAME_RATE,
   DEFAULT_GRAVITY,
@@ -44,7 +43,6 @@ import {
   GRAPE_RECOVER_MS,
   JUMP_ATTACK_DAMAGE_SCALE_DENOMINATOR,
   JUMP_ATTACK_DAMAGE_SCALE_NUMERATOR,
-  MASK_WEAPON,
   PARRY_COUNTER_WINDOW_MS,
   PARRY_ENEMY_POSTURE_DAMAGE,
   PARRY_SELF_POSTURE_RECOVERY,
@@ -58,6 +56,11 @@ import {
   WEAPON_DROP_DURATION_MS,
   WEAPON_IMPACT_LEVEL,
 } from '../../constants'
+import {
+  getWeaponCollisionCategory,
+  getWeaponCollisionMask,
+} from '../../physicsLayers'
+import type { TerrainMaterialTag } from '../../terrain/TerrainTypes'
 import type {
   MainModule,
   WeaponTemplate,
@@ -92,6 +95,7 @@ import { ULTIMATE_COOLDOWN_MS } from '../Component'
 import {
   Faction,
   PhysicsComponent,
+  RenderComponent,
   TransformComponent,
   WeaponComponent,
   WeaponSlotsComponent,
@@ -164,6 +168,8 @@ export type ObstacleCollider = {
   centerY: number
   width: number
   height: number
+  renderLayer: number
+  materialTag: TerrainMaterialTag
   vertices?: { x: number; y: number }[]
   worldVertices?: { x: number; y: number }[]
   radius?: number
@@ -360,6 +366,9 @@ export class WeaponSystem extends System {
     if (!entity.transform || !entity.weapon) return
 
     const weapon = entity.weapon
+    if (entity.render) {
+      weapon.renderLayer = entity.render.renderLayer
+    }
     if (
       weapon.attackPhase !== 'block' &&
       weapon.attackPhase !== 'blockReturn' &&
@@ -1742,7 +1751,8 @@ export class WeaponSystem extends System {
     x: number,
     y: number,
     facing: number,
-    weaponData: WeaponDropData
+    weaponData: WeaponDropData,
+    renderLayer: number
   ): void {
     if (
       !this.world ||
@@ -1782,8 +1792,8 @@ export class WeaponSystem extends System {
     shapeDef.density = 0.5
     shapeDef.material.friction = 0.3
     shapeDef.material.restitution = 0.2 // 轻微弹跳
-    shapeDef.filter.categoryBits = CATEGORY_WEAPON
-    shapeDef.filter.maskBits = MASK_WEAPON
+    shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+    shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
 
     // 施加初始速度：向玩家面朝的前方抛出，同时向上
@@ -1800,7 +1810,14 @@ export class WeaponSystem extends System {
 
     entity.addComponent(physics)
 
+    const render = new RenderComponent()
+    render.radius = 0
+    render.visible = true
+    render.renderLayer = renderLayer
+    entity.addComponent(render)
+
     const weapon = new WeaponComponent()
+    weapon.renderLayer = renderLayer
     weapon.width = weaponData.width
     weapon.height = weaponData.height
     weapon.baseWidth = weaponData.baseWidth
@@ -2349,8 +2366,10 @@ export class WeaponSystem extends System {
     shapeDef.density = this.getRangedProjectileDensity(weapon)
     shapeDef.material.friction = 0.2
     shapeDef.material.restitution = this.getRangedProjectileRestitution(weapon)
-    shapeDef.filter.categoryBits = CATEGORY_WEAPON
-    shapeDef.filter.maskBits = MASK_WEAPON
+    shapeDef.filter.categoryBits = getWeaponCollisionCategory(
+      weapon.renderLayer
+    )
+    shapeDef.filter.maskBits = getWeaponCollisionMask(weapon.renderLayer)
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
 
     const launchSpeed = arrowSpeed * 1.5
@@ -2376,6 +2395,7 @@ export class WeaponSystem extends System {
     arrowWeapon.impactLevel = 'small'
     arrowWeapon.isEquipped = false
     arrowWeapon.attackPhase = 'idle'
+    arrowWeapon.renderLayer = weapon.renderLayer
     arrowWeapon.visual.x = arrowTransform.x
     arrowWeapon.visual.y = arrowTransform.y
     arrowWeapon.visual.rotation = arrowRotation
@@ -2746,6 +2766,7 @@ export class WeaponSystem extends System {
     if (!entity.transform || !entity.weapon) return false
     if (entity.stats?.isDead) return false
     const weaponSlots = entity.weaponSlots
+    const entityLayer = entity.render?.renderLayer ?? 0
 
     // 检查是否靠近独立的武器实体
     for (const weaponEntity of this.allEntities) {
@@ -2755,6 +2776,7 @@ export class WeaponSystem extends System {
         continue
       if (weaponEntity.weapon.isEquipped) continue
       if (!weaponEntity.transform) continue
+      if ((weaponEntity.render?.renderLayer ?? 0) !== entityLayer) continue
 
       const dx = entity.transform.x - weaponEntity.transform.x
       const dy = entity.transform.y - weaponEntity.transform.y
@@ -2858,7 +2880,8 @@ export class WeaponSystem extends System {
             entity.transform.x,
             entity.transform.y,
             facing,
-            this.tempWeaponDropData
+            this.tempWeaponDropData,
+            entity.render?.renderLayer ?? 0
           )
 
           this.copyWeaponToSlot(targetSlot, weaponEntity.weapon)
@@ -2955,7 +2978,8 @@ export class WeaponSystem extends System {
             entity.transform.x,
             entity.transform.y,
             facing,
-            this.tempWeaponDropData
+            this.tempWeaponDropData,
+            entity.render?.renderLayer ?? 0
           )
 
           // 替换为新武器属性
@@ -3045,7 +3069,8 @@ export class WeaponSystem extends System {
           transform.x + offsetX,
           transform.y,
           dropFacing,
-          this.tempWeaponDropData
+          this.tempWeaponDropData,
+          entity.render?.renderLayer ?? 0
         )
       }
       slot.hasWeapon = false
@@ -3084,7 +3109,8 @@ export class WeaponSystem extends System {
           transform.x,
           transform.y,
           facing,
-          this.tempWeaponDropData
+          this.tempWeaponDropData,
+          entity.render?.renderLayer ?? 0
         )
       }
       weapon.isEquipped = false
@@ -3497,6 +3523,9 @@ export class WeaponSystem extends System {
     const pointY = this.tempWeaponBottomPoint.y
 
     for (let i = 0; i < this.standableSurfaces.length; i++) {
+      if (this.standableSurfaces[i].renderLayer !== weapon.renderLayer) {
+        continue
+      }
       if (
         this.isPointNearSurfaceTop(pointX, pointY, this.standableSurfaces[i])
       ) {
@@ -3799,6 +3828,9 @@ export class WeaponSystem extends System {
     const wRotation = weapon.visual.rotation
 
     for (const obstacle of this.obstacles) {
+      if (obstacle.renderLayer !== weapon.renderLayer) {
+        continue
+      }
       const centerX = obstacle.centerX
       const centerY = obstacle.centerY
       const worldVertices = obstacle.worldVertices
@@ -3889,11 +3921,13 @@ export class WeaponSystem extends System {
     const nearbyCount = this.spatialHash
       ? this.spatialHash.getQueryResultLength()
       : nearbyEntities.length
+    const attackerLayer = attacker.render?.renderLayer ?? weapon.renderLayer
 
     for (let i = 0; i < nearbyCount; i++) {
       const target = nearbyEntities[i]
       if (!target || target.id === attacker.id) continue
       if (!target.transform || !target.stats || target.stats.isDead) continue
+      if ((target.render?.renderLayer ?? 0) !== attackerLayer) continue
       if (
         !target.faction ||
         !attacker.faction.canAttackEntity(target.faction, target.id.toString())

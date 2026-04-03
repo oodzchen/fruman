@@ -30,6 +30,11 @@ export class SunPickupSystem {
         const player = players[j]
         if (!player.transform || !player.solarEnergy || player.stats?.isDead)
           continue
+        if (
+          (player.render?.renderLayer ?? 0) !==
+          (pickup.render?.renderLayer ?? 0)
+        )
+          continue
         const dx = pickup.transform.x - player.transform.x
         const dy = pickup.transform.y - player.transform.y
         if (dx * dx + dy * dy > sp.pickupRadiusSq) continue

@@ -33,6 +33,7 @@ export interface EditorTreeNode {
   index?: number
   objectKind?: MapObjectKind
   name?: string
+  renderLayer?: number
   isGroupContainer?: boolean
   isLocked?: boolean
 }
@@ -112,6 +113,7 @@ export type MapShape = MapRectShape | MapCircleShape | MapPolygonShape
 
 export interface MapPlacedShape {
   objectKind: MapObjectKind
+  renderLayer?: number
   shape: MapShape
 }
 
