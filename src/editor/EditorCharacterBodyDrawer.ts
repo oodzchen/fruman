@@ -35,13 +35,34 @@ interface EditorBodyLayer {
   kind: EditorBodyLayerKind
   canvas: HTMLCanvasElement | null
   ctx: CanvasRenderingContext2D | null
+  bounds: EditorCanvasBounds | null
+  boundsDirty: boolean
+}
+
+interface EditorCanvasBounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+interface EditorCanvasSnapshot {
+  bounds: EditorCanvasBounds | null
+  image: ImageData | null
+}
+
+interface EditorCanvasState {
+  canvas: HTMLCanvasElement
+  ctx: CanvasRenderingContext2D
+  bounds: EditorCanvasBounds | null
+  boundsDirty: boolean
 }
 
 interface EditorBodyLayerSnapshot {
   id: number
   name: string
   kind: 'brow' | 'paint'
-  image: ImageData
+  image: EditorCanvasSnapshot
 }
 
 interface EditorCharacterBodyDrawerOptions {
@@ -84,9 +105,9 @@ const EYE_LAYER_ID = 2
 const BROW_LAYER_ID = 3
 
 interface EditorCharacterBodyDrawerHistorySnapshot {
-  mask: ImageData
-  shape: ImageData
-  texture: ImageData
+  mask: EditorCanvasSnapshot
+  shape: EditorCanvasSnapshot
+  texture: EditorCanvasSnapshot
   layers: EditorBodyLayerSnapshot[]
   layerOrder: number[]
   brushSize: string
@@ -228,9 +249,8 @@ export class EditorCharacterBodyDrawer {
   private shapeCanvas = document.createElement('canvas')
   private textureCanvas = document.createElement('canvas')
   private browCanvas = document.createElement('canvas')
-  private compositeCanvas = document.createElement('canvas')
-  private scratchCanvas = document.createElement('canvas')
-  private outputCanvas = document.createElement('canvas')
+  private workCanvas = document.createElement('canvas')
+  private outputCanvas: HTMLCanvasElement | null = null
 
   constructor() {
     this.maskCanvas.width = DRAW_WORLD_SIZE
@@ -241,12 +261,20 @@ export class EditorCharacterBodyDrawer {
     this.textureCanvas.height = DRAW_WORLD_SIZE
     this.browCanvas.width = DRAW_WORLD_SIZE
     this.browCanvas.height = DRAW_WORLD_SIZE
-    this.compositeCanvas.width = DRAW_WORLD_SIZE
-    this.compositeCanvas.height = DRAW_WORLD_SIZE
-    this.scratchCanvas.width = DRAW_WORLD_SIZE
-    this.scratchCanvas.height = DRAW_WORLD_SIZE
-    this.outputCanvas.width = LEGACY_PROFILE_REFERENCE_SIZE
-    this.outputCanvas.height = LEGACY_PROFILE_REFERENCE_SIZE
+    this.workCanvas.width = DRAW_WORLD_SIZE
+    this.workCanvas.height = DRAW_WORLD_SIZE
+  }
+
+  private getOutputContext(
+    width: number,
+    height: number
+  ): CanvasRenderingContext2D | null {
+    if (!this.outputCanvas) {
+      this.outputCanvas = document.createElement('canvas')
+    }
+    this.outputCanvas.width = width
+    this.outputCanvas.height = height
+    return this.outputCanvas.getContext('2d')
   }
 
   async show(
@@ -580,19 +608,36 @@ export class EditorCharacterBodyDrawer {
     const shapeCtx = this.shapeCanvas.getContext('2d')
     const textureCtx = this.textureCanvas.getContext('2d')
     const browCtx = this.browCanvas.getContext('2d')
-    const compositeCtx = this.compositeCanvas.getContext('2d')
-    const outputCtx = this.outputCanvas.getContext('2d')
+    const workCtx = this.workCanvas.getContext('2d')
     if (
       !drawCtx ||
       !maskCtx ||
       !shapeCtx ||
       !textureCtx ||
       !browCtx ||
-      !compositeCtx ||
-      !outputCtx
+      !workCtx
     ) {
       close()
       return undefined
+    }
+
+    const maskState: EditorCanvasState = {
+      canvas: this.maskCanvas,
+      ctx: maskCtx,
+      bounds: null,
+      boundsDirty: false,
+    }
+    const shapeState: EditorCanvasState = {
+      canvas: this.shapeCanvas,
+      ctx: shapeCtx,
+      bounds: null,
+      boundsDirty: false,
+    }
+    const textureState: EditorCanvasState = {
+      canvas: this.textureCanvas,
+      ctx: textureCtx,
+      bounds: null,
+      boundsDirty: false,
     }
 
     let mode: BodyDrawMode = 'contour'
@@ -661,6 +706,175 @@ export class EditorCharacterBodyDrawer {
       }
     }
 
+    const cloneBounds = (
+      bounds: EditorCanvasBounds | null
+    ): EditorCanvasBounds | null => {
+      if (!bounds) {
+        return null
+      }
+      return {
+        minX: bounds.minX,
+        minY: bounds.minY,
+        maxX: bounds.maxX,
+        maxY: bounds.maxY,
+      }
+    }
+
+    const createBoundsFromRect = (
+      x: number,
+      y: number,
+      width: number,
+      height: number
+    ): EditorCanvasBounds | null => {
+      if (width <= 0 || height <= 0) {
+        return null
+      }
+      const minX = Math.max(0, Math.min(DRAW_WORLD_SIZE - 1, Math.round(x)))
+      const minY = Math.max(0, Math.min(DRAW_WORLD_SIZE - 1, Math.round(y)))
+      const maxX = Math.max(
+        minX,
+        Math.min(DRAW_WORLD_SIZE - 1, minX + Math.max(1, Math.round(width)) - 1)
+      )
+      const maxY = Math.max(
+        minY,
+        Math.min(
+          DRAW_WORLD_SIZE - 1,
+          minY + Math.max(1, Math.round(height)) - 1
+        )
+      )
+      return { minX, minY, maxX, maxY }
+    }
+
+    const mergeBounds = (
+      target: EditorCanvasBounds | null,
+      source: EditorCanvasBounds | null
+    ): EditorCanvasBounds | null => {
+      if (!source) {
+        return target
+      }
+      if (!target) {
+        return cloneBounds(source)
+      }
+      if (source.minX < target.minX) {
+        target.minX = source.minX
+      }
+      if (source.minY < target.minY) {
+        target.minY = source.minY
+      }
+      if (source.maxX > target.maxX) {
+        target.maxX = source.maxX
+      }
+      if (source.maxY > target.maxY) {
+        target.maxY = source.maxY
+      }
+      return target
+    }
+
+    const expandBoundsForStroke = (
+      bounds: EditorCanvasBounds | null,
+      fromX: number,
+      fromY: number,
+      toX: number,
+      toY: number,
+      brushSize: number
+    ): EditorCanvasBounds => {
+      const radius = Math.max(1, Math.ceil(brushSize * 0.5))
+      const minX = Math.max(0, Math.min(fromX, toX) - radius)
+      const minY = Math.max(0, Math.min(fromY, toY) - radius)
+      const maxX = Math.min(DRAW_WORLD_SIZE - 1, Math.max(fromX, toX) + radius)
+      const maxY = Math.min(DRAW_WORLD_SIZE - 1, Math.max(fromY, toY) + radius)
+      if (!bounds) {
+        return { minX, minY, maxX, maxY }
+      }
+      if (minX < bounds.minX) {
+        bounds.minX = minX
+      }
+      if (minY < bounds.minY) {
+        bounds.minY = minY
+      }
+      if (maxX > bounds.maxX) {
+        bounds.maxX = maxX
+      }
+      if (maxY > bounds.maxY) {
+        bounds.maxY = maxY
+      }
+      return bounds
+    }
+
+    const translateBounds = (
+      bounds: EditorCanvasBounds | null,
+      offsetX: number,
+      offsetY: number
+    ): EditorCanvasBounds | null => {
+      if (!bounds) {
+        return null
+      }
+      return createBoundsFromRect(
+        bounds.minX + offsetX,
+        bounds.minY + offsetY,
+        bounds.maxX + 1 - bounds.minX,
+        bounds.maxY + 1 - bounds.minY
+      )
+    }
+
+    const resolveCanvasBounds = (
+      ctx: CanvasRenderingContext2D,
+      bounds: EditorCanvasBounds | null,
+      boundsDirty: boolean
+    ): { bounds: EditorCanvasBounds | null; dirty: boolean } => {
+      if (!boundsDirty) {
+        return { bounds, dirty: false }
+      }
+      const nextBounds = this.readAlphaBounds(ctx, DRAW_WORLD_SIZE)
+      return { bounds: nextBounds, dirty: false }
+    }
+
+    const captureCanvasSnapshot = (
+      ctx: CanvasRenderingContext2D,
+      bounds: EditorCanvasBounds | null,
+      boundsDirty: boolean
+    ): {
+      snapshot: EditorCanvasSnapshot
+      bounds: EditorCanvasBounds | null
+    } => {
+      const resolved = resolveCanvasBounds(ctx, bounds, boundsDirty)
+      if (!resolved.bounds) {
+        return {
+          snapshot: { bounds: null, image: null },
+          bounds: null,
+        }
+      }
+      const width = resolved.bounds.maxX + 1 - resolved.bounds.minX
+      const height = resolved.bounds.maxY + 1 - resolved.bounds.minY
+      return {
+        snapshot: {
+          bounds: cloneBounds(resolved.bounds),
+          image: ctx.getImageData(
+            resolved.bounds.minX,
+            resolved.bounds.minY,
+            width,
+            height
+          ),
+        },
+        bounds: resolved.bounds,
+      }
+    }
+
+    const applyCanvasSnapshot = (
+      ctx: CanvasRenderingContext2D,
+      snapshot: EditorCanvasSnapshot
+    ): EditorCanvasBounds | null => {
+      ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      if (snapshot.bounds && snapshot.image) {
+        ctx.putImageData(
+          snapshot.image,
+          snapshot.bounds.minX,
+          snapshot.bounds.minY
+        )
+      }
+      return cloneBounds(snapshot.bounds)
+    }
+
     const getLayerIndexById = (layerId: number): number => {
       for (let i = 0; i < layers.length; i++) {
         if (layers[i].id === layerId) {
@@ -675,16 +889,21 @@ export class EditorCharacterBodyDrawer {
       return index >= 0 ? layers[index] : null
     }
 
+    const ensureLayerSurface = (layer: EditorBodyLayer): boolean => {
+      if (layer.canvas && layer.ctx) {
+        return true
+      }
+      const created = createLayerCanvas()
+      if (!created.ctx) {
+        return false
+      }
+      layer.canvas = created.canvas
+      layer.ctx = created.ctx
+      return true
+    }
+
     const getSelectedLayer = (): EditorBodyLayer | null =>
       getLayerById(selectedLayerId)
-
-    const getSelectedPaintLayer = (): EditorBodyLayer | null => {
-      const layer = getSelectedLayer()
-      if (!layer || (layer.kind !== 'brow' && layer.kind !== 'paint')) {
-        return null
-      }
-      return layer.ctx ? layer : null
-    }
 
     const isLayerMovable = (layer: EditorBodyLayer | null): boolean =>
       !!layer &&
@@ -759,17 +978,38 @@ export class EditorCharacterBodyDrawer {
       renderLayerList()
     }
 
+    const resolveLayerBounds = (
+      layer: EditorBodyLayer
+    ): EditorCanvasBounds | null => {
+      if (!layer.ctx || (layer.kind !== 'brow' && layer.kind !== 'paint')) {
+        return null
+      }
+      if (!layer.boundsDirty) {
+        return layer.bounds
+      }
+      layer.bounds = this.readAlphaBounds(layer.ctx, DRAW_WORLD_SIZE)
+      layer.boundsDirty = false
+      return layer.bounds
+    }
+
     const captureLayerSnapshot = (
       layer: EditorBodyLayer
     ): EditorBodyLayerSnapshot | null => {
       if (!layer.ctx || (layer.kind !== 'brow' && layer.kind !== 'paint')) {
         return null
       }
+      const captured = captureCanvasSnapshot(
+        layer.ctx,
+        layer.bounds,
+        layer.boundsDirty
+      )
+      layer.bounds = captured.bounds
+      layer.boundsDirty = false
       return {
         id: layer.id,
         name: layer.name,
         kind: layer.kind,
-        image: layer.ctx.getImageData(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE),
+        image: captured.snapshot,
       }
     }
 
@@ -782,6 +1022,8 @@ export class EditorCharacterBodyDrawer {
           kind: 'core',
           canvas: null,
           ctx: null,
+          bounds: null,
+          boundsDirty: false,
         },
         {
           id: EYE_LAYER_ID,
@@ -789,6 +1031,8 @@ export class EditorCharacterBodyDrawer {
           kind: 'eye',
           canvas: null,
           ctx: null,
+          bounds: null,
+          boundsDirty: false,
         },
         {
           id: BROW_LAYER_ID,
@@ -796,6 +1040,8 @@ export class EditorCharacterBodyDrawer {
           kind: 'brow',
           canvas: this.browCanvas,
           ctx: browCtx,
+          bounds: null,
+          boundsDirty: false,
         }
       )
       nextLayerId = BROW_LAYER_ID + 1
@@ -803,10 +1049,6 @@ export class EditorCharacterBodyDrawer {
     }
 
     const appendPaintLayer = (name?: string): EditorBodyLayer | null => {
-      const { canvas, ctx } = createLayerCanvas()
-      if (!ctx) {
-        return null
-      }
       const layer: EditorBodyLayer = {
         id: nextLayerId++,
         name:
@@ -814,8 +1056,10 @@ export class EditorCharacterBodyDrawer {
             ? name
             : `${localizer.t('editor_body_drawer_layer_custom')} ${nextLayerId - 4}`,
         kind: 'paint',
-        canvas,
-        ctx,
+        canvas: null,
+        ctx: null,
+        bounds: null,
+        boundsDirty: false,
       }
       layers.push(layer)
       return layer
@@ -943,15 +1187,17 @@ export class EditorCharacterBodyDrawer {
       const duplicate = appendPaintLayer(
         `${source.name} ${localizer.t('editor_body_drawer_layer_copy_suffix')}`
       )
-      if (!duplicate || !duplicate.ctx) {
+      if (!duplicate) {
         return null
       }
       if (source.kind === 'eye') {
         return null
       }
-      if (source.canvas) {
+      if (source.canvas && ensureLayerSurface(duplicate) && duplicate.ctx) {
         duplicate.ctx.drawImage(source.canvas, 0, 0)
       }
+      duplicate.bounds = cloneBounds(source.bounds)
+      duplicate.boundsDirty = source.boundsDirty
       return duplicate
     }
 
@@ -973,6 +1219,11 @@ export class EditorCharacterBodyDrawer {
     ) => {
       buildDefaultLayers()
       browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      const browLayer = getLayerById(BROW_LAYER_ID)
+      if (browLayer) {
+        browLayer.bounds = null
+        browLayer.boundsDirty = false
+      }
       for (let i = 0; i < snapshots.length; i++) {
         const snapshot = snapshots[i]
         let layer: EditorBodyLayer | null = null
@@ -987,11 +1238,12 @@ export class EditorCharacterBodyDrawer {
             }
           }
         }
-        if (!layer || !layer.ctx) {
+        if (!layer || !ensureLayerSurface(layer) || !layer.ctx) {
           continue
         }
         layer.name = snapshot.name
-        layer.ctx.putImageData(snapshot.image, 0, 0)
+        layer.bounds = applyCanvasSnapshot(layer.ctx, snapshot.image)
+        layer.boundsDirty = false
       }
       if (order && order.length > 0) {
         applyLayerOrder(order)
@@ -1304,15 +1556,31 @@ export class EditorCharacterBodyDrawer {
             layerSnapshots.push(snapshot)
           }
         }
+        const maskSnapshot = captureCanvasSnapshot(
+          maskState.ctx,
+          maskState.bounds,
+          maskState.boundsDirty
+        )
+        maskState.bounds = maskSnapshot.bounds
+        maskState.boundsDirty = false
+        const shapeSnapshot = captureCanvasSnapshot(
+          shapeState.ctx,
+          shapeState.bounds,
+          shapeState.boundsDirty
+        )
+        shapeState.bounds = shapeSnapshot.bounds
+        shapeState.boundsDirty = false
+        const textureSnapshot = captureCanvasSnapshot(
+          textureState.ctx,
+          textureState.bounds,
+          textureState.boundsDirty
+        )
+        textureState.bounds = textureSnapshot.bounds
+        textureState.boundsDirty = false
         return {
-          mask: maskCtx.getImageData(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE),
-          shape: shapeCtx.getImageData(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE),
-          texture: textureCtx.getImageData(
-            0,
-            0,
-            DRAW_WORLD_SIZE,
-            DRAW_WORLD_SIZE
-          ),
+          mask: maskSnapshot.snapshot,
+          shape: shapeSnapshot.snapshot,
+          texture: textureSnapshot.snapshot,
           layers: layerSnapshots,
           layerOrder: getLayerOrderSnapshot(),
           brushSize: brushSlider.value,
@@ -1333,9 +1601,15 @@ export class EditorCharacterBodyDrawer {
     const applyHistorySnapshot = (
       snapshot: EditorCharacterBodyDrawerHistorySnapshot
     ) => {
-      maskCtx.putImageData(snapshot.mask, 0, 0)
-      shapeCtx.putImageData(snapshot.shape, 0, 0)
-      textureCtx.putImageData(snapshot.texture, 0, 0)
+      maskState.bounds = applyCanvasSnapshot(maskState.ctx, snapshot.mask)
+      maskState.boundsDirty = false
+      shapeState.bounds = applyCanvasSnapshot(shapeState.ctx, snapshot.shape)
+      shapeState.boundsDirty = false
+      textureState.bounds = applyCanvasSnapshot(
+        textureState.ctx,
+        snapshot.texture
+      )
+      textureState.boundsDirty = false
       restoreLayerSnapshots(snapshot.layers, snapshot.layerOrder)
       syncBrushValue(snapshot.brushSize)
       colorInput.value = snapshot.color
@@ -1867,6 +2141,10 @@ export class EditorCharacterBodyDrawer {
     const clearBodyShape = () => {
       maskCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       shapeCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      maskState.bounds = null
+      maskState.boundsDirty = false
+      shapeState.bounds = null
+      shapeState.boundsDirty = false
     }
 
     const clearVisualLayer = (layer: EditorBodyLayer | null) => {
@@ -1875,10 +2153,14 @@ export class EditorCharacterBodyDrawer {
       }
       if (layer.kind === 'core') {
         textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+        textureState.bounds = null
+        textureState.boundsDirty = false
         return
       }
       if (layer.ctx) {
         layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+        layer.bounds = null
+        layer.boundsDirty = false
       }
     }
 
@@ -1974,7 +2256,7 @@ export class EditorCharacterBodyDrawer {
       if (!selectedLayer.ctx) {
         return null
       }
-      return this.readAlphaBounds(selectedLayer.ctx, DRAW_WORLD_SIZE)
+      return resolveLayerBounds(selectedLayer)
     }
 
     const translateLayerPixels = (
@@ -1993,15 +2275,14 @@ export class EditorCharacterBodyDrawer {
       if (!layer.ctx || !layer.canvas) {
         return
       }
-      const scratchCtx = this.scratchCanvas.getContext('2d')
-      if (!scratchCtx) {
-        return
-      }
-      scratchCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
-      scratchCtx.drawImage(layer.canvas, 0, 0)
+      workCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      workCtx.drawImage(layer.canvas, 0, 0)
       layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
-      layer.ctx.drawImage(this.scratchCanvas, offsetX, offsetY)
-      scratchCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      layer.ctx.drawImage(this.workCanvas, offsetX, offsetY)
+      workCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      if (!layer.boundsDirty) {
+        layer.bounds = translateBounds(layer.bounds, offsetX, offsetY)
+      }
     }
 
     const fillBodyShape = () => {
@@ -2012,6 +2293,8 @@ export class EditorCharacterBodyDrawer {
       shapeCtx.globalCompositeOperation = 'destination-in'
       shapeCtx.drawImage(this.maskCanvas, 0, 0)
       shapeCtx.restore()
+      shapeState.bounds = cloneBounds(maskState.bounds)
+      shapeState.boundsDirty = maskState.boundsDirty
       renderComposite()
     }
 
@@ -2019,6 +2302,7 @@ export class EditorCharacterBodyDrawer {
       if (!contourClosed || contourPoints.length < 6) {
         return
       }
+      const contourBounds = getContourBounds()
       clearBodyShape()
       maskCtx.save()
       maskCtx.fillStyle = '#ffffff'
@@ -2030,6 +2314,15 @@ export class EditorCharacterBodyDrawer {
       maskCtx.closePath()
       maskCtx.fill()
       maskCtx.restore()
+      maskState.bounds = contourBounds
+        ? createBoundsFromRect(
+            contourBounds.minX,
+            contourBounds.minY,
+            contourBounds.width,
+            contourBounds.height
+          )
+        : null
+      maskState.boundsDirty = false
 
       shapeCtx.save()
       shapeCtx.fillStyle = colorInput.value
@@ -2041,6 +2334,8 @@ export class EditorCharacterBodyDrawer {
       shapeCtx.closePath()
       shapeCtx.fill()
       shapeCtx.restore()
+      shapeState.bounds = cloneBounds(maskState.bounds)
+      shapeState.boundsDirty = false
     }
 
     const beginContour = (pointX: number, pointY: number) => {
@@ -2213,10 +2508,17 @@ export class EditorCharacterBodyDrawer {
       ctx.restore()
     }
 
-    const drawMergedVisualWorld = (ctx: CanvasRenderingContext2D) => {
+    const drawMergedVisualWorld = (
+      ctx: CanvasRenderingContext2D,
+      clearFirst: boolean
+    ): EditorCanvasBounds | null => {
       const contourBounds = getContourBounds()
-      ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      let mergedBounds: EditorCanvasBounds | null = null
+      if (clearFirst) {
+        ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      }
       ctx.drawImage(this.shapeCanvas, 0, 0)
+      mergedBounds = mergeBounds(mergedBounds, shapeState.bounds)
       ctx.save()
       ctx.globalCompositeOperation = 'source-atop'
       ctx.drawImage(this.textureCanvas, 0, 0)
@@ -2228,12 +2530,25 @@ export class EditorCharacterBodyDrawer {
         }
         if (layer.kind === 'eye') {
           drawEyeLayer(ctx, contourBounds)
+          if (contourBounds) {
+            mergedBounds = mergeBounds(
+              mergedBounds,
+              createBoundsFromRect(
+                contourBounds.centerX + eyeX - DEFAULT_EDITOR_EYE_RADIUS,
+                contourBounds.centerY + eyeY - DEFAULT_EDITOR_EYE_RADIUS,
+                DEFAULT_EDITOR_EYE_RADIUS * 2,
+                DEFAULT_EDITOR_EYE_RADIUS * 2
+              )
+            )
+          }
           continue
         }
         if (layer.canvas) {
           ctx.drawImage(layer.canvas, 0, 0)
+          mergedBounds = mergeBounds(mergedBounds, resolveLayerBounds(layer))
         }
       }
+      return mergedBounds
     }
 
     const renderComposite = () => {
@@ -2242,7 +2557,6 @@ export class EditorCharacterBodyDrawer {
       drawCtx.fillRect(0, 0, DISPLAY_SIZE, DISPLAY_SIZE)
       drawCtx.imageSmoothingEnabled = false
 
-      drawMergedVisualWorld(compositeCtx)
       drawCtx.save()
       drawCtx.setTransform(
         viewportScale,
@@ -2252,7 +2566,7 @@ export class EditorCharacterBodyDrawer {
         -viewOriginX * viewportScale,
         -viewOriginY * viewportScale
       )
-      drawCtx.drawImage(this.compositeCanvas, 0, 0)
+      drawMergedVisualWorld(drawCtx, false)
 
       if (mode === 'select') {
         const selectedBounds = getSelectedLayerBounds()
@@ -2367,6 +2681,18 @@ export class EditorCharacterBodyDrawer {
       }
       contourPoints = nextContourPoints
       contourClosed = true
+      const contourBounds = getContourBounds()
+      maskState.bounds = contourBounds
+        ? createBoundsFromRect(
+            contourBounds.minX,
+            contourBounds.minY,
+            contourBounds.width,
+            contourBounds.height
+          )
+        : null
+      maskState.boundsDirty = false
+      shapeState.bounds = cloneBounds(maskState.bounds)
+      shapeState.boundsDirty = false
       selectedContourIndex = Math.min(
         selectedContourIndex < 0 ? 0 : selectedContourIndex,
         getContourPointCount() - 1
@@ -2408,7 +2734,14 @@ export class EditorCharacterBodyDrawer {
       toY: number
     ) => {
       const brushSize = getBrushSize()
-      const selectedPaintLayer = getSelectedPaintLayer()
+      const selectedLayer = getSelectedLayer()
+      const selectedPaintLayer =
+        selectedLayer &&
+        (selectedLayer.kind === 'brow' || selectedLayer.kind === 'paint') &&
+        ensureLayerSurface(selectedLayer) &&
+        selectedLayer.ctx
+          ? selectedLayer
+          : null
       if (mode === 'erase') {
         if (isCoreLayerSelected()) {
           strokePath(
@@ -2421,6 +2754,8 @@ export class EditorCharacterBodyDrawer {
             '#000000',
             'destination-out'
           )
+          maskState.boundsDirty = true
+          shapeState.boundsDirty = true
           strokePath(
             shapeCtx,
             fromX,
@@ -2442,6 +2777,7 @@ export class EditorCharacterBodyDrawer {
             '#000000',
             'destination-out'
           )
+          selectedPaintLayer.boundsDirty = true
         }
       } else if (mode === 'shape') {
         if (isCoreLayerSelected()) {
@@ -2455,6 +2791,15 @@ export class EditorCharacterBodyDrawer {
             '#ffffff',
             'source-over'
           )
+          maskState.bounds = expandBoundsForStroke(
+            maskState.bounds,
+            fromX,
+            fromY,
+            toX,
+            toY,
+            brushSize
+          )
+          maskState.boundsDirty = false
           strokePath(
             shapeCtx,
             fromX,
@@ -2465,6 +2810,15 @@ export class EditorCharacterBodyDrawer {
             colorInput.value,
             'source-over'
           )
+          shapeState.bounds = expandBoundsForStroke(
+            shapeState.bounds,
+            fromX,
+            fromY,
+            toX,
+            toY,
+            brushSize
+          )
+          shapeState.boundsDirty = false
         } else if (selectedPaintLayer?.ctx) {
           strokePath(
             selectedPaintLayer.ctx,
@@ -2476,6 +2830,15 @@ export class EditorCharacterBodyDrawer {
             colorInput.value,
             'source-over'
           )
+          selectedPaintLayer.bounds = expandBoundsForStroke(
+            selectedPaintLayer.bounds,
+            fromX,
+            fromY,
+            toX,
+            toY,
+            brushSize
+          )
+          selectedPaintLayer.boundsDirty = false
         }
       } else if (mode === 'texture' && isCoreLayerSelected()) {
         strokePath(
@@ -2488,6 +2851,15 @@ export class EditorCharacterBodyDrawer {
           colorInput.value,
           'source-over'
         )
+        textureState.bounds = expandBoundsForStroke(
+          textureState.bounds,
+          fromX,
+          fromY,
+          toX,
+          toY,
+          brushSize
+        )
+        textureState.boundsDirty = false
       }
       pointerChanged = true
       renderComposite()
@@ -2497,6 +2869,8 @@ export class EditorCharacterBodyDrawer {
       clearBodyShape()
       textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      textureState.bounds = null
+      textureState.boundsDirty = false
       buildDefaultLayers()
       contourPoints = []
       contourClosed = false
@@ -2529,6 +2903,13 @@ export class EditorCharacterBodyDrawer {
               contourBounds.width,
               contourBounds.height
             )
+            shapeState.bounds = createBoundsFromRect(
+              contourBounds.minX,
+              contourBounds.minY,
+              contourBounds.width,
+              contourBounds.height
+            )
+            shapeState.boundsDirty = false
           }
         }
         if (profile.layers && profile.layers.length > 0 && contourBounds) {
@@ -2542,7 +2923,11 @@ export class EditorCharacterBodyDrawer {
               visualLayer.kind === 'brow'
                 ? getLayerById(BROW_LAYER_ID)
                 : appendPaintLayer(visualLayer.name)
-            if (!targetLayer || !targetLayer.ctx) {
+            if (
+              !targetLayer ||
+              !ensureLayerSurface(targetLayer) ||
+              !targetLayer.ctx
+            ) {
               continue
             }
             const drawWidth = Math.max(1, Math.round(visualLayer.width))
@@ -2562,6 +2947,13 @@ export class EditorCharacterBodyDrawer {
               drawWidth,
               drawHeight
             )
+            targetLayer.bounds = createBoundsFromRect(
+              drawX,
+              drawY,
+              drawWidth,
+              drawHeight
+            )
+            targetLayer.boundsDirty = false
           }
         }
         if (profile.layerOrder && profile.layerOrder.length > 0) {
@@ -2679,6 +3071,8 @@ export class EditorCharacterBodyDrawer {
       eyeX = DEFAULT_CHARACTER_EYE_X
       eyeY = DEFAULT_CHARACTER_EYE_Y
       textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      textureState.bounds = null
+      textureState.boundsDirty = false
       browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       buildDefaultLayers()
       selectedLayerId = CORE_LAYER_ID
@@ -3230,8 +3624,6 @@ export class EditorCharacterBodyDrawer {
                 shapeCtx,
                 textureCtx,
                 browCtx,
-                compositeCtx,
-                outputCtx,
                 layers,
                 getLayerOrderSnapshot(),
                 colorInput.value,
@@ -3340,8 +3732,6 @@ export class EditorCharacterBodyDrawer {
     shapeCtx: CanvasRenderingContext2D,
     textureCtx: CanvasRenderingContext2D,
     browCtx: CanvasRenderingContext2D,
-    compositeCtx: CanvasRenderingContext2D,
-    outputCtx: CanvasRenderingContext2D,
     layers: EditorBodyLayer[],
     layerOrder: number[],
     color: string,
@@ -3353,6 +3743,10 @@ export class EditorCharacterBodyDrawer {
     exportReferenceWidth: number,
     exportReferenceHeight: number
   ): MapCharacterBodyProfile | null {
+    const workCtx = this.workCanvas.getContext('2d')
+    if (!workCtx) {
+      return null
+    }
     const size = DRAW_WORLD_SIZE
     const maskFill = this.readMaskFill(maskCtx, size)
     if (!maskFill) {
@@ -3372,20 +3766,17 @@ export class EditorCharacterBodyDrawer {
     if (simplified.length < 6) {
       return null
     }
-    this.drawMergedSurface(
-      compositeCtx,
+    const surfaceBounds = this.drawMergedSurface(
+      workCtx,
       shapeCtx,
       textureCtx,
       browCtx,
       layers,
       coreCenterX,
       coreCenterY,
-      maskFill.maxX + 1 - maskFill.minX,
-      maskFill.maxY + 1 - maskFill.minY,
       eyeX,
       eyeY
     )
-    const surfaceBounds = this.readAlphaBounds(compositeCtx, size)
     const width = Math.max(
       0.01,
       Math.round(
@@ -3404,7 +3795,6 @@ export class EditorCharacterBodyDrawer {
     const textureDataUrl = this.buildSurfaceDataUrl(
       shapeCtx,
       textureCtx,
-      outputCtx,
       maskFill.minX,
       maskFill.minY,
       maskFill.maxX + 1,
@@ -3412,8 +3802,7 @@ export class EditorCharacterBodyDrawer {
     )
     const surfaceDataUrl = surfaceBounds
       ? this.cropCanvasDataUrl(
-          compositeCtx.canvas,
-          outputCtx,
+          this.workCanvas,
           surfaceBounds.minX,
           surfaceBounds.minY,
           surfaceBounds.maxX + 1,
@@ -3422,7 +3811,6 @@ export class EditorCharacterBodyDrawer {
       : textureDataUrl
     const serializedLayers = this.serializeVisualLayers(
       layers,
-      outputCtx,
       coreCenterX,
       coreCenterY
     )
@@ -3798,7 +4186,6 @@ export class EditorCharacterBodyDrawer {
   private buildSurfaceDataUrl(
     shapeCtx: CanvasRenderingContext2D,
     textureCtx: CanvasRenderingContext2D,
-    outputCtx: CanvasRenderingContext2D,
     minX: number,
     minY: number,
     maxX: number,
@@ -3806,8 +4193,10 @@ export class EditorCharacterBodyDrawer {
   ): string | null {
     const width = Math.max(1, maxX - minX)
     const height = Math.max(1, maxY - minY)
-    this.outputCanvas.width = width
-    this.outputCanvas.height = height
+    const outputCtx = this.getOutputContext(width, height)
+    if (!outputCtx) {
+      return null
+    }
     outputCtx.clearRect(0, 0, width, height)
     outputCtx.drawImage(
       shapeCtx.canvas,
@@ -3844,11 +4233,10 @@ export class EditorCharacterBodyDrawer {
     layers: EditorBodyLayer[],
     coreCenterX: number,
     coreCenterY: number,
-    coreWidth: number,
-    coreHeight: number,
     eyeX: number,
     eyeY: number
-  ) {
+  ): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    let mergedBounds = this.readAlphaBounds(shapeCtx, DRAW_WORLD_SIZE)
     compositeCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
     compositeCtx.drawImage(shapeCtx.canvas, 0, 0)
     compositeCtx.save()
@@ -3890,16 +4278,97 @@ export class EditorCharacterBodyDrawer {
         )
         compositeCtx.fill()
         compositeCtx.restore()
+        const eyeMinX = coreCenterX + eyeX - eyeRadius
+        const eyeMinY = coreCenterY + eyeY - eyeRadius
+        const eyeMaxX = coreCenterX + eyeX + eyeRadius
+        const eyeMaxY = coreCenterY + eyeY + eyeRadius
+        if (!mergedBounds) {
+          mergedBounds = {
+            minX: eyeMinX,
+            minY: eyeMinY,
+            maxX: eyeMaxX,
+            maxY: eyeMaxY,
+          }
+        } else {
+          if (eyeMinX < mergedBounds.minX) {
+            mergedBounds.minX = eyeMinX
+          }
+          if (eyeMinY < mergedBounds.minY) {
+            mergedBounds.minY = eyeMinY
+          }
+          if (eyeMaxX > mergedBounds.maxX) {
+            mergedBounds.maxX = eyeMaxX
+          }
+          if (eyeMaxY > mergedBounds.maxY) {
+            mergedBounds.maxY = eyeMaxY
+          }
+        }
         continue
       }
       if (layer.kind === 'brow') {
         compositeCtx.drawImage(browCtx.canvas, 0, 0)
+        const browBounds = layer.boundsDirty
+          ? this.readAlphaBounds(browCtx, DRAW_WORLD_SIZE)
+          : layer.bounds
+        if (browBounds) {
+          if (!mergedBounds) {
+            mergedBounds = {
+              minX: browBounds.minX,
+              minY: browBounds.minY,
+              maxX: browBounds.maxX,
+              maxY: browBounds.maxY,
+            }
+          } else {
+            if (browBounds.minX < mergedBounds.minX) {
+              mergedBounds.minX = browBounds.minX
+            }
+            if (browBounds.minY < mergedBounds.minY) {
+              mergedBounds.minY = browBounds.minY
+            }
+            if (browBounds.maxX > mergedBounds.maxX) {
+              mergedBounds.maxX = browBounds.maxX
+            }
+            if (browBounds.maxY > mergedBounds.maxY) {
+              mergedBounds.maxY = browBounds.maxY
+            }
+          }
+        }
         continue
       }
       if (layer.canvas) {
         compositeCtx.drawImage(layer.canvas, 0, 0)
+        const layerBounds = layer.boundsDirty
+          ? this.readAlphaBounds(
+              layer.ctx as CanvasRenderingContext2D,
+              DRAW_WORLD_SIZE
+            )
+          : layer.bounds
+        if (layerBounds) {
+          if (!mergedBounds) {
+            mergedBounds = {
+              minX: layerBounds.minX,
+              minY: layerBounds.minY,
+              maxX: layerBounds.maxX,
+              maxY: layerBounds.maxY,
+            }
+          } else {
+            if (layerBounds.minX < mergedBounds.minX) {
+              mergedBounds.minX = layerBounds.minX
+            }
+            if (layerBounds.minY < mergedBounds.minY) {
+              mergedBounds.minY = layerBounds.minY
+            }
+            if (layerBounds.maxX > mergedBounds.maxX) {
+              mergedBounds.maxX = layerBounds.maxX
+            }
+            if (layerBounds.maxY > mergedBounds.maxY) {
+              mergedBounds.maxY = layerBounds.maxY
+            }
+          }
+        }
       }
     }
+    return mergedBounds
   }
 
   private readAlphaBounds(
@@ -3933,7 +4402,7 @@ export class EditorCharacterBodyDrawer {
   ): string | null {
     const alpha = outputCtx.getImageData(0, 0, width, height).data
     for (let i = 3; i < alpha.length; i += 4) {
-      if (alpha[i] >= MASK_ALPHA_THRESHOLD) {
+      if (alpha[i] >= MASK_ALPHA_THRESHOLD && this.outputCanvas) {
         return this.outputCanvas.toDataURL('image/png')
       }
     }
@@ -3942,7 +4411,6 @@ export class EditorCharacterBodyDrawer {
 
   private cropCanvasDataUrl(
     source: CanvasImageSource,
-    outputCtx: CanvasRenderingContext2D,
     minX: number,
     minY: number,
     maxX: number,
@@ -3950,8 +4418,10 @@ export class EditorCharacterBodyDrawer {
   ): string | null {
     const width = Math.max(1, maxX - minX)
     const height = Math.max(1, maxY - minY)
-    this.outputCanvas.width = width
-    this.outputCanvas.height = height
+    const outputCtx = this.getOutputContext(width, height)
+    if (!outputCtx) {
+      return null
+    }
     outputCtx.clearRect(0, 0, width, height)
     outputCtx.drawImage(source, minX, minY, width, height, 0, 0, width, height)
     return this.readCroppedCanvasDataUrl(outputCtx, width, height)
@@ -3959,7 +4429,6 @@ export class EditorCharacterBodyDrawer {
 
   private serializeVisualLayers(
     layers: EditorBodyLayer[],
-    outputCtx: CanvasRenderingContext2D,
     coreCenterX: number,
     coreCenterY: number
   ): MapCharacterBodyVisualLayer[] {
@@ -3973,13 +4442,14 @@ export class EditorCharacterBodyDrawer {
       ) {
         continue
       }
-      const bounds = this.readAlphaBounds(layer.ctx, DRAW_WORLD_SIZE)
+      const bounds = layer.boundsDirty
+        ? this.readAlphaBounds(layer.ctx, DRAW_WORLD_SIZE)
+        : layer.bounds
       if (!bounds) {
         continue
       }
       const dataUrl = this.cropCanvasDataUrl(
         layer.canvas,
-        outputCtx,
         bounds.minX,
         bounds.minY,
         bounds.maxX + 1,
