@@ -401,7 +401,9 @@ export const DEFAULT_GRAPE_AMMO_PLAYER = 100
 export const DEFAULT_GRAPE_AMMO_ENEMY = 100
 
 // 武器模板配置
-// 武器基础数值规则：同类武器每大一个尺寸等级，数值 ×1.2（约 +20%）
+// 武器基础数值规则：
+// - 攻击力：从最小尺寸开始，每大一个尺寸等级 ×1.8（约 +80%）
+// - 削架势、削韧：仍按基准尺寸每级 ×1.2 / ×0.8
 export const WEAPON_DEFAULT_DATA = {
   sword: {
     width: 1.2,

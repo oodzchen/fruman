@@ -41,6 +41,7 @@ import {
   getWeaponGroundRotationRad,
   isRangedWeaponType,
   isSecondaryWeaponType,
+  resolveWeaponStatsForSize,
 } from '../weaponTypeUtils'
 import { EditorCharacterBodyDrawer } from './EditorCharacterBodyDrawer'
 import type { EditorObjectFactory } from './EditorObjectFactory'
@@ -296,7 +297,18 @@ export class EditorPropertiesPanel {
   ): WeaponMarker {
     const template = WEAPON_DEFAULT_DATA[weaponType]
     const sizeLevel = initialData?.sizeLevel ?? template.sizeLevel
-    const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
+    const resolvedStats = resolveWeaponStatsForSize(
+      template,
+      sizeLevel,
+      initialData
+        ? {
+            attackDamage: initialData.attackDamage,
+            postureDamage: initialData.postureDamage,
+            toughnessDamage: initialData.toughnessDamage,
+          }
+        : undefined,
+      true
+    )
     const bowAmmoDefault = isRangedWeaponType(weaponType)
       ? getDefaultNpcAmmoForWeaponType(weaponType)
       : undefined
@@ -304,9 +316,9 @@ export class EditorPropertiesPanel {
       weaponType,
       slot,
       sizeLevel,
-      initialData?.attackDamage ?? template.attackDamage * scaleFactor,
-      initialData?.postureDamage ?? template.postureDamage * scaleFactor,
-      initialData?.toughnessDamage ?? template.toughnessDamage * scaleFactor,
+      resolvedStats.attackDamage,
+      resolvedStats.postureDamage,
+      resolvedStats.toughnessDamage,
       initialData?.bowAmmo ?? bowAmmoDefault,
       template
     ) as WeaponMarker
@@ -1959,6 +1971,17 @@ export class EditorPropertiesPanel {
     if (!data) {
       const weaponType = marker.weaponType
       const template = WEAPON_DEFAULT_DATA[weaponType]
+      const sizeLevel = marker.sizeLevel ?? template.sizeLevel
+      const resolvedStats = resolveWeaponStatsForSize(
+        template,
+        sizeLevel,
+        {
+          attackDamage: marker.attackDamage,
+          postureDamage: marker.postureDamage,
+          toughnessDamage: marker.toughnessDamage,
+        },
+        true
+      )
       const category =
         marker.category ??
         (isSecondaryWeaponType(weaponType) ? 'secondary' : 'main')
@@ -1966,28 +1989,10 @@ export class EditorPropertiesPanel {
         marker,
         weaponType,
         category,
-        sizeLevel: marker.sizeLevel ?? template.sizeLevel,
-        attackDamage:
-          marker.attackDamage ??
-          template.attackDamage *
-            computeWeaponScaleFactor(
-              template,
-              marker.sizeLevel ?? template.sizeLevel
-            ),
-        postureDamage:
-          marker.postureDamage ??
-          template.postureDamage *
-            computeWeaponScaleFactor(
-              template,
-              marker.sizeLevel ?? template.sizeLevel
-            ),
-        toughnessDamage:
-          marker.toughnessDamage ??
-          template.toughnessDamage *
-            computeWeaponScaleFactor(
-              template,
-              marker.sizeLevel ?? template.sizeLevel
-            ),
+        sizeLevel,
+        attackDamage: resolvedStats.attackDamage,
+        postureDamage: resolvedStats.postureDamage,
+        toughnessDamage: resolvedStats.toughnessDamage,
         bowAmmo: isRangedWeaponType(weaponType)
           ? (marker.bowAmmo ?? getDefaultPlayerAmmoForWeaponType(weaponType))
           : undefined,
@@ -2158,6 +2163,10 @@ export class EditorPropertiesPanel {
     sizeSelect.addEventListener('input', () => {
       const sizeLevel = Number.parseInt(sizeSelect.value, 10)
       if (Number.isFinite(sizeLevel) && sizeLevel > 0) {
+        const nextStats = resolveWeaponStatsForSize(template, sizeLevel)
+        attackInput.value = String(nextStats.attackDamage)
+        postureInput.value = String(nextStats.postureDamage)
+        toughnessInput.value = String(nextStats.toughnessDamage)
         this.context.updateWeaponMarkerVisual(marker, sizeLevel)
         this.context.requestRender()
       }

@@ -52,12 +52,14 @@ import type {
   b2WorldId,
 } from '../../types'
 import {
+  computeWeaponScaleFactor,
   getDefaultNpcAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
   getWeaponGroundRotationRad,
   isRangedWeaponType,
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
+  resolveWeaponStatsForSize,
 } from '../../weaponTypeUtils'
 import {
   getDefaultAttackMovesetIdForWeaponType,
@@ -89,16 +91,7 @@ import type { World } from '../World'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
 
-export function computeWeaponScaleFactor(
-  template: WeaponTemplate,
-  sizeLevel: number
-): number {
-  const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
-  if (!Number.isFinite(sizeLevel) || sizeLevel <= 0) {
-    return 1
-  }
-  return Math.max(0.5, sizeLevel / baseLevel)
-}
+export { computeWeaponScaleFactor } from '../../weaponTypeUtils'
 
 export function applyWeaponSizeLevel(
   weapon: WeaponComponent,
@@ -474,6 +467,16 @@ export function createNpc(
             template,
             normalizedConfig.sizeLevel
           )
+          const resolvedStats = resolveWeaponStatsForSize(
+            template,
+            normalizedConfig.sizeLevel,
+            {
+              attackDamage: config.attackDamage,
+              postureDamage: config.postureDamage,
+              toughnessDamage: config.toughnessDamage,
+            },
+            true
+          )
 
           npc.weaponSlots.main.hasWeapon = true
 
@@ -495,11 +498,11 @@ export function createNpc(
 
           npc.weaponSlots.main.weight = template.weight * scaleFactor
 
-          npc.weaponSlots.main.attackDamage = config.attackDamage
+          npc.weaponSlots.main.attackDamage = resolvedStats.attackDamage
 
-          npc.weaponSlots.main.postureDamage = config.postureDamage
+          npc.weaponSlots.main.postureDamage = resolvedStats.postureDamage
 
-          npc.weaponSlots.main.toughnessDamage = config.toughnessDamage
+          npc.weaponSlots.main.toughnessDamage = resolvedStats.toughnessDamage
 
           if (isRangedWeaponType(normalizedConfig.weaponType)) {
             npc.weaponSlots.main.bowAmmoMax = config.bowAmmo ?? 0
@@ -528,6 +531,10 @@ export function createNpc(
 
         if (!options?.mainWeapon) {
           const swordTemplate = WEAPON_DEFAULT_DATA.sword
+          const swordStats = resolveWeaponStatsForSize(
+            swordTemplate,
+            swordTemplate.sizeLevel
+          )
 
           npc.weaponSlots.main.hasWeapon = true
 
@@ -549,11 +556,11 @@ export function createNpc(
 
           npc.weaponSlots.main.weight = swordTemplate.weight
 
-          npc.weaponSlots.main.attackDamage = swordTemplate.attackDamage
+          npc.weaponSlots.main.attackDamage = swordStats.attackDamage
 
-          npc.weaponSlots.main.postureDamage = swordTemplate.postureDamage
+          npc.weaponSlots.main.postureDamage = swordStats.postureDamage
 
-          npc.weaponSlots.main.toughnessDamage = swordTemplate.toughnessDamage
+          npc.weaponSlots.main.toughnessDamage = swordStats.toughnessDamage
 
           npc.weaponSlots.main.bowAmmoMax = 0
 
@@ -577,6 +584,16 @@ export function createNpc(
             template,
             normalizedConfig.sizeLevel
           )
+          const resolvedStats = resolveWeaponStatsForSize(
+            template,
+            normalizedConfig.sizeLevel,
+            {
+              attackDamage: config.attackDamage,
+              postureDamage: config.postureDamage,
+              toughnessDamage: config.toughnessDamage,
+            },
+            true
+          )
 
           npc.weaponSlots.secondary.hasWeapon = true
 
@@ -598,11 +615,12 @@ export function createNpc(
 
           npc.weaponSlots.secondary.weight = template.weight * scaleFactor
 
-          npc.weaponSlots.secondary.attackDamage = config.attackDamage
+          npc.weaponSlots.secondary.attackDamage = resolvedStats.attackDamage
 
-          npc.weaponSlots.secondary.postureDamage = config.postureDamage
+          npc.weaponSlots.secondary.postureDamage = resolvedStats.postureDamage
 
-          npc.weaponSlots.secondary.toughnessDamage = config.toughnessDamage
+          npc.weaponSlots.secondary.toughnessDamage =
+            resolvedStats.toughnessDamage
 
           if (isRangedWeaponType(normalizedConfig.weaponType)) {
             npc.weaponSlots.secondary.bowAmmoMax = config.bowAmmo ?? 0
@@ -618,6 +636,10 @@ export function createNpc(
         // Default archer secondary (Bow)
 
         const bowTemplate = WEAPON_DEFAULT_DATA.bow
+        const bowStats = resolveWeaponStatsForSize(
+          bowTemplate,
+          bowTemplate.sizeLevel
+        )
 
         npc.weaponSlots.secondary.hasWeapon = true
 
@@ -638,11 +660,11 @@ export function createNpc(
 
         npc.weaponSlots.secondary.weight = bowTemplate.weight
 
-        npc.weaponSlots.secondary.attackDamage = bowTemplate.attackDamage
+        npc.weaponSlots.secondary.attackDamage = bowStats.attackDamage
 
-        npc.weaponSlots.secondary.postureDamage = bowTemplate.postureDamage
+        npc.weaponSlots.secondary.postureDamage = bowStats.postureDamage
 
-        npc.weaponSlots.secondary.toughnessDamage = bowTemplate.toughnessDamage
+        npc.weaponSlots.secondary.toughnessDamage = bowStats.toughnessDamage
 
         npc.weaponSlots.secondary.bowAmmoMax =
           getDefaultNpcAmmoForWeaponType('bow')
@@ -766,6 +788,7 @@ export function createWeapon(
   entity.addComponent(transform)
 
   const template = WEAPON_DEFAULT_DATA[weaponType]
+  const weaponStats = resolveWeaponStatsForSize(template, template.sizeLevel)
   const weapon = new WeaponComponent()
   weapon.renderLayer = renderLayer
   applyWeaponSizeLevel(weapon, template, template.sizeLevel)
@@ -773,9 +796,9 @@ export function createWeapon(
   weapon.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   weapon.weaponType = weaponType
   weapon.movesetId = getDefaultAttackMovesetIdForWeaponType(weaponType)
-  weapon.attackDamage = template.attackDamage
-  weapon.postureDamage = template.postureDamage
-  weapon.toughnessDamage = template.toughnessDamage
+  weapon.attackDamage = weaponStats.attackDamage
+  weapon.postureDamage = weaponStats.postureDamage
+  weapon.toughnessDamage = weaponStats.toughnessDamage
   if (isRangedWeaponType(weaponType)) {
     weapon.bowAmmoMax = getDefaultPlayerAmmoForWeaponType(weaponType)
     weapon.bowAmmo = getDefaultPlayerAmmoForWeaponType(weaponType)

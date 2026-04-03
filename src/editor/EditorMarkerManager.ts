@@ -13,7 +13,6 @@ import {
 import { getDefaultNormalAttackMovesetId } from '../ecs/AttackMoveRegistry'
 import { Faction } from '../ecs/Component'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
-import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type {
   MapCharacterBodyProfile,
   MapCheckpoint,
@@ -34,6 +33,7 @@ import {
   getDefaultPlayerAmmoForWeaponType,
   isRangedWeaponType,
   normalizeWeaponTypeAndSizeLevel,
+  resolveWeaponStatsForSize,
 } from '../weaponTypeUtils'
 import {
   DEFAULT_NPC_TYPE,
@@ -868,13 +868,16 @@ export class EditorMarkerManager {
     }
     const template = WEAPON_DEFAULT_DATA[weaponType]
     const sizeLevel = spawn?.sizeLevel ?? template.sizeLevel
-    const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
-    const attackDamage =
-      spawn?.attackDamage ?? template.attackDamage * scaleFactor
-    const postureDamage =
-      spawn?.postureDamage ?? template.postureDamage * scaleFactor
-    const toughnessDamage =
-      spawn?.toughnessDamage ?? template.toughnessDamage * scaleFactor
+    const resolvedStats = resolveWeaponStatsForSize(
+      template,
+      sizeLevel,
+      {
+        attackDamage: spawn?.attackDamage,
+        postureDamage: spawn?.postureDamage,
+        toughnessDamage: spawn?.toughnessDamage,
+      },
+      true
+    )
     const bowAmmo =
       spawn?.bowAmmo ??
       (isRangedWeaponType(weaponType)
@@ -888,9 +891,9 @@ export class EditorMarkerManager {
       weaponType,
       category,
       sizeLevel,
-      attackDamage,
-      postureDamage,
-      toughnessDamage,
+      resolvedStats.attackDamage,
+      resolvedStats.postureDamage,
+      resolvedStats.toughnessDamage,
       bowAmmo,
       template
     ) as WeaponMarker
@@ -904,9 +907,9 @@ export class EditorMarkerManager {
       weaponType,
       category,
       sizeLevel,
-      attackDamage,
-      postureDamage,
-      toughnessDamage,
+      attackDamage: resolvedStats.attackDamage,
+      postureDamage: resolvedStats.postureDamage,
+      toughnessDamage: resolvedStats.toughnessDamage,
       bowAmmo,
     }
     this.weaponMarkers.push(weaponData)
@@ -1263,13 +1266,17 @@ export class EditorMarkerManager {
 
     if (!weaponMarker) {
       const template = WEAPON_DEFAULT_DATA[weaponType]
+      const resolvedStats = resolveWeaponStatsForSize(
+        template,
+        template.sizeLevel
+      )
       const result = this.objectFactory.createNpcWeaponMarkerFromConfig(
         {
           weaponType,
           sizeLevel: template.sizeLevel,
-          attackDamage: template.attackDamage,
-          postureDamage: template.postureDamage,
-          toughnessDamage: template.toughnessDamage,
+          attackDamage: resolvedStats.attackDamage,
+          postureDamage: resolvedStats.postureDamage,
+          toughnessDamage: resolvedStats.toughnessDamage,
           bowAmmo: isRangedWeaponType(weaponType)
             ? getDefaultNpcAmmoForWeaponType(weaponType)
             : undefined,
@@ -1309,13 +1316,17 @@ export class EditorMarkerManager {
 
     if (!weaponMarker) {
       const template = WEAPON_DEFAULT_DATA[weaponType]
+      const resolvedStats = resolveWeaponStatsForSize(
+        template,
+        template.sizeLevel
+      )
       const result = this.objectFactory.createNpcWeaponMarkerFromConfig(
         {
           weaponType,
           sizeLevel: template.sizeLevel,
-          attackDamage: template.attackDamage,
-          postureDamage: template.postureDamage,
-          toughnessDamage: template.toughnessDamage,
+          attackDamage: resolvedStats.attackDamage,
+          postureDamage: resolvedStats.postureDamage,
+          toughnessDamage: resolvedStats.toughnessDamage,
           bowAmmo: isRangedWeaponType(weaponType)
             ? getDefaultPlayerAmmoForWeaponType(weaponType)
             : undefined,

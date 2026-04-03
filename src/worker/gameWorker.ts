@@ -137,6 +137,7 @@ import {
   isRangedWeaponType,
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
+  resolveWeaponStatsForSize,
 } from '../weaponTypeUtils'
 import {
   ENTITY_STRIDE,
@@ -1905,6 +1906,16 @@ function applyWeaponSlotConfig(
   const baseLevel = template.sizeLevel > 0 ? template.sizeLevel : 1
   const sizeLevel = normalizedConfig.sizeLevel
   const scaleFactor = sizeLevel / baseLevel
+  const resolvedStats = resolveWeaponStatsForSize(
+    template,
+    sizeLevel,
+    {
+      attackDamage: config.attackDamage,
+      postureDamage: config.postureDamage,
+      toughnessDamage: config.toughnessDamage,
+    },
+    true
+  )
   slot.hasWeapon = true
   slot.weaponType = normalizedConfig.weaponType
   slot.movesetId = getDefaultAttackMovesetIdForWeaponType(
@@ -1917,9 +1928,9 @@ function applyWeaponSlotConfig(
   slot.sizeMaxLevel = template.sizeMaxLevel
   slot.cornerRadius = DEFAULT_WEAPON_CORNER_RADIUS
   slot.weight = template.weight
-  slot.attackDamage = config.attackDamage
-  slot.postureDamage = config.postureDamage
-  slot.toughnessDamage = config.toughnessDamage
+  slot.attackDamage = resolvedStats.attackDamage
+  slot.postureDamage = resolvedStats.postureDamage
+  slot.toughnessDamage = resolvedStats.toughnessDamage
   if (isRangedWeaponType(normalizedConfig.weaponType)) {
     const ammo = config.bowAmmo ?? defaultBowAmmo
     slot.bowAmmoMax = ammo
@@ -2126,22 +2137,20 @@ function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
         }
         const template = WEAPON_DEFAULT_DATA[weaponType]
         applyWeaponSizeLevel(weapon, template, sizeLevel)
+        const resolvedStats = resolveWeaponStatsForSize(
+          template,
+          sizeLevel,
+          {
+            attackDamage: weaponData.attackDamage,
+            postureDamage: weaponData.postureDamage,
+            toughnessDamage: weaponData.toughnessDamage,
+          },
+          true
+        )
+        weapon.attackDamage = resolvedStats.attackDamage
+        weapon.postureDamage = resolvedStats.postureDamage
+        weapon.toughnessDamage = resolvedStats.toughnessDamage
         resetWeaponPhysicsCircle(weaponEntity)
-      }
-
-      const attackDamage = weaponData.attackDamage
-      if (attackDamage !== undefined && Number.isFinite(attackDamage)) {
-        weapon.attackDamage = attackDamage
-      }
-
-      const postureDamage = weaponData.postureDamage
-      if (postureDamage !== undefined && Number.isFinite(postureDamage)) {
-        weapon.postureDamage = postureDamage
-      }
-
-      const toughnessDamage = weaponData.toughnessDamage
-      if (toughnessDamage !== undefined && Number.isFinite(toughnessDamage)) {
-        weapon.toughnessDamage = toughnessDamage
       }
 
       if (isRangedWeaponType(weapon.weaponType)) {
