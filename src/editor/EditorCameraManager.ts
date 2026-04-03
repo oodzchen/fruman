@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import type { EditorMapData } from '../editorMapTypes'
 import {
@@ -160,7 +160,7 @@ export class EditorCameraManager {
       }
       if (shouldShow) {
         this.syncCameraIcon(view)
-        view.icon.bringToFront()
+        view.icon.canvas?.bringObjectToFront(view.icon)
       }
     }
   }

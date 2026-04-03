@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { localizer } from '../Localizer'
 import { TerrainChunkGrid } from '../terrain/TerrainChunkGrid'
@@ -165,11 +165,11 @@ export class EditorTerrainLayerManager {
   }
 
   isTerrainProxy(object: fabric.Object | null): object is TerrainRegionProxy {
-    return (
-      !!object &&
-      (object as Partial<TerrainRegionProxy>).editorShape ===
-        'terrain-region-proxy'
-    )
+    if (!object) {
+      return false
+    }
+    const terrainProxy = object as fabric.Object & Partial<TerrainRegionProxy>
+    return terrainProxy.editorShape === 'terrain-region-proxy'
   }
 
   setInteractionEnabled(enabled: boolean): void {
@@ -770,10 +770,10 @@ export class EditorTerrainLayerManager {
     const proxy = layer.proxy
     const existingObjects = proxy.getObjects().slice()
     for (let i = 0; i < existingObjects.length; i++) {
-      proxy.removeWithUpdate(existingObjects[i])
+      proxy.remove(existingObjects[i])
     }
     for (let i = 0; i < children.length; i++) {
-      proxy.addWithUpdate(children[i])
+      proxy.add(children[i])
     }
     proxy.terrainLayerId = layer.id
     proxy.terrainMaterialId = layer.materialId
@@ -1203,7 +1203,7 @@ export class EditorTerrainLayerManager {
     }
     for (let i = 0; i < proxies.length; i++) {
       const proxy = proxies[i]
-      group.removeWithUpdate(proxy)
+      group.remove(proxy)
       canvas.add(proxy)
       proxy.left = proxy.terrainAnchorLeft
       proxy.top = proxy.terrainAnchorTop
@@ -1214,7 +1214,7 @@ export class EditorTerrainLayerManager {
       if (proxy.canvas === canvas) {
         canvas.remove(proxy)
       }
-      group.addWithUpdate(proxy)
+      group.add(proxy)
     }
     group.setCoords()
   }

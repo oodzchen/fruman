@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { DEFAULT_CAMERA_ZOOM } from '../constants'
 import type {

@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import type { MapNpcWeapon, MapPlayerProperties } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
@@ -717,13 +717,13 @@ export class EditorClipboardManager {
       return null
     }
     if (type === ObjectType.Empty) {
+      const emptyTarget = target as fabric.Object & Partial<EditorEmptyObject>
       return {
         kind: 'empty',
         parentIndex,
         offsetX,
         offsetY,
-        isGroupContainer:
-          (target as Partial<EditorEmptyObject>).isGroupContainer === true,
+        isGroupContainer: emptyTarget.isGroupContainer === true,
       }
     }
 

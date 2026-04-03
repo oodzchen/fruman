@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { PatternCreator } from '../renderer/PatternCreator'
 
@@ -11,11 +11,11 @@ export class EditorPatternManager {
 
   private groundPatternMap = new Map<fabric.Object, fabric.Pattern>()
   private groundPatternImage: HTMLImageElement | null = null
-  private groundPatternTransformScratch: number[] = [1, 0, 0, 1, 0, 0]
+  private groundPatternTransformScratch: fabric.TMat2D = [1, 0, 0, 1, 0, 0]
 
   private obstaclePatternMap = new Map<fabric.Object, fabric.Pattern>()
   private obstaclePatternImage: HTMLImageElement | null = null
-  private obstaclePatternTransformScratch: number[] = [1, 0, 0, 1, 0, 0]
+  private obstaclePatternTransformScratch: fabric.TMat2D = [1, 0, 0, 1, 0, 0]
 
   constructor(context: EditorPatternManagerContext) {
     this.context = context
@@ -48,7 +48,7 @@ export class EditorPatternManager {
     const pattern = new fabric.Pattern({
       source: image,
       repeat: 'repeat',
-      patternTransform: [1, 0, 0, 1, 0, 0],
+      patternTransform: [1, 0, 0, 1, 0, 0] as fabric.TMat2D,
     })
     this.groundPatternMap.set(object, pattern)
     object.set('fill', pattern)
@@ -97,7 +97,7 @@ export class EditorPatternManager {
     const pattern = new fabric.Pattern({
       source: image,
       repeat: 'repeat',
-      patternTransform: [1, 0, 0, 1, 0, 0],
+      patternTransform: [1, 0, 0, 1, 0, 0] as fabric.TMat2D,
     })
     this.obstaclePatternMap.set(object, pattern)
     object.set('fill', pattern)

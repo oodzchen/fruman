@@ -1,6 +1,12 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import type { NpcType } from '../types'
+
+type RectOptions = NonNullable<ConstructorParameters<typeof fabric.Rect>[0]>
+type CircleOptions = NonNullable<ConstructorParameters<typeof fabric.Circle>[0]>
+type PolygonOptions = NonNullable<
+  ConstructorParameters<typeof fabric.Polygon>[1]
+>
 
 // ========================================
 // 对象池
@@ -69,27 +75,27 @@ const BASE_SHAPE_OPTIONS = {
   originY: 'center' as const,
 }
 
-export const GROUND_RECT_OPTIONS: fabric.IRectOptions = {
+export const GROUND_RECT_OPTIONS: RectOptions = {
   ...BASE_SHAPE_OPTIONS,
   width: 160,
   height: 44,
   fill: GROUND_FILL_COLOR,
 }
 
-export const OBSTACLE_RECT_OPTIONS: fabric.IRectOptions = {
+export const OBSTACLE_RECT_OPTIONS: RectOptions = {
   ...BASE_SHAPE_OPTIONS,
   width: 160,
   height: 44,
   fill: OBSTACLE_FILL_COLOR,
 }
 
-export const GROUND_CIRCLE_OPTIONS: fabric.ICircleOptions = {
+export const GROUND_CIRCLE_OPTIONS: CircleOptions = {
   ...BASE_SHAPE_OPTIONS,
   radius: 60,
   fill: GROUND_FILL_COLOR,
 }
 
-export const OBSTACLE_CIRCLE_OPTIONS: fabric.ICircleOptions = {
+export const OBSTACLE_CIRCLE_OPTIONS: CircleOptions = {
   ...BASE_SHAPE_OPTIONS,
   radius: 60,
   fill: OBSTACLE_FILL_COLOR,
@@ -109,29 +115,29 @@ export const POLYGON_POINT_DATA: ReadonlyArray<readonly [number, number]> = [
   [-80, 60],
 ]
 
-export const GROUND_TRIANGLE_OPTIONS: fabric.IPolylineOptions = {
+export const GROUND_TRIANGLE_OPTIONS: PolygonOptions = {
   ...BASE_SHAPE_OPTIONS,
   fill: GROUND_FILL_COLOR,
 }
 
-export const OBSTACLE_TRIANGLE_OPTIONS: fabric.IPolylineOptions = {
+export const OBSTACLE_TRIANGLE_OPTIONS: PolygonOptions = {
   ...BASE_SHAPE_OPTIONS,
   fill: OBSTACLE_FILL_COLOR,
 }
 
-export const GROUND_EDITABLE_POLYGON_OPTIONS: fabric.IPolylineOptions = {
+export const GROUND_EDITABLE_POLYGON_OPTIONS: PolygonOptions = {
   ...BASE_SHAPE_OPTIONS,
   fill: GROUND_FILL_COLOR,
   perPixelTargetFind: false,
 }
 
-export const OBSTACLE_EDITABLE_POLYGON_OPTIONS: fabric.IPolylineOptions = {
+export const OBSTACLE_EDITABLE_POLYGON_OPTIONS: PolygonOptions = {
   ...BASE_SHAPE_OPTIONS,
   fill: OBSTACLE_FILL_COLOR,
   perPixelTargetFind: false,
 }
 
-export const CAMERA_FRAME_OPTIONS: fabric.IRectOptions = {
+export const CAMERA_FRAME_OPTIONS: RectOptions = {
   fill: CAMERA_FRAME_FILL,
   stroke: CAMERA_FRAME_STROKE,
   strokeWidth: 2,

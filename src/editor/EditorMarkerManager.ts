@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { getCharacterBodyColor } from '../characterBodyProfile'
 import {
@@ -207,6 +207,30 @@ export class EditorMarkerManager {
 
   getNpcMarkerMap() {
     return this.npcMarkerMap
+  }
+
+  private isCharacterBodyShapeObject(
+    object: fabric.Object | undefined
+  ): object is CharacterBodyShapeObject {
+    return (
+      !!object &&
+      'bodyRadiusXPx' in object &&
+      'bodyRadiusYPx' in object &&
+      'bodyFacing' in object
+    )
+  }
+
+  private isWeaponShapeObject(
+    object: fabric.Object | undefined
+  ): object is WeaponShape {
+    return (
+      !!object &&
+      'weaponWidthPx' in object &&
+      'weaponHeightPx' in object &&
+      'weaponBoundingWidthPx' in object &&
+      'weaponBoundingHeightPx' in object &&
+      'weaponRenderType' in object
+    )
   }
 
   isPlayerMarker(object: fabric.Object | null): object is PlayerMarker {
@@ -492,9 +516,10 @@ export class EditorMarkerManager {
     nextColor: string,
     nextFacing: number
   ) {
-    const body = marker.item(1) as unknown as
-      | CharacterBodyShapeObject
-      | undefined
+    const bodyItem = marker.item(1)
+    const body = this.isCharacterBodyShapeObject(bodyItem)
+      ? bodyItem
+      : undefined
     const bodyRadiusXPx = nextRadius * EDITOR_PIXELS_PER_METER
     const bodyRadiusYPx =
       nextBodyHeight > 0
@@ -996,9 +1021,10 @@ export class EditorMarkerManager {
     nextColor: string,
     nextFacing: number
   ) {
-    const body = marker.item(1) as unknown as
-      | CharacterBodyShapeObject
-      | undefined
+    const bodyItem = marker.item(1)
+    const body = this.isCharacterBodyShapeObject(bodyItem)
+      ? bodyItem
+      : undefined
     const bodyRadiusXPx = this.ctx.computeNpcBodyRadiusPx(
       nextRadius,
       EDITOR_PIXELS_PER_METER
@@ -1133,7 +1159,10 @@ export class EditorMarkerManager {
     if (!(item instanceof fabric.Object)) {
       return
     }
-    const shape = item as unknown as WeaponShape
+    if (!this.isWeaponShapeObject(item)) {
+      return
+    }
+    const shape = item
     const template = WEAPON_DEFAULT_DATA[marker.weaponType]
     const isBow = marker.weaponType === 'bow'
     const dims = this.ctx.computeWeaponRenderDimensions(

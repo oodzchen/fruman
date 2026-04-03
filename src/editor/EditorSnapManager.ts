@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import type { EditorObjectData } from './types'
 
@@ -162,7 +162,7 @@ export class EditorSnapManager {
 
     const width = canvas.getWidth()
     const height = canvas.getHeight()
-    const baseOptions: fabric.ILineOptions = {
+    const baseOptions: ConstructorParameters<typeof fabric.Line>[1] = {
       stroke: SNAP_GUIDE_COLOR,
       strokeWidth: 1,
       selectable: false,
@@ -181,8 +181,8 @@ export class EditorSnapManager {
       canvas.add(this.snapGuideHorizontal)
     }
 
-    this.snapGuideVertical.bringToFront()
-    this.snapGuideHorizontal.bringToFront()
+    canvas.bringObjectToFront(this.snapGuideVertical)
+    canvas.bringObjectToFront(this.snapGuideHorizontal)
   }
 
   hideSnapGuides(): void {
@@ -583,7 +583,7 @@ export class EditorSnapManager {
       visible: true,
     })
     this.snapGuideVertical.setCoords()
-    this.snapGuideVertical.bringToFront()
+    canvas.bringObjectToFront(this.snapGuideVertical)
   }
 
   private updateSnapGuideHorizontal(y: number): void {
@@ -601,7 +601,7 @@ export class EditorSnapManager {
       visible: true,
     })
     this.snapGuideHorizontal.setCoords()
-    this.snapGuideHorizontal.bringToFront()
+    canvas.bringObjectToFront(this.snapGuideHorizontal)
   }
 
   // Bounds are computed per-frame in handleObjectMoving to avoid extra allocations.

@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { DialogManager } from './DialogManager'
 import type { GameClient } from './GameClient'
@@ -281,7 +281,7 @@ export class EditorManager {
           const data = this.cameraManager.getCameraViewMap().get(obj)
           if (data) {
             this.cameraManager.syncCameraIcon(data)
-            data.icon.bringToFront()
+            data.icon.canvas?.bringObjectToFront(data.icon)
           }
         }
       },
@@ -723,7 +723,7 @@ export class EditorManager {
       handleEditablePolygonContextMenuEvent: (event) =>
         this.handleEditablePolygonContextMenuEvent(event),
       handleEditablePolygonPointerDown: (opt) =>
-        this.handleEditablePolygonPointerDown(opt as fabric.IEvent<MouseEvent>),
+        this.handleEditablePolygonPointerDown(opt),
       handleTerrainPointerDown: (opt) =>
         this.terrainBrushController.handlePointerDown(opt),
       handleTerrainPointerMove: (opt) =>
@@ -1490,7 +1490,7 @@ export class EditorManager {
     if (!this.fabricCanvas) {
       return
     }
-    const pointer = this.fabricCanvas.getPointer(event)
+    const pointer = this.fabricCanvas.getScenePoint(event)
     this.panelMenuSpawnX = Math.round(pointer.x)
     this.panelMenuSpawnY = Math.round(pointer.y)
     this.panelMenuSpawnValid = true
@@ -1583,7 +1583,7 @@ export class EditorManager {
   }
 
   private handleEditablePolygonPointerDown(
-    opt: fabric.IEvent<MouseEvent>
+    opt: fabric.TPointerEventInfo
   ): boolean {
     if (this.objectManager.isObjectLocked(opt.target ?? null)) {
       return false
@@ -2130,7 +2130,7 @@ export class EditorManager {
     if (!canvas) {
       return
     }
-    const active = canvas.getActiveObject()
+    const active = (canvas.getActiveObject() ?? null) as fabric.Object | null
     if (!active || !this.objectManager.getEditorObjectMap().has(active)) {
       return
     }
@@ -2175,7 +2175,9 @@ export class EditorManager {
   // MENU SYSTEM
   // ========================================
 
-  private handleEditablePolygonContextMenu(opt: fabric.IEvent<MouseEvent>) {
+  private handleEditablePolygonContextMenu(
+    opt: fabric.TPointerEventInfo<MouseEvent>
+  ) {
     if (!this.fabricCanvas) {
       return
     }
@@ -2190,7 +2192,7 @@ export class EditorManager {
       return
     }
     this.contextMenu.hide()
-    const target = this.fabricCanvas.findTarget(event, false) ?? null
+    const target = this.fabricCanvas.findTarget(event) ?? null
     const selectedIds = this.objectManager.getSelectedEditorObjectIds()
     if (selectedIds.length > 1 && target) {
       const isActiveSelection = target instanceof fabric.ActiveSelection
@@ -2240,7 +2242,7 @@ export class EditorManager {
     if (this.objectManager.isObjectLocked(polygon)) {
       return false
     }
-    const pointer = polygon.canvas.getPointer(event)
+    const pointer = polygon.canvas.getScenePoint(event)
     const scratchPoint = this.polygonEditor.getScratchPoint()
     this.polygonEditor.setLocalPointFromCanvas(
       polygon,
@@ -2554,9 +2556,10 @@ export class EditorManager {
     if (!object) {
       return false
     }
+    const emptyObject = object as fabric.Object & Partial<EditorEmptyObject>
     return (
-      (object as Partial<EditorEmptyObject>).editorShape === 'editor-empty' &&
-      (object as Partial<EditorEmptyObject>).isGroupContainer === true
+      emptyObject.editorShape === 'editor-empty' &&
+      emptyObject.isGroupContainer === true
     )
   }
 
@@ -3089,10 +3092,8 @@ export class EditorManager {
     }
 
     if (this.backgroundPattern) {
-      this.fabricCanvas.setBackgroundColor(
-        this.backgroundPattern,
-        this.fabricCanvas.renderAll.bind(this.fabricCanvas)
-      )
+      this.fabricCanvas.backgroundColor = this.backgroundPattern
+      this.fabricCanvas.requestRenderAll()
       return
     }
 
@@ -3105,10 +3106,8 @@ export class EditorManager {
           source: this.backgroundImage,
           repeat: 'repeat',
         })
-        this.fabricCanvas.setBackgroundColor(
-          this.backgroundPattern,
-          this.fabricCanvas.renderAll.bind(this.fabricCanvas)
-        )
+        this.fabricCanvas.backgroundColor = this.backgroundPattern
+        this.fabricCanvas.requestRenderAll()
       }
 
       if (this.backgroundImage.complete) {

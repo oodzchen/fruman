@@ -1,3 +1,5 @@
+import * as fabric from 'fabric'
+
 import { ObjectType } from './types'
 import type { EditorEmptyObject, EditorObjectData } from './types'
 
@@ -339,7 +341,9 @@ export class EditorObjectTreeManager {
     if (data.type !== ObjectType.Empty) {
       return false
     }
-    return (data.object as Partial<EditorEmptyObject>).isGroupContainer === true
+    const emptyObject = data.object as fabric.Object &
+      Partial<EditorEmptyObject>
+    return emptyObject.isGroupContainer === true
   }
 
   private updateDragPreview(id: number, insertAfter: boolean) {

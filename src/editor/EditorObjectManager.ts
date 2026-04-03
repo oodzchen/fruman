@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { localizer } from '../Localizer'
 import { ObjectType } from './types'
@@ -194,7 +194,7 @@ export class EditorObjectManager {
   }
 
   private bringFocusedObjectToFront(object: fabric.Object) {
-    object.bringToFront()
+    object.canvas?.bringObjectToFront(object)
     this.ctx.onBringToFront(object)
   }
 
@@ -212,7 +212,7 @@ export class EditorObjectManager {
       if (obj.canvas !== canvas || this.isTrackedGroupedObject(obj)) {
         continue
       }
-      canvas.moveTo(obj, canvasIndex)
+      canvas.moveObjectTo(obj, canvasIndex)
       canvasIndex += 1
     }
     return canvasIndex
@@ -824,7 +824,7 @@ export class EditorObjectManager {
     if (!parent || !this.editorObjectMap.has(parent)) {
       return
     }
-    parent.removeWithUpdate(child)
+    parent.remove(child)
     if (canvas) {
       canvas.add(child)
     }
@@ -919,9 +919,9 @@ export class EditorObjectManager {
       parentId: null,
       isLocked: false,
       hasControlsWhenUnlocked: object.hasControls === true,
-      borderColorWhenUnlocked: object.borderColor,
-      cornerColorWhenUnlocked: object.cornerColor,
-      cornerStrokeColorWhenUnlocked: object.cornerStrokeColor,
+      borderColorWhenUnlocked: object.borderColor ?? '',
+      cornerColorWhenUnlocked: object.cornerColor ?? '',
+      cornerStrokeColorWhenUnlocked: object.cornerStrokeColor ?? '',
     }
   }
 
@@ -960,7 +960,7 @@ export class EditorObjectManager {
     if (canvas && child.canvas === canvas) {
       canvas.remove(child)
     }
-    parent.addWithUpdate(child)
+    parent.add(child)
     child.setCoords()
     parent.setCoords()
   }
@@ -1001,13 +1001,13 @@ export class EditorObjectManager {
     object.hasControls = data.isLocked ? false : data.hasControlsWhenUnlocked
     object.borderColor = data.isLocked
       ? EDITOR_LOCKED_SELECTION_BORDER_COLOR
-      : data.borderColorWhenUnlocked
+      : (data.borderColorWhenUnlocked ?? '')
     object.cornerColor = data.isLocked
       ? EDITOR_LOCKED_SELECTION_CORNER_COLOR
-      : data.cornerColorWhenUnlocked
+      : (data.cornerColorWhenUnlocked ?? '')
     object.cornerStrokeColor = data.isLocked
       ? EDITOR_LOCKED_SELECTION_CORNER_STROKE_COLOR
-      : data.cornerStrokeColorWhenUnlocked
+      : (data.cornerStrokeColorWhenUnlocked ?? '')
   }
 
   private isGroupContainerObject(
@@ -1016,9 +1016,10 @@ export class EditorObjectManager {
     if (!object) {
       return false
     }
+    const emptyObject = object as fabric.Object & Partial<EditorEmptyObject>
     return (
-      (object as Partial<EditorEmptyObject>).editorShape === 'editor-empty' &&
-      (object as Partial<EditorEmptyObject>).isGroupContainer === true
+      emptyObject.editorShape === 'editor-empty' &&
+      emptyObject.isGroupContainer === true
     )
   }
 

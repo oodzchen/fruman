@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { getTerrainBrushCursorStyle } from '../terrain/TerrainBrushCursor'
 import type { TerrainBrushId } from '../terrain/TerrainTypes'
@@ -54,7 +54,7 @@ export class EditorTerrainBrushController {
     canvas.moveCursor = cursor
   }
 
-  handlePointerDown(opt: fabric.IEvent<Event>): boolean {
+  handlePointerDown(opt: fabric.TPointerEventInfo): boolean {
     if (!this.selectedBrushId) {
       return false
     }
@@ -67,7 +67,7 @@ export class EditorTerrainBrushController {
       return false
     }
 
-    const pointer = canvas.getPointer(mouseEvent)
+    const pointer = canvas.getScenePoint(mouseEvent)
     const cellSizePx = this.ctx.terrainManager.getCellSizePx()
     const cellX = Math.floor(pointer.x / cellSizePx)
     const cellY = Math.floor(pointer.y / cellSizePx)
@@ -87,7 +87,7 @@ export class EditorTerrainBrushController {
     return true
   }
 
-  handlePointerMove(opt: fabric.IEvent<Event>): boolean {
+  handlePointerMove(opt: fabric.TPointerEventInfo): boolean {
     if (!this.isPainting) {
       return false
     }
@@ -96,7 +96,7 @@ export class EditorTerrainBrushController {
       return false
     }
     const mouseEvent = opt.e as MouseEvent
-    const pointer = canvas.getPointer(mouseEvent)
+    const pointer = canvas.getScenePoint(mouseEvent)
     const cellSizePx = this.ctx.terrainManager.getCellSizePx()
     const cellX = Math.floor(pointer.x / cellSizePx)
     const cellY = Math.floor(pointer.y / cellSizePx)

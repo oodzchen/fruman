@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import {
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
@@ -6,14 +6,22 @@ import {
 } from '../constants'
 import type { MapNpcWeapon, WeaponCategory } from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
-import type { WeaponType } from '../types'
+import type { NpcType, WeaponType } from '../types'
 import {
   getWeaponGroundRotationRad,
   isSecondaryWeaponType,
   normalizeWeaponTypeAndSizeLevel,
 } from '../weaponTypeUtils'
 import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
-import type { CharacterBodyShapeObject } from './types'
+import type {
+  CharacterBodyShapeObject,
+  CheckpointMarker,
+  HookAnchorMarker,
+  NpcMarker,
+  PlayerMarker,
+  SunPickupMarker,
+  WeaponMarker,
+} from './types'
 
 interface WeaponTemplateLike {
   width: number
@@ -51,13 +59,104 @@ interface EditorObjectFactoryOptions {
   ) => void
 }
 
+type FabricObjectOptions = Partial<fabric.FabricObjectProps>
+type WeaponRenderType = 'bow' | 'grape' | 'sword' | 'spear' | 'hammer' | 'hook'
+
 type WeaponShape = fabric.Object & {
   weaponType: WeaponType
   weaponWidthPx: number
   weaponHeightPx: number
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
-  weaponRenderType: 'bow' | 'grape' | 'sword' | 'spear' | 'hammer' | 'hook'
+  weaponRenderType: WeaponRenderType
+}
+
+class CharacterBodyRenderObject extends fabric.FabricObject {
+  static override type = 'customCharacterBody'
+
+  declare bodyRadiusXPx: number
+  declare bodyRadiusYPx: number
+  declare bodyColor: string
+  declare bodyFacing: number
+  declare eyeColor: string
+  declare bodyProfile: CharacterBodyShapeObject['bodyProfile']
+  declare bodyTextureImage: CharacterBodyShapeObject['bodyTextureImage']
+
+  private readonly pixelsPerMeter: number
+
+  constructor(
+    pixelsPerMeter: number,
+    color: string,
+    options?: FabricObjectOptions
+  ) {
+    super(options)
+    this.pixelsPerMeter = pixelsPerMeter
+    this.bodyRadiusXPx = 0
+    this.bodyRadiusYPx = 0
+    this.bodyColor = color
+    this.bodyFacing = 1
+    this.eyeColor = '#000000'
+    this.bodyProfile = null
+    this.bodyTextureImage = null
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    renderBody(
+      ctx,
+      this.bodyRadiusXPx,
+      this.bodyColor,
+      this.pixelsPerMeter,
+      this.bodyFacing,
+      this.bodyRadiusYPx * 2,
+      '',
+      0,
+      this.bodyProfile,
+      this.bodyTextureImage,
+      true,
+      this.eyeColor
+    )
+  }
+}
+
+class WeaponRenderObject extends fabric.FabricObject {
+  static override type = 'customWeapon'
+
+  declare weaponType: WeaponType
+  declare weaponWidthPx: number
+  declare weaponHeightPx: number
+  declare weaponBoundingWidthPx: number
+  declare weaponBoundingHeightPx: number
+  declare weaponRenderType: WeaponRenderType
+
+  private readonly renderWeaponFn: EditorObjectFactoryOptions['renderWeapon']
+  private readonly color: string
+
+  constructor(
+    renderWeaponFn: EditorObjectFactoryOptions['renderWeapon'],
+    color: string,
+    options?: FabricObjectOptions
+  ) {
+    super(options)
+    this.renderWeaponFn = renderWeaponFn
+    this.color = color
+    this.weaponType = 'sword'
+    this.weaponWidthPx = 0
+    this.weaponHeightPx = 0
+    this.weaponBoundingWidthPx = 0
+    this.weaponBoundingHeightPx = 0
+    this.weaponRenderType = 'sword'
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    this.renderWeaponFn(
+      ctx,
+      this.weaponRenderType,
+      this.weaponWidthPx,
+      this.weaponHeightPx,
+      this.color,
+      false
+    )
+  }
 }
 
 export class EditorObjectFactory {
@@ -87,39 +186,7 @@ export class EditorObjectFactory {
   }
 
   private createCharacterBodyShape(color: string): CharacterBodyShapeObject {
-    const pixelsPerMeter = this.pixelsPerMeter
-    const bodyShapeClass = fabric.util.createClass(fabric.Object, {
-      type: 'customCharacterBody',
-      bodyRadiusXPx: 0,
-      bodyRadiusYPx: 0,
-      bodyColor: color,
-      bodyFacing: 1,
-      eyeColor: '#000000',
-      bodyProfile: null,
-      bodyTextureImage: null,
-      initialize(options?: fabric.IObjectOptions) {
-        this.callSuper('initialize', options)
-      },
-      _render(ctx: CanvasRenderingContext2D) {
-        const self = this as CharacterBodyShapeObject
-        renderBody(
-          ctx,
-          self.bodyRadiusXPx,
-          self.bodyColor,
-          pixelsPerMeter,
-          self.bodyFacing,
-          self.bodyRadiusYPx * 2,
-          '',
-          0,
-          self.bodyProfile,
-          self.bodyTextureImage,
-          true,
-          self.eyeColor
-        )
-      },
-    })
-
-    return new bodyShapeClass({
+    return new CharacterBodyRenderObject(this.pixelsPerMeter, color, {
       originX: 'center',
       originY: 'center',
       objectCaching: false,
@@ -137,42 +204,29 @@ export class EditorObjectFactory {
     body.eyeColor = this.playerEyeColor
     body.width = radius * 2
     body.height = radius * 2
-    const renderWeapon = this.renderWeapon
-    const weaponShapeClass = fabric.util.createClass(fabric.Object, {
-      type: 'customPlayerWeapon',
-      weaponWidthPx: 0,
-      weaponHeightPx: 0,
-      weaponBoundingWidthPx: 0,
-      weaponBoundingHeightPx: 0,
-      weaponRenderType: 'sword',
-      _render(ctx: CanvasRenderingContext2D) {
-        const self = this as WeaponShape
-        renderWeapon(
-          ctx,
-          self.weaponRenderType,
-          self.weaponWidthPx,
-          self.weaponHeightPx,
-          '#b4bdc7',
-          false
-        )
-      },
-    })
+    const weaponBackShape = new WeaponRenderObject(
+      this.renderWeapon,
+      '#b4bdc7',
+      {
+        originX: 'center',
+        originY: 'center',
+        objectCaching: false,
+        selectable: false,
+        visible: false,
+      }
+    ) as WeaponShape
 
-    const weaponBackShape = new weaponShapeClass({
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-      selectable: false,
-      visible: false,
-    }) as WeaponShape
-
-    const weaponFrontShape = new weaponShapeClass({
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-      selectable: false,
-      visible: false,
-    }) as WeaponShape
+    const weaponFrontShape = new WeaponRenderObject(
+      this.renderWeapon,
+      '#b4bdc7',
+      {
+        originX: 'center',
+        originY: 'center',
+        objectCaching: false,
+        selectable: false,
+        visible: false,
+      }
+    ) as WeaponShape
 
     const group = new fabric.Group([weaponBackShape, body, weaponFrontShape], {
       originX: 'center',
@@ -183,12 +237,10 @@ export class EditorObjectFactory {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    })
-    ;(group as unknown as { editorShape: string }).editorShape = 'player-marker'
-    ;(group as unknown as { weaponBackShape: WeaponShape }).weaponBackShape =
-      weaponBackShape
-    ;(group as unknown as { weaponFrontShape: WeaponShape }).weaponFrontShape =
-      weaponFrontShape
+    }) as PlayerMarker
+    group.editorShape = 'player-marker'
+    group.weaponBackShape = weaponBackShape
+    group.weaponFrontShape = weaponFrontShape
     return group
   }
 
@@ -238,9 +290,8 @@ export class EditorObjectFactory {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    })
-    ;(group as unknown as { editorShape: string }).editorShape =
-      'checkpoint-marker'
+    }) as CheckpointMarker
+    group.editorShape = 'checkpoint-marker'
     return group
   }
 
@@ -274,12 +325,9 @@ export class EditorObjectFactory {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    })
-    ;(
-      group as unknown as { editorShape: string; isLarge: boolean }
-    ).editorShape = 'sun-pickup-marker'
-    ;(group as unknown as { editorShape: string; isLarge: boolean }).isLarge =
-      isLarge
+    }) as SunPickupMarker
+    group.editorShape = 'sun-pickup-marker'
+    group.isLarge = isLarge
     return group
   }
 
@@ -317,14 +365,13 @@ export class EditorObjectFactory {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    })
-    ;(group as unknown as { editorShape: string }).editorShape =
-      'hook-anchor-marker'
+    }) as HookAnchorMarker
+    group.editorShape = 'hook-anchor-marker'
     return group
   }
 
   createNpcMarker(
-    npcType: string,
+    npcType: NpcType,
     radiusMeters: number,
     color: string,
     equipWeapon: boolean
@@ -341,42 +388,29 @@ export class EditorObjectFactory {
     body.eyeColor = this.npcEyeColor
     body.width = radius * 2
     body.height = radius * 2
-    const renderWeapon = this.renderWeapon
-    const weaponShapeClass = fabric.util.createClass(fabric.Object, {
-      type: 'customNpcWeapon',
-      weaponWidthPx: 0,
-      weaponHeightPx: 0,
-      weaponBoundingWidthPx: 0,
-      weaponBoundingHeightPx: 0,
-      weaponRenderType: 'sword',
-      _render(ctx: CanvasRenderingContext2D) {
-        const self = this as WeaponShape
-        renderWeapon(
-          ctx,
-          self.weaponRenderType,
-          self.weaponWidthPx,
-          self.weaponHeightPx,
-          '#b4bdc7',
-          false
-        )
-      },
-    })
+    const weaponBackShape = new WeaponRenderObject(
+      this.renderWeapon,
+      '#b4bdc7',
+      {
+        originX: 'center',
+        originY: 'center',
+        objectCaching: false,
+        selectable: false,
+        visible: false,
+      }
+    ) as WeaponShape
 
-    const weaponBackShape = new weaponShapeClass({
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-      selectable: false,
-      visible: false,
-    }) as WeaponShape
-
-    const weaponFrontShape = new weaponShapeClass({
-      originX: 'center',
-      originY: 'center',
-      objectCaching: false,
-      selectable: false,
-      visible: false,
-    }) as WeaponShape
+    const weaponFrontShape = new WeaponRenderObject(
+      this.renderWeapon,
+      '#b4bdc7',
+      {
+        originX: 'center',
+        originY: 'center',
+        objectCaching: false,
+        selectable: false,
+        visible: false,
+      }
+    ) as WeaponShape
 
     const group = new fabric.Group([weaponBackShape, body, weaponFrontShape], {
       width: radius * 2,
@@ -389,15 +423,13 @@ export class EditorObjectFactory {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    })
-    ;(group as unknown as { editorShape: string }).editorShape = 'npc-marker'
-    ;(group as unknown as { npcType: string }).npcType = npcType
-    ;(group as unknown as { color: string }).color = color
-    ;(group as unknown as { equipWeapon: boolean }).equipWeapon = equipWeapon
-    ;(group as unknown as { weaponBackShape: WeaponShape }).weaponBackShape =
-      weaponBackShape
-    ;(group as unknown as { weaponFrontShape: WeaponShape }).weaponFrontShape =
-      weaponFrontShape
+    }) as NpcMarker
+    group.editorShape = 'npc-marker'
+    group.npcType = npcType
+    group.color = color
+    group.equipWeapon = equipWeapon
+    group.weaponBackShape = weaponBackShape
+    group.weaponFrontShape = weaponFrontShape
     return group
   }
 
@@ -437,39 +469,19 @@ export class EditorObjectFactory {
               : weaponType === 'spear'
                 ? 'spear'
                 : 'sword'
-    const renderWeapon = this.renderWeapon
-
-    const weaponShape = new (fabric.util.createClass(fabric.Object, {
-      type: 'customWeapon',
-      weaponType,
-      weaponWidthPx: dims.widthPx,
-      weaponHeightPx: dims.heightPx,
-      weaponBoundingWidthPx: dims.boundingWidthPx,
-      weaponBoundingHeightPx: dims.boundingHeightPx,
-      weaponRenderType: renderType,
-      initialize(options?: fabric.IObjectOptions) {
-        this.callSuper('initialize', options)
-        const self = this as WeaponShape
-        self.width = self.weaponBoundingWidthPx
-        self.height = self.weaponBoundingHeightPx
-        this.weaponType = weaponType
-      },
-      _render(ctx: CanvasRenderingContext2D) {
-        const self = this as WeaponShape
-        renderWeapon(
-          ctx,
-          self.weaponRenderType,
-          self.weaponWidthPx,
-          self.weaponHeightPx,
-          color,
-          false
-        )
-      },
-    }))({
+    const weaponShape = new WeaponRenderObject(this.renderWeapon, color, {
       originX: 'center',
       originY: 'center',
       objectCaching: false,
     }) as WeaponShape
+    weaponShape.weaponType = weaponType
+    weaponShape.weaponWidthPx = dims.widthPx
+    weaponShape.weaponHeightPx = dims.heightPx
+    weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
+    weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
+    weaponShape.weaponRenderType = renderType
+    weaponShape.width = weaponShape.weaponBoundingWidthPx
+    weaponShape.height = weaponShape.weaponBoundingHeightPx
 
     const group = new fabric.Group([weaponShape], {
       originX: 'center',
@@ -482,17 +494,15 @@ export class EditorObjectFactory {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    })
-    ;(group as unknown as { editorShape: string }).editorShape = 'weapon-marker'
-    ;(group as unknown as { weaponType: WeaponType }).weaponType = weaponType
-    ;(group as unknown as { category: WeaponCategory }).category = category
-    ;(group as unknown as { sizeLevel: number }).sizeLevel = sizeLevel
-    ;(group as unknown as { attackDamage: number }).attackDamage = attackDamage
-    ;(group as unknown as { postureDamage: number }).postureDamage =
-      postureDamage
-    ;(group as unknown as { toughnessDamage: number }).toughnessDamage =
-      toughnessDamage
-    ;(group as unknown as { bowAmmo?: number }).bowAmmo = bowAmmo
+    }) as WeaponMarker
+    group.editorShape = 'weapon-marker'
+    group.weaponType = weaponType
+    group.category = category
+    group.sizeLevel = sizeLevel
+    group.attackDamage = attackDamage
+    group.postureDamage = postureDamage
+    group.toughnessDamage = toughnessDamage
+    group.bowAmmo = bowAmmo
     return group
   }
 
@@ -526,30 +536,33 @@ export class EditorObjectFactory {
       isBow
     )
 
-    const weaponShape = new fabric.Rect({
-      width: dims.boundingWidthPx,
-      height: dims.boundingHeightPx,
-      fill: 'transparent',
-      stroke: 'transparent',
-      strokeWidth: 0,
-    }) as unknown as WeaponShape
-
-    weaponShape.weaponWidthPx = dims.widthPx
-    weaponShape.weaponHeightPx = dims.heightPx
-    weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
-    weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
-    weaponShape.weaponRenderType =
-      weaponType === 'hook'
-        ? 'hook'
-        : weaponType === 'grape'
-          ? 'grape'
-          : isBow
-            ? 'bow'
-            : weaponType === 'hammer'
-              ? 'hammer'
-              : weaponType === 'spear'
-                ? 'spear'
-                : 'sword'
+    const weaponShape = Object.assign(
+      new fabric.Rect({
+        width: dims.boundingWidthPx,
+        height: dims.boundingHeightPx,
+        fill: 'transparent',
+        stroke: 'transparent',
+        strokeWidth: 0,
+      }),
+      {
+        weaponWidthPx: dims.widthPx,
+        weaponHeightPx: dims.heightPx,
+        weaponBoundingWidthPx: dims.boundingWidthPx,
+        weaponBoundingHeightPx: dims.boundingHeightPx,
+        weaponRenderType:
+          weaponType === 'hook'
+            ? 'hook'
+            : weaponType === 'grape'
+              ? 'grape'
+              : isBow
+                ? 'bow'
+                : weaponType === 'hammer'
+                  ? 'hammer'
+                  : weaponType === 'spear'
+                    ? 'spear'
+                    : 'sword',
+      }
+    ) as fabric.Rect & WeaponShape
 
     const weaponMarker = new fabric.Group([weaponShape], {
       left: x,
@@ -557,11 +570,11 @@ export class EditorObjectFactory {
       selectable: false,
       visible: false,
     })
-    ;(weaponMarker as unknown as { weaponType: WeaponType }).weaponType =
+    ;(weaponMarker as fabric.Group & { weaponType: WeaponType }).weaponType =
       weaponType
-    ;(weaponMarker as unknown as { sizeLevel: number }).sizeLevel =
+    ;(weaponMarker as fabric.Group & { sizeLevel: number }).sizeLevel =
       normalizedConfig.sizeLevel
-    ;(weaponMarker as unknown as { category: WeaponCategory }).category =
+    ;(weaponMarker as fabric.Group & { category: WeaponCategory }).category =
       category
 
     const weaponData = {

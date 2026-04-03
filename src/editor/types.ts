@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import type { MapCharacterBodyProfile, WeaponCategory } from '../editorMapTypes'
 import type { TerrainMaterialId } from '../terrain/TerrainTypes'

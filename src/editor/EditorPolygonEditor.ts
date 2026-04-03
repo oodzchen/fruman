@@ -1,28 +1,7 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
-const fabricControlsUtils = (
-  fabric as unknown as {
-    controlsUtils: {
-      renderCircleControl: (
-        ctx: CanvasRenderingContext2D,
-        left: number,
-        top: number,
-        styleOverride: unknown,
-        fabricObject: fabric.Object
-      ) => void
-    }
-  }
-).controlsUtils
-
-const fabricTransformPoint = (
-  fabric.util as {
-    transformPoint: (
-      point: fabric.Point,
-      matrix: number[],
-      ignoreOffset?: boolean
-    ) => fabric.Point
-  }
-).transformPoint
+const fabricControlsUtils = fabric.controlsUtils
+const fabricTransformPoint = fabric.util.transformPoint
 
 export type EditablePolygon = fabric.Polygon & {
   editorShape: 'ground-polygon'
@@ -40,8 +19,8 @@ export class EditorPolygonEditor {
   private scratchPoint = new fabric.Point(0, 0)
   private scratchPointB = new fabric.Point(0, 0)
   private scratchPointC = new fabric.Point(0, 0)
-  private inverseMatrix: number[] = [1, 0, 0, 1, 0, 0]
-  private controlMatrix: number[] = [1, 0, 0, 1, 0, 0]
+  private inverseMatrix: fabric.TMat2D = [1, 0, 0, 1, 0, 0]
+  private controlMatrix: fabric.TMat2D = [1, 0, 0, 1, 0, 0]
 
   constructor(ctx: EditorPolygonEditorContext) {
     this.ctx = ctx
@@ -61,16 +40,19 @@ export class EditorPolygonEditor {
     this.refreshEditablePolygonControls(editablePolygon)
   }
 
-  handleEditablePolygonPointerDown(opt: fabric.IEvent<MouseEvent>): boolean {
+  handleEditablePolygonPointerDown(opt: fabric.TPointerEventInfo): boolean {
     const canvas = this.ctx.getCanvas()
     if (!canvas || this.ctx.isPanning()) {
       return false
     }
     const evt = opt.e
+    if (!(evt instanceof MouseEvent)) {
+      return false
+    }
     if (!evt.shiftKey && !evt.altKey) {
       return false
     }
-    const activeObject = canvas.getActiveObject()
+    const activeObject = canvas.getActiveObject() ?? null
     if (!this.isEditablePolygon(activeObject)) {
       return false
     }
@@ -99,19 +81,9 @@ export class EditorPolygonEditor {
     if (!polygon.points) {
       return
     }
-    const controls: Record<string, fabric.Control> = Object.create(
-      null
-    ) as Record<string, fabric.Control>
-    const defaultControls = fabric.Object.prototype.controls
-    controls.tl = defaultControls.tl
-    controls.tr = defaultControls.tr
-    controls.bl = defaultControls.bl
-    controls.br = defaultControls.br
-    controls.mtr = defaultControls.mtr
-    controls.ml = defaultControls.ml
-    controls.mr = defaultControls.mr
-    controls.mt = defaultControls.mt
-    controls.mb = defaultControls.mb
+    const controls: Record<string, fabric.Control> = {
+      ...fabricControlsUtils.createObjectDefaultControls(),
+    }
     for (let i = 0; i < polygon.points.length; i++) {
       controls[`p${i}`] = this.createPolygonControl(polygon, i)
     }
@@ -140,7 +112,7 @@ export class EditorPolygonEditor {
     if (!polygon.canvas || !polygon.points) {
       return
     }
-    const pointer = polygon.canvas.getPointer(evt)
+    const pointer = polygon.canvas.getScenePoint(evt)
     this.setLocalPointFromCanvas(
       polygon,
       pointer.x,
@@ -171,7 +143,7 @@ export class EditorPolygonEditor {
     if (!polygon.points || polygon.points.length <= 3 || !polygon.canvas) {
       return
     }
-    const pointer = polygon.canvas.getPointer(evt)
+    const pointer = polygon.canvas.getScenePoint(evt)
     this.setLocalPointFromCanvas(
       polygon,
       pointer.x,
@@ -246,7 +218,7 @@ export class EditorPolygonEditor {
     while (polygon.points.length > length) {
       const removed = polygon.points.pop()
       if (removed) {
-        this.ctx.releasePoint(removed)
+        this.ctx.releasePoint(removed as fabric.Point)
       }
     }
   }
@@ -285,7 +257,7 @@ export class EditorPolygonEditor {
   }
 
   findNearestEdgeProjection(
-    points: fabric.Point[],
+    points: fabric.XY[],
     x: number,
     y: number,
     out: fabric.Point
@@ -320,7 +292,7 @@ export class EditorPolygonEditor {
     return nearestIndex
   }
 
-  findNearestPointIndex(points: fabric.Point[], x: number, y: number) {
+  findNearestPointIndex(points: fabric.XY[], x: number, y: number) {
     let nearestIndex = 0
     let nearestDistance = Number.POSITIVE_INFINITY
     for (let i = 0; i < points.length; i++) {
@@ -337,7 +309,7 @@ export class EditorPolygonEditor {
   }
 
   findNearestPointIndexWithin(
-    points: fabric.Point[],
+    points: fabric.XY[],
     x: number,
     y: number,
     maxDistanceSq: number
@@ -358,7 +330,7 @@ export class EditorPolygonEditor {
   }
 
   insertPolygonPoint(
-    points: fabric.Point[],
+    points: fabric.XY[],
     insertIndex: number,
     x: number,
     y: number
@@ -371,13 +343,13 @@ export class EditorPolygonEditor {
     points[insertIndex + 1] = newPoint
   }
 
-  removePolygonPoint(points: fabric.Point[], removeIndex: number) {
+  removePolygonPoint(points: fabric.XY[], removeIndex: number) {
     const removed = points[removeIndex]
     for (let i = removeIndex; i < points.length - 1; i++) {
       points[i] = points[i + 1]
     }
     points.length -= 1
-    this.ctx.releasePoint(removed)
+    this.ctx.releasePoint(removed as fabric.Point)
   }
 
   multiplyTransformMatrices(a: number[], b: number[], out: number[]) {
@@ -404,7 +376,11 @@ export class EditorPolygonEditor {
   private createPolygonControl(polygon: EditablePolygon, index: number) {
     const controlPoint = new fabric.Point(0, 0)
     return new fabric.Control({
-      positionHandler: (_dim, _finalMatrix, fabricObject) => {
+      positionHandler: (
+        _dim: fabric.Point,
+        _finalMatrix: fabric.TMat2D,
+        fabricObject: fabric.FabricObject
+      ) => {
         const poly = fabricObject as EditablePolygon
         if (!poly.points || !poly.canvas) {
           return controlPoint
@@ -432,12 +408,15 @@ export class EditorPolygonEditor {
         )
         return controlPoint
       },
-      actionHandler: (eventData, transform) => {
+      actionHandler: (
+        eventData: fabric.TPointerEvent,
+        transform: fabric.Transform
+      ) => {
         const poly = transform.target as EditablePolygon
         if (!poly.canvas || !poly.points) {
           return false
         }
-        const pointer = poly.canvas.getPointer(eventData)
+        const pointer = poly.canvas.getScenePoint(eventData)
         this.setEditablePolygonPointFromCanvas(
           poly,
           pointer.x,
@@ -456,7 +435,7 @@ export class EditorPolygonEditor {
     })
   }
 
-  private invertTransform(source: number[], out: number[]) {
+  private invertTransform(source: fabric.TMat2D, out: fabric.TMat2D) {
     const a = source[0]
     const b = source[1]
     const c = source[2]

@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import type { GameClient } from '../GameClient'
 import type { EditorCameraManager } from './EditorCameraManager'
@@ -62,7 +62,9 @@ export class EditorThumbnailCapture {
       return null
     }
 
-    const originalTransform = fabricCanvas.viewportTransform?.slice()
+    const originalTransform = fabricCanvas.viewportTransform
+      ? ([...fabricCanvas.viewportTransform] as fabric.TMat2D)
+      : null
     const originalWidth = fabricCanvas.width ?? 800
     const originalHeight = fabricCanvas.height ?? 600
 
@@ -111,6 +113,7 @@ export class EditorThumbnailCapture {
       snapshotDataUrl = fabricCanvas.toDataURL({
         format: 'jpeg',
         quality: 0.8,
+        multiplier: 1,
       })
     }
 

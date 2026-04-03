@@ -1,4 +1,4 @@
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { EditorView } from '../EditorManager'
 import type { EditorSnapManager } from './EditorSnapManager'
@@ -18,9 +18,9 @@ interface EditorCanvasEventHandlerContext {
   getCurrentView: () => EditorView
   hidePolygonMenu: () => void
   handleEditablePolygonContextMenuEvent: (event: MouseEvent) => void
-  handleEditablePolygonPointerDown: (opt: fabric.IEvent<Event>) => boolean
-  handleTerrainPointerDown: (opt: fabric.IEvent<Event>) => boolean
-  handleTerrainPointerMove: (opt: fabric.IEvent<Event>) => boolean
+  handleEditablePolygonPointerDown: (opt: fabric.TPointerEventInfo) => boolean
+  handleTerrainPointerDown: (opt: fabric.TPointerEventInfo) => boolean
+  handleTerrainPointerMove: (opt: fabric.TPointerEventInfo) => boolean
   handleTerrainPointerUp: () => boolean
   restoreCanvasCursor: () => void
   handleCanvasSelection: (objects: fabric.Object[]) => void
@@ -74,7 +74,7 @@ export class EditorCanvasEventHandler {
     }
   }
 
-  private handleMouseWheel = (opt: fabric.IEvent<WheelEvent>) => {
+  private handleMouseWheel = (opt: fabric.TPointerEventInfo<WheelEvent>) => {
     const canvas = this.ctx.fabricCanvas()
     if (!canvas) {
       return
@@ -88,10 +88,10 @@ export class EditorCanvasEventHandler {
     if (zoom > 20) zoom = 20
     if (zoom < 0.1) zoom = 0.1
 
-    canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom)
+    canvas.zoomToPoint(new fabric.Point(opt.e.offsetX, opt.e.offsetY), zoom)
 
     canvas.calcOffset()
-    canvas.forEachObject((obj) => {
+    canvas.forEachObject((obj: fabric.Object) => {
       if (obj.visible) {
         obj.setCoords()
       }
@@ -101,7 +101,7 @@ export class EditorCanvasEventHandler {
     opt.e.stopPropagation()
   }
 
-  private handleMouseDown = (opt: fabric.IEvent<Event>) => {
+  private handleMouseDown = (opt: fabric.TPointerEventInfo) => {
     const canvas = this.ctx.fabricCanvas()
     if (!canvas) {
       return
@@ -136,7 +136,7 @@ export class EditorCanvasEventHandler {
     }
   }
 
-  private handleMouseMove = (opt: fabric.IEvent<Event>) => {
+  private handleMouseMove = (opt: fabric.TPointerEventInfo) => {
     const canvas = this.ctx.fabricCanvas()
     if (!canvas) {
       return
@@ -174,7 +174,7 @@ export class EditorCanvasEventHandler {
         canvas.setViewportTransform(vpt)
       }
       canvas.calcOffset()
-      canvas.forEachObject((obj) => {
+      canvas.forEachObject((obj: fabric.Object) => {
         if (obj.visible) {
           obj.setCoords()
         }
@@ -189,7 +189,9 @@ export class EditorCanvasEventHandler {
     }
   }
 
-  private handleObjectMoving = (opt: fabric.IEvent<Event>) => {
+  private handleObjectMoving = (
+    opt: fabric.BasicTransformEvent & { target: fabric.Object }
+  ) => {
     const target = opt.target
     if (!target || this.ctx.getIsPanning()) {
       return
@@ -198,23 +200,23 @@ export class EditorCanvasEventHandler {
     this.ctx.onObjectMoving(target)
   }
 
-  private handleObjectModified = (opt: fabric.IEvent<Event>) => {
+  private handleObjectModified = (opt: fabric.ModifiedEvent) => {
     this.ctx.snapManager.hideSnapGuides()
     this.ctx.snapManager.clearSnapCandidates()
     this.ctx.onObjectModified(opt.target ?? null)
   }
 
-  private handleSelectionCreated = (opt: fabric.IEvent<Event>) => {
-    const selectedObjects = (
-      opt as fabric.IEvent<Event> & { selected?: fabric.Object[] }
-    ).selected
+  private handleSelectionCreated = (
+    opt: Partial<fabric.TEvent> & { selected?: fabric.Object[] }
+  ) => {
+    const selectedObjects = opt.selected
     this.ctx.handleCanvasSelection(selectedObjects ?? [])
   }
 
-  private handleSelectionUpdated = (opt: fabric.IEvent<Event>) => {
-    const selectedObjects = (
-      opt as fabric.IEvent<Event> & { selected?: fabric.Object[] }
-    ).selected
+  private handleSelectionUpdated = (
+    opt: Partial<fabric.TEvent> & { selected?: fabric.Object[] }
+  ) => {
+    const selectedObjects = opt.selected
     this.ctx.handleCanvasSelection(selectedObjects ?? [])
   }
 

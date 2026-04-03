@@ -1,4 +1,4 @@
-import type { fabric } from 'fabric'
+import * as fabric from 'fabric'
 
 import { localizer } from '../Localizer'
 import type { EditablePolygon } from './EditorPolygonEditor'
