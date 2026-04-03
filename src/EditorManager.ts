@@ -2192,7 +2192,8 @@ export class EditorManager {
       return
     }
     this.contextMenu.hide()
-    const target = this.fabricCanvas.findTarget(event) ?? null
+    const targetInfo = this.fabricCanvas.findTarget(event)
+    const target = targetInfo.target ?? null
     const selectedIds = this.objectManager.getSelectedEditorObjectIds()
     if (selectedIds.length > 1 && target) {
       const isActiveSelection = target instanceof fabric.ActiveSelection

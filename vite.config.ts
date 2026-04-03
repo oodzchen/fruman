@@ -10,9 +10,6 @@ export default defineConfig({
     target: 'esnext',
   },
   optimizeDeps: {
-    esbuildOptions: {
-      target: 'esnext',
-    },
     exclude: ['box2d3-wasm'],
   },
   server: {
