@@ -89,6 +89,7 @@
   "editor_object_menu_paste": "Paste",
   "editor_confirm_delete_shape": "Delete this shape?",
   "editor_confirm_delete_multiple": "Delete {0} objects?",
+  "editor_confirm_delete_with_children": "Delete {0} objects? This will also delete {1} child objects.",
   "editor_map_rename": "Rename",
   "editor_map_delete": "Delete",
   "editor_map_delete_confirm": "Are you sure you want to delete map '{0}'?",

@@ -423,7 +423,7 @@ export class EditorManager {
       {
         serializeCurrentMapData: () =>
           this.mapSerializer.serializeCurrentMapData(),
-        applyMapData: (data) => this.mapSerializer.applyMapData(data),
+        applyMapData: (data) => this.applyMapSnapshot(data),
       },
       EDITOR_HISTORY_MAX_ENTRIES
     )
@@ -2599,35 +2599,82 @@ export class EditorManager {
     return result
   }
 
-  private async handleBatchDelete(ids: number[]) {
+  private buildDeleteConfirmMessage(ids: readonly number[]): string {
+    const topLevelIds = this.objectManager.getTopLevelObjectIds(ids)
+    const subtreeIds = this.objectManager.getSubtreeObjectIds(ids)
+    const rootCount = topLevelIds.length
+    const totalCount = subtreeIds.length
+    if (totalCount > rootCount) {
+      return localizer
+        .t('editor_confirm_delete_with_children')
+        .replace('{0}', String(rootCount))
+        .replace('{1}', String(totalCount - rootCount))
+    }
+    return rootCount > 1
+      ? localizer
+          .t('editor_confirm_delete_multiple')
+          .replace('{0}', String(rootCount))
+      : localizer.t('editor_confirm_delete_shape')
+  }
+
+  private deleteObjectsWithChildren(ids: readonly number[]): boolean {
     const canvas = this.fabricCanvas
-    if (!canvas) return
-    const confirmed = await this.dialogManager.confirm(
-      localizer
-        .t('editor_confirm_delete_multiple')
-        .replace('{0}', String(ids.length))
-    )
-    if (!confirmed) {
-      this.contextMenu.hide()
-      return
+    if (!canvas || ids.length === 0) {
+      return false
+    }
+    const subtreeIds = this.objectManager.getSubtreeObjectIds(ids)
+    if (subtreeIds.length === 0) {
+      return false
     }
     canvas.discardActiveObject()
     const terrainTargets: fabric.Object[] = []
-    for (let i = 0; i < ids.length; i++) {
-      const data = this.objectManager.getEditorObjectById(ids[i])
-      if (!data) continue
-      if (this.isTerrainProxy(data.object)) {
-        terrainTargets.push(data.object)
+    for (let i = subtreeIds.length - 1; i >= 0; i--) {
+      const data = this.objectManager.getEditorObjectById(subtreeIds[i])
+      if (!data) {
         continue
       }
-      this.objectManager.unregisterEditorObject(data.object)
-      canvas.remove(data.object)
-      this.shapeManager.deleteShapeResetData(data.object)
+      const target = data.object
+      if (this.isTerrainProxy(target)) {
+        terrainTargets.push(target)
+        continue
+      }
+      if (this.cameraManager.isCameraFrame(target)) {
+        this.cameraManager.removeCameraView(target)
+      }
+      if (this.markerManager.isPlayerMarker(target)) {
+        this.markerManager.removePlayerMarker(target)
+      }
+      if (this.markerManager.isNpcMarker(target)) {
+        this.markerManager.removeNpcMarker(target)
+      }
+      if (this.markerManager.isCheckpointMarker(target)) {
+        this.markerManager.removeCheckpointMarker(target)
+      }
+      if (this.markerManager.isHookAnchorMarker(target)) {
+        this.markerManager.removeHookAnchorMarker(target)
+      }
+      this.objectManager.unregisterEditorObject(target)
+      canvas.remove(target)
+      this.shapeManager.deleteShapeResetData(target)
     }
     if (terrainTargets.length > 0) {
       this.terrainManager.deleteProxyObjects(terrainTargets)
     }
     canvas.requestRenderAll()
+    return true
+  }
+
+  private async handleBatchDelete(ids: number[]) {
+    const canvas = this.fabricCanvas
+    if (!canvas) return
+    const confirmed = await this.dialogManager.confirm(
+      this.buildDeleteConfirmMessage(ids)
+    )
+    if (!confirmed) {
+      this.contextMenu.hide()
+      return
+    }
+    this.deleteObjectsWithChildren(ids)
     this.contextMenu.hide()
     this.captureHistorySnapshot()
   }
@@ -2766,44 +2813,24 @@ export class EditorManager {
     }
     if (action === 'delete') {
       const confirmed = await this.dialogManager.confirm(
-        localizer.t('editor_confirm_delete_shape')
+        this.buildDeleteConfirmMessage([
+          this.objectManager.getEditorObjectMap().get(target)?.id ?? -1,
+        ])
       )
       if (!confirmed) {
         this.contextMenu.hide()
         return
       }
-      if (canvas.getActiveObject() === target) {
-        canvas.discardActiveObject()
-      }
-      if (this.isTerrainProxy(target)) {
-        const changed = this.terrainManager.deleteProxyObjects([target])
+      const targetId = this.objectManager.getEditorObjectMap().get(target)?.id
+      if (targetId === undefined) {
         this.contextMenu.hide()
-        if (changed) {
-          this.captureHistorySnapshot()
-        }
         return
       }
-      if (this.cameraManager.isCameraFrame(target)) {
-        this.cameraManager.removeCameraView(target)
-      }
-      if (this.markerManager.isPlayerMarker(target)) {
-        this.markerManager.removePlayerMarker(target)
-      }
-      if (this.markerManager.isNpcMarker(target)) {
-        this.markerManager.removeNpcMarker(target)
-      }
-      if (this.markerManager.isCheckpointMarker(target)) {
-        this.markerManager.removeCheckpointMarker(target)
-      }
-      if (this.markerManager.isHookAnchorMarker(target)) {
-        this.markerManager.removeHookAnchorMarker(target)
-      }
-      this.objectManager.unregisterEditorObject(target)
-      canvas.remove(target)
-      this.shapeManager.deleteShapeResetData(target)
-      canvas.requestRenderAll()
+      const changed = this.deleteObjectsWithChildren([targetId])
       this.contextMenu.hide()
-      this.captureHistorySnapshot()
+      if (changed) {
+        this.captureHistorySnapshot()
+      }
       return
     }
     if (action === 'rename') {

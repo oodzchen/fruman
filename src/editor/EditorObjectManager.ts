@@ -223,6 +223,49 @@ export class EditorObjectManager {
     return null
   }
 
+  getSubtreeObjectIds(rootIds: readonly number[]): number[] {
+    const rootSet = new Set<number>(this.getTopLevelObjectIds(rootIds))
+    const result: number[] = []
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const data = this.editorObjects[i]
+      for (const rootId of rootSet) {
+        if (data.id === rootId || this.isDescendant(data.id, rootId)) {
+          result.push(data.id)
+          break
+        }
+      }
+    }
+    return result
+  }
+
+  getTopLevelObjectIds(ids: readonly number[]): number[] {
+    if (ids.length === 0) {
+      return []
+    }
+    const result: number[] = []
+    for (let i = 0; i < ids.length; i++) {
+      const rootId = ids[i]
+      if (!this.getEditorObjectById(rootId)) {
+        continue
+      }
+      let hasAncestorInSelection = false
+      for (let j = 0; j < ids.length; j++) {
+        const candidateId = ids[j]
+        if (candidateId === rootId) {
+          continue
+        }
+        if (this.isDescendant(rootId, candidateId)) {
+          hasAncestorInSelection = true
+          break
+        }
+      }
+      if (!hasAncestorInSelection && !result.includes(rootId)) {
+        result.push(rootId)
+      }
+    }
+    return result
+  }
+
   focusEditorObjectById(id: number) {
     const canvas = this.ctx.fabricCanvas()
     if (!canvas) {

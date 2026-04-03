@@ -94,6 +94,7 @@
   "editor_object_menu_paste": "粘贴",
   "editor_confirm_delete_shape": "确认删除该对象？",
   "editor_confirm_delete_multiple": "确认删除 {0} 个对象？",
+  "editor_confirm_delete_with_children": "确认删除 {0} 个对象？这会同时删除 {1} 个子对象。",
   "editor_map_rename": "重命名",
   "editor_map_delete": "删除",
   "editor_map_delete_confirm": "确定删除地图'{0}'？",
