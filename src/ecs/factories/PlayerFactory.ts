@@ -33,7 +33,14 @@ import {
   ENEMY_DETECTION_RANGE_MULTIPLIERS,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
-import type { MapCharacterBodyProfile } from '../../editorMapTypes'
+import type {
+  MapCharacterBodyProfile,
+  MapNpcDropItem,
+} from '../../editorMapTypes'
+import {
+  buildDefaultNpcDropList,
+  normalizeNpcDropList,
+} from '../../npcDropUtils'
 import {
   getEnemyCollisionCategory,
   getEnemyCollisionMask,
@@ -76,6 +83,7 @@ import {
   LevelComponent,
   MovementComponent,
   NpcAIComponent,
+  NpcDropTableComponent,
   PhysicsComponent,
   RenderComponent,
   SensorComponent,
@@ -283,6 +291,7 @@ export interface NpcSpawnConfig {
   detectionRangeLevel?: NpcDetectionRangeLevel
   mainWeapon?: NpcWeaponConfig
   secondaryWeapon?: NpcWeaponConfig
+  drops?: MapNpcDropItem[]
   initialNormalMovesetId?: NormalAttackMovesetId
   factionId?: string
   npcFactions?: string[]
@@ -762,6 +771,33 @@ export function createNpc(
   if (npcType === 'archer' && npc.input) {
     npc.input.lastMoveDirection = facing
     npc.input.facingOverride = facing
+  }
+
+  let dropItems: MapNpcDropItem[]
+  if (options && 'drops' in options) {
+    dropItems = normalizeNpcDropList(options.drops)
+  } else if (npc.weaponSlots) {
+    dropItems = buildDefaultNpcDropList(
+      npc.weaponSlots.main.hasWeapon
+        ? (npc.weaponSlots.main.weaponType as WeaponType | undefined)
+        : undefined,
+      npc.weaponSlots.secondary.hasWeapon
+        ? (npc.weaponSlots.secondary.weaponType as WeaponType | undefined)
+        : undefined
+    )
+  } else {
+    dropItems = npc.weapon?.isEquipped
+      ? buildDefaultNpcDropList(
+          normalizeWeaponType(npc.weapon.weaponType) ?? undefined
+        )
+      : []
+  }
+  if (dropItems.length > 0) {
+    const npcDropTable = new NpcDropTableComponent()
+    for (let i = 0; i < dropItems.length; i++) {
+      npcDropTable.items.push(dropItems[i])
+    }
+    npc.addComponent(npcDropTable)
   }
 
   return npc

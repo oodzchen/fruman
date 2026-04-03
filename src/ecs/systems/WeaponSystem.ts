@@ -3121,6 +3121,14 @@ export class WeaponSystem extends System {
     return ((Math.random() * DEATH_WEAPON_DROP_CHANCE_DENOMINATOR) | 0) === 0
   }
 
+  setGroundWeaponPickupCooldown(entity: Entity, cooldownMs: number): void {
+    if (!entity.weapon) {
+      return
+    }
+    const delayMs = Number.isFinite(cooldownMs) ? Math.max(0, cooldownMs) : 0
+    entity.weapon.pickupCooldownEndTime = this.currentTimeMs + delayMs
+  }
+
   switchWeaponSlot(entity: Entity, slotId: WeaponSlotId): void {
     if (!entity.weapon || !entity.weaponSlots) return
     if (entity.stats?.isDead) return

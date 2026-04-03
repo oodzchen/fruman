@@ -12,6 +12,7 @@ import type {
   MapPlacedShape,
   MapSunPickup,
 } from '../editorMapTypes'
+import { normalizeNpcDropList } from '../npcDropUtils'
 import {
   getDefaultShapeRenderLayer,
   normalizeRenderLayer,
@@ -890,6 +891,7 @@ export class EditorMapSerializer {
         equipWeapon: data.equipWeapon,
         mainWeapon,
         secondaryWeapon,
+        drops: normalizeNpcDropList(data.drops),
         factionId: data.factionId,
         npcFactions: data.npcFactions,
         allyFactions: data.allyFactions,

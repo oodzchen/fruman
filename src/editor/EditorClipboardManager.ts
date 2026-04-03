@@ -1,7 +1,12 @@
 import * as fabric from 'fabric'
 
-import type { MapNpcWeapon, MapPlayerProperties } from '../editorMapTypes'
+import type {
+  MapNpcDropItem,
+  MapNpcWeapon,
+  MapPlayerProperties,
+} from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
+import { normalizeNpcDropList } from '../npcDropUtils'
 import type {
   MapTerrainChunk,
   TerrainMaterialId,
@@ -161,6 +166,7 @@ interface ClipboardNpcTreeNode extends ClipboardTreeNodeBase {
   factionId: string
   npcFactions: string[]
   allyFactions: string[]
+  drops: MapNpcDropItem[]
   mainWeapon?: MapNpcWeapon
   secondaryWeapon?: MapNpcWeapon
 }
@@ -260,6 +266,7 @@ export class EditorClipboardManager {
   private npcFactionId = ''
   private npcFactions: string[] = []
   private npcAllyFactions: string[] = []
+  private npcDrops: MapNpcDropItem[] = []
   private npcHasMainWeapon = false
   private npcHasSecondaryWeapon = false
   private npcMainWeaponData: MapNpcWeapon = {
@@ -300,6 +307,7 @@ export class EditorClipboardManager {
     equipWeapon: false,
     mainWeapon: undefined as MapNpcWeapon | undefined,
     secondaryWeapon: undefined as MapNpcWeapon | undefined,
+    drops: undefined as MapNpcDropItem[] | undefined,
     factionId: undefined as string | undefined,
     npcFactions: undefined as string[] | undefined,
     allyFactions: undefined as string[] | undefined,
@@ -774,6 +782,7 @@ export class EditorClipboardManager {
         factionId: npcData.factionId,
         npcFactions: npcData.npcFactions.slice(),
         allyFactions: npcData.allyFactions.slice(),
+        drops: normalizeNpcDropList(npcData.drops),
         mainWeapon:
           npcData.mainWeaponMarker &&
           !this.isObjectDescendantOfRoot(
@@ -1279,6 +1288,7 @@ export class EditorClipboardManager {
     this.npcSpawnConfig.equipWeapon = node.equipWeapon
     this.npcSpawnConfig.mainWeapon = node.mainWeapon
     this.npcSpawnConfig.secondaryWeapon = node.secondaryWeapon
+    this.npcSpawnConfig.drops = normalizeNpcDropList(node.drops)
     this.npcSpawnConfig.factionId = node.factionId
     this.npcSpawnConfig.npcFactions = node.npcFactions
     this.npcSpawnConfig.allyFactions = node.allyFactions
@@ -1717,6 +1727,7 @@ export class EditorClipboardManager {
     for (let i = 0; i < npcData.allyFactions.length; i++) {
       this.npcAllyFactions.push(npcData.allyFactions[i])
     }
+    this.npcDrops = normalizeNpcDropList(npcData.drops)
     this.npcHasMainWeapon = false
     this.npcHasSecondaryWeapon = false
     const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
@@ -1782,6 +1793,7 @@ export class EditorClipboardManager {
     this.npcSpawnConfig.secondaryWeapon = this.npcHasSecondaryWeapon
       ? this.npcSecondaryWeaponData
       : undefined
+    this.npcSpawnConfig.drops = normalizeNpcDropList(this.npcDrops)
     this.npcSpawnConfig.factionId = this.npcFactionId
     this.npcSpawnConfig.npcFactions = this.npcFactions
     this.npcSpawnConfig.allyFactions = this.npcAllyFactions

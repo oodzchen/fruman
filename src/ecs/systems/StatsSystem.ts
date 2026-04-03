@@ -85,7 +85,7 @@ export class StatsSystem extends System {
   private soundSystem: SoundSystem | null = null
   private bloodEffectsEnabled = false
   private colorCache = new Map<string, number>()
-  onNpcDeath?: (x: number, y: number) => void
+  onNpcDeath?: (entity: Entity) => void
   onNpcVanish?: (x: number, y: number, renderLayer: number) => void
 
   constructor(box2d?: MainModule, worldId?: b2WorldId) {
@@ -934,8 +934,8 @@ export class StatsSystem extends System {
       )
 
       this.dropWeaponsOnDeath(entity)
-      if (entity.npcAI && entity.transform) {
-        this.onNpcDeath?.(entity.transform.x, entity.transform.y)
+      if (entity.npcAI) {
+        this.onNpcDeath?.(entity)
       }
       entity.stats.isDead = true
       entity.stats.isVanished = false

@@ -346,6 +346,7 @@ export class GameClient {
       player: msg.player,
       npcs: msg.npcs,
       groundWeapons: msg.groundWeapons,
+      groundSunPickups: msg.groundSunPickups,
       camera: msg.camera,
       meta: {
         ...this.currentSaveData.meta,

@@ -20,9 +20,17 @@ import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type {
   EditorMapData,
   MapCharacterBodyProfile,
+  MapNpcDropItem,
   MapNpcTemplate,
   MapNpcWeapon,
 } from '../editorMapTypes'
+import {
+  NPC_DROP_ITEM_TYPES,
+  buildDefaultNpcDropList,
+  normalizeNpcDropChance,
+  normalizeNpcDropItemType,
+  normalizeNpcDropList,
+} from '../npcDropUtils'
 import {
   HUD_SLOT_SIZE,
   HUD_SLOT_SPACING,
@@ -32,6 +40,7 @@ import { renderWeapon } from '../renderer/WeaponRenderer'
 import type {
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
+  NpcDropItemType,
   NpcPatrolMode,
   WeaponType,
 } from '../types'
@@ -99,6 +108,7 @@ type CharacterDialogOptions = {
     factionId: string
     npcFactions: string[]
     allyFactions: string[]
+    drops?: MapNpcDropItem[]
   }
   attackMovesetOwner: AttackMovesetOwner
   showMoveSpeed: boolean
@@ -109,6 +119,7 @@ type CharacterDialogOptions = {
   showRetreat?: boolean
   showDetectionRange?: boolean
   showCanBeFollower?: boolean
+  showDrops?: boolean
   confirmLabel?: string
   useMapSnapshot?: boolean
   captureHistoryOnCommit?: boolean
@@ -144,6 +155,7 @@ type CharacterDialogOptions = {
     factionId: string
     npcFactions: string[]
     allyFactions: string[]
+    drops?: MapNpcDropItem[]
     mainWeaponType?: WeaponType
     mainWeaponMarker?: WeaponMarker
     secondaryWeaponType?: WeaponType
@@ -253,6 +265,28 @@ export class EditorPropertiesPanel {
       return 'spear'
     }
     return 'sword'
+  }
+
+  private getNpcDropItemLabel(itemType: NpcDropItemType): string {
+    if (itemType === 'sunPickupSmall') {
+      return localizer.t('editor_prop_small')
+    }
+    if (itemType === 'sunPickupLarge') {
+      return localizer.t('editor_prop_large')
+    }
+    return localizer.t(`editor_weapon_${itemType}`)
+  }
+
+  private getNpcDropItemOptions(): Array<{ label: string; value: string }> {
+    const options: Array<{ label: string; value: string }> = []
+    for (let i = 0; i < NPC_DROP_ITEM_TYPES.length; i++) {
+      const itemType = NPC_DROP_ITEM_TYPES[i]
+      options.push({
+        value: itemType,
+        label: this.getNpcDropItemLabel(itemType),
+      })
+    }
+    return options
   }
 
   private removeDetachedWeaponMarker(
@@ -975,6 +1009,127 @@ export class EditorPropertiesPanel {
         secondaryWeaponSelect = createWeaponRow(secondaryBinding)
       }
 
+      let buildNpcDropValues: (() => MapNpcDropItem[]) | null = null
+      if (options.showDrops) {
+        const dropItemOptions = this.getNpcDropItemOptions()
+        let dropEntries =
+          options.data.drops === undefined
+            ? buildDefaultNpcDropList(
+                (mainBinding?.getWeaponType() ?? undefined) as
+                  | WeaponType
+                  | undefined,
+                (secondaryBinding?.getWeaponType() ?? undefined) as
+                  | WeaponType
+                  | undefined
+              )
+            : normalizeNpcDropList(options.data.drops)
+
+        const dropsRow = EditorUIHelper.createFormRow(
+          localizer.t('editor_enemy_prop_drops')
+        )
+        const addDropBtn = EditorUIHelper.createButton(
+          localizer.t('editor_enemy_prop_drops_add')
+        )
+        addDropBtn.style.padding = '4px 8px'
+        addDropBtn.style.fontSize = '11px'
+        dropsRow.row.appendChild(addDropBtn)
+        basicPanel.appendChild(dropsRow.row)
+
+        const dropList = document.createElement('div')
+        dropList.style.cssText =
+          'display:flex;flex-direction:column;gap:8px;margin:-4px 0 12px 122px;'
+        basicPanel.appendChild(dropList)
+
+        const renderDropRows = () => {
+          dropList.innerHTML = ''
+          if (dropEntries.length === 0) {
+            const emptyText = document.createElement('div')
+            emptyText.textContent = localizer.t('editor_enemy_prop_drops_empty')
+            emptyText.style.cssText =
+              'font-size:11px;color:rgba(255,255,255,0.45);padding:2px 0;'
+            dropList.appendChild(emptyText)
+            return
+          }
+
+          for (let i = 0; i < dropEntries.length; i++) {
+            const rowData = dropEntries[i]
+            const row = document.createElement('div')
+            row.style.cssText =
+              'display:flex;align-items:center;gap:8px;flex-wrap:wrap;'
+
+            const itemSelect = EditorUIHelper.createSelect({
+              options: dropItemOptions,
+              selected: rowData.itemType,
+              width: '160px',
+            })
+            row.appendChild(itemSelect)
+
+            const chanceInput = EditorUIHelper.createNumberInput({
+              value: rowData.chance,
+              min: '1',
+              max: '100',
+              step: '1',
+              width: '72px',
+            })
+            row.appendChild(chanceInput)
+
+            const percentText = document.createElement('span')
+            percentText.textContent = '%'
+            percentText.style.cssText = 'font-size:12px;color:#ffffff;'
+            row.appendChild(percentText)
+
+            const removeBtn = EditorUIHelper.createButton(
+              localizer.t('editor_enemy_prop_drops_remove')
+            )
+            removeBtn.style.padding = '4px 8px'
+            removeBtn.style.fontSize = '11px'
+            row.appendChild(removeBtn)
+
+            itemSelect.addEventListener('change', () => {
+              const itemType = normalizeNpcDropItemType(itemSelect.value)
+              if (!itemType) {
+                itemSelect.value = rowData.itemType
+                return
+              }
+              rowData.itemType = itemType
+            })
+
+            const syncChanceValue = () => {
+              const chance = Number.parseInt(chanceInput.value, 10)
+              if (!Number.isFinite(chance)) {
+                chanceInput.value = String(rowData.chance)
+                return
+              }
+              rowData.chance = normalizeNpcDropChance(chance)
+              chanceInput.value = String(rowData.chance)
+            }
+
+            chanceInput.addEventListener('change', syncChanceValue)
+            chanceInput.addEventListener('blur', syncChanceValue)
+
+            removeBtn.addEventListener('click', () => {
+              dropEntries.splice(i, 1)
+              renderDropRows()
+            })
+
+            dropList.appendChild(row)
+          }
+        }
+
+        addDropBtn.addEventListener('click', () => {
+          const defaultItemType =
+            normalizeNpcDropItemType(dropItemOptions[0]?.value) ?? 'sword'
+          dropEntries.push({
+            itemType: defaultItemType,
+            chance: 100,
+          })
+          renderDropRows()
+        })
+
+        renderDropRows()
+        buildNpcDropValues = () => normalizeNpcDropList(dropEntries)
+      }
+
       // Buttons
       const buttonRow = EditorUIHelper.createButtonRow()
       const confirmBtn = EditorUIHelper.createButton(
@@ -1452,6 +1607,7 @@ export class EditorPropertiesPanel {
           factionId: factionSelectEl.value,
           npcFactions: getNpcFactionSelected(),
           allyFactions: getAllyFactionSelected(),
+          drops: buildNpcDropValues ? buildNpcDropValues() : undefined,
           mainWeaponType,
           mainWeaponMarker,
           secondaryWeaponType,
@@ -1555,6 +1711,7 @@ export class EditorPropertiesPanel {
       showRetreat: true,
       showDetectionRange: true,
       showCanBeFollower: true,
+      showDrops: true,
       weaponBindings: [mainBinding, secondaryBinding],
       updateMarkerVisual: (m, r, bh, c, f) =>
         this.context.updateNpcMarkerVisual(m as NpcMarker, r, bh, c, f),
@@ -1595,6 +1752,7 @@ export class EditorPropertiesPanel {
         data.factionId = values.factionId
         data.npcFactions = values.npcFactions
         data.allyFactions = values.allyFactions
+        data.drops = normalizeNpcDropList(values.drops)
 
         data.mainWeapon = values.mainWeaponType
         data.mainWeaponMarker = values.mainWeaponMarker
@@ -1626,6 +1784,7 @@ export class EditorPropertiesPanel {
         marker.factionId = data.factionId
         marker.npcFactions = data.npcFactions
         marker.allyFactions = data.allyFactions
+        marker.drops = data.drops
 
         this.context.updateNpcMarkerVisual(
           marker,
@@ -1768,6 +1927,10 @@ export class EditorPropertiesPanel {
           factionId: template.factionId ?? Faction.Enemy,
           npcFactions: template.npcFactions ?? [Faction.Player],
           allyFactions: template.allyFactions ?? [],
+          drops:
+            template.drops === undefined
+              ? undefined
+              : normalizeNpcDropList(template.drops),
         },
         attackMovesetOwner: 'npc',
         showMoveSpeed: true,
@@ -1778,6 +1941,7 @@ export class EditorPropertiesPanel {
         showRetreat: true,
         showDetectionRange: true,
         showCanBeFollower: true,
+        showDrops: true,
         confirmLabel,
         useMapSnapshot: false,
         captureHistoryOnCommit: false,
@@ -1815,6 +1979,7 @@ export class EditorPropertiesPanel {
             factionId: values.factionId,
             npcFactions: values.npcFactions,
             allyFactions: values.allyFactions,
+            drops: normalizeNpcDropList(values.drops),
           }
         },
       })

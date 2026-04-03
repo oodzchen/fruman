@@ -28,7 +28,7 @@ import {
   FOLLOW_PREFERRED_DISTANCE,
   FOOTSTEP_INTERVAL_MS,
 } from '../constants'
-import type { MapCharacterBodyProfile } from '../editorMapTypes'
+import type { MapCharacterBodyProfile, MapNpcDropItem } from '../editorMapTypes'
 import type {
   NpcPatrolMode,
   NpcType,
@@ -1146,6 +1146,18 @@ export class NpcAIComponent extends Component {
   }
 }
 
+export class NpcDropTableComponent extends Component {
+  items: MapNpcDropItem[] = []
+
+  reset(): void {
+    this.items.length = 0
+  }
+
+  getName(): string {
+    return 'NpcDropTable'
+  }
+}
+
 export type RayCastResult = {
   start: { x: number; y: number }
   end: { x: number; y: number }
@@ -1216,11 +1228,13 @@ export class SunPickupComponent extends Component {
   isLarge = false
   pickupRadiusSq = 1
   dropElapsedTime = 0
+  mapSpawnIndex = -1
 
   reset(): void {
     this.isLarge = false
     this.pickupRadiusSq = 1
     this.dropElapsedTime = 0
+    this.mapSpawnIndex = -1
   }
 
   getName(): string {

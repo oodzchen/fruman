@@ -99,6 +99,7 @@ import {
   buildMapObjectLayerLookup,
   collectCollisionLayers,
 } from '../mapObjectLayers'
+import { isWeaponDropItemType } from '../npcDropUtils'
 import {
   configureCollisionLayers,
   getCollisionLayerValue,
@@ -113,6 +114,7 @@ import { normalizeRenderLayer } from '../renderLayers'
 import type {
   SaveCheckpointState,
   SaveData,
+  SaveGroundSunPickupState,
   SaveGroundWeaponState,
   SaveNpcState,
   SavePlayerState,
@@ -617,6 +619,7 @@ function registerComponents() {
   componentRegistry.registerComponent('Arrow')
   componentRegistry.registerComponent('Faction')
   componentRegistry.registerComponent('NpcAI')
+  componentRegistry.registerComponent('NpcDropTable')
   componentRegistry.registerComponent('Checkpoint')
   componentRegistry.registerComponent('Grapple')
   componentRegistry.registerComponent('GrappleAnchor')
@@ -664,6 +667,9 @@ function initializeSystems() {
   sunPickupSystem.setEffectsEmitter(effectsEmitter)
   expOrbSystem = new ExpOrbSystem()
   expOrbSystem.setEffectsEmitter(effectsEmitter)
+  statsSystem.onNpcDeath = (entity: Entity) => {
+    dropNpcConfiguredLoot(entity)
+  }
   statsSystem.onNpcVanish = (x: number, y: number, renderLayer: number = 0) => {
     const {
       b2DefaultBodyDef,
@@ -1229,18 +1235,22 @@ function createSunPickupsFromMap(map: EditorMapData): void {
       p.x,
       p.y,
       p.isLarge,
-      getSunPickupRenderLayer(i, p.isLarge)
+      getSunPickupRenderLayer(i, p.isLarge),
+      i
     )
   }
 }
 
-function createMapSunPickupEntity(
+function createSunPickupEntity(
   x: number,
   y: number,
   isLarge: boolean,
-  renderLayer: number
-): void {
-  if (!world) return
+  renderLayer: number,
+  velocityX = 0,
+  velocityY = 0,
+  mapSpawnIndex = -1
+): Entity | null {
+  if (!world) return null
   const {
     b2DefaultBodyDef,
     b2CreateBody,
@@ -1248,7 +1258,6 @@ function createMapSunPickupEntity(
     b2DefaultShapeDef,
     b2CreateCircleShape,
     b2Circle,
-    b2Body_SetLinearVelocity,
   } = box2d
   const entity = world.createEntity()
   const t = new TransformComponent()
@@ -1274,10 +1283,6 @@ function createMapSunPickupEntity(
   circle.center.Set(0, 0)
   circle.radius = isLarge ? 0.3 : 0.15
   b2CreateCircleShape(bodyId, shapeDef, circle)
-
-  const vel = new box2d.b2Vec2(0, 0)
-  b2Body_SetLinearVelocity(bodyId, vel)
-  vel.delete()
   bodyDef.delete()
   shapeDef.delete()
   circle.delete()
@@ -1294,7 +1299,101 @@ function createMapSunPickupEntity(
   const p = new SunPickupComponent()
   p.isLarge = isLarge
   p.pickupRadiusSq = isLarge ? 4 : 1
+  p.mapSpawnIndex = mapSpawnIndex
   entity.addComponent(p)
+
+  setBodyLinearVelocity(bodyId, velocityX, velocityY)
+  return entity
+}
+
+function createMapSunPickupEntity(
+  x: number,
+  y: number,
+  isLarge: boolean,
+  renderLayer: number,
+  mapSpawnIndex: number
+): void {
+  createSunPickupEntity(x, y, isLarge, renderLayer, 0, 0, mapSpawnIndex)
+}
+
+function rollDropChance(chance: number): boolean {
+  return ((Math.random() * 100) | 0) < chance
+}
+
+function getNpcDropOffsetX(dropIndex: number): number {
+  if (dropIndex <= 0) {
+    return 0
+  }
+  const ring = (dropIndex + 1) >> 1
+  return (dropIndex & 1) === 0 ? ring * 0.28 : -ring * 0.28
+}
+
+function getNpcDropVelocityX(dropIndex: number): number {
+  if (dropIndex <= 0) {
+    return 0
+  }
+  const ring = (dropIndex + 1) >> 1
+  return (dropIndex & 1) === 0 ? 2 + ring : -(2 + ring)
+}
+
+function getNpcDropVelocityY(dropIndex: number): number {
+  return -(6 + (dropIndex % 3))
+}
+
+function dropNpcConfiguredLoot(entity: Entity): void {
+  if (
+    !world ||
+    !entity.transform ||
+    !entity.npcDropTable ||
+    entity.npcDropTable.items.length === 0
+  ) {
+    return
+  }
+
+  const drops = entity.npcDropTable.items
+  const renderLayer = entity.render?.renderLayer ?? 0
+  let spawnCount = 0
+
+  for (let i = 0; i < drops.length; i++) {
+    const drop = drops[i]
+    if (!rollDropChance(drop.chance)) {
+      continue
+    }
+
+    const offsetX = getNpcDropOffsetX(spawnCount)
+    const velocityX = getNpcDropVelocityX(spawnCount)
+    const velocityY = getNpcDropVelocityY(spawnCount)
+    const spawnX = entity.transform.x + offsetX
+    const spawnY = entity.transform.y
+
+    if (isWeaponDropItemType(drop.itemType)) {
+      const weaponEntity = createWeapon(
+        world,
+        box2d,
+        worldId,
+        spawnX,
+        spawnY,
+        groundTopY,
+        drop.itemType,
+        renderLayer
+      )
+      if (weaponEntity.physics) {
+        setBodyLinearVelocity(weaponEntity.physics.bodyId, velocityX, velocityY)
+      }
+      weaponSystem?.setGroundWeaponPickupCooldown(weaponEntity, 500)
+    } else {
+      createSunPickupEntity(
+        spawnX,
+        spawnY,
+        drop.itemType === 'sunPickupLarge',
+        renderLayer,
+        velocityX,
+        velocityY
+      )
+    }
+
+    spawnCount += 1
+  }
 }
 
 function createGroundShapeFromMap(placed: MapPlacedShape): void {
@@ -4137,6 +4236,22 @@ function ensureTransformTemps(): void {
   }
 }
 
+function setBodyLinearVelocity(
+  bodyId: b2BodyId,
+  velocityX: number,
+  velocityY: number
+): void {
+  if (!box2d) {
+    return
+  }
+  ensureTransformTemps()
+  if (!tempSetTransformVec) {
+    return
+  }
+  tempSetTransformVec.Set(velocityX, velocityY)
+  box2d.b2Body_SetLinearVelocity(bodyId, tempSetTransformVec)
+}
+
 function setEntityTransformFromSave(
   entity: Entity,
   x: number,
@@ -4623,6 +4738,27 @@ function extractGroundWeaponsState(): SaveGroundWeaponState[] {
   return weapons
 }
 
+function extractGroundSunPickupsState(): SaveGroundSunPickupState[] {
+  const pickups: SaveGroundSunPickupState[] = []
+  const entities = world.getEntities()
+
+  let spawnIndex = 0
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.sunPickup || entity.sunPickup.mapSpawnIndex >= 0) continue
+
+    pickups.push({
+      spawnIndex,
+      position: { x: entity.transform?.x ?? 0, y: entity.transform?.y ?? 0 },
+      renderLayer: entity.render?.renderLayer ?? 0,
+      isLarge: entity.sunPickup.isLarge,
+    })
+    spawnIndex++
+  }
+
+  return pickups
+}
+
 function exportGameState(saveId: string): void {
   if (isMapPreview) {
     return
@@ -4639,6 +4775,7 @@ function exportGameState(saveId: string): void {
     player: extractPlayerState(),
     npcs: extractNpcsState(),
     groundWeapons: extractGroundWeaponsState(),
+    groundSunPickups: extractGroundSunPickupsState(),
     camera: { x: camera.x, y: camera.y, zoom },
   }
 
@@ -4700,6 +4837,7 @@ function loadFromSave(saveData: SaveData): void {
   if (saveData.worldStateReady !== false) {
     restoreNpcsState(saveData.npcs)
     restoreGroundWeaponsState(saveData.groundWeapons)
+    restoreGroundSunPickupsState(saveData.groundSunPickups ?? [])
   }
 
   restoreActiveCheckpointFromSave(saveData)
@@ -5041,5 +5179,32 @@ function restoreGroundWeaponsState(
         applyGroundWeaponState(created.weapon, savedState)
       }
     }
+  }
+}
+
+function restoreGroundSunPickupsState(
+  groundSunPickupsState: SaveGroundSunPickupState[]
+): void {
+  if (!world) return
+
+  const entities = world.getEntities()
+
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.sunPickup || entity.sunPickup.mapSpawnIndex >= 0) continue
+    spatialHash.removeEntity(entity)
+    world.destroyEntity(entity)
+  }
+
+  for (let i = 0; i < groundSunPickupsState.length; i++) {
+    const savedState = groundSunPickupsState[i]
+    createSunPickupEntity(
+      savedState.position.x,
+      savedState.position.y,
+      savedState.isLarge,
+      getCollisionLayerValue(savedState.renderLayer),
+      0,
+      0
+    )
   }
 }

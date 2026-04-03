@@ -12,6 +12,7 @@ import {
   LevelComponent,
   MovementComponent,
   NpcAIComponent,
+  NpcDropTableComponent,
   PhysicsComponent,
   RenderComponent,
   SensorComponent,
@@ -45,6 +46,7 @@ export class Entity {
   grappleAnchor?: GrappleAnchorComponent
   faction?: FactionComponent
   npcAI?: NpcAIComponent
+  npcDropTable?: NpcDropTableComponent
   sensor?: SensorComponent
   solarEnergy?: SolarEnergyComponent
   sunPickup?: SunPickupComponent
@@ -130,6 +132,7 @@ export class Entity {
     this.grappleAnchor = undefined
     this.faction = undefined
     this.npcAI = undefined
+    this.npcDropTable = undefined
     this.sensor = undefined
     this.solarEnergy = undefined
     this.sunPickup = undefined
@@ -181,6 +184,9 @@ export class Entity {
         break
       case 'NpcAI':
         this.npcAI = component as NpcAIComponent
+        break
+      case 'NpcDropTable':
+        this.npcDropTable = component as NpcDropTableComponent
         break
       case 'Faction':
         this.faction = component as FactionComponent
@@ -249,6 +255,9 @@ export class Entity {
         break
       case 'NpcAI':
         this.npcAI = undefined
+        break
+      case 'NpcDropTable':
+        this.npcDropTable = undefined
         break
       case 'Faction':
         this.faction = undefined

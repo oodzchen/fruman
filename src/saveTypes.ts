@@ -93,6 +93,13 @@ export interface SaveGroundWeaponState {
   bowAmmoMax: number
 }
 
+export interface SaveGroundSunPickupState {
+  spawnIndex: number
+  position: { x: number; y: number }
+  renderLayer?: number
+  isLarge: boolean
+}
+
 export interface SaveCheckpointState {
   x: number
   y: number
@@ -110,5 +117,6 @@ export interface SaveData {
   npcs: SaveNpcState[]
   enemies?: SaveNpcState[]
   groundWeapons: SaveGroundWeaponState[]
+  groundSunPickups: SaveGroundSunPickupState[]
   camera: { x: number; y: number; zoom: number }
 }

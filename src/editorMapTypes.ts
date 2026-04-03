@@ -2,6 +2,7 @@ import type { MapTerrainData } from './terrain/TerrainTypes'
 import type {
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
+  NpcDropItemType,
   NpcPatrolMode,
   NpcType,
   WeaponType,
@@ -126,6 +127,11 @@ export interface MapNpcWeapon {
   bowAmmo?: number
 }
 
+export interface MapNpcDropItem {
+  itemType: NpcDropItemType
+  chance: number
+}
+
 export interface MapNpcConfig {
   npcType: NpcType
   enemyType?: NpcType
@@ -152,6 +158,7 @@ export interface MapNpcConfig {
   equipWeapon?: boolean
   mainWeapon?: MapNpcWeapon
   secondaryWeapon?: MapNpcWeapon
+  drops?: MapNpcDropItem[]
   factionId?: string
   npcFactions?: string[]
   enemyFactions?: string[]

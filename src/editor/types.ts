@@ -1,6 +1,10 @@
 import * as fabric from 'fabric'
 
-import type { MapCharacterBodyProfile, WeaponCategory } from '../editorMapTypes'
+import type {
+  MapCharacterBodyProfile,
+  MapNpcDropItem,
+  WeaponCategory,
+} from '../editorMapTypes'
 import type { TerrainMaterialId } from '../terrain/TerrainTypes'
 import type {
   NormalAttackMovesetId,
@@ -83,6 +87,7 @@ export type NpcMarker = fabric.Group & {
   factionId: string
   npcFactions: string[]
   allyFactions: string[]
+  drops: MapNpcDropItem[]
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
   weaponBackShape?: WeaponShape
@@ -180,6 +185,7 @@ export interface NpcMarkerData {
   factionId: string
   npcFactions: string[]
   allyFactions: string[]
+  drops: MapNpcDropItem[]
   mainWeapon?: WeaponType
   mainWeaponMarker?: WeaponMarker
   secondaryWeapon?: WeaponType

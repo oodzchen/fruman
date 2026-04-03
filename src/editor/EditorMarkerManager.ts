@@ -17,10 +17,12 @@ import type {
   MapCharacterBodyProfile,
   MapCheckpoint,
   MapHookAnchor,
+  MapNpcDropItem,
   MapNpcWeapon,
   MapPlayerProperties,
   WeaponCategory,
 } from '../editorMapTypes'
+import { buildDefaultNpcDropList, normalizeNpcDropList } from '../npcDropUtils'
 import type {
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
@@ -671,6 +673,7 @@ export class EditorMarkerManager {
       equipWeapon?: boolean
       mainWeapon?: MapNpcWeapon
       secondaryWeapon?: MapNpcWeapon
+      drops?: MapNpcDropItem[]
       factionId?: string
       npcFactions?: string[]
       enemyFactions?: string[]
@@ -715,6 +718,18 @@ export class EditorMarkerManager {
     const npcFactions = spawn?.npcFactions ??
       spawn?.enemyFactions ?? [Faction.Player]
     const allyFactions = spawn?.allyFactions ?? []
+    const mainWeaponType = normalizeWeaponTypeAndSizeLevel(
+      spawn?.mainWeapon?.weaponType,
+      spawn?.mainWeapon?.sizeLevel
+    )?.weaponType
+    const secondaryWeaponType = normalizeWeaponTypeAndSizeLevel(
+      spawn?.secondaryWeapon?.weaponType,
+      spawn?.secondaryWeapon?.sizeLevel
+    )?.weaponType
+    const drops =
+      spawn && 'drops' in spawn
+        ? normalizeNpcDropList(spawn.drops)
+        : buildDefaultNpcDropList(mainWeaponType, secondaryWeaponType)
     let centerX: number
     let centerY: number
     if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
@@ -759,6 +774,7 @@ export class EditorMarkerManager {
     marker.factionId = factionId
     marker.npcFactions = npcFactions
     marker.allyFactions = allyFactions
+    marker.drops = drops
     marker.left = centerX
     marker.top = centerY
     marker.setCoords()
@@ -791,14 +807,9 @@ export class EditorMarkerManager {
       factionId,
       npcFactions,
       allyFactions,
-      mainWeapon: normalizeWeaponTypeAndSizeLevel(
-        spawn?.mainWeapon?.weaponType,
-        spawn?.mainWeapon?.sizeLevel
-      )?.weaponType,
-      secondaryWeapon: normalizeWeaponTypeAndSizeLevel(
-        spawn?.secondaryWeapon?.weaponType,
-        spawn?.secondaryWeapon?.sizeLevel
-      )?.weaponType,
+      drops,
+      mainWeapon: mainWeaponType,
+      secondaryWeapon: secondaryWeaponType,
     }
     this.npcMarkers.push(npcData)
     this.npcMarkerMap.set(marker, npcData)

@@ -7,6 +7,7 @@ import type {
   MapNpc,
   MapNpcTemplate,
 } from './editorMapTypes'
+import { normalizeNpcDropList } from './npcDropUtils'
 import {
   getDefaultShapeRenderLayer,
   getDefaultTerrainRenderLayer,
@@ -504,6 +505,8 @@ function normalizeMapNpc(npc: MapNpc): MapNpc {
     ...npc,
     npcType: npc.npcType ?? npc.enemyType ?? ('default' as NpcType),
     npcFactions: npc.npcFactions ?? npc.enemyFactions,
+    drops:
+      npc.drops === undefined ? undefined : normalizeNpcDropList(npc.drops),
   }
 }
 
@@ -512,6 +515,10 @@ function normalizeMapNpcTemplate(template: MapNpcTemplate): MapNpcTemplate {
     ...template,
     npcType: template.npcType ?? template.enemyType ?? ('default' as NpcType),
     npcFactions: template.npcFactions ?? template.enemyFactions,
+    drops:
+      template.drops === undefined
+        ? undefined
+        : normalizeNpcDropList(template.drops),
   }
 }
 
@@ -645,6 +652,7 @@ function normalizeSaveData(saveData: SaveData): SaveData {
     ...saveData,
     mapData: normalizeEditorMapData(saveData.mapData),
     npcs: (saveData.npcs ?? saveData.enemies ?? []).map(normalizeSaveNpcState),
+    groundSunPickups: saveData.groundSunPickups ?? [],
   }
 }
 
@@ -747,6 +755,7 @@ export async function createSave(
       },
       npcs: [],
       groundWeapons: [],
+      groundSunPickups: [],
       camera: {
         x: mapData.camera.x,
         y: mapData.camera.y,
