@@ -433,6 +433,7 @@ export class EditorManager {
       editorCanvas: this.editorCanvas,
       markerManager: this.markerManager,
       shapeManager: this.shapeManager,
+      terrainManager: this.terrainManager,
       cameraManager: this.cameraManager,
       patternManager: this.patternManager,
       objectManager: this.objectManager,
@@ -2278,7 +2279,7 @@ export class EditorManager {
   ) {
     if (this.terrainManager.isTerrainProxy(target)) {
       this.showPolygonMenuWithActions(
-        ['rename', 'delete'],
+        ['copy', 'paste', 'rename', 'delete'],
         target,
         -1,
         clientX,

@@ -37,6 +37,13 @@ interface EditorTerrainLayer {
   proxy: TerrainRegionProxy | null
 }
 
+export interface TerrainClipboardLayerSnapshot {
+  materialId: TerrainMaterialId
+  offsetCellX: number
+  offsetCellY: number
+  chunks: MapTerrainLayer['chunks']
+}
+
 interface EditorTerrainLayerManagerContext {
   getFabricCanvas: () => fabric.Canvas | null
   requestRender: () => void
@@ -176,6 +183,57 @@ export class EditorTerrainLayerManager {
       this.applyProxyInteraction(proxy, enabled)
     }
     this.ctx.requestRender()
+  }
+
+  createClipboardSnapshot(
+    object: fabric.Object | null
+  ): TerrainClipboardLayerSnapshot | null {
+    if (!this.isTerrainProxy(object)) {
+      return null
+    }
+    const layer = this.proxyToLayer.get(object)
+    if (!layer) {
+      return null
+    }
+    return {
+      materialId: layer.materialId,
+      offsetCellX: layer.offsetCellX,
+      offsetCellY: layer.offsetCellY,
+      chunks: layer.grid.serializeChunks(),
+    }
+  }
+
+  pasteClipboardSnapshot(
+    snapshot: TerrainClipboardLayerSnapshot,
+    sourceLeft: number,
+    sourceTop: number,
+    targetLeft: number,
+    targetTop: number
+  ): TerrainRegionProxy | null {
+    if (snapshot.chunks.length === 0) {
+      return null
+    }
+    const cellSizePx = this.getCellSizePx()
+    const cellDeltaX = this.computeRoundedCellDelta(
+      Math.round(targetLeft) - Math.round(sourceLeft),
+      cellSizePx
+    )
+    const cellDeltaY = this.computeRoundedCellDelta(
+      Math.round(targetTop) - Math.round(sourceTop),
+      cellSizePx
+    )
+    const layer = this.createEmptyLayer(
+      snapshot.materialId,
+      snapshot.offsetCellX + cellDeltaX,
+      snapshot.offsetCellY + cellDeltaY
+    )
+    layer.grid.loadSerializedChunks(snapshot.chunks)
+    if (!layer.grid.hasCells()) {
+      this.removeLayer(layer)
+      return null
+    }
+    this.refreshLayerProxy(layer)
+    return layer.proxy
   }
 
   serialize(

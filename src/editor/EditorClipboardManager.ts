@@ -3,6 +3,10 @@ import { fabric } from 'fabric'
 import type { MapNpcWeapon, MapPlayerProperties } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
 import type {
+  MapTerrainChunk,
+  TerrainMaterialId,
+} from '../terrain/TerrainTypes'
+import type {
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
   NpcPatrolMode,
@@ -31,6 +35,10 @@ import type {
   EditorPolygonEditor,
 } from './EditorPolygonEditor'
 import type { EditorShapeManager } from './EditorShapeManager'
+import type {
+  EditorTerrainLayerManager,
+  TerrainClipboardLayerSnapshot,
+} from './EditorTerrainLayerManager'
 import { ObjectType } from './types'
 import type {
   CameraFrame,
@@ -45,6 +53,7 @@ import type {
 type ClipboardKind =
   | 'none'
   | 'shape'
+  | 'terrain'
   | 'npc'
   | 'player'
   | 'weapon'
@@ -58,6 +67,7 @@ interface EditorClipboardManagerContext {
   editorCanvas: HTMLCanvasElement
   markerManager: EditorMarkerManager
   shapeManager: EditorShapeManager
+  terrainManager: EditorTerrainLayerManager
   cameraManager: EditorCameraManager
   patternManager: EditorPatternManager
   objectManager: EditorObjectManager
@@ -114,6 +124,10 @@ export class EditorClipboardManager {
     kind: 'triangle',
     points: this.resetPointPairs,
   }
+  private terrainMaterialId: TerrainMaterialId = 'dirt'
+  private terrainOffsetCellX = 0
+  private terrainOffsetCellY = 0
+  private terrainChunks: MapTerrainChunk[] = []
 
   private npcType: NpcType = 'default'
   private npcRadius = 0
@@ -261,10 +275,6 @@ export class EditorClipboardManager {
     if (this.ctx.markerManager.isPlayerMarker(target)) {
       return false
     }
-    const data = this.ctx.objectManager.getEditorObjectMap().get(target)
-    if (data?.type === ObjectType.Terrain) {
-      return false
-    }
     return true
   }
 
@@ -332,6 +342,9 @@ export class EditorClipboardManager {
     if (this.ctx.markerManager.isHookAnchorMarker(target)) {
       return this.copyHookAnchorMarker(target)
     }
+    if (this.ctx.terrainManager.isTerrainProxy(target)) {
+      return this.copyTerrain(target)
+    }
     return this.copyShape(target)
   }
 
@@ -362,6 +375,9 @@ export class EditorClipboardManager {
     switch (this.kind) {
       case 'shape':
         result = this.pasteShape(appliedOffset)
+        break
+      case 'terrain':
+        result = this.pasteTerrain(appliedOffset)
         break
       case 'npc':
         result = this.pasteNpc(appliedOffset)
@@ -443,6 +459,18 @@ export class EditorClipboardManager {
       }
     }
     this.copyShapeResetData(target)
+    return true
+  }
+
+  private copyTerrain(target: fabric.Object): boolean {
+    const snapshot = this.ctx.terrainManager.createClipboardSnapshot(target)
+    if (!snapshot) {
+      return false
+    }
+    this.kind = 'terrain'
+    this.sourceLeft = target.left ?? 0
+    this.sourceTop = target.top ?? 0
+    this.assignTerrainClipboardSnapshot(snapshot)
     return true
   }
 
@@ -634,6 +662,80 @@ export class EditorClipboardManager {
     this.ctx.handleCanvasSelection(shapeObject)
     canvas.requestRenderAll()
     return shapeObject
+  }
+
+  private pasteTerrain(offset: number): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas || this.terrainChunks.length === 0) {
+      return null
+    }
+    const targetLeft = this.pasteBaseLeft + offset
+    const targetTop = this.pasteBaseTop + offset
+    const snapshot = this.buildTerrainClipboardSnapshot()
+    const proxy = this.ctx.terrainManager.pasteClipboardSnapshot(
+      snapshot,
+      this.sourceLeft,
+      this.sourceTop,
+      targetLeft,
+      targetTop
+    )
+    if (!proxy) {
+      return null
+    }
+    canvas.setActiveObject(proxy)
+    this.ctx.handleCanvasSelection(proxy)
+    canvas.requestRenderAll()
+    return proxy
+  }
+
+  private assignTerrainClipboardSnapshot(
+    snapshot: TerrainClipboardLayerSnapshot
+  ): void {
+    this.terrainMaterialId = snapshot.materialId
+    this.terrainOffsetCellX = snapshot.offsetCellX
+    this.terrainOffsetCellY = snapshot.offsetCellY
+    this.terrainChunks.length = snapshot.chunks.length
+    for (let i = 0; i < snapshot.chunks.length; i++) {
+      const chunk = snapshot.chunks[i]
+      const existing = this.terrainChunks[i]
+      const cells = new Array<number>(chunk.cells.length)
+      for (let cellIndex = 0; cellIndex < chunk.cells.length; cellIndex++) {
+        cells[cellIndex] = chunk.cells[cellIndex] | 0
+      }
+      if (existing) {
+        existing.chunkX = chunk.chunkX
+        existing.chunkY = chunk.chunkY
+        existing.cells = cells
+      } else {
+        this.terrainChunks[i] = {
+          chunkX: chunk.chunkX,
+          chunkY: chunk.chunkY,
+          cells,
+        }
+      }
+    }
+  }
+
+  private buildTerrainClipboardSnapshot(): TerrainClipboardLayerSnapshot {
+    const chunks = new Array<MapTerrainChunk>(this.terrainChunks.length)
+    for (let i = 0; i < this.terrainChunks.length; i++) {
+      const chunk = this.terrainChunks[i]
+      const cells = new Array<number>(chunk.cells.length)
+      for (let cellIndex = 0; cellIndex < chunk.cells.length; cellIndex++) {
+        cells[cellIndex] = chunk.cells[cellIndex] | 0
+      }
+      chunks[i] = {
+        chunkX: chunk.chunkX,
+        chunkY: chunk.chunkY,
+        cells,
+      }
+    }
+    return {
+      materialId: this.terrainMaterialId,
+      offsetCellX: this.terrainOffsetCellX,
+      offsetCellY: this.terrainOffsetCellY,
+      chunks,
+    }
   }
 
   private copyNpcMarker(target: NpcMarker): boolean {
