@@ -2164,11 +2164,34 @@ export class ClientRenderer {
       ctx.stroke()
 
       ctx.setLineDash(this.emptyDash)
-      ctx.strokeStyle = '#ffffff'
       const facing = sensor.facing >= 0 ? 1 : -1
+      const eyeX = sensor.eyeX * pixelsPerMeter
+      const eyeY = sensor.eyeY * pixelsPerMeter
+      const halfFov = sensor.fov * 0.5
+      const baseAngle = facing >= 0 ? 0 : Math.PI
+      const fovAngle1 = baseAngle - halfFov
+      const fovAngle2 = baseAngle + halfFov
+
+      ctx.strokeStyle = '#22cc88'
       ctx.beginPath()
-      ctx.moveTo(centerX, centerY)
-      ctx.lineTo(centerX + facing * radius, centerY)
+      ctx.moveTo(eyeX, eyeY)
+      ctx.lineTo(
+        eyeX + Math.cos(fovAngle1) * radius,
+        eyeY + Math.sin(fovAngle1) * radius
+      )
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(eyeX, eyeY)
+      ctx.lineTo(
+        eyeX + Math.cos(fovAngle2) * radius,
+        eyeY + Math.sin(fovAngle2) * radius
+      )
+      ctx.stroke()
+
+      ctx.strokeStyle = '#ffffff'
+      ctx.beginPath()
+      ctx.moveTo(eyeX, eyeY)
+      ctx.lineTo(eyeX + facing * radius, eyeY)
       ctx.stroke()
 
       const rays = sensor.rays

@@ -124,6 +124,9 @@ export type SensorDebugData = {
   y: number
   radius: number
   facing: number
+  fov: number
+  eyeX: number
+  eyeY: number
   rays: Array<{
     startX: number
     startY: number

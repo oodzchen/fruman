@@ -10,7 +10,8 @@ import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 
-const VERTEX_OFFSETS = [-1, -1, 1, -1, 1, 1, -1, 1]
+// 扇形射线数量，在 FOV 内均匀分布
+const FAN_RAY_COUNT = 9
 
 export class TargetingSystem extends System {
   private box2d: MainModule
@@ -20,6 +21,8 @@ export class TargetingSystem extends System {
   private rayStart: InstanceType<MainModule['b2Vec2']>
   private rayTranslation: InstanceType<MainModule['b2Vec2']>
   private rayFilter: ReturnType<MainModule['b2DefaultQueryFilter']>
+  private hostileBuffer: Entity[] = []
+  private hostileDistSqBuffer: number[] = []
   private entityLookup?: (id: number) => Entity | undefined
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
@@ -34,6 +37,9 @@ export class TargetingSystem extends System {
     this.rayStart = new box2d.b2Vec2(0, 0)
     this.rayTranslation = new box2d.b2Vec2(0, 0)
     this.rayFilter = box2d.b2DefaultQueryFilter()
+    const maxHostiles = 16
+    this.hostileBuffer = new Array<Entity>(maxHostiles)
+    this.hostileDistSqBuffer = new Array<number>(maxHostiles)
   }
 
   setSpatialHash(spatialHash: SpatialHash): void {
@@ -226,8 +232,7 @@ export class TargetingSystem extends System {
     const dy = end.transform.y - startY
     translationVec.Set(dx, dy)
 
-    // Mask: Obstacles and Ground block view. Ignore Players/Enemies for LoS check for locking?
-    // Usually locking requires LoS blocked by environment.
+    filter.categoryBits = 0xffffffff
     filter.maskBits = getEnvironmentCollisionMask(
       start.render?.renderLayer ?? 0
     )
@@ -366,7 +371,6 @@ export class TargetingSystem extends System {
     const scanResults = entity.sensor.scanResults
     let detectedHostileId: number | null = null
     let closestDistSq = Infinity
-    let scanIndex = 0
 
     const { b2World_CastRayClosest } = this.box2d
     const startVec = this.rayStart
@@ -374,86 +378,110 @@ export class TargetingSystem extends System {
     const filter = this.rayFilter
     startVec.Set(startX, startY)
 
-    // 只检测障碍物/地形阻挡，不依赖目标的物理分类
-    // 射线未命中任何障碍物 = 视线畅通；命中障碍物 = 视线被阻断
+    // categoryBits 必须显式设为 0xFFFFFFFF，否则 Box2D 默认值 1 会导致
+    // 地形的 maskBits (不含 ground bit) 与射线 categoryBits 按位与为 0，射线穿透所有地形
+    filter.categoryBits = 0xffffffff
     filter.maskBits = getEnvironmentCollisionMask(
       entity.render?.renderLayer ?? 0
     )
 
+    // 收集 FOV 内的敌对目标及其到眼睛的距离平方
+    const entityLayer = entity.render?.renderLayer ?? 0
+    let hostileCount = 0
     for (let i = 0; i < nearbyCount; i++) {
       const target = nearbyEntities[i]
       if (target.id === entity.id) continue
       if (!target.transform) continue
-      if (
-        (target.render?.renderLayer ?? 0) !== (entity.render?.renderLayer ?? 0)
-      )
-        continue
+      if ((target.render?.renderLayer ?? 0) !== entityLayer) continue
       if (!entity.faction || !target.faction) continue
       if (!entity.faction.canAttackEntity(target.faction, target.id.toString()))
         continue
       if (target.stats?.isDead || target.stats?.isVanished) continue
+      const cdx = target.transform.x - startX
+      const cdy = target.transform.y - startY
+      const cdSq = cdx * cdx + cdy * cdy
+      if (cdSq > radiusSq || cdSq === 0) continue
+      const cdist = Math.sqrt(cdSq)
+      const dot = (cdx * forwardX + cdy * forwardY) / cdist
+      if (dot < halfFovCos) continue
+      this.hostileBuffer[hostileCount] = target
+      this.hostileDistSqBuffer[hostileCount] = cdSq
+      hostileCount++
+      if (hostileCount >= this.hostileBuffer.length) break
+    }
 
-      const centerDx = target.transform.x - startX
-      const centerDy = target.transform.y - startY
-      const centerDistSq = centerDx * centerDx + centerDy * centerDy
-      if (centerDistSq > radiusSq) continue
+    // 扇形射线扫描：在 FOV 内均匀分布射线
+    const baseAngle = forwardX >= 0 ? 0 : Math.PI
+    const halfFov = entity.sensor.fov * 0.5
+    const rayCount = Math.min(FAN_RAY_COUNT, scanResults.length)
+    const angleStep = rayCount > 1 ? entity.sensor.fov / (rayCount - 1) : 0
 
-      const targetRadius = target.render?.radius || 0.5
-      for (let i = 0; i < VERTEX_OFFSETS.length; i += 2) {
-        const vertexX = target.transform.x + VERTEX_OFFSETS[i] * targetRadius
-        const vertexY =
-          target.transform.y + VERTEX_OFFSETS[i + 1] * targetRadius
-        const dx = vertexX - startX
-        const dy = vertexY - startY
-        const distSq = dx * dx + dy * dy
-        if (distSq > radiusSq) continue
-        if (distSq === 0) continue
-        const dist = Math.sqrt(distSq)
-        const dot = (dx * forwardX + dy * forwardY) / dist
-        if (dot < halfFovCos) continue
+    for (let r = 0; r < rayCount; r++) {
+      const rayAngle = baseAngle - halfFov + angleStep * r
+      const dx = Math.cos(rayAngle) * radius
+      const dy = Math.sin(rayAngle) * radius
 
-        translationVec.Set(dx, dy)
-        const output = b2World_CastRayClosest(
-          this.worldId,
-          startVec,
-          translationVec,
-          filter
-        )
+      translationVec.Set(dx, dy)
+      const output = b2World_CastRayClosest(
+        this.worldId,
+        startVec,
+        translationVec,
+        filter
+      )
 
-        // 没有命中障碍物 = 视线畅通 = 能看到目标
-        const hasLineOfSight = !output.hit
-        const isHostile = hasLineOfSight
+      // 射线的最远可达距离（fraction=1 表示全程无阻挡）
+      const rayReachSq = output.hit
+        ? (output.point.x - startX) * (output.point.x - startX) +
+          (output.point.y - startY) * (output.point.y - startY)
+        : radiusSq
 
-        if (hasLineOfSight) {
-          if (centerDistSq < closestDistSq) {
-            closestDistSq = centerDistSq
-            detectedHostileId = target.id
+      // 检查此射线方向上是否能看到某个敌对目标
+      let hitHostileId: number | undefined
+      let isHostile = false
+      for (let h = 0; h < hostileCount; h++) {
+        const target = this.hostileBuffer[h]
+        const targetDistSq = this.hostileDistSqBuffer[h]
+        // 目标比障碍物远则被遮挡
+        if (targetDistSq > rayReachSq) continue
+        const targetRadius = target.render?.radius || 0.5
+        // 判断目标是否在此射线方向附近（角度容差 = atan(targetRadius / distance)）
+        const tdx = target.transform!.x - startX
+        const tdy = target.transform!.y - startY
+        const rayDirX = Math.cos(rayAngle)
+        const rayDirY = Math.sin(rayAngle)
+        const crossAbs = Math.abs(tdx * rayDirY - tdy * rayDirX)
+        if (crossAbs > targetRadius) continue
+        isHostile = true
+        hitHostileId = target.id
+        if (targetDistSq < closestDistSq) {
+          closestDistSq = targetDistSq
+          detectedHostileId = target.id
+        }
+        break
+      }
+
+      if (r < scanResults.length) {
+        const result = scanResults[r]
+        result.start.x = startX
+        result.start.y = startY
+        result.end.x = startX + dx
+        result.end.y = startY + dy
+        result.hit = output.hit
+        result.hitEntityId = hitHostileId
+        result.isHostile = isHostile
+        if (output.hit) {
+          const hitPoint = result.hitPoint
+          if (hitPoint) {
+            hitPoint.x = output.point.x
+            hitPoint.y = output.point.y
           }
         }
-
-        if (scanIndex < scanResults.length) {
-          const result = scanResults[scanIndex]
-          result.start.x = startX
-          result.start.y = startY
-          result.end.x = startX + dx
-          result.end.y = startY + dy
-          result.hit = output.hit
-          result.hitEntityId = hasLineOfSight ? target.id : undefined
-          result.isHostile = isHostile
-          if (output.hit) {
-            const hitPoint = result.hitPoint
-            if (hitPoint) {
-              hitPoint.x = output.point.x
-              hitPoint.y = output.point.y
-            }
-          }
-        }
-        scanIndex++
       }
     }
 
+    // 清除多余的 scanResult 槽位
     const maxResults = scanResults.length
-    for (let i = scanIndex; i < maxResults; i++) {
+    for (let i = rayCount; i < maxResults; i++) {
       const result = scanResults[i]
       result.start.x = startX
       result.start.y = startY
@@ -467,7 +495,6 @@ export class TargetingSystem extends System {
     if (detectedHostileId !== null) {
       entity.sensor.detectedTargetId = detectedHostileId
 
-      // Auto-combat state for player/npcs upon detection
       if (entity.stats && !entity.stats.isInCombat) {
         let shouldEnterCombat = true
         if (entity.npcAI) {
@@ -481,7 +508,6 @@ export class TargetingSystem extends System {
         }
       }
     } else {
-      // 没有检测到敌人时清除detectedTargetId
       entity.sensor.detectedTargetId = null
     }
   }

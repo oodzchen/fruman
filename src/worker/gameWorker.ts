@@ -11,6 +11,8 @@ import {
   PLAYER_BODY_PROFILE_INDEX,
   getCharacterBloodColor,
   getCharacterBodyColor,
+  getCharacterEyeOffsetX,
+  getCharacterEyeOffsetY,
   getNpcBodyProfileIndex,
   isValidCharacterBodyProfile,
 } from '../characterBodyProfile'
@@ -3334,6 +3336,18 @@ function collectSensorDebugData(entities: Entity[]): SensorDebugData[] {
     }
 
     const scanResults = entity.sensor.scanResults
+    const entityRadius = entity.render?.radius || 0.5
+    const eyeOffsetX = getCharacterEyeOffsetX(
+      entity.render?.bodyProfile,
+      entityRadius,
+      facing
+    )
+    const eyeOffsetY = getCharacterEyeOffsetY(
+      entity.render?.bodyProfile,
+      entityRadius,
+      entity.render?.bodyHeight ?? 0
+    )
+
     let sensorDebug = debugSensors[sensorCount]
     if (!sensorDebug) {
       sensorDebug = {
@@ -3342,6 +3356,9 @@ function collectSensorDebugData(entities: Entity[]): SensorDebugData[] {
         y: 0,
         radius: 0,
         facing: 1,
+        fov: 0,
+        eyeX: 0,
+        eyeY: 0,
         rays: [],
       }
       debugSensors[sensorCount] = sensorDebug
@@ -3352,6 +3369,9 @@ function collectSensorDebugData(entities: Entity[]): SensorDebugData[] {
     sensorDebug.y = entity.transform.y
     sensorDebug.radius = entity.sensor.radius
     sensorDebug.facing = facing
+    sensorDebug.fov = entity.sensor.fov
+    sensorDebug.eyeX = entity.transform.x + eyeOffsetX
+    sensorDebug.eyeY = entity.transform.y + eyeOffsetY
 
     const rays = sensorDebug.rays
     for (let i = rays.length; i < scanResults.length; i++) {

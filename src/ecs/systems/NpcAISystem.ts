@@ -329,7 +329,8 @@ export class NpcAISystem extends System {
         )
         ai.forcedChaseLastX = entity.transform.x
         if (!hasCombatLineOfSight) {
-          if (this.isUsingRangedWeapon(entity)) {
+          const isOutOfCombat = entity.stats && !entity.stats.isInCombat
+          if (this.isUsingRangedWeapon(entity) || isOutOfCombat) {
             ai.forcedChaseDistanceRemaining = 0
             ai.forcedChaseLastX = entity.transform.x
           } else {
@@ -425,10 +426,10 @@ export class NpcAISystem extends System {
         ai.targetLostTimer += deltaMs
       }
 
-      // 撤回条件：无视线且已脱战
+      // 撤回条件放宽：即使未正式脱战，视线丢失过久也算满足撤回前置
       const retreatConditionMet =
         !hasCombatLineOfSight &&
-        !entity.stats?.isInCombat &&
+        (ai.targetLostTimer > 2000 || !entity.stats?.isInCombat) &&
         !ai.alertChaseActive
 
       if (retreatConditionMet) {
@@ -441,11 +442,35 @@ export class NpcAISystem extends System {
         ai.retreatEnabled &&
         retreatConditionMet &&
         ai.retreatDelayTimerMs >= ai.retreatDelayMs
-      const shouldGoPatrol = effectiveAttackDesire <= 0 || retreatByTimer
+
+      // 卡死检测辅助：如果正在追击且撞墙且没视线超过1秒，判定为无效追击
+      const isStuckAndBlind = 
+        ai.state === 'approach' && 
+        entity.movement?.isTouchingWall && 
+        !hasCombatLineOfSight && 
+        ai.targetLostTimer > 1000
+
+      // 无战斗接触时（无视线、未进入战斗、无警戒追击、无强制追击余量、或者盲视卡死）恢复巡逻
+      const notEngaged =
+        retreatConditionMet && ai.forcedChaseDistanceRemaining <= 0
+      const shouldGoPatrol =
+        effectiveAttackDesire <= 0 || retreatByTimer || notEngaged || isStuckAndBlind
 
       if (shouldGoPatrol) {
         // 巡逻逻辑
+        const wasInCombat = ai.state === 'approach' || ai.state === 'combo' || ai.state === 'retreat' || ai.state === 'probe'
         this.handlePatrol(entity, ai, now)
+        if (wasInCombat || isStuckAndBlind) {
+          ai.state = 'idle' // 重置为idle状态
+          ai.obstacleJumpStage = 0
+          // 彻底清除输入，防止残余跳跃
+          if (entity.input) {
+            entity.input.jumpRequested = false
+            entity.input.moveDirection = 0
+          }
+          // 短暂禁用跳跃，防止脱战瞬间撞墙乱跳
+          ai.jumpLastTriggerTimestamp = now + 1500 
+        }
         if (entity.weapon) {
           entity.weapon.attackQueued = false
         }
@@ -953,7 +978,8 @@ export class NpcAISystem extends System {
     if (
       entity.movement &&
       entity.movement.isTouchingWall &&
-      ai.obstacleJumpStage === 0
+      ai.obstacleJumpStage === 0 &&
+      now >= (ai.jumpLastTriggerTimestamp || 0)
     ) {
       if (!entity.input) return false
       // console.log('[Obstacle] Stuck at wall, starting jump sequence')
