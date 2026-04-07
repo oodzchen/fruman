@@ -27,6 +27,7 @@ import type { EditorMapData } from './editorMapTypes'
 import { renderBody } from './renderer/BodyRenderer'
 import {
   HUD_AMMO_ALPHA,
+  HUD_ICON_ALPHA,
   HUD_ICON_COLOR,
   HUD_SLOT_MARGIN,
   HUD_SLOT_SIZE,
@@ -1571,14 +1572,21 @@ export class ClientRenderer {
     const isBlocking = !!(flags & FLAGS.WEAPON_BLOCKING)
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const isStandaloneWeapon = buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0
-    const bodyColor = '#b4bdc7'
+    const bodyColor = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
 
-    if (weaponType === WEAPON_TYPES.SPEAR && isStandaloneWeapon) {
-      wWidth *= 0.5
-      wHeight *= 0.5
+    if (isStandaloneWeapon) {
+      const maxSizePx = Math.round(
+        (DEFAULT_PLAYER_RADIUS * 2 * 2 * this.pixelsPerMeter) / 3
+      )
+      const groundScale = maxSizePx / wWidth
+      wWidth = Math.round(wWidth * groundScale)
+      wHeight = Math.round(wHeight * groundScale)
     }
 
     this.ctx.save()
+    if (isStandaloneWeapon) {
+      this.ctx.globalAlpha = HUD_ICON_ALPHA
+    }
     this.ctx.translate(wx * this.pixelsPerMeter, wy * this.pixelsPerMeter)
     this.ctx.rotate(wRot)
 

@@ -1783,15 +1783,15 @@ export class WeaponSystem extends System {
     bodyDef.motionLocks.angularZ = true // 锁定旋转
     physics.bodyId = b2CreateBody(this.worldId, bodyDef)
 
-    // 使用圆形碰撞体，半径基于武器高度
-    const weaponRadius = weaponData.height * 0.5
+    // 使用固定小半径，避免大型武器（锤子/葡萄等）因中心过高而视觉悬浮
+    const weaponRadius = DEFAULT_WEAPON_HEIGHT * 0.4
     const circle = this.dropCircle
     circle.center.Set(0, 0)
     circle.radius = weaponRadius
     const shapeDef = this.dropShapeDef
     shapeDef.density = 0.5
     shapeDef.material.friction = 0.3
-    shapeDef.material.restitution = 0.2 // 轻微弹跳
+    shapeDef.material.restitution = 0
     shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
     shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
@@ -1894,7 +1894,7 @@ export class WeaponSystem extends System {
     // 检查速度是否接近 0（已落地）
     // 增加最小掉落时间保护（0.1秒），防止生成第一帧因速度未更新而直接判定落地（悬空）
     const speed = Math.hypot(entity.physics.velX, entity.physics.velY)
-    if (speed < 0.5 && entity.weapon.dropElapsedTime > 0.1) {
+    if (speed < 0.1 && entity.weapon.dropElapsedTime > 0.1) {
       // 速度很小，认为已经落地
       // 保留物理体最后的位置作为武器的最终位置
       const finalX = bodyX
