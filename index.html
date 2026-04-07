@@ -308,14 +308,72 @@
         background: rgba(0, 0, 0, 0.2);
         border: 1px dashed rgba(255, 255, 255, 0.1);
       }
+      #canvasBottom {
+        width: 800px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 8px;
+        box-sizing: border-box;
+      }
       #info {
         color: #000;
         font-family: inherit;
         font-size: 14px;
         padding: 0;
         border: none;
-        width: 100%;
         box-sizing: border-box;
+        flex-shrink: 0;
+      }
+      #mapPanel {
+        font-family: monospace;
+        font-size: 12px;
+        color: #333;
+        min-width: 220px;
+        box-sizing: border-box;
+      }
+      .map-panel-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+        padding-bottom: 3px;
+        border-bottom: 1px solid #ccc;
+      }
+      .map-panel-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .map-panel-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
+      .map-panel-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        color: #333;
+      }
+      .map-panel-btn {
+        cursor: pointer;
+        border: 1px solid #999;
+        background: none;
+        font-family: monospace;
+        font-size: 11px;
+        padding: 1px 6px;
+        color: #333;
+        flex-shrink: 0;
+      }
+      .map-panel-btn:hover {
+        background: #eee;
+      }
+      .map-panel-status {
+        font-size: 11px;
+        color: #666;
       }
       #controlPanel {
         border: 1px solid #ccc;
@@ -1431,15 +1489,18 @@
             </div>
           </div>
         </div>
-        <div id="info">
-          <div>A/D - 移动</div>
-          <div>Space - 跳跃</div>
-          <div>Shift - 奔跑 (长按)</div>
-          <div>Ctrl - 翻滚</div>
-          <div>LMB - 攻击</div>
-          <div>RMB / K - 防御 (长按)</div>
-          <div>Q / MMB - 锁定/解锁敌人</div>
-          <div>E - 交互/拾取</div>
+        <div id="canvasBottom">
+          <div id="info">
+            <div>A/D - 移动</div>
+            <div>Space - 跳跃</div>
+            <div>Shift - 奔跑 (长按)</div>
+            <div>Ctrl - 翻滚</div>
+            <div>LMB - 攻击</div>
+            <div>RMB / K - 防御 (长按)</div>
+            <div>Q / MMB - 锁定/解锁敌人</div>
+            <div>E - 交互/拾取</div>
+          </div>
+          <div id="mapPanel"></div>
         </div>
       </div>
       <div id="controlPanel">

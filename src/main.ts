@@ -3,6 +3,7 @@ import { EditorManager } from './EditorManager'
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
 import { Language, localizer } from './Localizer'
+import { MapImportExportPanel } from './MapImportExportPanel'
 import { MenuMode } from './MenuManager'
 import {
   DEFAULT_BODY_FRICTION,
@@ -448,6 +449,11 @@ async function initialize() {
   game.setOnFirstFrameRendered(() => {
     game.scheduleStartMenu(800)
   })
+
+  const mapPanelEl = document.getElementById('mapPanel')
+  if (mapPanelEl) {
+    new MapImportExportPanel(mapPanelEl)
+  }
 }
 
 initialize()
