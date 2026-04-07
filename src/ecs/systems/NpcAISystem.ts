@@ -410,6 +410,13 @@ export class NpcAISystem extends System {
         entity.input.lockLostTimer = 0
       }
 
+      // 每帧更新视线丢失计时，不受决策冷却影响，保证精确的时间计量
+      if (hasCombatLineOfSight) {
+        ai.targetLostTimer = 0
+      } else {
+        ai.targetLostTimer += deltaMs
+      }
+
       if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
         continue
       }
@@ -419,17 +426,11 @@ export class NpcAISystem extends System {
 
       ai.hasLineOfSight = !!hasCombatLineOfSight
 
-      // 战斗状态管理由StatsSystem负责，这里只记录是否有视线
-      if (hasCombatLineOfSight) {
-        ai.targetLostTimer = 0
-      } else {
-        ai.targetLostTimer += deltaMs
-      }
-
-      // 撤回条件放宽：即使未正式脱战，视线丢失过久也算满足撤回前置
+      // 战斗中需要持续失去视线更长时间才触发撤退，防止跳跃/绕背瞬间脱战
+      const lostSightThresholdMs = entity.stats?.isInCombat ? 3000 : 1500
       const retreatConditionMet =
         !hasCombatLineOfSight &&
-        (ai.targetLostTimer > 2000 || !entity.stats?.isInCombat) &&
+        ai.targetLostTimer > lostSightThresholdMs &&
         !ai.alertChaseActive
 
       if (retreatConditionMet) {
