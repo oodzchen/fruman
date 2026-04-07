@@ -988,7 +988,8 @@ export class NpcAIComponent extends Component {
     | 'pacing'
     | 'probe'
     | 'alert'
-    | 'leapAttack' = 'approach'
+    | 'leapAttack'
+    | 'idle' = 'approach'
   initialPatrolMode: NpcPatrolMode = 'patrol'
   comboSwingsDone = 0
   comboSwingTarget = 5
@@ -1038,6 +1039,7 @@ export class NpcAIComponent extends Component {
   obstacleJumpDirection: -1 | 1 = 1
   jumpStartTimestamp = 0
   jumpStartPosition = { x: 0, y: 0 }
+  jumpLastTriggerTimestamp = 0
   leapAttackStage = 0 // 0: inactive, 1: airborne
   leapAttackTimestamp = 0
   leapAttackCooldownEndTimestamp = 0

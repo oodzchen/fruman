@@ -444,21 +444,28 @@ export class NpcAISystem extends System {
         ai.retreatDelayTimerMs >= ai.retreatDelayMs
 
       // 卡死检测辅助：如果正在追击且撞墙且没视线超过1秒，判定为无效追击
-      const isStuckAndBlind = 
-        ai.state === 'approach' && 
-        entity.movement?.isTouchingWall && 
-        !hasCombatLineOfSight && 
+      const isStuckAndBlind =
+        ai.state === 'approach' &&
+        entity.movement?.isTouchingWall &&
+        !hasCombatLineOfSight &&
         ai.targetLostTimer > 1000
 
       // 无战斗接触时（无视线、未进入战斗、无警戒追击、无强制追击余量、或者盲视卡死）恢复巡逻
       const notEngaged =
         retreatConditionMet && ai.forcedChaseDistanceRemaining <= 0
       const shouldGoPatrol =
-        effectiveAttackDesire <= 0 || retreatByTimer || notEngaged || isStuckAndBlind
+        effectiveAttackDesire <= 0 ||
+        retreatByTimer ||
+        notEngaged ||
+        isStuckAndBlind
 
       if (shouldGoPatrol) {
         // 巡逻逻辑
-        const wasInCombat = ai.state === 'approach' || ai.state === 'combo' || ai.state === 'retreat' || ai.state === 'probe'
+        const wasInCombat =
+          ai.state === 'approach' ||
+          ai.state === 'combo' ||
+          ai.state === 'retreat' ||
+          ai.state === 'probe'
         this.handlePatrol(entity, ai, now)
         if (wasInCombat || isStuckAndBlind) {
           ai.state = 'idle' // 重置为idle状态
@@ -469,7 +476,7 @@ export class NpcAISystem extends System {
             entity.input.moveDirection = 0
           }
           // 短暂禁用跳跃，防止脱战瞬间撞墙乱跳
-          ai.jumpLastTriggerTimestamp = now + 1500 
+          ai.jumpLastTriggerTimestamp = now + 1500
         }
         if (entity.weapon) {
           entity.weapon.attackQueued = false

@@ -9,6 +9,7 @@ export type NpcAIState =
   | 'probe'
   | 'alert'
   | 'leapAttack'
+  | 'idle'
 
 export interface SaveMeta {
   id: string
