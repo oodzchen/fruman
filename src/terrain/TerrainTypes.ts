@@ -1,7 +1,8 @@
-export const TERRAIN_DATA_VERSION = 3
+export const TERRAIN_DATA_VERSION = 4
 export const TERRAIN_CHUNK_SIZE = 16
 export const TERRAIN_CELL_SIZE_METERS = 0.5
 export const DEFAULT_TERRAIN_RANDOM_SEED = 1
+export const VORONOI_SITE_JITTER_SCALE = 256
 
 export type TerrainMaterialTag = 'ground' | 'obstacle' | 'foliage'
 
@@ -46,6 +47,8 @@ export interface TerrainChunkLike {
   chunkX: number
   chunkY: number
   cells: ArrayLike<number>
+  materialCodes?: ArrayLike<number>
+  siteJitter?: ArrayLike<number>
 }
 
 export interface TerrainLayerLike {
@@ -71,6 +74,8 @@ export interface MapTerrainChunk {
   chunkX: number
   chunkY: number
   cells: number[]
+  materialCodes?: number[]
+  siteJitter?: number[]
 }
 
 export interface MapTerrainLayer extends TerrainLayerLike {
@@ -83,7 +88,7 @@ export interface MapTerrainLayer extends TerrainLayerLike {
 }
 
 export interface MapTerrainData extends TerrainDataLike {
-  version: 1 | 2 | 3
+  version: 1 | 2 | 3 | 4
   chunks: MapTerrainChunk[]
   layers?: MapTerrainLayer[]
   contours?: TerrainContourLike[]

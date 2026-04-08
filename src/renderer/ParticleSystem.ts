@@ -1,3 +1,5 @@
+import type { RenderContext2D } from './RenderContext2D'
+
 const TWO_PI = Math.PI * 2
 
 const PARTICLE_TYPE_SPARK = 0
@@ -97,7 +99,7 @@ export class ParticleSystem {
     }
   }
 
-  render(ctx: CanvasRenderingContext2D, pixelsPerMeter: number): void {
+  render(ctx: RenderContext2D, pixelsPerMeter: number): void {
     if (this.activeCount === 0) return
 
     const savedAlpha = ctx.globalAlpha

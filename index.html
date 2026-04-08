@@ -57,6 +57,14 @@
         height: 600px;
         flex-shrink: 0;
         overflow: hidden;
+        background: #0d0b18;
+      }
+      #gameCanvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
       }
       .ui-layer {
         position: absolute;
@@ -1114,7 +1122,6 @@
     <div id="gameContainer">
       <div id="canvasColumn">
         <div id="gameViewport">
-          <canvas id="gameCanvas" width="800" height="600"></canvas>
           <div id="uiOverlay" class="ui-layer">
             <div id="menuOverlay" class="menu-overlay">
               <div class="menu-dim"></div>

@@ -29,8 +29,14 @@ function hashOffset(
   return (value % max) - span
 }
 
+export interface TerrainPathTarget {
+  moveTo(x: number, y: number): void
+  lineTo(x: number, y: number): void
+  closePath(): void
+}
+
 export function appendTerrainCellPath(
-  ctx: CanvasRenderingContext2D,
+  ctx: TerrainPathTarget,
   cellX: number,
   cellY: number,
   cellSizeUnits: number,

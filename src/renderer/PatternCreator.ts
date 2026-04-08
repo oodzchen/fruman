@@ -1,3 +1,5 @@
+import { Texture } from 'pixi.js'
+
 export class PatternCreator {
   // 保持源 canvas 引用存活，防止 GC 导致 CanvasPattern 失效
   private static bgCanvas: HTMLCanvasElement | null = null
@@ -56,6 +58,27 @@ export class PatternCreator {
       image.onload = onLoad
     }
     return image
+  }
+
+  static createBackgroundTexture(): Texture | null {
+    const canvas = this.drawBackgroundToCanvas()
+    if (!canvas) return null
+    this.bgCanvas = canvas
+    return Texture.from(canvas)
+  }
+
+  static createGroundTexture(): Texture | null {
+    const canvas = this.drawGroundToCanvas()
+    if (!canvas) return null
+    this.groundCanvas = canvas
+    return Texture.from(canvas)
+  }
+
+  static createObstacleTexture(): Texture | null {
+    const canvas = this.drawObstacleToCanvas()
+    if (!canvas) return null
+    this.obstacleCanvas = canvas
+    return Texture.from(canvas)
   }
 
   private static drawBackgroundToCanvas(): HTMLCanvasElement | null {

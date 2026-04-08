@@ -4,6 +4,7 @@ import {
   getWeaponGroundRotationRad,
   isRangedWeaponType,
 } from '../weaponTypeUtils'
+import type { RenderContext2D } from './RenderContext2D'
 import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
 
 export const HUD_SLOT_SIZE = 46
@@ -22,7 +23,7 @@ export const HUD_SIZE_OUTER_GAP = 0
 const HUD_ICON_FONT = '12px monospace'
 
 export function drawHudWeaponSlot(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   x: number,
   y: number,
   size: number,
@@ -225,7 +226,7 @@ export const HUD_ULTIMATE_FILL = 'rgba(0, 0, 0, 0.2)'
 const HUD_ULTIMATE_SPEAR_HALF_ANGLE = (35 * Math.PI) / 180
 
 export function drawHudUltimateSlot(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   cx: number,
   cy: number,
   cooldownRatio: number,
@@ -297,7 +298,7 @@ export function drawHudUltimateSlot(
 }
 
 function drawHudUltimateSwordTip(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   cx: number,
   cy: number,
   radius: number,
@@ -337,7 +338,7 @@ function drawHudUltimateSwordTip(
 }
 
 function drawHudUltimateHammerTip(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   cx: number,
   cy: number,
   radius: number,
@@ -378,7 +379,7 @@ function drawHudUltimateHammerTip(
 }
 
 function drawHudUltimateSpearTips(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   cx: number,
   cy: number,
   radius: number,
@@ -457,7 +458,7 @@ function getHudWeaponIndicatorLevel(
 }
 
 function drawHudWeaponSizeIndicator(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   x: number,
   y: number,
   size: number,
@@ -493,7 +494,7 @@ function drawHudWeaponSizeIndicator(
 }
 
 function drawHudArrowShape(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   lengthPx: number,
   thicknessPx: number,
   isAttacking: boolean,

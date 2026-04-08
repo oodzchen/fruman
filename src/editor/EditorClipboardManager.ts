@@ -981,10 +981,16 @@ export class EditorClipboardManager {
       ) {
         cells[cellIndex] = sourceChunk.cells[cellIndex] | 0
       }
+      const sourceSiteJitter = sourceChunk.siteJitter
+      const siteJitter = sourceSiteJitter
+        ? sourceSiteJitter.map((value) => value | 0)
+        : undefined
       chunks[i] = {
         chunkX: sourceChunk.chunkX,
         chunkY: sourceChunk.chunkY,
         cells,
+        materialCodes: cells.slice(),
+        siteJitter,
       }
     }
     return {
@@ -1658,11 +1664,15 @@ export class EditorClipboardManager {
         existing.chunkX = chunk.chunkX
         existing.chunkY = chunk.chunkY
         existing.cells = cells
+        existing.materialCodes = cells.slice()
+        existing.siteJitter = chunk.siteJitter?.map((value) => value | 0)
       } else {
         this.terrainChunks[i] = {
           chunkX: chunk.chunkX,
           chunkY: chunk.chunkY,
           cells,
+          materialCodes: cells.slice(),
+          siteJitter: chunk.siteJitter?.map((value) => value | 0),
         }
       }
     }
@@ -1680,6 +1690,8 @@ export class EditorClipboardManager {
         chunkX: chunk.chunkX,
         chunkY: chunk.chunkY,
         cells,
+        materialCodes: cells.slice(),
+        siteJitter: chunk.siteJitter?.map((value) => value | 0),
       }
     }
     return {

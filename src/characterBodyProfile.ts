@@ -19,6 +19,24 @@ function getProfilePointBounds(points: number[]): {
   width: number
   height: number
 } | null {
+  const extents = getProfilePointExtents(points)
+  if (!extents) {
+    return null
+  }
+  return {
+    width: extents.width,
+    height: extents.height,
+  }
+}
+
+function getProfilePointExtents(points: number[]): {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+  width: number
+  height: number
+} | null {
   if (points.length < 6) {
     return null
   }
@@ -35,6 +53,10 @@ function getProfilePointBounds(points: number[]): {
     if (y > maxY) maxY = y
   }
   return {
+    minX,
+    maxX,
+    minY,
+    maxY,
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY),
   }
@@ -121,14 +143,56 @@ export function clampCharacterEyeCoord(value: number): number {
   )
 }
 
+function resolveCharacterEyeDrawCoord(
+  profile: MapCharacterBodyProfile | null | undefined,
+  value: number,
+  axis: 'x' | 'y'
+): number {
+  if (!hasProfileAbsoluteSize(profile)) {
+    return clampCharacterEyeCoord(value)
+  }
+  if (value < 0 || value > CHARACTER_BODY_DRAW_SIZE) {
+    return value
+  }
+  const extents = getProfilePointExtents(profile?.points ?? [])
+  if (!extents || extents.minX >= 0 || extents.maxX <= 0) {
+    return value
+  }
+
+  const shiftedValue = value - CHARACTER_BODY_DRAW_HALF
+  const defaultValue =
+    axis === 'x' ? DEFAULT_CHARACTER_EYE_X : DEFAULT_CHARACTER_EYE_Y
+  const currentDistance = Math.abs(value - defaultValue)
+  const shiftedDistance = Math.abs(shiftedValue - defaultValue)
+  const minValue = axis === 'x' ? extents.minX : extents.minY
+  const maxValue = axis === 'x' ? extents.maxX : extents.maxY
+  const currentOverflow =
+    value < minValue
+      ? minValue - value
+      : value > maxValue
+        ? value - maxValue
+        : 0
+  const shiftedOverflow =
+    shiftedValue < minValue
+      ? minValue - shiftedValue
+      : shiftedValue > maxValue
+        ? shiftedValue - maxValue
+        : 0
+  if (
+    shiftedDistance < currentDistance ||
+    shiftedOverflow < currentOverflow ||
+    (axis === 'y' && value >= 0 && shiftedValue < 0)
+  ) {
+    return shiftedValue
+  }
+  return value
+}
+
 export function getCharacterEyeDrawX(
   profile: MapCharacterBodyProfile | null | undefined
 ): number {
   if (typeof profile?.eyeX === 'number' && Number.isFinite(profile.eyeX)) {
-    if (hasProfileAbsoluteSize(profile)) {
-      return profile.eyeX
-    }
-    return clampCharacterEyeCoord(profile.eyeX)
+    return resolveCharacterEyeDrawCoord(profile, profile.eyeX, 'x')
   }
   return DEFAULT_CHARACTER_EYE_X
 }
@@ -137,10 +201,7 @@ export function getCharacterEyeDrawY(
   profile: MapCharacterBodyProfile | null | undefined
 ): number {
   if (typeof profile?.eyeY === 'number' && Number.isFinite(profile.eyeY)) {
-    if (hasProfileAbsoluteSize(profile)) {
-      return profile.eyeY
-    }
-    return clampCharacterEyeCoord(profile.eyeY)
+    return resolveCharacterEyeDrawCoord(profile, profile.eyeY, 'y')
   }
   return DEFAULT_CHARACTER_EYE_Y
 }

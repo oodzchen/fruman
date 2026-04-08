@@ -23,6 +23,7 @@ import {
   type TerrainLayerLike,
   type TerrainMaterialId,
 } from '../terrain/TerrainTypes'
+import { getVoronoiLayerBuild } from '../terrain/VoronoiBuilder'
 import {
   extractFilledCellLoops,
   getContourBounds,
@@ -227,6 +228,48 @@ export class EditorTerrainLayerManager {
 
   getCellSizePx(): number {
     return Math.max(1, Math.round(this.cellSize * this.ctx.pixelsPerMeter))
+  }
+
+  pickStrokeCell(
+    sceneX: number,
+    sceneY: number
+  ): { cellX: number; cellY: number } {
+    const cellSizePx = this.getCellSizePx()
+    const fallbackCellX = Math.floor(sceneX / cellSizePx)
+    const fallbackCellY = Math.floor(sceneY / cellSizePx)
+    if (this.renderData.version < 4) {
+      return { cellX: fallbackCellX, cellY: fallbackCellY }
+    }
+
+    if (this.strokeTargetLayer) {
+      const pickedTargetCell = this.pickVoronoiCellFromLayer(
+        this.strokeTargetLayer,
+        sceneX,
+        sceneY,
+        cellSizePx
+      )
+      if (pickedTargetCell) {
+        return pickedTargetCell
+      }
+    }
+
+    for (let i = this.layers.length - 1; i >= 0; i--) {
+      const layer = this.layers[i]
+      if (layer.internalOnly && layer.contourId <= 0) {
+        continue
+      }
+      const pickedCell = this.pickVoronoiCellFromLayer(
+        layer,
+        sceneX,
+        sceneY,
+        cellSizePx
+      )
+      if (pickedCell) {
+        return pickedCell
+      }
+    }
+
+    return { cellX: fallbackCellX, cellY: fallbackCellY }
   }
 
   requestRender(): void {
@@ -483,7 +526,7 @@ export class EditorTerrainLayerManager {
       }
     }
     return {
-      version: 3,
+      version: TERRAIN_DATA_VERSION,
       cellSize: this.cellSize,
       chunkSize: this.chunkSize,
       randomSeed: this.randomSeed,
@@ -1451,7 +1494,7 @@ export class EditorTerrainLayerManager {
     contourId = 0,
     internalOnly = false
   ): EditorTerrainLayer {
-    const grid = new TerrainChunkGrid(this.chunkSize)
+    const grid = new TerrainChunkGrid(this.chunkSize, this.randomSeed)
     const layer: EditorTerrainLayer = {
       id: this.nextLayerId,
       materialId,
@@ -1545,6 +1588,42 @@ export class EditorTerrainLayerManager {
       }
     }
     return null
+  }
+
+  private pickVoronoiCellFromLayer(
+    layer: EditorTerrainLayer,
+    sceneX: number,
+    sceneY: number,
+    cellSizePx: number
+  ): { cellX: number; cellY: number } | null {
+    const proxy = layer.proxy
+    if (proxy) {
+      const bounds = proxy.getBoundingRect()
+      const minX = Math.floor(bounds.left) - cellSizePx
+      const minY = Math.floor(bounds.top) - cellSizePx
+      const maxX = Math.ceil(bounds.left + bounds.width) + cellSizePx
+      const maxY = Math.ceil(bounds.top + bounds.height) + cellSizePx
+      if (sceneX < minX || sceneY < minY || sceneX > maxX || sceneY > maxY) {
+        return null
+      }
+    }
+
+    const build = getVoronoiLayerBuild(
+      {
+        version: this.renderData.version,
+        cellSize: this.renderData.cellSize,
+        chunkSize: this.renderData.chunkSize,
+        randomSeed: this.renderData.randomSeed,
+        chunks: layer.grid.getChunks(),
+        offsetCellX: layer.offsetCellX,
+        offsetCellY: layer.offsetCellY,
+        materialId: layer.materialId,
+        renderLayer: layer.serializedLayer.renderLayer,
+        sourceLayer: layer.serializedLayer,
+      },
+      cellSizePx
+    )
+    return build.pickCellAt(sceneX, sceneY)
   }
 
   private setWorldCellMaterialCode(
@@ -2043,7 +2122,7 @@ export class EditorTerrainLayerManager {
       return false
     }
     const layer = this.ensureContourFillLayer(contour, contour.fillMaterialId)
-    layer.grid = new TerrainChunkGrid(this.chunkSize)
+    layer.grid = new TerrainChunkGrid(this.chunkSize, this.randomSeed)
     layer.serializedLayer.chunks = layer.grid.getChunks()
     layer.offsetCellX = 0
     layer.offsetCellY = 0

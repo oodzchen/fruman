@@ -145,8 +145,6 @@ const PARAM_CONFIGS: ParamConfig[] = [
   },
 ]
 
-const canvas = document.getElementById('gameCanvas') as HTMLCanvasElement
-const ctx = canvas.getContext('2d')!
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
 const dialogManager = new DialogManager(gameViewport, gameViewport)
@@ -246,7 +244,7 @@ function syncInputs(
 async function initialize() {
   await localizer.init(Language.ZhHans)
 
-  const initManager = new InitializationManager(canvas, ctx)
+  const initManager = new InitializationManager(gameViewport)
   const steps = [
     'init_loading_config',
     'init_renderer',
@@ -269,9 +267,7 @@ async function initialize() {
   const applyControls: Array<() => void> = []
   setupDetailsState(storedValues, updateStoredValue)
 
-  const game = new GameClient(
-    canvas,
-    ctx,
+  const game = await GameClient.create(
     menuOverlay,
     gameViewport,
     (step: string) => {
@@ -286,6 +282,7 @@ async function initialize() {
   game.setInputEnabled(false)
 
   initManager.complete()
+  initManager.remove()
   await new Promise((resolve) => setTimeout(resolve, 200))
 
   // Setup control panel

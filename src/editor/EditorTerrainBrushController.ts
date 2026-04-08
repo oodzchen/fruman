@@ -85,9 +85,12 @@ export class EditorTerrainBrushController {
     }
 
     const pointer = canvas.getScenePoint(mouseEvent)
-    const cellSizePx = this.ctx.terrainManager.getCellSizePx()
-    const cellX = Math.floor(pointer.x / cellSizePx)
-    const cellY = Math.floor(pointer.y / cellSizePx)
+    const pickedCell = this.ctx.terrainManager.pickStrokeCell(
+      pointer.x,
+      pointer.y
+    )
+    const cellX = pickedCell.cellX
+    const cellY = pickedCell.cellY
 
     canvas.discardActiveObject()
     this.isPainting = true
@@ -120,9 +123,12 @@ export class EditorTerrainBrushController {
     }
     const mouseEvent = opt.e as MouseEvent
     const pointer = canvas.getScenePoint(mouseEvent)
-    const cellSizePx = this.ctx.terrainManager.getCellSizePx()
-    const cellX = Math.floor(pointer.x / cellSizePx)
-    const cellY = Math.floor(pointer.y / cellSizePx)
+    const pickedCell = this.ctx.terrainManager.pickStrokeCell(
+      pointer.x,
+      pointer.y
+    )
+    const cellX = pickedCell.cellX
+    const cellY = pickedCell.cellY
     if (cellX === this.lastCellX && cellY === this.lastCellY) {
       return true
     }

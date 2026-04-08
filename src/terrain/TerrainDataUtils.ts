@@ -1,9 +1,11 @@
 import { getTerrainMaterialByCode } from './TerrainMaterialRegistry'
 import type {
+  TerrainChunkLike,
   TerrainDataLike,
   TerrainLayerLike,
   TerrainMaterialId,
 } from './TerrainTypes'
+import { VORONOI_SITE_JITTER_SCALE } from './TerrainTypes'
 
 export interface TerrainResolvedLayerView extends TerrainDataLike {
   offsetCellX: number
@@ -65,7 +67,7 @@ export function inferTerrainMaterialId(
   let bestMaterialId: TerrainMaterialId = 'dirt'
   let bestCount = 0
   for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-    const cells = chunks[chunkIndex].cells
+    const cells = getTerrainChunkMaterialCodes(chunks[chunkIndex])
     for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
       const code = cells[cellIndex] | 0
       if (code <= 0) {
@@ -86,6 +88,71 @@ export function inferTerrainMaterialId(
   return bestMaterialId
 }
 
+export function getTerrainChunkMaterialCodes(
+  chunk: Pick<TerrainChunkLike, 'cells' | 'materialCodes'>
+): ArrayLike<number> {
+  return chunk.materialCodes ?? chunk.cells
+}
+
+export function getTerrainChunkSiteJitter(
+  chunk: Pick<TerrainChunkLike, 'chunkX' | 'chunkY' | 'siteJitter'>,
+  chunkSize: number,
+  randomSeed: number
+): ArrayLike<number> {
+  const requiredLength = chunkSize * chunkSize * 2
+  const siteJitter = chunk.siteJitter
+  if (siteJitter && siteJitter.length === requiredLength) {
+    return siteJitter
+  }
+  return createDefaultTerrainChunkSiteJitter(
+    chunk.chunkX,
+    chunk.chunkY,
+    chunkSize,
+    randomSeed
+  )
+}
+
+export function createDefaultTerrainChunkSiteJitter(
+  chunkX: number,
+  chunkY: number,
+  chunkSize: number,
+  randomSeed: number
+): Int16Array {
+  const cellCount = chunkSize * chunkSize
+  const jitter = new Int16Array(cellCount * 2)
+  let writeIndex = 0
+  for (let localY = 0; localY < chunkSize; localY++) {
+    for (let localX = 0; localX < chunkSize; localX++) {
+      const cellX = chunkX * chunkSize + localX
+      const cellY = chunkY * chunkSize + localY
+      jitter[writeIndex] = getVoronoiSiteJitterValue(
+        randomSeed,
+        cellX,
+        cellY,
+        0
+      )
+      jitter[writeIndex + 1] = getVoronoiSiteJitterValue(
+        randomSeed,
+        cellX,
+        cellY,
+        1
+      )
+      writeIndex += 2
+    }
+  }
+  return jitter
+}
+
+export function getVoronoiSiteJitterValue(
+  randomSeed: number,
+  cellX: number,
+  cellY: number,
+  axis: 0 | 1
+): number {
+  const span = VORONOI_SITE_JITTER_SCALE >> 2
+  return hashOffset(randomSeed, cellX, cellY, axis + 11, span)
+}
+
 function createLayerView(
   terrain: TerrainDataLike,
   layer: TerrainLayerLike
@@ -102,4 +169,35 @@ function createLayerView(
     renderLayer: layer.renderLayer,
     sourceLayer: layer,
   }
+}
+
+function mixHash(value: number): number {
+  let v = value | 0
+  v = Math.imul(v ^ (v >>> 16), 0x45d9f3b)
+  v = Math.imul(v ^ (v >>> 16), 0x45d9f3b)
+  return (v ^ (v >>> 16)) >>> 0
+}
+
+function hash3(seed: number, a: number, b: number, c: number): number {
+  const mixed =
+    mixHash(seed) ^
+    Math.imul(mixHash(a), 0x9e3779b1) ^
+    Math.imul(mixHash(b), 0x85ebca6b) ^
+    Math.imul(mixHash(c), 0xc2b2ae35)
+  return mixHash(mixed)
+}
+
+function hashOffset(
+  seed: number,
+  a: number,
+  b: number,
+  c: number,
+  span: number
+): number {
+  if (span <= 0) {
+    return 0
+  }
+  const value = hash3(seed, a, b, c)
+  const max = span * 2 + 1
+  return (value % max) - span
 }

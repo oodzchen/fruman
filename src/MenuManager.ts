@@ -38,7 +38,7 @@ interface MenuItem {
 }
 
 export class MenuManager {
-  private canvas: HTMLCanvasElement
+  private canvas: HTMLElement
   private menuOverlay: HTMLDivElement
   private uiLayer: HTMLDivElement
   private menuTitle: HTMLDivElement
@@ -68,7 +68,7 @@ export class MenuManager {
   private lastSelectedSaveIndex = -1
 
   constructor(
-    canvas: HTMLCanvasElement,
+    canvas: HTMLElement,
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement
   ) {
@@ -127,7 +127,7 @@ export class MenuManager {
   }
 
   private initMenuItems() {
-    const startY = this.canvas.height / 2 + 40
+    const startY = (this.canvas.offsetHeight || 600) / 2 + 40
     const spacing = 35
     this.menuItems = []
 
@@ -801,7 +801,7 @@ export class MenuManager {
   render(deltaTime: number) {
     if (!this.visible) return
 
-    const height = this.canvas.height
+    const height = this.canvas.offsetHeight || 600
 
     this.animTime += deltaTime * 1000
     const duration = 300

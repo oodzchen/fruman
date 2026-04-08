@@ -1,11 +1,14 @@
+import { createDefaultTerrainChunkSiteJitter } from './TerrainDataUtils'
 import type {
   MapTerrainChunk,
   TerrainChunkLike,
   TerrainDataLike,
 } from './TerrainTypes'
+import { DEFAULT_TERRAIN_RANDOM_SEED } from './TerrainTypes'
 
 export interface TerrainGridChunk extends TerrainChunkLike {
   cells: Uint8Array
+  siteJitter: Int16Array
   filledCellCount: number
 }
 
@@ -13,9 +16,14 @@ export class TerrainChunkGrid {
   private readonly chunks = new Map<string, TerrainGridChunk>()
   private readonly chunkList: TerrainGridChunk[] = []
   private chunkSize: number
+  private randomSeed: number
 
-  constructor(chunkSize: number) {
+  constructor(
+    chunkSize: number,
+    randomSeed: number = DEFAULT_TERRAIN_RANDOM_SEED
+  ) {
     this.chunkSize = Math.max(1, chunkSize | 0)
+    this.randomSeed = randomSeed | 0
   }
 
   clear(): void {
@@ -29,6 +37,11 @@ export class TerrainChunkGrid {
 
   setChunkSize(chunkSize: number): void {
     this.chunkSize = Math.max(1, chunkSize | 0)
+    this.clear()
+  }
+
+  setRandomSeed(randomSeed: number): void {
+    this.randomSeed = randomSeed | 0
     this.clear()
   }
 
@@ -91,14 +104,31 @@ export class TerrainChunkGrid {
         chunkX: source.chunkX | 0,
         chunkY: source.chunkY | 0,
         cells: new Uint8Array(cellCount),
+        siteJitter: createDefaultTerrainChunkSiteJitter(
+          source.chunkX | 0,
+          source.chunkY | 0,
+          this.chunkSize,
+          this.randomSeed
+        ),
         filledCellCount: 0,
       }
-      const sourceLength = Math.min(source.cells.length, cellCount)
+      const sourceCells = source.materialCodes ?? source.cells
+      const sourceLength = Math.min(sourceCells.length, cellCount)
       for (let cellIndex = 0; cellIndex < sourceLength; cellIndex++) {
-        const code = source.cells[cellIndex] | 0
+        const code = sourceCells[cellIndex] | 0
         chunk.cells[cellIndex] = code
         if (code > 0) {
           chunk.filledCellCount += 1
+        }
+      }
+      const sourceJitter = source.siteJitter
+      if (sourceJitter && sourceJitter.length === cellCount * 2) {
+        for (
+          let jitterIndex = 0;
+          jitterIndex < sourceJitter.length;
+          jitterIndex++
+        ) {
+          chunk.siteJitter[jitterIndex] = sourceJitter[jitterIndex] | 0
         }
       }
       if (chunk.filledCellCount > 0) {
@@ -116,6 +146,8 @@ export class TerrainChunkGrid {
         chunkX: chunk.chunkX,
         chunkY: chunk.chunkY,
         cells: Array.from(chunk.cells),
+        materialCodes: Array.from(chunk.cells),
+        siteJitter: Array.from(chunk.siteJitter),
       }
     }
     return chunks
@@ -153,6 +185,12 @@ export class TerrainChunkGrid {
       chunkX,
       chunkY,
       cells: new Uint8Array(this.chunkSize * this.chunkSize),
+      siteJitter: createDefaultTerrainChunkSiteJitter(
+        chunkX,
+        chunkY,
+        this.chunkSize,
+        this.randomSeed
+      ),
       filledCellCount: 0,
     }
     this.chunks.set(this.getChunkKey(chunkX, chunkY), chunk)

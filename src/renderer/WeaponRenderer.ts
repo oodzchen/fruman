@@ -1,3 +1,5 @@
+import type { RenderContext2D } from './RenderContext2D'
+
 export type WeaponRenderType =
   | 'sword'
   | 'spear'
@@ -9,7 +11,7 @@ export type WeaponRenderType =
   | 'hook'
 
 export function renderWeapon(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   weaponType: WeaponRenderType,
   width: number,
   height: number,
@@ -48,7 +50,7 @@ export function renderWeapon(
 }
 
 function renderSword(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   width: number,
   height: number,
   color: string,
@@ -111,7 +113,7 @@ function renderSword(
 }
 
 function renderBow(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   width: number,
   height: number,
   color: string,
@@ -160,7 +162,7 @@ function renderBow(
 }
 
 function renderSpear(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   width: number,
   height: number,
   color: string,
@@ -196,7 +198,7 @@ function renderSpear(
 }
 
 function renderArrow(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   lengthPx: number,
   thicknessPx: number,
   color: string,
@@ -225,7 +227,7 @@ function renderArrow(
 }
 
 function renderGrapeShot(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   width: number,
   height: number,
   color: string,
@@ -244,7 +246,7 @@ function renderGrapeShot(
 }
 
 function renderGrape(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   width: number,
   height: number,
   color: string,
@@ -280,7 +282,7 @@ function renderGrape(
 }
 
 function fillGrapeCircle(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   x: number,
   y: number,
   radius: number
@@ -292,7 +294,7 @@ function fillGrapeCircle(
 }
 
 function renderHammer(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   width: number,
   height: number,
   color: string,
@@ -326,7 +328,7 @@ function renderHammer(
 }
 
 function renderHook(
-  ctx: CanvasRenderingContext2D,
+  ctx: RenderContext2D,
   width: number,
   height: number,
   color: string,

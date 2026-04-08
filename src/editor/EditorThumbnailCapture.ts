@@ -1,6 +1,7 @@
 import * as fabric from 'fabric'
 
 import type { GameClient } from '../GameClient'
+import type { EditorMapData } from '../editorMapTypes'
 import type { EditorCameraManager } from './EditorCameraManager'
 import type { EditorMapSerializer } from './EditorMapSerializer'
 import type { CameraFrame, EditorMap } from './types'
@@ -22,19 +23,24 @@ export class EditorThumbnailCapture {
   }
 
   async capture(): Promise<string | null> {
+    const data = this.ctx.mapSerializer.serializeCurrentMapData()
+    return this.captureMap(data)
+  }
+
+  async captureMap(data: EditorMapData): Promise<string | null> {
     if (this.ctx.gameClient()) {
-      return this.captureFromPreview()
+      return this.captureFromPreview(data)
     }
     return this.captureFromEditor()
   }
 
-  private async captureFromPreview(): Promise<string | null> {
+  private async captureFromPreview(
+    data: EditorMapData
+  ): Promise<string | null> {
     const gameClient = this.ctx.gameClient()
     if (!gameClient) {
       return null
     }
-
-    const data = this.ctx.mapSerializer.serializeCurrentMapData()
 
     this.ctx.gameCanvas.style.visibility = 'visible'
 
@@ -42,9 +48,9 @@ export class EditorThumbnailCapture {
     gameClient.applyMapPreview(data)
     gameClient.start()
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await gameClient.waitForPreviewThumbnailReady()
 
-    const snapshotDataUrl = this.ctx.gameCanvas.toDataURL('image/jpeg', 0.8)
+    const snapshotDataUrl = await gameClient.captureCurrentThumbnail()
 
     gameClient.clearMapPreview()
     gameClient.stop()
@@ -53,7 +59,7 @@ export class EditorThumbnailCapture {
     this.ctx.gameCanvas.style.visibility = 'hidden'
 
     if (!snapshotDataUrl) return null
-    return this.resizeThumbnail(snapshotDataUrl, 200, 160)
+    return snapshotDataUrl
   }
 
   private async captureFromEditor(): Promise<string | null> {

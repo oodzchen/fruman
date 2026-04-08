@@ -1,3 +1,14 @@
+import {
+  Application,
+  Container,
+  FillPattern,
+  type Graphics,
+  Matrix,
+  Text,
+  Texture,
+  TilingSprite,
+} from 'pixi.js'
+
 import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
 import { DialogManager } from './DialogManager'
@@ -7,6 +18,7 @@ import { saveManager } from './SaveManager'
 import type { EditorMapData } from './editorMapTypes'
 import { collectStaticRenderLayers } from './mapObjectLayers'
 import { PatternCreator } from './renderer/PatternCreator'
+import { PixiRenderContext2D } from './renderer/RenderContext2D'
 import { ShapeRenderer } from './renderer/ShapeRenderer'
 import type { SaveData } from './saveTypes'
 import { getDefaultMap } from './storage'
@@ -23,9 +35,25 @@ import type {
 
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
+  private static readonly PREVIEW_CAPTURE_MIN_RENDER_FRAMES = 6
+  private static readonly PREVIEW_CAPTURE_STABLE_FRAMES = 3
+  private static readonly PREVIEW_CAPTURE_MAX_RENDER_FRAMES = 24
   private worker: Worker
-  private canvas: HTMLCanvasElement
-  private ctx: CanvasRenderingContext2D
+  private app: Application
+  private appCanvas: HTMLCanvasElement
+
+  // PixiJS scene elements
+  private backgroundSprite: TilingSprite | null = null
+  private fpsTextEl: Text | null = null
+  private worldContainer: Container
+  private hudContainer: Container
+  private worldRenderContext: PixiRenderContext2D
+  private hudRenderContext: PixiRenderContext2D
+  private staticTerrainGraphics: Graphics[] = []
+  private staticShapeGraphics: Graphics[] = []
+  private readonly reusableDOMMatrix = new DOMMatrix()
+  private readonly reusablePixiMatrix = new Matrix()
+
   private renderer: ClientRenderer
   private audioManager: AudioManager
   private menuManager: MenuManager
@@ -35,10 +63,11 @@ export class GameClient {
   private camera = { x: 0, y: 0 }
   private renderFps = 0
   private fpsText = '0 FPS'
-  private lastTime = 0
   private lastDeltaTime = 0
   private frameCount = 0
   private fpsUpdateTime = 0
+  private renderFrameRevision = 0
+  private workerStateRevision = 0
 
   private hasReceivedFirstState = false
   private isFirstFrameRendered = false
@@ -62,6 +91,12 @@ export class GameClient {
   private previewExitBtn: HTMLButtonElement | null = null
   private previewPauseBtn: HTMLButtonElement | null = null
   private previewActive = false
+  private previewAwaitStateRevision = 0
+  private previewFirstRenderRevision = 0
+  private previewCameraStableFrames = 0
+  private previewTrackedCameraX = 0
+  private previewTrackedCameraY = 0
+  private previewTrackedZoom = 1000
   private onExitPreviewCallback?: () => void
   private cameraDebug: CameraDebugData & { enabled: boolean } = {
     topLimitRatio: 0.5,
@@ -86,7 +121,6 @@ export class GameClient {
   }
 
   // Cached bound functions
-  private boundRenderLoop: (timestamp?: number) => void
   private boundHandleWorkerMessage: (
     e: MessageEvent<WorkerToMainMessage>
   ) => void
@@ -94,14 +128,10 @@ export class GameClient {
   private boundHandleAutoFocusIn: (event: FocusEvent) => void
   private focusOptions: FocusOptions = { preventScroll: true }
 
-  // Static Environment (Mirrored from constants/logic)
-  private groundPattern: CanvasPattern | null = null
-  private obstaclePattern: CanvasPattern | null = null
-  private backgroundPattern: CanvasPattern | null = null
+  // Canvas2D patterns for world canvas
+  private groundPattern: FillPattern | null = null
+  private obstaclePattern: FillPattern | null = null
 
-  private groundHeight = 0.5
-  private groundY = 0
-  private groundTopY = 0
   private editorPreview = false
   private currentMapData: EditorMapData | null = null
   private staticRenderLayers: number[] = []
@@ -123,18 +153,101 @@ export class GameClient {
   private lastStartMenuCameraX = 0
   private lastStartMenuCameraY = 0
 
-  constructor(
-    canvas: HTMLCanvasElement,
-    ctx: CanvasRenderingContext2D,
+  static async create(
+    menuOverlay: HTMLDivElement,
+    inputTarget: HTMLElement,
+    onInitProgress?: (step: string) => void
+  ): Promise<GameClient> {
+    onInitProgress?.('init_renderer')
+    const app = new Application()
+    await app.init({
+      resizeTo: inputTarget,
+      antialias: true,
+      autoDensity: true,
+      resolution: 1,
+      preserveDrawingBuffer: false,
+    })
+    const appCanvas = app.canvas as HTMLCanvasElement
+    appCanvas.id = 'gameCanvas'
+    appCanvas.classList.add('game-canvas')
+    inputTarget.prepend(appCanvas)
+    return new GameClient(app, menuOverlay, inputTarget, onInitProgress)
+  }
+
+  private constructor(
+    app: Application,
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement,
     onInitProgress?: (step: string) => void
   ) {
-    this.canvas = canvas
-    this.ctx = ctx
-    this.renderer = new ClientRenderer(ctx, this.pixelsPerMeter)
+    this.app = app
+    this.appCanvas = app.canvas as HTMLCanvasElement
+
+    const width = app.renderer.width
+    const height = app.renderer.height
+
+    // PixiJS scene hierarchy
+    onInitProgress?.('init_textures')
+    const bgTexture = PatternCreator.createBackgroundTexture()
+    this.backgroundSprite = new TilingSprite({
+      texture: bgTexture ?? Texture.WHITE,
+      width,
+      height,
+    })
+    if (!bgTexture) {
+      this.backgroundSprite.tint = 0x0d0b18
+    }
+    app.stage.addChild(this.backgroundSprite)
+
+    this.worldContainer = new Container()
+    this.worldContainer.sortableChildren = true
+    app.stage.addChild(this.worldContainer)
+
+    this.hudContainer = new Container()
+    this.hudContainer.sortableChildren = true
+    app.stage.addChild(this.hudContainer)
+    this.worldRenderContext = new PixiRenderContext2D(
+      this.worldContainer,
+      width,
+      height
+    )
+    this.hudRenderContext = new PixiRenderContext2D(
+      this.hudContainer,
+      width,
+      height
+    )
+
+    // FPS text
+    this.fpsTextEl = new Text({
+      text: '0 FPS',
+      style: {
+        fontFamily: 'monospace',
+        fontSize: 20,
+        fill: '#00ff00',
+        stroke: { color: '#000000', width: 3 },
+      },
+    })
+    this.fpsTextEl.anchor.set(1, 0)
+    this.fpsTextEl.position.set(width - 10, 10)
+    this.hudContainer.addChild(this.fpsTextEl)
+
+    const groundTexture = PatternCreator.createGroundTexture()
+    this.groundPattern = groundTexture
+      ? new FillPattern(groundTexture, 'repeat')
+      : null
+    const obstacleTexture = PatternCreator.createObstacleTexture()
+    this.obstaclePattern = obstacleTexture
+      ? new FillPattern(obstacleTexture, 'repeat')
+      : null
+
+    // Renderer + managers
+    this.renderer = new ClientRenderer(
+      this.worldRenderContext,
+      this.hudRenderContext,
+      this.pixelsPerMeter
+    )
     this.audioManager = new AudioManager()
-    this.menuManager = new MenuManager(canvas, menuOverlay, inputTarget)
+    this.menuManager = new MenuManager(this.appCanvas, menuOverlay, inputTarget)
     const uiLayer = menuOverlay.parentElement as HTMLDivElement
     this.inputTarget = inputTarget
     if (this.inputTarget.tabIndex < 0) {
@@ -171,54 +284,50 @@ export class GameClient {
       })
     }
 
-    onInitProgress?.(localizer.t('init_renderer'))
-
-    // Cache bound functions once
-    this.boundRenderLoop = this.renderLoop.bind(this)
+    // Bind handlers
     this.boundHandleWorkerMessage = this.handleWorkerMessage.bind(this)
     this.boundHandleAutoFocusPointerDown =
       this.handleAutoFocusPointerDown.bind(this)
     this.boundHandleAutoFocusIn = this.handleAutoFocusIn.bind(this)
 
-    // Initialize Patterns
-    onInitProgress?.(localizer.t('init_textures'))
-    this.backgroundPattern = PatternCreator.createBackgroundPattern(this.ctx)
-    this.groundPattern = PatternCreator.createGroundPattern(this.ctx)
-    this.obstaclePattern = PatternCreator.createObstaclePattern(this.ctx)
-
-    this.renderFps = 0
-    this.fpsText = `${this.renderFps} FPS`
-
-    const canvasHeightInMeters = this.canvas.height / this.pixelsPerMeter
-    this.groundY = canvasHeightInMeters - this.groundHeight
-    this.groundTopY = this.groundY - this.groundHeight
-
     // Initialize Worker
-    onInitProgress?.(localizer.t('init_game_logic'))
+    onInitProgress?.('init_game_logic')
     this.worker = new GameWorker()
     this.worker.onmessage = this.boundHandleWorkerMessage
 
-    // Send Init
     this.worker.postMessage({
       type: 'init',
-      canvasWidth: canvas.width,
-      canvasHeight: canvas.height,
+      canvasWidth: width,
+      canvasHeight: height,
       pixelsPerMeter: this.pixelsPerMeter,
     } as MainToWorkerMessage)
 
-    onInitProgress?.(localizer.t('init_input'))
+    onInitProgress?.('init_input')
     this.setupInput()
     this.setupAudioResume()
 
-    onInitProgress?.(localizer.t('init_audio'))
+    onInitProgress?.('init_audio')
     this.audioManager.init().catch((error) => {
       console.error('Failed to initialize audio:', error)
     })
 
     this.setupMenuActions()
 
-    // Start Render Loop
-    requestAnimationFrame(this.boundRenderLoop)
+    // Resize: sync Pixi render surfaces
+    app.renderer.on('resize', (newWidth: number, newHeight: number) => {
+      if (this.backgroundSprite) {
+        this.backgroundSprite.width = newWidth
+        this.backgroundSprite.height = newHeight
+      }
+      this.worldRenderContext.resize(newWidth, newHeight)
+      this.hudRenderContext.resize(newWidth, newHeight)
+      if (this.fpsTextEl) {
+        this.fpsTextEl.position.set(newWidth - 10, 10)
+      }
+    })
+
+    // Ticker-based render loop (replaces requestAnimationFrame)
+    app.ticker.add(() => this.renderLoopTick())
   }
 
   setInputEnabled(enabled: boolean) {
@@ -240,10 +349,17 @@ export class GameClient {
   applyMapPreview(map: EditorMapData) {
     this.setEditorPreview(false)
     this.previewActive = true
+    this.previewAwaitStateRevision = this.workerStateRevision + 1
+    this.previewFirstRenderRevision = 0
+    this.previewCameraStableFrames = 0
+    this.previewTrackedCameraX = 0
+    this.previewTrackedCameraY = 0
+    this.previewTrackedZoom = 1000
     this.setPreviewExitVisible(true)
     this.currentMapData = map
     this.staticRenderLayers = collectStaticRenderLayers(map)
     this.renderer.setCharacterBodyMap(map)
+    this.rebuildStaticScene()
 
     if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
       this.targetZoom = map.camera.zoom
@@ -277,7 +393,7 @@ export class GameClient {
   private handleWorkerMessage(e: MessageEvent<WorkerToMainMessage>) {
     const msg = e.data
     if (msg.type === 'state') {
-      // Pass raw buffer to renderer, no decoding here to save Main Thread CPU/GC
+      this.workerStateRevision++
       this.renderer.updateState(
         msg.entitiesBuffer,
         msg.entityCount,
@@ -316,6 +432,7 @@ export class GameClient {
       this.currentMapData = msg.map
       this.staticRenderLayers = collectStaticRenderLayers(msg.map)
       this.renderer.setCharacterBodyMap(msg.map)
+      this.rebuildStaticScene()
       if (
         msg.map.camera &&
         msg.map.camera.zoom > 0 &&
@@ -441,6 +558,7 @@ export class GameClient {
       buffer instanceof SharedArrayBuffer
     )
   }
+
   private setupInput() {
     this.inputTarget.addEventListener(
       'pointerdown',
@@ -491,7 +609,6 @@ export class GameClient {
           return
         }
 
-        // Prevent browser default behavior for game keys (scrolling, tab switching, etc.)
         if (
           [
             'arrowup',
@@ -511,7 +628,6 @@ export class GameClient {
         this.keys.add(key)
         this.sendInput()
 
-        // Local Zoom control (immediate feedback)
         if (e.key.toLowerCase() === 'i') {
           this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
           this.sendInput()
@@ -545,7 +661,7 @@ export class GameClient {
       if (
         e.button === 2 &&
         !this.isEditorOverlayVisible() &&
-        (document.pointerLockElement === this.canvas ||
+        (document.pointerLockElement === this.appCanvas ||
           this.isPointInCanvas(e.clientX, e.clientY))
       ) {
         e.preventDefault()
@@ -591,20 +707,21 @@ export class GameClient {
       if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
-      if (document.pointerLockElement === this.canvas) {
+      const canvasWidth = this.app.renderer.width
+      const canvasHeight = this.app.renderer.height
+      if (document.pointerLockElement === this.appCanvas) {
         this.mouseX += e.movementX
         this.mouseY += e.movementY
         if (this.mouseX < 0) this.mouseX = 0
         if (this.mouseY < 0) this.mouseY = 0
-        if (this.mouseX > this.canvas.width) this.mouseX = this.canvas.width
-        if (this.mouseY > this.canvas.height) this.mouseY = this.canvas.height
+        if (this.mouseX > canvasWidth) this.mouseX = canvasWidth
+        if (this.mouseY > canvasHeight) this.mouseY = canvasHeight
       } else {
-        const rect = this.canvas.getBoundingClientRect()
+        const rect = this.appCanvas.getBoundingClientRect()
         const x = Math.floor(e.clientX - rect.left)
         const y = Math.floor(e.clientY - rect.top)
-        this.mouseX = x < 0 ? 0 : x > this.canvas.width ? this.canvas.width : x
-        this.mouseY =
-          y < 0 ? 0 : y > this.canvas.height ? this.canvas.height : y
+        this.mouseX = x < 0 ? 0 : x > canvasWidth ? canvasWidth : x
+        this.mouseY = y < 0 ? 0 : y > canvasHeight ? canvasHeight : y
       }
       this.mouseCaptured = true
       this.sendInput()
@@ -616,7 +733,7 @@ export class GameClient {
         if (this.isEditorOverlayVisible()) {
           return
         }
-        if (document.pointerLockElement === this.canvas) {
+        if (document.pointerLockElement === this.appCanvas) {
           this.resetInputState()
           e.preventDefault()
           return
@@ -714,7 +831,6 @@ export class GameClient {
   }
 
   private sendInput() {
-    // Reuse arrays to avoid allocation
     this.keysArray.length = 0
     for (const k of this.keys) {
       this.keysArray.push(k)
@@ -746,7 +862,7 @@ export class GameClient {
   }
 
   private isPointInCanvas(clientX: number, clientY: number) {
-    const rect = this.canvas.getBoundingClientRect()
+    const rect = this.appCanvas.getBoundingClientRect()
     const left = Math.floor(rect.left)
     const right = Math.floor(rect.right)
     const top = Math.floor(rect.top)
@@ -756,15 +872,10 @@ export class GameClient {
     )
   }
 
-  private renderLoop(timestamp?: number) {
-    const now = timestamp ?? performance.now()
-    if (this.lastTime === 0) {
-      this.lastTime = now
-    }
-    const deltaTime = (now - this.lastTime) / 1000
-    this.lastTime = now
+  private renderLoopTick() {
+    const deltaMs = Math.min(this.app.ticker.deltaMS, 100)
+    const deltaTime = deltaMs / 1000
     this.lastDeltaTime = deltaTime
-    const deltaMs = Math.max(0, (deltaTime * 1000) | 0)
 
     this.frameCount++
     this.fpsUpdateTime += deltaTime
@@ -775,18 +886,14 @@ export class GameClient {
       this.fpsUpdateTime = 0
     }
 
-    // tab 切走再回来时 deltaTime 会很大，GPU 纹理可能已被驱逐，重建 pattern
-    if (deltaTime > 0.5) {
-      this.backgroundPattern = PatternCreator.createBackgroundPattern(this.ctx)
-      this.groundPattern = PatternCreator.createGroundPattern(this.ctx)
-      this.obstaclePattern = PatternCreator.createObstaclePattern(this.ctx)
-    }
-
     if (!this.editorPreview) {
       this.renderer.update(deltaTime)
     }
-    this.updateStartMenuFlow(deltaMs)
-    this.render(deltaTime)
+    this.updateStartMenuFlow(deltaMs | 0)
+    this.render(deltaMs | 0)
+    this.renderFrameRevision++
+    this.updatePreviewCaptureState()
+
     if (this.pendingCheckpointCapture) {
       this.pendingCheckpointCapture = false
       void this.captureCheckpointAutosave()
@@ -800,84 +907,110 @@ export class GameClient {
       this.isFirstFrameRendered = true
       this.onFirstFrameRendered()
     }
-
-    requestAnimationFrame(this.boundRenderLoop)
   }
 
-  private render(deltaTime: number) {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+  private render(deltaMs: number) {
+    const width = this.app.renderer.width
+    const height = this.app.renderer.height
+    this.worldRenderContext.beginFrame()
+    this.hudRenderContext.beginFrame()
 
-    // Draw Background
-    if (this.backgroundPattern) {
-      this.ctx.save()
-      this.ctx.fillStyle = this.backgroundPattern
-      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
-      this.ctx.restore()
+    if (!this.editorPreview) {
+      const centerX = width / 2
+      const bottomY = height
+      const zoom = this.renderZoom
+      const worldMatrix = this.reusableDOMMatrix
+      worldMatrix.a = 1
+      worldMatrix.b = 0
+      worldMatrix.c = 0
+      worldMatrix.d = 1
+      worldMatrix.e = 0
+      worldMatrix.f = 0
+      worldMatrix.translateSelf(centerX, bottomY)
+      worldMatrix.scaleSelf(zoom, zoom)
+      worldMatrix.translateSelf(-centerX, -bottomY)
+
+      const shakeOffsetX = this.renderer.getCameraShakeOffsetX()
+      const shakeOffsetY = this.renderer.getCameraShakeOffsetY()
+      if (shakeOffsetX !== 0 || shakeOffsetY !== 0) {
+        worldMatrix.translateSelf(shakeOffsetX, shakeOffsetY)
+      }
+
+      worldMatrix.translateSelf(
+        -this.camera.x * this.pixelsPerMeter,
+        -this.camera.y * this.pixelsPerMeter
+      )
+      const pixiMatrix = this.reusablePixiMatrix
+      pixiMatrix.a = worldMatrix.a
+      pixiMatrix.b = worldMatrix.b
+      pixiMatrix.c = worldMatrix.c
+      pixiMatrix.d = worldMatrix.d
+      pixiMatrix.tx = worldMatrix.e
+      pixiMatrix.ty = worldMatrix.f
+      this.worldContainer.setFromMatrix(pixiMatrix)
+
+      this.renderer.render(deltaMs, this.staticRenderLayers, (layer) => {
+        this.worldRenderContext.setRenderZIndex(layer * 10 + 5)
+      })
+
+      if (this.cameraDebug.enabled) {
+        this.renderCameraDebug()
+      }
+
+      // Player UI in screen space
+      this.renderer.renderPlayerUI()
     }
 
-    if (this.editorPreview) {
+    // Update FPS display
+    if (this.fpsTextEl) {
+      this.fpsTextEl.text = this.fpsText
+    }
+
+    // Menu (DOM-based)
+    this.menuManager.render(deltaMs / 1000)
+  }
+
+  private updatePreviewCaptureState(): void {
+    if (!this.previewActive) {
+      return
+    }
+    if (this.workerStateRevision < this.previewAwaitStateRevision) {
       return
     }
 
-    this.ctx.save()
+    const cameraX = Math.round(this.camera.x * this.pixelsPerMeter)
+    const cameraY = Math.round(this.camera.y * this.pixelsPerMeter)
+    const zoom = Math.round(this.renderZoom * 1000)
 
-    const centerX = this.canvas.width / 2
-    const bottomY = this.canvas.height
-    // Use worker-smoothed zoom to keep camera and scale in sync.
-
-    const zoom = this.renderZoom
-
-    this.ctx.translate(centerX, bottomY)
-    this.ctx.scale(zoom, zoom)
-    this.ctx.translate(-centerX, -bottomY)
-
-    const shakeOffsetX = this.renderer.getCameraShakeOffsetX()
-    const shakeOffsetY = this.renderer.getCameraShakeOffsetY()
-    if (shakeOffsetX !== 0 || shakeOffsetY !== 0) {
-      this.ctx.translate(shakeOffsetX, shakeOffsetY)
+    if (this.previewFirstRenderRevision === 0) {
+      this.previewFirstRenderRevision = this.renderFrameRevision
+      this.previewCameraStableFrames = 1
+      this.previewTrackedCameraX = cameraX
+      this.previewTrackedCameraY = cameraY
+      this.previewTrackedZoom = zoom
+      return
     }
 
-    this.ctx.translate(
-      -this.camera.x * this.pixelsPerMeter,
-      -this.camera.y * this.pixelsPerMeter
-    )
-
-    const deltaMs = Math.max(0, (deltaTime * 1000) | 0)
-    this.renderer.render(deltaMs, this.staticRenderLayers, (layer) => {
-      this.drawTerrain(layer)
-      this.drawGround(layer)
-      this.drawObstacles(layer)
-    })
-
-    this.ctx.restore()
-
-    if (this.cameraDebug.enabled) {
-      this.renderCameraDebug()
+    if (
+      this.previewTrackedCameraX === cameraX &&
+      this.previewTrackedCameraY === cameraY &&
+      this.previewTrackedZoom === zoom
+    ) {
+      this.previewCameraStableFrames++
+      return
     }
 
-    // Draw FPS
-    this.ctx.save()
-    this.ctx.font = '20px monospace'
-    this.ctx.fillStyle = '#00ff00'
-    this.ctx.strokeStyle = '#000000'
-    this.ctx.lineWidth = 3
-    this.ctx.textAlign = 'right'
-    const fpsX = this.canvas.width - 10
-    this.ctx.strokeText(this.fpsText, fpsX, 30)
-    this.ctx.fillText(this.fpsText, fpsX, 30)
-    this.ctx.restore()
-
-    // Draw Player UI (Health/Posture)
-    this.renderer.renderPlayerUI()
-
-    // Draw Menu if visible
-    this.menuManager.render(deltaTime)
+    this.previewTrackedCameraX = cameraX
+    this.previewTrackedCameraY = cameraY
+    this.previewTrackedZoom = zoom
+    this.previewCameraStableFrames = 1
   }
 
   private renderCameraDebug(): void {
-    const ctx = this.ctx
-    const canvasWidth = this.canvas.width
-    const canvasHeight = this.canvas.height
+    const ctx = this.hudRenderContext
+    const canvasWidth = this.app.renderer.width
+    const canvasHeight = this.app.renderer.height
+    ctx.setRenderZIndex(100000)
     const topLimitY = this.cameraDebug.topLimitRatio * canvasHeight
     const bottomLimitY = this.cameraDebug.bottomLimitRatio * canvasHeight
 
@@ -897,59 +1030,6 @@ export class GameClient {
     ctx.strokeStyle = '#ffb020'
     ctx.strokeRect(1, 1, canvasWidth - 2, canvasHeight - 2)
     ctx.restore()
-  }
-
-  private drawGround(renderLayer: number) {
-    if (!this.currentMapData) {
-      return
-    }
-
-    ShapeRenderer.drawShapes(
-      this.ctx,
-      this.currentMapData.shapes,
-      'ground',
-      this.pixelsPerMeter,
-      {
-        fillStyle: this.groundPattern ?? '#654321',
-        strokeStyle: '#000',
-        lineWidth: 2,
-        drawStroke: false,
-        renderLayer,
-      }
-    )
-  }
-
-  private drawObstacles(renderLayer: number) {
-    if (!this.currentMapData) {
-      return
-    }
-
-    ShapeRenderer.drawShapes(
-      this.ctx,
-      this.currentMapData.shapes,
-      'obstacle',
-      this.pixelsPerMeter,
-      {
-        fillStyle: this.obstaclePattern ?? '#d2691e',
-        strokeStyle: '#000',
-        lineWidth: 2,
-        drawStroke: true,
-        renderLayer,
-      }
-    )
-  }
-
-  private drawTerrain(renderLayer: number) {
-    const terrain = this.currentMapData?.terrain
-    if (!terrain || !hasTerrainContent(terrain)) {
-      return
-    }
-    TerrainRenderer.drawTerrain(
-      this.ctx,
-      terrain,
-      terrain.cellSize * this.pixelsPerMeter,
-      { drawStroke: true, renderLayer }
-    )
   }
 
   // Public Control API (Proxy to Worker)
@@ -1031,7 +1111,6 @@ export class GameClient {
   }
 
   getPlayer() {
-    // Return a proxy object that mimics the old Player class method signatures
     return {
       setJumpForce: (v: number) => this.updateParam('jumpForce', v),
       setMaxJumpDuration: (v: number) => this.updateParam('maxJumpDuration', v),
@@ -1047,18 +1126,10 @@ export class GameClient {
       setBodyLinearDamping: (v: number) =>
         this.updateParam('bodyLinearDamping', v),
       setBaseWeight: (v: number) => this.updateParam('baseWeight', v),
-      setWeaponWeight: (v: number) => {
-        /* Not implemented in worker sync yet */
-      },
-      applyHit: () => {
-        /* Not easy to trigger arbitrary hit via param sync */
-      },
-      revive: () => {
-        /* Not easy to trigger revive via param sync */
-      },
-      setAlive: (alive: boolean) => {
-        /* Not implemented */
-      },
+      setWeaponWeight: (_v: number) => {},
+      applyHit: () => {},
+      revive: () => {},
+      setAlive: (_alive: boolean) => {},
     }
   }
 
@@ -1372,12 +1443,128 @@ export class GameClient {
     })
   }
 
-  private async captureSaveThumbnail(): Promise<string | null> {
-    const snapshotDataUrl = this.canvas.toDataURL('image/jpeg', 0.8)
-    if (!snapshotDataUrl) {
-      return null
+  private rebuildStaticScene(): void {
+    this.destroyStaticGraphics(this.staticTerrainGraphics)
+    this.staticTerrainGraphics.length = 0
+    this.destroyStaticGraphics(this.staticShapeGraphics)
+    this.staticShapeGraphics.length = 0
+
+    const mapData = this.currentMapData
+    if (!mapData) {
+      return
     }
-    return this.resizeThumbnail(snapshotDataUrl, 200, 160)
+
+    const terrain = mapData.terrain
+    if (terrain && hasTerrainContent(terrain)) {
+      this.staticTerrainGraphics = TerrainRenderer.createPixiTerrainGraphics(
+        terrain,
+        terrain.cellSize * this.pixelsPerMeter,
+        { drawStroke: true }
+      )
+      for (let i = 0; i < this.staticTerrainGraphics.length; i++) {
+        this.worldContainer.addChild(this.staticTerrainGraphics[i])
+      }
+    }
+
+    if (mapData.shapes.length > 0) {
+      const groundGraphics = ShapeRenderer.createPixiShapeGraphics(
+        mapData.shapes,
+        'ground',
+        this.pixelsPerMeter,
+        {
+          fill: this.groundPattern ?? '#654321',
+          drawStroke: false,
+        }
+      )
+      const obstacleGraphics = ShapeRenderer.createPixiShapeGraphics(
+        mapData.shapes,
+        'obstacle',
+        this.pixelsPerMeter,
+        {
+          fill: this.obstaclePattern ?? '#d2691e',
+          strokeColor: '#000',
+          strokeWidth: 2,
+          drawStroke: true,
+        }
+      )
+      for (let i = 0; i < groundGraphics.length; i++) {
+        this.staticShapeGraphics.push(groundGraphics[i])
+        this.worldContainer.addChild(groundGraphics[i])
+      }
+      for (let i = 0; i < obstacleGraphics.length; i++) {
+        this.staticShapeGraphics.push(obstacleGraphics[i])
+        this.worldContainer.addChild(obstacleGraphics[i])
+      }
+    }
+  }
+
+  private destroyStaticGraphics(list: Graphics[]): void {
+    for (let i = 0; i < list.length; i++) {
+      const graphics = list[i]
+      if (graphics.parent) {
+        graphics.parent.removeChild(graphics)
+      }
+      graphics.destroy()
+    }
+  }
+
+  private captureSaveThumbnail(): Promise<string | null> {
+    const w = this.app.renderer.width
+    const h = this.app.renderer.height
+    const thumbCanvas = document.createElement('canvas')
+    thumbCanvas.width = w
+    thumbCanvas.height = h
+    const thumbCtx = thumbCanvas.getContext('2d')
+    if (!thumbCtx) return Promise.resolve(null)
+    thumbCtx.fillStyle = '#0d0b18'
+    thumbCtx.fillRect(0, 0, w, h)
+    thumbCtx.drawImage(this.appCanvas, 0, 0)
+    const dataUrl = thumbCanvas.toDataURL('image/jpeg', 0.8)
+    return this.resizeThumbnail(dataUrl, 200, 160)
+  }
+
+  captureCurrentThumbnail(): Promise<string | null> {
+    return this.captureSaveThumbnail()
+  }
+
+  waitForPreviewThumbnailReady(): Promise<void> {
+    if (!this.previewActive) {
+      return Promise.resolve()
+    }
+
+    const targetStateRevision = this.previewAwaitStateRevision
+    return new Promise((resolve) => {
+      const poll = () => {
+        if (!this.previewActive) {
+          resolve()
+          return
+        }
+        if (this.workerStateRevision < targetStateRevision) {
+          requestAnimationFrame(poll)
+          return
+        }
+        if (this.previewFirstRenderRevision === 0) {
+          requestAnimationFrame(poll)
+          return
+        }
+
+        const settledFrames =
+          this.renderFrameRevision - this.previewFirstRenderRevision
+        if (
+          settledFrames >= GameClient.PREVIEW_CAPTURE_MAX_RENDER_FRAMES ||
+          (settledFrames >= GameClient.PREVIEW_CAPTURE_MIN_RENDER_FRAMES &&
+            this.previewCameraStableFrames >=
+              GameClient.PREVIEW_CAPTURE_STABLE_FRAMES)
+        ) {
+          resolve()
+          return
+        }
+
+        requestAnimationFrame(poll)
+      }
+
+      requestAnimationFrame(poll)
+    })
   }
 
   private resizeThumbnail(

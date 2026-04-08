@@ -1,9 +1,14 @@
+import {
+  CHARACTER_BODY_DRAW_HALF,
+  CHARACTER_BODY_DRAW_SIZE,
+} from './characterBodyProfile'
 import { DEFAULT_CAMERA_ZOOM } from './constants'
 import type {
   EditorMapData,
   EditorMapMeta,
   EditorTreeNode,
   EditorViewportState,
+  MapCharacterBodyProfile,
   MapNpc,
   MapNpcTemplate,
 } from './editorMapTypes'
@@ -13,7 +18,11 @@ import {
   getDefaultTerrainRenderLayer,
 } from './renderLayers'
 import type { SaveData, SaveMeta, SaveNpcState } from './saveTypes'
-import { inferTerrainMaterialId } from './terrain/TerrainDataUtils'
+import {
+  createDefaultTerrainChunkSiteJitter,
+  getTerrainChunkMaterialCodes,
+  inferTerrainMaterialId,
+} from './terrain/TerrainDataUtils'
 import {
   DEFAULT_TERRAIN_RANDOM_SEED,
   type MapTerrainData,
@@ -500,11 +509,84 @@ interface StoredSaveDataRecord {
   data: SaveData
 }
 
+function normalizeBodyProfile(
+  profile: MapCharacterBodyProfile | undefined
+): MapCharacterBodyProfile | undefined {
+  if (!profile || profile.points.length < 6) {
+    return profile
+  }
+
+  let minX = profile.points[0]
+  let maxX = profile.points[0]
+  let minY = profile.points[1]
+  let maxY = profile.points[1]
+  for (let i = 2; i < profile.points.length; i += 2) {
+    const x = profile.points[i]
+    const y = profile.points[i + 1]
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+
+  const eyeX = profile.eyeX
+  const eyeY = profile.eyeY
+  if (
+    typeof eyeX !== 'number' ||
+    !Number.isFinite(eyeX) ||
+    typeof eyeY !== 'number' ||
+    !Number.isFinite(eyeY)
+  ) {
+    return profile
+  }
+
+  const looksLikeLegacyAbsoluteEye =
+    eyeX >= 0 &&
+    eyeX <= CHARACTER_BODY_DRAW_SIZE &&
+    eyeY >= 0 &&
+    eyeY <= CHARACTER_BODY_DRAW_SIZE &&
+    minX < 0 &&
+    maxX > 0 &&
+    minY < 0 &&
+    maxY > 0
+  if (!looksLikeLegacyAbsoluteEye) {
+    return profile
+  }
+
+  const currentOverflow =
+    (eyeX < minX ? minX - eyeX : eyeX > maxX ? eyeX - maxX : 0) +
+    (eyeY < minY ? minY - eyeY : eyeY > maxY ? eyeY - maxY : 0)
+  const shiftedEyeX = eyeX - CHARACTER_BODY_DRAW_HALF
+  const shiftedEyeY = eyeY - CHARACTER_BODY_DRAW_HALF
+  const shiftedOverflow =
+    (shiftedEyeX < minX
+      ? minX - shiftedEyeX
+      : shiftedEyeX > maxX
+        ? shiftedEyeX - maxX
+        : 0) +
+    (shiftedEyeY < minY
+      ? minY - shiftedEyeY
+      : shiftedEyeY > maxY
+        ? shiftedEyeY - maxY
+        : 0)
+
+  if (shiftedOverflow >= currentOverflow) {
+    return profile
+  }
+
+  return {
+    ...profile,
+    eyeX: shiftedEyeX,
+    eyeY: shiftedEyeY,
+  }
+}
+
 function normalizeMapNpc(npc: MapNpc): MapNpc {
   return {
     ...npc,
     npcType: npc.npcType ?? npc.enemyType ?? ('default' as NpcType),
     npcFactions: npc.npcFactions ?? npc.enemyFactions,
+    bodyProfile: normalizeBodyProfile(npc.bodyProfile),
     drops:
       npc.drops === undefined ? undefined : normalizeNpcDropList(npc.drops),
   }
@@ -515,6 +597,7 @@ function normalizeMapNpcTemplate(template: MapNpcTemplate): MapNpcTemplate {
     ...template,
     npcType: template.npcType ?? template.enemyType ?? ('default' as NpcType),
     npcFactions: template.npcFactions ?? template.enemyFactions,
+    bodyProfile: normalizeBodyProfile(template.bodyProfile),
     drops:
       template.drops === undefined
         ? undefined
@@ -529,6 +612,7 @@ function normalizeMapPlayer(
   return {
     ...player,
     npcFactions: player.npcFactions ?? player.enemyFactions,
+    bodyProfile: normalizeBodyProfile(player.bodyProfile),
   }
 }
 
@@ -575,18 +659,36 @@ function normalizeMapTerrain(
       chunkX: number
       chunkY: number
       cells: ArrayLike<number>
+      materialCodes?: ArrayLike<number>
+      siteJitter?: ArrayLike<number>
     }>
   ) =>
     chunks.map((chunk) => {
       const cellCount = chunkSize * chunkSize
       const cells = new Array<number>(cellCount)
+      const materialCodes = getTerrainChunkMaterialCodes(chunk)
       for (let i = 0; i < cellCount; i++) {
-        cells[i] = (chunk.cells[i] ?? 0) | 0
+        cells[i] = (materialCodes[i] ?? 0) | 0
+      }
+      const siteJitterSource =
+        chunk.siteJitter && chunk.siteJitter.length === cellCount * 2
+          ? chunk.siteJitter
+          : createDefaultTerrainChunkSiteJitter(
+              chunk.chunkX | 0,
+              chunk.chunkY | 0,
+              chunkSize,
+              terrain.randomSeed ?? DEFAULT_TERRAIN_RANDOM_SEED
+            )
+      const siteJitter = new Array<number>(cellCount * 2)
+      for (let i = 0; i < siteJitter.length; i++) {
+        siteJitter[i] = siteJitterSource[i] | 0
       }
       return {
         chunkX: chunk.chunkX | 0,
         chunkY: chunk.chunkY | 0,
         cells,
+        materialCodes: cells.slice(),
+        siteJitter,
       }
     })
   const normalizedLayers =
@@ -637,8 +739,7 @@ function normalizeMapTerrain(
     }
   }
   return {
-    version:
-      terrain.version === 3 || (terrain.contours?.length ?? 0) > 0 ? 3 : 2,
+    version: 4,
     cellSize:
       terrain.cellSize > 0 ? terrain.cellSize : TERRAIN_CELL_SIZE_METERS,
     chunkSize,

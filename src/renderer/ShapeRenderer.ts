@@ -1,9 +1,16 @@
+import { type FillInput, Graphics } from 'pixi.js'
+
 import type { MapPlacedShape } from '../editorMapTypes'
-import { getDefaultShapeRenderLayer, isRenderLayerMatch } from '../renderLayers'
+import {
+  getDefaultShapeRenderLayer,
+  isRenderLayerMatch,
+  normalizeRenderLayer,
+} from '../renderLayers'
+import type { RenderContext2D } from './RenderContext2D'
 
 export class ShapeRenderer {
   static drawShapes(
-    ctx: CanvasRenderingContext2D,
+    ctx: RenderContext2D,
     shapes: MapPlacedShape[],
     objectKind: 'ground' | 'obstacle',
     pixelsPerMeter: number,
@@ -51,7 +58,7 @@ export class ShapeRenderer {
   }
 
   private static drawRect(
-    ctx: CanvasRenderingContext2D,
+    ctx: RenderContext2D,
     shape: {
       center: { x: number; y: number }
       halfWidth: number
@@ -88,7 +95,7 @@ export class ShapeRenderer {
   }
 
   private static drawCircle(
-    ctx: CanvasRenderingContext2D,
+    ctx: RenderContext2D,
     shape: { center: { x: number; y: number }; radius: number },
     pixelsPerMeter: number,
     drawStroke?: boolean
@@ -112,7 +119,7 @@ export class ShapeRenderer {
   }
 
   private static drawPolygon(
-    ctx: CanvasRenderingContext2D,
+    ctx: RenderContext2D,
     shape: { points: number[] },
     pixelsPerMeter: number,
     drawStroke?: boolean
@@ -139,6 +146,148 @@ export class ShapeRenderer {
     ctx.fill()
     if (drawStroke) {
       ctx.stroke()
+    }
+  }
+
+  static createPixiShapeGraphics(
+    shapes: MapPlacedShape[],
+    objectKind: 'ground' | 'obstacle',
+    pixelsPerMeter: number,
+    options: {
+      fill: FillInput
+      strokeColor?: string
+      strokeWidth?: number
+      drawStroke?: boolean
+    }
+  ): Graphics[] {
+    const result: Graphics[] = []
+    const layerMap = new Map<number, Graphics>()
+
+    for (let i = 0; i < shapes.length; i++) {
+      const placedShape = shapes[i]
+      if (placedShape.objectKind !== objectKind) {
+        continue
+      }
+
+      const layer = normalizeRenderLayer(
+        placedShape.renderLayer,
+        getDefaultShapeRenderLayer()
+      )
+
+      let g = layerMap.get(layer)
+      if (!g) {
+        g = new Graphics()
+        g.zIndex = layer * 10 + (objectKind === 'obstacle' ? 1 : 0)
+        layerMap.set(layer, g)
+        result.push(g)
+      }
+
+      const shape = placedShape.shape
+      if (shape.kind === 'rect') {
+        this.drawPixiRect(g, shape, pixelsPerMeter, options)
+      } else if (shape.kind === 'circle') {
+        this.drawPixiCircle(g, shape, pixelsPerMeter, options)
+      } else if (shape.kind === 'polygon') {
+        this.drawPixiPolygon(g, shape, pixelsPerMeter, options)
+      }
+    }
+
+    return result
+  }
+
+  private static drawPixiRect(
+    g: Graphics,
+    shape: {
+      center: { x: number; y: number }
+      halfWidth: number
+      halfHeight: number
+      rotationRad: number
+    },
+    pixelsPerMeter: number,
+    options: {
+      fill: FillInput
+      strokeColor?: string
+      strokeWidth?: number
+      drawStroke?: boolean
+    }
+  ): void {
+    const cx = shape.center.x * pixelsPerMeter
+    const cy = shape.center.y * pixelsPerMeter
+    const hw = shape.halfWidth * pixelsPerMeter
+    const hh = shape.halfHeight * pixelsPerMeter
+    const rotation = shape.rotationRad
+
+    if (rotation === 0) {
+      g.rect(cx - hw, cy - hh, hw * 2, hh * 2)
+    } else {
+      const cos = Math.cos(rotation)
+      const sin = Math.sin(rotation)
+      g.poly(
+        [
+          cx + -hw * cos - -hh * sin,
+          cy + -hw * sin + -hh * cos,
+          cx + hw * cos - -hh * sin,
+          cy + hw * sin + -hh * cos,
+          cx + hw * cos - hh * sin,
+          cy + hw * sin + hh * cos,
+          cx + -hw * cos - hh * sin,
+          cy + -hw * sin + hh * cos,
+        ],
+        true
+      )
+    }
+    g.fill(options.fill)
+    if (options.drawStroke && options.strokeColor) {
+      g.stroke({ color: options.strokeColor, width: options.strokeWidth ?? 2 })
+    }
+  }
+
+  private static drawPixiCircle(
+    g: Graphics,
+    shape: { center: { x: number; y: number }; radius: number },
+    pixelsPerMeter: number,
+    options: {
+      fill: FillInput
+      strokeColor?: string
+      strokeWidth?: number
+      drawStroke?: boolean
+    }
+  ): void {
+    const cx = shape.center.x * pixelsPerMeter
+    const cy = shape.center.y * pixelsPerMeter
+    const r = shape.radius * pixelsPerMeter
+
+    g.circle(cx, cy, r)
+    g.fill(options.fill)
+    if (options.drawStroke && options.strokeColor) {
+      g.stroke({ color: options.strokeColor, width: options.strokeWidth ?? 2 })
+    }
+  }
+
+  private static drawPixiPolygon(
+    g: Graphics,
+    shape: { points: number[] },
+    pixelsPerMeter: number,
+    options: {
+      fill: FillInput
+      strokeColor?: string
+      strokeWidth?: number
+      drawStroke?: boolean
+    }
+  ): void {
+    const points = shape.points
+    if (points.length < 6) {
+      return
+    }
+
+    const scaled: number[] = []
+    for (let j = 0; j < points.length; j += 2) {
+      scaled.push(points[j] * pixelsPerMeter, points[j + 1] * pixelsPerMeter)
+    }
+    g.poly(scaled, true)
+    g.fill(options.fill)
+    if (options.drawStroke && options.strokeColor) {
+      g.stroke({ color: options.strokeColor, width: options.strokeWidth ?? 2 })
     }
   }
 }

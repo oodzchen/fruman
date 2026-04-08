@@ -126,6 +126,7 @@ import { ensureDefaultMap } from '../storage'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { hasTerrainContent } from '../terrain/TerrainDataUtils'
 import type { TerrainMaterialTag } from '../terrain/TerrainTypes'
+import { VoronoiCollisionBuilder } from '../terrain/VoronoiCollisionBuilder'
 import type {
   MainModule,
   WeaponType,
@@ -1107,6 +1108,39 @@ function createEnvironmentFromMap(map: EditorMapData): void {
 function createTerrainFromMap(
   terrain: NonNullable<EditorMapData['terrain']>
 ): void {
+  if (terrain.version >= 4) {
+    const polygons = VoronoiCollisionBuilder.buildPolygons(terrain)
+    for (let i = 0; i < polygons.length; i++) {
+      const polygon = polygons[i]
+      const materialTag = polygon.materialTag
+      const renderLayer = getCollisionLayerValue(polygon.renderLayer)
+      const polygonShape: Extract<
+        MapPlacedShape['shape'],
+        { kind: 'polygon' }
+      > = {
+        kind: 'polygon',
+        center: { x: polygon.centerX, y: polygon.centerY },
+        points: polygon.points.slice(),
+      }
+      registerPolygonShape(
+        polygonShape,
+        renderLayer,
+        materialTag,
+        materialTag === 'obstacle' ? obstacleFriction : groundFriction,
+        materialTag === 'obstacle'
+      )
+      standableSurfaces.push({
+        bodyId: 0 as unknown as b2BodyId,
+        centerX: polygon.centerX,
+        centerY: polygon.centerY,
+        width: polygon.halfWidth,
+        height: polygon.halfHeight,
+        renderLayer,
+        materialTag,
+      })
+    }
+    return
+  }
   const rects = TerrainCollisionBuilder.buildRectangles(terrain)
   if (rects.length === 0) {
     return

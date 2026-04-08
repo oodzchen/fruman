@@ -25,6 +25,7 @@ import {
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
 import type { EditorMapData } from './editorMapTypes'
 import { renderBody } from './renderer/BodyRenderer'
+import { renderBodyCached } from './renderer/BodyRenderer'
 import {
   HUD_AMMO_ALPHA,
   HUD_ICON_ALPHA,
@@ -37,6 +38,7 @@ import {
   drawHudWeaponSlot,
 } from './renderer/HudWeaponSlotRenderer'
 import { ParticleSystem } from './renderer/ParticleSystem'
+import type { RenderContext2D } from './renderer/RenderContext2D'
 import { renderWeapon as renderWeaponShape } from './renderer/WeaponRenderer'
 import { getGrapeChargeRangeScale } from './weaponTypeUtils'
 import {
@@ -74,7 +76,9 @@ const EXP_COLOR = '#3d7fff'
 const FOLLOW_BOUND_BORDER_COLOR = '#ffee58'
 
 export class ClientRenderer {
-  private ctx: CanvasRenderingContext2D
+  private ctx: RenderContext2D
+  private worldCtx: RenderContext2D
+  private hudCtx: RenderContext2D
   private pixelsPerMeter: number
   private camera: { x: number; y: number }
   private zoom: number = 1.0
@@ -131,11 +135,18 @@ export class ClientRenderer {
   private wavingHandIconLoaded = false
   private characterBodyMap: EditorMapData | null = null
   private characterBodyTextureCache = new Map<string, HTMLImageElement>()
+  private readonly entityFacingCache = new Map<number, number>()
   private readonly dynamicRenderLayers: number[] = []
   private readonly frameRenderLayers: number[] = []
 
-  constructor(ctx: CanvasRenderingContext2D, pixelsPerMeter: number) {
-    this.ctx = ctx
+  constructor(
+    worldCtx: RenderContext2D,
+    hudCtx: RenderContext2D,
+    pixelsPerMeter: number
+  ) {
+    this.ctx = worldCtx
+    this.worldCtx = worldCtx
+    this.hudCtx = hudCtx
     this.pixelsPerMeter = pixelsPerMeter
     this.camera = { x: 0, y: 0 }
     this.particleSystem = new ParticleSystem(MAX_PARTICLES)
@@ -346,6 +357,7 @@ export class ClientRenderer {
     staticLayers: readonly number[] = [],
     drawStaticLayer?: (layer: number) => void
   ) {
+    this.ctx = this.worldCtx
     this.lastRenderDeltaSec = deltaMs / 1000
     if (
       this.entityCount === 0 &&
@@ -511,7 +523,7 @@ export class ClientRenderer {
         if (!(flags & FLAGS.VISIBLE)) continue
         if (this.getEntityRenderLayer(buf, offset) !== layer) continue
 
-        const facing = buf[offset + OFFSETS.MOVE_DIR]
+        const facing = this.getEntityFacing(buf, offset)
         const hasWeapon = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
         const inUltimate =
           !!(flags & FLAGS.IS_PLAYER) &&
@@ -767,7 +779,7 @@ export class ClientRenderer {
       bodyProfileIndex
     )
     const bodyTexture = this.getCharacterBodyTexture(
-      bodyProfile?.surfaceDataUrl ?? bodyProfile?.textureDataUrl
+      bodyProfile?.textureDataUrl ?? bodyProfile?.surfaceDataUrl
     )
     const profileWidthPx =
       getCharacterBodyProfileWidth(bodyProfile) > 0
@@ -804,13 +816,13 @@ export class ClientRenderer {
 
     // 只有 radius > 0 时才渲染圆圈和眼睛
     if (radius > 0) {
-      const direction = buf[offset + OFFSETS.MOVE_DIR]
+      const direction = this.getEntityFacing(buf, offset)
       const outlineWidthPx = hasFollowBound ? Math.max(1, radius >> 3) : 0
       const bodyColor = getCharacterBodyColor(
         bodyProfile,
         this.getColorString(colorInt)
       )
-      renderBody(
+      renderBodyCached(
         this.ctx,
         radius,
         bodyColor,
@@ -820,7 +832,15 @@ export class ClientRenderer {
         hasFollowBound ? FOLLOW_BOUND_BORDER_COLOR : '',
         outlineWidthPx,
         bodyProfile,
-        bodyTexture
+        bodyTexture,
+        true,
+        '#000000',
+        String(bodyProfileIndex),
+        [
+          bodyProfile?.textureDataUrl ?? '',
+          bodyProfile?.surfaceDataUrl ?? '',
+          bodyProfile?.layers?.length ?? 0,
+        ].join('|')
       )
     }
 
@@ -848,6 +868,41 @@ export class ClientRenderer {
         buf[offset + OFFSETS.RADIUS]
       )
     }
+  }
+
+  private getEntityFacing(buf: Float32Array, offset: number): number {
+    const rawFacing = buf[offset + OFFSETS.MOVE_DIR]
+    const entityId = buf[offset + OFFSETS.ID] | 0
+
+    if (rawFacing < 0) {
+      this.entityFacingCache.set(entityId, -1)
+      return -1
+    }
+    if (rawFacing > 0) {
+      this.entityFacingCache.set(entityId, 1)
+      return 1
+    }
+
+    const cachedFacing = this.entityFacingCache.get(entityId)
+    if (cachedFacing === -1 || cachedFacing === 1) {
+      return cachedFacing
+    }
+
+    if (buf[offset + OFFSETS.WEAPON_ACTIVE] === 1) {
+      const entityX = buf[offset + OFFSETS.X]
+      const weaponX = buf[offset + OFFSETS.WEAPON_X]
+      if (weaponX < entityX) {
+        this.entityFacingCache.set(entityId, -1)
+        return -1
+      }
+      if (weaponX > entityX) {
+        this.entityFacingCache.set(entityId, 1)
+        return 1
+      }
+    }
+
+    this.entityFacingCache.set(entityId, 1)
+    return 1
   }
 
   private renderCheckpoint(
@@ -947,6 +1002,7 @@ export class ClientRenderer {
   }
 
   public renderPlayerUI(): void {
+    this.ctx = this.hudCtx
     const buf = this.stateBuffer
     let playerOffset = -1
 
@@ -1117,7 +1173,7 @@ export class ClientRenderer {
 
   // 绘制太阳形路径（cx/cy为圆心，size为直径，8角锯齿）
   private buildSunPath(
-    ctx: CanvasRenderingContext2D,
+    ctx: RenderContext2D,
     cx: number,
     cy: number,
     size: number

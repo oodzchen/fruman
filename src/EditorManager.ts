@@ -1981,7 +1981,7 @@ export class EditorManager {
     this.dialogManager.showLoading(localizer.t('editor_saving'))
 
     try {
-      const thumbnail = await this.thumbnailCapture.capture()
+      const thumbnail = await this.thumbnailCapture.captureMap(data)
       if (thumbnail) {
         meta.thumbnail = thumbnail
       }
