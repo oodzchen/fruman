@@ -34,6 +34,11 @@ import type {
   WorkerToMainMessage,
 } from './worker/protocol'
 
+interface PixiApplicationInitResult {
+  app: Application
+  rendererLabel: 'webgpu' | 'webgl' | 'canvas'
+}
+
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
   private static readonly PREVIEW_CAPTURE_MIN_RENDER_FRAMES = 6
@@ -63,11 +68,31 @@ export class GameClient {
   private pixelsPerMeter = 50
 
   private camera = { x: 0, y: 0 }
+  private rendererLabel: 'webgpu' | 'webgl' | 'canvas'
   private renderFps = 0
   private fpsText = '0 FPS'
   private lastDeltaTime = 0
   private frameCount = 0
   private fpsUpdateTime = 0
+  private perfSampleCount = 0
+  private perfFrameTimeTotalUs = 0
+  private perfFrameTimeMaxUs = 0
+  private perfUpdateTimeTotalUs = 0
+  private perfRenderTimeTotalUs = 0
+  private perfWorldTimeTotalUs = 0
+  private perfHudTimeTotalUs = 0
+  private perfMenuTimeTotalUs = 0
+  private perfFrameAvgUs = 0
+  private perfFrameMaxUs = 0
+  private perfUpdateAvgUs = 0
+  private perfRenderAvgUs = 0
+  private perfWorldAvgUs = 0
+  private perfHudAvgUs = 0
+  private perfMenuAvgUs = 0
+  private lastRenderTimeUs = 0
+  private lastWorldRenderTimeUs = 0
+  private lastHudRenderTimeUs = 0
+  private lastMenuRenderTimeUs = 0
   private renderFrameRevision = 0
   private workerStateRevision = 0
 
@@ -161,17 +186,23 @@ export class GameClient {
     onInitProgress?: (step: string) => void
   ): Promise<GameClient> {
     onInitProgress?.('init_renderer')
-    const app = await this.createPixiApplication(inputTarget)
+    const { app, rendererLabel } = await this.createPixiApplication(inputTarget)
     const appCanvas = app.canvas as HTMLCanvasElement
     appCanvas.id = 'gameCanvas'
     appCanvas.classList.add('game-canvas')
     inputTarget.prepend(appCanvas)
-    return new GameClient(app, menuOverlay, inputTarget, onInitProgress)
+    return new GameClient(
+      app,
+      rendererLabel,
+      menuOverlay,
+      inputTarget,
+      onInitProgress
+    )
   }
 
   private static async createPixiApplication(
     inputTarget: HTMLElement
-  ): Promise<Application> {
+  ): Promise<PixiApplicationInitResult> {
     const rendererParam = new URLSearchParams(window.location.search).get(
       'renderer'
     )
@@ -210,7 +241,10 @@ export class GameClient {
           canvasOptions: {},
         })
         console.info('[Renderer]', preference)
-        return app
+        return {
+          app,
+          rendererLabel: preference,
+        }
       } catch (error) {
         lastError = error
         app.destroy(true)
@@ -224,12 +258,14 @@ export class GameClient {
 
   private constructor(
     app: Application,
+    rendererLabel: 'webgpu' | 'webgl' | 'canvas',
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement,
     onInitProgress?: (step: string) => void
   ) {
     this.app = app
     this.appCanvas = app.canvas as HTMLCanvasElement
+    this.rendererLabel = rendererLabel
 
     const width = app.renderer.width
     const height = app.renderer.height
@@ -270,7 +306,8 @@ export class GameClient {
       text: '0 FPS',
       style: {
         fontFamily: 'monospace',
-        fontSize: 20,
+        fontSize: 14,
+        lineHeight: 17,
         fill: '#00ff00',
         stroke: { color: '#000000', width: 3 },
       },
@@ -925,21 +962,26 @@ export class GameClient {
   }
 
   private renderLoopTick() {
+    const frameStartMs = performance.now()
     const deltaMs = Math.min(this.app.ticker.deltaMS, 100)
     const deltaTime = deltaMs / 1000
     this.lastDeltaTime = deltaTime
 
     this.frameCount++
     this.fpsUpdateTime += deltaTime
+    let shouldRefreshPerfText = false
     if (this.fpsUpdateTime >= 1.0) {
       this.renderFps = Math.round(this.frameCount / this.fpsUpdateTime)
-      this.fpsText = `${this.renderFps} FPS`
       this.frameCount = 0
       this.fpsUpdateTime = 0
+      shouldRefreshPerfText = true
     }
 
+    let updateTimeUs = 0
     if (!this.editorPreview) {
+      const updateStartMs = performance.now()
       this.renderer.update(deltaTime)
+      updateTimeUs = Math.round((performance.now() - updateStartMs) * 1000)
     }
     this.updateStartMenuFlow(deltaMs | 0)
     this.render(deltaMs | 0)
@@ -959,14 +1001,23 @@ export class GameClient {
       this.isFirstFrameRendered = true
       this.onFirstFrameRendered()
     }
+
+    this.recordPerformanceSample(
+      Math.round((performance.now() - frameStartMs) * 1000),
+      updateTimeUs,
+      shouldRefreshPerfText
+    )
   }
 
   private render(deltaMs: number) {
+    const renderStartMs = performance.now()
     const width = this.app.renderer.width
     const height = this.app.renderer.height
     this.hudRenderContext.beginFrame()
+    let worldTimeUs = 0
 
     if (!this.editorPreview) {
+      const worldStartMs = performance.now()
       const centerX = width / 2
       const bottomY = height
       const zoom = this.renderZoom
@@ -1001,22 +1052,97 @@ export class GameClient {
       this.worldContainer.setFromMatrix(pixiMatrix)
 
       this.worldRenderer.render(this.renderer)
+      worldTimeUs = Math.round((performance.now() - worldStartMs) * 1000)
+    }
+    this.lastWorldRenderTimeUs = worldTimeUs
 
+    const hudStartMs = performance.now()
+    if (!this.editorPreview) {
       if (this.cameraDebug.enabled) {
         this.renderCameraDebug()
       }
 
-      // Player UI in screen space
       this.renderer.renderPlayerUI()
     }
 
     // Update FPS display
-    if (this.fpsTextEl) {
+    if (this.fpsTextEl && this.fpsTextEl.text !== this.fpsText) {
       this.fpsTextEl.text = this.fpsText
     }
+    this.lastHudRenderTimeUs = Math.round(
+      (performance.now() - hudStartMs) * 1000
+    )
 
     // Menu (DOM-based)
+    const menuStartMs = performance.now()
     this.menuManager.render(deltaMs / 1000)
+    this.lastMenuRenderTimeUs = Math.round(
+      (performance.now() - menuStartMs) * 1000
+    )
+    this.lastRenderTimeUs = Math.round(
+      (performance.now() - renderStartMs) * 1000
+    )
+  }
+
+  private recordPerformanceSample(
+    frameTimeUs: number,
+    updateTimeUs: number,
+    shouldRefreshPerfText: boolean
+  ): void {
+    this.perfSampleCount++
+    this.perfFrameTimeTotalUs += frameTimeUs
+    this.perfUpdateTimeTotalUs += updateTimeUs
+    this.perfRenderTimeTotalUs += this.lastRenderTimeUs
+    this.perfWorldTimeTotalUs += this.lastWorldRenderTimeUs
+    this.perfHudTimeTotalUs += this.lastHudRenderTimeUs
+    this.perfMenuTimeTotalUs += this.lastMenuRenderTimeUs
+    if (frameTimeUs > this.perfFrameTimeMaxUs) {
+      this.perfFrameTimeMaxUs = frameTimeUs
+    }
+
+    if (!shouldRefreshPerfText || this.perfSampleCount <= 0) {
+      return
+    }
+
+    const sampleCount = this.perfSampleCount
+    this.perfFrameAvgUs = Math.round(this.perfFrameTimeTotalUs / sampleCount)
+    this.perfFrameMaxUs = this.perfFrameTimeMaxUs
+    this.perfUpdateAvgUs = Math.round(this.perfUpdateTimeTotalUs / sampleCount)
+    this.perfRenderAvgUs = Math.round(this.perfRenderTimeTotalUs / sampleCount)
+    this.perfWorldAvgUs = Math.round(this.perfWorldTimeTotalUs / sampleCount)
+    this.perfHudAvgUs = Math.round(this.perfHudTimeTotalUs / sampleCount)
+    this.perfMenuAvgUs = Math.round(this.perfMenuTimeTotalUs / sampleCount)
+    this.fpsText = this.buildDebugOverlayText()
+
+    this.perfSampleCount = 0
+    this.perfFrameTimeTotalUs = 0
+    this.perfFrameTimeMaxUs = 0
+    this.perfUpdateTimeTotalUs = 0
+    this.perfRenderTimeTotalUs = 0
+    this.perfWorldTimeTotalUs = 0
+    this.perfHudTimeTotalUs = 0
+    this.perfMenuTimeTotalUs = 0
+  }
+
+  private buildDebugOverlayText(): string {
+    return [
+      `${this.renderFps} FPS`,
+      `frame avg ${this.formatUsAsMs(this.perfFrameAvgUs)}  max ${this.formatUsAsMs(this.perfFrameMaxUs)}`,
+      `update ${this.formatUsAsMs(this.perfUpdateAvgUs)}  render ${this.formatUsAsMs(this.perfRenderAvgUs)}`,
+      `world ${this.formatUsAsMs(this.perfWorldAvgUs)}  hud ${this.formatUsAsMs(this.perfHudAvgUs)}  menu ${this.formatUsAsMs(this.perfMenuAvgUs)}`,
+      `renderer ${this.rendererLabel}  ent ${this.renderer.getEntityCount()}  ptc ${this.renderer.getActiveParticleCount()}`,
+      `views ${this.worldRenderer.getEntityViewCount()}  pSprites ${this.worldRenderer.getParticleSpriteCount()}  wTex ${this.worldRenderer.getWeaponTextureCacheSize()}`,
+    ].join('\n')
+  }
+
+  private formatUsAsMs(timeUs: number): string {
+    if (!Number.isFinite(timeUs) || timeUs < 0) {
+      return '--.-ms'
+    }
+    const roundedTenthMs = Math.round(timeUs / 100)
+    const integerPart = Math.floor(roundedTenthMs / 10)
+    const decimalPart = Math.abs(roundedTenthMs % 10)
+    return `${integerPart}.${decimalPart}ms`
   }
 
   private updatePreviewCaptureState(): void {

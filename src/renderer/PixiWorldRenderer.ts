@@ -239,6 +239,18 @@ export class PixiWorldRenderer {
     this.overlayContainer.addChild(this.spearBottomSprite)
   }
 
+  getEntityViewCount(): number {
+    return this.entityViews.size
+  }
+
+  getParticleSpriteCount(): number {
+    return this.particleSprites.length
+  }
+
+  getWeaponTextureCacheSize(): number {
+    return this.weaponTextureCache.size
+  }
+
   render(renderer: ClientRenderer): void {
     this.frameId += 1
     const buf = renderer.getStateBuffer()
