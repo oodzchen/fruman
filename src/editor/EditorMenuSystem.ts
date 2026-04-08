@@ -11,15 +11,21 @@ import { computeWeaponRenderDimensions } from './EditorRenderUtils'
 import { ObjectType } from './types'
 import type { GroundShapeType } from './types'
 
+export type EditorObjectMenuType =
+  | ObjectType
+  | 'terrainMaterial'
+  | 'terrainContour'
+  | 'prop'
+
 export interface EditorMenuSystemContext {
   editorWorkspace: HTMLDivElement
   hasObjectOfType: (type: ObjectType) => boolean
   hasWeaponType: (weaponType: WeaponType) => boolean
-  onObjectTypeSelected: (type: ObjectType) => void
+  onObjectTypeSelected: (type: EditorObjectMenuType) => void
   onTerrainBrushSelected: (brushId: TerrainBrushId) => void
   onTerrainFillSelected: (materialId: TerrainMaterialId) => void
-  onGroundShapeSelected: (shape: GroundShapeType) => void
-  onObstacleShapeSelected: (shape: GroundShapeType) => void
+  onTerrainContourDrawSelected: () => void
+  onTerrainContourShapeSelected: (shape: GroundShapeType) => void
   onWeaponSelected: (
     weaponType: WeaponType,
     category: WeaponCategory,
@@ -43,9 +49,8 @@ export class EditorMenuSystem {
   private panelMenuAddBtn: HTMLButtonElement
   private panelMenuPasteBtn: HTMLButtonElement
   private terrainSubmenu: HTMLDivElement
+  private terrainContourSubmenu: HTMLDivElement
   private terrainFillSubmenu: HTMLDivElement
-  private groundSubmenu: HTMLDivElement
-  private obstacleSubmenu: HTMLDivElement
   private weaponMenu: HTMLDivElement
   private npcSubmenu: HTMLDivElement
   private npcCustomTemplateList: HTMLDivElement
@@ -53,16 +58,14 @@ export class EditorMenuSystem {
   private npcTemplateAddBtn: HTMLButtonElement
   private propSubmenu: HTMLDivElement
   private terrainMenuItem: HTMLButtonElement
-  private groundMenuItem: HTMLButtonElement
-  private obstacleMenuItem: HTMLButtonElement
+  private terrainContourMenuItem: HTMLButtonElement
   private weaponMenuItem: HTMLButtonElement
   private npcMenuItem: HTMLButtonElement
   private propMenuItem: HTMLButtonElement
   private editorObjectItems: NodeListOf<HTMLButtonElement>
   private terrainSubmenuItems: NodeListOf<HTMLButtonElement>
+  private terrainContourSubmenuItems: NodeListOf<HTMLButtonElement>
   private terrainFillSubmenuItems: NodeListOf<HTMLButtonElement>
-  private groundSubmenuItems: NodeListOf<HTMLButtonElement>
-  private obstacleSubmenuItems: NodeListOf<HTMLButtonElement>
   private weaponItems: NodeListOf<HTMLButtonElement>
   private weaponGroupTitles: NodeListOf<HTMLDivElement>
   private npcSubmenuItems: HTMLButtonElement[] = []
@@ -70,9 +73,8 @@ export class EditorMenuSystem {
   private propSubmenuBackBtn: HTMLButtonElement
   private objectTypeMenuBackBtn: HTMLButtonElement
   private terrainSubmenuBackBtn: HTMLButtonElement
+  private terrainContourSubmenuBackBtn: HTMLButtonElement
   private terrainFillSubmenuBackBtn: HTMLButtonElement
-  private groundSubmenuBackBtn: HTMLButtonElement
-  private obstacleSubmenuBackBtn: HTMLButtonElement
   private weaponMenuBackBtn: HTMLButtonElement
   private npcSubmenuBackBtn: HTMLButtonElement
   private readonly weaponPreviewPixelsPerMeter = 16
@@ -98,8 +100,9 @@ export class EditorMenuSystem {
     const terrainFillSubmenu = document.getElementById(
       'editorTerrainFillSubmenu'
     )
-    const groundSubmenu = document.getElementById('editorGroundSubmenu')
-    const obstacleSubmenu = document.getElementById('editorObstacleSubmenu')
+    const terrainContourSubmenu = document.getElementById(
+      'editorTerrainContourSubmenu'
+    )
     const weaponMenu = document.getElementById('editorWeaponMenu')
     const npcSubmenu = document.getElementById('editorNpcSubmenu')
     const npcCustomTemplateList = document.getElementById(
@@ -112,13 +115,10 @@ export class EditorMenuSystem {
     const propSubmenu = document.getElementById('editorPropSubmenu')
 
     const terrainMenuItem = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="terrain"]'
+      '.editor-object-item[data-type="terrainMaterial"]'
     )
-    const groundMenuItem = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="ground"]'
-    )
-    const obstacleMenuItem = document.querySelector<HTMLButtonElement>(
-      '.editor-object-item[data-type="obstacle"]'
+    const terrainContourMenuItem = document.querySelector<HTMLButtonElement>(
+      '.editor-object-item[data-type="terrainContour"]'
     )
     const weaponMenuItem = document.querySelector<HTMLButtonElement>(
       '.editor-object-item[data-type="weapon"]'
@@ -140,12 +140,10 @@ export class EditorMenuSystem {
       document.querySelectorAll<HTMLButtonElement>(
         '#editorTerrainFillSubmenu .editor-submenu-item'
       )
-    const groundSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorGroundSubmenu .editor-submenu-item'
-    )
-    const obstacleSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
-      '#editorObstacleSubmenu .editor-submenu-item'
-    )
+    const terrainContourSubmenuItems =
+      document.querySelectorAll<HTMLButtonElement>(
+        '#editorTerrainContourSubmenu .editor-submenu-item'
+      )
     const weaponItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorWeaponMenu .editor-submenu-item'
     )
@@ -165,12 +163,10 @@ export class EditorMenuSystem {
     const terrainFillSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorTerrainFillSubmenu .editor-submenu-item[data-action="back"]'
     )
-    const groundSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorGroundSubmenu .editor-submenu-item[data-action="back"]'
-    )
-    const obstacleSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
-      '#editorObstacleSubmenu .editor-submenu-item[data-action="back"]'
-    )
+    const terrainContourSubmenuBackBtn =
+      document.querySelector<HTMLButtonElement>(
+        '#editorTerrainContourSubmenu .editor-submenu-item[data-action="back"]'
+      )
     const weaponMenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorWeaponMenu .editor-submenu-item[data-action="back"]'
     )
@@ -188,8 +184,7 @@ export class EditorMenuSystem {
       !(panelMenuAdd instanceof HTMLButtonElement) ||
       !(terrainSubmenu instanceof HTMLDivElement) ||
       !(terrainFillSubmenu instanceof HTMLDivElement) ||
-      !(groundSubmenu instanceof HTMLDivElement) ||
-      !(obstacleSubmenu instanceof HTMLDivElement) ||
+      !(terrainContourSubmenu instanceof HTMLDivElement) ||
       !(weaponMenu instanceof HTMLDivElement) ||
       !(npcSubmenu instanceof HTMLDivElement) ||
       !(npcCustomTemplateList instanceof HTMLDivElement) ||
@@ -197,16 +192,14 @@ export class EditorMenuSystem {
       !(npcTemplateAddBtn instanceof HTMLButtonElement) ||
       !(propSubmenu instanceof HTMLDivElement) ||
       !(terrainMenuItem instanceof HTMLButtonElement) ||
-      !(groundMenuItem instanceof HTMLButtonElement) ||
-      !(obstacleMenuItem instanceof HTMLButtonElement) ||
+      !(terrainContourMenuItem instanceof HTMLButtonElement) ||
       !(weaponMenuItem instanceof HTMLButtonElement) ||
       !(npcMenuItem instanceof HTMLButtonElement) ||
       !(propMenuItem instanceof HTMLButtonElement) ||
       !(objectTypeMenuBackBtn instanceof HTMLButtonElement) ||
       !(terrainSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(terrainFillSubmenuBackBtn instanceof HTMLButtonElement) ||
-      !(groundSubmenuBackBtn instanceof HTMLButtonElement) ||
-      !(obstacleSubmenuBackBtn instanceof HTMLButtonElement) ||
+      !(terrainContourSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(weaponMenuBackBtn instanceof HTMLButtonElement) ||
       !(npcSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(propSubmenuBackBtn instanceof HTMLButtonElement)
@@ -219,9 +212,8 @@ export class EditorMenuSystem {
     this.panelMenuPasteBtn = panelMenuPaste
     this.panelMenuAddBtn = panelMenuAdd
     this.terrainSubmenu = terrainSubmenu
+    this.terrainContourSubmenu = terrainContourSubmenu
     this.terrainFillSubmenu = terrainFillSubmenu
-    this.groundSubmenu = groundSubmenu
-    this.obstacleSubmenu = obstacleSubmenu
     this.weaponMenu = weaponMenu
     this.npcSubmenu = npcSubmenu
     this.npcCustomTemplateList = npcCustomTemplateList
@@ -229,24 +221,21 @@ export class EditorMenuSystem {
     this.npcTemplateAddBtn = npcTemplateAddBtn
     this.propSubmenu = propSubmenu
     this.terrainMenuItem = terrainMenuItem
-    this.groundMenuItem = groundMenuItem
-    this.obstacleMenuItem = obstacleMenuItem
+    this.terrainContourMenuItem = terrainContourMenuItem
     this.weaponMenuItem = weaponMenuItem
     this.npcMenuItem = npcMenuItem
     this.propMenuItem = propMenuItem
     this.editorObjectItems = editorObjectItems
     this.terrainSubmenuItems = terrainSubmenuItems
+    this.terrainContourSubmenuItems = terrainContourSubmenuItems
     this.terrainFillSubmenuItems = terrainFillSubmenuItems
-    this.groundSubmenuItems = groundSubmenuItems
-    this.obstacleSubmenuItems = obstacleSubmenuItems
     this.weaponItems = weaponItems
     this.weaponGroupTitles = weaponGroupTitles
     this.propSubmenuItems = propSubmenuItems
     this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
     this.terrainSubmenuBackBtn = terrainSubmenuBackBtn
+    this.terrainContourSubmenuBackBtn = terrainContourSubmenuBackBtn
     this.terrainFillSubmenuBackBtn = terrainFillSubmenuBackBtn
-    this.groundSubmenuBackBtn = groundSubmenuBackBtn
-    this.obstacleSubmenuBackBtn = obstacleSubmenuBackBtn
     this.weaponMenuBackBtn = weaponMenuBackBtn
     this.npcSubmenuBackBtn = npcSubmenuBackBtn
     this.propSubmenuBackBtn = propSubmenuBackBtn
@@ -275,12 +264,10 @@ export class EditorMenuSystem {
         return this.editorObjectItems
       case EditorSubmenuMode.Terrain:
         return this.terrainSubmenuItems
+      case EditorSubmenuMode.TerrainContour:
+        return this.terrainContourSubmenuItems
       case EditorSubmenuMode.TerrainFill:
         return this.terrainFillSubmenuItems
-      case EditorSubmenuMode.Ground:
-        return this.groundSubmenuItems
-      case EditorSubmenuMode.Obstacle:
-        return this.obstacleSubmenuItems
       case EditorSubmenuMode.Weapon:
         return this.weaponItems
       case EditorSubmenuMode.Npc:
@@ -300,12 +287,16 @@ export class EditorMenuSystem {
           this.handleMenuBack()
           return
         }
-        const type = item.dataset.type as ObjectType | undefined
-        if (type === ObjectType.Terrain) {
+        const type = item.dataset.type as EditorObjectMenuType | undefined
+        if (type === 'terrainMaterial') {
           this.showTerrainSubmenu()
           return
         }
-        if (type === ('prop' as ObjectType)) {
+        if (type === 'terrainContour') {
+          this.showTerrainContourSubmenu()
+          return
+        }
+        if (type === 'prop') {
           this.showPropSubmenu()
           return
         }
@@ -354,37 +345,30 @@ export class EditorMenuSystem {
       EditorSubmenuMode.TerrainFill
     )
 
-    this.groundSubmenuItems.forEach((item) => {
+    this.terrainContourSubmenuItems.forEach((item) => {
       item.addEventListener('click', () => {
         const action = item.dataset.action
         if (action === 'back') {
           this.handleMenuBack()
           return
         }
-        const shape = item.dataset.shape as GroundShapeType | undefined
-        if (shape) {
-          this.ctx.onGroundShapeSelected(shape)
+        const contourMode = item.dataset.contourMode
+        if (contourMode === 'draw') {
+          this.ctx.onTerrainContourDrawSelected()
           this.hideObjectTypeMenu()
-        }
-      })
-    })
-    this.bindMenuItems(this.groundSubmenuItems, EditorSubmenuMode.Ground)
-
-    this.obstacleSubmenuItems.forEach((item) => {
-      item.addEventListener('click', () => {
-        const action = item.dataset.action
-        if (action === 'back') {
-          this.handleMenuBack()
           return
         }
         const shape = item.dataset.shape as GroundShapeType | undefined
         if (shape) {
-          this.ctx.onObstacleShapeSelected(shape)
+          this.ctx.onTerrainContourShapeSelected(shape)
           this.hideObjectTypeMenu()
         }
       })
     })
-    this.bindMenuItems(this.obstacleSubmenuItems, EditorSubmenuMode.Obstacle)
+    this.bindMenuItems(
+      this.terrainContourSubmenuItems,
+      EditorSubmenuMode.TerrainContour
+    )
 
     this.weaponItems.forEach((item) => {
       item.addEventListener('click', () => {
@@ -504,10 +488,7 @@ export class EditorMenuSystem {
     this.terrainFillSubmenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
-    this.groundSubmenu.addEventListener('pointerdown', (event) => {
-      event.stopPropagation()
-    })
-    this.obstacleSubmenu.addEventListener('pointerdown', (event) => {
+    this.terrainContourSubmenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
     this.weaponMenu.addEventListener('pointerdown', (event) => {
@@ -560,22 +541,15 @@ export class EditorMenuSystem {
       }
       return
     }
+    if (this.menuMode === EditorSubmenuMode.TerrainContour) {
+      this.hideTerrainContourSubmenu()
+      if (this.isObjectTypeMenuVisible()) {
+        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
+      }
+      return
+    }
     if (this.menuMode === EditorSubmenuMode.TerrainFill) {
       this.hideTerrainFillSubmenu()
-      return
-    }
-    if (this.menuMode === EditorSubmenuMode.Ground) {
-      this.hideGroundSubmenu()
-      if (this.isObjectTypeMenuVisible()) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      }
-      return
-    }
-    if (this.menuMode === EditorSubmenuMode.Obstacle) {
-      this.hideObstacleSubmenu()
-      if (this.isObjectTypeMenuVisible()) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      }
       return
     }
     if (this.menuMode === EditorSubmenuMode.Weapon) {
@@ -639,24 +613,22 @@ export class EditorMenuSystem {
       }
     })
 
+    this.terrainContourSubmenuItems.forEach((item) => {
+      const contourMode = item.dataset.contourMode
+      if (contourMode === 'draw') {
+        item.textContent = localizer.t('editor_terrain_contour_draw')
+        return
+      }
+      const shape = item.dataset.shape
+      if (shape) {
+        item.textContent = localizer.t(`editor_ground_shape_${shape}`)
+      }
+    })
+
     this.terrainFillSubmenuItems.forEach((item) => {
       const materialId = item.dataset.fillMaterial
       if (materialId) {
         item.textContent = localizer.t(`editor_terrain_brush_${materialId}`)
-      }
-    })
-
-    this.groundSubmenuItems.forEach((item) => {
-      const shape = item.dataset.shape
-      if (shape) {
-        item.textContent = localizer.t(`editor_ground_shape_${shape}`)
-      }
-    })
-
-    this.obstacleSubmenuItems.forEach((item) => {
-      const shape = item.dataset.shape
-      if (shape) {
-        item.textContent = localizer.t(`editor_ground_shape_${shape}`)
       }
     })
 
@@ -703,9 +675,8 @@ export class EditorMenuSystem {
 
     this.objectTypeMenuBackBtn.textContent = localizer.t('menu_back')
     this.terrainSubmenuBackBtn.textContent = localizer.t('menu_back')
+    this.terrainContourSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.terrainFillSubmenuBackBtn.textContent = localizer.t('menu_back')
-    this.groundSubmenuBackBtn.textContent = localizer.t('menu_back')
-    this.obstacleSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.weaponMenuBackBtn.textContent = localizer.t('menu_back')
     this.npcSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.propSubmenuBackBtn.textContent = localizer.t('menu_back')
@@ -857,9 +828,8 @@ export class EditorMenuSystem {
     this.hidePanelMenu()
     this.hideObjectTypeMenu()
     this.hideTerrainSubmenu()
+    this.hideTerrainContourSubmenu()
     this.hideTerrainFillSubmenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
     this.hideWeaponMenu()
     this.hideNpcSubmenu()
     this.hidePropSubmenu()
@@ -867,9 +837,8 @@ export class EditorMenuSystem {
 
   hideAllSubmenus() {
     this.hideTerrainSubmenu()
+    this.hideTerrainContourSubmenu()
     this.hideTerrainFillSubmenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
     this.hideWeaponMenu()
     this.hideNpcSubmenu()
     this.hidePropSubmenu()
@@ -880,9 +849,8 @@ export class EditorMenuSystem {
       this.panelMenu.classList.contains('is-visible') ||
       this.objectTypeMenu.classList.contains('is-visible') ||
       this.terrainSubmenu.classList.contains('is-visible') ||
+      this.terrainContourSubmenu.classList.contains('is-visible') ||
       this.terrainFillSubmenu.classList.contains('is-visible') ||
-      this.groundSubmenu.classList.contains('is-visible') ||
-      this.obstacleSubmenu.classList.contains('is-visible') ||
       this.weaponMenu.classList.contains('is-visible') ||
       this.npcSubmenu.classList.contains('is-visible') ||
       this.propSubmenu.classList.contains('is-visible')
@@ -894,9 +862,8 @@ export class EditorMenuSystem {
       this.panelMenu.contains(target) ||
       this.objectTypeMenu.contains(target) ||
       this.terrainSubmenu.contains(target) ||
+      this.terrainContourSubmenu.contains(target) ||
       this.terrainFillSubmenu.contains(target) ||
-      this.groundSubmenu.contains(target) ||
-      this.obstacleSubmenu.contains(target) ||
       this.weaponMenu.contains(target) ||
       this.npcSubmenu.contains(target) ||
       this.propSubmenu.contains(target)
@@ -904,8 +871,7 @@ export class EditorMenuSystem {
   }
 
   showPanelMenu(clientX: number, clientY: number) {
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
+    this.hideTerrainContourSubmenu()
     this.hideNpcSubmenu()
     this.hideTerrainFillSubmenu()
     this.hideObjectTypeMenu()
@@ -935,20 +901,19 @@ export class EditorMenuSystem {
   showObjectTypeMenu(clientX: number, clientY: number) {
     this.hidePanelMenu()
     this.hideTerrainSubmenu()
+    this.hideTerrainContourSubmenu()
     this.hideTerrainFillSubmenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
     this.hideNpcSubmenu()
     this.setObjectTypeHighlight(null)
     this.objectTypeMenuX = clientX
     this.objectTypeMenuY = clientY
 
     this.editorObjectItems.forEach((item) => {
-      const type = item.dataset.type as ObjectType | undefined
+      const type = item.dataset.type as EditorObjectMenuType | undefined
       if (!type) {
         return
       }
-      if (type === 'player' || type === 'camera') {
+      if (type === ObjectType.Player || type === ObjectType.Camera) {
         if (this.ctx.hasObjectOfType(type)) {
           item.disabled = true
           item.classList.add('disabled')
@@ -971,9 +936,8 @@ export class EditorMenuSystem {
     this.objectTypeMenu.classList.remove('is-visible')
     this.setObjectTypeHighlight(null)
     this.hideTerrainSubmenu()
+    this.hideTerrainContourSubmenu()
     this.hideTerrainFillSubmenu()
-    this.hideGroundSubmenu()
-    this.hideObstacleSubmenu()
     this.hideWeaponMenu()
     this.hideNpcSubmenu()
     this.hidePropSubmenu()
@@ -989,7 +953,7 @@ export class EditorMenuSystem {
     this.positionTerrainSubmenu()
     this.terrainSubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Terrain, true)
-    this.setObjectTypeHighlight(ObjectType.Terrain)
+    this.setObjectTypeHighlight('terrainMaterial')
   }
 
   hideTerrainSubmenu() {
@@ -1017,36 +981,17 @@ export class EditorMenuSystem {
     }
   }
 
-  showGroundSubmenu() {
-    this.hideSiblingSubmenus(EditorSubmenuMode.Ground)
-    this.positionGroundSubmenu()
-    this.groundSubmenu.classList.add('is-visible')
-    this.menuNavigator.setMode(EditorSubmenuMode.Ground, true)
-    this.setObjectTypeHighlight(ObjectType.Ground)
+  showTerrainContourSubmenu() {
+    this.hideSiblingSubmenus(EditorSubmenuMode.TerrainContour)
+    this.positionTerrainContourSubmenu()
+    this.terrainContourSubmenu.classList.add('is-visible')
+    this.menuNavigator.setMode(EditorSubmenuMode.TerrainContour, true)
+    this.setObjectTypeHighlight('terrainContour')
   }
 
-  hideGroundSubmenu() {
-    this.groundSubmenu.classList.remove('is-visible')
-    if (this.menuMode === EditorSubmenuMode.Ground) {
-      if (this.objectTypeMenu.classList.contains('is-visible')) {
-        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
-      } else {
-        this.menuNavigator.setMode(EditorSubmenuMode.None, false)
-      }
-    }
-  }
-
-  showObstacleSubmenu() {
-    this.hideSiblingSubmenus(EditorSubmenuMode.Obstacle)
-    this.positionObstacleSubmenu()
-    this.obstacleSubmenu.classList.add('is-visible')
-    this.menuNavigator.setMode(EditorSubmenuMode.Obstacle, true)
-    this.setObjectTypeHighlight(ObjectType.Obstacle)
-  }
-
-  hideObstacleSubmenu() {
-    this.obstacleSubmenu.classList.remove('is-visible')
-    if (this.menuMode === EditorSubmenuMode.Obstacle) {
+  hideTerrainContourSubmenu() {
+    this.terrainContourSubmenu.classList.remove('is-visible')
+    if (this.menuMode === EditorSubmenuMode.TerrainContour) {
       if (this.objectTypeMenu.classList.contains('is-visible')) {
         this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
       } else {
@@ -1111,7 +1056,7 @@ export class EditorMenuSystem {
     this.positionPropSubmenu()
     this.propSubmenu.classList.add('is-visible')
     this.menuNavigator.setMode(EditorSubmenuMode.Prop, true)
-    this.setObjectTypeHighlight('prop' as ObjectType)
+    this.setObjectTypeHighlight('prop')
   }
 
   hidePropSubmenu() {
@@ -1133,12 +1078,11 @@ export class EditorMenuSystem {
     this.positionShapeSubmenu(this.terrainMenuItem, this.terrainSubmenu)
   }
 
-  positionGroundSubmenu() {
-    this.positionShapeSubmenu(this.groundMenuItem, this.groundSubmenu)
-  }
-
-  positionObstacleSubmenu() {
-    this.positionShapeSubmenu(this.obstacleMenuItem, this.obstacleSubmenu)
+  positionTerrainContourSubmenu() {
+    this.positionShapeSubmenu(
+      this.terrainContourMenuItem,
+      this.terrainContourSubmenu
+    )
   }
 
   positionWeaponMenu() {
@@ -1158,15 +1102,9 @@ export class EditorMenuSystem {
     }
     if (
       this.objectTypeMenu.classList.contains('is-visible') &&
-      this.groundSubmenu.classList.contains('is-visible')
+      this.terrainContourSubmenu.classList.contains('is-visible')
     ) {
-      this.positionGroundSubmenu()
-    }
-    if (
-      this.objectTypeMenu.classList.contains('is-visible') &&
-      this.obstacleSubmenu.classList.contains('is-visible')
-    ) {
-      this.positionObstacleSubmenu()
+      this.positionTerrainContourSubmenu()
     }
   }
 
@@ -1223,14 +1161,11 @@ export class EditorMenuSystem {
     if (exclude !== EditorSubmenuMode.Terrain) {
       this.hideTerrainSubmenu()
     }
+    if (exclude !== EditorSubmenuMode.TerrainContour) {
+      this.hideTerrainContourSubmenu()
+    }
     if (exclude !== EditorSubmenuMode.TerrainFill) {
       this.hideTerrainFillSubmenu()
-    }
-    if (exclude !== EditorSubmenuMode.Ground) {
-      this.hideGroundSubmenu()
-    }
-    if (exclude !== EditorSubmenuMode.Obstacle) {
-      this.hideObstacleSubmenu()
     }
     if (exclude !== EditorSubmenuMode.Weapon) {
       this.hideWeaponMenu()
@@ -1243,9 +1178,9 @@ export class EditorMenuSystem {
     }
   }
 
-  private setObjectTypeHighlight(type: ObjectType | null) {
+  private setObjectTypeHighlight(type: EditorObjectMenuType | null) {
     this.editorObjectItems.forEach((item) => {
-      const itemType = item.dataset.type as ObjectType | undefined
+      const itemType = item.dataset.type as EditorObjectMenuType | undefined
       if (type && itemType === type) {
         item.classList.add('is-selected')
       } else {

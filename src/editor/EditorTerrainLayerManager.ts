@@ -20,10 +20,17 @@ import {
   TERRAIN_DATA_VERSION,
   type TerrainBrushId,
   type TerrainContourLike,
+  type TerrainContourShapeKind,
   type TerrainLayerLike,
   type TerrainMaterialId,
 } from '../terrain/TerrainTypes'
 import { getVoronoiLayerBuild } from '../terrain/VoronoiBuilder'
+import {
+  CIRCLE_CONTOUR_POINT_DATA,
+  GROUND_RECT_OPTIONS,
+  POLYGON_POINT_DATA,
+  TRIANGLE_POINT_DATA,
+} from './EditorConstants'
 import {
   extractFilledCellLoops,
   getContourBounds,
@@ -37,6 +44,7 @@ import {
 import {
   type EditorLayeredObject,
   type EditorObjectData,
+  type GroundShapeType,
   ObjectType,
   type TerrainContourProxy,
   type TerrainRegionProxy,
@@ -59,6 +67,7 @@ interface EditorTerrainContour {
   points: number[]
   fillMaterialId: TerrainMaterialId | null
   renderLayer: number
+  shapeKind: TerrainContourShapeKind | null
   fillLayer: EditorTerrainLayer | null
   proxy: TerrainContourProxy
 }
@@ -68,6 +77,10 @@ export interface TerrainClipboardLayerSnapshot {
   offsetCellX: number
   offsetCellY: number
   chunks: MapTerrainLayer['chunks']
+}
+
+export interface TerrainSerializeOptions {
+  shareData?: boolean
 }
 
 interface EditorTerrainLayerManagerContext {
@@ -96,6 +109,60 @@ const TERRAIN_CONTOUR_EDGE_SELECT_DISTANCE_SQ = 196
 const TERRAIN_CONTOUR_SAMPLE_DISTANCE = 12
 const TERRAIN_CONTOUR_MIN_POINT_COUNT = 3
 const TERRAIN_CONTOUR_CELL_SAMPLE_COUNT = 5
+const TERRAIN_CONTOUR_RATIO_SCALE = 1024
+const TERRAIN_CONTOUR_STROKE_COLOR = 'rgba(245,208,96,0.92)'
+const TERRAIN_CONTOUR_IDLE_STROKE_COLOR = 'rgba(214,174,92,0.62)'
+const TERRAIN_CONTOUR_STROKE_WIDTH = 2
+
+function buildContourTemplateRatios(
+  offsets: ReadonlyArray<readonly [number, number]>
+): ReadonlyArray<readonly [number, number]> {
+  let minX = offsets[0][0]
+  let maxX = offsets[0][0]
+  let minY = offsets[0][1]
+  let maxY = offsets[0][1]
+  for (let i = 1; i < offsets.length; i++) {
+    const point = offsets[i]
+    if (point[0] < minX) {
+      minX = point[0]
+    }
+    if (point[0] > maxX) {
+      maxX = point[0]
+    }
+    if (point[1] < minY) {
+      minY = point[1]
+    }
+    if (point[1] > maxY) {
+      maxY = point[1]
+    }
+  }
+  const width = Math.max(1, maxX - minX)
+  const height = Math.max(1, maxY - minY)
+  const points = new Array<readonly [number, number]>(offsets.length)
+  for (let i = 0; i < offsets.length; i++) {
+    const point = offsets[i]
+    points[i] = [
+      Math.round(((point[0] - minX) * TERRAIN_CONTOUR_RATIO_SCALE) / width),
+      Math.round(((point[1] - minY) * TERRAIN_CONTOUR_RATIO_SCALE) / height),
+    ]
+  }
+  return points
+}
+
+const RECT_CONTOUR_TEMPLATE_POINTS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [TERRAIN_CONTOUR_RATIO_SCALE, 0],
+  [TERRAIN_CONTOUR_RATIO_SCALE, TERRAIN_CONTOUR_RATIO_SCALE],
+  [0, TERRAIN_CONTOUR_RATIO_SCALE],
+]
+
+const TRIANGLE_CONTOUR_TEMPLATE_POINTS =
+  buildContourTemplateRatios(TRIANGLE_POINT_DATA)
+const CIRCLE_CONTOUR_TEMPLATE_POINTS = buildContourTemplateRatios(
+  CIRCLE_CONTOUR_POINT_DATA
+)
+const POLYGON_CONTOUR_TEMPLATE_POINTS =
+  buildContourTemplateRatios(POLYGON_POINT_DATA)
 
 export class EditorTerrainLayerManager {
   private readonly ctx: EditorTerrainLayerManagerContext
@@ -480,35 +547,142 @@ export class EditorTerrainLayerManager {
     return layer.proxy
   }
 
+  createShapeContour(
+    shape: GroundShapeType,
+    centerX: number,
+    centerY: number
+  ): TerrainContourProxy | null {
+    const points = this.buildShapeContourPoints(
+      shape,
+      Math.round(centerX),
+      Math.round(centerY)
+    )
+    if (points.length < 6) {
+      return null
+    }
+    const contour = this.createContour(points[0], points[1])
+    contour.points.length = points.length
+    for (let i = 0; i < points.length; i++) {
+      contour.points[i] = points[i]
+    }
+    contour.shapeKind = shape
+    this.getSerializedContour(contour).shapeKind = shape
+    this.setActiveContour(contour)
+    this.refreshContourProxy(contour)
+    this.ctx.requestRender()
+    return contour.proxy
+  }
+
+  private buildShapeContourPoints(
+    shape: GroundShapeType,
+    centerX: number,
+    centerY: number
+  ): number[] {
+    if (shape === 'rect') {
+      const halfWidth = Math.round((GROUND_RECT_OPTIONS.width ?? 0) * 0.5)
+      const halfHeight = Math.round((GROUND_RECT_OPTIONS.height ?? 0) * 0.5)
+      return [
+        centerX - halfWidth,
+        centerY - halfHeight,
+        centerX + halfWidth,
+        centerY - halfHeight,
+        centerX + halfWidth,
+        centerY + halfHeight,
+        centerX - halfWidth,
+        centerY + halfHeight,
+      ]
+    }
+    if (shape === 'circle') {
+      return this.buildOffsetContourPoints(
+        CIRCLE_CONTOUR_POINT_DATA,
+        centerX,
+        centerY
+      )
+    }
+    if (shape === 'triangle') {
+      return this.buildOffsetContourPoints(
+        TRIANGLE_POINT_DATA,
+        centerX,
+        centerY
+      )
+    }
+    if (shape === 'polygon') {
+      return this.buildOffsetContourPoints(POLYGON_POINT_DATA, centerX, centerY)
+    }
+    return []
+  }
+
+  private buildOffsetContourPoints(
+    offsets: ReadonlyArray<readonly [number, number]>,
+    centerX: number,
+    centerY: number
+  ): number[] {
+    const points = new Array<number>(offsets.length * 2)
+    for (let i = 0; i < offsets.length; i++) {
+      const offset = offsets[i]
+      const baseIndex = i * 2
+      points[baseIndex] = centerX + offset[0]
+      points[baseIndex + 1] = centerY + offset[1]
+    }
+    return points
+  }
+
+  private getShapeTemplatePoints(
+    shapeKind: TerrainContourShapeKind
+  ): ReadonlyArray<readonly [number, number]> {
+    if (shapeKind === 'rect') {
+      return RECT_CONTOUR_TEMPLATE_POINTS
+    }
+    if (shapeKind === 'circle') {
+      return CIRCLE_CONTOUR_TEMPLATE_POINTS
+    }
+    if (shapeKind === 'triangle') {
+      return TRIANGLE_CONTOUR_TEMPLATE_POINTS
+    }
+    return POLYGON_CONTOUR_TEMPLATE_POINTS
+  }
+
   serialize(
     indexMap?: Map<fabric.Object, number>,
-    orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>
+    orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>,
+    options?: TerrainSerializeOptions
   ): MapTerrainData | undefined {
     if (this.layers.length === 0 && this.contours.length === 0) {
       return undefined
     }
+    const shareData = options?.shareData === true
     const orderedLayers = this.getOrderedLayers(orderedObjects)
-    const layers = new Array<MapTerrainLayer>(orderedLayers.length)
+    const layers: MapTerrainLayer[] = []
     for (let i = 0; i < orderedLayers.length; i++) {
       const layer = orderedLayers[i]
-      layers[i] = {
-        materialId: layer.materialId,
-        offsetCellX: layer.offsetCellX,
-        offsetCellY: layer.offsetCellY,
-        renderLayer: layer.serializedLayer.renderLayer,
+      const serializedLayer = layer.serializedLayer
+      layers.push({
+        materialId: serializedLayer.materialId ?? layer.materialId,
+        offsetCellX: serializedLayer.offsetCellX,
+        offsetCellY: serializedLayer.offsetCellY,
+        renderLayer: serializedLayer.renderLayer,
         contourId: layer.contourId > 0 ? layer.contourId : undefined,
-        chunks: layer.grid.serializeChunks(),
-      }
+        chunks: shareData
+          ? (serializedLayer.chunks as MapTerrainLayer['chunks'])
+          : layer.grid.serializeChunks(),
+      })
     }
     const orderedContours = this.getOrderedContours(orderedObjects)
     const contours =
       this.contours.length > 0
-        ? orderedContours.map<TerrainContourLike>((contour) => ({
-            id: contour.id,
-            points: contour.points.slice(),
-            fillMaterialId: contour.fillMaterialId ?? undefined,
-            renderLayer: contour.renderLayer,
-          }))
+        ? orderedContours.map<TerrainContourLike>((contour) => {
+            const serializedContour = this.getSerializedContour(contour)
+            if (shareData) {
+              return serializedContour
+            }
+            return {
+              id: serializedContour.id,
+              points: contour.points.slice(),
+              fillMaterialId: serializedContour.fillMaterialId,
+              renderLayer: serializedContour.renderLayer,
+              shapeKind: serializedContour.shapeKind,
+            }
+          })
         : undefined
     if (indexMap) {
       let terrainObjectIndex = 0
@@ -761,6 +935,9 @@ export class EditorTerrainLayerManager {
     if (!contour || contour.id !== this.selectedContourId) {
       return false
     }
+    if (contour.shapeKind) {
+      return false
+    }
     const point = canvas.getScenePoint(mouseEvent)
     const pointX = Math.round(point.x)
     const pointY = Math.round(point.y)
@@ -986,20 +1163,15 @@ export class EditorTerrainLayerManager {
       this.refreshContourProxy(contour)
       return {
         target,
-        actions: [
-          'remove',
-          'fill',
-          'commonProperties',
-          'rename',
-          'lock',
-          'delete',
-        ],
+        actions: contour.shapeKind
+          ? ['fill', 'commonProperties', 'rename', 'lock', 'delete']
+          : ['remove', 'fill', 'commonProperties', 'rename', 'lock', 'delete'],
         pointIndex,
         insertX: 0,
         insertY: 0,
       }
     }
-    if (edge) {
+    if (edge && !contour.shapeKind) {
       this.activeContourPointIndex = -1
       this.refreshContourProxy(contour)
       return {
@@ -1041,6 +1213,9 @@ export class EditorTerrainLayerManager {
     if (!contour) {
       return false
     }
+    if (contour.shapeKind) {
+      return false
+    }
     const pointCount = contour.points.length / 2
     if (pointIndex < 0 || pointIndex >= pointCount) {
       return false
@@ -1069,6 +1244,9 @@ export class EditorTerrainLayerManager {
     }
     const contour = this.proxyToContour.get(object)
     if (!contour) {
+      return false
+    }
+    if (contour.shapeKind) {
       return false
     }
     const pointCount = contour.points.length / 2
@@ -1340,6 +1518,39 @@ export class EditorTerrainLayerManager {
     const contour = this.proxyToContour.get(proxy)
     if (!contour) {
       return false
+    }
+    const scaleX = proxy.scaleX ?? 1
+    const scaleY = proxy.scaleY ?? 1
+    if (contour.shapeKind && (scaleX !== 1 || scaleY !== 1)) {
+      const previousPoints = contour.points.slice()
+      const currentLeft = Math.round(
+        proxy.left ?? proxy.terrainContourAnchorLeft
+      )
+      const currentTop = Math.round(proxy.top ?? proxy.terrainContourAnchorTop)
+      const nextWidth = Math.max(
+        1,
+        Math.round(proxy.terrainContourWidth * scaleX)
+      )
+      const nextHeight = Math.max(
+        1,
+        Math.round(proxy.terrainContourHeight * scaleY)
+      )
+      this.applyShapeTemplateToContour(
+        contour,
+        this.getShapeTemplatePoints(contour.shapeKind),
+        {
+          minX: currentLeft,
+          maxX: currentLeft + nextWidth,
+          minY: currentTop,
+          maxY: currentTop + nextHeight,
+        }
+      )
+      proxy.scaleX = 1
+      proxy.scaleY = 1
+      this.refreshContourProxy(contour)
+      this.applyContourFillDelta(contour, previousPoints)
+      this.ctx.requestRender()
+      return true
     }
     const currentLeft = Math.round(proxy.left ?? proxy.terrainContourAnchorLeft)
     const currentTop = Math.round(proxy.top ?? proxy.terrainContourAnchorTop)
@@ -1845,6 +2056,8 @@ export class EditorTerrainLayerManager {
     proxy.terrainContourId = contourId
     proxy.terrainContourAnchorLeft = startX
     proxy.terrainContourAnchorTop = startY
+    proxy.terrainContourWidth = 1
+    proxy.terrainContourHeight = 1
     ;(proxy as EditorLayeredObject).renderLayer =
       getDefaultTerrainRenderLayer('dirt')
     const contour: EditorTerrainContour = {
@@ -1852,6 +2065,7 @@ export class EditorTerrainLayerManager {
       points: [startX, startY],
       fillMaterialId: null,
       renderLayer: getDefaultTerrainRenderLayer('dirt'),
+      shapeKind: null,
       fillLayer: null,
       proxy,
     }
@@ -1891,6 +2105,9 @@ export class EditorTerrainLayerManager {
       contour.points[i] = source.points[i] | 0
     }
     contour.fillMaterialId = source.fillMaterialId ?? null
+    contour.shapeKind = this.isSupportedShapeKind(source.shapeKind)
+      ? source.shapeKind
+      : null
     contour.renderLayer =
       typeof source.renderLayer === 'number'
         ? source.renderLayer | 0
@@ -1903,6 +2120,7 @@ export class EditorTerrainLayerManager {
     serializedContour.id = contour.id
     serializedContour.fillMaterialId = contour.fillMaterialId ?? undefined
     serializedContour.renderLayer = contour.renderLayer
+    serializedContour.shapeKind = contour.shapeKind ?? undefined
     ;(contour.proxy as EditorLayeredObject).renderLayer = contour.renderLayer
     contour.proxy.terrainContourId = contour.id
     this.refreshContourProxy(contour)
@@ -1925,9 +2143,21 @@ export class EditorTerrainLayerManager {
       points: contour.points,
       fillMaterialId: contour.fillMaterialId ?? undefined,
       renderLayer: contour.renderLayer,
+      shapeKind: contour.shapeKind ?? undefined,
     }
     this.renderData.contours.push(serializedContour)
     return serializedContour
+  }
+
+  private isSupportedShapeKind(
+    shapeKind: string | undefined
+  ): shapeKind is TerrainContourShapeKind {
+    return (
+      shapeKind === 'rect' ||
+      shapeKind === 'triangle' ||
+      shapeKind === 'circle' ||
+      shapeKind === 'polygon'
+    )
   }
 
   private buildGeneratedContourName(): string {
@@ -1973,7 +2203,12 @@ export class EditorTerrainLayerManager {
     const children: fabric.Object[] = []
     const showContourGuides =
       (this.contourEditMode && contour.id === this.activeContourId) ||
-      (!this.contourEditMode && contour.id === this.selectedContourId)
+      (!this.contourEditMode &&
+        contour.id === this.selectedContourId &&
+        !contour.shapeKind)
+    const contourStroke = showContourGuides
+      ? TERRAIN_CONTOUR_STROKE_COLOR
+      : TERRAIN_CONTOUR_IDLE_STROKE_COLOR
     const relativePoints = new Array<fabric.Point>(contour.points.length / 2)
     for (let i = 0; i < contour.points.length; i += 2) {
       relativePoints[i / 2] = new fabric.Point(
@@ -1989,8 +2224,8 @@ export class EditorTerrainLayerManager {
           originX: 'left',
           originY: 'top',
           fill: 'rgba(255,255,255,0.001)',
-          stroke: showContourGuides ? 'rgba(245,208,96,0.92)' : 'rgba(0,0,0,0)',
-          strokeWidth: showContourGuides ? 2 : 0,
+          stroke: contourStroke,
+          strokeWidth: TERRAIN_CONTOUR_STROKE_WIDTH,
           selectable: false,
           evented: false,
           objectCaching: false,
@@ -2004,8 +2239,8 @@ export class EditorTerrainLayerManager {
           originX: 'left',
           originY: 'top',
           fill: 'transparent',
-          stroke: showContourGuides ? 'rgba(245,208,96,0.92)' : 'rgba(0,0,0,0)',
-          strokeWidth: showContourGuides ? 2 : 0,
+          stroke: contourStroke,
+          strokeWidth: TERRAIN_CONTOUR_STROKE_WIDTH,
           selectable: false,
           evented: false,
           objectCaching: false,
@@ -2049,6 +2284,8 @@ export class EditorTerrainLayerManager {
     proxy.terrainContourId = contour.id
     proxy.terrainContourAnchorLeft = bounds.minX
     proxy.terrainContourAnchorTop = bounds.minY
+    proxy.terrainContourWidth = bounds.width
+    proxy.terrainContourHeight = bounds.height
     proxy.left = bounds.minX
     proxy.top = bounds.minY
     ;(proxy as EditorLayeredObject).renderLayer = contour.renderLayer
@@ -2060,11 +2297,15 @@ export class EditorTerrainLayerManager {
     proxy: TerrainContourProxy,
     enabled: boolean
   ): void {
+    const contour = this.proxyToContour.get(proxy) ?? null
+    const isShapeContour = contour?.shapeKind !== null
     if (this.contourEditMode) {
       proxy.selectable = false
       proxy.evented = true
       proxy.hasBorders = false
       proxy.hasControls = false
+      proxy.lockScalingX = true
+      proxy.lockScalingY = true
       proxy.hoverCursor = 'default'
       proxy.moveCursor = 'default'
       return
@@ -2072,7 +2313,11 @@ export class EditorTerrainLayerManager {
     proxy.selectable = enabled
     proxy.evented = enabled
     proxy.hasBorders = enabled
-    proxy.hasControls = false
+    proxy.hasControls = enabled && isShapeContour
+    proxy.lockScalingFlip = true
+    proxy.lockRotation = true
+    proxy.lockScalingX = !(enabled && isShapeContour)
+    proxy.lockScalingY = !(enabled && isShapeContour)
     proxy.hoverCursor = 'default'
     proxy.moveCursor = enabled ? 'move' : 'default'
   }
@@ -2086,10 +2331,139 @@ export class EditorTerrainLayerManager {
     if (pointIndex < 0 || pointIndex * 2 + 1 >= contour.points.length) {
       return
     }
+    if (contour.shapeKind) {
+      this.moveConstrainedContourPoint(contour, pointIndex, pointX, pointY)
+      return
+    }
     contour.points[pointIndex * 2] = pointX
     contour.points[pointIndex * 2 + 1] = pointY
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
+  }
+
+  private moveConstrainedContourPoint(
+    contour: EditorTerrainContour,
+    pointIndex: number,
+    pointX: number,
+    pointY: number
+  ): void {
+    if (!contour.shapeKind) {
+      return
+    }
+    const bounds = getContourBounds(contour.points)
+    if (!bounds) {
+      return
+    }
+    const templatePoints = this.getShapeTemplatePoints(contour.shapeKind)
+    if (pointIndex >= templatePoints.length) {
+      return
+    }
+    const templatePoint = templatePoints[pointIndex]
+    const nextBounds = this.computeConstrainedBoundsFromPoint(
+      bounds.minX,
+      bounds.maxX,
+      bounds.minY,
+      bounds.maxY,
+      templatePoint[0],
+      templatePoint[1],
+      pointX,
+      pointY
+    )
+    this.applyShapeTemplateToContour(contour, templatePoints, nextBounds)
+    this.refreshContourProxy(contour)
+    this.ctx.requestRender()
+  }
+
+  private computeConstrainedBoundsFromPoint(
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number,
+    xRatio: number,
+    yRatio: number,
+    pointX: number,
+    pointY: number
+  ): {
+    minX: number
+    maxX: number
+    minY: number
+    maxY: number
+  } {
+    const nextX = this.resolveConstrainedAxis(minX, maxX, xRatio, pointX)
+    const nextY = this.resolveConstrainedAxis(minY, maxY, yRatio, pointY)
+    return {
+      minX: nextX.min,
+      maxX: nextX.max,
+      minY: nextY.min,
+      maxY: nextY.max,
+    }
+  }
+
+  private resolveConstrainedAxis(
+    min: number,
+    max: number,
+    ratio: number,
+    target: number
+  ): { min: number; max: number } {
+    if (ratio <= 0) {
+      const nextMin = Math.min(target, max - 1)
+      return { min: nextMin, max }
+    }
+    if (ratio >= TERRAIN_CONTOUR_RATIO_SCALE) {
+      const nextMax = Math.max(target, min + 1)
+      return { min, max: nextMax }
+    }
+    if (ratio === TERRAIN_CONTOUR_RATIO_SCALE / 2) {
+      const size = Math.max(1, max - min)
+      const currentCenter = Math.round((min + max) * 0.5)
+      const delta = target - currentCenter
+      return {
+        min: min + delta,
+        max: min + delta + size,
+      }
+    }
+    if (ratio < TERRAIN_CONTOUR_RATIO_SCALE / 2) {
+      const denominator = TERRAIN_CONTOUR_RATIO_SCALE - ratio
+      const nextMin = Math.round(
+        (target * TERRAIN_CONTOUR_RATIO_SCALE - max * ratio) / denominator
+      )
+      return {
+        min: Math.min(nextMin, max - 1),
+        max,
+      }
+    }
+    const nextMax = Math.round(
+      min + ((target - min) * TERRAIN_CONTOUR_RATIO_SCALE) / ratio
+    )
+    return {
+      min,
+      max: Math.max(nextMax, min + 1),
+    }
+  }
+
+  private applyShapeTemplateToContour(
+    contour: EditorTerrainContour,
+    templatePoints: ReadonlyArray<readonly [number, number]>,
+    bounds: {
+      minX: number
+      maxX: number
+      minY: number
+      maxY: number
+    }
+  ): void {
+    const width = Math.max(1, bounds.maxX - bounds.minX)
+    const height = Math.max(1, bounds.maxY - bounds.minY)
+    contour.points.length = templatePoints.length * 2
+    for (let i = 0; i < templatePoints.length; i++) {
+      const templatePoint = templatePoints[i]
+      const baseIndex = i * 2
+      contour.points[baseIndex] =
+        bounds.minX +
+        Math.round((width * templatePoint[0]) / TERRAIN_CONTOUR_RATIO_SCALE)
+      contour.points[baseIndex + 1] =
+        bounds.minY +
+        Math.round((height * templatePoint[1]) / TERRAIN_CONTOUR_RATIO_SCALE)
+    }
   }
 
   private ensureContourFillLayer(
@@ -2372,6 +2746,8 @@ export class EditorTerrainLayerManager {
     for (let i = 0; i < nextPoints.length; i++) {
       contour.points[i] = nextPoints[i]
     }
+    contour.shapeKind = null
+    this.getSerializedContour(contour).shapeKind = undefined
     this.refreshContourProxy(contour)
     return true
   }

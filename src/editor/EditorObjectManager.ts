@@ -13,6 +13,7 @@ export interface EditorObjectManagerContext {
   onObjectRemoved: (object: fabric.Object) => void
   onSelectionChanged: (object: fabric.Object | null) => void
   onBringToFront: (object: fabric.Object) => void
+  isPriorityBringToFrontObject: (object: fabric.Object) => boolean
   renderObjectTree: () => void
 }
 
@@ -186,7 +187,11 @@ export class EditorObjectManager {
       this.focusedEditorObject.canvas === canvas
     ) {
       const focusedData = this.editorObjectMap.get(this.focusedEditorObject)
-      if (focusedData?.type !== ObjectType.Terrain) {
+      if (
+        focusedData &&
+        (focusedData.type !== ObjectType.Terrain ||
+          this.ctx.isPriorityBringToFrontObject(this.focusedEditorObject))
+      ) {
         this.bringFocusedObjectToFront(this.focusedEditorObject)
       }
     }

@@ -115,6 +115,27 @@ export const POLYGON_POINT_DATA: ReadonlyArray<readonly [number, number]> = [
   [-80, 60],
 ]
 
+export const CIRCLE_CONTOUR_POINT_DATA: ReadonlyArray<
+  readonly [number, number]
+> = [
+  [0, -60],
+  [23, -55],
+  [42, -42],
+  [55, -23],
+  [60, 0],
+  [55, 23],
+  [42, 42],
+  [23, 55],
+  [0, 60],
+  [-23, 55],
+  [-42, 42],
+  [-55, 23],
+  [-60, 0],
+  [-55, -23],
+  [-42, -42],
+  [-23, -55],
+]
+
 export const GROUND_TRIANGLE_OPTIONS: PolygonOptions = {
   ...BASE_SHAPE_OPTIONS,
   fill: GROUND_FILL_COLOR,

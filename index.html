@@ -1177,15 +1177,11 @@
                   <button class="editor-object-item" data-type="prop"></button>
                   <button
                     class="editor-object-item"
-                    data-type="terrain"
+                    data-type="terrainMaterial"
                   ></button>
                   <button
                     class="editor-object-item"
-                    data-type="ground"
-                  ></button>
-                  <button
-                    class="editor-object-item"
-                    data-type="obstacle"
+                    data-type="terrainContour"
                   ></button>
                   <button
                     class="editor-object-item editor-submenu-back"
@@ -1248,10 +1244,6 @@
                   class="editor-submenu-item"
                   data-brush="leaves"
                 ></button>
-                <button
-                  class="editor-submenu-item"
-                  data-brush="contour"
-                ></button>
                 <button class="editor-submenu-item" data-brush="erase"></button>
                 <button
                   class="editor-submenu-item editor-submenu-back"
@@ -1284,26 +1276,11 @@
                   data-action="back"
                 ></button>
               </div>
-              <div id="editorGroundSubmenu" class="editor-submenu">
-                <button class="editor-submenu-item" data-shape="rect"></button>
+              <div id="editorTerrainContourSubmenu" class="editor-submenu">
                 <button
                   class="editor-submenu-item"
-                  data-shape="triangle"
+                  data-contour-mode="draw"
                 ></button>
-                <button
-                  class="editor-submenu-item"
-                  data-shape="circle"
-                ></button>
-                <button
-                  class="editor-submenu-item"
-                  data-shape="polygon"
-                ></button>
-                <button
-                  class="editor-submenu-item editor-submenu-back"
-                  data-action="back"
-                ></button>
-              </div>
-              <div id="editorObstacleSubmenu" class="editor-submenu">
                 <button class="editor-submenu-item" data-shape="rect"></button>
                 <button
                   class="editor-submenu-item"

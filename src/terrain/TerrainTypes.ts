@@ -17,6 +17,8 @@ export type TerrainBrushId =
   | 'contour'
   | 'erase'
 
+export type TerrainContourShapeKind = 'rect' | 'triangle' | 'circle' | 'polygon'
+
 export interface TerrainMaterialDefinition {
   id: TerrainMaterialId
   code: number
@@ -41,6 +43,7 @@ export interface TerrainContourLike {
   points: number[]
   fillMaterialId?: TerrainMaterialId
   renderLayer?: number
+  shapeKind?: TerrainContourShapeKind
 }
 
 export interface TerrainChunkLike {

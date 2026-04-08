@@ -23,7 +23,9 @@ export class EditorThumbnailCapture {
   }
 
   async capture(): Promise<string | null> {
-    const data = this.ctx.mapSerializer.serializeCurrentMapData()
+    const data = this.ctx.mapSerializer.serializeCurrentMapData({
+      shareTerrainData: true,
+    })
     return this.captureMap(data)
   }
 

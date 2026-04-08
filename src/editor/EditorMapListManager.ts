@@ -281,7 +281,9 @@ export class EditorMapListManager {
   }
 
   public async handlePreview() {
-    const data = this.context.mapSerializer.serializeCurrentMapData()
+    const data = this.context.mapSerializer.serializeCurrentMapData({
+      shareTerrainData: true,
+    })
     const meta = this.currentMapMeta ?? {
       id: 'preview',
       name: 'preview',

@@ -127,6 +127,8 @@ export type TerrainContourProxy = fabric.Group & {
   terrainContourId: number
   terrainContourAnchorLeft: number
   terrainContourAnchorTop: number
+  terrainContourWidth: number
+  terrainContourHeight: number
 }
 
 export type EditorLayeredObject = fabric.Object & {

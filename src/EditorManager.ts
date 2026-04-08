@@ -41,7 +41,10 @@ import { EditorHistoryManager } from './editor/EditorHistoryManager'
 import { EditorMapListManager } from './editor/EditorMapListManager'
 import { EditorMapSerializer } from './editor/EditorMapSerializer'
 import { EditorMarkerManager } from './editor/EditorMarkerManager'
-import { EditorMenuSystem } from './editor/EditorMenuSystem'
+import {
+  EditorMenuSystem,
+  type EditorObjectMenuType,
+} from './editor/EditorMenuSystem'
 import { EditorObjectFactory } from './editor/EditorObjectFactory'
 import { EditorObjectManager } from './editor/EditorObjectManager'
 import { EditorObjectTreeManager } from './editor/EditorObjectTreeManager'
@@ -88,7 +91,6 @@ import type {
   EditorViewportState,
   MapNpcTemplate,
   MapNpcWeapon,
-  MapPlacedShape,
   MapWeapon,
   WeaponCategory,
 } from './editorMapTypes'
@@ -299,6 +301,8 @@ export class EditorManager {
           }
         }
       },
+      isPriorityBringToFrontObject: (obj) =>
+        this.terrainManager.isTerrainContourProxy(obj),
       renderObjectTree: () => this.renderObjectTree(),
     })
 
@@ -402,7 +406,6 @@ export class EditorManager {
       clearEditorScene: () => this.clearEditorScene(),
 
       markerManager: this.markerManager,
-      shapeManager: this.shapeManager,
       terrainManager: this.terrainManager,
 
       spawnCameraViewFrame: (camera) =>
@@ -414,17 +417,6 @@ export class EditorManager {
       getCameraViews: () => this.cameraManager.getCameraViews(),
       getPlayerMarkerData: () => this.markerManager.getPlayerMarkerData(),
       getEditorObjects: () => this.objectManager.getEditorObjects(),
-      getPolygonScratchPoint: () => this.polygonEditor.getScratchPoint(),
-      applyTransform: this.polygonEditor.applyTransform.bind(
-        this.polygonEditor
-      ),
-      setupEditablePolygon: (polygon) => this.setupEditablePolygon(polygon),
-      registerEditorObject: (type, obj) =>
-        this.objectManager.registerEditorObject(type, obj),
-      applyGroundPatternToObject: (obj) =>
-        this.patternManager.applyGroundPatternToObject(obj),
-      applyObstaclePatternToObject: (obj) =>
-        this.patternManager.applyObstaclePatternToObject(obj),
       getFactions: () => this.factions,
       setFactions: (factions) => {
         this.factions = factions
@@ -620,22 +612,24 @@ export class EditorManager {
       onTerrainFillSelected: (materialId) => {
         this.handleTerrainContourFillSelected(materialId)
       },
-      onGroundShapeSelected: (shape) => {
-        const spawn = this.consumePanelMenuSpawn()
-        if (spawn) {
-          this.shapeManager.createGroundShape(shape, spawn.x, spawn.y)
-        } else {
-          this.shapeManager.createGroundShape(shape)
-        }
-        this.captureHistorySnapshot()
+      onTerrainContourDrawSelected: () => {
+        this.terrainBrushController.selectBrush('contour')
+        this.setActiveObjectType(ObjectType.Terrain)
       },
-      onObstacleShapeSelected: (shape) => {
+      onTerrainContourShapeSelected: (shape) => {
         const spawn = this.consumePanelMenuSpawn()
-        if (spawn) {
-          this.shapeManager.createObstacleShape(shape, spawn.x, spawn.y)
-        } else {
-          this.shapeManager.createObstacleShape(shape)
+        const center = spawn ?? this.getViewportCenter()
+        const contourProxy = this.terrainManager.createShapeContour(
+          shape,
+          center.x,
+          center.y
+        )
+        if (!contourProxy) {
+          return
         }
+        this.fabricCanvas?.setActiveObject(contourProxy)
+        this.objectManager.handleCanvasSelection([contourProxy])
+        this.fabricCanvas?.requestRenderAll()
         this.captureHistorySnapshot()
       },
       onWeaponSelected: (weaponType, category, size) => {
@@ -1030,7 +1024,7 @@ export class EditorManager {
   // OBJECT LIFECYCLE
   // ========================================
 
-  private handleObjectClick(type: ObjectType) {
+  private handleObjectClick(type: EditorObjectMenuType) {
     this.menuSystem.hidePanelMenu()
 
     if (type === ObjectType.Empty) {
@@ -1053,22 +1047,16 @@ export class EditorManager {
       return
     }
 
-    if (type === ObjectType.Ground) {
-      this.setActiveObjectType(ObjectType.Ground)
-      this.hideAllSubmenus()
-      this.menuSystem.showGroundSubmenu()
-      return
-    }
-    if (type === ObjectType.Terrain) {
+    if (type === 'terrainMaterial') {
       this.setActiveObjectType(ObjectType.Terrain)
       this.hideAllSubmenus()
       this.menuSystem.showTerrainSubmenu()
       return
     }
-    if (type === ObjectType.Obstacle) {
-      this.setActiveObjectType(ObjectType.Obstacle)
+    if (type === 'terrainContour') {
+      this.setActiveObjectType(ObjectType.Terrain)
       this.hideAllSubmenus()
-      this.menuSystem.showObstacleSubmenu()
+      this.menuSystem.showTerrainContourSubmenu()
       return
     }
 
@@ -1162,6 +1150,11 @@ export class EditorManager {
         this.markerManager.spawnHookAnchorMarker()
       }
       this.captureHistorySnapshot()
+      return
+    }
+
+    if (type === 'prop') {
+      this.setActiveObjectType(null)
       return
     }
 
@@ -1972,7 +1965,9 @@ export class EditorManager {
   }
 
   private async saveCurrentMap(): Promise<boolean> {
-    const data = this.mapSerializer.serializeCurrentMapData()
+    const data = this.mapSerializer.serializeCurrentMapData({
+      shareTerrainData: true,
+    })
     const meta = await this.mapListManager.ensureMapMeta(data)
     if (!meta) {
       return false
@@ -2010,7 +2005,9 @@ export class EditorManager {
   }
 
   private async persistCurrentMapDataSilently(): Promise<boolean> {
-    const data = this.mapSerializer.serializeCurrentMapData()
+    const data = this.mapSerializer.serializeCurrentMapData({
+      shareTerrainData: true,
+    })
     const meta = await this.mapListManager.ensureMapMeta(data)
     if (!meta) {
       return false
@@ -2062,7 +2059,6 @@ export class EditorManager {
       return
     }
 
-    const shapeObjects: EditorObjectData[] = []
     const terrainObjects: EditorObjectData[] = []
     const npcObjects: EditorObjectData[] = []
     const weaponObjects: EditorObjectData[] = []
@@ -2074,12 +2070,7 @@ export class EditorManager {
 
     for (let i = 0; i < editorObjects.length; i++) {
       const dataItem = editorObjects[i]
-      if (
-        dataItem.type === ObjectType.Ground ||
-        dataItem.type === ObjectType.Obstacle
-      ) {
-        shapeObjects.push(dataItem)
-      } else if (dataItem.type === ObjectType.Terrain) {
+      if (dataItem.type === ObjectType.Terrain) {
         terrainObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Npc) {
         npcObjects.push(dataItem)
@@ -2115,10 +2106,6 @@ export class EditorManager {
             group
           )
         }
-      } else if (node.type === 'ground' || node.type === 'obstacle') {
-        const index = node.index ?? -1
-        resolvedData =
-          index >= 0 && index < shapeObjects.length ? shapeObjects[index] : null
       } else if (node.type === 'terrain') {
         const index = node.index ?? -1
         resolvedData =

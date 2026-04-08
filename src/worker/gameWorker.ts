@@ -112,7 +112,6 @@ import {
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
 } from '../physicsLayers'
-import { normalizeRenderLayer } from '../renderLayers'
 import type {
   SaveCheckpointState,
   SaveData,
@@ -310,10 +309,6 @@ function getSunPickupRenderLayer(index: number, isLarge: boolean): number {
       : activeMapLayerLookup.sunPickupSmallLayers,
     index
   )
-}
-
-function getPlacedShapeRenderLayer(placed: MapPlacedShape): number {
-  return normalizeRenderLayer(placed.renderLayer, 0)
 }
 
 // Helper for color parsing (simple cache)
@@ -1063,45 +1058,9 @@ function createEnvironment(): void {
 }
 
 function createEnvironmentFromMap(map: EditorMapData): void {
-  const explicitGroundLayers: number[] = []
-  for (let i = 0; i < map.shapes.length; i++) {
-    const placed = map.shapes[i]
-    if (placed.objectKind !== 'ground') continue
-    const renderLayer = getPlacedShapeRenderLayer(placed)
-    let exists = false
-    for (let j = 0; j < explicitGroundLayers.length; j++) {
-      if (explicitGroundLayers[j] === renderLayer) {
-        exists = true
-        break
-      }
-    }
-    if (!exists) {
-      explicitGroundLayers.push(renderLayer)
-    }
-  }
   const terrain = map.terrain
   if (terrain && hasTerrainContent(terrain)) {
     createTerrainFromMap(terrain)
-  }
-  for (let i = 0; i < map.shapes.length; i++) {
-    const placed = map.shapes[i]
-    const renderLayer = getPlacedShapeRenderLayer(placed)
-    if (placed.objectKind === 'ground') {
-      createGroundShapeFromMap(placed)
-      registerStandableSurfaceFromPlacedShape(placed, 'ground', renderLayer)
-    } else {
-      createObstacleShapeFromMap(placed)
-      let hasExplicitGround = false
-      for (let j = 0; j < explicitGroundLayers.length; j++) {
-        if (explicitGroundLayers[j] === renderLayer) {
-          hasExplicitGround = true
-          break
-        }
-      }
-      if (!hasExplicitGround) {
-        registerStandableSurfaceFromPlacedShape(placed, 'obstacle', renderLayer)
-      }
-    }
   }
 }
 
@@ -1432,148 +1391,6 @@ function dropNpcConfiguredLoot(entity: Entity): void {
   }
 }
 
-function createGroundShapeFromMap(placed: MapPlacedShape): void {
-  createStaticShapeFromMap(
-    placed,
-    getPlacedShapeRenderLayer(placed),
-    'ground',
-    groundFriction,
-    false
-  )
-}
-
-function createObstacleShapeFromMap(placed: MapPlacedShape): void {
-  createStaticShapeFromMap(
-    placed,
-    getPlacedShapeRenderLayer(placed),
-    'obstacle',
-    obstacleFriction,
-    true
-  )
-}
-
-function registerStandableSurfaceFromPlacedShape(
-  placed: MapPlacedShape,
-  materialTag: TerrainMaterialTag,
-  renderLayer: number
-): void {
-  const shape = placed.shape
-  if (shape.kind === 'rect') {
-    const worldVertices =
-      Math.abs(shape.rotationRad) > 0.0001
-        ? computeRectWorldVertices(
-            shape.center.x,
-            shape.center.y,
-            shape.halfWidth,
-            shape.halfHeight,
-            shape.rotationRad
-          )
-        : undefined
-    standableSurfaces.push({
-      bodyId: 0 as unknown as b2BodyId,
-      centerX: shape.center.x,
-      centerY: shape.center.y,
-      width: shape.halfWidth,
-      height: shape.halfHeight,
-      renderLayer,
-      materialTag,
-      worldVertices,
-    })
-    return
-  }
-
-  if (shape.kind === 'circle') {
-    standableSurfaces.push({
-      bodyId: 0 as unknown as b2BodyId,
-      centerX: shape.center.x,
-      centerY: shape.center.y,
-      width: shape.radius,
-      height: shape.radius,
-      renderLayer,
-      materialTag,
-      radius: shape.radius,
-    })
-    return
-  }
-
-  if (shape.points.length < 6) return
-
-  let minX = shape.points[0]
-  let maxX = shape.points[0]
-  let minY = shape.points[1]
-  let maxY = shape.points[1]
-  const worldVertices: { x: number; y: number }[] = []
-  for (let i = 0; i < shape.points.length; i += 2) {
-    const worldX = shape.points[i]
-    const worldY = shape.points[i + 1]
-    if (worldX < minX) minX = worldX
-    if (worldX > maxX) maxX = worldX
-    if (worldY < minY) minY = worldY
-    if (worldY > maxY) maxY = worldY
-    worldVertices.push({ x: worldX, y: worldY })
-  }
-
-  standableSurfaces.push({
-    bodyId: 0 as unknown as b2BodyId,
-    centerX: shape.center.x,
-    centerY: shape.center.y,
-    width: (maxX - minX) / 2,
-    height: (maxY - minY) / 2,
-    renderLayer,
-    materialTag,
-    worldVertices,
-  })
-}
-
-function createStaticShapeFromMap(
-  placed: MapPlacedShape,
-  renderLayer: number,
-  materialTag: TerrainMaterialTag,
-  friction: number,
-  shouldRegisterObstacle: boolean
-): void {
-  const shape = placed.shape
-  if (shape.kind === 'rect') {
-    const rectResult = createStaticRectBody(
-      shape.center.x,
-      shape.center.y,
-      shape.halfWidth,
-      shape.halfHeight,
-      shape.rotationRad,
-      renderLayer,
-      materialTag,
-      friction
-    )
-    if (shouldRegisterObstacle) {
-      registerObstacleFromRect(shape, rectResult, renderLayer)
-    }
-    return
-  }
-  if (shape.kind === 'circle') {
-    const circleResult = createStaticCircleBody(
-      shape.center.x,
-      shape.center.y,
-      shape.radius,
-      renderLayer,
-      materialTag,
-      friction
-    )
-    if (shouldRegisterObstacle) {
-      registerObstacleFromCircle(shape, circleResult, renderLayer)
-    }
-    return
-  }
-  if (shape.kind === 'polygon') {
-    registerPolygonShape(
-      shape,
-      renderLayer,
-      materialTag,
-      friction,
-      shouldRegisterObstacle
-    )
-  }
-}
-
 function createStaticRectBody(
   centerX: number,
   centerY: number,
@@ -1620,51 +1437,6 @@ function createStaticRectBody(
   return { bodyId, shapeId }
 }
 
-function createStaticCircleBody(
-  centerX: number,
-  centerY: number,
-  radius: number,
-  renderLayer: number,
-  materialTag: TerrainMaterialTag,
-  friction: number
-): { bodyId: b2BodyId; shapeId: b2ShapeId } {
-  const {
-    b2DefaultBodyDef,
-    b2CreateBody,
-    b2Circle,
-    b2DefaultShapeDef,
-    b2CreateCircleShape,
-  } = box2d
-
-  const bodyDef = b2DefaultBodyDef()
-  bodyDef.position.Set(centerX, centerY)
-  const bodyId = b2CreateBody(worldId, bodyDef)
-
-  const circle = new b2Circle()
-  circle.center.Set(0, 0)
-  circle.radius = radius
-  const shapeDef = b2DefaultShapeDef()
-  shapeDef.material.friction = friction
-  shapeDef.material.restitution = 0
-  const isGround = materialTag === 'ground'
-  shapeDef.filter.categoryBits = isGround
-    ? getGroundCollisionCategory(renderLayer)
-    : getObstacleCollisionCategory(renderLayer)
-  shapeDef.filter.maskBits = isGround
-    ? getGroundCollisionMask(renderLayer)
-    : getObstacleCollisionMask(renderLayer)
-  const shapeId = b2CreateCircleShape(bodyId, shapeDef, circle)
-  if (isGround) {
-    groundShapeIds.push(shapeId)
-  }
-
-  circle.delete()
-  bodyDef.delete()
-  shapeDef.delete()
-
-  return { bodyId, shapeId }
-}
-
 function registerObstacleFromRect(
   shape: Extract<MapPlacedShape['shape'], { kind: 'rect' }>,
   result: { bodyId: b2BodyId; shapeId: b2ShapeId },
@@ -1706,38 +1478,6 @@ function registerObstacleFromRect(
     renderLayer,
     materialTag,
     worldVertices,
-  })
-}
-
-function registerObstacleFromCircle(
-  shape: Extract<MapPlacedShape['shape'], { kind: 'circle' }>,
-  result: { bodyId: b2BodyId; shapeId: b2ShapeId },
-  renderLayer: number,
-  materialTag: TerrainMaterialTag = 'obstacle'
-): void {
-  const radius = shape.radius
-  const centerX = shape.center.x
-  const centerY = shape.center.y
-  const cap = createObstacleCapRect(
-    centerX,
-    centerY,
-    radius,
-    radius,
-    0,
-    renderLayer
-  )
-  obstacles.push({
-    bodyId: result.bodyId,
-    mainShapeId: result.shapeId,
-    capBodyId: cap.capBodyId,
-    capShapeId: cap.capShapeId,
-    centerX,
-    centerY,
-    width: radius,
-    height: radius,
-    renderLayer,
-    materialTag,
-    radius,
   })
 }
 

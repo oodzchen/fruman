@@ -1,7 +1,6 @@
 import {
   Application,
   Container,
-  FillPattern,
   type Graphics,
   Matrix,
   Text,
@@ -20,7 +19,6 @@ import { collectStaticRenderLayers } from './mapObjectLayers'
 import { PatternCreator } from './renderer/PatternCreator'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
-import { ShapeRenderer } from './renderer/ShapeRenderer'
 import type { SaveData } from './saveTypes'
 import { getDefaultMap } from './storage'
 import { hasTerrainContent } from './terrain/TerrainDataUtils'
@@ -56,7 +54,6 @@ export class GameClient {
   private worldRenderContext: PixiRenderContext2D
   private hudRenderContext: PixiRenderContext2D
   private staticTerrainGraphics: Graphics[] = []
-  private staticShapeGraphics: Graphics[] = []
   private readonly reusableDOMMatrix = new DOMMatrix()
   private readonly reusablePixiMatrix = new Matrix()
   private worldRenderer: PixiWorldRenderer
@@ -154,10 +151,6 @@ export class GameClient {
   private boundHandleAutoFocusPointerDown: (event: PointerEvent) => void
   private boundHandleAutoFocusIn: (event: FocusEvent) => void
   private focusOptions: FocusOptions = { preventScroll: true }
-
-  // Canvas2D patterns for world canvas
-  private groundPattern: FillPattern | null = null
-  private obstaclePattern: FillPattern | null = null
 
   private editorPreview = false
   private currentMapData: EditorMapData | null = null
@@ -315,15 +308,6 @@ export class GameClient {
     this.fpsTextEl.anchor.set(1, 0)
     this.fpsTextEl.position.set(width - 10, 10)
     this.hudContainer.addChild(this.fpsTextEl)
-
-    const groundTexture = PatternCreator.createGroundTexture()
-    this.groundPattern = groundTexture
-      ? new FillPattern(groundTexture, 'repeat')
-      : null
-    const obstacleTexture = PatternCreator.createObstacleTexture()
-    this.obstaclePattern = obstacleTexture
-      ? new FillPattern(obstacleTexture, 'repeat')
-      : null
 
     // Renderer + managers
     this.renderer = new ClientRenderer(
@@ -1621,8 +1605,6 @@ export class GameClient {
   private rebuildStaticScene(): void {
     this.destroyStaticGraphics(this.staticTerrainGraphics)
     this.staticTerrainGraphics.length = 0
-    this.destroyStaticGraphics(this.staticShapeGraphics)
-    this.staticShapeGraphics.length = 0
 
     const mapData = this.currentMapData
     if (!mapData) {
@@ -1638,37 +1620,6 @@ export class GameClient {
       )
       for (let i = 0; i < this.staticTerrainGraphics.length; i++) {
         this.worldContainer.addChild(this.staticTerrainGraphics[i])
-      }
-    }
-
-    if (mapData.shapes.length > 0) {
-      const groundGraphics = ShapeRenderer.createPixiShapeGraphics(
-        mapData.shapes,
-        'ground',
-        this.pixelsPerMeter,
-        {
-          fill: this.groundPattern ?? '#654321',
-          drawStroke: false,
-        }
-      )
-      const obstacleGraphics = ShapeRenderer.createPixiShapeGraphics(
-        mapData.shapes,
-        'obstacle',
-        this.pixelsPerMeter,
-        {
-          fill: this.obstaclePattern ?? '#d2691e',
-          strokeColor: '#000',
-          strokeWidth: 2,
-          drawStroke: true,
-        }
-      )
-      for (let i = 0; i < groundGraphics.length; i++) {
-        this.staticShapeGraphics.push(groundGraphics[i])
-        this.worldContainer.addChild(groundGraphics[i])
-      }
-      for (let i = 0; i < obstacleGraphics.length; i++) {
-        this.staticShapeGraphics.push(obstacleGraphics[i])
-        this.worldContainer.addChild(obstacleGraphics[i])
       }
     }
   }

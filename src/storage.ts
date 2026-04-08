@@ -13,16 +13,14 @@ import type {
   MapNpcTemplate,
 } from './editorMapTypes'
 import { normalizeNpcDropList } from './npcDropUtils'
-import {
-  getDefaultShapeRenderLayer,
-  getDefaultTerrainRenderLayer,
-} from './renderLayers'
+import { getDefaultTerrainRenderLayer } from './renderLayers'
 import type { SaveData, SaveMeta, SaveNpcState } from './saveTypes'
 import {
   createDefaultTerrainChunkSiteJitter,
   getTerrainChunkMaterialCodes,
   inferTerrainMaterialId,
 } from './terrain/TerrainDataUtils'
+import { migrateLegacyShapesToTerrain } from './terrain/TerrainLegacyShapeMigration'
 import {
   DEFAULT_TERRAIN_RANDOM_SEED,
   type MapTerrainData,
@@ -194,13 +192,36 @@ export async function loadEditorMapData(
           resolve(null)
           return
         }
-        resolve(normalizeEditorMapData(result.data))
+        const normalized = normalizeEditorMapData(result.data)
+        if (normalized !== result.data) {
+          void persistNormalizedEditorMapData(mapId, normalized)
+        }
+        resolve(normalized)
       }
 
       request.onerror = () => resolve(null)
     })
   } catch {
     return null
+  }
+}
+
+async function persistNormalizedEditorMapData(
+  mapId: string,
+  data: EditorMapData
+): Promise<void> {
+  try {
+    const db = await openDB()
+    const record: StoredMapDataRecord = { id: mapId, data }
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(MAP_DATA_STORE, 'readwrite')
+      tx.objectStore(MAP_DATA_STORE).put(record)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+      tx.onabort = () => resolve()
+    })
+  } catch {
+    // Ignore background normalization persistence failures.
   }
 }
 
@@ -244,7 +265,10 @@ export async function createEditorMap(
       createdAt: now,
       updatedAt: now,
     }
-    const dataRecord: StoredMapDataRecord = { id: mapId, data: initialData }
+    const dataRecord: StoredMapDataRecord = {
+      id: mapId,
+      data: normalizeEditorMapData(initialData),
+    }
 
     return new Promise((resolve) => {
       const tx = db.transaction([MAP_META_STORE, MAP_DATA_STORE], 'readwrite')
@@ -277,7 +301,10 @@ export async function saveEditorMap(
       isDefault: meta.isDefault,
       thumbnail: meta.thumbnail,
     }
-    const dataRecord: StoredMapDataRecord = { id: meta.id, data }
+    const dataRecord: StoredMapDataRecord = {
+      id: meta.id,
+      data: normalizeEditorMapData(data),
+    }
 
     return new Promise((resolve) => {
       const tx = db.transaction([MAP_META_STORE, MAP_DATA_STORE], 'readwrite')
@@ -489,6 +516,16 @@ function buildDefaultMapData(
 
   const playerSpawnX = -12
 
+  const shapes = [groundShape, ...obstacleShapes]
+  const migratedTerrain = migrateLegacyShapesToTerrain(
+    shapes,
+    pixelsPerMeter,
+    1,
+    TERRAIN_CELL_SIZE_METERS,
+    TERRAIN_CHUNK_SIZE,
+    DEFAULT_TERRAIN_RANDOM_SEED
+  )
+
   return {
     version: 1,
     canvasWidth,
@@ -496,11 +533,20 @@ function buildDefaultMapData(
     pixelsPerMeter,
     playerSpawn: { x: playerSpawnX, y: playerSpawnY },
     camera: { x: 0, y: 0, zoom: DEFAULT_CAMERA_ZOOM },
-    shapes: [groundShape, ...obstacleShapes],
+    shapes: [],
     npcs: [],
     weapons: [],
     checkpoints: [],
     npcTemplates: [],
+    terrain: {
+      version: 4,
+      cellSize: TERRAIN_CELL_SIZE_METERS,
+      chunkSize: TERRAIN_CHUNK_SIZE,
+      randomSeed: DEFAULT_TERRAIN_RANDOM_SEED,
+      chunks: [],
+      layers: migratedTerrain.layers,
+      contours: migratedTerrain.contours,
+    },
   }
 }
 
@@ -617,43 +663,124 @@ function normalizeMapPlayer(
 }
 
 function normalizeEditorMapData(data: EditorMapData): EditorMapData {
+  if (isMapDataFastNormalized(data)) {
+    return data
+  }
+  const shapes = Array.isArray(data.shapes) ? data.shapes : []
   const rawNpcs = data.npcs ?? data.enemies ?? []
+  const terrainNormalization = normalizeMapTerrain(
+    data.terrain,
+    shapes,
+    data.pixelsPerMeter
+  )
   const editorTree = data.editorTree
     ? {
         ...data.editorTree,
-        nodes: data.editorTree.nodes.map<EditorTreeNode>((node) =>
-          node.type === 'enemy'
-            ? { ...node, type: 'npc' }
-            : { ...node, type: node.type }
-        ),
+        nodes: data.editorTree.nodes.map<EditorTreeNode>((node) => {
+          if (node.type === 'enemy') {
+            return { ...node, type: 'npc' }
+          }
+          if (node.type === 'ground' || node.type === 'obstacle') {
+            const shapeIndex = node.index ?? -1
+            const terrainIndex =
+              shapeIndex >= 0 &&
+              shapeIndex < terrainNormalization.legacyShapeProxyIndices.length
+                ? terrainNormalization.legacyShapeProxyIndices[shapeIndex] >= 0
+                  ? terrainNormalization.legacyShapeProxyIndices[shapeIndex]
+                  : undefined
+                : undefined
+            return {
+              ...node,
+              type: 'terrain',
+              index: terrainIndex,
+            }
+          }
+          return { ...node, type: node.type }
+        }),
       }
     : undefined
 
   return {
     ...data,
     player: normalizeMapPlayer(data.player),
-    shapes: data.shapes.map((shape) => ({
-      ...shape,
-      renderLayer:
-        typeof shape.renderLayer === 'number'
-          ? shape.renderLayer | 0
-          : getDefaultShapeRenderLayer(),
-    })),
+    shapes: [],
     npcs: rawNpcs.map(normalizeMapNpc),
-    terrain: normalizeMapTerrain(data.terrain),
+    terrain: terrainNormalization.terrain,
     npcTemplates: (data.npcTemplates ?? []).map(normalizeMapNpcTemplate),
     editorTree,
   }
 }
 
-function normalizeMapTerrain(
-  terrain: EditorMapData['terrain']
-): MapTerrainData | undefined {
-  if (!terrain) {
-    return undefined
+function isMapDataFastNormalized(data: EditorMapData): boolean {
+  if ((data.shapes?.length ?? 0) > 0 || (data.enemies?.length ?? 0) > 0) {
+    return false
   }
+  if (
+    data.terrain &&
+    typeof data.terrain === 'object' &&
+    data.terrain.version !== 4
+  ) {
+    return false
+  }
+  const editorTreeNodes = data.editorTree?.nodes
+  if (editorTreeNodes && editorTreeNodes.length > 0) {
+    for (let i = 0; i < editorTreeNodes.length; i++) {
+      const nodeType = editorTreeNodes[i].type
+      if (
+        nodeType === 'enemy' ||
+        nodeType === 'ground' ||
+        nodeType === 'obstacle'
+      ) {
+        return false
+      }
+    }
+  }
+  const player = data.player
+  if (player?.enemyFactions !== undefined) {
+    return false
+  }
+  const npcs = data.npcs
+  if (npcs && npcs.length > 0) {
+    for (let i = 0; i < npcs.length; i++) {
+      const npc = npcs[i]
+      if (npc.enemyType !== undefined || npc.enemyFactions !== undefined) {
+        return false
+      }
+    }
+  }
+  const npcTemplates = data.npcTemplates
+  if (npcTemplates && npcTemplates.length > 0) {
+    for (let i = 0; i < npcTemplates.length; i++) {
+      const template = npcTemplates[i]
+      if (
+        template.enemyType !== undefined ||
+        template.enemyFactions !== undefined
+      ) {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+function normalizeMapTerrain(
+  terrain: EditorMapData['terrain'],
+  legacyShapes: ReadonlyArray<EditorMapData['shapes'][number]>,
+  pixelsPerMeter: number
+): {
+  terrain: MapTerrainData | undefined
+  legacyShapeProxyIndices: number[]
+} {
+  const shapeProxyIndices: number[] = []
   const chunkSize =
-    terrain.chunkSize > 0 ? Math.floor(terrain.chunkSize) : TERRAIN_CHUNK_SIZE
+    terrain && terrain.chunkSize > 0
+      ? Math.floor(terrain.chunkSize)
+      : TERRAIN_CHUNK_SIZE
+  const cellSize =
+    terrain && terrain.cellSize > 0
+      ? terrain.cellSize
+      : TERRAIN_CELL_SIZE_METERS
+  const randomSeed = terrain?.randomSeed ?? DEFAULT_TERRAIN_RANDOM_SEED
   const normalizeChunks = (
     chunks: ReadonlyArray<{
       chunkX: number
@@ -677,7 +804,7 @@ function normalizeMapTerrain(
               chunk.chunkX | 0,
               chunk.chunkY | 0,
               chunkSize,
-              terrain.randomSeed ?? DEFAULT_TERRAIN_RANDOM_SEED
+              randomSeed
             )
       const siteJitter = new Array<number>(cellCount * 2)
       for (let i = 0; i < siteJitter.length; i++) {
@@ -692,7 +819,7 @@ function normalizeMapTerrain(
       }
     })
   const normalizedLayers =
-    terrain.layers && terrain.layers.length > 0
+    terrain?.layers && terrain.layers.length > 0
       ? terrain.layers
           .map((layer) => {
             const chunks = normalizeChunks(layer.chunks)
@@ -719,9 +846,16 @@ function normalizeMapTerrain(
           .filter((layer): layer is NonNullable<typeof layer> => layer !== null)
       : []
   if (normalizedLayers.length === 0) {
-    if (!Array.isArray(terrain.chunks) || terrain.chunks.length === 0) {
-      if (!terrain.contours || terrain.contours.length === 0) {
-        return undefined
+    if (!Array.isArray(terrain?.chunks) || terrain.chunks.length === 0) {
+      if (!terrain?.contours || terrain.contours.length === 0) {
+        if (legacyShapes.length === 0) {
+          return {
+            terrain: undefined,
+            legacyShapeProxyIndices: shapeProxyIndices,
+          }
+        }
+      } else {
+        // noop
       }
     } else {
       const legacyChunks = normalizeChunks(terrain.chunks)
@@ -738,24 +872,63 @@ function normalizeMapTerrain(
       }
     }
   }
-  return {
-    version: 4,
-    cellSize:
-      terrain.cellSize > 0 ? terrain.cellSize : TERRAIN_CELL_SIZE_METERS,
+  const normalizedContours =
+    terrain?.contours?.map((contour) => ({
+      id: contour.id | 0,
+      points: contour.points.map((value) => value | 0),
+      fillMaterialId: contour.fillMaterialId,
+      renderLayer:
+        typeof contour.renderLayer === 'number'
+          ? contour.renderLayer | 0
+          : undefined,
+      shapeKind: contour.shapeKind,
+    })) ?? []
+  const visibleLayerCount = normalizedLayers.reduce(
+    (count, layer) => count + ((layer.contourId ?? 0) > 0 ? 0 : 1),
+    0
+  )
+  const nextContourId = normalizedContours.reduce(
+    (maxId, contour) => Math.max(maxId, (contour.id | 0) + 1),
+    1
+  )
+  const migratedShapes = migrateLegacyShapesToTerrain(
+    legacyShapes,
+    pixelsPerMeter,
+    nextContourId,
+    cellSize,
     chunkSize,
-    randomSeed: terrain.randomSeed ?? DEFAULT_TERRAIN_RANDOM_SEED,
-    chunks: [],
-    layers: normalizedLayers,
-    contours:
-      terrain.contours?.map((contour) => ({
-        id: contour.id | 0,
-        points: contour.points.map((value) => value | 0),
-        fillMaterialId: contour.fillMaterialId,
-        renderLayer:
-          typeof contour.renderLayer === 'number'
-            ? contour.renderLayer | 0
-            : undefined,
-      })) ?? [],
+    randomSeed
+  )
+  for (let i = 0; i < migratedShapes.contourIndexByShape.length; i++) {
+    const contourIndex = migratedShapes.contourIndexByShape[i]
+    shapeProxyIndices.push(
+      contourIndex >= 0
+        ? visibleLayerCount + normalizedContours.length + contourIndex
+        : -1
+    )
+  }
+  if (
+    normalizedLayers.length === 0 &&
+    normalizedContours.length === 0 &&
+    migratedShapes.layers.length === 0 &&
+    migratedShapes.contours.length === 0
+  ) {
+    return {
+      terrain: undefined,
+      legacyShapeProxyIndices: shapeProxyIndices,
+    }
+  }
+  return {
+    terrain: {
+      version: 4,
+      cellSize,
+      chunkSize,
+      randomSeed,
+      chunks: [],
+      layers: [...normalizedLayers, ...migratedShapes.layers],
+      contours: [...normalizedContours, ...migratedShapes.contours],
+    },
+    legacyShapeProxyIndices: shapeProxyIndices,
   }
 }
 

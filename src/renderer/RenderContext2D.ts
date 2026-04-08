@@ -378,12 +378,7 @@ function applyFlatPathToGraphics(
       const eea = cmdData[dataIndex + 6]
       const eccw = cmdData[dataIndex + 7] !== 0
       dataIndex += 8
-      if (
-        erot === 0 &&
-        esa === 0 &&
-        eea === Math.PI * 2 &&
-        !eccw
-      ) {
+      if (erot === 0 && esa === 0 && eea === Math.PI * 2 && !eccw) {
         graphics.ellipse(ex, ey, erx, ery)
       } else {
         const steps = 24
