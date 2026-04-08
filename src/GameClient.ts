@@ -18,6 +18,7 @@ import { saveManager } from './SaveManager'
 import type { EditorMapData } from './editorMapTypes'
 import { collectStaticRenderLayers } from './mapObjectLayers'
 import { PatternCreator } from './renderer/PatternCreator'
+import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
 import { ShapeRenderer } from './renderer/ShapeRenderer'
 import type { SaveData } from './saveTypes'
@@ -53,6 +54,7 @@ export class GameClient {
   private staticShapeGraphics: Graphics[] = []
   private readonly reusableDOMMatrix = new DOMMatrix()
   private readonly reusablePixiMatrix = new Matrix()
+  private worldRenderer: PixiWorldRenderer
 
   private renderer: ClientRenderer
   private audioManager: AudioManager
@@ -159,19 +161,65 @@ export class GameClient {
     onInitProgress?: (step: string) => void
   ): Promise<GameClient> {
     onInitProgress?.('init_renderer')
-    const app = new Application()
-    await app.init({
-      resizeTo: inputTarget,
-      antialias: true,
-      autoDensity: true,
-      resolution: 1,
-      preserveDrawingBuffer: false,
-    })
+    const app = await this.createPixiApplication(inputTarget)
     const appCanvas = app.canvas as HTMLCanvasElement
     appCanvas.id = 'gameCanvas'
     appCanvas.classList.add('game-canvas')
     inputTarget.prepend(appCanvas)
     return new GameClient(app, menuOverlay, inputTarget, onInitProgress)
+  }
+
+  private static async createPixiApplication(
+    inputTarget: HTMLElement
+  ): Promise<Application> {
+    const rendererParam = new URLSearchParams(window.location.search).get(
+      'renderer'
+    )
+    const requestedPreference =
+      rendererParam === 'webgpu' ||
+      rendererParam === 'webgl' ||
+      rendererParam === 'canvas'
+        ? rendererParam
+        : null
+    const preferences: Array<'webgpu' | 'webgl' | 'canvas'> =
+      requestedPreference === 'webgpu'
+        ? ['webgpu', 'webgl', 'canvas']
+        : requestedPreference === 'canvas'
+          ? ['canvas', 'webgl', 'webgpu']
+          : ['webgl', 'webgpu', 'canvas']
+    let lastError: unknown = null
+
+    for (let i = 0; i < preferences.length; i++) {
+      const preference = preferences[i]
+      const app = new Application()
+      try {
+        await app.init({
+          resizeTo: inputTarget,
+          antialias: false,
+          autoDensity: true,
+          resolution: 1,
+          preserveDrawingBuffer: false,
+          preference,
+          powerPreference: 'high-performance',
+          webgpu: {
+            antialias: false,
+          },
+          webgl: {
+            antialias: false,
+          },
+          canvasOptions: {},
+        })
+        console.info('[Renderer]', preference)
+        return app
+      } catch (error) {
+        lastError = error
+        app.destroy(true)
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Failed to initialize Pixi renderer')
   }
 
   private constructor(
@@ -244,6 +292,10 @@ export class GameClient {
     this.renderer = new ClientRenderer(
       this.worldRenderContext,
       this.hudRenderContext,
+      this.pixelsPerMeter
+    )
+    this.worldRenderer = new PixiWorldRenderer(
+      this.worldContainer,
       this.pixelsPerMeter
     )
     this.audioManager = new AudioManager()
@@ -912,7 +964,6 @@ export class GameClient {
   private render(deltaMs: number) {
     const width = this.app.renderer.width
     const height = this.app.renderer.height
-    this.worldRenderContext.beginFrame()
     this.hudRenderContext.beginFrame()
 
     if (!this.editorPreview) {
@@ -949,9 +1000,7 @@ export class GameClient {
       pixiMatrix.ty = worldMatrix.f
       this.worldContainer.setFromMatrix(pixiMatrix)
 
-      this.renderer.render(deltaMs, this.staticRenderLayers, (layer) => {
-        this.worldRenderContext.setRenderZIndex(layer * 10 + 5)
-      })
+      this.worldRenderer.render(this.renderer)
 
       if (this.cameraDebug.enabled) {
         this.renderCameraDebug()

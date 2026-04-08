@@ -38,6 +38,7 @@ import {
   drawHudWeaponSlot,
 } from './renderer/HudWeaponSlotRenderer'
 import { ParticleSystem } from './renderer/ParticleSystem'
+import type { ParticleSnapshot } from './renderer/ParticleSystem'
 import type { RenderContext2D } from './renderer/RenderContext2D'
 import { renderWeapon as renderWeaponShape } from './renderer/WeaponRenderer'
 import { getGrapeChargeRangeScale } from './weaponTypeUtils'
@@ -281,6 +282,89 @@ export class ClientRenderer {
 
   getCameraShakeOffsetY(): number {
     return this.cameraShakeOffsetY
+  }
+
+  getStateBuffer(): Float32Array {
+    return this.stateBuffer
+  }
+
+  getEntityCount(): number {
+    return this.entityCount
+  }
+
+  getCanvasWidth(): number {
+    return this.hudCtx.canvas.width
+  }
+
+  getCanvasHeight(): number {
+    return this.hudCtx.canvas.height
+  }
+
+  getRopePointCount(): number {
+    return this.ropePointCount
+  }
+
+  getRopePointsBuffer(): Float32Array {
+    return this.ropePointsBuffer
+  }
+
+  getParticleSystem(): ParticleSystem {
+    return this.particleSystem
+  }
+
+  getActiveParticleCount(): number {
+    return this.particleSystem.getActiveParticleCount()
+  }
+
+  getActiveParticle(index: number): ParticleSnapshot | null {
+    return this.particleSystem.getActiveParticle(index)
+  }
+
+  getCharacterBodyProfile(index: number) {
+    return getCharacterBodyProfileFromMap(this.characterBodyMap, index)
+  }
+
+  getCharacterBodyTextureSource(
+    textureDataUrl: string | undefined
+  ): HTMLImageElement | null {
+    return this.getCharacterBodyTexture(textureDataUrl)
+  }
+
+  getColorHex(colorInt: number): string {
+    return this.getColorString(colorInt)
+  }
+
+  getFacingForEntity(buf: Float32Array, offset: number): number {
+    return this.getEntityFacing(buf, offset)
+  }
+
+  getClampedReticlePosition(
+    playerX: number,
+    playerY: number,
+    reticleX: number,
+    reticleY: number,
+    weaponDrawRatio: number,
+    weaponType: number
+  ): { x: number; y: number } {
+    return this.clampReticleToViewport(
+      playerX,
+      playerY,
+      reticleX,
+      reticleY,
+      weaponDrawRatio,
+      weaponType
+    )
+  }
+
+  getEffectiveRangedDrawRatio(
+    weaponType: number,
+    drawRatio: number,
+    drawActive: boolean
+  ): number {
+    if (drawActive) {
+      return drawRatio
+    }
+    return Math.max(drawRatio, this.getRangedMinForceRatio(weaponType))
   }
 
   private applyCameraShake(intensityPx: number, durationMs: number): void {

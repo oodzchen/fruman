@@ -2,10 +2,10 @@ import type { RenderContext2D } from './RenderContext2D'
 
 const TWO_PI = Math.PI * 2
 
-const PARTICLE_TYPE_SPARK = 0
-const PARTICLE_TYPE_BLOOD = 1
-const PARTICLE_TYPE_DEATH = 2
-const PARTICLE_TYPE_HEAL = 3
+export const PARTICLE_TYPE_SPARK = 0
+export const PARTICLE_TYPE_BLOOD = 1
+export const PARTICLE_TYPE_DEATH = 2
+export const PARTICLE_TYPE_HEAL = 3
 
 type Particle = {
   x: number
@@ -22,6 +22,23 @@ type Particle = {
   drag: number
   type: number
   curve: number
+}
+
+export interface ParticleSnapshot {
+  readonly x: number
+  readonly y: number
+  readonly vx: number
+  readonly vy: number
+  readonly prevX: number
+  readonly prevY: number
+  readonly age: number
+  readonly life: number
+  readonly size: number
+  readonly color: number
+  readonly gravity: number
+  readonly drag: number
+  readonly type: number
+  readonly curve: number
 }
 
 export class ParticleSystem {
@@ -57,6 +74,17 @@ export class ParticleSystem {
 
   hasActiveParticles(): boolean {
     return this.activeCount > 0
+  }
+
+  getActiveParticleCount(): number {
+    return this.activeCount
+  }
+
+  getActiveParticle(index: number): ParticleSnapshot | null {
+    if (index < 0 || index >= this.activeCount) {
+      return null
+    }
+    return this.active[index]
   }
 
   update(deltaTime: number): void {

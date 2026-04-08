@@ -23,6 +23,14 @@ interface CachedBodySprite {
   drawHeight: number
 }
 
+export interface BodySpriteSource {
+  canvas: HTMLCanvasElement
+  drawX: number
+  drawY: number
+  drawWidth: number
+  drawHeight: number
+}
+
 interface BodyContentBounds {
   minX: number
   minY: number
@@ -34,6 +42,26 @@ const bodySpriteCache = new Map<string, CachedBodySprite>()
 const bodyLayerImageCache = new Map<string, HTMLImageElement>()
 const BODY_EYE_OUTER_RADIUS = 5
 const BODY_EYE_PADDING = 3
+const MAX_BODY_SPRITE_CACHE = 256
+
+function touchBodySpriteCacheEntry(
+  cacheKey: string,
+  cached: CachedBodySprite
+): CachedBodySprite {
+  bodySpriteCache.delete(cacheKey)
+  bodySpriteCache.set(cacheKey, cached)
+  return cached
+}
+
+function pruneBodySpriteCache(): void {
+  while (bodySpriteCache.size > MAX_BODY_SPRITE_CACHE) {
+    const oldestKey = bodySpriteCache.keys().next().value
+    if (typeof oldestKey !== 'string') {
+      break
+    }
+    bodySpriteCache.delete(oldestKey)
+  }
+}
 
 function getBodyPointReferenceSize(
   bodyProfile: MapCharacterBodyProfile | null,
@@ -265,6 +293,13 @@ function areBodyVisualAssetsReady(
     }
   }
   return true
+}
+
+export function isBodyVisualAssetsReady(
+  bodyProfile: MapCharacterBodyProfile | null,
+  textureImage: CanvasImageSource | null
+): boolean {
+  return areBodyVisualAssetsReady(bodyProfile, textureImage)
 }
 
 function getBodyContentBounds(
@@ -543,7 +578,7 @@ function getCachedBodySprite(
   )
   const cached = bodySpriteCache.get(cacheKey)
   if (cached) {
-    return cached
+    return touchBodySpriteCacheEntry(cacheKey, cached)
   }
 
   const bounds = getBodyContentBounds(
@@ -589,7 +624,44 @@ function getCachedBodySprite(
     drawHeight,
   }
   bodySpriteCache.set(cacheKey, bodySprite)
+  pruneBodySpriteCache()
   return bodySprite
+}
+
+export function getBodySpriteSource(
+  radiusPx: number,
+  bodyColor: string,
+  pixelsPerMeter: number,
+  facingDirection: number,
+  bodyHeightPx = 0,
+  outlineColor = '',
+  outlineWidthPx = 0,
+  bodyProfile: MapCharacterBodyProfile | null = null,
+  textureImage: CanvasImageSource | null = null,
+  showEye = true,
+  eyeColor = '#000000',
+  bodyProfileCacheKey = '',
+  textureSourceKey = ''
+): BodySpriteSource | null {
+  if (!Number.isFinite(radiusPx) || radiusPx <= 0) {
+    return null
+  }
+
+  return getCachedBodySprite(
+    radiusPx,
+    bodyColor,
+    pixelsPerMeter,
+    facingDirection,
+    bodyHeightPx,
+    outlineColor,
+    outlineWidthPx,
+    bodyProfile,
+    textureImage,
+    showEye,
+    eyeColor,
+    bodyProfileCacheKey,
+    textureSourceKey
+  )
 }
 
 export function renderBody(
