@@ -37,6 +37,12 @@ const SUN_COLOR = '#ffd700'
 const EXP_COLOR = '#3d7fff'
 const RETICLE_COLOR = '#ffffff'
 const RETICLE_SIZE = 7.5
+const SMALL_SUN_PICKUP_SIZE_NUMERATOR = 35
+const LARGE_SUN_PICKUP_SIZE_NUMERATOR = 70
+const PICKUP_SIZE_DENOMINATOR = 100
+const EXP_ORB_SIZE_NUMERATOR = SMALL_SUN_PICKUP_SIZE_NUMERATOR
+const PICKUP_GLOW_SIZE_NUMERATOR = 8
+const PICKUP_GLOW_SIZE_DENOMINATOR = 5
 const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
 const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
 const BOW_DRAW_TEXTURE_STEPS = 16
@@ -1487,8 +1493,9 @@ export class PixiWorldRenderer {
     if (cached) {
       return cached
     }
-    const radius = Math.max(2, (this.pixelsPerMeter * 0.175) | 0)
-    const texture = this.createCircleTexture(radius * 2 + 8, EXP_COLOR)
+    const diameter =
+      (this.pixelsPerMeter * EXP_ORB_SIZE_NUMERATOR) / PICKUP_SIZE_DENOMINATOR
+    const texture = this.createGlowingCircleTexture(diameter, EXP_COLOR)
     this.iconTextureCache.set(key, texture)
     return texture
   }
@@ -1500,10 +1507,16 @@ export class PixiWorldRenderer {
       return cached
     }
 
-    const size = isLarge
-      ? this.pixelsPerMeter * 0.7
-      : this.pixelsPerMeter * 0.35
-    const created = createCanvas2D(size + 8, size + 8)
+    const size =
+      (this.pixelsPerMeter *
+        (isLarge
+          ? LARGE_SUN_PICKUP_SIZE_NUMERATOR
+          : SMALL_SUN_PICKUP_SIZE_NUMERATOR)) /
+      PICKUP_SIZE_DENOMINATOR
+    const glowRadius =
+      ((size / 2) * PICKUP_GLOW_SIZE_NUMERATOR) / PICKUP_GLOW_SIZE_DENOMINATOR
+    const padding = Math.ceil(glowRadius + 2)
+    const created = createCanvas2D(size + padding * 2, size + padding * 2)
     if (!created) {
       return Texture.WHITE
     }
@@ -1515,6 +1528,21 @@ export class PixiWorldRenderer {
     const outerR = size / 2
     const innerR = outerR * 0.6
     const step = Math.PI / rays
+    const glow = ctx.createRadialGradient(
+      cx,
+      cy,
+      outerR * 0.5,
+      cx,
+      cy,
+      glowRadius
+    )
+    glow.addColorStop(0, 'rgba(255, 255, 255, 0.45)')
+    glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.18)')
+    glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2)
+    ctx.fill()
 
     ctx.beginPath()
     for (let i = 0; i < rays * 2; i++) {
@@ -1593,6 +1621,52 @@ export class PixiWorldRenderer {
     ctx.beginPath()
     ctx.arc(radius, radius, radius, 0, Math.PI * 2)
     ctx.fill()
+    const texture = Texture.from(canvas)
+    this.iconTextureCache.set(key, texture)
+    return texture
+  }
+
+  private createGlowingCircleTexture(size: number, color: string): Texture {
+    const key = `circle-glow|${size}|${color}`
+    const cached = this.iconTextureCache.get(key)
+    if (cached) {
+      return cached
+    }
+
+    const radius = Math.max(2, size / 2)
+    const glowRadius =
+      (radius * PICKUP_GLOW_SIZE_NUMERATOR) / PICKUP_GLOW_SIZE_DENOMINATOR
+    const padding = Math.ceil(glowRadius + 2)
+    const canvasSize = Math.ceil(radius * 2 + padding * 2)
+    const created = createCanvas2D(canvasSize, canvasSize)
+    if (!created) {
+      return Texture.WHITE
+    }
+
+    const { canvas, ctx } = created
+    const cx = canvas.width / 2
+    const cy = canvas.height / 2
+    const glow = ctx.createRadialGradient(
+      cx,
+      cy,
+      radius * 0.5,
+      cx,
+      cy,
+      glowRadius
+    )
+    glow.addColorStop(0, 'rgba(255, 255, 255, 0.5)')
+    glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.2)')
+    glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.fillStyle = color
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+    ctx.fill()
+
     const texture = Texture.from(canvas)
     this.iconTextureCache.set(key, texture)
     return texture

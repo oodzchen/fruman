@@ -75,6 +75,12 @@ const GRAPPLE_LINE_COLOR = '#d9c896'
 const SUN_COLOR = '#ffd700'
 const EXP_COLOR = '#3d7fff'
 const FOLLOW_BOUND_BORDER_COLOR = '#ffee58'
+const SMALL_SUN_PICKUP_SIZE_NUMERATOR = 35
+const LARGE_SUN_PICKUP_SIZE_NUMERATOR = 70
+const PICKUP_SIZE_DENOMINATOR = 100
+const EXP_ORB_SIZE_NUMERATOR = SMALL_SUN_PICKUP_SIZE_NUMERATOR
+const PICKUP_GLOW_SIZE_NUMERATOR = 8
+const PICKUP_GLOW_SIZE_DENOMINATOR = 5
 
 export class ClientRenderer {
   private ctx: RenderContext2D
@@ -1344,8 +1350,25 @@ export class ClientRenderer {
     const ppm = this.pixelsPerMeter
     const cx = worldX * ppm
     const cy = worldY * ppm
-    const size = isLarge ? ppm * 0.7 : ppm * 0.35
+    const size =
+      (ppm *
+        (isLarge
+          ? LARGE_SUN_PICKUP_SIZE_NUMERATOR
+          : SMALL_SUN_PICKUP_SIZE_NUMERATOR)) /
+      PICKUP_SIZE_DENOMINATOR
+    const glowRadius =
+      (((size / 2) * PICKUP_GLOW_SIZE_NUMERATOR) /
+        PICKUP_GLOW_SIZE_DENOMINATOR) |
+      0
     ctx.save()
+    const glow = ctx.createRadialGradient(cx, cy, size / 4, cx, cy, glowRadius)
+    glow.addColorStop(0, 'rgba(255, 255, 255, 0.45)')
+    glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.18)')
+    glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2)
+    ctx.fill()
     this.buildSunPath(ctx, cx, cy, size)
     ctx.fillStyle = SUN_COLOR
     ctx.fill()
@@ -1362,8 +1385,19 @@ export class ClientRenderer {
     const ppm = this.pixelsPerMeter
     const cx = worldX * ppm
     const cy = worldY * ppm
-    const r = (ppm * 0.175) | 0
+    const r = ((ppm * EXP_ORB_SIZE_NUMERATOR) / PICKUP_SIZE_DENOMINATOR / 2) | 0
+    const glowRadius =
+      (((r * PICKUP_GLOW_SIZE_NUMERATOR) / PICKUP_GLOW_SIZE_DENOMINATOR) | 0) +
+      1
     ctx.save()
+    const glow = ctx.createRadialGradient(cx, cy, r / 2, cx, cy, glowRadius)
+    glow.addColorStop(0, 'rgba(255, 255, 255, 0.5)')
+    glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.2)')
+    glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2)
+    ctx.fill()
     ctx.beginPath()
     ctx.arc(cx, cy, r, 0, Math.PI * 2)
     ctx.fillStyle = EXP_COLOR
