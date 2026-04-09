@@ -1456,6 +1456,66 @@ export class EditorTerrainLayerManager {
     return true
   }
 
+  moveContourByUnitDelta(
+    object: TerrainContourProxy,
+    deltaXUnits: number,
+    deltaYUnits: number
+  ): boolean {
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
+      return false
+    }
+    const contour = this.proxyToContour.get(object)
+    if (!contour) {
+      return false
+    }
+    for (let i = 0; i < contour.points.length; i += 2) {
+      contour.points[i] += deltaXUnits
+      contour.points[i + 1] += deltaYUnits
+    }
+    this.bumpContourBuildRevision(contour)
+    if (contour.fillLayer) {
+      this.applyLayerUnitDelta(contour.fillLayer, deltaXUnits, deltaYUnits)
+    }
+    this.refreshContourProxy(contour)
+    this.ctx.requestRender()
+    return true
+  }
+
+  moveSelectionByUnitDelta(
+    selection: fabric.ActiveSelection,
+    deltaXUnits: number,
+    deltaYUnits: number
+  ): boolean {
+    const proxies = this.collectTerrainSelectionProxies(selection)
+    const contours = this.collectTerrainSelectionContours(selection)
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
+      return false
+    }
+    if (proxies.length === 0 && contours.length === 0) {
+      return false
+    }
+    this.moveTerrainSelectionByUnitDelta(
+      proxies,
+      contours,
+      deltaXUnits,
+      deltaYUnits
+    )
+    const canvas = this.ctx.getFabricCanvas()
+    if (canvas) {
+      const selectedObjects = selection.getObjects().slice()
+      canvas.discardActiveObject()
+      if (selectedObjects.length > 1) {
+        canvas.setActiveObject(
+          new fabric.ActiveSelection(selectedObjects, { canvas })
+        )
+      } else if (selectedObjects.length === 1) {
+        canvas.setActiveObject(selectedObjects[0])
+      }
+    }
+    this.ctx.requestRender()
+    return true
+  }
+
   handleMovingTarget(target: fabric.Object | null): boolean {
     if (this.isTerrainContourProxy(target)) {
       this.resetGroupedProxyMoveState()
@@ -1620,19 +1680,12 @@ export class EditorTerrainLayerManager {
     const scaleX = proxy.scaleX ?? 1
     const scaleY = proxy.scaleY ?? 1
     if (contour.shapeKind && (scaleX !== 1 || scaleY !== 1)) {
-      const previousPoints = contour.points.slice()
       const currentLeft = Math.round(
         proxy.left ?? proxy.terrainContourAnchorLeft
       )
       const currentTop = Math.round(proxy.top ?? proxy.terrainContourAnchorTop)
-      const nextWidth = Math.max(
-        1,
-        Math.round(proxy.terrainContourWidth * scaleX)
-      )
-      const nextHeight = Math.max(
-        1,
-        Math.round(proxy.terrainContourHeight * scaleY)
-      )
+      const nextWidth = Math.max(1, Math.round(proxy.getScaledWidth()))
+      const nextHeight = Math.max(1, Math.round(proxy.getScaledHeight()))
       this.applyShapeTemplateToContour(
         contour,
         this.getShapeTemplatePoints(contour.shapeKind),
@@ -1646,8 +1699,10 @@ export class EditorTerrainLayerManager {
       this.bumpContourBuildRevision(contour)
       proxy.scaleX = 1
       proxy.scaleY = 1
+      if (contour.fillMaterialId) {
+        this.rasterizeContourFill(contour)
+      }
       this.refreshContourProxy(contour)
-      this.applyContourFillDelta(contour, previousPoints)
       this.ctx.requestRender()
       return true
     }
@@ -2232,10 +2287,10 @@ export class EditorTerrainLayerManager {
       this.nextBuildRevision()
     ;(contour.proxy as EditorLayeredObject).renderLayer = contour.renderLayer
     contour.proxy.terrainContourId = contour.id
-    this.refreshContourProxy(contour)
-    if (contour.fillMaterialId && !contour.fillLayer) {
+    if (contour.fillMaterialId) {
       this.rasterizeContourFill(contour)
     }
+    this.refreshContourProxy(contour)
   }
 
   private getSerializedContour(
@@ -2327,7 +2382,24 @@ export class EditorTerrainLayerManager {
         contour.points[i + 1] - bounds.minY
       )
     }
-    if (relativePoints.length >= 3) {
+    if (contour.shapeKind === 'rect') {
+      children.push(
+        new fabric.Rect({
+          left: 0,
+          top: 0,
+          width: bounds.width,
+          height: bounds.height,
+          originX: 'left',
+          originY: 'top',
+          fill: 'rgba(255,255,255,0.001)',
+          stroke: contourStroke,
+          strokeWidth: TERRAIN_CONTOUR_STROKE_WIDTH,
+          selectable: false,
+          evented: false,
+          objectCaching: false,
+        })
+      )
+    } else if (relativePoints.length >= 3) {
       children.push(
         new fabric.Polygon(relativePoints, {
           left: 0,
@@ -2756,6 +2828,7 @@ export class EditorTerrainLayerManager {
     if (!layer.grid.hasCells()) {
       this.removeLayer(layer)
       contour.fillLayer = null
+      return changed
     }
     return changed
   }
@@ -3366,7 +3439,8 @@ export class EditorTerrainLayerManager {
     selection: fabric.ActiveSelection
   ): boolean {
     const proxies = this.collectTerrainSelectionProxies(selection)
-    if (proxies.length === 0) {
+    const contours = this.collectTerrainSelectionContours(selection)
+    if (proxies.length === 0 && contours.length === 0) {
       this.resetActiveSelectionMoveState(selection)
       return false
     }
@@ -3384,7 +3458,12 @@ export class EditorTerrainLayerManager {
     if (deltaXUnits === 0 && deltaYUnits === 0) {
       return false
     }
-    this.moveTerrainSelectionByUnitDelta(proxies, deltaXUnits, deltaYUnits)
+    this.moveTerrainSelectionByUnitDelta(
+      proxies,
+      contours,
+      deltaXUnits,
+      deltaYUnits
+    )
     this.activeSelectionMoveAppliedCellDeltaX = totalDeltaX
     this.activeSelectionMoveAppliedCellDeltaY = totalDeltaY
     this.ctx.requestRender()
@@ -3395,7 +3474,8 @@ export class EditorTerrainLayerManager {
     selection: fabric.ActiveSelection
   ): boolean {
     const proxies = this.collectTerrainSelectionProxies(selection)
-    if (proxies.length === 0) {
+    const contours = this.collectTerrainSelectionContours(selection)
+    if (proxies.length === 0 && contours.length === 0) {
       this.resetActiveSelectionMoveState(selection)
       return false
     }
@@ -3414,6 +3494,12 @@ export class EditorTerrainLayerManager {
       proxy.left = proxy.terrainAnchorLeft
       proxy.top = proxy.terrainAnchorTop
       proxy.setCoords()
+    }
+    for (let i = 0; i < contours.length; i++) {
+      const contour = contours[i]
+      contour.left = contour.terrainContourAnchorLeft
+      contour.top = contour.terrainContourAnchorTop
+      contour.setCoords()
     }
     if (canvas && tracked) {
       if (selectedObjects.length > 1) {
@@ -3443,7 +3529,7 @@ export class EditorTerrainLayerManager {
     if (deltaXUnits === 0 && deltaYUnits === 0) {
       return false
     }
-    this.moveTerrainSelectionByUnitDelta(proxies, deltaXUnits, deltaYUnits)
+    this.moveTerrainSelectionByUnitDelta(proxies, [], deltaXUnits, deltaYUnits)
     this.groupedProxyMoveAppliedCellDeltaX = totalDeltaX
     this.groupedProxyMoveAppliedCellDeltaY = totalDeltaY
     this.ctx.requestRender()
@@ -3588,6 +3674,20 @@ export class EditorTerrainLayerManager {
     return proxies
   }
 
+  private collectTerrainSelectionContours(
+    selection: fabric.ActiveSelection
+  ): TerrainContourProxy[] {
+    const objects = selection.getObjects()
+    const contours: TerrainContourProxy[] = []
+    for (let i = 0; i < objects.length; i++) {
+      const object = objects[i]
+      if (this.isTerrainContourProxy(object)) {
+        contours.push(object)
+      }
+    }
+    return contours
+  }
+
   private collectTerrainGroupedProxies(
     object: fabric.Object | null
   ): TerrainRegionProxy[] {
@@ -3615,6 +3715,7 @@ export class EditorTerrainLayerManager {
 
   private moveTerrainSelectionByUnitDelta(
     proxies: readonly TerrainRegionProxy[],
+    contours: readonly TerrainContourProxy[],
     deltaXUnits: number,
     deltaYUnits: number
   ): void {
@@ -3632,6 +3733,28 @@ export class EditorTerrainLayerManager {
       this.applyLayerUnitDelta(layer, deltaXUnits, deltaYUnits)
       proxy.terrainAnchorLeft += deltaXUnits
       proxy.terrainAnchorTop += deltaYUnits
+    }
+    const movedContourIds = new Set<number>()
+    for (let i = 0; i < contours.length; i++) {
+      const proxy = contours[i]
+      const contour = this.proxyToContour.get(proxy)
+      if (!contour || movedContourIds.has(contour.id)) {
+        continue
+      }
+      movedContourIds.add(contour.id)
+      for (
+        let pointIndex = 0;
+        pointIndex < contour.points.length;
+        pointIndex += 2
+      ) {
+        contour.points[pointIndex] += deltaXUnits
+        contour.points[pointIndex + 1] += deltaYUnits
+      }
+      this.bumpContourBuildRevision(contour)
+      if (contour.fillLayer) {
+        this.applyLayerUnitDelta(contour.fillLayer, deltaXUnits, deltaYUnits)
+      }
+      this.refreshContourProxy(contour)
     }
   }
 

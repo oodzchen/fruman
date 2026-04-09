@@ -2230,6 +2230,18 @@ export class EditorManager {
       }
       return
     }
+    if (this.terrainManager.isTerrainContourProxy(active)) {
+      if (this.terrainManager.moveContourByUnitDelta(active, dx, dy)) {
+        this.captureHistorySnapshot()
+      }
+      return
+    }
+    if (active instanceof fabric.ActiveSelection) {
+      if (this.terrainManager.moveSelectionByUnitDelta(active, dx, dy)) {
+        this.captureHistorySnapshot()
+        return
+      }
+    }
     const currentLeft = Math.round(active.left ?? 0)
     const currentTop = Math.round(active.top ?? 0)
     const nextLeft = currentLeft + dx

@@ -1,5 +1,6 @@
 import Box2DFactory from 'box2d3-wasm'
 import {
+  decomp,
   isSimple,
   makeCCW,
   quickDecomp,
@@ -240,6 +241,7 @@ const TARGET_FPS = 60
 const TIME_STEP = 1 / TARGET_FPS
 const FIXED_STEP_MS = Math.floor(TIME_STEP * 1000)
 let playTimeMs = 0
+const BOX2D_MAX_POLYGON_VERTICES = 8
 
 const STATE_BUFFER_BYTES = STATE_BUFFER_FLOATS * Float32Array.BYTES_PER_ELEMENT
 const supportsSharedArrayBuffer =
@@ -1499,10 +1501,6 @@ function registerPolygonShape(
     b2DefaultBodyDef,
     b2CreateBody,
     b2DefaultShapeDef,
-    b2CreatePolygonShape,
-    b2ComputeHull,
-    b2MakePolygon,
-    b2Vec2,
   } = box2d
 
   const centerX = shape.center.x
@@ -1543,10 +1541,13 @@ function registerPolygonShape(
   if (isSimple(decompScratchPolygon)) {
     makeCCW(decompScratchPolygon)
     convexPolygons = quickDecomp(decompScratchPolygon)
+    if (!convexPolygons || convexPolygons.length === 0) {
+      const exactPolygons = decomp(decompScratchPolygon)
+      convexPolygons = exactPolygons === false ? null : exactPolygons
+    }
   }
 
   if (!convexPolygons || convexPolygons.length === 0) {
-    const localPoints: InstanceType<MainModule['b2Vec2']>[] = []
     let minX = Number.POSITIVE_INFINITY
     let maxX = Number.NEGATIVE_INFINITY
     let minY = Number.POSITIVE_INFINITY
@@ -1559,22 +1560,19 @@ function registerPolygonShape(
       if (localX > maxX) maxX = localX
       if (localY < minY) minY = localY
       if (localY > maxY) maxY = localY
-      localPoints.push(new b2Vec2(localX, localY))
     }
-
-    const hull: b2Hull = b2ComputeHull(localPoints)
-    const polygon: b2Polygon = b2MakePolygon(hull, 0)
-    const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
+    const shapeIds: b2ShapeId[] = []
+    appendConvexPolygonBodyShapes(
+      box2d,
+      bodyId,
+      shapeDef,
+      decompScratchPolygon,
+      shapeIds
+    )
     if (isGround) {
-      groundShapeIds.push(shapeId)
-    }
-
-    bodyDef.delete()
-    shapeDef.delete()
-    hull.delete()
-    polygon.delete()
-    for (let i = 0; i < localPoints.length; i++) {
-      localPoints[i].delete()
+      for (let i = 0; i < shapeIds.length; i++) {
+        groundShapeIds.push(shapeIds[i])
+      }
     }
 
     if (shouldRegisterObstacle) {
@@ -1589,22 +1587,26 @@ function registerPolygonShape(
       }
       const halfWidth = Math.max(Math.abs(minX), Math.abs(maxX))
       const halfHeight = Math.max(Math.abs(minY), Math.abs(maxY))
-      obstacles.push({
-        bodyId,
-        mainShapeId: shapeId,
-        capBodyId: bodyId,
-        capShapeId: shapeId,
-        centerX,
-        centerY,
-        width: halfWidth,
-        height: halfHeight,
-        renderLayer,
-        materialTag,
-        vertices,
-        worldVertices,
-      })
+      for (let i = 0; i < shapeIds.length; i++) {
+        obstacles.push({
+          bodyId,
+          mainShapeId: shapeIds[i],
+          capBodyId: bodyId,
+          capShapeId: shapeIds[i],
+          centerX,
+          centerY,
+          width: halfWidth,
+          height: halfHeight,
+          renderLayer,
+          materialTag,
+          vertices,
+          worldVertices,
+        })
+      }
     }
 
+    bodyDef.delete()
+    shapeDef.delete()
     resetDecompScratchPolygon()
     return
   }
@@ -1614,7 +1616,6 @@ function registerPolygonShape(
     if (convex.length < 3) {
       continue
     }
-    const localPoints: InstanceType<MainModule['b2Vec2']>[] = []
     let minX = Number.POSITIVE_INFINITY
     let maxX = Number.NEGATIVE_INFINITY
     let minY = Number.POSITIVE_INFINITY
@@ -1632,24 +1633,17 @@ function registerPolygonShape(
       if (localX > maxX) maxX = localX
       if (localY < minY) minY = localY
       if (localY > maxY) maxY = localY
-      localPoints.push(new b2Vec2(localX, localY))
       if (vertices && worldVertices) {
         vertices.push({ x: localX, y: localY })
         worldVertices.push({ x: centerX + localX, y: centerY + localY })
       }
     }
-
-    const hull: b2Hull = b2ComputeHull(localPoints)
-    const polygon: b2Polygon = b2MakePolygon(hull, 0)
-    const shapeId = b2CreatePolygonShape(bodyId, shapeDef, polygon)
+    const shapeIds: b2ShapeId[] = []
+    appendConvexPolygonBodyShapes(box2d, bodyId, shapeDef, convex, shapeIds)
     if (isGround) {
-      groundShapeIds.push(shapeId)
-    }
-
-    hull.delete()
-    polygon.delete()
-    for (let j = 0; j < localPoints.length; j++) {
-      localPoints[j].delete()
+      for (let j = 0; j < shapeIds.length; j++) {
+        groundShapeIds.push(shapeIds[j])
+      }
     }
 
     if (!shouldRegisterObstacle || !vertices || !worldVertices) {
@@ -1657,25 +1651,95 @@ function registerPolygonShape(
     }
     const halfWidth = Math.max(Math.abs(minX), Math.abs(maxX))
     const halfHeight = Math.max(Math.abs(minY), Math.abs(maxY))
-    obstacles.push({
-      bodyId,
-      mainShapeId: shapeId,
-      capBodyId: bodyId,
-      capShapeId: shapeId,
-      centerX,
-      centerY,
-      width: halfWidth,
-      height: halfHeight,
-      renderLayer,
-      materialTag,
-      vertices,
-      worldVertices,
-    })
+    for (let j = 0; j < shapeIds.length; j++) {
+      obstacles.push({
+        bodyId,
+        mainShapeId: shapeIds[j],
+        capBodyId: bodyId,
+        capShapeId: shapeIds[j],
+        centerX,
+        centerY,
+        width: halfWidth,
+        height: halfHeight,
+        renderLayer,
+        materialTag,
+        vertices,
+        worldVertices,
+      })
+    }
   }
 
   bodyDef.delete()
   shapeDef.delete()
   resetDecompScratchPolygon()
+}
+
+function appendConvexPolygonBodyShapes(
+  box2dModule: MainModule,
+  bodyId: b2BodyId,
+  shapeDef: ReturnType<MainModule['b2DefaultShapeDef']>,
+  convexPolygon: DecompPolygon,
+  outShapeIds: b2ShapeId[]
+): void {
+  if (convexPolygon.length < 3) {
+    return
+  }
+  if (convexPolygon.length <= BOX2D_MAX_POLYGON_VERTICES) {
+    appendPolygonBodyShape(
+      box2dModule,
+      bodyId,
+      shapeDef,
+      convexPolygon,
+      outShapeIds
+    )
+    return
+  }
+  const pointCount = convexPolygon.length
+  let startIndex = 1
+  while (startIndex < pointCount - 1) {
+    const endIndex = Math.min(
+      pointCount - 1,
+      startIndex + BOX2D_MAX_POLYGON_VERTICES - 2
+    )
+    const splitPolygon: DecompPolygon = [convexPolygon[0]]
+    for (let i = startIndex; i <= endIndex; i++) {
+      splitPolygon.push(convexPolygon[i])
+    }
+    appendPolygonBodyShape(
+      box2dModule,
+      bodyId,
+      shapeDef,
+      splitPolygon,
+      outShapeIds
+    )
+    startIndex = endIndex
+  }
+}
+
+function appendPolygonBodyShape(
+  box2dModule: MainModule,
+  bodyId: b2BodyId,
+  shapeDef: ReturnType<MainModule['b2DefaultShapeDef']>,
+  polygonPoints: DecompPolygon,
+  outShapeIds: b2ShapeId[]
+): void {
+  if (polygonPoints.length < 3) {
+    return
+  }
+  const { b2CreatePolygonShape, b2ComputeHull, b2MakePolygon, b2Vec2 } =
+    box2dModule
+  const localPoints: InstanceType<MainModule['b2Vec2']>[] = []
+  for (let i = 0; i < polygonPoints.length; i++) {
+    localPoints.push(new b2Vec2(polygonPoints[i][0], polygonPoints[i][1]))
+  }
+  const hull: b2Hull = b2ComputeHull(localPoints)
+  const polygon: b2Polygon = b2MakePolygon(hull, 0)
+  outShapeIds.push(b2CreatePolygonShape(bodyId, shapeDef, polygon))
+  hull.delete()
+  polygon.delete()
+  for (let i = 0; i < localPoints.length; i++) {
+    localPoints[i].delete()
+  }
 }
 
 function createObstacleCapRect(
