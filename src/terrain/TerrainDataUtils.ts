@@ -11,6 +11,8 @@ import { VORONOI_SITE_JITTER_SCALE } from './TerrainTypes'
 export interface TerrainResolvedLayerView extends TerrainDataLike {
   offsetCellX: number
   offsetCellY: number
+  offsetXUnits: number
+  offsetYUnits: number
   materialId?: TerrainMaterialId
   renderLayer?: number
   buildRevision?: number
@@ -84,6 +86,8 @@ export function getTerrainLayerViews(
       chunks: terrain.chunks,
       offsetCellX: 0,
       offsetCellY: 0,
+      offsetXUnits: 0,
+      offsetYUnits: 0,
       renderLayer: 0,
     },
   ]
@@ -196,6 +200,8 @@ function createLayerView(
     chunks: layer.chunks,
     offsetCellX: layer.offsetCellX | 0,
     offsetCellY: layer.offsetCellY | 0,
+    offsetXUnits: layer.offsetXUnits ? Math.round(layer.offsetXUnits) : 0,
+    offsetYUnits: layer.offsetYUnits ? Math.round(layer.offsetYUnits) : 0,
     materialId: layer.materialId,
     renderLayer: layer.renderLayer,
     buildRevision: layer.buildRevision,

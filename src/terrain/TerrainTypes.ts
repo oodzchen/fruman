@@ -59,6 +59,8 @@ export interface TerrainChunkLike {
 export interface TerrainLayerLike {
   offsetCellX: number
   offsetCellY: number
+  offsetXUnits?: number
+  offsetYUnits?: number
   materialId?: TerrainMaterialId
   renderLayer?: number
   contourId?: number
@@ -87,6 +89,8 @@ export interface MapTerrainChunk {
 export interface MapTerrainLayer extends TerrainLayerLike {
   offsetCellX: number
   offsetCellY: number
+  offsetXUnits?: number
+  offsetYUnits?: number
   materialId: TerrainMaterialId
   renderLayer?: number
   contourId?: number

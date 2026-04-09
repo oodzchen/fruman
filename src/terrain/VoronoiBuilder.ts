@@ -153,13 +153,15 @@ function buildVoronoiLayer(
             (VORONOI_SITE_JITTER_SCALE >> 1) +
             jitterX) *
             cellSizeUnits) /
-          VORONOI_SITE_JITTER_SCALE
+            VORONOI_SITE_JITTER_SCALE +
+          layer.offsetXUnits
         coords[siteIndex * 2 + 1] =
           ((worldCellY * VORONOI_SITE_JITTER_SCALE +
             (VORONOI_SITE_JITTER_SCALE >> 1) +
             jitterY) *
             cellSizeUnits) /
-          VORONOI_SITE_JITTER_SCALE
+            VORONOI_SITE_JITTER_SCALE +
+          layer.offsetYUnits
         siteCellX[siteIndex] = worldCellX
         siteCellY[siteIndex] = worldCellY
         siteMaterialCode[siteIndex] = sourceCells
@@ -175,10 +177,10 @@ function buildVoronoiLayer(
   const maxWorldCellX = layer.offsetCellX + (maxChunkX + 1) * chunkSize
   const maxWorldCellY = layer.offsetCellY + (maxChunkY + 1) * chunkSize
   const bounds: [number, number, number, number] = [
-    minWorldCellX * cellSizeUnits,
-    minWorldCellY * cellSizeUnits,
-    maxWorldCellX * cellSizeUnits,
-    maxWorldCellY * cellSizeUnits,
+    minWorldCellX * cellSizeUnits + layer.offsetXUnits,
+    minWorldCellY * cellSizeUnits + layer.offsetYUnits,
+    maxWorldCellX * cellSizeUnits + layer.offsetXUnits,
+    maxWorldCellY * cellSizeUnits + layer.offsetYUnits,
   ]
 
   const delaunay = new Delaunay(coords)
@@ -497,6 +499,8 @@ function computeLayerSignature(
   hash = mixHash(hash ^ Math.imul(layer.randomSeed | 0, 0x85ebca6b))
   hash = mixHash(hash ^ Math.imul(layer.offsetCellX | 0, 0xc2b2ae35))
   hash = mixHash(hash ^ Math.imul(layer.offsetCellY | 0, 0x27d4eb2d))
+  hash = mixHash(hash ^ Math.imul(layer.offsetXUnits | 0, 0x165667b1))
+  hash = mixHash(hash ^ Math.imul(layer.offsetYUnits | 0, 0xd3a2646c))
   if (typeof layer.buildRevision === 'number') {
     hash = mixHash(hash ^ Math.imul(layer.buildRevision | 0, 0x165667b1))
     if (clipContour && typeof layer.contourBuildRevision === 'number') {

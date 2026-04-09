@@ -108,11 +108,15 @@ export class TerrainRenderer {
       const offsetX =
         layer.version >= 4
           ? (layerPixelOffset?.x ?? 0)
-          : layer.offsetCellX * cellSizeUnits + (layerPixelOffset?.x ?? 0)
+          : layer.offsetCellX * cellSizeUnits +
+            layer.offsetXUnits +
+            (layerPixelOffset?.x ?? 0)
       const offsetY =
         layer.version >= 4
           ? (layerPixelOffset?.y ?? 0)
-          : layer.offsetCellY * cellSizeUnits + (layerPixelOffset?.y ?? 0)
+          : layer.offsetCellY * cellSizeUnits +
+            layer.offsetYUnits +
+            (layerPixelOffset?.y ?? 0)
       const zIndex = resolvedLayer * 10
 
       const fillBuilders = new Map<string, TerrainGeometryBuilder>()
@@ -379,8 +383,12 @@ export class TerrainRenderer {
     }
     ctx.save()
     ctx.translate(
-      layer.offsetCellX * cellSizeUnits + (layerPixelOffset?.x ?? 0),
-      layer.offsetCellY * cellSizeUnits + (layerPixelOffset?.y ?? 0)
+      layer.offsetCellX * cellSizeUnits +
+        layer.offsetXUnits +
+        (layerPixelOffset?.x ?? 0),
+      layer.offsetCellY * cellSizeUnits +
+        layer.offsetYUnits +
+        (layerPixelOffset?.y ?? 0)
     )
     this.drawSingleLayer(
       ctx,

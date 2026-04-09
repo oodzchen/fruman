@@ -241,6 +241,8 @@ export class EditorClipboardManager {
   private terrainMaterialId: TerrainMaterialId = 'dirt'
   private terrainOffsetCellX = 0
   private terrainOffsetCellY = 0
+  private terrainOffsetXUnits = 0
+  private terrainOffsetYUnits = 0
   private terrainChunks: MapTerrainChunk[] = []
 
   private npcType: NpcType = 'default'
@@ -984,6 +986,8 @@ export class EditorClipboardManager {
       materialId: snapshot.materialId,
       offsetCellX: snapshot.offsetCellX,
       offsetCellY: snapshot.offsetCellY,
+      offsetXUnits: snapshot.offsetXUnits,
+      offsetYUnits: snapshot.offsetYUnits,
       chunks,
     }
   }
@@ -1639,6 +1643,8 @@ export class EditorClipboardManager {
     this.terrainMaterialId = snapshot.materialId
     this.terrainOffsetCellX = snapshot.offsetCellX
     this.terrainOffsetCellY = snapshot.offsetCellY
+    this.terrainOffsetXUnits = snapshot.offsetXUnits
+    this.terrainOffsetYUnits = snapshot.offsetYUnits
     this.terrainChunks.length = snapshot.chunks.length
     for (let i = 0; i < snapshot.chunks.length; i++) {
       const chunk = snapshot.chunks[i]
@@ -1685,6 +1691,8 @@ export class EditorClipboardManager {
       materialId: this.terrainMaterialId,
       offsetCellX: this.terrainOffsetCellX,
       offsetCellY: this.terrainOffsetCellY,
+      offsetXUnits: this.terrainOffsetXUnits,
+      offsetYUnits: this.terrainOffsetYUnits,
       chunks,
     }
   }

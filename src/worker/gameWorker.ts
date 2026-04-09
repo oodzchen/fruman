@@ -2681,16 +2681,27 @@ function buildPhysicsTerrainData(
   terrain: NonNullable<EditorMapData['terrain']>,
   pixelsPerMeterValue: number
 ): NonNullable<EditorMapData['terrain']> {
-  if (
-    !terrain.contours ||
-    terrain.contours.length === 0 ||
-    !(pixelsPerMeterValue > 0)
-  ) {
+  if (!(pixelsPerMeterValue > 0)) {
     return terrain
   }
   const scale = 1 / pixelsPerMeterValue
+  const scaledLayers = terrain.layers?.map((layer) => ({
+    ...layer,
+    offsetXUnits: (layer.offsetXUnits ?? 0) * scale,
+    offsetYUnits: (layer.offsetYUnits ?? 0) * scale,
+  }))
+  if (!terrain.contours || terrain.contours.length === 0) {
+    if (!scaledLayers) {
+      return terrain
+    }
+    return {
+      ...terrain,
+      layers: scaledLayers,
+    }
+  }
   return {
     ...terrain,
+    layers: scaledLayers,
     contours: terrain.contours.map((contour) => {
       const points = new Array<number>(contour.points.length)
       for (let i = 0; i < contour.points.length; i++) {

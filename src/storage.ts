@@ -832,6 +832,12 @@ function normalizeMapTerrain(
               materialId,
               offsetCellX: layer.offsetCellX | 0,
               offsetCellY: layer.offsetCellY | 0,
+              offsetXUnits: layer.offsetXUnits
+                ? Math.round(layer.offsetXUnits)
+                : 0,
+              offsetYUnits: layer.offsetYUnits
+                ? Math.round(layer.offsetYUnits)
+                : 0,
               renderLayer:
                 typeof layer.renderLayer === 'number'
                   ? layer.renderLayer | 0
@@ -865,6 +871,8 @@ function normalizeMapTerrain(
           materialId,
           offsetCellX: 0,
           offsetCellY: 0,
+          offsetXUnits: 0,
+          offsetYUnits: 0,
           renderLayer: getDefaultTerrainRenderLayer(materialId),
           contourId: undefined,
           chunks: legacyChunks,

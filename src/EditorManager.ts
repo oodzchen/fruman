@@ -2225,11 +2225,7 @@ export class EditorManager {
       return
     }
     if (this.terrainManager.isTerrainProxy(active)) {
-      const cellDeltaX = dx === 0 ? 0 : dx > 0 ? 1 : -1
-      const cellDeltaY = dy === 0 ? 0 : dy > 0 ? 1 : -1
-      if (
-        this.terrainManager.moveProxyByCellDelta(active, cellDeltaX, cellDeltaY)
-      ) {
+      if (this.terrainManager.moveProxyByUnitDelta(active, dx, dy)) {
         this.captureHistorySnapshot()
       }
       return

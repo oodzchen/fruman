@@ -1692,6 +1692,12 @@ export class GameClient {
       nextHash ^ Math.imul(layer.offsetCellY | 0, 0x165667b1)
     )
     nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ Math.imul((layer.offsetXUnits ?? 0) | 0, 0xd3a2646c)
+    )
+    nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ Math.imul((layer.offsetYUnits ?? 0) | 0, 0x9e3779b1)
+    )
+    nextHash = this.mixTerrainSignatureValue(
       nextHash ^ Math.imul((layer.renderLayer ?? 0) | 0, 0xd3a2646c)
     )
     nextHash = this.mixTerrainSignatureValue(

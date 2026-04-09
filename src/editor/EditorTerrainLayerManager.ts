@@ -58,6 +58,8 @@ interface EditorTerrainLayer {
   materialId: TerrainMaterialId
   offsetCellX: number
   offsetCellY: number
+  offsetXUnits: number
+  offsetYUnits: number
   grid: TerrainChunkGrid
   serializedLayer: TerrainLayerLike
   contourId: number
@@ -82,6 +84,8 @@ export interface TerrainClipboardLayerSnapshot {
   materialId: TerrainMaterialId
   offsetCellX: number
   offsetCellY: number
+  offsetXUnits: number
+  offsetYUnits: number
   chunks: MapTerrainLayer['chunks']
 }
 
@@ -463,6 +467,8 @@ export class EditorTerrainLayerManager {
       materialId: layer.materialId,
       offsetCellX: layer.offsetCellX,
       offsetCellY: layer.offsetCellY,
+      offsetXUnits: layer.offsetXUnits,
+      offsetYUnits: layer.offsetYUnits,
       chunks: layer.grid.serializeChunks(),
     }
   }
@@ -574,19 +580,17 @@ export class EditorTerrainLayerManager {
     if (snapshot.chunks.length === 0) {
       return null
     }
-    const cellSizePx = this.getCellSizePx()
-    const cellDeltaX = this.computeRoundedCellDelta(
-      Math.round(targetLeft) - Math.round(sourceLeft),
-      cellSizePx
-    )
-    const cellDeltaY = this.computeRoundedCellDelta(
-      Math.round(targetTop) - Math.round(sourceTop),
-      cellSizePx
-    )
+    const deltaXUnits = Math.round(targetLeft) - Math.round(sourceLeft)
+    const deltaYUnits = Math.round(targetTop) - Math.round(sourceTop)
     const layer = this.createEmptyLayer(
       snapshot.materialId,
-      snapshot.offsetCellX + cellDeltaX,
-      snapshot.offsetCellY + cellDeltaY
+      snapshot.offsetCellX,
+      snapshot.offsetCellY,
+      undefined,
+      0,
+      false,
+      snapshot.offsetXUnits + deltaXUnits,
+      snapshot.offsetYUnits + deltaYUnits
     )
     layer.grid.loadSerializedChunks(snapshot.chunks)
     if (!layer.grid.hasCells()) {
@@ -715,6 +719,8 @@ export class EditorTerrainLayerManager {
         materialId: serializedLayer.materialId ?? layer.materialId,
         offsetCellX: serializedLayer.offsetCellX,
         offsetCellY: serializedLayer.offsetCellY,
+        offsetXUnits: serializedLayer.offsetXUnits,
+        offsetYUnits: serializedLayer.offsetYUnits,
         renderLayer: serializedLayer.renderLayer,
         contourId: layer.contourId > 0 ? layer.contourId : undefined,
         buildRevision: serializedLayer.buildRevision,
@@ -793,7 +799,9 @@ export class EditorTerrainLayerManager {
           source.renderLayer,
           source.chunks,
           source.contourId ?? 0,
-          (source.contourId ?? 0) > 0
+          (source.contourId ?? 0) > 0,
+          source.offsetXUnits ? Math.round(source.offsetXUnits) : 0,
+          source.offsetYUnits ? Math.round(source.offsetYUnits) : 0
         )
         if (layer && layer.contourId > 0) {
           contourLayerMap.set(layer.contourId, layer)
@@ -1386,21 +1394,18 @@ export class EditorTerrainLayerManager {
     if (!this.isTerrainProxy(object)) {
       return false
     }
-    const cellSizePx = this.getCellSizePx()
     const currentLeft = Math.round(object.left ?? object.terrainAnchorLeft)
     const currentTop = Math.round(object.top ?? object.terrainAnchorTop)
     const deltaX = currentLeft - object.terrainAnchorLeft
     const deltaY = currentTop - object.terrainAnchorTop
-    const cellDeltaX = this.computeRoundedCellDelta(deltaX, cellSizePx)
-    const cellDeltaY = this.computeRoundedCellDelta(deltaY, cellSizePx)
-    if (cellDeltaX === 0 && cellDeltaY === 0) {
+    if (deltaX === 0 && deltaY === 0) {
       object.left = object.terrainAnchorLeft
       object.top = object.terrainAnchorTop
       object.setCoords()
       this.ctx.requestRender()
       return false
     }
-    return this.moveProxyByCellDelta(object, cellDeltaX, cellDeltaY)
+    return this.moveProxyByUnitDelta(object, deltaX, deltaY)
   }
 
   moveProxyByCellDelta(
@@ -1422,6 +1427,28 @@ export class EditorTerrainLayerManager {
     const cellSizePx = this.getCellSizePx()
     object.terrainAnchorLeft += cellDeltaX * cellSizePx
     object.terrainAnchorTop += cellDeltaY * cellSizePx
+    object.left = object.terrainAnchorLeft
+    object.top = object.terrainAnchorTop
+    object.setCoords()
+    this.ctx.requestRender()
+    return true
+  }
+
+  moveProxyByUnitDelta(
+    object: TerrainRegionProxy,
+    deltaXUnits: number,
+    deltaYUnits: number
+  ): boolean {
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
+      return false
+    }
+    const layer = this.proxyToLayer.get(object)
+    if (!layer) {
+      return false
+    }
+    this.applyLayerUnitDelta(layer, deltaXUnits, deltaYUnits)
+    object.terrainAnchorLeft += deltaXUnits
+    object.terrainAnchorTop += deltaYUnits
     object.left = object.terrainAnchorLeft
     object.top = object.terrainAnchorTop
     object.setCoords()
@@ -1635,25 +1662,13 @@ export class EditorTerrainLayerManager {
       this.ctx.requestRender()
       return false
     }
-    const cellSizePx = this.getCellSizePx()
-    const cellDeltaX = this.computeRoundedCellDelta(deltaX, cellSizePx)
-    const cellDeltaY = this.computeRoundedCellDelta(deltaY, cellSizePx)
-    if (cellDeltaX === 0 && cellDeltaY === 0) {
-      proxy.left = proxy.terrainContourAnchorLeft
-      proxy.top = proxy.terrainContourAnchorTop
-      proxy.setCoords()
-      this.ctx.requestRender()
-      return false
-    }
-    const snappedDeltaX = cellDeltaX * cellSizePx
-    const snappedDeltaY = cellDeltaY * cellSizePx
     for (let i = 0; i < contour.points.length; i += 2) {
-      contour.points[i] += snappedDeltaX
-      contour.points[i + 1] += snappedDeltaY
+      contour.points[i] += deltaX
+      contour.points[i + 1] += deltaY
     }
     this.bumpContourBuildRevision(contour)
     if (contour.fillLayer) {
-      this.applyLayerCellDelta(contour.fillLayer, cellDeltaX, cellDeltaY)
+      this.applyLayerUnitDelta(contour.fillLayer, deltaX, deltaY)
     }
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
@@ -1702,32 +1717,17 @@ export class EditorTerrainLayerManager {
       this.movingContourAppliedDeltaX !== 0 ||
       this.movingContourAppliedDeltaY !== 0
     if (changed) {
-      const cellSizePx = this.getCellSizePx()
-      const cellDeltaX = this.computeRoundedCellDelta(
-        this.movingContourAppliedDeltaX,
-        cellSizePx
-      )
-      const cellDeltaY = this.computeRoundedCellDelta(
-        this.movingContourAppliedDeltaY,
-        cellSizePx
-      )
-      if (cellDeltaX === 0 && cellDeltaY === 0) {
-        proxy.left = proxy.terrainContourAnchorLeft
-        proxy.top = proxy.terrainContourAnchorTop
-        proxy.setCoords()
-        this.resetMovingContourState(proxy)
-        this.ctx.requestRender()
-        return false
-      }
-      const snappedDeltaX = cellDeltaX * cellSizePx
-      const snappedDeltaY = cellDeltaY * cellSizePx
       for (let i = 0; i < contour.points.length; i += 2) {
-        contour.points[i] += snappedDeltaX
-        contour.points[i + 1] += snappedDeltaY
+        contour.points[i] += this.movingContourAppliedDeltaX
+        contour.points[i + 1] += this.movingContourAppliedDeltaY
       }
       this.bumpContourBuildRevision(contour)
       if (contour.fillLayer) {
-        this.applyLayerCellDelta(contour.fillLayer, cellDeltaX, cellDeltaY)
+        this.applyLayerUnitDelta(
+          contour.fillLayer,
+          this.movingContourAppliedDeltaX,
+          this.movingContourAppliedDeltaY
+        )
       }
       this.refreshContourProxy(contour)
     }
@@ -1750,7 +1750,9 @@ export class EditorTerrainLayerManager {
       cells: ArrayLike<number>
     }>,
     contourId = 0,
-    internalOnly = false
+    internalOnly = false,
+    offsetXUnits = 0,
+    offsetYUnits = 0
   ): EditorTerrainLayer | null {
     const layer = this.createEmptyLayer(
       materialId,
@@ -1758,7 +1760,9 @@ export class EditorTerrainLayerManager {
       offsetCellY,
       renderLayer,
       contourId,
-      internalOnly
+      internalOnly,
+      offsetXUnits,
+      offsetYUnits
     )
     layer.grid.loadSerializedChunks(chunks)
     if (!layer.grid.hasCells()) {
@@ -1780,7 +1784,9 @@ export class EditorTerrainLayerManager {
     offsetCellY: number,
     renderLayer?: number,
     contourId = 0,
-    internalOnly = false
+    internalOnly = false,
+    offsetXUnits = 0,
+    offsetYUnits = 0
   ): EditorTerrainLayer {
     const grid = new TerrainChunkGrid(this.chunkSize, this.randomSeed)
     const layer: EditorTerrainLayer = {
@@ -1788,10 +1794,14 @@ export class EditorTerrainLayerManager {
       materialId,
       offsetCellX,
       offsetCellY,
+      offsetXUnits,
+      offsetYUnits,
       grid,
       serializedLayer: {
         offsetCellX,
         offsetCellY,
+        offsetXUnits,
+        offsetYUnits,
         materialId,
         renderLayer:
           typeof renderLayer === 'number'
@@ -2014,8 +2024,10 @@ export class EditorTerrainLayerManager {
         objectCaching: false,
       })
     }
-    const anchorLeft = (layer.offsetCellX + minCellX) * cellSizePx
-    const anchorTop = (layer.offsetCellY + minCellY) * cellSizePx
+    const anchorLeft =
+      (layer.offsetCellX + minCellX) * cellSizePx + layer.offsetXUnits
+    const anchorTop =
+      (layer.offsetCellY + minCellY) * cellSizePx + layer.offsetYUnits
     if (!layer.proxy) {
       const generatedName = this.buildGeneratedLayerName(layer.materialId)
       const proxy = new fabric.Group(children, {
@@ -2600,8 +2612,12 @@ export class EditorTerrainLayerManager {
     layer.serializedLayer.chunks = layer.grid.getChunks()
     layer.offsetCellX = 0
     layer.offsetCellY = 0
+    layer.offsetXUnits = 0
+    layer.offsetYUnits = 0
     layer.serializedLayer.offsetCellX = 0
     layer.serializedLayer.offsetCellY = 0
+    layer.serializedLayer.offsetXUnits = 0
+    layer.serializedLayer.offsetYUnits = 0
     layer.serializedLayer.materialId = contour.fillMaterialId
     layer.serializedLayer.renderLayer = contour.renderLayer
     layer.serializedLayer.contourId = contour.id
@@ -3313,27 +3329,20 @@ export class EditorTerrainLayerManager {
       return false
     }
     this.ensureMovingProxyState(proxy)
-    const cellSizePx = this.getCellSizePx()
     const currentLeft = Math.round(proxy.left ?? this.movingProxyStartLeft)
     const currentTop = Math.round(proxy.top ?? this.movingProxyStartTop)
-    const totalCellDeltaX = this.computeRoundedCellDelta(
-      currentLeft - this.movingProxyStartLeft,
-      cellSizePx
-    )
-    const totalCellDeltaY = this.computeRoundedCellDelta(
-      currentTop - this.movingProxyStartTop,
-      cellSizePx
-    )
-    const deltaCellX = totalCellDeltaX - this.movingProxyAppliedCellDeltaX
-    const deltaCellY = totalCellDeltaY - this.movingProxyAppliedCellDeltaY
-    if (deltaCellX === 0 && deltaCellY === 0) {
+    const totalDeltaX = currentLeft - this.movingProxyStartLeft
+    const totalDeltaY = currentTop - this.movingProxyStartTop
+    const deltaXUnits = totalDeltaX - this.movingProxyAppliedCellDeltaX
+    const deltaYUnits = totalDeltaY - this.movingProxyAppliedCellDeltaY
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
       return false
     }
-    this.applyLayerCellDelta(layer, deltaCellX, deltaCellY)
-    proxy.terrainAnchorLeft += deltaCellX * cellSizePx
-    proxy.terrainAnchorTop += deltaCellY * cellSizePx
-    this.movingProxyAppliedCellDeltaX = totalCellDeltaX
-    this.movingProxyAppliedCellDeltaY = totalCellDeltaY
+    this.applyLayerUnitDelta(layer, deltaXUnits, deltaYUnits)
+    proxy.terrainAnchorLeft += deltaXUnits
+    proxy.terrainAnchorTop += deltaYUnits
+    this.movingProxyAppliedCellDeltaX = totalDeltaX
+    this.movingProxyAppliedCellDeltaY = totalDeltaY
     this.ctx.requestRender()
     return true
   }
@@ -3362,31 +3371,22 @@ export class EditorTerrainLayerManager {
       return false
     }
     this.ensureActiveSelectionMoveState(selection)
-    const cellSizePx = this.getCellSizePx()
     const currentLeft = Math.round(
       selection.left ?? this.activeSelectionMoveStartLeft
     )
     const currentTop = Math.round(
       selection.top ?? this.activeSelectionMoveStartTop
     )
-    const totalCellDeltaX = this.computeRoundedCellDelta(
-      currentLeft - this.activeSelectionMoveStartLeft,
-      cellSizePx
-    )
-    const totalCellDeltaY = this.computeRoundedCellDelta(
-      currentTop - this.activeSelectionMoveStartTop,
-      cellSizePx
-    )
-    const deltaCellX =
-      totalCellDeltaX - this.activeSelectionMoveAppliedCellDeltaX
-    const deltaCellY =
-      totalCellDeltaY - this.activeSelectionMoveAppliedCellDeltaY
-    if (deltaCellX === 0 && deltaCellY === 0) {
+    const totalDeltaX = currentLeft - this.activeSelectionMoveStartLeft
+    const totalDeltaY = currentTop - this.activeSelectionMoveStartTop
+    const deltaXUnits = totalDeltaX - this.activeSelectionMoveAppliedCellDeltaX
+    const deltaYUnits = totalDeltaY - this.activeSelectionMoveAppliedCellDeltaY
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
       return false
     }
-    this.moveTerrainSelectionByCellDelta(proxies, deltaCellX, deltaCellY)
-    this.activeSelectionMoveAppliedCellDeltaX = totalCellDeltaX
-    this.activeSelectionMoveAppliedCellDeltaY = totalCellDeltaY
+    this.moveTerrainSelectionByUnitDelta(proxies, deltaXUnits, deltaYUnits)
+    this.activeSelectionMoveAppliedCellDeltaX = totalDeltaX
+    this.activeSelectionMoveAppliedCellDeltaY = totalDeltaY
     this.ctx.requestRender()
     return true
   }
@@ -3434,37 +3434,18 @@ export class EditorTerrainLayerManager {
     proxies: readonly TerrainRegionProxy[]
   ): boolean {
     this.ensureGroupedProxyMoveState(group)
-    const cellSizePx = this.getCellSizePx()
     const currentLeft = Math.round(group.left ?? this.groupedProxyMoveStartLeft)
     const currentTop = Math.round(group.top ?? this.groupedProxyMoveStartTop)
-    const totalCellDeltaX = this.computeRoundedCellDelta(
-      currentLeft - this.groupedProxyMoveStartLeft,
-      cellSizePx
-    )
-    const totalCellDeltaY = this.computeRoundedCellDelta(
-      currentTop - this.groupedProxyMoveStartTop,
-      cellSizePx
-    )
-    const deltaCellX = totalCellDeltaX - this.groupedProxyMoveAppliedCellDeltaX
-    const deltaCellY = totalCellDeltaY - this.groupedProxyMoveAppliedCellDeltaY
-    const snappedLeft =
-      this.groupedProxyMoveStartLeft + totalCellDeltaX * cellSizePx
-    const snappedTop =
-      this.groupedProxyMoveStartTop + totalCellDeltaY * cellSizePx
-    if (Math.round(group.left ?? 0) !== snappedLeft) {
-      group.left = snappedLeft
-    }
-    if (Math.round(group.top ?? 0) !== snappedTop) {
-      group.top = snappedTop
-    }
-    group.setCoords()
-    if (deltaCellX === 0 && deltaCellY === 0) {
-      this.ctx.requestRender()
+    const totalDeltaX = currentLeft - this.groupedProxyMoveStartLeft
+    const totalDeltaY = currentTop - this.groupedProxyMoveStartTop
+    const deltaXUnits = totalDeltaX - this.groupedProxyMoveAppliedCellDeltaX
+    const deltaYUnits = totalDeltaY - this.groupedProxyMoveAppliedCellDeltaY
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
       return false
     }
-    this.moveTerrainSelectionByCellDelta(proxies, deltaCellX, deltaCellY)
-    this.groupedProxyMoveAppliedCellDeltaX = totalCellDeltaX
-    this.groupedProxyMoveAppliedCellDeltaY = totalCellDeltaY
+    this.moveTerrainSelectionByUnitDelta(proxies, deltaXUnits, deltaYUnits)
+    this.groupedProxyMoveAppliedCellDeltaX = totalDeltaX
+    this.groupedProxyMoveAppliedCellDeltaY = totalDeltaY
     this.ctx.requestRender()
     return true
   }
@@ -3632,16 +3613,15 @@ export class EditorTerrainLayerManager {
     return proxies
   }
 
-  private moveTerrainSelectionByCellDelta(
+  private moveTerrainSelectionByUnitDelta(
     proxies: readonly TerrainRegionProxy[],
-    cellDeltaX: number,
-    cellDeltaY: number
+    deltaXUnits: number,
+    deltaYUnits: number
   ): void {
-    if (cellDeltaX === 0 && cellDeltaY === 0) {
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
       return
     }
     const movedLayerIds = new Set<number>()
-    const cellSizePx = this.getCellSizePx()
     for (let i = 0; i < proxies.length; i++) {
       const proxy = proxies[i]
       const layer = this.proxyToLayer.get(proxy)
@@ -3649,9 +3629,9 @@ export class EditorTerrainLayerManager {
         continue
       }
       movedLayerIds.add(layer.id)
-      this.applyLayerCellDelta(layer, cellDeltaX, cellDeltaY)
-      proxy.terrainAnchorLeft += cellDeltaX * cellSizePx
-      proxy.terrainAnchorTop += cellDeltaY * cellSizePx
+      this.applyLayerUnitDelta(layer, deltaXUnits, deltaYUnits)
+      proxy.terrainAnchorLeft += deltaXUnits
+      proxy.terrainAnchorTop += deltaYUnits
     }
   }
 
@@ -3691,6 +3671,28 @@ export class EditorTerrainLayerManager {
     layer.serializedLayer.offsetCellX = layer.offsetCellX
     layer.serializedLayer.offsetCellY = layer.offsetCellY
     this.bumpLayerBuildRevision(layer)
+  }
+
+  private applyLayerUnitDelta(
+    layer: EditorTerrainLayer,
+    deltaXUnits: number,
+    deltaYUnits: number
+  ): void {
+    if (deltaXUnits === 0 && deltaYUnits === 0) {
+      return
+    }
+    layer.offsetXUnits += deltaXUnits
+    layer.offsetYUnits += deltaYUnits
+    layer.serializedLayer.offsetXUnits = layer.offsetXUnits
+    layer.serializedLayer.offsetYUnits = layer.offsetYUnits
+    if (layer.canvasCache) {
+      const offset = this.layerCanvasOffsets.get(layer.canvasCache)
+      if (offset) {
+        offset.x += deltaXUnits
+        offset.y += deltaYUnits
+      }
+    }
+    this.invalidateTerrainRenderCache()
   }
 
   private computeRoundedCellDelta(deltaPx: number, cellSizePx: number): number {
@@ -3818,6 +3820,10 @@ export class EditorTerrainLayerManager {
     if (!ctx) return null
 
     const resolvedLayer = this.createResolvedLayerView(layer)
+    const offsetXUnits = resolvedLayer.offsetXUnits
+    const offsetYUnits = resolvedLayer.offsetYUnits
+    resolvedLayer.offsetXUnits = 0
+    resolvedLayer.offsetYUnits = 0
     ctx.clearRect(0, 0, width, height)
     ctx.save()
     ctx.translate(-minX, -minY)
@@ -3833,7 +3839,10 @@ export class EditorTerrainLayerManager {
     )
     ctx.restore()
     layer.lastCacheBuildRevision = buildRevision
-    this.layerCanvasOffsets.set(canvas, { x: minX, y: minY })
+    this.layerCanvasOffsets.set(canvas, {
+      x: minX + offsetXUnits,
+      y: minY + offsetYUnits,
+    })
 
     return canvas
   }
@@ -3854,6 +3863,8 @@ export class EditorTerrainLayerManager {
       chunks: layer.grid.getChunks(),
       offsetCellX: layer.offsetCellX,
       offsetCellY: layer.offsetCellY,
+      offsetXUnits: layer.offsetXUnits,
+      offsetYUnits: layer.offsetYUnits,
       materialId: layer.materialId,
       renderLayer: layer.serializedLayer.renderLayer,
       buildRevision: layer.serializedLayer.buildRevision,
