@@ -32,9 +32,13 @@ export class VoronoiCollisionBuilder {
             getDefaultTerrainRenderLayer(layer.materialId)
           )
         : normalizeRenderLayer(layer.renderLayer, 0)
-      const build = getVoronoiLayerBuild(layer, terrain.cellSize)
+      const hasContourClip =
+        !!layer.contourClipPoints && layer.contourClipPoints.length >= 6
+      const build = getVoronoiLayerBuild(layer, terrain.cellSize, {
+        clipContour: !hasContourClip,
+      })
       const mergedPolygons =
-        layer.contourClipPoints && layer.contourClipPoints.length >= 6
+        hasContourClip && layer.contourClipPoints
           ? buildMergedCollisionPolygons(build.cells, layer.contourClipPoints)
           : []
       if (mergedPolygons.length > 0) {

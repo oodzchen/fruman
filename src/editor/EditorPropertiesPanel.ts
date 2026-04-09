@@ -109,6 +109,8 @@ type CharacterDialogOptions = {
     npcFactions: string[]
     allyFactions: string[]
     drops?: MapNpcDropItem[]
+    mainWeaponConfig?: MapNpcWeapon
+    secondaryWeaponConfig?: MapNpcWeapon
   }
   attackMovesetOwner: AttackMovesetOwner
   showMoveSpeed: boolean
@@ -157,8 +159,10 @@ type CharacterDialogOptions = {
     allyFactions: string[]
     drops?: MapNpcDropItem[]
     mainWeaponType?: WeaponType
+    mainWeaponConfig?: MapNpcWeapon
     mainWeaponMarker?: WeaponMarker
     secondaryWeaponType?: WeaponType
+    secondaryWeaponConfig?: MapNpcWeapon
     secondaryWeaponMarker?: WeaponMarker
   }) => void
 }
@@ -1541,6 +1545,7 @@ export class EditorPropertiesPanel {
         }
 
         let mainWeaponType: WeaponType | undefined
+        let mainWeaponConfig: MapNpcWeapon | undefined
         let mainWeaponMarker: WeaponMarker | undefined
         if (mainBinding && mainWeaponSelect) {
           const mainVal = mainWeaponSelect.value
@@ -1552,6 +1557,11 @@ export class EditorPropertiesPanel {
             mainBinding.setWeaponType(weaponType)
             if (mainWeaponMarker) {
               mainBinding.setWeaponMarker(mainWeaponMarker)
+              mainWeaponConfig = this.serializeWeaponMarker(mainWeaponMarker)
+            } else if (
+              options.data.mainWeaponConfig?.weaponType === weaponType
+            ) {
+              mainWeaponConfig = options.data.mainWeaponConfig
             }
           } else {
             const marker = mainBinding.getWeaponMarker()
@@ -1564,6 +1574,7 @@ export class EditorPropertiesPanel {
         }
 
         let secondaryWeaponType: WeaponType | undefined
+        let secondaryWeaponConfig: MapNpcWeapon | undefined
         let secondaryWeaponMarker: WeaponMarker | undefined
         if (secondaryBinding && secondaryWeaponSelect) {
           const secondaryVal = secondaryWeaponSelect.value
@@ -1575,6 +1586,13 @@ export class EditorPropertiesPanel {
             secondaryBinding.setWeaponType(weaponType)
             if (secondaryWeaponMarker) {
               secondaryBinding.setWeaponMarker(secondaryWeaponMarker)
+              secondaryWeaponConfig = this.serializeWeaponMarker(
+                secondaryWeaponMarker
+              )
+            } else if (
+              options.data.secondaryWeaponConfig?.weaponType === weaponType
+            ) {
+              secondaryWeaponConfig = options.data.secondaryWeaponConfig
             }
           } else {
             const marker = secondaryBinding.getWeaponMarker()
@@ -1614,8 +1632,10 @@ export class EditorPropertiesPanel {
           allyFactions: getAllyFactionSelected(),
           drops: buildNpcDropValues ? buildNpcDropValues() : undefined,
           mainWeaponType,
+          mainWeaponConfig,
           mainWeaponMarker,
           secondaryWeaponType,
+          secondaryWeaponConfig,
           secondaryWeaponMarker,
         })
 
@@ -1760,8 +1780,10 @@ export class EditorPropertiesPanel {
         data.drops = normalizeNpcDropList(values.drops)
 
         data.mainWeapon = values.mainWeaponType
+        data.mainWeaponConfig = values.mainWeaponConfig
         data.mainWeaponMarker = values.mainWeaponMarker
         data.secondaryWeapon = values.secondaryWeaponType
+        data.secondaryWeaponConfig = values.secondaryWeaponConfig
         data.secondaryWeaponMarker = values.secondaryWeaponMarker
         data.equipWeapon = !!data.mainWeapon || !!data.secondaryWeapon
 
@@ -1786,6 +1808,8 @@ export class EditorPropertiesPanel {
         marker.retreatDelaySec = data.retreatDelaySec
         marker.canBeFollower = data.canBeFollower
         marker.equipWeapon = data.equipWeapon
+        marker.mainWeapon = data.mainWeapon
+        marker.secondaryWeapon = data.secondaryWeapon
         marker.factionId = data.factionId
         marker.npcFactions = data.npcFactions
         marker.allyFactions = data.allyFactions
@@ -2103,8 +2127,10 @@ export class EditorPropertiesPanel {
         data.allyFactions = values.allyFactions
 
         data.mainWeapon = values.mainWeaponType
+        data.mainWeaponConfig = values.mainWeaponConfig
         data.mainWeaponMarker = values.mainWeaponMarker
         data.secondaryWeapon = values.secondaryWeaponType
+        data.secondaryWeaponConfig = values.secondaryWeaponConfig
         data.secondaryWeaponMarker = values.secondaryWeaponMarker
 
         marker.radius = data.radius

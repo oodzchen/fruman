@@ -784,20 +784,22 @@ export class EditorClipboardManager {
         allyFactions: npcData.allyFactions.slice(),
         drops: normalizeNpcDropList(npcData.drops),
         mainWeapon:
-          npcData.mainWeaponMarker &&
-          !this.isObjectDescendantOfRoot(
-            npcData.mainWeaponMarker,
-            targetData.id
-          )
-            ? this.copyWeaponMarkerData(npcData.mainWeaponMarker)
+          (!npcData.mainWeaponMarker ||
+            !this.isObjectDescendantOfRoot(
+              npcData.mainWeaponMarker,
+              targetData.id
+            )) &&
+          npcData.mainWeapon
+            ? this.ctx.markerManager.getNpcWeaponConfig(npcData, 'main')
             : undefined,
         secondaryWeapon:
-          npcData.secondaryWeaponMarker &&
-          !this.isObjectDescendantOfRoot(
-            npcData.secondaryWeaponMarker,
-            targetData.id
-          )
-            ? this.copyWeaponMarkerData(npcData.secondaryWeaponMarker)
+          (!npcData.secondaryWeaponMarker ||
+            !this.isObjectDescendantOfRoot(
+              npcData.secondaryWeaponMarker,
+              targetData.id
+            )) &&
+          npcData.secondaryWeapon
+            ? this.ctx.markerManager.getNpcWeaponConfig(npcData, 'secondary')
             : undefined,
       }
     }
@@ -950,21 +952,6 @@ export class EditorClipboardManager {
     }
 
     return node
-  }
-
-  private copyWeaponMarkerData(marker: WeaponMarker): MapNpcWeapon | undefined {
-    const weaponData = this.ctx.markerManager.getWeaponMarkerMap().get(marker)
-    if (!weaponData) {
-      return undefined
-    }
-    return {
-      weaponType: weaponData.weaponType,
-      sizeLevel: weaponData.sizeLevel,
-      attackDamage: weaponData.attackDamage,
-      postureDamage: weaponData.postureDamage,
-      toughnessDamage: weaponData.toughnessDamage,
-      bowAmmo: weaponData.bowAmmo,
-    }
   }
 
   private cloneTerrainSnapshot(
@@ -1742,30 +1729,32 @@ export class EditorClipboardManager {
     this.npcDrops = normalizeNpcDropList(npcData.drops)
     this.npcHasMainWeapon = false
     this.npcHasSecondaryWeapon = false
-    const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
-    if (npcData.mainWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(npcData.mainWeaponMarker)
-      if (weaponData) {
-        this.npcHasMainWeapon = true
-        this.npcMainWeaponData.weaponType = weaponData.weaponType
-        this.npcMainWeaponData.sizeLevel = weaponData.sizeLevel
-        this.npcMainWeaponData.attackDamage = weaponData.attackDamage
-        this.npcMainWeaponData.postureDamage = weaponData.postureDamage
-        this.npcMainWeaponData.toughnessDamage = weaponData.toughnessDamage
-        this.npcMainWeaponData.bowAmmo = weaponData.bowAmmo
-      }
+    const mainWeapon = this.ctx.markerManager.getNpcWeaponConfig(
+      npcData,
+      'main'
+    )
+    if (mainWeapon) {
+      this.npcHasMainWeapon = true
+      this.npcMainWeaponData.weaponType = mainWeapon.weaponType
+      this.npcMainWeaponData.sizeLevel = mainWeapon.sizeLevel
+      this.npcMainWeaponData.attackDamage = mainWeapon.attackDamage
+      this.npcMainWeaponData.postureDamage = mainWeapon.postureDamage
+      this.npcMainWeaponData.toughnessDamage = mainWeapon.toughnessDamage
+      this.npcMainWeaponData.bowAmmo = mainWeapon.bowAmmo
     }
-    if (npcData.secondaryWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(npcData.secondaryWeaponMarker)
-      if (weaponData) {
-        this.npcHasSecondaryWeapon = true
-        this.npcSecondaryWeaponData.weaponType = weaponData.weaponType
-        this.npcSecondaryWeaponData.sizeLevel = weaponData.sizeLevel
-        this.npcSecondaryWeaponData.attackDamage = weaponData.attackDamage
-        this.npcSecondaryWeaponData.postureDamage = weaponData.postureDamage
-        this.npcSecondaryWeaponData.toughnessDamage = weaponData.toughnessDamage
-        this.npcSecondaryWeaponData.bowAmmo = weaponData.bowAmmo
-      }
+    const secondaryWeapon = this.ctx.markerManager.getNpcWeaponConfig(
+      npcData,
+      'secondary'
+    )
+    if (secondaryWeapon) {
+      this.npcHasSecondaryWeapon = true
+      this.npcSecondaryWeaponData.weaponType = secondaryWeapon.weaponType
+      this.npcSecondaryWeaponData.sizeLevel = secondaryWeapon.sizeLevel
+      this.npcSecondaryWeaponData.attackDamage = secondaryWeapon.attackDamage
+      this.npcSecondaryWeaponData.postureDamage = secondaryWeapon.postureDamage
+      this.npcSecondaryWeaponData.toughnessDamage =
+        secondaryWeapon.toughnessDamage
+      this.npcSecondaryWeaponData.bowAmmo = secondaryWeapon.bowAmmo
     }
     return true
   }
@@ -1842,31 +1831,33 @@ export class EditorClipboardManager {
     }
     this.playerHasMainWeapon = false
     this.playerHasSecondaryWeapon = false
-    const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
-    if (playerData.mainWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(playerData.mainWeaponMarker)
-      if (weaponData) {
-        this.playerHasMainWeapon = true
-        this.playerMainWeaponData.weaponType = weaponData.weaponType
-        this.playerMainWeaponData.sizeLevel = weaponData.sizeLevel
-        this.playerMainWeaponData.attackDamage = weaponData.attackDamage
-        this.playerMainWeaponData.postureDamage = weaponData.postureDamage
-        this.playerMainWeaponData.toughnessDamage = weaponData.toughnessDamage
-        this.playerMainWeaponData.bowAmmo = weaponData.bowAmmo
-      }
+    const mainWeapon = this.ctx.markerManager.getPlayerWeaponConfig(
+      playerData,
+      'main'
+    )
+    if (mainWeapon) {
+      this.playerHasMainWeapon = true
+      this.playerMainWeaponData.weaponType = mainWeapon.weaponType
+      this.playerMainWeaponData.sizeLevel = mainWeapon.sizeLevel
+      this.playerMainWeaponData.attackDamage = mainWeapon.attackDamage
+      this.playerMainWeaponData.postureDamage = mainWeapon.postureDamage
+      this.playerMainWeaponData.toughnessDamage = mainWeapon.toughnessDamage
+      this.playerMainWeaponData.bowAmmo = mainWeapon.bowAmmo
     }
-    if (playerData.secondaryWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(playerData.secondaryWeaponMarker)
-      if (weaponData) {
-        this.playerHasSecondaryWeapon = true
-        this.playerSecondaryWeaponData.weaponType = weaponData.weaponType
-        this.playerSecondaryWeaponData.sizeLevel = weaponData.sizeLevel
-        this.playerSecondaryWeaponData.attackDamage = weaponData.attackDamage
-        this.playerSecondaryWeaponData.postureDamage = weaponData.postureDamage
-        this.playerSecondaryWeaponData.toughnessDamage =
-          weaponData.toughnessDamage
-        this.playerSecondaryWeaponData.bowAmmo = weaponData.bowAmmo
-      }
+    const secondaryWeapon = this.ctx.markerManager.getPlayerWeaponConfig(
+      playerData,
+      'secondary'
+    )
+    if (secondaryWeapon) {
+      this.playerHasSecondaryWeapon = true
+      this.playerSecondaryWeaponData.weaponType = secondaryWeapon.weaponType
+      this.playerSecondaryWeaponData.sizeLevel = secondaryWeapon.sizeLevel
+      this.playerSecondaryWeaponData.attackDamage = secondaryWeapon.attackDamage
+      this.playerSecondaryWeaponData.postureDamage =
+        secondaryWeapon.postureDamage
+      this.playerSecondaryWeaponData.toughnessDamage =
+        secondaryWeapon.toughnessDamage
+      this.playerSecondaryWeaponData.bowAmmo = secondaryWeapon.bowAmmo
     }
     return true
   }

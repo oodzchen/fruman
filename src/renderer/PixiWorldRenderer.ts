@@ -63,6 +63,7 @@ interface EntityView {
   readonly followUnbondSprite: Sprite
   layer: number
   lastSeenFrame: number
+  lastHealthRatio: number
   bodyKey: string
   weaponKey: string
   specialKey: string
@@ -440,6 +441,7 @@ export class PixiWorldRenderer {
       followUnbondSprite,
       layer: 0,
       lastSeenFrame: -1,
+      lastHealthRatio: -1,
       bodyKey: '',
       weaponKey: '',
       specialKey: '',
@@ -486,6 +488,7 @@ export class PixiWorldRenderer {
     hideGraphics(view.deathGraphics)
     hideSprite(view.followBondSprite)
     hideSprite(view.followUnbondSprite)
+    view.lastHealthRatio = -1
   }
 
   private pruneEntityViews(): void {
@@ -850,7 +853,6 @@ export class PixiWorldRenderer {
       hideSprite(view.weaponSprite)
       return
     }
-
     const entityX = buf[offset + OFFSETS.X]
     const entityY = buf[offset + OFFSETS.Y]
     const weaponX = buf[offset + OFFSETS.WEAPON_X]
@@ -943,6 +945,7 @@ export class PixiWorldRenderer {
       (!isInCombat && !isLocked && !isHealthBarFlash)
     ) {
       hideGraphics(view.statusGraphics)
+      view.lastHealthRatio = -1
       return
     }
 
@@ -955,14 +958,20 @@ export class PixiWorldRenderer {
     const clampedRatio = Math.max(0, Math.min(1, ratio))
     const startX = -barWidth / 2
 
-    view.statusGraphics.clear()
-    view.statusGraphics.rect(startX, baseY, barWidth, barHeight).fill('#5a1b1b')
-    view.statusGraphics
-      .rect(startX, baseY, barWidth * clampedRatio, barHeight)
-      .fill('#ff4d4f')
-    view.statusGraphics
-      .rect(startX, baseY, barWidth, barHeight)
-      .stroke({ color: '#111111', width: 1 })
+    if (clampedRatio !== view.lastHealthRatio) {
+      view.lastHealthRatio = clampedRatio
+      view.statusGraphics.clear()
+      view.statusGraphics
+        .rect(startX, baseY, barWidth, barHeight)
+        .fill('#5a1b1b')
+      view.statusGraphics
+        .rect(startX, baseY, barWidth * clampedRatio, barHeight)
+        .fill('#ff4d4f')
+      view.statusGraphics
+        .rect(startX, baseY, barWidth, barHeight)
+        .stroke({ color: '#111111', width: 1 })
+    }
+
     view.statusGraphics.visible = true
   }
 

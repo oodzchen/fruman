@@ -408,8 +408,14 @@ export class EditorManager {
       markerManager: this.markerManager,
       terrainManager: this.terrainManager,
 
-      spawnCameraViewFrame: (camera) =>
-        this.cameraManager.spawnCameraViewFrame(camera, ObjectType.Camera),
+      spawnCameraViewFrame: (camera, options) =>
+        this.cameraManager.spawnCameraViewFrame(
+          camera,
+          ObjectType.Camera,
+          options
+        ),
+      beginObjectBatchMutation: () => this.objectManager.beginBatchMutation(),
+      endObjectBatchMutation: () => this.objectManager.endBatchMutation(),
       renderObjectTree: () => this.renderObjectTree(),
       requestRenderAll: () => {
         this.fabricCanvas?.requestRenderAll()

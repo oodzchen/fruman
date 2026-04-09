@@ -22,6 +22,11 @@ interface EditorCameraManagerContext {
   ensureFabricCanvas: () => void
 }
 
+interface CameraSpawnOptions {
+  select?: boolean
+  render?: boolean
+}
+
 export class EditorCameraManager {
   private readonly context: EditorCameraManagerContext
 
@@ -47,7 +52,8 @@ export class EditorCameraManager {
 
   spawnCameraViewFrame(
     camera?: EditorMapData['camera'],
-    objectType?: ObjectType
+    objectType?: ObjectType,
+    options: CameraSpawnOptions = {}
   ): void {
     this.context.ensureFabricCanvas()
     const canvas = this.context.fabricCanvas()
@@ -122,10 +128,14 @@ export class EditorCameraManager {
       this.context.registerEditorObject(objectType, frame)
     }
 
-    canvas.setActiveObject(frame)
-    this.context.handleCanvasSelection(frame)
-    this.refreshCameraFocus(frame)
-    canvas.renderAll()
+    if (options.select !== false) {
+      canvas.setActiveObject(frame)
+      this.context.handleCanvasSelection(frame)
+      this.refreshCameraFocus(frame)
+    }
+    if (options.render !== false) {
+      canvas.renderAll()
+    }
   }
 
   removeCameraView(frame: CameraFrame): void {
@@ -182,7 +192,7 @@ export class EditorCameraManager {
       originY: 'center',
       rx: 2,
       ry: 2,
-      objectCaching: false,
+      objectCaching: true,
     })
     const lens = new fabric.Circle({
       radius: 3,
@@ -193,7 +203,7 @@ export class EditorCameraManager {
       originY: 'center',
       left: 2,
       top: 0,
-      objectCaching: false,
+      objectCaching: true,
     })
     const hood = new fabric.Triangle({
       width: 6,
@@ -206,7 +216,7 @@ export class EditorCameraManager {
       left: 12,
       top: 0,
       angle: 90,
-      objectCaching: false,
+      objectCaching: true,
     })
     const group = new fabric.Group([body, lens, hood], {
       originX: 'center',
@@ -214,7 +224,7 @@ export class EditorCameraManager {
       selectable: false,
       evented: false,
       hoverCursor: 'default',
-      objectCaching: false,
+      objectCaching: true,
     })
     return group
   }

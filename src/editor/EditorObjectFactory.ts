@@ -159,6 +159,200 @@ class WeaponRenderObject extends fabric.FabricObject {
   }
 }
 
+class NpcMarkerRenderObject extends fabric.FabricObject {
+  static override type = 'customNpcMarker'
+
+  declare editorShape: NpcMarker['editorShape']
+  declare npcType: NpcMarker['npcType']
+  declare radius: NpcMarker['radius']
+  declare bodyHeight: NpcMarker['bodyHeight']
+  declare bodyProfile: NpcMarker['bodyProfile']
+  declare moveSpeed: NpcMarker['moveSpeed']
+  declare attackDesire: NpcMarker['attackDesire']
+  declare parryProficiency: NpcMarker['parryProficiency']
+  declare initialPatrolMode: NpcMarker['initialPatrolMode']
+  declare detectionRangeLevel: NpcMarker['detectionRangeLevel']
+  declare maxHealth: NpcMarker['maxHealth']
+  declare maxPosture: NpcMarker['maxPosture']
+  declare maxToughness: NpcMarker['maxToughness']
+  declare color: NpcMarker['color']
+  declare facing: NpcMarker['facing']
+  declare initialNormalMovesetId: NpcMarker['initialNormalMovesetId']
+  declare debugNoDamage: NpcMarker['debugNoDamage']
+  declare debugNoDeath: NpcMarker['debugNoDeath']
+  declare redTapeEnabled: NpcMarker['redTapeEnabled']
+  declare retreatEnabled: NpcMarker['retreatEnabled']
+  declare retreatDelaySec: NpcMarker['retreatDelaySec']
+  declare canBeFollower: NpcMarker['canBeFollower']
+  declare equipWeapon: NpcMarker['equipWeapon']
+  declare factionId: NpcMarker['factionId']
+  declare npcFactions: NpcMarker['npcFactions']
+  declare allyFactions: NpcMarker['allyFactions']
+  declare drops: NpcMarker['drops']
+  declare mainWeapon: NpcMarker['mainWeapon']
+  declare secondaryWeapon: NpcMarker['secondaryWeapon']
+  declare bodyRadiusXPx: NpcMarker['bodyRadiusXPx']
+  declare bodyRadiusYPx: NpcMarker['bodyRadiusYPx']
+  declare bodyTextureImage: NpcMarker['bodyTextureImage']
+  declare eyeColor: NpcMarker['eyeColor']
+  declare weaponVisible: NpcMarker['weaponVisible']
+  declare weaponWidthPx: NpcMarker['weaponWidthPx']
+  declare weaponHeightPx: NpcMarker['weaponHeightPx']
+  declare weaponBoundingWidthPx: NpcMarker['weaponBoundingWidthPx']
+  declare weaponBoundingHeightPx: NpcMarker['weaponBoundingHeightPx']
+  declare weaponRenderType: NpcMarker['weaponRenderType']
+  declare weaponLeft: NpcMarker['weaponLeft']
+  declare weaponTop: NpcMarker['weaponTop']
+  declare weaponAngle: NpcMarker['weaponAngle']
+  declare weaponDrawBehind: NpcMarker['weaponDrawBehind']
+
+  private readonly pixelsPerMeter: number
+  private readonly renderWeaponFn: EditorObjectFactoryOptions['renderWeapon']
+
+  constructor(
+    pixelsPerMeter: number,
+    renderWeaponFn: EditorObjectFactoryOptions['renderWeapon'],
+    eyeColor: string,
+    options?: FabricObjectOptions
+  ) {
+    super(options)
+    this.pixelsPerMeter = pixelsPerMeter
+    this.renderWeaponFn = renderWeaponFn
+    this.editorShape = 'npc-marker'
+    this.npcType = 'default'
+    this.radius = 0
+    this.bodyHeight = 0
+    this.bodyProfile = undefined
+    this.moveSpeed = 0
+    this.attackDesire = 0
+    this.parryProficiency = 0
+    this.initialPatrolMode = '' as NpcMarker['initialPatrolMode']
+    this.detectionRangeLevel = 'near'
+    this.maxHealth = 0
+    this.maxPosture = 0
+    this.maxToughness = 0
+    this.color = '#000000'
+    this.facing = 1
+    this.initialNormalMovesetId = '' as NpcMarker['initialNormalMovesetId']
+    this.debugNoDamage = false
+    this.debugNoDeath = false
+    this.redTapeEnabled = false
+    this.retreatEnabled = false
+    this.retreatDelaySec = 0
+    this.canBeFollower = false
+    this.equipWeapon = false
+    this.factionId = ''
+    this.npcFactions = []
+    this.allyFactions = []
+    this.drops = []
+    this.mainWeapon = undefined
+    this.secondaryWeapon = undefined
+    this.bodyRadiusXPx = 0
+    this.bodyRadiusYPx = 0
+    this.bodyTextureImage = null
+    this.eyeColor = eyeColor
+    this.weaponVisible = false
+    this.weaponWidthPx = 0
+    this.weaponHeightPx = 0
+    this.weaponBoundingWidthPx = 0
+    this.weaponBoundingHeightPx = 0
+    this.weaponRenderType = 'sword'
+    this.weaponLeft = 0
+    this.weaponTop = 0
+    this.weaponAngle = 0
+    this.weaponDrawBehind = false
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    if (this.weaponVisible && this.weaponDrawBehind) {
+      this.renderEquippedWeapon(ctx)
+    }
+    renderBody(
+      ctx,
+      this.bodyRadiusXPx,
+      this.color,
+      this.pixelsPerMeter,
+      this.facing,
+      this.bodyRadiusYPx * 2,
+      '',
+      0,
+      this.bodyProfile ?? null,
+      this.bodyTextureImage,
+      true,
+      this.eyeColor
+    )
+    if (this.weaponVisible && !this.weaponDrawBehind) {
+      this.renderEquippedWeapon(ctx)
+    }
+  }
+
+  override _getCacheCanvasDimensions() {
+    const dims = super._getCacheCanvasDimensions()
+    const renderWidthPx = this.getRenderWidthPx()
+    const renderHeightPx = this.getRenderHeightPx()
+    const bodyWidthPx = this.bodyRadiusXPx * 2
+    const bodyHeightPx = this.bodyRadiusYPx * 2
+
+    if (renderWidthPx <= bodyWidthPx && renderHeightPx <= bodyHeightPx) {
+      return dims
+    }
+
+    const objectScale = this.getTotalObjectScaling()
+    const widthPadding = dims.width - Math.ceil(dims.x)
+    const heightPadding = dims.height - Math.ceil(dims.y)
+    const neededX = (renderWidthPx * objectScale.x) / this.scaleX
+    const neededY = (renderHeightPx * objectScale.y) / this.scaleY
+
+    if (neededX > dims.x) {
+      dims.x = neededX
+      dims.width = Math.ceil(neededX) + widthPadding
+    }
+    if (neededY > dims.y) {
+      dims.y = neededY
+      dims.height = Math.ceil(neededY) + heightPadding
+    }
+
+    return dims
+  }
+
+  private renderEquippedWeapon(ctx: CanvasRenderingContext2D): void {
+    ctx.save()
+    ctx.translate(this.weaponLeft, this.weaponTop)
+    ctx.rotate((this.weaponAngle * Math.PI) / 180)
+    this.renderWeaponFn(
+      ctx,
+      this.weaponRenderType,
+      this.weaponWidthPx,
+      this.weaponHeightPx,
+      '#b4bdc7',
+      false
+    )
+    ctx.restore()
+  }
+
+  private getRenderWidthPx(): number {
+    let halfWidthPx = this.bodyRadiusXPx
+    if (this.weaponVisible) {
+      halfWidthPx = Math.max(
+        halfWidthPx,
+        Math.abs(this.weaponLeft) + Math.round(this.weaponBoundingWidthPx / 2)
+      )
+    }
+    return halfWidthPx * 2
+  }
+
+  private getRenderHeightPx(): number {
+    let halfHeightPx = this.bodyRadiusYPx
+    if (this.weaponVisible) {
+      halfHeightPx = Math.max(
+        halfHeightPx,
+        Math.abs(this.weaponTop) + Math.round(this.weaponBoundingHeightPx / 2)
+      )
+    }
+    return halfHeightPx * 2
+  }
+}
+
 export class EditorObjectFactory {
   private pixelsPerMeter: number
   private defaultPlayerRadius: number
@@ -189,7 +383,7 @@ export class EditorObjectFactory {
     return new CharacterBodyRenderObject(this.pixelsPerMeter, color, {
       originX: 'center',
       originY: 'center',
-      objectCaching: false,
+      objectCaching: true,
       selectable: false,
     }) as CharacterBodyShapeObject
   }
@@ -210,7 +404,7 @@ export class EditorObjectFactory {
       {
         originX: 'center',
         originY: 'center',
-        objectCaching: false,
+        objectCaching: true,
         selectable: false,
         visible: false,
       }
@@ -222,7 +416,7 @@ export class EditorObjectFactory {
       {
         originX: 'center',
         originY: 'center',
-        objectCaching: false,
+        objectCaching: true,
         selectable: false,
         visible: false,
       }
@@ -236,7 +430,7 @@ export class EditorObjectFactory {
       lockRotation: true,
       lockScalingX: true,
       lockScalingY: true,
-      objectCaching: false,
+      objectCaching: true,
     }) as PlayerMarker
     group.editorShape = 'player-marker'
     group.weaponBackShape = weaponBackShape
@@ -261,7 +455,7 @@ export class EditorObjectFactory {
       originX: 'center',
       originY: 'center',
       top: canopyOffsetY,
-      objectCaching: false,
+      objectCaching: true,
     })
 
     const trunk = new fabric.Polygon(
@@ -277,7 +471,7 @@ export class EditorObjectFactory {
         strokeWidth: 1,
         originX: 'center',
         originY: 'top',
-        objectCaching: false,
+        objectCaching: true,
       }
     )
 
@@ -289,7 +483,7 @@ export class EditorObjectFactory {
       lockRotation: true,
       lockScalingX: true,
       lockScalingY: true,
-      objectCaching: false,
+      objectCaching: true,
     }) as CheckpointMarker
     group.editorShape = 'checkpoint-marker'
     return group
@@ -314,7 +508,7 @@ export class EditorObjectFactory {
       strokeWidth: isLarge ? 1 : 0,
       originX: 'center',
       originY: 'center',
-      objectCaching: false,
+      objectCaching: true,
     })
     const group = new fabric.Group([star], {
       originX: 'center',
@@ -324,7 +518,7 @@ export class EditorObjectFactory {
       lockRotation: true,
       lockScalingX: true,
       lockScalingY: true,
-      objectCaching: false,
+      objectCaching: true,
     }) as SunPickupMarker
     group.editorShape = 'sun-pickup-marker'
     group.isLarge = isLarge
@@ -343,7 +537,7 @@ export class EditorObjectFactory {
       strokeWidth,
       originX: 'center',
       originY: 'center',
-      objectCaching: false,
+      objectCaching: true,
     })
 
     const dot = new fabric.Circle({
@@ -353,7 +547,7 @@ export class EditorObjectFactory {
       strokeWidth: 1,
       originX: 'center',
       originY: 'center',
-      objectCaching: false,
+      objectCaching: true,
     })
 
     const group = new fabric.Group([ring, dot], {
@@ -364,7 +558,7 @@ export class EditorObjectFactory {
       lockRotation: true,
       lockScalingX: true,
       lockScalingY: true,
-      objectCaching: false,
+      objectCaching: true,
     }) as HookAnchorMarker
     group.editorShape = 'hook-anchor-marker'
     return group
@@ -380,57 +574,32 @@ export class EditorObjectFactory {
       radiusMeters,
       this.pixelsPerMeter
     )
-    const body = this.createCharacterBodyShape(color)
-    body.bodyRadiusXPx = radius
-    body.bodyRadiusYPx = radius
-    body.bodyColor = color
-    body.bodyFacing = 1
-    body.eyeColor = this.npcEyeColor
-    body.width = radius * 2
-    body.height = radius * 2
-    const weaponBackShape = new WeaponRenderObject(
+    const marker = new NpcMarkerRenderObject(
+      this.pixelsPerMeter,
       this.renderWeapon,
-      '#b4bdc7',
+      this.npcEyeColor,
       {
+        width: radius * 2,
+        height: radius * 2,
+        strokeWidth: 0,
         originX: 'center',
         originY: 'center',
-        objectCaching: false,
-        selectable: false,
-        visible: false,
+        selectable: true,
+        hasControls: false,
+        lockRotation: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        objectCaching: true,
       }
-    ) as WeaponShape
-
-    const weaponFrontShape = new WeaponRenderObject(
-      this.renderWeapon,
-      '#b4bdc7',
-      {
-        originX: 'center',
-        originY: 'center',
-        objectCaching: false,
-        selectable: false,
-        visible: false,
-      }
-    ) as WeaponShape
-
-    const group = new fabric.Group([weaponBackShape, body, weaponFrontShape], {
-      width: radius * 2,
-      height: radius * 2,
-      originX: 'center',
-      originY: 'center',
-      selectable: true,
-      hasControls: false,
-      lockRotation: true,
-      lockScalingX: true,
-      lockScalingY: true,
-      objectCaching: false,
-    }) as NpcMarker
-    group.editorShape = 'npc-marker'
-    group.npcType = npcType
-    group.color = color
-    group.equipWeapon = equipWeapon
-    group.weaponBackShape = weaponBackShape
-    group.weaponFrontShape = weaponFrontShape
-    return group
+    ) as NpcMarker
+    marker.editorShape = 'npc-marker'
+    marker.npcType = npcType
+    marker.color = color
+    marker.equipWeapon = equipWeapon
+    marker.bodyRadiusXPx = radius
+    marker.bodyRadiusYPx = radius
+    marker.eyeColor = this.npcEyeColor
+    return marker
   }
 
   createWeaponMarker(
@@ -472,7 +641,7 @@ export class EditorObjectFactory {
     const weaponShape = new WeaponRenderObject(this.renderWeapon, color, {
       originX: 'center',
       originY: 'center',
-      objectCaching: false,
+      objectCaching: true,
     }) as WeaponShape
     weaponShape.weaponType = weaponType
     weaponShape.weaponWidthPx = dims.widthPx
@@ -493,7 +662,7 @@ export class EditorObjectFactory {
       hasControls: false,
       lockScalingX: true,
       lockScalingY: true,
-      objectCaching: false,
+      objectCaching: true,
     }) as WeaponMarker
     group.editorShape = 'weapon-marker'
     group.weaponType = weaponType

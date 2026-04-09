@@ -4,7 +4,10 @@ import { localizer } from '../Localizer'
 import { getDefaultTerrainRenderLayer } from '../renderLayers'
 import { TerrainChunkGrid } from '../terrain/TerrainChunkGrid'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
-import { inferTerrainMaterialId } from '../terrain/TerrainDataUtils'
+import {
+  type TerrainResolvedLayerView,
+  inferTerrainMaterialId,
+} from '../terrain/TerrainDataUtils'
 import {
   getTerrainBrushById,
   getTerrainMaterialById,
@@ -60,6 +63,8 @@ interface EditorTerrainLayer {
   contourId: number
   internalOnly: boolean
   proxy: TerrainRegionProxy | null
+  canvasCache?: HTMLCanvasElement
+  lastCacheBuildRevision?: number
 }
 
 interface EditorTerrainContour {
@@ -243,6 +248,10 @@ export class EditorTerrainLayerManager {
   private terrainRenderCacheDirty = true
   private terrainRenderCacheExcludeLayer: TerrainLayerLike | null = null
   private terrainRenderCacheTransform: fabric.TMat2D = [1, 0, 0, 1, 0, 0]
+  private readonly layerCanvasOffsets = new WeakMap<
+    HTMLCanvasElement,
+    { x: number; y: number }
+  >()
   private runtimeBuildRevision = 1
 
   constructor(ctx: EditorTerrainLayerManagerContext) {
@@ -805,7 +814,6 @@ export class EditorTerrainLayerManager {
         this.createContourFromSerialized(data.contours[i], contourLayerMap)
       }
     }
-
     this.ctx.requestRender()
   }
 
@@ -1552,33 +1560,29 @@ export class EditorTerrainLayerManager {
       terrainCtx.imageSmoothingEnabled = false
       terrainCtx.drawImage(cacheCanvas, 0, 0)
     }
-    if (!movingContour || !movingLayer) {
+    if (!movingContour || !movingLayer || !movingContour.fillLayer) {
       return
     }
-    terrainCtx.save()
-    terrainCtx.transform(
-      transform[0],
-      transform[1],
-      transform[2],
-      transform[3],
-      transform[4],
-      transform[5]
-    )
-    terrainCtx.imageSmoothingEnabled = false
-    TerrainRenderer.drawTerrain(
-      terrainCtx,
-      this.renderData,
-      this.getCellSizePx(),
-      {
-        drawStroke: true,
-        shouldDrawLayer: (layer) => layer.sourceLayer === movingLayer,
-        getLayerPixelOffset: () => ({
-          x: this.movingContourAppliedDeltaX,
-          y: this.movingContourAppliedDeltaY,
-        }),
-      }
-    )
-    terrainCtx.restore()
+
+    const layerObj = movingContour.fillLayer
+    const layerCanvas = this.ensureLayerCanvasCache(layerObj)
+    if (layerCanvas) {
+      terrainCtx.save()
+      terrainCtx.transform(
+        transform[0],
+        transform[1],
+        transform[2],
+        transform[3],
+        transform[4],
+        transform[5]
+      )
+      terrainCtx.imageSmoothingEnabled = false
+      const offset = this.layerCanvasOffsets.get(layerCanvas)
+      const offsetX = (offset?.x ?? 0) + this.movingContourAppliedDeltaX
+      const offsetY = (offset?.y ?? 0) + this.movingContourAppliedDeltaY
+      terrainCtx.drawImage(layerCanvas, offsetX, offsetY)
+      terrainCtx.restore()
+    }
   }
 
   private handleContourModified(proxy: TerrainContourProxy): boolean {
@@ -1896,29 +1900,17 @@ export class EditorTerrainLayerManager {
 
     const contour =
       layer.contourId > 0 ? this.getContourById(layer.contourId) : null
-    const serializedContour = contour
-      ? this.getSerializedContour(contour)
-      : null
+    if (
+      contour &&
+      contour.straightEdge !== false &&
+      !pointInClosedContourScaled2(contour.points, sceneX * 2, sceneY * 2)
+    ) {
+      return null
+    }
     const build = getVoronoiLayerBuild(
-      {
-        version: this.renderData.version,
-        cellSize: this.renderData.cellSize,
-        chunkSize: this.renderData.chunkSize,
-        randomSeed: this.renderData.randomSeed,
-        chunks: layer.grid.getChunks(),
-        offsetCellX: layer.offsetCellX,
-        offsetCellY: layer.offsetCellY,
-        materialId: layer.materialId,
-        renderLayer: layer.serializedLayer.renderLayer,
-        buildRevision: layer.serializedLayer.buildRevision,
-        sourceLayer: layer.serializedLayer,
-        contourClipPoints:
-          contour && contour.straightEdge !== false
-            ? contour.points
-            : undefined,
-        contourBuildRevision: serializedContour?.buildRevision,
-      },
-      cellSizePx
+      this.createResolvedLayerView(layer),
+      cellSizePx,
+      { clipContour: false }
     )
     return build.pickCellAt(sceneX, sceneY)
   }
@@ -3757,6 +3749,115 @@ export class EditorTerrainLayerManager {
     this.terrainRenderCacheExcludeLayer = null
     this.terrainRenderCacheTransform = [1, 0, 0, 1, 0, 0]
     this.terrainRenderCacheDirty = true
+    this.clearLayerCanvasCaches()
+  }
+
+  private clearLayerCanvasCaches(): void {
+    for (let i = 0; i < this.layers.length; i++) {
+      const layer = this.layers[i]
+      layer.canvasCache = undefined
+      layer.lastCacheBuildRevision = undefined
+    }
+  }
+
+  private ensureLayerCanvasCache(
+    layer: EditorTerrainLayer
+  ): HTMLCanvasElement | null {
+    const buildRevision = layer.serializedLayer.buildRevision ?? 0
+    if (layer.canvasCache && layer.lastCacheBuildRevision === buildRevision) {
+      return layer.canvasCache
+    }
+
+    const chunks = layer.grid.getChunks()
+    if (chunks.length === 0) {
+      layer.canvasCache = undefined
+      layer.lastCacheBuildRevision = buildRevision
+      return null
+    }
+
+    let minChunkX = chunks[0].chunkX
+    let maxChunkX = chunks[0].chunkX
+    let minChunkY = chunks[0].chunkY
+    let maxChunkY = chunks[0].chunkY
+
+    for (let i = 1; i < chunks.length; i++) {
+      const c = chunks[i]
+      if (c.chunkX < minChunkX) minChunkX = c.chunkX
+      if (c.chunkX > maxChunkX) maxChunkX = c.chunkX
+      if (c.chunkY < minChunkY) minChunkY = c.chunkY
+      if (c.chunkY > maxChunkY) maxChunkY = c.chunkY
+    }
+
+    const cellSizePx = this.getCellSizePx()
+    const paddingCells = 2
+    const minX = (minChunkX * this.chunkSize - paddingCells) * cellSizePx
+    const minY = (minChunkY * this.chunkSize - paddingCells) * cellSizePx
+    const maxX = ((maxChunkX + 1) * this.chunkSize + paddingCells) * cellSizePx
+    const maxY = ((maxChunkY + 1) * this.chunkSize + paddingCells) * cellSizePx
+
+    const width = Math.ceil(maxX - minX)
+    const height = Math.ceil(maxY - minY)
+
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384) {
+      return null
+    }
+
+    let canvas = layer.canvasCache
+    if (!canvas || canvas.width !== width || canvas.height !== height) {
+      canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      layer.canvasCache = canvas
+    }
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    const resolvedLayer = this.createResolvedLayerView(layer)
+    ctx.clearRect(0, 0, width, height)
+    ctx.save()
+    ctx.translate(-minX, -minY)
+
+    TerrainRenderer.drawLayerView(
+      ctx,
+      resolvedLayer,
+      this.cellSize * this.ctx.pixelsPerMeter,
+      {
+        drawStroke: true,
+        clipVoronoiContoursOnCanvas: true,
+      }
+    )
+    ctx.restore()
+    layer.lastCacheBuildRevision = buildRevision
+    this.layerCanvasOffsets.set(canvas, { x: minX, y: minY })
+
+    return canvas
+  }
+
+  private createResolvedLayerView(
+    layer: EditorTerrainLayer
+  ): TerrainResolvedLayerView {
+    const contour =
+      layer.contourId > 0 ? this.getContourById(layer.contourId) : null
+    const serializedContour = contour
+      ? this.getSerializedContour(contour)
+      : null
+    return {
+      version: this.renderData.version,
+      cellSize: this.renderData.cellSize,
+      chunkSize: this.renderData.chunkSize,
+      randomSeed: this.renderData.randomSeed,
+      chunks: layer.grid.getChunks(),
+      offsetCellX: layer.offsetCellX,
+      offsetCellY: layer.offsetCellY,
+      materialId: layer.materialId,
+      renderLayer: layer.serializedLayer.renderLayer,
+      buildRevision: layer.serializedLayer.buildRevision,
+      sourceLayer: layer.serializedLayer,
+      contourClipPoints:
+        contour && contour.straightEdge !== false ? contour.points : undefined,
+      contourBuildRevision: serializedContour?.buildRevision,
+    }
   }
 
   private prepareTerrainRenderCache(
@@ -3791,11 +3892,12 @@ export class EditorTerrainLayerManager {
       this.terrainRenderCacheHeight = height
       this.terrainRenderCacheDirty = true
     }
-    if (
+
+    const _needsRebuild =
       this.terrainRenderCacheDirty ||
       this.terrainRenderCacheExcludeLayer !== excludeLayer ||
       !this.isTerrainRenderCacheTransformMatch(transform)
-    ) {
+    if (_needsRebuild) {
       cacheCtx.setTransform(1, 0, 0, 1, 0, 0)
       cacheCtx.clearRect(0, 0, width, height)
       cacheCtx.save()
@@ -3808,19 +3910,21 @@ export class EditorTerrainLayerManager {
         transform[5]
       )
       cacheCtx.imageSmoothingEnabled = false
-      TerrainRenderer.drawTerrain(
-        cacheCtx,
-        this.renderData,
-        this.getCellSizePx(),
-        excludeLayer
-          ? {
-              drawStroke: true,
-              shouldDrawLayer: (layer) => layer.sourceLayer !== excludeLayer,
-            }
-          : {
-              drawStroke: true,
-            }
-      )
+
+      for (let i = 0; i < this.layers.length; i++) {
+        const layer = this.layers[i]
+        if (excludeLayer && layer.serializedLayer === excludeLayer) {
+          continue
+        }
+        const layerCanvas = this.ensureLayerCanvasCache(layer)
+        if (layerCanvas) {
+          const offset = this.layerCanvasOffsets.get(layerCanvas)
+          const offsetX = offset?.x ?? 0
+          const offsetY = offset?.y ?? 0
+          cacheCtx.drawImage(layerCanvas, offsetX, offsetY)
+        }
+      }
+
       cacheCtx.restore()
       this.terrainRenderCacheDirty = false
       this.terrainRenderCacheExcludeLayer = excludeLayer

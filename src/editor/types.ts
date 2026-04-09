@@ -3,6 +3,7 @@ import * as fabric from 'fabric'
 import type {
   MapCharacterBodyProfile,
   MapNpcDropItem,
+  MapNpcWeapon,
   WeaponCategory,
 } from '../editorMapTypes'
 import type { TerrainMaterialId } from '../terrain/TerrainTypes'
@@ -60,7 +61,7 @@ export type PlayerMarker = fabric.Group & {
   weaponFrontShape?: WeaponShape
 }
 
-export type NpcMarker = fabric.Group & {
+export type NpcMarker = fabric.Object & {
   editorShape: 'npc-marker'
   npcType: NpcType
   radius: number
@@ -90,8 +91,20 @@ export type NpcMarker = fabric.Group & {
   drops: MapNpcDropItem[]
   mainWeapon?: WeaponType
   secondaryWeapon?: WeaponType
-  weaponBackShape?: WeaponShape
-  weaponFrontShape?: WeaponShape
+  bodyRadiusXPx: number
+  bodyRadiusYPx: number
+  bodyTextureImage: HTMLImageElement | null
+  eyeColor: string
+  weaponVisible: boolean
+  weaponWidthPx: number
+  weaponHeightPx: number
+  weaponBoundingWidthPx: number
+  weaponBoundingHeightPx: number
+  weaponRenderType: WeaponShape['weaponRenderType']
+  weaponLeft: number
+  weaponTop: number
+  weaponAngle: number
+  weaponDrawBehind: boolean
 }
 
 export type WeaponMarker = fabric.Group & {
@@ -196,8 +209,10 @@ export interface NpcMarkerData {
   allyFactions: string[]
   drops: MapNpcDropItem[]
   mainWeapon?: WeaponType
+  mainWeaponConfig?: MapNpcWeapon
   mainWeaponMarker?: WeaponMarker
   secondaryWeapon?: WeaponType
+  secondaryWeaponConfig?: MapNpcWeapon
   secondaryWeaponMarker?: WeaponMarker
 }
 
@@ -219,8 +234,10 @@ export interface PlayerMarkerData {
   npcFactions: string[]
   allyFactions: string[]
   mainWeapon?: WeaponType
+  mainWeaponConfig?: MapNpcWeapon
   mainWeaponMarker?: WeaponMarker
   secondaryWeapon?: WeaponType
+  secondaryWeaponConfig?: MapNpcWeapon
   secondaryWeaponMarker?: WeaponMarker
 }
 

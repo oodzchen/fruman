@@ -8,7 +8,6 @@ import type {
   EditorTreeObjectType,
   MapCharacterBodyProfile,
   MapNpcTemplate,
-  MapNpcWeapon,
   MapSunPickup,
 } from '../editorMapTypes'
 import { normalizeNpcDropList } from '../npcDropUtils'
@@ -49,7 +48,12 @@ interface EditorMapSerializerContext {
   markerManager: EditorMarkerManager
   terrainManager: EditorTerrainLayerManager
 
-  spawnCameraViewFrame: (camera?: EditorMapData['camera']) => void
+  spawnCameraViewFrame: (
+    camera?: EditorMapData['camera'],
+    options?: { select?: boolean; render?: boolean }
+  ) => void
+  beginObjectBatchMutation: () => void
+  endObjectBatchMutation: () => void
   renderObjectTree: () => void
   requestRenderAll: () => void
   getCameraViews: () => CameraViewLike[]
@@ -172,33 +176,51 @@ export class EditorMapSerializer {
     if (!canvas) {
       return
     }
+    const prevRenderOnAddRemove = canvas.renderOnAddRemove
+    const batchSpawnOptions = { select: false, render: false } as const
+    const npcs = data.npcs ?? data.enemies ?? []
+    canvas.renderOnAddRemove = false
     if (data.factions) {
       this.ctx.setFactions(data.factions)
     }
     this.ctx.setCustomNpcTemplates(data.npcTemplates ?? [])
-    this.ctx.resizeEditorCanvas()
-    this.ctx.clearEditorScene()
-    this.ctx.terrainManager.applySerializedData(data.terrain)
-    this.ctx.markerManager.spawnPlayerMarker(data.playerSpawn, data.player)
-    this.ctx.spawnCameraViewFrame(data.camera)
-    const npcs = data.npcs ?? data.enemies ?? []
-    this.applyNpcs(npcs)
-    this.applyWeapons(data.weapons)
-    this.applyCheckpoints(data.checkpoints)
-    this.applyHookAnchors(data.hookAnchors)
-    this.applySunPickups(data.sunPickups)
-    this.ctx.renderObjectTree()
+    this.ctx.beginObjectBatchMutation()
+    try {
+      this.ctx.resizeEditorCanvas()
+      this.ctx.clearEditorScene()
+      this.ctx.terrainManager.applySerializedData(data.terrain)
+      this.ctx.markerManager.spawnPlayerMarker(
+        data.playerSpawn,
+        data.player,
+        batchSpawnOptions
+      )
+      this.ctx.spawnCameraViewFrame(data.camera, batchSpawnOptions)
+      this.applyNpcs(npcs, batchSpawnOptions)
+      this.applyWeapons(data.weapons, batchSpawnOptions)
+      this.applyCheckpoints(data.checkpoints, batchSpawnOptions)
+      this.applyHookAnchors(data.hookAnchors, batchSpawnOptions)
+      this.applySunPickups(data.sunPickups, batchSpawnOptions)
+    } finally {
+      this.ctx.endObjectBatchMutation()
+      canvas.renderOnAddRemove = prevRenderOnAddRemove
+    }
     this.ctx.requestRenderAll()
   }
 
-  private applyNpcs(npcs: EditorMapData['npcs']) {
+  private applyNpcs(
+    npcs: EditorMapData['npcs'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
     for (let i = 0; i < npcs.length; i++) {
       const npc = npcs[i]
-      this.ctx.markerManager.spawnNpcMarker(npc.npcType, npc)
+      this.ctx.markerManager.spawnNpcMarker(npc.npcType, npc, spawnOptions)
     }
   }
 
-  private applyWeapons(weapons: EditorMapData['weapons']) {
+  private applyWeapons(
+    weapons: EditorMapData['weapons'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
     if (!weapons) {
       return
     }
@@ -217,34 +239,48 @@ export class EditorMapSerializer {
         {
           ...weapon,
           sizeLevel: normalizedWeapon.sizeLevel,
-        }
+        },
+        spawnOptions
       )
     }
   }
 
-  private applyCheckpoints(checkpoints: EditorMapData['checkpoints']) {
+  private applyCheckpoints(
+    checkpoints: EditorMapData['checkpoints'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
     if (!checkpoints) {
       return
     }
     for (let i = 0; i < checkpoints.length; i++) {
-      this.ctx.markerManager.spawnCheckpointMarker(checkpoints[i])
+      this.ctx.markerManager.spawnCheckpointMarker(checkpoints[i], spawnOptions)
     }
   }
 
-  private applyHookAnchors(anchors: EditorMapData['hookAnchors']) {
+  private applyHookAnchors(
+    anchors: EditorMapData['hookAnchors'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
     if (!anchors) {
       return
     }
     for (let i = 0; i < anchors.length; i++) {
-      this.ctx.markerManager.spawnHookAnchorMarker(anchors[i])
+      this.ctx.markerManager.spawnHookAnchorMarker(anchors[i], spawnOptions)
     }
   }
 
-  private applySunPickups(pickups: EditorMapData['sunPickups']) {
+  private applySunPickups(
+    pickups: EditorMapData['sunPickups'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
     if (!pickups) return
     for (let i = 0; i < pickups.length; i++) {
       const p = pickups[i]
-      this.ctx.markerManager.spawnSunPickupMarker(p.isLarge, { x: p.x, y: p.y })
+      this.ctx.markerManager.spawnSunPickupMarker(
+        p.isLarge,
+        { x: p.x, y: p.y },
+        spawnOptions
+      )
     }
   }
 
@@ -453,36 +489,14 @@ export class EditorMapSerializer {
     if (!data) {
       return undefined
     }
-    const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
-    let mainWeapon: MapNpcWeapon | undefined
-    if (data.mainWeapon && data.mainWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(data.mainWeaponMarker)
-      if (weaponData) {
-        mainWeapon = {
-          weaponType: weaponData.weaponType,
-          sizeLevel: weaponData.sizeLevel,
-          attackDamage: weaponData.attackDamage,
-          postureDamage: weaponData.postureDamage,
-          toughnessDamage: weaponData.toughnessDamage,
-          bowAmmo: weaponData.bowAmmo,
-        }
-      }
-    }
-
-    let secondaryWeapon: MapNpcWeapon | undefined
-    if (data.secondaryWeapon && data.secondaryWeaponMarker) {
-      const weaponData = weaponMarkerMap.get(data.secondaryWeaponMarker)
-      if (weaponData) {
-        secondaryWeapon = {
-          weaponType: weaponData.weaponType,
-          sizeLevel: weaponData.sizeLevel,
-          attackDamage: weaponData.attackDamage,
-          postureDamage: weaponData.postureDamage,
-          toughnessDamage: weaponData.toughnessDamage,
-          bowAmmo: weaponData.bowAmmo,
-        }
-      }
-    }
+    const mainWeapon = this.ctx.markerManager.getPlayerWeaponConfig(
+      data,
+      'main'
+    )
+    const secondaryWeapon = this.ctx.markerManager.getPlayerWeaponConfig(
+      data,
+      'secondary'
+    )
 
     return {
       radius: data.radius,
@@ -508,41 +522,16 @@ export class EditorMapSerializer {
   private serializeNpcs(indexMap?: Map<fabric.Object, number>) {
     const npcs: EditorMapData['npcs'] = []
     const npcMarkers = this.ctx.markerManager.getNpcMarkers()
-    const weaponMarkerMap = this.ctx.markerManager.getWeaponMarkerMap()
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     for (let i = 0; i < npcMarkers.length; i++) {
       const data = npcMarkers[i]
       const marker = data.marker
 
-      let mainWeapon: MapNpcWeapon | undefined
-      if (data.mainWeapon && data.mainWeaponMarker) {
-        const weaponData = weaponMarkerMap.get(data.mainWeaponMarker)
-        if (weaponData) {
-          mainWeapon = {
-            weaponType: weaponData.weaponType,
-            sizeLevel: weaponData.sizeLevel,
-            attackDamage: weaponData.attackDamage,
-            postureDamage: weaponData.postureDamage,
-            toughnessDamage: weaponData.toughnessDamage,
-            bowAmmo: weaponData.bowAmmo,
-          }
-        }
-      }
-
-      let secondaryWeapon: MapNpcWeapon | undefined
-      if (data.secondaryWeapon && data.secondaryWeaponMarker) {
-        const weaponData = weaponMarkerMap.get(data.secondaryWeaponMarker)
-        if (weaponData) {
-          secondaryWeapon = {
-            weaponType: weaponData.weaponType,
-            sizeLevel: weaponData.sizeLevel,
-            attackDamage: weaponData.attackDamage,
-            postureDamage: weaponData.postureDamage,
-            toughnessDamage: weaponData.toughnessDamage,
-            bowAmmo: weaponData.bowAmmo,
-          }
-        }
-      }
+      const mainWeapon = this.ctx.markerManager.getNpcWeaponConfig(data, 'main')
+      const secondaryWeapon = this.ctx.markerManager.getNpcWeaponConfig(
+        data,
+        'secondary'
+      )
 
       if (indexMap) {
         indexMap.set(marker, npcs.length)

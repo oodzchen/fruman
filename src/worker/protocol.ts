@@ -177,6 +177,12 @@ export type WorkerMapDataMessage = {
   map: EditorMapData
 }
 
+export type WorkerPerfLogMessage = {
+  type: 'perf_log'
+  scope: 'worker' | 'main'
+  message: string
+}
+
 export type WorkerSaveResponseMessage = {
   type: 'save_response'
   saveId: string
@@ -201,6 +207,7 @@ export type WorkerToMainMessage =
   | WorkerStateMessage
   | WorkerDebugMessage
   | WorkerMapDataMessage
+  | WorkerPerfLogMessage
   | WorkerSaveResponseMessage
   | WorkerCheckpointActivatedMessage
   | WorkerPlayerDeadMessage

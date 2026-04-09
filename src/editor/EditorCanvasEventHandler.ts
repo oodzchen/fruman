@@ -91,11 +91,7 @@ export class EditorCanvasEventHandler {
     canvas.zoomToPoint(new fabric.Point(opt.e.offsetX, opt.e.offsetY), zoom)
 
     canvas.calcOffset()
-    canvas.forEachObject((obj: fabric.Object) => {
-      if (obj.visible) {
-        obj.setCoords()
-      }
-    })
+    canvas.requestRenderAll()
 
     opt.e.preventDefault()
     opt.e.stopPropagation()

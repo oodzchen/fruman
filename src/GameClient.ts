@@ -54,7 +54,7 @@ export class GameClient {
   private hudContainer: Container
   private worldRenderContext: PixiRenderContext2D
   private hudRenderContext: PixiRenderContext2D
-  private staticTerrainGraphics: Graphics[] = []
+  private staticTerrainGraphics: Container[] = []
   private staticTerrainSignature = 0
   private staticTerrainReady = false
   private readonly reusableDOMMatrix = new DOMMatrix()
@@ -1642,7 +1642,7 @@ export class GameClient {
     this.rebuildStaticScene()
   }
 
-  private destroyStaticGraphics(list: Graphics[]): void {
+  private destroyStaticGraphics(list: Container[]): void {
     for (let i = 0; i < list.length; i++) {
       const graphics = list[i]
       if (graphics.parent) {

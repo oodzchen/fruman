@@ -1820,7 +1820,10 @@ function applyWeaponSlotConfig(
   }
 }
 
-function createPlayerAndWeapon(groundY: number, map: EditorMapData | null) {
+function createPlayerAndWeapon(
+  groundY: number,
+  map: EditorMapData | null
+): void {
   const playerProps = map?.player
   const playerRadius =
     typeof playerProps?.radius === 'number' &&
@@ -3787,20 +3790,16 @@ function sendState() {
 
 function restart() {
   if (!world || !box2d) return
-
   world.clear()
-
   if (worldId) {
     const { b2DestroyWorld } = box2d
     b2DestroyWorld(worldId)
   }
-
   const { b2DefaultWorldDef, b2CreateWorld, b2Vec2 } = box2d
   const worldDef = b2DefaultWorldDef()
   worldDef.gravity = new b2Vec2(0, DEFAULT_GRAVITY)
   worldId = b2CreateWorld(worldDef)
   worldDef.delete()
-
   spatialHash = new SpatialHash(5)
   obstacles = []
 

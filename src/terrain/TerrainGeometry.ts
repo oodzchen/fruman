@@ -1,4 +1,4 @@
-function mixHash(value: number): number {
+export function mixHash(value: number): number {
   let v = value | 0
   v = Math.imul(v ^ (v >>> 16), 0x45d9f3b)
   v = Math.imul(v ^ (v >>> 16), 0x45d9f3b)

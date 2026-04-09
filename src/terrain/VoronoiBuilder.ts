@@ -6,16 +6,34 @@ import {
   getTerrainChunkSiteJitter,
   getVoronoiSiteJitterValue,
 } from './TerrainDataUtils'
-import {
-  computeFlatPolygonBounds,
-  intersectFlatPolygon,
-} from './TerrainPolygonUtils'
+import { intersectFlatPolygon } from './TerrainPolygonUtils'
 import { VORONOI_SITE_JITTER_SCALE } from './TerrainTypes'
 import type { VoronoiPickedCell, VoronoiRenderCell } from './VoronoiTypes'
+
+interface VoronoiInternal {
+  _cell(i: number): number[] | null
+  _clip(i: number): number[] | null
+  vectors: Float64Array
+  xmin: number
+  ymin: number
+  xmax: number
+  ymax: number
+}
 
 interface CachedVoronoiLayerBuild {
   build: VoronoiLayerBuild
   signature: number
+}
+
+interface VoronoiLayerBuildOptions {
+  clipContour?: boolean
+}
+
+interface FlatPolygonBoundsValues {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
 }
 
 export interface VoronoiLayerBuild {
@@ -23,26 +41,31 @@ export interface VoronoiLayerBuild {
   pickCellAt: (x: number, y: number) => VoronoiPickedCell | null
 }
 
-const layerBuildCache = new WeakMap<object, CachedVoronoiLayerBuild>()
+const clippedLayerBuildCache = new WeakMap<object, CachedVoronoiLayerBuild>()
+const unclippedLayerBuildCache = new WeakMap<object, CachedVoronoiLayerBuild>()
 
 export function getVoronoiLayerBuild(
   layer: TerrainResolvedLayerView,
-  cellSizeUnits: number
+  cellSizeUnits: number,
+  options: VoronoiLayerBuildOptions = {}
 ): VoronoiLayerBuild {
+  const clipContour = options.clipContour !== false
   const cacheKey = layer.sourceLayer ?? layer
-  const signature = computeLayerSignature(layer)
-  const cached = layerBuildCache.get(cacheKey)
+  const signature = computeLayerSignature(layer, clipContour)
+  const cache = clipContour ? clippedLayerBuildCache : unclippedLayerBuildCache
+  const cached = cache.get(cacheKey)
   if (cached && cached.signature === signature) {
     return cached.build
   }
-  const build = buildVoronoiLayer(layer, cellSizeUnits)
-  layerBuildCache.set(cacheKey, { build, signature })
+  const build = buildVoronoiLayer(layer, cellSizeUnits, clipContour)
+  cache.set(cacheKey, { build, signature })
   return build
 }
 
 function buildVoronoiLayer(
   layer: TerrainResolvedLayerView,
-  cellSizeUnits: number
+  cellSizeUnits: number,
+  clipContour: boolean
 ): VoronoiLayerBuild {
   const chunkSize = layer.chunkSize | 0
   if (chunkSize <= 0 || layer.chunks.length === 0) {
@@ -51,6 +74,7 @@ function buildVoronoiLayer(
 
   const chunkMap = new Map<string, (typeof layer.chunks)[number]>()
   const includedChunkKeys = new Set<string>()
+  const includedChunkCoords: number[] = []
   let minChunkX = layer.chunks[0].chunkX | 0
   let minChunkY = layer.chunks[0].chunkY | 0
   let maxChunkX = minChunkX
@@ -67,13 +91,20 @@ function buildVoronoiLayer(
     if (chunkY > maxChunkY) maxChunkY = chunkY
     for (let offsetY = -1; offsetY <= 1; offsetY++) {
       for (let offsetX = -1; offsetX <= 1; offsetX++) {
-        includedChunkKeys.add(getChunkKey(chunkX + offsetX, chunkY + offsetY))
+        const includedChunkX = chunkX + offsetX
+        const includedChunkY = chunkY + offsetY
+        const includedChunkKey = getChunkKey(includedChunkX, includedChunkY)
+        if (includedChunkKeys.has(includedChunkKey)) {
+          continue
+        }
+        includedChunkKeys.add(includedChunkKey)
+        includedChunkCoords.push(includedChunkX, includedChunkY)
       }
     }
   }
 
-  const includedChunkEntries = Array.from(includedChunkKeys)
-  const siteCount = includedChunkEntries.length * chunkSize * chunkSize
+  const includedChunkCount = includedChunkCoords.length >> 1
+  const siteCount = includedChunkCount * chunkSize * chunkSize
   const coords = new Float64Array(siteCount * 2)
   const siteCellX = new Int32Array(siteCount)
   const siteCellY = new Int32Array(siteCount)
@@ -82,13 +113,12 @@ function buildVoronoiLayer(
   let siteIndex = 0
   for (
     let includedIndex = 0;
-    includedIndex < includedChunkEntries.length;
-    includedIndex++
+    includedIndex < includedChunkCoords.length;
+    includedIndex += 2
   ) {
-    const chunkKey = includedChunkEntries[includedIndex]
-    const separatorIndex = chunkKey.indexOf(':')
-    const chunkX = Number.parseInt(chunkKey.slice(0, separatorIndex), 10) | 0
-    const chunkY = Number.parseInt(chunkKey.slice(separatorIndex + 1), 10) | 0
+    const chunkX = includedChunkCoords[includedIndex]
+    const chunkY = includedChunkCoords[includedIndex + 1]
+    const chunkKey = getChunkKey(chunkX, chunkY)
     const sourceChunk = chunkMap.get(chunkKey) ?? null
     const sourceCells = sourceChunk
       ? getTerrainChunkMaterialCodes(sourceChunk)
@@ -153,47 +183,104 @@ function buildVoronoiLayer(
 
   const delaunay = new Delaunay(coords)
   const voronoi = delaunay.voronoi(bounds)
-  const contourClipPoints = layer.contourClipPoints
+  const contourClipPoints = clipContour ? layer.contourClipPoints : undefined
+  const shouldClipContour =
+    !!contourClipPoints && contourClipPoints.length >= 6 && clipContour
+  const contourClipBounds =
+    shouldClipContour && contourClipPoints
+      ? computeFlatPolygonBoundsValues(contourClipPoints)
+      : null
   const cells: VoronoiRenderCell[] = []
+
+  // Bulk-extract cell polygons using Voronoi internals to avoid
+  // per-cell object allocation from cellPolygon/Polygon class.
+  // voronoi._clip(i) returns a flat number[] directly (or null),
+  // skipping the Polygon wrapper and its [x,y] sub-arrays.
+  const voronoiAny = voronoi as unknown as VoronoiInternal
   for (let i = 0; i < siteCount; i++) {
     const materialCode = siteMaterialCode[i] | 0
     if (materialCode <= 0) {
       continue
     }
-    const polygon = voronoi.cellPolygon(i)
-    if (!polygon || polygon.length < 4) {
+    const clippedCell = voronoiAny._clip(i)
+    if (!clippedCell || clippedCell.length < 6) {
       continue
     }
-    const flattenedPoints = flattenCellPolygon(polygon)
-    const clippedPolygons =
-      contourClipPoints && contourClipPoints.length >= 6
-        ? intersectFlatPolygon(flattenedPoints, contourClipPoints)
-        : [flattenedPoints]
+    // _clip returns flat [x,y,x,y,...] already — deduplicate closing point
+    let flatLen = clippedCell.length
+    if (
+      flatLen >= 4 &&
+      clippedCell[0] === clippedCell[flatLen - 2] &&
+      clippedCell[1] === clippedCell[flatLen - 1]
+    ) {
+      flatLen -= 2
+    }
+    const flattenedPoints =
+      flatLen === clippedCell.length
+        ? clippedCell
+        : clippedCell.slice(0, flatLen)
+
+    if (!shouldClipContour || !contourClipBounds || !contourClipPoints) {
+      const cell = createVoronoiRenderCell(
+        layer,
+        siteCellX[i],
+        siteCellY[i],
+        materialCode,
+        flattenedPoints,
+        cellSizeUnits
+      )
+      if (cell) {
+        cells.push(cell)
+      }
+      continue
+    }
+
+    const unclippedBounds = computeFlatPolygonBoundsValues(flattenedPoints)
+    if (!unclippedBounds) {
+      continue
+    }
+    if (!doFlatPolygonBoundsIntersect(unclippedBounds, contourClipBounds)) {
+      continue
+    }
+    if (
+      isFlatPolygonBoundsInside(unclippedBounds, contourClipBounds) &&
+      isFlatPolygonInsideFlatPolygon(flattenedPoints, contourClipPoints)
+    ) {
+      cells.push(
+        createVoronoiRenderCellFromBounds(
+          layer,
+          siteCellX[i],
+          siteCellY[i],
+          materialCode,
+          flattenedPoints,
+          unclippedBounds,
+          cellSizeUnits
+        )
+      )
+      continue
+    }
+
+    const clippedPolygons = shouldClipContour
+      ? intersectFlatPolygon(flattenedPoints, contourClipPoints)
+      : []
     for (
       let polygonIndex = 0;
       polygonIndex < clippedPolygons.length;
       polygonIndex++
     ) {
-      const points = clippedPolygons[polygonIndex]
-      const bounds = computeFlatPolygonBounds(points)
-      if (!bounds) {
-        continue
-      }
-      cells.push({
-        cellX: siteCellX[i],
-        cellY: siteCellY[i],
-        localCellX: siteCellX[i] - layer.offsetCellX,
-        localCellY: siteCellY[i] - layer.offsetCellY,
+      const cell = createVoronoiRenderCell(
+        layer,
+        siteCellX[i],
+        siteCellY[i],
         materialCode,
-        points,
-        minCellX: Math.floor(bounds.minX / cellSizeUnits),
-        minCellY: Math.floor(bounds.minY / cellSizeUnits),
-        maxCellX: Math.ceil(bounds.maxX / cellSizeUnits),
-        maxCellY: Math.ceil(bounds.maxY / cellSizeUnits),
-      })
+        clippedPolygons[polygonIndex],
+        cellSizeUnits
+      )
+      if (cell) {
+        cells.push(cell)
+      }
     }
   }
-
   return {
     cells,
     pickCellAt: (x: number, y: number): VoronoiPickedCell | null => {
@@ -209,28 +296,202 @@ function buildVoronoiLayer(
   }
 }
 
-function flattenCellPolygon(
-  polygon: ReadonlyArray<readonly [number, number]>
-): number[] {
-  let pointCount = polygon.length
-  if (pointCount > 1) {
-    const firstPoint = polygon[0]
-    const lastPoint = polygon[pointCount - 1]
-    if (firstPoint[0] === lastPoint[0] && firstPoint[1] === lastPoint[1]) {
-      pointCount -= 1
-    }
+function createVoronoiRenderCell(
+  layer: TerrainResolvedLayerView,
+  cellX: number,
+  cellY: number,
+  materialCode: number,
+  points: number[],
+  cellSizeUnits: number
+): VoronoiRenderCell | null {
+  const bounds = computeFlatPolygonBoundsValues(points)
+  if (!bounds) {
+    return null
   }
-  const points = new Array<number>(pointCount * 2)
-  let writeIndex = 0
-  for (let i = 0; i < pointCount; i++) {
-    points[writeIndex] = polygon[i][0]
-    points[writeIndex + 1] = polygon[i][1]
-    writeIndex += 2
-  }
-  return points
+  return createVoronoiRenderCellFromBounds(
+    layer,
+    cellX,
+    cellY,
+    materialCode,
+    points,
+    bounds,
+    cellSizeUnits
+  )
 }
 
-function computeLayerSignature(layer: TerrainResolvedLayerView): number {
+function createVoronoiRenderCellFromBounds(
+  layer: TerrainResolvedLayerView,
+  cellX: number,
+  cellY: number,
+  materialCode: number,
+  points: number[],
+  bounds: FlatPolygonBoundsValues,
+  cellSizeUnits: number
+): VoronoiRenderCell {
+  return {
+    cellX,
+    cellY,
+    localCellX: cellX - layer.offsetCellX,
+    localCellY: cellY - layer.offsetCellY,
+    materialCode,
+    points,
+    minCellX: Math.floor(bounds.minX / cellSizeUnits),
+    minCellY: Math.floor(bounds.minY / cellSizeUnits),
+    maxCellX: Math.ceil(bounds.maxX / cellSizeUnits),
+    maxCellY: Math.ceil(bounds.maxY / cellSizeUnits),
+  }
+}
+
+function computeFlatPolygonBoundsValues(
+  points: readonly number[]
+): FlatPolygonBoundsValues | null {
+  if (points.length < 6) {
+    return null
+  }
+  let minX = points[0]
+  let minY = points[1]
+  let maxX = minX
+  let maxY = minY
+  for (let i = 2; i < points.length; i += 2) {
+    const x = points[i]
+    const y = points[i + 1]
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+  return { minX, minY, maxX, maxY }
+}
+
+function doFlatPolygonBoundsIntersect(
+  a: FlatPolygonBoundsValues,
+  b: FlatPolygonBoundsValues
+): boolean {
+  return !(
+    a.minX > b.maxX ||
+    a.minY > b.maxY ||
+    a.maxX < b.minX ||
+    a.maxY < b.minY
+  )
+}
+
+function isFlatPolygonBoundsInside(
+  inner: FlatPolygonBoundsValues,
+  outer: FlatPolygonBoundsValues
+): boolean {
+  return (
+    inner.minX >= outer.minX &&
+    inner.minY >= outer.minY &&
+    inner.maxX <= outer.maxX &&
+    inner.maxY <= outer.maxY
+  )
+}
+
+function isFlatPolygonInsideFlatPolygon(
+  subject: readonly number[],
+  clip: readonly number[]
+): boolean {
+  for (let i = 0; i < subject.length; i += 2) {
+    if (!isPointInFlatPolygon(subject[i], subject[i + 1], clip)) {
+      return false
+    }
+  }
+  return !doFlatPolygonsIntersect(subject, clip)
+}
+
+function isPointInFlatPolygon(
+  x: number,
+  y: number,
+  polygon: readonly number[]
+): boolean {
+  let inside = false
+  let prevX = polygon[polygon.length - 2]
+  let prevY = polygon[polygon.length - 1]
+  for (let i = 0; i < polygon.length; i += 2) {
+    const nextX = polygon[i]
+    const nextY = polygon[i + 1]
+    const intersects = nextY > y !== prevY > y
+    if (
+      intersects &&
+      x < ((prevX - nextX) * (y - nextY)) / (prevY - nextY) + nextX
+    ) {
+      inside = !inside
+    }
+    prevX = nextX
+    prevY = nextY
+  }
+  return inside
+}
+
+function doFlatPolygonsIntersect(
+  a: readonly number[],
+  b: readonly number[]
+): boolean {
+  let aPrevX = a[a.length - 2]
+  let aPrevY = a[a.length - 1]
+  for (let ai = 0; ai < a.length; ai += 2) {
+    const aNextX = a[ai]
+    const aNextY = a[ai + 1]
+    let bPrevX = b[b.length - 2]
+    let bPrevY = b[b.length - 1]
+    for (let bi = 0; bi < b.length; bi += 2) {
+      const bNextX = b[bi]
+      const bNextY = b[bi + 1]
+      if (
+        doLineSegmentsIntersect(
+          aPrevX,
+          aPrevY,
+          aNextX,
+          aNextY,
+          bPrevX,
+          bPrevY,
+          bNextX,
+          bNextY
+        )
+      ) {
+        return true
+      }
+      bPrevX = bNextX
+      bPrevY = bNextY
+    }
+    aPrevX = aNextX
+    aPrevY = aNextY
+  }
+  return false
+}
+
+function doLineSegmentsIntersect(
+  ax0: number,
+  ay0: number,
+  ax1: number,
+  ay1: number,
+  bx0: number,
+  by0: number,
+  bx1: number,
+  by1: number
+): boolean {
+  const a1 = computeOrientation(ax0, ay0, ax1, ay1, bx0, by0)
+  const a2 = computeOrientation(ax0, ay0, ax1, ay1, bx1, by1)
+  const b1 = computeOrientation(bx0, by0, bx1, by1, ax0, ay0)
+  const b2 = computeOrientation(bx0, by0, bx1, by1, ax1, ay1)
+  return a1 * a2 < 0 && b1 * b2 < 0
+}
+
+function computeOrientation(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number
+): number {
+  return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+}
+
+function computeLayerSignature(
+  layer: TerrainResolvedLayerView,
+  clipContour: boolean
+): number {
   let hash = mixHash(layer.version | 0)
   hash = mixHash(hash ^ Math.imul(layer.chunkSize | 0, 0x9e3779b1))
   hash = mixHash(hash ^ Math.imul(layer.randomSeed | 0, 0x85ebca6b))
@@ -238,31 +499,27 @@ function computeLayerSignature(layer: TerrainResolvedLayerView): number {
   hash = mixHash(hash ^ Math.imul(layer.offsetCellY | 0, 0x27d4eb2d))
   if (typeof layer.buildRevision === 'number') {
     hash = mixHash(hash ^ Math.imul(layer.buildRevision | 0, 0x165667b1))
-    if (typeof layer.contourBuildRevision === 'number') {
+    if (clipContour && typeof layer.contourBuildRevision === 'number') {
       hash = mixHash(
         hash ^ Math.imul(layer.contourBuildRevision | 0, 0xd3a2646c)
       )
     }
     return hash
   }
+
+  // Fast fallback if buildRevision is missing: hash chunk positions instead of every cell
+  hash = mixHash(hash ^ Math.imul(layer.chunks.length | 0, 0x165667b1))
   for (let chunkIndex = 0; chunkIndex < layer.chunks.length; chunkIndex++) {
     const chunk = layer.chunks[chunkIndex]
     hash = mixHash(hash ^ Math.imul(chunk.chunkX | 0, 0x165667b1))
     hash = mixHash(hash ^ Math.imul(chunk.chunkY | 0, 0xd3a2646c))
+    // We can also hash the first cell as a small heuristic
     const materialCodes = getTerrainChunkMaterialCodes(chunk)
-    for (let cellIndex = 0; cellIndex < materialCodes.length; cellIndex++) {
-      hash = mixHash(hash ^ ((materialCodes[cellIndex] | 0) + cellIndex))
-    }
-    const siteJitter = getTerrainChunkSiteJitter(
-      chunk,
-      layer.chunkSize,
-      layer.randomSeed
-    )
-    for (let jitterIndex = 0; jitterIndex < siteJitter.length; jitterIndex++) {
-      hash = mixHash(hash ^ ((siteJitter[jitterIndex] | 0) + jitterIndex))
+    if (materialCodes.length > 0) {
+      hash = mixHash(hash ^ (materialCodes[0] | 0))
     }
   }
-  const clipPoints = layer.contourClipPoints
+  const clipPoints = clipContour ? layer.contourClipPoints : undefined
   if (clipPoints) {
     hash = mixHash(hash ^ Math.imul(clipPoints.length, 0x4b3cd7a1))
     for (let i = 0; i < clipPoints.length; i++) {

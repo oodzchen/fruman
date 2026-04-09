@@ -29,6 +29,8 @@ export class EditorObjectManager {
   private focusedEditorObject: fabric.Object | null = null
   private treeReorderScratch: EditorObjectData[] = []
   private dragObjectId = -1
+  private batchMutationDepth = 0
+  private batchVisualsDirty = false
 
   constructor(ctx: EditorObjectManagerContext) {
     this.ctx = ctx
@@ -60,6 +62,20 @@ export class EditorObjectManager {
 
   setDragId(id: number) {
     this.dragObjectId = id
+  }
+
+  beginBatchMutation() {
+    this.batchMutationDepth += 1
+  }
+
+  endBatchMutation() {
+    if (this.batchMutationDepth <= 0) {
+      return
+    }
+    this.batchMutationDepth -= 1
+    if (this.batchMutationDepth === 0) {
+      this.flushBatchVisuals()
+    }
   }
 
   fillTreeSnapshot(order: number[], parentIds: number[]) {
@@ -125,8 +141,7 @@ export class EditorObjectManager {
     this.applyObjectLockState(data)
     this.editorObjects.push(data)
     this.editorObjectMap.set(object, data)
-    this.applyEditorObjectStacking()
-    this.ctx.renderObjectTree()
+    this.markVisualsDirty()
     return data
   }
 
@@ -167,8 +182,7 @@ export class EditorObjectManager {
       this.focusedEditorObject = null
     }
 
-    this.applyEditorObjectStacking()
-    this.ctx.renderObjectTree()
+    this.markVisualsDirty()
   }
 
   applyEditorObjectStacking() {
@@ -196,6 +210,27 @@ export class EditorObjectManager {
       }
     }
     canvas.requestRenderAll()
+  }
+
+  private markVisualsDirty() {
+    this.batchVisualsDirty = true
+    if (this.batchMutationDepth > 0) {
+      return
+    }
+    this.flushBatchVisuals()
+  }
+
+  private flushBatchVisuals() {
+    if (this.batchMutationDepth > 0) {
+      this.batchVisualsDirty = true
+      return
+    }
+    if (!this.batchVisualsDirty) {
+      return
+    }
+    this.batchVisualsDirty = false
+    this.applyEditorObjectStacking()
+    this.ctx.renderObjectTree()
   }
 
   private bringFocusedObjectToFront(object: fabric.Object) {
