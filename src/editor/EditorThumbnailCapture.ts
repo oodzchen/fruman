@@ -16,6 +16,7 @@ interface EditorThumbnailCaptureContext {
 }
 
 export class EditorThumbnailCapture {
+  private static readonly EDITOR_CAPTURE_SETTLE_FRAMES = 2
   private ctx: EditorThumbnailCaptureContext
 
   constructor(ctx: EditorThumbnailCaptureContext) {
@@ -29,8 +30,11 @@ export class EditorThumbnailCapture {
     return this.captureMap(data)
   }
 
-  async captureMap(data: EditorMapData): Promise<string | null> {
-    if (this.ctx.gameClient()) {
+  async captureMap(
+    data: EditorMapData,
+    options?: { preferPreview?: boolean }
+  ): Promise<string | null> {
+    if (options?.preferPreview === true && this.ctx.gameClient()) {
       return this.captureFromPreview(data)
     }
     return this.captureFromEditor()
@@ -108,6 +112,9 @@ export class EditorThumbnailCapture {
 
       fabricCanvas.setViewportTransform([scale, 0, 0, scale, tx, ty])
       fabricCanvas.renderAll()
+      await this.waitForAnimationFrames(
+        EditorThumbnailCapture.EDITOR_CAPTURE_SETTLE_FRAMES
+      )
 
       snapshotDataUrl = fabricCanvas.toDataURL({
         format: 'jpeg',
@@ -118,6 +125,10 @@ export class EditorThumbnailCapture {
       cameraFrame.visible = wasVisible
       this.ctx.cameraManager.getCameraViews()[0].icon.visible = wasIconVisible
     } else {
+      fabricCanvas.renderAll()
+      await this.waitForAnimationFrames(
+        EditorThumbnailCapture.EDITOR_CAPTURE_SETTLE_FRAMES
+      )
       snapshotDataUrl = fabricCanvas.toDataURL({
         format: 'jpeg',
         quality: 0.8,
@@ -132,6 +143,24 @@ export class EditorThumbnailCapture {
 
     if (!snapshotDataUrl) return null
     return this.resizeThumbnail(snapshotDataUrl, 200, 160)
+  }
+
+  private waitForAnimationFrames(frameCount: number): Promise<void> {
+    if (frameCount <= 0) {
+      return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+      let remainingFrames = frameCount
+      const step = () => {
+        remainingFrames -= 1
+        if (remainingFrames <= 0) {
+          resolve()
+          return
+        }
+        requestAnimationFrame(step)
+      }
+      requestAnimationFrame(step)
+    })
   }
 
   private resizeThumbnail(

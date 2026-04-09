@@ -6,6 +6,10 @@ import {
   getTerrainChunkSiteJitter,
   getVoronoiSiteJitterValue,
 } from './TerrainDataUtils'
+import {
+  computeFlatPolygonBounds,
+  intersectFlatPolygon,
+} from './TerrainPolygonUtils'
 import { VORONOI_SITE_JITTER_SCALE } from './TerrainTypes'
 import type { VoronoiPickedCell, VoronoiRenderCell } from './VoronoiTypes'
 
@@ -149,6 +153,7 @@ function buildVoronoiLayer(
 
   const delaunay = new Delaunay(coords)
   const voronoi = delaunay.voronoi(bounds)
+  const contourClipPoints = layer.contourClipPoints
   const cells: VoronoiRenderCell[] = []
   for (let i = 0; i < siteCount; i++) {
     const materialCode = siteMaterialCode[i] | 0
@@ -160,17 +165,33 @@ function buildVoronoiLayer(
       continue
     }
     const flattenedPoints = flattenCellPolygon(polygon)
-    if (flattenedPoints.length < 6) {
-      continue
+    const clippedPolygons =
+      contourClipPoints && contourClipPoints.length >= 6
+        ? intersectFlatPolygon(flattenedPoints, contourClipPoints)
+        : [flattenedPoints]
+    for (
+      let polygonIndex = 0;
+      polygonIndex < clippedPolygons.length;
+      polygonIndex++
+    ) {
+      const points = clippedPolygons[polygonIndex]
+      const bounds = computeFlatPolygonBounds(points)
+      if (!bounds) {
+        continue
+      }
+      cells.push({
+        cellX: siteCellX[i],
+        cellY: siteCellY[i],
+        localCellX: siteCellX[i] - layer.offsetCellX,
+        localCellY: siteCellY[i] - layer.offsetCellY,
+        materialCode,
+        points,
+        minCellX: Math.floor(bounds.minX / cellSizeUnits),
+        minCellY: Math.floor(bounds.minY / cellSizeUnits),
+        maxCellX: Math.ceil(bounds.maxX / cellSizeUnits),
+        maxCellY: Math.ceil(bounds.maxY / cellSizeUnits),
+      })
     }
-    cells.push({
-      cellX: siteCellX[i],
-      cellY: siteCellY[i],
-      localCellX: siteCellX[i] - layer.offsetCellX,
-      localCellY: siteCellY[i] - layer.offsetCellY,
-      materialCode,
-      points: flattenedPoints,
-    })
   }
 
   return {
@@ -215,6 +236,15 @@ function computeLayerSignature(layer: TerrainResolvedLayerView): number {
   hash = mixHash(hash ^ Math.imul(layer.randomSeed | 0, 0x85ebca6b))
   hash = mixHash(hash ^ Math.imul(layer.offsetCellX | 0, 0xc2b2ae35))
   hash = mixHash(hash ^ Math.imul(layer.offsetCellY | 0, 0x27d4eb2d))
+  if (typeof layer.buildRevision === 'number') {
+    hash = mixHash(hash ^ Math.imul(layer.buildRevision | 0, 0x165667b1))
+    if (typeof layer.contourBuildRevision === 'number') {
+      hash = mixHash(
+        hash ^ Math.imul(layer.contourBuildRevision | 0, 0xd3a2646c)
+      )
+    }
+    return hash
+  }
   for (let chunkIndex = 0; chunkIndex < layer.chunks.length; chunkIndex++) {
     const chunk = layer.chunks[chunkIndex]
     hash = mixHash(hash ^ Math.imul(chunk.chunkX | 0, 0x165667b1))
@@ -230,6 +260,13 @@ function computeLayerSignature(layer: TerrainResolvedLayerView): number {
     )
     for (let jitterIndex = 0; jitterIndex < siteJitter.length; jitterIndex++) {
       hash = mixHash(hash ^ ((siteJitter[jitterIndex] | 0) + jitterIndex))
+    }
+  }
+  const clipPoints = layer.contourClipPoints
+  if (clipPoints) {
+    hash = mixHash(hash ^ Math.imul(clipPoints.length, 0x4b3cd7a1))
+    for (let i = 0; i < clipPoints.length; i++) {
+      hash = mixHash(hash ^ Math.imul((clipPoints[i] | 0) + i, 0x9e3779b1))
     }
   }
   return hash

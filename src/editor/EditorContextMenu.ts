@@ -19,6 +19,7 @@ export type ContextMenuAction =
   | 'lock'
   | 'unlock'
   | 'commonProperties'
+  | 'terrainProperties'
   | 'properties'
   | 'copy'
   | 'paste'
@@ -255,6 +256,8 @@ export class EditorContextMenu {
         return 'editor_object_menu_unlock'
       case 'commonProperties':
         return 'editor_object_menu_common_properties'
+      case 'terrainProperties':
+        return 'editor_object_menu_terrain_properties'
       case 'properties':
         return 'editor_weapon_menu_properties'
       case 'copy':

@@ -23,6 +23,7 @@ import type { SaveData } from './saveTypes'
 import { getDefaultMap } from './storage'
 import { hasTerrainContent } from './terrain/TerrainDataUtils'
 import { TerrainRenderer } from './terrain/TerrainRenderer'
+import type { TerrainDataLike, TerrainLayerLike } from './terrain/TerrainTypes'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
@@ -54,6 +55,8 @@ export class GameClient {
   private worldRenderContext: PixiRenderContext2D
   private hudRenderContext: PixiRenderContext2D
   private staticTerrainGraphics: Graphics[] = []
+  private staticTerrainSignature = 0
+  private staticTerrainReady = false
   private readonly reusableDOMMatrix = new DOMMatrix()
   private readonly reusablePixiMatrix = new Matrix()
   private worldRenderer: PixiWorldRenderer
@@ -432,7 +435,7 @@ export class GameClient {
     this.currentMapData = map
     this.staticRenderLayers = collectStaticRenderLayers(map)
     this.renderer.setCharacterBodyMap(map)
-    this.rebuildStaticScene()
+    this.syncStaticScene(map)
 
     if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
       this.targetZoom = map.camera.zoom
@@ -505,7 +508,7 @@ export class GameClient {
       this.currentMapData = msg.map
       this.staticRenderLayers = collectStaticRenderLayers(msg.map)
       this.renderer.setCharacterBodyMap(msg.map)
-      this.rebuildStaticScene()
+      this.syncStaticScene(msg.map)
       if (
         msg.map.camera &&
         msg.map.camera.zoom > 0 &&
@@ -1605,9 +1608,11 @@ export class GameClient {
   private rebuildStaticScene(): void {
     this.destroyStaticGraphics(this.staticTerrainGraphics)
     this.staticTerrainGraphics.length = 0
+    this.staticTerrainReady = false
 
     const mapData = this.currentMapData
     if (!mapData) {
+      this.staticTerrainSignature = 0
       return
     }
 
@@ -1622,6 +1627,19 @@ export class GameClient {
         this.worldContainer.addChild(this.staticTerrainGraphics[i])
       }
     }
+    this.staticTerrainSignature = this.computeTerrainRenderSignature(terrain)
+    this.staticTerrainReady = true
+  }
+
+  private syncStaticScene(map: EditorMapData | null): void {
+    const nextSignature = this.computeTerrainRenderSignature(map?.terrain)
+    if (
+      this.staticTerrainReady &&
+      this.staticTerrainSignature === nextSignature
+    ) {
+      return
+    }
+    this.rebuildStaticScene()
   }
 
   private destroyStaticGraphics(list: Graphics[]): void {
@@ -1632,6 +1650,85 @@ export class GameClient {
       }
       graphics.destroy()
     }
+  }
+
+  private computeTerrainRenderSignature(
+    terrain: TerrainDataLike | null | undefined
+  ): number {
+    if (!terrain || !hasTerrainContent(terrain)) {
+      return 0
+    }
+    let hash = this.mixTerrainSignatureValue(terrain.version | 0)
+    hash = this.mixTerrainSignatureValue(
+      hash ^ Math.imul(terrain.chunkSize | 0, 0x9e3779b1)
+    )
+    hash = this.mixTerrainSignatureValue(
+      hash ^
+        Math.imul(
+          (terrain.randomSeed | 0) ^ ((terrain.layers?.length ?? 0) | 0),
+          0x85ebca6b
+        )
+    )
+    if (terrain.layers && terrain.layers.length > 0) {
+      for (let i = 0; i < terrain.layers.length; i++) {
+        hash = this.mixTerrainLayerSignature(hash, terrain.layers[i])
+      }
+      return hash
+    }
+    hash = this.mixTerrainSignatureValue(
+      hash ^ Math.imul(terrain.chunks.length | 0, 0xc2b2ae35)
+    )
+    return hash
+  }
+
+  private mixTerrainLayerSignature(
+    hash: number,
+    layer: TerrainLayerLike
+  ): number {
+    let nextHash = this.mixTerrainSignatureValue(
+      hash ^ Math.imul(layer.offsetCellX | 0, 0x27d4eb2d)
+    )
+    nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ Math.imul(layer.offsetCellY | 0, 0x165667b1)
+    )
+    nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ Math.imul((layer.renderLayer ?? 0) | 0, 0xd3a2646c)
+    )
+    nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ Math.imul((layer.contourId ?? 0) | 0, 0x9e3779b1)
+    )
+    nextHash = this.mixTerrainSignatureValue(
+      nextHash ^
+        Math.imul(this.hashTerrainMaterialId(layer.materialId), 0x85ebca6b)
+    )
+    if (typeof layer.buildRevision === 'number') {
+      return this.mixTerrainSignatureValue(
+        nextHash ^ Math.imul(layer.buildRevision | 0, 0xc2b2ae35)
+      )
+    }
+    return this.mixTerrainSignatureValue(
+      nextHash ^ Math.imul(layer.chunks.length | 0, 0x4b3cd7a1)
+    )
+  }
+
+  private hashTerrainMaterialId(materialId: string | undefined): number {
+    if (!materialId) {
+      return 0
+    }
+    let hash = 0
+    for (let i = 0; i < materialId.length; i++) {
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(materialId.charCodeAt(i), i + 1)
+      )
+    }
+    return hash
+  }
+
+  private mixTerrainSignatureValue(value: number): number {
+    let mixed = value | 0
+    mixed = Math.imul(mixed ^ (mixed >>> 16), 0x45d9f3b)
+    mixed = Math.imul(mixed ^ (mixed >>> 16), 0x45d9f3b)
+    return (mixed ^ (mixed >>> 16)) >>> 0
   }
 
   private captureSaveThumbnail(): Promise<string | null> {

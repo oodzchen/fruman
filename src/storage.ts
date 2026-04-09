@@ -882,6 +882,10 @@ function normalizeMapTerrain(
           ? contour.renderLayer | 0
           : undefined,
       shapeKind: contour.shapeKind,
+      straightEdge:
+        typeof contour.straightEdge === 'boolean'
+          ? contour.straightEdge
+          : undefined,
     })) ?? []
   const visibleLayerCount = normalizedLayers.reduce(
     (count, layer) => count + ((layer.contourId ?? 0) > 0 ? 0 : 1),

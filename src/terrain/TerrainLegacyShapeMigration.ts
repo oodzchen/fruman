@@ -94,6 +94,7 @@ function buildLegacyContour(
     fillMaterialId,
     renderLayer,
     shapeKind: getLegacyShapeKind(legacyShape),
+    straightEdge: true,
   }
 }
 

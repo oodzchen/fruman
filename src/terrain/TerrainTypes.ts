@@ -44,6 +44,8 @@ export interface TerrainContourLike {
   fillMaterialId?: TerrainMaterialId
   renderLayer?: number
   shapeKind?: TerrainContourShapeKind
+  straightEdge?: boolean
+  buildRevision?: number
 }
 
 export interface TerrainChunkLike {
@@ -60,6 +62,7 @@ export interface TerrainLayerLike {
   materialId?: TerrainMaterialId
   renderLayer?: number
   contourId?: number
+  buildRevision?: number
   chunks: ReadonlyArray<TerrainChunkLike>
 }
 

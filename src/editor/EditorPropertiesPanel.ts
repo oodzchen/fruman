@@ -211,6 +211,11 @@ export interface EditorPropertiesPanelContext {
     target: fabric.Object,
     renderLayer: number | undefined
   ) => boolean
+  getTerrainStraightEdge: (target: fabric.Object) => boolean | null
+  setTerrainStraightEdge: (
+    target: fabric.Object,
+    straightEdge: boolean
+  ) => boolean
 }
 
 export class EditorPropertiesPanel {
@@ -2469,7 +2474,87 @@ export class EditorPropertiesPanel {
           finish(false)
           return
         }
-        const changed = this.context.setCommonRenderLayer(target, renderLayer)
+        const renderLayerChanged = this.context.setCommonRenderLayer(
+          target,
+          renderLayer
+        )
+        const changed = renderLayerChanged
+        if (changed) {
+          this.context.requestRender()
+        }
+        finish(changed)
+      })
+
+      cancelBtn.addEventListener('click', () => finish(false))
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+          finish(false)
+        }
+      })
+    })
+  }
+
+  public async showTerrainPropertiesDialog(
+    target: fabric.Object
+  ): Promise<boolean> {
+    const straightEdgeValue = this.context.getTerrainStraightEdge(target)
+    if (straightEdgeValue === null) {
+      return false
+    }
+
+    const dialog = EditorUIHelper.createPropertiesDialog(
+      localizer.t('editor_terrain_properties_title')
+    )
+    const { leftPanel, rightPanel, footerPanel, previewCanvas, modal, close } =
+      dialog
+
+    previewCanvas.style.display = 'none'
+    const straightEdgeRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_terrain_properties_straight_edge')
+    )
+    const straightEdgeCheckbox = document.createElement('input')
+    straightEdgeCheckbox.type = 'checkbox'
+    straightEdgeCheckbox.checked = straightEdgeValue
+    straightEdgeRow.row.appendChild(straightEdgeCheckbox)
+    leftPanel.appendChild(straightEdgeRow.row)
+
+    const straightEdgeHint = document.createElement('div')
+    straightEdgeHint.textContent = localizer.t(
+      'editor_terrain_properties_straight_edge_hint'
+    )
+    straightEdgeHint.style.cssText =
+      'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+    rightPanel.appendChild(straightEdgeHint)
+
+    const buttonRow = EditorUIHelper.createButtonRow()
+    const confirmBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_confirm'),
+      { primary: true }
+    )
+    const cancelBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_cancel')
+    )
+    buttonRow.appendChild(confirmBtn)
+    buttonRow.appendChild(cancelBtn)
+    footerPanel.appendChild(buttonRow)
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return false
+    }
+    return await new Promise<boolean>((resolve) => {
+      dialog.show(viewport)
+
+      const finish = (changed: boolean) => {
+        close()
+        resolve(changed)
+      }
+
+      confirmBtn.addEventListener('click', () => {
+        const changed = this.context.setTerrainStraightEdge(
+          target,
+          straightEdgeCheckbox.checked
+        )
         if (changed) {
           this.context.requestRender()
         }

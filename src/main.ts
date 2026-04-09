@@ -26,6 +26,7 @@ import {
   DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
 } from './constants'
 import { loadStoredValues, saveStoredValues } from './storage'
+import { initializeTerrainPolygonUtils } from './terrain/TerrainPolygonUtils'
 
 interface ParamConfig {
   id: string
@@ -260,6 +261,7 @@ async function initialize() {
   await new Promise((resolve) => setTimeout(resolve, 200))
 
   const storedValues = await loadStoredValues()
+  await initializeTerrainPolygonUtils()
   const updateStoredValue = (id: string, value: string) => {
     storedValues[id] = value
     saveStoredValues(storedValues)

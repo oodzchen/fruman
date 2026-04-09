@@ -1,6 +1,7 @@
 import { getTerrainMaterialByCode } from './TerrainMaterialRegistry'
 import type {
   TerrainChunkLike,
+  TerrainContourLike,
   TerrainDataLike,
   TerrainLayerLike,
   TerrainMaterialId,
@@ -12,8 +13,11 @@ export interface TerrainResolvedLayerView extends TerrainDataLike {
   offsetCellY: number
   materialId?: TerrainMaterialId
   renderLayer?: number
+  buildRevision?: number
   sourceLayer?: TerrainLayerLike
   layers?: undefined
+  contourClipPoints?: readonly number[]
+  contourBuildRevision?: number
 }
 
 export function hasTerrainContent(
@@ -36,10 +40,35 @@ export function getTerrainLayerViews(
   terrain: TerrainDataLike
 ): TerrainResolvedLayerView[] {
   if (terrain.layers && terrain.layers.length > 0) {
+    let contourMap: Map<number, TerrainContourLike> | null = null
+    if (terrain.contours && terrain.contours.length > 0) {
+      contourMap = new Map()
+      for (let i = 0; i < terrain.contours.length; i++) {
+        const c = terrain.contours[i]
+        contourMap.set(c.id, c)
+      }
+    }
     const layers = new Array<TerrainResolvedLayerView>(terrain.layers.length)
     for (let i = 0; i < terrain.layers.length; i++) {
       const layer = terrain.layers[i]
-      layers[i] = createLayerView(terrain, layer)
+      let contourClipPoints: readonly number[] | undefined
+      let contourBuildRevision: number | undefined
+      if (layer.contourId && contourMap) {
+        const contour = contourMap.get(layer.contourId)
+        const useStraightEdge =
+          contour?.straightEdge !== false &&
+          (contour?.straightEdge === true || contour?.shapeKind != null)
+        if (useStraightEdge && contour && contour.points.length >= 6) {
+          contourClipPoints = contour.points
+          contourBuildRevision = contour.buildRevision
+        }
+      }
+      layers[i] = createLayerView(
+        terrain,
+        layer,
+        contourClipPoints,
+        contourBuildRevision
+      )
     }
     return layers
   }
@@ -155,7 +184,9 @@ export function getVoronoiSiteJitterValue(
 
 function createLayerView(
   terrain: TerrainDataLike,
-  layer: TerrainLayerLike
+  layer: TerrainLayerLike,
+  contourClipPoints?: readonly number[],
+  contourBuildRevision?: number
 ): TerrainResolvedLayerView {
   return {
     version: terrain.version,
@@ -167,7 +198,10 @@ function createLayerView(
     offsetCellY: layer.offsetCellY | 0,
     materialId: layer.materialId,
     renderLayer: layer.renderLayer,
+    buildRevision: layer.buildRevision,
     sourceLayer: layer,
+    contourClipPoints,
+    contourBuildRevision,
   }
 }
 

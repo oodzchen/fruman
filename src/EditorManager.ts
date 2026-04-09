@@ -479,6 +479,10 @@ export class EditorManager {
       getCommonRenderLayer: (target) => this.getEditorObjectRenderLayer(target),
       setCommonRenderLayer: (target, renderLayer) =>
         this.setEditorObjectRenderLayer(target, renderLayer),
+      getTerrainStraightEdge: (target) =>
+        this.terrainManager.getProxyStraightEdge(target),
+      setTerrainStraightEdge: (target, straightEdge) =>
+        this.terrainManager.setProxyStraightEdge(target, straightEdge),
       getFactions: () => this.factions,
       addFaction: (id) => {
         if (!this.factions.includes(id)) {
@@ -1976,7 +1980,9 @@ export class EditorManager {
     this.dialogManager.showLoading(localizer.t('editor_saving'))
 
     try {
-      const thumbnail = await this.thumbnailCapture.captureMap(data)
+      const thumbnail = await this.thumbnailCapture.captureMap(data, {
+        preferPreview: false,
+      })
       if (thumbnail) {
         meta.thumbnail = thumbnail
       }
@@ -2454,7 +2460,14 @@ export class EditorManager {
     }
     if (this.terrainManager.isTerrainContourProxy(target)) {
       this.showPolygonMenuWithActions(
-        ['fill', 'commonProperties', 'rename', 'lock', 'delete'],
+        [
+          'fill',
+          'terrainProperties',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -3142,6 +3155,15 @@ export class EditorManager {
     if (action === 'commonProperties') {
       const changed =
         await this.propertiesPanel.showCommonPropertiesDialog(target)
+      this.contextMenu.hide()
+      if (changed) {
+        this.captureHistorySnapshot()
+      }
+      return
+    }
+    if (action === 'terrainProperties') {
+      const changed =
+        await this.propertiesPanel.showTerrainPropertiesDialog(target)
       this.contextMenu.hide()
       if (changed) {
         this.captureHistorySnapshot()

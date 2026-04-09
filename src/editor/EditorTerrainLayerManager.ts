@@ -68,6 +68,7 @@ interface EditorTerrainContour {
   fillMaterialId: TerrainMaterialId | null
   renderLayer: number
   shapeKind: TerrainContourShapeKind | null
+  straightEdge: boolean
   fillLayer: EditorTerrainLayer | null
   proxy: TerrainContourProxy
 }
@@ -109,6 +110,7 @@ const TERRAIN_CONTOUR_EDGE_SELECT_DISTANCE_SQ = 196
 const TERRAIN_CONTOUR_SAMPLE_DISTANCE = 12
 const TERRAIN_CONTOUR_MIN_POINT_COUNT = 3
 const TERRAIN_CONTOUR_CELL_SAMPLE_COUNT = 5
+const TERRAIN_CONTOUR_SCANLINE_SAMPLE_COUNT = 3
 const TERRAIN_CONTOUR_RATIO_SCALE = 1024
 const TERRAIN_CONTOUR_STROKE_COLOR = 'rgba(245,208,96,0.92)'
 const TERRAIN_CONTOUR_IDLE_STROKE_COLOR = 'rgba(214,174,92,0.62)'
@@ -234,6 +236,14 @@ export class EditorTerrainLayerManager {
   private groupedProxyMoveStartTop = 0
   private groupedProxyMoveAppliedCellDeltaX = 0
   private groupedProxyMoveAppliedCellDeltaY = 0
+  private terrainRenderCacheCanvas: HTMLCanvasElement | null = null
+  private terrainRenderCacheCtx: CanvasRenderingContext2D | null = null
+  private terrainRenderCacheWidth = 0
+  private terrainRenderCacheHeight = 0
+  private terrainRenderCacheDirty = true
+  private terrainRenderCacheExcludeLayer: TerrainLayerLike | null = null
+  private terrainRenderCacheTransform: fabric.TMat2D = [1, 0, 0, 1, 0, 0]
+  private runtimeBuildRevision = 1
 
   constructor(ctx: EditorTerrainLayerManagerContext) {
     this.ctx = ctx
@@ -260,6 +270,7 @@ export class EditorTerrainLayerManager {
     _cssWidth: number,
     _cssHeight: number
   ): void {
+    this.invalidateTerrainRenderCache()
     this.ctx.requestRender()
   }
 
@@ -290,6 +301,7 @@ export class EditorTerrainLayerManager {
     this.selectedContourId = -1
     this.activeContourPointIndex = -1
     this.contourEditMode = false
+    this.clearTerrainRenderCache()
     this.ctx.requestRender()
   }
 
@@ -464,6 +476,14 @@ export class EditorTerrainLayerManager {
     return null
   }
 
+  getProxyStraightEdge(object: fabric.Object | null): boolean | null {
+    if (!this.isTerrainContourProxy(object)) {
+      return null
+    }
+    const contour = this.proxyToContour.get(object)
+    return contour ? contour.straightEdge : null
+  }
+
   setProxyRenderLayer(
     object: fabric.Object | null,
     renderLayer: number | undefined
@@ -483,6 +503,7 @@ export class EditorTerrainLayerManager {
       }
       layer.serializedLayer.renderLayer = nextRenderLayer
       ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+      this.invalidateTerrainRenderCache()
       this.ctx.requestRender()
       return true
     }
@@ -510,6 +531,26 @@ export class EditorTerrainLayerManager {
     const serializedContour = this.getSerializedContour(contour)
     serializedContour.renderLayer = nextRenderLayer
     ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+    this.invalidateTerrainRenderCache()
+    this.ctx.requestRender()
+    return true
+  }
+
+  setProxyStraightEdge(
+    object: fabric.Object | null,
+    straightEdge: boolean
+  ): boolean {
+    if (!this.isTerrainContourProxy(object)) {
+      return false
+    }
+    const contour = this.proxyToContour.get(object)
+    if (!contour || contour.straightEdge === straightEdge) {
+      return false
+    }
+    contour.straightEdge = straightEdge
+    const serializedContour = this.getSerializedContour(contour)
+    serializedContour.straightEdge = straightEdge
+    this.bumpContourBuildRevision(contour, serializedContour)
     this.ctx.requestRender()
     return true
   }
@@ -543,6 +584,7 @@ export class EditorTerrainLayerManager {
       this.removeLayer(layer)
       return null
     }
+    this.bumpLayerBuildRevision(layer)
     this.refreshLayerProxy(layer)
     return layer.proxy
   }
@@ -566,7 +608,11 @@ export class EditorTerrainLayerManager {
       contour.points[i] = points[i]
     }
     contour.shapeKind = shape
-    this.getSerializedContour(contour).shapeKind = shape
+    contour.straightEdge = true
+    const serializedContour = this.getSerializedContour(contour)
+    serializedContour.shapeKind = shape
+    serializedContour.straightEdge = true
+    this.bumpContourBuildRevision(contour, serializedContour)
     this.setActiveContour(contour)
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
@@ -662,6 +708,7 @@ export class EditorTerrainLayerManager {
         offsetCellY: serializedLayer.offsetCellY,
         renderLayer: serializedLayer.renderLayer,
         contourId: layer.contourId > 0 ? layer.contourId : undefined,
+        buildRevision: serializedLayer.buildRevision,
         chunks: shareData
           ? (serializedLayer.chunks as MapTerrainLayer['chunks'])
           : layer.grid.serializeChunks(),
@@ -681,6 +728,8 @@ export class EditorTerrainLayerManager {
               fillMaterialId: serializedContour.fillMaterialId,
               renderLayer: serializedContour.renderLayer,
               shapeKind: serializedContour.shapeKind,
+              straightEdge: serializedContour.straightEdge,
+              buildRevision: serializedContour.buildRevision,
             }
           })
         : undefined
@@ -1125,6 +1174,7 @@ export class EditorTerrainLayerManager {
       | 'add'
       | 'remove'
       | 'commonProperties'
+      | 'terrainProperties'
       | 'rename'
       | 'lock'
       | 'delete'
@@ -1164,8 +1214,23 @@ export class EditorTerrainLayerManager {
       return {
         target,
         actions: contour.shapeKind
-          ? ['fill', 'commonProperties', 'rename', 'lock', 'delete']
-          : ['remove', 'fill', 'commonProperties', 'rename', 'lock', 'delete'],
+          ? [
+              'fill',
+              'terrainProperties',
+              'commonProperties',
+              'rename',
+              'lock',
+              'delete',
+            ]
+          : [
+              'remove',
+              'fill',
+              'terrainProperties',
+              'commonProperties',
+              'rename',
+              'lock',
+              'delete',
+            ],
         pointIndex,
         insertX: 0,
         insertY: 0,
@@ -1179,6 +1244,7 @@ export class EditorTerrainLayerManager {
         actions: [
           'add',
           'fill',
+          'terrainProperties',
           'commonProperties',
           'rename',
           'lock',
@@ -1193,7 +1259,14 @@ export class EditorTerrainLayerManager {
     this.refreshContourProxy(contour)
     return {
       target,
-      actions: ['fill', 'commonProperties', 'rename', 'lock', 'delete'],
+      actions: [
+        'fill',
+        'terrainProperties',
+        'commonProperties',
+        'rename',
+        'lock',
+        'delete',
+      ],
       pointIndex: -1,
       insertX: 0,
       insertY: 0,
@@ -1228,6 +1301,7 @@ export class EditorTerrainLayerManager {
       Math.round(pointX),
       Math.round(pointY)
     )
+    this.bumpContourBuildRevision(contour)
     this.activeContourPointIndex = pointIndex + 1
     this.refreshContourProxy(contour)
     this.applyContourFillDelta(contour, previousPoints)
@@ -1259,6 +1333,7 @@ export class EditorTerrainLayerManager {
     }
     const previousPoints = contour.points.slice()
     contour.points.splice(pointIndex * 2, 2)
+    this.bumpContourBuildRevision(contour)
     this.activeContourPointIndex = Math.min(
       this.activeContourPointIndex,
       contour.points.length / 2 - 1
@@ -1456,6 +1531,7 @@ export class EditorTerrainLayerManager {
     }
     canvas._renderBackground = original
     delete canvas.__terrainOriginalRenderBackground
+    this.clearTerrainRenderCache()
   }
 
   private renderTerrain(terrainCtx: CanvasRenderingContext2D): void {
@@ -1465,6 +1541,20 @@ export class EditorTerrainLayerManager {
     const fabricCanvas = this.attachedCanvas
     const viewportTransform = fabricCanvas?.viewportTransform
     const transform = viewportTransform ?? [1, 0, 0, 1, 0, 0]
+    const movingContour = this.getMovingContourPreview()
+    const movingLayer = movingContour?.fillLayer?.serializedLayer
+    const cacheCanvas = this.prepareTerrainRenderCache(
+      terrainCtx,
+      transform,
+      movingLayer ?? null
+    )
+    if (cacheCanvas) {
+      terrainCtx.imageSmoothingEnabled = false
+      terrainCtx.drawImage(cacheCanvas, 0, 0)
+    }
+    if (!movingContour || !movingLayer) {
+      return
+    }
     terrainCtx.save()
     terrainCtx.transform(
       transform[0],
@@ -1475,29 +1565,6 @@ export class EditorTerrainLayerManager {
       transform[5]
     )
     terrainCtx.imageSmoothingEnabled = false
-    const movingContour = this.getMovingContourPreview()
-    const movingLayer = movingContour?.fillLayer?.serializedLayer
-    if (!movingContour || !movingLayer) {
-      TerrainRenderer.drawTerrain(
-        terrainCtx,
-        this.renderData,
-        this.getCellSizePx(),
-        {
-          drawStroke: true,
-        }
-      )
-      terrainCtx.restore()
-      return
-    }
-    TerrainRenderer.drawTerrain(
-      terrainCtx,
-      this.renderData,
-      this.getCellSizePx(),
-      {
-        drawStroke: true,
-        shouldDrawLayer: (layer) => layer.sourceLayer !== movingLayer,
-      }
-    )
     TerrainRenderer.drawTerrain(
       terrainCtx,
       this.renderData,
@@ -1545,6 +1612,7 @@ export class EditorTerrainLayerManager {
           maxY: currentTop + nextHeight,
         }
       )
+      this.bumpContourBuildRevision(contour)
       proxy.scaleX = 1
       proxy.scaleY = 1
       this.refreshContourProxy(contour)
@@ -1579,6 +1647,7 @@ export class EditorTerrainLayerManager {
       contour.points[i] += snappedDeltaX
       contour.points[i + 1] += snappedDeltaY
     }
+    this.bumpContourBuildRevision(contour)
     if (contour.fillLayer) {
       this.applyLayerCellDelta(contour.fillLayer, cellDeltaX, cellDeltaY)
     }
@@ -1652,6 +1721,7 @@ export class EditorTerrainLayerManager {
         contour.points[i] += snappedDeltaX
         contour.points[i + 1] += snappedDeltaY
       }
+      this.bumpContourBuildRevision(contour)
       if (contour.fillLayer) {
         this.applyLayerCellDelta(contour.fillLayer, cellDeltaX, cellDeltaY)
       }
@@ -1691,6 +1761,9 @@ export class EditorTerrainLayerManager {
       this.removeLayer(layer)
       return null
     }
+    if (typeof layer.serializedLayer.buildRevision !== 'number') {
+      layer.serializedLayer.buildRevision = this.nextBuildRevision()
+    }
     if (!layer.internalOnly) {
       this.refreshLayerProxy(layer)
     }
@@ -1721,6 +1794,7 @@ export class EditorTerrainLayerManager {
             ? renderLayer | 0
             : getDefaultTerrainRenderLayer(materialId),
         contourId: contourId > 0 ? contourId : undefined,
+        buildRevision: this.nextBuildRevision(),
         chunks: grid.getChunks(),
       },
       contourId,
@@ -1730,6 +1804,7 @@ export class EditorTerrainLayerManager {
     this.nextLayerId += 1
     this.layers.push(layer)
     this.renderData.layers.push(layer.serializedLayer)
+    this.invalidateTerrainRenderCache()
     return layer
   }
 
@@ -1819,6 +1894,11 @@ export class EditorTerrainLayerManager {
       }
     }
 
+    const contour =
+      layer.contourId > 0 ? this.getContourById(layer.contourId) : null
+    const serializedContour = contour
+      ? this.getSerializedContour(contour)
+      : null
     const build = getVoronoiLayerBuild(
       {
         version: this.renderData.version,
@@ -1830,7 +1910,13 @@ export class EditorTerrainLayerManager {
         offsetCellY: layer.offsetCellY,
         materialId: layer.materialId,
         renderLayer: layer.serializedLayer.renderLayer,
+        buildRevision: layer.serializedLayer.buildRevision,
         sourceLayer: layer.serializedLayer,
+        contourClipPoints:
+          contour && contour.straightEdge !== false
+            ? contour.points
+            : undefined,
+        contourBuildRevision: serializedContour?.buildRevision,
       },
       cellSizePx
     )
@@ -1843,11 +1929,15 @@ export class EditorTerrainLayerManager {
     worldCellY: number,
     code: number
   ): boolean {
-    return layer.grid.setCellMaterialCode(
+    const changed = layer.grid.setCellMaterialCode(
       worldCellX - layer.offsetCellX,
       worldCellY - layer.offsetCellY,
       code
     )
+    if (changed) {
+      this.bumpLayerBuildRevision(layer)
+    }
+    return changed
   }
 
   private recalculateExposedTopCells(
@@ -1878,11 +1968,15 @@ export class EditorTerrainLayerManager {
       return
     }
     const aboveSolid = layer.grid.isCellSolid(localCellX, localCellY - 1)
-    layer.grid.setCellMaterialCode(
-      localCellX,
-      localCellY,
-      aboveSolid ? fillCode : topCode
-    )
+    if (
+      layer.grid.setCellMaterialCode(
+        localCellX,
+        localCellY,
+        aboveSolid ? fillCode : topCode
+      )
+    ) {
+      this.bumpLayerBuildRevision(layer)
+    }
   }
 
   private refreshLayerProxy(layer: EditorTerrainLayer): void {
@@ -2005,6 +2099,7 @@ export class EditorTerrainLayerManager {
     if (layerIndex !== -1) {
       this.layers.splice(layerIndex, 1)
       this.renderData.layers.splice(layerIndex, 1)
+      this.invalidateTerrainRenderCache()
     }
   }
 
@@ -2066,6 +2161,7 @@ export class EditorTerrainLayerManager {
       fillMaterialId: null,
       renderLayer: getDefaultTerrainRenderLayer('dirt'),
       shapeKind: null,
+      straightEdge: false,
       fillLayer: null,
       proxy,
     }
@@ -2074,6 +2170,7 @@ export class EditorTerrainLayerManager {
       id: contour.id,
       points: contour.points,
       renderLayer: contour.renderLayer,
+      buildRevision: this.nextBuildRevision(),
     })
     this.proxyToContour.set(proxy, contour)
     this.applyContourProxyInteraction(proxy, this.interactionEnabled)
@@ -2114,6 +2211,9 @@ export class EditorTerrainLayerManager {
         : contour.fillMaterialId
           ? getDefaultTerrainRenderLayer(contour.fillMaterialId)
           : getDefaultTerrainRenderLayer('dirt')
+    contour.straightEdge =
+      source.straightEdge === true ||
+      (source.straightEdge !== false && contour.shapeKind !== null)
     contour.fillLayer = contourLayerMap.get(contour.id) ?? null
     this.nextContourId = Math.max(this.nextContourId, contour.id + 1)
     const serializedContour = this.getSerializedContour(contour)
@@ -2121,6 +2221,11 @@ export class EditorTerrainLayerManager {
     serializedContour.fillMaterialId = contour.fillMaterialId ?? undefined
     serializedContour.renderLayer = contour.renderLayer
     serializedContour.shapeKind = contour.shapeKind ?? undefined
+    serializedContour.straightEdge = contour.straightEdge
+    serializedContour.buildRevision =
+      source.buildRevision ??
+      serializedContour.buildRevision ??
+      this.nextBuildRevision()
     ;(contour.proxy as EditorLayeredObject).renderLayer = contour.renderLayer
     contour.proxy.terrainContourId = contour.id
     this.refreshContourProxy(contour)
@@ -2144,6 +2249,8 @@ export class EditorTerrainLayerManager {
       fillMaterialId: contour.fillMaterialId ?? undefined,
       renderLayer: contour.renderLayer,
       shapeKind: contour.shapeKind ?? undefined,
+      straightEdge: contour.straightEdge,
+      buildRevision: this.nextBuildRevision(),
     }
     this.renderData.contours.push(serializedContour)
     return serializedContour
@@ -2337,6 +2444,7 @@ export class EditorTerrainLayerManager {
     }
     contour.points[pointIndex * 2] = pointX
     contour.points[pointIndex * 2 + 1] = pointY
+    this.bumpContourBuildRevision(contour)
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
   }
@@ -2513,16 +2621,32 @@ export class EditorTerrainLayerManager {
     const baseFillMaterialId =
       contour.fillMaterialId === 'grass' ? 'dirt' : contour.fillMaterialId
     const fillCode = getTerrainMaterialCodeById(baseFillMaterialId)
+    const width = endCellX - startCellX + 1
+    const height = endCellY - startCellY + 1
+    if (width <= 0 || height <= 0) {
+      return false
+    }
+    const fillMask = new Uint8Array(width * height)
+    this.rasterizeContourMask(
+      contour.points,
+      startCellX,
+      startCellY,
+      endCellX,
+      endCellY,
+      cellSizePx,
+      fillMask,
+      contour.straightEdge
+    )
     for (let cellY = startCellY; cellY <= endCellY; cellY++) {
+      const rowOffset = (cellY - startCellY) * width
       for (let cellX = startCellX; cellX <= endCellX; cellX++) {
-        if (
-          !this.isContourCellFilled(contour.points, cellX, cellY, cellSizePx)
-        ) {
+        if (fillMask[rowOffset + (cellX - startCellX)] === 0) {
           continue
         }
         layer.grid.setCellMaterialCode(cellX, cellY, fillCode)
       }
     }
+    this.bumpLayerBuildRevision(layer)
     if (contour.fillMaterialId === 'grass') {
       this.recalculateContourTopCells(
         layer,
@@ -2581,7 +2705,8 @@ export class EditorTerrainLayerManager {
       endCellX,
       endCellY,
       cellSizePx,
-      previousMask
+      previousMask,
+      contour.straightEdge
     )
     this.rasterizeContourMask(
       contour.points,
@@ -2590,7 +2715,8 @@ export class EditorTerrainLayerManager {
       endCellX,
       endCellY,
       cellSizePx,
-      nextMask
+      nextMask,
+      contour.straightEdge
     )
     let changed = false
     for (let cellY = startCellY; cellY <= endCellY; cellY++) {
@@ -2633,8 +2759,21 @@ export class EditorTerrainLayerManager {
     endCellX: number,
     endCellY: number,
     cellSizePx: number,
-    mask: Uint8Array
+    mask: Uint8Array,
+    straightEdge: boolean
   ): void {
+    if (straightEdge) {
+      this.rasterizeStraightContourMask(
+        points,
+        startCellX,
+        startCellY,
+        endCellX,
+        endCellY,
+        cellSizePx,
+        mask
+      )
+      return
+    }
     const width = endCellX - startCellX + 1
     for (let cellY = startCellY; cellY <= endCellY; cellY++) {
       const rowOffset = (cellY - startCellY) * width
@@ -2644,6 +2783,132 @@ export class EditorTerrainLayerManager {
         }
         mask[rowOffset + (cellX - startCellX)] = 1
       }
+    }
+  }
+
+  private rasterizeStraightContourMask(
+    points: readonly number[],
+    startCellX: number,
+    startCellY: number,
+    endCellX: number,
+    endCellY: number,
+    cellSizePx: number,
+    mask: Uint8Array
+  ): void {
+    if (cellSizePx <= 0 || points.length < 6) {
+      return
+    }
+    const width = endCellX - startCellX + 1
+    const intersections = new Array<number>(points.length >> 1)
+    for (let cellY = startCellY; cellY <= endCellY; cellY++) {
+      const rowOffset = (cellY - startCellY) * width
+      const baseY = cellY * cellSizePx
+      let previousSampleY = Number.MIN_SAFE_INTEGER
+      for (
+        let sampleIndex = 0;
+        sampleIndex < TERRAIN_CONTOUR_SCANLINE_SAMPLE_COUNT;
+        sampleIndex++
+      ) {
+        const sampleY = this.getContourScanlineSampleY(
+          baseY,
+          cellSizePx,
+          sampleIndex
+        )
+        if (sampleY === previousSampleY) {
+          continue
+        }
+        previousSampleY = sampleY
+        const intersectionCount = this.collectContourScanlineIntersections(
+          points,
+          sampleY,
+          intersections
+        )
+        if (intersectionCount < 2) {
+          continue
+        }
+        this.sortAscendingNumbers(intersections, intersectionCount)
+        for (
+          let intersectionIndex = 0;
+          intersectionIndex + 1 < intersectionCount;
+          intersectionIndex += 2
+        ) {
+          let fillStartCellX = Math.floor(
+            intersections[intersectionIndex] / cellSizePx
+          )
+          let fillEndCellX = Math.floor(
+            intersections[intersectionIndex + 1] / cellSizePx
+          )
+          if (fillEndCellX < startCellX || fillStartCellX > endCellX) {
+            continue
+          }
+          if (fillStartCellX < startCellX) {
+            fillStartCellX = startCellX
+          }
+          if (fillEndCellX > endCellX) {
+            fillEndCellX = endCellX
+          }
+          for (let cellX = fillStartCellX; cellX <= fillEndCellX; cellX++) {
+            mask[rowOffset + (cellX - startCellX)] = 1
+          }
+        }
+      }
+    }
+  }
+
+  private getContourScanlineSampleY(
+    baseY: number,
+    cellSizePx: number,
+    sampleIndex: number
+  ): number {
+    if (sampleIndex <= 0 || cellSizePx <= 1) {
+      return baseY
+    }
+    if (sampleIndex >= TERRAIN_CONTOUR_SCANLINE_SAMPLE_COUNT - 1) {
+      return baseY + cellSizePx - 1
+    }
+    return baseY + Math.floor(cellSizePx / 2)
+  }
+
+  private collectContourScanlineIntersections(
+    points: readonly number[],
+    sampleY: number,
+    intersections: number[]
+  ): number {
+    let count = 0
+    const pointCount = points.length >> 1
+    let previousX = points[points.length - 2]
+    let previousY = points[points.length - 1]
+    for (let pointIndex = 0; pointIndex < pointCount; pointIndex++) {
+      const nextIndex = pointIndex << 1
+      const currentX = points[nextIndex]
+      const currentY = points[nextIndex + 1]
+      const crossesScanline =
+        (previousY <= sampleY && currentY > sampleY) ||
+        (currentY <= sampleY && previousY > sampleY)
+      if (crossesScanline) {
+        intersections[count] =
+          previousX +
+          Math.trunc(
+            ((sampleY - previousY) * (currentX - previousX)) /
+              (currentY - previousY)
+          )
+        count += 1
+      }
+      previousX = currentX
+      previousY = currentY
+    }
+    return count
+  }
+
+  private sortAscendingNumbers(values: number[], count: number): void {
+    for (let i = 1; i < count; i++) {
+      const value = values[i]
+      let insertIndex = i - 1
+      while (insertIndex >= 0 && values[insertIndex] > value) {
+        values[insertIndex + 1] = values[insertIndex]
+        insertIndex -= 1
+      }
+      values[insertIndex + 1] = value
     }
   }
 
@@ -2747,7 +3012,11 @@ export class EditorTerrainLayerManager {
       contour.points[i] = nextPoints[i]
     }
     contour.shapeKind = null
-    this.getSerializedContour(contour).shapeKind = undefined
+    contour.straightEdge = false
+    const serializedContour = this.getSerializedContour(contour)
+    serializedContour.shapeKind = undefined
+    serializedContour.straightEdge = false
+    this.bumpContourBuildRevision(contour, serializedContour)
     this.refreshContourProxy(contour)
     return true
   }
@@ -3429,6 +3698,7 @@ export class EditorTerrainLayerManager {
     layer.offsetCellY += cellDeltaY
     layer.serializedLayer.offsetCellX = layer.offsetCellX
     layer.serializedLayer.offsetCellY = layer.offsetCellY
+    this.bumpLayerBuildRevision(layer)
   }
 
   private computeRoundedCellDelta(deltaPx: number, cellSizePx: number): number {
@@ -3454,5 +3724,127 @@ export class EditorTerrainLayerManager {
 
   private unpackCellY(packedCoord: number): number {
     return (packedCoord & 0xffff) - 32768
+  }
+
+  private nextBuildRevision(): number {
+    this.runtimeBuildRevision += 1
+    return this.runtimeBuildRevision
+  }
+
+  private bumpLayerBuildRevision(layer: EditorTerrainLayer): void {
+    layer.serializedLayer.buildRevision = this.nextBuildRevision()
+    this.invalidateTerrainRenderCache()
+  }
+
+  private bumpContourBuildRevision(
+    contour: EditorTerrainContour,
+    serializedContour?: TerrainContourLike
+  ): void {
+    const target = serializedContour ?? this.getSerializedContour(contour)
+    target.buildRevision = this.nextBuildRevision()
+    this.invalidateTerrainRenderCache()
+  }
+
+  private invalidateTerrainRenderCache(): void {
+    this.terrainRenderCacheDirty = true
+  }
+
+  private clearTerrainRenderCache(): void {
+    this.terrainRenderCacheCanvas = null
+    this.terrainRenderCacheCtx = null
+    this.terrainRenderCacheWidth = 0
+    this.terrainRenderCacheHeight = 0
+    this.terrainRenderCacheExcludeLayer = null
+    this.terrainRenderCacheTransform = [1, 0, 0, 1, 0, 0]
+    this.terrainRenderCacheDirty = true
+  }
+
+  private prepareTerrainRenderCache(
+    terrainCtx: CanvasRenderingContext2D,
+    transform: readonly number[],
+    excludeLayer: TerrainLayerLike | null
+  ): HTMLCanvasElement | null {
+    const width = terrainCtx.canvas.width | 0
+    const height = terrainCtx.canvas.height | 0
+    if (width <= 0 || height <= 0) {
+      return null
+    }
+    let cacheCanvas = this.terrainRenderCacheCanvas
+    let cacheCtx = this.terrainRenderCacheCtx
+    if (!cacheCanvas || !cacheCtx) {
+      cacheCanvas = document.createElement('canvas')
+      cacheCtx = cacheCanvas.getContext('2d')
+      if (!cacheCtx) {
+        return null
+      }
+      this.terrainRenderCacheCanvas = cacheCanvas
+      this.terrainRenderCacheCtx = cacheCtx
+      this.terrainRenderCacheDirty = true
+    }
+    if (
+      this.terrainRenderCacheWidth !== width ||
+      this.terrainRenderCacheHeight !== height
+    ) {
+      cacheCanvas.width = width
+      cacheCanvas.height = height
+      this.terrainRenderCacheWidth = width
+      this.terrainRenderCacheHeight = height
+      this.terrainRenderCacheDirty = true
+    }
+    if (
+      this.terrainRenderCacheDirty ||
+      this.terrainRenderCacheExcludeLayer !== excludeLayer ||
+      !this.isTerrainRenderCacheTransformMatch(transform)
+    ) {
+      cacheCtx.setTransform(1, 0, 0, 1, 0, 0)
+      cacheCtx.clearRect(0, 0, width, height)
+      cacheCtx.save()
+      cacheCtx.transform(
+        transform[0],
+        transform[1],
+        transform[2],
+        transform[3],
+        transform[4],
+        transform[5]
+      )
+      cacheCtx.imageSmoothingEnabled = false
+      TerrainRenderer.drawTerrain(
+        cacheCtx,
+        this.renderData,
+        this.getCellSizePx(),
+        excludeLayer
+          ? {
+              drawStroke: true,
+              shouldDrawLayer: (layer) => layer.sourceLayer !== excludeLayer,
+            }
+          : {
+              drawStroke: true,
+            }
+      )
+      cacheCtx.restore()
+      this.terrainRenderCacheDirty = false
+      this.terrainRenderCacheExcludeLayer = excludeLayer
+      this.terrainRenderCacheTransform = [
+        transform[0],
+        transform[1],
+        transform[2],
+        transform[3],
+        transform[4],
+        transform[5],
+      ]
+    }
+    return cacheCanvas
+  }
+
+  private isTerrainRenderCacheTransformMatch(
+    transform: readonly number[]
+  ): boolean {
+    const cached = this.terrainRenderCacheTransform
+    for (let i = 0; i < cached.length; i++) {
+      if (cached[i] !== transform[i]) {
+        return false
+      }
+    }
+    return true
   }
 }

@@ -7,6 +7,10 @@ export interface VoronoiRenderCell {
   localCellY: number
   materialCode: number
   points: number[]
+  minCellX: number
+  minCellY: number
+  maxCellX: number
+  maxCellY: number
 }
 
 export interface VoronoiCollisionPolygon {

@@ -276,10 +276,10 @@ export class TerrainRenderer {
       const cell = build.cells[cellIndex]
       if (
         visibleBounds &&
-        (cell.cellX > visibleBounds.maxCellX ||
-          cell.cellY > visibleBounds.maxCellY ||
-          cell.cellX < visibleBounds.minCellX ||
-          cell.cellY < visibleBounds.minCellY)
+        (cell.minCellX > visibleBounds.maxCellX ||
+          cell.minCellY > visibleBounds.maxCellY ||
+          cell.maxCellX < visibleBounds.minCellX ||
+          cell.maxCellY < visibleBounds.minCellY)
       ) {
         continue
       }

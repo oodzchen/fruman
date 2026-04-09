@@ -124,6 +124,7 @@ import type {
 import { ensureDefaultMap } from '../storage'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { hasTerrainContent } from '../terrain/TerrainDataUtils'
+import { initializeTerrainPolygonUtils } from '../terrain/TerrainPolygonUtils'
 import type { TerrainMaterialTag } from '../terrain/TerrainTypes'
 import { VoronoiCollisionBuilder } from '../terrain/VoronoiCollisionBuilder'
 import type {
@@ -498,6 +499,8 @@ async function init(width: number, height: number, ppm: number) {
   canvasWidth = width
   canvasHeight = height
   pixelsPerMeter = ppm
+
+  await initializeTerrainPolygonUtils()
 
   const defaultMapResult = await ensureDefaultMap(width, height, ppm)
   defaultMapData = defaultMapResult.data
@@ -1067,8 +1070,9 @@ function createEnvironmentFromMap(map: EditorMapData): void {
 function createTerrainFromMap(
   terrain: NonNullable<EditorMapData['terrain']>
 ): void {
+  const physicsTerrain = buildPhysicsTerrainData(terrain, pixelsPerMeter)
   if (terrain.version >= 4) {
-    const polygons = VoronoiCollisionBuilder.buildPolygons(terrain)
+    const polygons = VoronoiCollisionBuilder.buildPolygons(physicsTerrain)
     for (let i = 0; i < polygons.length; i++) {
       const polygon = polygons[i]
       const materialTag = polygon.materialTag
@@ -1100,7 +1104,7 @@ function createTerrainFromMap(
     }
     return
   }
-  const rects = TerrainCollisionBuilder.buildRectangles(terrain)
+  const rects = TerrainCollisionBuilder.buildRectangles(physicsTerrain)
   if (rects.length === 0) {
     return
   }
@@ -2667,6 +2671,33 @@ function collectPickupEntities(entities: Entity[]): void {
     if (entity.expOrb) {
       expOrbEntityBuffer.push(entity)
     }
+  }
+}
+
+function buildPhysicsTerrainData(
+  terrain: NonNullable<EditorMapData['terrain']>,
+  pixelsPerMeterValue: number
+): NonNullable<EditorMapData['terrain']> {
+  if (
+    !terrain.contours ||
+    terrain.contours.length === 0 ||
+    !(pixelsPerMeterValue > 0)
+  ) {
+    return terrain
+  }
+  const scale = 1 / pixelsPerMeterValue
+  return {
+    ...terrain,
+    contours: terrain.contours.map((contour) => {
+      const points = new Array<number>(contour.points.length)
+      for (let i = 0; i < contour.points.length; i++) {
+        points[i] = contour.points[i] * scale
+      }
+      return {
+        ...contour,
+        points,
+      }
+    }),
   }
 }
 
