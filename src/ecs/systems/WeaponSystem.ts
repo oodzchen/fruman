@@ -221,6 +221,11 @@ export class WeaponSystem extends System {
     dy: 0,
     rotation: 0,
   }
+  private tempTargetRelativeTransform: WeaponRelativeTransform = {
+    dx: 0,
+    dy: 0,
+    rotation: 0,
+  }
   private tempWeaponDropData: WeaponDropData = {
     weaponType: 'sword',
     movesetId: '',
@@ -1663,21 +1668,26 @@ export class WeaponSystem extends System {
 
     const t = clamp01(weapon.attackElapsedMs / this.getRecoverMs(weapon))
 
-    // Calculate target offset (Idle Front)
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    const targetOffset = this.tempRelativeTransform // Reuse temp as target container temporarily?
-    // Actually, lerpRelativeTransform writes to 'out'. I need 'to' argument.
-    // I can construct a literal object or use another component field.
-    // Let's use weapon.swingEndOffset as a temporary holder since it's not used in recover.
-    weapon.swingEndOffset.dx = facing * 0
-    weapon.swingEndOffset.dy = radius * -0.2
-    weapon.swingEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+    getFrontTransform(
+      playerPos,
+      facing,
+      this.tempTransform,
+      radius,
+      weapon.weaponType,
+      weapon.width
+    )
+    getOffsetFromTransform(
+      this.tempTransform,
+      playerPos,
+      this.tempTargetRelativeTransform
+    )
 
     lerpRelativeTransform(
       weapon.attackStartOffset,
-      weapon.swingEndOffset,
+      this.tempTargetRelativeTransform,
       t,
-      this.tempRelativeTransform // Output
+      this.tempRelativeTransform
     )
 
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
