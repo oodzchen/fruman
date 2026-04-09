@@ -3790,10 +3790,14 @@ export class EditorTerrainLayerManager {
 
     const cellSizePx = this.getCellSizePx()
     const paddingCells = 2
-    const minX = (minChunkX * this.chunkSize - paddingCells) * cellSizePx
-    const minY = (minChunkY * this.chunkSize - paddingCells) * cellSizePx
-    const maxX = ((maxChunkX + 1) * this.chunkSize + paddingCells) * cellSizePx
-    const maxY = ((maxChunkY + 1) * this.chunkSize + paddingCells) * cellSizePx
+    const minWorldCellX = layer.offsetCellX + minChunkX * this.chunkSize
+    const minWorldCellY = layer.offsetCellY + minChunkY * this.chunkSize
+    const maxWorldCellX = layer.offsetCellX + (maxChunkX + 1) * this.chunkSize
+    const maxWorldCellY = layer.offsetCellY + (maxChunkY + 1) * this.chunkSize
+    const minX = (minWorldCellX - paddingCells) * cellSizePx
+    const minY = (minWorldCellY - paddingCells) * cellSizePx
+    const maxX = (maxWorldCellX + paddingCells) * cellSizePx
+    const maxY = (maxWorldCellY + paddingCells) * cellSizePx
 
     const width = Math.ceil(maxX - minX)
     const height = Math.ceil(maxY - minY)
