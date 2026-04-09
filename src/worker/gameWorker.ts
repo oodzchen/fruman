@@ -242,6 +242,8 @@ const TIME_STEP = 1 / TARGET_FPS
 const FIXED_STEP_MS = Math.floor(TIME_STEP * 1000)
 let playTimeMs = 0
 const BOX2D_MAX_POLYGON_VERTICES = 8
+const DECOMP_POINT_EPSILON = 0.0001
+const DECOMP_TRIANGLE_AREA_EPSILON = 0.000001
 
 const STATE_BUFFER_BYTES = STATE_BUFFER_FLOATS * Float32Array.BYTES_PER_ELEMENT
 const supportsSharedArrayBuffer =
@@ -1092,7 +1094,8 @@ function createTerrainFromMap(
         renderLayer,
         materialTag,
         materialTag === 'obstacle' ? obstacleFriction : groundFriction,
-        materialTag === 'obstacle'
+        materialTag === 'obstacle',
+        polygon.preferExactDecomp === true
       )
       standableSurfaces.push({
         bodyId: 0 as unknown as b2BodyId,
@@ -1492,7 +1495,8 @@ function registerPolygonShape(
   renderLayer: number,
   materialTag: TerrainMaterialTag,
   friction: number,
-  shouldRegisterObstacle: boolean
+  shouldRegisterObstacle: boolean,
+  preferExactDecomp = false
 ): void {
   if (shape.points.length < 6) {
     return
@@ -1523,8 +1527,8 @@ function registerPolygonShape(
       acquireDecompPoint(worldX - centerX, worldY - centerY)
     )
   }
-  removeDuplicatePoints(decompScratchPolygon, 0.0001)
-  removeCollinearPoints(decompScratchPolygon, 0.0001)
+  removeDuplicatePoints(decompScratchPolygon, DECOMP_POINT_EPSILON)
+  removeCollinearPoints(decompScratchPolygon, DECOMP_POINT_EPSILON)
 
   if (decompScratchPolygon.length < 3) {
     bodyDef.delete()
@@ -1533,15 +1537,10 @@ function registerPolygonShape(
     return
   }
 
-  let convexPolygons: DecompPolygon[] | null = null
-  if (isSimple(decompScratchPolygon)) {
-    makeCCW(decompScratchPolygon)
-    convexPolygons = quickDecomp(decompScratchPolygon)
-    if (!convexPolygons || convexPolygons.length === 0) {
-      const exactPolygons = decomp(decompScratchPolygon)
-      convexPolygons = exactPolygons === false ? null : exactPolygons
-    }
-  }
+  const convexPolygons = decomposeStaticTerrainPolygon(
+    decompScratchPolygon,
+    preferExactDecomp
+  )
 
   if (!convexPolygons || convexPolygons.length === 0) {
     let minX = Number.POSITIVE_INFINITY
@@ -1668,6 +1667,182 @@ function registerPolygonShape(
   bodyDef.delete()
   shapeDef.delete()
   resetDecompScratchPolygon()
+}
+
+function decomposeStaticTerrainPolygon(
+  polygon: DecompPolygon,
+  preferExactDecomp: boolean
+): DecompPolygon[] | null {
+  if (!isSimple(polygon)) {
+    return null
+  }
+  makeCCW(polygon)
+  const primary = preferExactDecomp
+    ? runExactDecomp(polygon)
+    : runQuickDecomp(polygon)
+  if (primary && primary.length > 0) {
+    return primary
+  }
+  const secondary = preferExactDecomp
+    ? runQuickDecomp(polygon)
+    : runExactDecomp(polygon)
+  if (secondary && secondary.length > 0) {
+    return secondary
+  }
+  return triangulateSimplePolygon(polygon)
+}
+
+function runQuickDecomp(polygon: DecompPolygon): DecompPolygon[] | null {
+  const convexPolygons = quickDecomp(polygon)
+  return convexPolygons && convexPolygons.length > 0 ? convexPolygons : null
+}
+
+function runExactDecomp(polygon: DecompPolygon): DecompPolygon[] | null {
+  const convexPolygons = decomp(polygon)
+  return convexPolygons !== false && convexPolygons.length > 0
+    ? convexPolygons
+    : null
+}
+
+function triangulateSimplePolygon(
+  polygon: DecompPolygon
+): DecompPolygon[] | null {
+  if (polygon.length < 3) {
+    return null
+  }
+  if (polygon.length === 3) {
+    return [polygon]
+  }
+  const remaining = new Array<number>(polygon.length)
+  for (let i = 0; i < polygon.length; i++) {
+    remaining[i] = i
+  }
+  const triangles: DecompPolygon[] = []
+  let remainingCount = remaining.length
+  let guard = remainingCount * remainingCount
+  while (remainingCount > 3 && guard > 0) {
+    let earFound = false
+    for (let i = 0; i < remainingCount; i++) {
+      const previousIndex = remaining[(i + remainingCount - 1) % remainingCount]
+      const currentIndex = remaining[i]
+      const nextIndex = remaining[(i + 1) % remainingCount]
+      if (
+        !isEarTriangle(
+          polygon,
+          remaining,
+          remainingCount,
+          previousIndex,
+          currentIndex,
+          nextIndex
+        )
+      ) {
+        continue
+      }
+      triangles.push([
+        polygon[previousIndex],
+        polygon[currentIndex],
+        polygon[nextIndex],
+      ])
+      remaining.splice(i, 1)
+      remainingCount -= 1
+      earFound = true
+      break
+    }
+    if (!earFound) {
+      return null
+    }
+    guard -= 1
+  }
+  if (remainingCount === 3) {
+    triangles.push([
+      polygon[remaining[0]],
+      polygon[remaining[1]],
+      polygon[remaining[2]],
+    ])
+  }
+  return triangles.length > 0 ? triangles : null
+}
+
+function isEarTriangle(
+  polygon: DecompPolygon,
+  remaining: readonly number[],
+  remainingCount: number,
+  previousIndex: number,
+  currentIndex: number,
+  nextIndex: number
+): boolean {
+  const previousPoint = polygon[previousIndex]
+  const currentPoint = polygon[currentIndex]
+  const nextPoint = polygon[nextIndex]
+  if (
+    computeSignedTriangleArea(
+      previousPoint[0],
+      previousPoint[1],
+      currentPoint[0],
+      currentPoint[1],
+      nextPoint[0],
+      nextPoint[1]
+    ) <= DECOMP_TRIANGLE_AREA_EPSILON
+  ) {
+    return false
+  }
+  for (let i = 0; i < remainingCount; i++) {
+    const testIndex = remaining[i]
+    if (
+      testIndex === previousIndex ||
+      testIndex === currentIndex ||
+      testIndex === nextIndex
+    ) {
+      continue
+    }
+    const testPoint = polygon[testIndex]
+    if (
+      isPointInsideTriangle(
+        testPoint[0],
+        testPoint[1],
+        previousPoint[0],
+        previousPoint[1],
+        currentPoint[0],
+        currentPoint[1],
+        nextPoint[0],
+        nextPoint[1]
+      )
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function isPointInsideTriangle(
+  pointX: number,
+  pointY: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number
+): boolean {
+  const ab = computeSignedTriangleArea(ax, ay, bx, by, pointX, pointY)
+  const bc = computeSignedTriangleArea(bx, by, cx, cy, pointX, pointY)
+  const ca = computeSignedTriangleArea(cx, cy, ax, ay, pointX, pointY)
+  return (
+    ab >= -DECOMP_TRIANGLE_AREA_EPSILON &&
+    bc >= -DECOMP_TRIANGLE_AREA_EPSILON &&
+    ca >= -DECOMP_TRIANGLE_AREA_EPSILON
+  )
+}
+
+function computeSignedTriangleArea(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number
+): number {
+  return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 }
 
 function appendConvexPolygonBodyShapes(

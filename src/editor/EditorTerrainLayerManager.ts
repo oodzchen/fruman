@@ -120,6 +120,7 @@ const TERRAIN_CONTOUR_SAMPLE_DISTANCE = 12
 const TERRAIN_CONTOUR_MIN_POINT_COUNT = 3
 const TERRAIN_CONTOUR_CELL_SAMPLE_COUNT = 5
 const TERRAIN_CONTOUR_SCANLINE_SAMPLE_COUNT = 3
+const TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS = 1
 const TERRAIN_CONTOUR_RATIO_SCALE = 1024
 const TERRAIN_CONTOUR_STROKE_COLOR = 'rgba(245,208,96,0.92)'
 const TERRAIN_CONTOUR_IDLE_STROKE_COLOR = 'rgba(214,174,92,0.62)'
@@ -2694,33 +2695,42 @@ export class EditorTerrainLayerManager {
     layer.serializedLayer.renderLayer = contour.renderLayer
     layer.serializedLayer.contourId = contour.id
     const cellSizePx = this.getCellSizePx()
-    const startCellX = Math.floor(bounds.minX / cellSizePx)
-    const endCellX = Math.floor(bounds.maxX / cellSizePx)
-    const startCellY = Math.floor(bounds.minY / cellSizePx)
-    const endCellY = Math.floor(bounds.maxY / cellSizePx)
+    const rasterBounds = this.getContourRasterBounds(
+      bounds,
+      cellSizePx,
+      contour.straightEdge
+    )
     const baseFillMaterialId =
       contour.fillMaterialId === 'grass' ? 'dirt' : contour.fillMaterialId
     const fillCode = getTerrainMaterialCodeById(baseFillMaterialId)
-    const width = endCellX - startCellX + 1
-    const height = endCellY - startCellY + 1
+    const width = rasterBounds.endCellX - rasterBounds.startCellX + 1
+    const height = rasterBounds.endCellY - rasterBounds.startCellY + 1
     if (width <= 0 || height <= 0) {
       return false
     }
     const fillMask = new Uint8Array(width * height)
     this.rasterizeContourMask(
       contour.points,
-      startCellX,
-      startCellY,
-      endCellX,
-      endCellY,
+      rasterBounds.startCellX,
+      rasterBounds.startCellY,
+      rasterBounds.endCellX,
+      rasterBounds.endCellY,
       cellSizePx,
       fillMask,
       contour.straightEdge
     )
-    for (let cellY = startCellY; cellY <= endCellY; cellY++) {
-      const rowOffset = (cellY - startCellY) * width
-      for (let cellX = startCellX; cellX <= endCellX; cellX++) {
-        if (fillMask[rowOffset + (cellX - startCellX)] === 0) {
+    for (
+      let cellY = rasterBounds.startCellY;
+      cellY <= rasterBounds.endCellY;
+      cellY++
+    ) {
+      const rowOffset = (cellY - rasterBounds.startCellY) * width
+      for (
+        let cellX = rasterBounds.startCellX;
+        cellX <= rasterBounds.endCellX;
+        cellX++
+      ) {
+        if (fillMask[rowOffset + (cellX - rasterBounds.startCellX)] === 0) {
           continue
         }
         layer.grid.setCellMaterialCode(cellX, cellY, fillCode)
@@ -2755,20 +2765,22 @@ export class EditorTerrainLayerManager {
       return false
     }
     const cellSizePx = this.getCellSizePx()
-    const startCellX = Math.floor(
-      Math.min(oldBounds.minX, newBounds.minX) / cellSizePx
+    const minX = Math.min(oldBounds.minX, newBounds.minX)
+    const maxX = Math.max(oldBounds.maxX, newBounds.maxX)
+    const minY = Math.min(oldBounds.minY, newBounds.minY)
+    const maxY = Math.max(oldBounds.maxY, newBounds.maxY)
+    const rasterBounds = this.getContourRasterBounds(
+      {
+        minX,
+        minY,
+        maxX,
+        maxY,
+      },
+      cellSizePx,
+      contour.straightEdge
     )
-    const endCellX = Math.floor(
-      Math.max(oldBounds.maxX, newBounds.maxX) / cellSizePx
-    )
-    const startCellY = Math.floor(
-      Math.min(oldBounds.minY, newBounds.minY) / cellSizePx
-    )
-    const endCellY = Math.floor(
-      Math.max(oldBounds.maxY, newBounds.maxY) / cellSizePx
-    )
-    const width = endCellX - startCellX + 1
-    const height = endCellY - startCellY + 1
+    const width = rasterBounds.endCellX - rasterBounds.startCellX + 1
+    const height = rasterBounds.endCellY - rasterBounds.startCellY + 1
     if (width <= 0 || height <= 0) {
       return false
     }
@@ -2780,29 +2792,37 @@ export class EditorTerrainLayerManager {
     const nextMask = new Uint8Array(width * height)
     this.rasterizeContourMask(
       previousPoints,
-      startCellX,
-      startCellY,
-      endCellX,
-      endCellY,
+      rasterBounds.startCellX,
+      rasterBounds.startCellY,
+      rasterBounds.endCellX,
+      rasterBounds.endCellY,
       cellSizePx,
       previousMask,
       contour.straightEdge
     )
     this.rasterizeContourMask(
       contour.points,
-      startCellX,
-      startCellY,
-      endCellX,
-      endCellY,
+      rasterBounds.startCellX,
+      rasterBounds.startCellY,
+      rasterBounds.endCellX,
+      rasterBounds.endCellY,
       cellSizePx,
       nextMask,
       contour.straightEdge
     )
     let changed = false
-    for (let cellY = startCellY; cellY <= endCellY; cellY++) {
-      const rowOffset = (cellY - startCellY) * width
-      for (let cellX = startCellX; cellX <= endCellX; cellX++) {
-        const cellIndex = rowOffset + (cellX - startCellX)
+    for (
+      let cellY = rasterBounds.startCellY;
+      cellY <= rasterBounds.endCellY;
+      cellY++
+    ) {
+      const rowOffset = (cellY - rasterBounds.startCellY) * width
+      for (
+        let cellX = rasterBounds.startCellX;
+        cellX <= rasterBounds.endCellX;
+        cellX++
+      ) {
+        const cellIndex = rowOffset + (cellX - rasterBounds.startCellX)
         const oldValue = previousMask[cellIndex] | 0
         const nextValue = nextMask[cellIndex] | 0
         if (oldValue === nextValue) {
@@ -2831,6 +2851,39 @@ export class EditorTerrainLayerManager {
       return changed
     }
     return changed
+  }
+
+  private getContourRasterBounds(
+    bounds: {
+      minX: number
+      minY: number
+      maxX: number
+      maxY: number
+    },
+    cellSizePx: number,
+    straightEdge: boolean
+  ): {
+    startCellX: number
+    startCellY: number
+    endCellX: number
+    endCellY: number
+  } {
+    let startCellX = Math.floor(bounds.minX / cellSizePx)
+    let startCellY = Math.floor(bounds.minY / cellSizePx)
+    let endCellX = Math.floor(bounds.maxX / cellSizePx)
+    let endCellY = Math.floor(bounds.maxY / cellSizePx)
+    if (straightEdge) {
+      startCellX -= TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS
+      startCellY -= TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS
+      endCellX += TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS
+      endCellY += TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS
+    }
+    return {
+      startCellX,
+      startCellY,
+      endCellX,
+      endCellY,
+    }
   }
 
   private rasterizeContourMask(
@@ -2919,6 +2972,8 @@ export class EditorTerrainLayerManager {
           let fillEndCellX = Math.floor(
             intersections[intersectionIndex + 1] / cellSizePx
           )
+          fillStartCellX -= TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS
+          fillEndCellX += TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS
           if (fillEndCellX < startCellX || fillStartCellX > endCellX) {
             continue
           }

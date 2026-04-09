@@ -22,6 +22,7 @@ export interface VoronoiCollisionPolygon {
   halfWidth: number
   halfHeight: number
   points: number[]
+  preferExactDecomp?: boolean
 }
 
 export interface VoronoiPickedCell {

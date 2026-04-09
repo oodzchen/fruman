@@ -37,6 +37,29 @@ export class VoronoiCollisionBuilder {
       const build = getVoronoiLayerBuild(layer, terrain.cellSize, {
         clipContour: !hasContourClip,
       })
+      if (hasContourClip && layer.contourClipPoints && build.cells.length > 0) {
+        const materialTag = layer.materialId
+          ? getTerrainMaterialTagById(layer.materialId)
+          : getTerrainMaterialTagByCode(build.cells[0].materialCode)
+        if (materialTag && materialTag !== 'foliage') {
+          const points = layer.contourClipPoints.slice()
+          const bounds = computeFlatPolygonBounds(points)
+          if (bounds) {
+            polygons.push({
+              materialTag,
+              renderLayer,
+              materialCode: build.cells[0].materialCode,
+              centerX: (bounds.minX + bounds.maxX) * 0.5,
+              centerY: (bounds.minY + bounds.maxY) * 0.5,
+              halfWidth: (bounds.maxX - bounds.minX) * 0.5,
+              halfHeight: (bounds.maxY - bounds.minY) * 0.5,
+              points,
+              preferExactDecomp: true,
+            })
+            continue
+          }
+        }
+      }
       const mergedPolygons =
         hasContourClip && layer.contourClipPoints
           ? buildMergedCollisionPolygons(build.cells, layer.contourClipPoints)
@@ -67,6 +90,7 @@ export class VoronoiCollisionBuilder {
             halfWidth: (bounds.maxX - bounds.minX) * 0.5,
             halfHeight: (bounds.maxY - bounds.minY) * 0.5,
             points,
+            preferExactDecomp: true,
           })
         }
         continue
