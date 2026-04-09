@@ -1497,11 +1497,7 @@ function registerPolygonShape(
   if (shape.points.length < 6) {
     return
   }
-  const {
-    b2DefaultBodyDef,
-    b2CreateBody,
-    b2DefaultShapeDef,
-  } = box2d
+  const { b2DefaultBodyDef, b2CreateBody, b2DefaultShapeDef } = box2d
 
   const centerX = shape.center.x
   const centerY = shape.center.y

@@ -146,6 +146,12 @@ export class ClientRenderer {
   private readonly dynamicRenderLayers: number[] = []
   private readonly frameRenderLayers: number[] = []
 
+  // HUD dirty detection
+  private hudLastHash = -1
+  private hudLastCanvasWidth = 0
+  private hudLastCanvasHeight = 0
+  private hudLastHealthBarWidth = 0
+
   constructor(
     worldCtx: RenderContext2D,
     hudCtx: RenderContext2D,
@@ -1091,19 +1097,85 @@ export class ClientRenderer {
     this.ctx.restore()
   }
 
+  private static readonly HUD_HASH_OFFSETS = [
+    OFFSETS.FLAGS,
+    OFFSETS.STATS_HEALTH_MAX,
+    OFFSETS.STATS_HEALTH,
+    OFFSETS.STATS_POSTURE_MAX,
+    OFFSETS.STATS_POSTURE,
+    OFFSETS.SOLAR_SMALL,
+    OFFSETS.SOLAR_LARGE,
+    OFFSETS.SOLAR_LARGE_MAX,
+    OFFSETS.PLAYER_EXP_RATIO100,
+    OFFSETS.WEAPON_SLOT_MAIN_HAS,
+    OFFSETS.WEAPON_SLOT_MAIN_TYPE,
+    OFFSETS.WEAPON_SLOT_MAIN_W,
+    OFFSETS.WEAPON_SLOT_MAIN_H,
+    OFFSETS.WEAPON_SLOT_MAIN_AMMO,
+    OFFSETS.WEAPON_SLOT_SECONDARY_HAS,
+    OFFSETS.WEAPON_SLOT_SECONDARY_TYPE,
+    OFFSETS.WEAPON_SLOT_SECONDARY_W,
+    OFFSETS.WEAPON_SLOT_SECONDARY_H,
+    OFFSETS.WEAPON_SLOT_SECONDARY_AMMO,
+    OFFSETS.WEAPON_SLOT_ACTIVE,
+    OFFSETS.WEAPON_SLOT_MAIN_SIZE,
+    OFFSETS.WEAPON_SLOT_SECONDARY_SIZE,
+    OFFSETS.WEAPON_SLOT_MAIN_MAX,
+    OFFSETS.WEAPON_SLOT_SECONDARY_MAX,
+    OFFSETS.ULTIMATE_COOLDOWN_RATIO,
+    OFFSETS.ULTIMATE_READY,
+    OFFSETS.ULTIMATE_SWORD_ACTIVE,
+    OFFSETS.ULTIMATE_FLASH_TIMER100,
+    OFFSETS.HAMMER_ULTIMATE_ACTIVE,
+    OFFSETS.HAMMER_ULTIMATE_IMPACT100,
+    OFFSETS.SPEAR_ULTIMATE_ACTIVE,
+    OFFSETS.SPEAR_ULTIMATE_ALPHA100,
+  ]
+
+  isHudDirty(canvasWidth: number, canvasHeight: number): boolean {
+    if (
+      canvasWidth !== this.hudLastCanvasWidth ||
+      canvasHeight !== this.hudLastCanvasHeight
+    ) {
+      return true
+    }
+    if (this.healthBarDisplayWidth !== this.hudLastHealthBarWidth) {
+      return true
+    }
+    const buf = this.stateBuffer
+    const playerOffset = this.findPlayerOffset()
+    if (playerOffset === -1) {
+      return this.hudLastHash !== 0
+    }
+    const offsets = ClientRenderer.HUD_HASH_OFFSETS
+    let hash = 0x811c9dc5
+    for (let i = 0; i < offsets.length; i++) {
+      const bits = (buf[playerOffset + offsets[i]] * 1000) | 0
+      hash = Math.imul(hash ^ bits, 0x01000193)
+    }
+    hash = (hash >>> 0) | 0
+    if (hash === this.hudLastHash) {
+      return false
+    }
+    this.hudLastHash = hash
+    return true
+  }
+
+  private findPlayerOffset(): number {
+    const buf = this.stateBuffer
+    for (let i = 0; i < this.entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      if (buf[offset + OFFSETS.FLAGS] & FLAGS.IS_PLAYER) {
+        return offset
+      }
+    }
+    return -1
+  }
+
   public renderPlayerUI(): void {
     this.ctx = this.hudCtx
     const buf = this.stateBuffer
-    let playerOffset = -1
-
-    for (let i = 0; i < this.entityCount; i++) {
-      const offset = i * ENTITY_STRIDE
-      const flags = buf[offset + OFFSETS.FLAGS]
-      if (flags & FLAGS.IS_PLAYER) {
-        playerOffset = offset
-        break
-      }
-    }
+    const playerOffset = this.findPlayerOffset()
 
     if (playerOffset === -1) return
 
@@ -1252,6 +1324,10 @@ export class ClientRenderer {
     }
 
     this.renderWeaponSlots(playerOffset)
+
+    this.hudLastCanvasWidth = this.ctx.canvas.width
+    this.hudLastCanvasHeight = this.ctx.canvas.height
+    this.hudLastHealthBarWidth = this.healthBarDisplayWidth
   }
 
   private renderGrappleIcon(x: number, y: number, size: number): void {

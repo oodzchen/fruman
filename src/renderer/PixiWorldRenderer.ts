@@ -70,8 +70,8 @@ interface EntityView {
   layer: number
   lastSeenFrame: number
   lastHealthRatio: number
-  bodyKey: string
-  weaponKey: string
+  bodyHash: number
+  weaponHash: number
   specialKey: string
 }
 
@@ -142,6 +142,18 @@ function getWeaponRenderType(weaponType: number): WeaponRenderType {
   return 'sword'
 }
 
+function fnvMix(hash: number, value: number): number {
+  return Math.imul(hash ^ ((value * 1000) | 0), 0x01000193)
+}
+
+function fnvMixStr(hash: number, str: string): number {
+  let h = hash
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 0x01000193)
+  }
+  return h
+}
+
 function getQuantizedBowDraw(drawRatio: number): number {
   const clamped = Math.max(0, Math.min(1, drawRatio))
   return Math.round(clamped * BOW_DRAW_TEXTURE_STEPS) / BOW_DRAW_TEXTURE_STEPS
@@ -197,6 +209,8 @@ export class PixiWorldRenderer {
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
   private frameId = 0
+  private pruneSkipCounter = 0
+  private readonly reusableShakeOffset = { x: 0, y: 0 }
 
   constructor(root: Container, pixelsPerMeter: number) {
     this.root = root
@@ -360,8 +374,12 @@ export class PixiWorldRenderer {
       }
     }
 
-    this.pruneEntityViews()
-    this.pruneWeaponTextures()
+    this.pruneSkipCounter++
+    if (this.pruneSkipCounter >= 30) {
+      this.pruneSkipCounter = 0
+      this.pruneEntityViews()
+      this.pruneWeaponTextures()
+    }
 
     this.updateLockReticle(hasLockTarget, lockTargetCenterX, lockTargetCenterY)
     this.updateFreeAimReticle(
@@ -448,8 +466,8 @@ export class PixiWorldRenderer {
       layer: 0,
       lastSeenFrame: -1,
       lastHealthRatio: -1,
-      bodyKey: '',
-      weaponKey: '',
+      bodyHash: -1,
+      weaponHash: -1,
       specialKey: '',
     }
 
@@ -742,50 +760,52 @@ export class PixiWorldRenderer {
       renderer.getColorHex(buf[offset + OFFSETS.COLOR] | 0)
     )
     const assetsReady = isBodyVisualAssetsReady(bodyProfile, bodyTexture)
-    const textureKey = [
-      bodyProfile?.textureDataUrl ?? '',
-      bodyProfile?.surfaceDataUrl ?? '',
-      bodyProfile?.layers?.length ?? 0,
-      assetsReady ? 1 : 0,
-    ].join('|')
-    const spriteSource = getBodySpriteSource(
-      radius,
-      bodyColor,
-      this.pixelsPerMeter,
-      facing,
-      bodyHeightPx || undefined,
-      hasFollowBound ? FOLLOW_BOUND_BORDER_COLOR : '',
-      outlineWidthPx,
-      bodyProfile,
-      bodyTexture,
-      true,
-      '#000000',
-      String(bodyProfileIndex),
-      textureKey
-    )
 
-    if (!spriteSource) {
-      hideSprite(view.bodySprite)
-      return
-    }
+    let bodyHash = 0x811c9dc5
+    bodyHash = fnvMix(bodyHash, bodyProfileIndex)
+    bodyHash = fnvMix(bodyHash, radius)
+    bodyHash = fnvMixStr(bodyHash, bodyColor)
+    bodyHash = fnvMix(bodyHash, bodyHeightPx)
+    bodyHash = fnvMix(bodyHash, facing)
+    bodyHash = fnvMix(bodyHash, outlineWidthPx)
+    bodyHash = fnvMix(bodyHash, bodyProfile?.layers?.length ?? 0)
+    bodyHash = fnvMix(bodyHash, assetsReady ? 1 : 0)
+    bodyHash = bodyHash >>> 0
 
-    const bodyKey = [
-      bodyProfileIndex,
-      radius | 0,
-      bodyColor,
-      bodyHeightPx | 0,
-      facing,
-      textureKey,
-      outlineWidthPx,
-    ].join('|')
+    if (view.bodyHash !== bodyHash) {
+      const textureKey = [
+        bodyProfile?.textureDataUrl ?? '',
+        bodyProfile?.surfaceDataUrl ?? '',
+        bodyProfile?.layers?.length ?? 0,
+        assetsReady ? 1 : 0,
+      ].join('|')
+      const spriteSource = getBodySpriteSource(
+        radius,
+        bodyColor,
+        this.pixelsPerMeter,
+        facing,
+        bodyHeightPx || undefined,
+        hasFollowBound ? FOLLOW_BOUND_BORDER_COLOR : '',
+        outlineWidthPx,
+        bodyProfile,
+        bodyTexture,
+        true,
+        '#000000',
+        String(bodyProfileIndex),
+        textureKey
+      )
 
-    if (view.bodyKey !== bodyKey) {
+      if (!spriteSource) {
+        hideSprite(view.bodySprite)
+        return
+      }
+
       view.bodySprite.texture = this.getBodyTexture(spriteSource.canvas)
       view.bodySprite.anchor.set(
         -spriteSource.drawX / spriteSource.drawWidth,
         -spriteSource.drawY / spriteSource.drawHeight
       )
-      view.bodyKey = bodyKey
+      view.bodyHash = bodyHash
     }
 
     const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
@@ -890,18 +910,17 @@ export class PixiWorldRenderer {
     const quantizedBowDraw =
       weaponType === WEAPON_TYPES.BOW ? getQuantizedBowDraw(bowDraw) : 0
 
-    const weaponKey = [
-      weaponType,
-      weaponWidth | 0,
-      weaponHeight | 0,
-      color,
-      isAttacking ? 1 : 0,
-      Math.round(quantizedBowDraw * BOW_DRAW_TEXTURE_STEPS),
-      arrowVisible ? 1 : 0,
-      isStandaloneWeapon ? 1 : 0,
-    ].join('|')
+    let weaponHash = 0x811c9dc5
+    weaponHash = fnvMix(weaponHash, weaponType)
+    weaponHash = fnvMix(weaponHash, weaponWidth)
+    weaponHash = fnvMix(weaponHash, weaponHeight)
+    weaponHash = fnvMix(weaponHash, isAttacking ? 1 : 0)
+    weaponHash = fnvMix(weaponHash, quantizedBowDraw)
+    weaponHash = fnvMix(weaponHash, arrowVisible ? 1 : 0)
+    weaponHash = fnvMix(weaponHash, isStandaloneWeapon ? 1 : 0)
+    weaponHash = weaponHash >>> 0
 
-    if (view.weaponKey !== weaponKey) {
+    if (view.weaponHash !== weaponHash) {
       view.weaponSprite.texture = this.getWeaponTexture(
         weaponType,
         weaponWidth,
@@ -911,7 +930,7 @@ export class PixiWorldRenderer {
         quantizedBowDraw,
         arrowVisible
       )
-      view.weaponKey = weaponKey
+      view.weaponHash = weaponHash
     }
 
     view.weaponSprite.visible = true
@@ -1137,11 +1156,14 @@ export class PixiWorldRenderer {
     targetX: number,
     targetY: number
   ): void {
-    this.ropeGraphics.clear()
     if (!grappleActive) {
-      this.ropeGraphics.visible = false
+      if (this.ropeGraphics.visible) {
+        this.ropeGraphics.clear()
+        this.ropeGraphics.visible = false
+      }
       return
     }
+    this.ropeGraphics.clear()
 
     const ropePointCount = renderer.getRopePointCount()
     const ropePoints = renderer.getRopePointsBuffer()
@@ -1678,7 +1700,9 @@ export class PixiWorldRenderer {
   ): { x: number; y: number } {
     const duration = buf[offset + OFFSETS.STATS_SHAKE_DURATION]
     if (duration === 0) {
-      return { x: 0, y: 0 }
+      this.reusableShakeOffset.x = 0
+      this.reusableShakeOffset.y = 0
+      return this.reusableShakeOffset
     }
 
     const elapsed = buf[offset + OFFSETS.STATS_SHAKE_ELAPSED]
@@ -1688,10 +1712,9 @@ export class PixiWorldRenderer {
     const decay = 1 - progress
     const shake = Math.sin(progress * 30) * decay
 
-    return {
-      x: shake * intensity * dirX,
-      y: 0,
-    }
+    this.reusableShakeOffset.x = shake * intensity * dirX
+    this.reusableShakeOffset.y = 0
+    return this.reusableShakeOffset
   }
 
   private getDeathAlpha(

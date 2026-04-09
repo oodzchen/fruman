@@ -93,6 +93,7 @@ export class GameClient {
   private lastWorldRenderTimeUs = 0
   private lastHudRenderTimeUs = 0
   private lastMenuRenderTimeUs = 0
+  private lastPlayerUITimeUs = 0
   private renderFrameRevision = 0
   private workerStateRevision = 0
 
@@ -1000,7 +1001,11 @@ export class GameClient {
     const renderStartMs = performance.now()
     const width = this.app.renderer.width
     const height = this.app.renderer.height
-    this.hudRenderContext.beginFrame()
+    const hudDirty =
+      this.editorPreview || this.renderer.isHudDirty(width, height)
+    if (hudDirty) {
+      this.hudRenderContext.beginFrame()
+    }
     let worldTimeUs = 0
 
     if (!this.editorPreview) {
@@ -1049,7 +1054,15 @@ export class GameClient {
         this.renderCameraDebug()
       }
 
-      this.renderer.renderPlayerUI()
+      if (hudDirty) {
+        const puiStart = performance.now()
+        this.renderer.renderPlayerUI()
+        this.lastPlayerUITimeUs = Math.round(
+          (performance.now() - puiStart) * 1000
+        )
+      } else {
+        this.lastPlayerUITimeUs = 0
+      }
     }
 
     // Update FPS display
