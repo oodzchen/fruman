@@ -104,6 +104,9 @@ export class AudioManager {
   }
 
   play(soundId: number, volume = 1.0, playbackRate = 1.0): void {
+    if (volume <= 0) {
+      return
+    }
     const buffer = this.sounds.get(soundId)
     if (!buffer) {
       console.warn(`Sound ${soundId} not loaded`)

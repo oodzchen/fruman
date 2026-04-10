@@ -150,7 +150,11 @@ export class UltimateHandler {
           weapon.ultimatePhase = 'thrust'
           weapon.ultimateElapsedMs = 0
           weapon.ultimateGiantAlpha100 = 0
-          this.statsSystem?.playSound(SOUND_IDS.SWORD_ULTIMATE_GIANT_RISE)
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.SWORD_ULTIMATE_GIANT_RISE,
+            weapon.visual.x,
+            weapon.visual.y
+          )
         }
         break
       }
@@ -279,7 +283,11 @@ export class UltimateHandler {
           weapon.attackStartTransform.x = holdX
           weapon.attackStartTransform.y = holdY
           weapon.attackStartTransform.rotation = thrustRot
-          this.statsSystem?.playSound(SOUND_IDS.SPEAR_ULTIMATE_THRUST)
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.SPEAR_ULTIMATE_THRUST,
+            weapon.visual.x,
+            weapon.visual.y
+          )
           if (!weapon.ultimateDamageDealt) {
             weapon.ultimateDamageDealt = true
             this.applySpearUltimateAOEDamage(entity)
@@ -521,7 +529,11 @@ export class UltimateHandler {
             weapon.visual.x + Math.cos(frontAngle) * halfLen
           weapon.ultimateGiantGroundY =
             weapon.visual.y + Math.sin(frontAngle) * halfLen
-          this.statsSystem?.playSound(SOUND_IDS.HAMMER_ULTIMATE_LAND)
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.HAMMER_ULTIMATE_LAND,
+            weapon.ultimateGiantX,
+            weapon.ultimateGiantGroundY
+          )
           this.statsSystem?.emitCameraShake(
             weapon.ultimateGiantX,
             weapon.ultimateGiantGroundY,
@@ -890,7 +902,11 @@ export class UltimateHandler {
     weapon.ultimateDamageDealt = false
     weapon.isUnstoppable = true
     weapon.attackFacing = facing
-    this.statsSystem?.playSound(SOUND_IDS.SWORD_ULTIMATE_SPIN)
+    this.statsSystem?.playSoundAt(
+      SOUND_IDS.SWORD_ULTIMATE_SPIN,
+      entity.transform.x,
+      entity.transform.y
+    )
     if (entity.stats) entity.stats.isInvincible = true
   }
 

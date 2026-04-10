@@ -396,7 +396,16 @@ const effectsEmitter: EffectsEmitter = {
     queueEffect(EFFECT_TYPES.CAMERA_SHAKE, x, y, intensity, durationMs)
   },
   playSound: (soundId, playbackRate = 1.0) => {
-    queueEffect(EFFECT_TYPES.SOUND, 0, 0, soundId, playbackRate)
+    queueEffect(
+      EFFECT_TYPES.SOUND,
+      Number.NaN,
+      Number.NaN,
+      soundId,
+      playbackRate
+    )
+  },
+  playSoundAt: (soundId, x, y, playbackRate = 1.0) => {
+    queueEffect(EFFECT_TYPES.SOUND, x, y, soundId, playbackRate)
   },
 }
 

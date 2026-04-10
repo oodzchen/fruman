@@ -348,7 +348,7 @@ export class WeaponSystem extends System {
         soundId === SOUND_IDS.BIG_HAMMER_HIT_ROCK
           ? SOUND_DB_BIG_HAMMER_HIT_ROCK
           : SOUND_DB_HEAVY_SWORD_HIT_GROUND
-      this.statsSystem?.playSound(soundId)
+      this.statsSystem?.playSoundAt(soundId, weapon.visual.x, weapon.visual.y)
       this.emitSoundAt(weapon.visual.x, weapon.visual.y, entity, db)
     }
   }
@@ -825,7 +825,7 @@ export class WeaponSystem extends System {
         const sparkX = (weaponX + attackerX) * 0.5
         const sparkY = (weaponY + attackerY) * 0.5
         this.statsSystem?.emitSpark(sparkX, sparkY)
-        this.statsSystem?.playSound(SOUND_IDS.SWORD_PARRY)
+        this.statsSystem?.playSoundAt(SOUND_IDS.SWORD_PARRY, sparkX, sparkY)
         this.emitSoundAt(sparkX, sparkY, defender, SOUND_DB_PARRY)
         this.applyParryEffect(defender, attacker)
       }
@@ -1365,7 +1365,11 @@ export class WeaponSystem extends System {
     }
     if (weapon?.weaponType === 'grape') {
       const grapeWeapon = weapon
-      this.statsSystem?.playSound(SOUND_IDS.GRAPE_FIRE)
+      this.statsSystem?.playSoundAt(
+        SOUND_IDS.GRAPE_FIRE,
+        grapeWeapon.visual.x,
+        grapeWeapon.visual.y
+      )
       this.emitSoundAt(
         grapeWeapon.visual.x,
         grapeWeapon.visual.y,
@@ -1375,7 +1379,11 @@ export class WeaponSystem extends System {
       return
     }
 
-    this.statsSystem?.playSound(SOUND_IDS.BOW_SNAP)
+    this.statsSystem?.playSoundAt(
+      SOUND_IDS.BOW_SNAP,
+      weapon.visual.x,
+      weapon.visual.y
+    )
     this.emitSoundAt(
       weapon.visual.x,
       weapon.visual.y,
@@ -1427,7 +1435,11 @@ export class WeaponSystem extends System {
 
     if (t >= 1) {
       weapon.parryCounterActive = false
-      this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
+      this.statsSystem?.playSoundAt(
+        SOUND_IDS.SWORD_SWING_NORMAL,
+        weapon.visual.x,
+        weapon.visual.y
+      )
       this.emitSoundAt(
         weapon.visual.x,
         weapon.visual.y,
@@ -1465,7 +1477,11 @@ export class WeaponSystem extends System {
     if (this.checkObstacleCollision(weapon)) {
       weapon.attackCollisionSource = 'obstacle'
       weapon.isColliding = true
-      this.statsSystem?.playSound(SOUND_IDS.SWORD_HIT_OBSTACLE)
+      this.statsSystem?.playSoundAt(
+        SOUND_IDS.SWORD_HIT_OBSTACLE,
+        weapon.visual.x,
+        weapon.visual.y
+      )
       this.emitSoundAt(
         weapon.visual.x,
         weapon.visual.y,
@@ -1625,7 +1641,11 @@ export class WeaponSystem extends System {
           copyTransform(weapon.visual, weapon.attackStartTransform)
         } else {
           // Skip windup, go directly to swing
-          this.statsSystem?.playSound(SOUND_IDS.SWORD_SWING_NORMAL)
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.SWORD_SWING_NORMAL,
+            weapon.visual.x,
+            weapon.visual.y
+          )
           this.emitSoundAt(
             weapon.visual.x,
             weapon.visual.y,

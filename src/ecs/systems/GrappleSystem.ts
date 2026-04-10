@@ -261,7 +261,11 @@ export class GrappleSystem extends System {
           grapple.isTethering = false
           grapple.cooldownEndTime = this.currentTimeMs
           grapple.pullMode = this.pullModeAnchor
-          this.statsSystem?.playSound(SOUND_IDS.GRAPPLE_PULL_START)
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.GRAPPLE_PULL_START,
+            entity.transform.x,
+            entity.transform.y
+          )
           this.applyGrappleImpulse(entity, grapple)
           inputBuffer.clearAction('grapple')
           continue
@@ -323,7 +327,11 @@ export class GrappleSystem extends System {
               grapple.isPulling = true
               grapple.cooldownEndTime = this.currentTimeMs
               grapple.desiredDistanceSq = desiredDistance * desiredDistance
-              this.statsSystem?.playSound(SOUND_IDS.GRAPPLE_PULL_START)
+              this.statsSystem?.playSoundAt(
+                SOUND_IDS.GRAPPLE_PULL_START,
+                entity.transform.x,
+                entity.transform.y
+              )
               this.triggerNpcAggro(entity, lockedTarget)
               if (targetToughness <= playerToughness) {
                 grapple.pullMode = this.pullModeNpc
@@ -368,7 +376,11 @@ export class GrappleSystem extends System {
             grapple.pullElapsedMs = 0
             grapple.isPulling = true
             grapple.cooldownEndTime = this.currentTimeMs
-            this.statsSystem?.playSound(SOUND_IDS.GRAPPLE_PULL_START)
+            this.statsSystem?.playSoundAt(
+              SOUND_IDS.GRAPPLE_PULL_START,
+              entity.transform.x,
+              entity.transform.y
+            )
 
             const wantsPersistent = entity.input.grapplePersistentRequested
             if (wantsPersistent) {

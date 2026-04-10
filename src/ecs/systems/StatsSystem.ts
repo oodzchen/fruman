@@ -59,6 +59,12 @@ export type EffectsEmitter = {
     durationMs: number
   ) => void
   playSound: (soundId: number, playbackRate?: number) => void
+  playSoundAt: (
+    soundId: number,
+    x: number,
+    y: number,
+    playbackRate?: number
+  ) => void
 }
 
 type ForcedHitStunLevel = 'light' | 'medium' | 'heavy'
@@ -131,7 +137,15 @@ export class StatsSystem extends System {
                 radius
               )
             }
-            this.playSound(SOUND_IDS.DEATH_SPLASH)
+            if (entity.transform) {
+              this.playSoundAt(
+                SOUND_IDS.DEATH_SPLASH,
+                entity.transform.x,
+                entity.transform.y
+              )
+            } else {
+              this.playSound(SOUND_IDS.DEATH_SPLASH)
+            }
             if (entity.npcAI && entity.transform) {
               this.onNpcVanish?.(
                 entity.transform.x,
@@ -364,6 +378,16 @@ export class StatsSystem extends System {
     this.effectsEmitter.playSound(soundId, playbackRate)
   }
 
+  playSoundAt(
+    soundId: number,
+    x: number,
+    y: number,
+    playbackRate?: number
+  ): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.playSoundAt(soundId, x, y, playbackRate)
+  }
+
   private emitSoundFromEntity(entity: Entity, db: number): void {
     if (!this.soundSystem || !entity.transform) return
     const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
@@ -432,7 +456,16 @@ export class StatsSystem extends System {
   triggerStagger(entity: Entity): void {
     if (!entity.stats) return
 
-    this.playSound(SOUND_IDS.BODY_HIT, 0.3)
+    if (entity.transform) {
+      this.playSoundAt(
+        SOUND_IDS.BODY_HIT,
+        entity.transform.x,
+        entity.transform.y,
+        0.3
+      )
+    } else {
+      this.playSound(SOUND_IDS.BODY_HIT, 0.3)
+    }
     this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
 
     entity.stats.isStaggered = true
@@ -671,7 +704,11 @@ export class StatsSystem extends System {
         finalHealthDamage = 0
         finalKnockback = 0
         finalToughnessDamage = 0
-        this.playSound(SOUND_IDS.SWORD_BLOCK)
+        this.playSoundAt(
+          SOUND_IDS.SWORD_BLOCK,
+          entity.transform.x,
+          entity.transform.y
+        )
         this.emitSoundFromEntity(entity, SOUND_DB_SWORD_BLOCK)
       }
     }
@@ -754,6 +791,10 @@ export class StatsSystem extends System {
       const dirY = entity.transform.y - hitSource.y
       const distance = Math.hypot(dirX, dirY)
       const normalizedDirX = distance > 0 ? dirX / distance : 1
+      const impactRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+      const impactScale = distance > 0 ? impactRadius / distance : 0
+      const impactX = entity.transform.x - dirX * impactScale
+      const impactY = entity.transform.y - dirY * impactScale
 
       if (toughnessBroken) {
         entity.stats.hitShakeElapsedMs = 0
@@ -766,22 +807,22 @@ export class StatsSystem extends System {
         entity.stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
         entity.stats.hitShakeDirectionX = normalizedDirX
         if (this.bloodEffectsEnabled && entity.render && this.effectsEmitter) {
-          const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
-          const invDistance = distance > 0 ? 1 / distance : 0
-          const hitX = entity.transform.x - dirX * invDistance * radius
-          const hitY = entity.transform.y - dirY * invDistance * radius
           const colorInt = this.parseColor(
             entity.render.bloodColor || entity.render.color
           )
-          this.effectsEmitter.emitBlood(hitX, hitY, colorInt)
+          this.effectsEmitter.emitBlood(impactX, impactY, colorInt)
         }
-        this.playSound(
-          isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT
+        this.playSoundAt(
+          isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT,
+          impactX,
+          impactY
         )
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       } else if (toughnessBroken) {
-        this.playSound(
-          isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT
+        this.playSoundAt(
+          isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT,
+          impactX,
+          impactY
         )
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       }

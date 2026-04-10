@@ -24,6 +24,11 @@ import {
 } from './constants'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
 import type { EditorMapData } from './editorMapTypes'
+import {
+  computeDistanceAttenuation,
+  getCameraShakeFalloffDistance,
+  getSoundFalloffDistance,
+} from './effectAttenuation'
 import { renderBody } from './renderer/BodyRenderer'
 import { renderBodyCached } from './renderer/BodyRenderer'
 import {
@@ -89,6 +94,9 @@ export class ClientRenderer {
   private pixelsPerMeter: number
   private camera: { x: number; y: number }
   private zoom: number = 1.0
+  private playerWorldX = 0
+  private playerWorldY = 0
+  private hasPlayerWorldPosition = false
 
   private tempOffset = { x: 0, y: 0 }
   private tempScale = { x: 1, y: 1 }
@@ -214,6 +222,16 @@ export class ClientRenderer {
     const copyLength = count * ENTITY_STRIDE
     this.stateBuffer.set(incoming.subarray(0, copyLength), 0)
     this.entityCount = count
+    this.hasPlayerWorldPosition = false
+    for (let i = 0; i < count; i++) {
+      const offset = i * ENTITY_STRIDE
+      const flags = incoming[offset + OFFSETS.FLAGS] | 0
+      if ((flags & FLAGS.IS_PLAYER) === 0) continue
+      this.playerWorldX = incoming[offset + OFFSETS.X]
+      this.playerWorldY = incoming[offset + OFFSETS.Y]
+      this.hasPlayerWorldPosition = true
+      break
+    }
     const clampedRopePointCount =
       ropePointCount < 0
         ? 0
@@ -261,11 +279,18 @@ export class ClientRenderer {
       } else if (type === EFFECT_TYPES.HEAL) {
         this.particleSystem.spawnHeal(x, y, color)
       } else if (type === EFFECT_TYPES.CAMERA_SHAKE) {
-        this.applyCameraShake(color, radius)
+        const attenuatedIntensity =
+          color *
+          this.getEventAttenuation(x, y, getCameraShakeFalloffDistance(color))
+        this.applyCameraShake(attenuatedIntensity, radius)
       } else if (type === EFFECT_TYPES.SOUND) {
         const soundId = color
         const playbackRate = radius || 1.0
-        this.audioManager?.play(soundId, 1.0, playbackRate)
+        const volume =
+          Number.isFinite(x) && Number.isFinite(y)
+            ? this.getEventAttenuation(x, y, getSoundFalloffDistance(soundId))
+            : 1.0
+        this.audioManager?.play(soundId, volume, playbackRate)
       }
     }
   }
@@ -420,6 +445,23 @@ export class ClientRenderer {
       Math.sin(phaseA * Math.PI * 2) * this.cameraShakeIntensityPx * decay
     this.cameraShakeOffsetY =
       Math.cos(phaseB * Math.PI * 2) * this.cameraShakeIntensityPx * decay * 0.7
+  }
+
+  private getEventAttenuation(
+    sourceX: number,
+    sourceY: number,
+    maxDistance: number
+  ): number {
+    if (!this.hasPlayerWorldPosition) {
+      return 1
+    }
+    return computeDistanceAttenuation(
+      this.playerWorldX,
+      this.playerWorldY,
+      sourceX,
+      sourceY,
+      maxDistance
+    )
   }
 
   private getColorString(colorInt: number): string {
