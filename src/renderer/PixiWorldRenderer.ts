@@ -142,6 +142,12 @@ function getWeaponRenderType(weaponType: number): WeaponRenderType {
   return 'sword'
 }
 
+function isProjectileWeaponType(weaponType: number): boolean {
+  return (
+    weaponType === WEAPON_TYPES.ARROW || weaponType === WEAPON_TYPES.GRAPE_SHOT
+  )
+}
+
 function fnvMix(hash: number, value: number): number {
   return Math.imul(hash ^ ((value * 1000) | 0), 0x01000193)
 }
@@ -185,6 +191,20 @@ function drawArrowToContext(
   ctx.moveTo(0, tipY)
   ctx.lineTo(headWidth / 2, tipY + headLen)
   ctx.stroke()
+}
+
+function getArrowTextureHalfHeight(
+  lengthPx: number,
+  thicknessPx: number,
+  baseOffsetY: number
+): number {
+  const lineWidth = Math.max(1, thicknessPx * 0.9)
+  const headLen = Math.max(4, lengthPx * 0.18)
+  const topExtent = Math.max(0, lengthPx - baseOffsetY)
+  const bottomExtent = Math.max(0, baseOffsetY)
+  return Math.ceil(
+    Math.max(topExtent + lineWidth, bottomExtent + headLen + lineWidth) + 8
+  )
 }
 
 export class PixiWorldRenderer {
@@ -595,9 +615,11 @@ export class PixiWorldRenderer {
       return
     }
 
+    const weaponTypeId = buf[offset + OFFSETS.WEAPON_TYPE] | 0
     const isStandaloneWeapon =
       buf[offset + OFFSETS.WEAPON_ACTIVE] === 1 &&
-      buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0
+      buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0 &&
+      !isProjectileWeaponType(weaponTypeId)
 
     if (!isStandaloneWeapon) {
       this.updateBodySprite(view, renderer, buf, offset, flags, alpha)
@@ -1419,14 +1441,37 @@ export class PixiWorldRenderer {
       return cached.texture
     }
 
-    const halfWidth = Math.max(
+    let halfWidth = Math.max(
       16,
       Math.ceil(Math.max(width, height * 2, width * 0.65) + 12)
     )
-    const halfHeight = Math.max(
+    let halfHeight = Math.max(
       16,
       Math.ceil(Math.max(height * 2.5, width * 0.55, height + 12))
     )
+    if (weaponType === WEAPON_TYPES.ARROW) {
+      halfHeight = Math.max(
+        halfHeight,
+        getArrowTextureHalfHeight(width, height, 0)
+      )
+    } else if (weaponType === WEAPON_TYPES.BOW && arrowVisible) {
+      const bowBaseWidthPx = WEAPON_DEFAULT_DATA.bow.width * this.pixelsPerMeter
+      const bowScale =
+        bowBaseWidthPx > 0 ? Math.max(0.5, width / bowBaseWidthPx) : 1
+      const arrowLen = BOW_ARROW_LENGTH * this.pixelsPerMeter * bowScale
+      const arrowThickness =
+        BOW_ARROW_THICKNESS * this.pixelsPerMeter * bowScale
+      const baseOffsetY =
+        quantizedBowDraw > 0 ? quantizedBowDraw * width * 0.25 : 0
+      halfHeight = Math.max(
+        halfHeight,
+        getArrowTextureHalfHeight(arrowLen, arrowThickness, baseOffsetY)
+      )
+      halfWidth = Math.max(
+        halfWidth,
+        Math.ceil(Math.max(width, arrowLen * 0.35) + 12)
+      )
+    }
     const created = createCanvas2D(halfWidth * 2, halfHeight * 2)
     if (!created) {
       return Texture.WHITE

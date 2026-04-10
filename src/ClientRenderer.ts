@@ -1821,7 +1821,11 @@ export class ClientRenderer {
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
     const isBlocking = !!(flags & FLAGS.WEAPON_BLOCKING)
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
-    const isStandaloneWeapon = buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0
+    const isProjectileWeapon =
+      weaponType === WEAPON_TYPES.ARROW ||
+      weaponType === WEAPON_TYPES.GRAPE_SHOT
+    const isStandaloneWeapon =
+      buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0 && !isProjectileWeapon
     const bodyColor = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
 
     if (isStandaloneWeapon) {
