@@ -104,6 +104,24 @@ export class AudioManager {
   }
 
   play(soundId: number, volume = 1.0, playbackRate = 1.0): void {
+    this.playInternal(soundId, volume, playbackRate)
+  }
+
+  playSpatial(
+    soundId: number,
+    volume = 1.0,
+    playbackRate = 1.0,
+    pan = 0
+  ): void {
+    this.playInternal(soundId, volume, playbackRate, pan)
+  }
+
+  private playInternal(
+    soundId: number,
+    volume: number,
+    playbackRate: number,
+    pan?: number
+  ): void {
     if (volume <= 0) {
       return
     }
@@ -123,13 +141,28 @@ export class AudioManager {
 
     const source = this.audioContext.createBufferSource()
     const gainNode = this.audioContext.createGain()
+    const stereoPanner =
+      pan !== undefined &&
+      typeof this.audioContext.createStereoPanner === 'function'
+        ? this.audioContext.createStereoPanner()
+        : null
 
     source.buffer = buffer
     source.playbackRate.value = playbackRate
     gainNode.gain.value = volume * this.masterVolume
+    if (stereoPanner) {
+      const clampedPan =
+        pan === undefined ? 0 : Math.max(-1, Math.min(1, pan))
+      stereoPanner.pan.value = clampedPan
+    }
 
     source.connect(gainNode)
-    gainNode.connect(this.audioContext.destination)
+    if (stereoPanner) {
+      gainNode.connect(stereoPanner)
+      stereoPanner.connect(this.audioContext.destination)
+    } else {
+      gainNode.connect(this.audioContext.destination)
+    }
 
     source.start()
   }

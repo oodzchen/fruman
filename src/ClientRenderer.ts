@@ -86,6 +86,7 @@ const PICKUP_SIZE_DENOMINATOR = 100
 const EXP_ORB_SIZE_NUMERATOR = SMALL_SUN_PICKUP_SIZE_NUMERATOR
 const PICKUP_GLOW_SIZE_NUMERATOR = 8
 const PICKUP_GLOW_SIZE_DENOMINATOR = 5
+const AUDIO_PAN_FULL_WIDTH_FACTOR = 1
 
 export class ClientRenderer {
   private ctx: RenderContext2D
@@ -290,7 +291,11 @@ export class ClientRenderer {
           Number.isFinite(x) && Number.isFinite(y)
             ? this.getEventAttenuation(x, y, getSoundFalloffDistance(soundId))
             : 1.0
-        this.audioManager?.play(soundId, volume, playbackRate)
+        const pan =
+          Number.isFinite(x) && Number.isFinite(y)
+            ? this.getScreenSpacePan(x)
+            : 0
+        this.audioManager?.playSpatial(soundId, volume, playbackRate, pan)
       }
     }
   }
@@ -462,6 +467,30 @@ export class ClientRenderer {
       sourceY,
       maxDistance
     )
+  }
+
+  private getScreenSpacePan(sourceX: number): number {
+    const canvasWidth = this.ctx.canvas.width
+    if (canvasWidth <= 0) {
+      return 0
+    }
+    const anchorX = canvasWidth * 0.5
+    const worldX = sourceX * this.pixelsPerMeter
+    const cameraX = this.camera.x * this.pixelsPerMeter
+    const screenX = (worldX - cameraX - anchorX) * this.zoom + anchorX
+    const halfWidth = canvasWidth * 0.5
+    if (halfWidth <= 0) {
+      return 0
+    }
+    const normalizedOffset =
+      (screenX - anchorX) / (halfWidth * AUDIO_PAN_FULL_WIDTH_FACTOR)
+    if (normalizedOffset <= -1) {
+      return -1
+    }
+    if (normalizedOffset >= 1) {
+      return 1
+    }
+    return normalizedOffset
   }
 
   private getColorString(colorInt: number): string {

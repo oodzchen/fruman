@@ -476,13 +476,13 @@ export class GameClient {
         msg.entityCount,
         msg.ropePointCount
       )
-      if (!this.editorPreview) {
-        this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
-      }
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
       this.renderZoom = msg.zoom
       this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
+      if (!this.editorPreview) {
+        this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
+      }
       this.releaseStateBuffer(msg.entitiesBuffer)
       this.hasReceivedFirstState = true
       if (this.pendingCheckpointCaptureAfterState) {
