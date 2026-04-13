@@ -649,33 +649,56 @@ export class EditorMarkerManager {
     marker.setCoords()
   }
 
+  private getWeaponDataForType(
+    weaponMarker: WeaponMarker | undefined,
+    weaponType: WeaponType | undefined
+  ): WeaponMarkerData | undefined {
+    if (!weaponMarker || !weaponType) {
+      return undefined
+    }
+    const weaponData = this.weaponMarkerMap.get(weaponMarker)
+    if (!weaponData || weaponData.weaponType !== weaponType) {
+      return undefined
+    }
+    return weaponData
+  }
+
   private updatePlayerWeaponVisual(marker: PlayerMarker) {
     const weaponBackShape = marker.weaponBackShape
     const weaponFrontShape = marker.weaponFrontShape
     if (!weaponBackShape || !weaponFrontShape) {
       return
     }
+    const markPlayerWeaponDirty = () => {
+      weaponBackShape.dirty = true
+      weaponFrontShape.dirty = true
+      weaponBackShape.setCoords()
+      weaponFrontShape.setCoords()
+      marker.dirty = true
+    }
 
     const playerData = this.playerMarkerData
     if (!playerData || playerData.marker !== marker) {
       weaponBackShape.visible = false
       weaponFrontShape.visible = false
+      markPlayerWeaponDirty()
       return
     }
 
-    const weaponMarker = playerData.mainWeaponMarker
     const weaponType = playerData.mainWeapon
     const weaponConfig = playerData.mainWeaponConfig
     if (!weaponType) {
       weaponBackShape.visible = false
       weaponFrontShape.visible = false
+      markPlayerWeaponDirty()
       return
     }
 
     const template = WEAPON_DEFAULT_DATA[weaponType]
-    const weaponData = weaponMarker
-      ? this.weaponMarkerMap.get(weaponMarker)
-      : undefined
+    const weaponData = this.getWeaponDataForType(
+      playerData.mainWeaponMarker,
+      weaponType
+    )
     const sizeLevel =
       weaponData?.sizeLevel ?? weaponConfig?.sizeLevel ?? template.sizeLevel
     const isBow = weaponType === 'bow'
@@ -741,6 +764,7 @@ export class EditorMarkerManager {
       weaponBackShape.visible = false
       weaponFrontShape.visible = true
     }
+    markPlayerWeaponDirty()
   }
 
   spawnNpcMarker(
@@ -1179,11 +1203,11 @@ export class EditorMarkerManager {
       return
     }
 
-    const weaponMarker =
-      npcData.mainWeaponMarker ?? npcData.secondaryWeaponMarker
-    const weaponType =
-      npcData.mainWeapon ?? npcData.secondaryWeapon ?? undefined
-    const weaponConfig = npcData.mainWeapon
+    const useMainWeapon = !!npcData.mainWeapon
+    const weaponType = useMainWeapon
+      ? npcData.mainWeapon
+      : npcData.secondaryWeapon
+    const weaponConfig = useMainWeapon
       ? npcData.mainWeaponConfig
       : npcData.secondaryWeaponConfig
 
@@ -1194,9 +1218,10 @@ export class EditorMarkerManager {
     }
 
     const template = WEAPON_DEFAULT_DATA[weaponType]
-    const weaponData = weaponMarker
-      ? this.weaponMarkerMap.get(weaponMarker)
-      : undefined
+    const weaponData = this.getWeaponDataForType(
+      useMainWeapon ? npcData.mainWeaponMarker : npcData.secondaryWeaponMarker,
+      weaponType
+    )
     const sizeLevel =
       weaponData?.sizeLevel ?? weaponConfig?.sizeLevel ?? template.sizeLevel
     const isBow = weaponType === 'bow'

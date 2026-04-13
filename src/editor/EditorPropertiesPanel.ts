@@ -389,7 +389,6 @@ export class EditorPropertiesPanel {
 
       const {
         leftPanel,
-        rightPanel,
         footerPanel,
         previewCanvas,
         previewCtx,
@@ -405,10 +404,8 @@ export class EditorPropertiesPanel {
         height: 64,
       })
       weaponSlotsCanvas.style.marginTop = '12px'
-      if (options.weaponBindings.length > 0) {
-        rightPanel.appendChild(weaponSlotsCanvas)
-      }
       const weaponSlotsCtx = weaponSlotsCanvas.getContext('2d')
+      const hasWeaponBindings = options.weaponBindings.length > 0
 
       // Tab bar
       const tabBar = document.createElement('div')
@@ -434,30 +431,47 @@ export class EditorPropertiesPanel {
         localizer.t('editor_tab_appearance'),
         false
       )
+      const tabBtnEquipment = hasWeaponBindings
+        ? createTabBtn(localizer.t('editor_tab_equipment'), false)
+        : null
       tabBar.appendChild(tabBtnBasic)
       tabBar.appendChild(tabBtnAppearance)
+      if (tabBtnEquipment) {
+        tabBar.appendChild(tabBtnEquipment)
+      }
       leftPanel.appendChild(tabBar)
 
       const basicPanel = document.createElement('div')
       const appearancePanel = document.createElement('div')
+      const equipmentPanel = document.createElement('div')
       appearancePanel.style.display = 'none'
+      equipmentPanel.style.display = 'none'
       leftPanel.appendChild(basicPanel)
       leftPanel.appendChild(appearancePanel)
+      leftPanel.appendChild(equipmentPanel)
 
-      const switchTab = (showBasic: boolean) => {
-        basicPanel.style.display = showBasic ? '' : 'none'
-        appearancePanel.style.display = showBasic ? 'none' : ''
-        tabBtnBasic.style.color = showBasic ? '#fff' : 'rgba(255,255,255,0.5)'
-        tabBtnBasic.style.borderBottomColor = showBasic ? '#fff' : 'transparent'
-        tabBtnAppearance.style.color = showBasic
-          ? 'rgba(255,255,255,0.5)'
-          : '#fff'
-        tabBtnAppearance.style.borderBottomColor = showBasic
-          ? 'transparent'
-          : '#fff'
+      const updateTabButtonState = (
+        button: HTMLButtonElement | null,
+        active: boolean
+      ) => {
+        if (!button) {
+          return
+        }
+        button.style.color = active ? '#fff' : 'rgba(255,255,255,0.5)'
+        button.style.borderBottomColor = active ? '#fff' : 'transparent'
       }
-      tabBtnBasic.addEventListener('click', () => switchTab(true))
-      tabBtnAppearance.addEventListener('click', () => switchTab(false))
+
+      const switchTab = (tab: 'basic' | 'appearance' | 'equipment') => {
+        basicPanel.style.display = tab === 'basic' ? '' : 'none'
+        appearancePanel.style.display = tab === 'appearance' ? '' : 'none'
+        equipmentPanel.style.display = tab === 'equipment' ? '' : 'none'
+        updateTabButtonState(tabBtnBasic, tab === 'basic')
+        updateTabButtonState(tabBtnAppearance, tab === 'appearance')
+        updateTabButtonState(tabBtnEquipment, tab === 'equipment')
+      }
+      tabBtnBasic.addEventListener('click', () => switchTab('basic'))
+      tabBtnAppearance.addEventListener('click', () => switchTab('appearance'))
+      tabBtnEquipment?.addEventListener('click', () => switchTab('equipment'))
 
       // === 基础 Tab ===
 
@@ -929,6 +943,10 @@ export class EditorPropertiesPanel {
           (binding) => binding.slot === 'secondary'
         ) ?? null
 
+      if (hasWeaponBindings) {
+        equipmentPanel.appendChild(weaponSlotsCanvas)
+      }
+
       const createWeaponRow = (binding: CharacterWeaponBinding) => {
         const row = EditorUIHelper.createFormRow(binding.label)
         const select = EditorUIHelper.createSelect({
@@ -958,7 +976,7 @@ export class EditorPropertiesPanel {
           }
         })
         row.row.appendChild(configBtn)
-        basicPanel.appendChild(row.row)
+        equipmentPanel.appendChild(row.row)
 
         const updateConfigBtnVisibility = () => {
           const weaponType = select.value
@@ -1214,7 +1232,7 @@ export class EditorPropertiesPanel {
         slot: WeaponSlotPreview,
         weaponValue: string,
         marker: WeaponMarker | undefined,
-        _defaultBowAmmo: number
+        defaultBowAmmo: number
       ) => {
         if (!weaponValue || weaponValue === 'none') {
           resetWeaponSlotPreview(slot)
@@ -1240,8 +1258,7 @@ export class EditorPropertiesPanel {
         slot.sizeLevel = sizeLevel
         slot.sizeMaxLevel = template.sizeMaxLevel
         slot.ammo = isRangedWeaponType(weaponType)
-          ? (markerMatches?.bowAmmo ??
-            getDefaultPlayerAmmoForWeaponType(weaponType))
+          ? (markerMatches?.bowAmmo ?? defaultBowAmmo)
           : 0
       }
 
