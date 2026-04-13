@@ -366,7 +366,7 @@ export class EditorMarkerManager {
 
   isCheckpointMarker(object: fabric.Object | null): object is CheckpointMarker {
     return (
-      object instanceof fabric.Group &&
+      !!object &&
       (object as CheckpointMarker).editorShape === 'checkpoint-marker'
     )
   }

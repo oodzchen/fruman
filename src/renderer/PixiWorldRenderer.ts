@@ -23,6 +23,7 @@ import {
 } from '../worker/binaryProtocol'
 import { ROPE_POINT_STRIDE } from '../worker/effectsProtocol'
 import { getBodySpriteSource, isBodyVisualAssetsReady } from './BodyRenderer'
+import { createCheckpointTreeTextureSource } from './CheckpointTreeTextureFactory'
 import { HUD_ICON_ALPHA, HUD_ICON_COLOR } from './HudWeaponSlotRenderer'
 import {
   PARTICLE_TYPE_DEATH,
@@ -51,6 +52,7 @@ const ENTITY_VIEW_PRESSURE_RETIRE_FRAMES = 45
 const MAX_ENTITY_VIEW_CACHE = 512
 const MAX_WEAPON_TEXTURE_CACHE = 192
 const WEAPON_TEXTURE_RETIRE_FRAMES = 180
+const CHECKPOINT_TREE_TOP_COLOR_ACTIVE_INT = 0x4fae2f
 
 interface LayerBucket {
   container: Container
@@ -82,6 +84,12 @@ interface ParticleSpriteView {
 interface WeaponTextureEntry {
   texture: Texture
   lastUsedFrame: number
+}
+
+interface CheckpointTextureEntry {
+  texture: Texture
+  anchorX: number
+  anchorY: number
 }
 
 function createCanvas2D(
@@ -226,6 +234,10 @@ export class PixiWorldRenderer {
   private readonly bodyTextureCache = new WeakMap<HTMLCanvasElement, Texture>()
   private readonly weaponTextureCache = new Map<string, WeaponTextureEntry>()
   private readonly iconTextureCache = new Map<string, Texture>()
+  private readonly checkpointTextureCache = new Map<
+    string,
+    CheckpointTextureEntry
+  >()
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
   private frameId = 0
@@ -682,37 +694,62 @@ export class PixiWorldRenderer {
     alpha: number
   ): void {
     const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
-    const canopyRadiusX = radius * 1.1
-    const canopyRadiusY = radius * 0.8
-    const canopyOffsetY = -radius * 0.6
-    const trunkHeight = radius * 1.2
-    const trunkTopWidth = radius * 0.6
-    const trunkBottomWidth = radius
-    const canopyColor = renderer.getColorHex(buf[offset + OFFSETS.COLOR] | 0)
+    const leafColorInt = buf[offset + OFFSETS.COLOR] | 0
+    const leafColor = renderer.getColorHex(leafColorInt)
     const trunkColor = renderer.getColorHex(
       buf[offset + OFFSETS.BORDER_COLOR] | 0
     )
-    const key = [radius | 0, canopyColor, trunkColor].join('|')
+    const active = leafColorInt === CHECKPOINT_TREE_TOP_COLOR_ACTIVE_INT
+    const key = [radius | 0, leafColor, trunkColor, active ? 1 : 0].join('|')
 
-    if (view.specialKey !== key) {
-      view.specialGraphics.clear()
-      view.specialGraphics
-        .ellipse(0, canopyOffsetY, canopyRadiusX, canopyRadiusY)
-        .fill(canopyColor)
-      view.specialGraphics
-        .moveTo(-trunkTopWidth, 0)
-        .lineTo(trunkTopWidth, 0)
-        .lineTo(trunkBottomWidth, trunkHeight)
-        .lineTo(-trunkBottomWidth, trunkHeight)
-        .closePath()
-        .fill(trunkColor)
+    if (view.specialKey !== key || !view.specialSprite.visible) {
+      const textureEntry = this.getCheckpointTexture(
+        radius,
+        leafColor,
+        trunkColor,
+        active
+      )
+      view.specialSprite.texture = textureEntry.texture
+      view.specialSprite.anchor.set(textureEntry.anchorX, textureEntry.anchorY)
       view.specialKey = key
     }
 
-    view.specialGraphics.visible = true
-    view.specialGraphics.alpha = alpha
+    view.specialSprite.visible = true
+    view.specialSprite.alpha = alpha
     hideSprite(view.bodySprite)
     hideSprite(view.weaponSprite)
+  }
+
+  private getCheckpointTexture(
+    radius: number,
+    leafColor: string,
+    trunkColor: string,
+    glow: boolean
+  ): CheckpointTextureEntry {
+    const key = [
+      Math.max(1, Math.round(radius)),
+      leafColor,
+      trunkColor,
+      glow ? 1 : 0,
+    ].join('|')
+    const cached = this.checkpointTextureCache.get(key)
+    if (cached) {
+      return cached
+    }
+
+    const source = createCheckpointTreeTextureSource({
+      radiusPx: radius,
+      leafColor,
+      trunkColor,
+      glow,
+    })
+    const entry: CheckpointTextureEntry = {
+      texture: Texture.from(source.canvas),
+      anchorX: source.originX / source.canvas.width,
+      anchorY: source.originY / source.canvas.height,
+    }
+    this.checkpointTextureCache.set(key, entry)
+    return entry
   }
 
   private updateGrappleAnchor(

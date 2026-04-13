@@ -118,7 +118,7 @@ export type WeaponMarker = fabric.Group & {
   bowAmmo?: number
 }
 
-export type CheckpointMarker = fabric.Group & {
+export type CheckpointMarker = fabric.Object & {
   editorShape: 'checkpoint-marker'
 }
 

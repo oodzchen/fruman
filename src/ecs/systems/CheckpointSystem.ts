@@ -130,10 +130,12 @@ export class CheckpointSystem extends System {
       if (!entity.transform || !entity.checkpoint) continue
       if ((entity.render?.renderLayer ?? 0) !== playerLayer) continue
 
-      const radius = entity.checkpoint.activationRadius
-      const radiusSq = radius * radius
+      const renderRadius = entity.render?.radius ?? 0
+      const activationRadius = entity.checkpoint.activationRadius + renderRadius
+      const activationCenterY = entity.transform.y + renderRadius * 0.75
+      const radiusSq = activationRadius * activationRadius
       const dx = playerX - entity.transform.x
-      const dy = playerY - entity.transform.y
+      const dy = playerY - activationCenterY
       const distSq = dx * dx + dy * dy
 
       if (distSq <= radiusSq) {

@@ -6,6 +6,7 @@ import {
 } from '../constants'
 import type { MapNpcWeapon, WeaponCategory } from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
+import { createCheckpointTreeTextureSource } from '../renderer/CheckpointTreeTextureFactory'
 import type { NpcType, WeaponType } from '../types'
 import {
   getWeaponGroundRotationRad,
@@ -156,6 +157,35 @@ class WeaponRenderObject extends fabric.FabricObject {
       this.color,
       false
     )
+  }
+}
+
+class CheckpointMarkerRenderObject extends fabric.FabricObject {
+  static override type = 'customCheckpointMarker'
+
+  declare editorShape: 'checkpoint-marker'
+
+  private readonly textureCanvas: HTMLCanvasElement
+  private readonly drawOriginX: number
+  private readonly drawOriginY: number
+
+  constructor(
+    textureCanvas: HTMLCanvasElement,
+    originX: number,
+    originY: number,
+    options?: FabricObjectOptions
+  ) {
+    super(options)
+    this.textureCanvas = textureCanvas
+    this.drawOriginX = originX
+    this.drawOriginY = originY
+    this.width = textureCanvas.width
+    this.height = textureCanvas.height
+    this.editorShape = 'checkpoint-marker'
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    ctx.drawImage(this.textureCanvas, -this.drawOriginX, -this.drawOriginY)
   }
 }
 
@@ -439,54 +469,28 @@ export class EditorObjectFactory {
   }
 
   createCheckpointMarker() {
-    const canopyRadiusX = this.pixelsPerMeter * 0.6
-    const canopyRadiusY = this.pixelsPerMeter * 0.4
-    const canopyOffsetY = -this.pixelsPerMeter * 0.35
-    const trunkHeight = this.pixelsPerMeter * 0.8
-    const trunkTopWidth = this.pixelsPerMeter * 0.2
-    const trunkBottomWidth = this.pixelsPerMeter * 0.35
-
-    const canopy = new fabric.Ellipse({
-      rx: canopyRadiusX,
-      ry: canopyRadiusY,
-      fill: CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
-      stroke: CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
-      strokeWidth: 2,
-      originX: 'center',
-      originY: 'center',
-      top: canopyOffsetY,
-      objectCaching: true,
+    const source = createCheckpointTreeTextureSource({
+      radiusPx: this.pixelsPerMeter,
+      leafColor: CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+      trunkColor: CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+      glow: false,
     })
 
-    const trunk = new fabric.Polygon(
-      [
-        { x: -trunkTopWidth, y: 0 },
-        { x: trunkTopWidth, y: 0 },
-        { x: trunkBottomWidth, y: trunkHeight },
-        { x: -trunkBottomWidth, y: trunkHeight },
-      ],
+    return new CheckpointMarkerRenderObject(
+      source.canvas,
+      source.originX,
+      source.originY,
       {
-        fill: CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
-        stroke: CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
-        strokeWidth: 1,
         originX: 'center',
-        originY: 'top',
+        originY: 'center',
+        selectable: true,
+        hasControls: false,
+        lockRotation: true,
+        lockScalingX: true,
+        lockScalingY: true,
         objectCaching: true,
       }
-    )
-
-    const group = new fabric.Group([trunk, canopy], {
-      originX: 'center',
-      originY: 'center',
-      selectable: true,
-      hasControls: false,
-      lockRotation: true,
-      lockScalingX: true,
-      lockScalingY: true,
-      objectCaching: true,
-    }) as CheckpointMarker
-    group.editorShape = 'checkpoint-marker'
-    return group
+    ) as CheckpointMarker
   }
 
   createSunPickupMarker(isLarge: boolean) {
