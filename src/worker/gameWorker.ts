@@ -679,7 +679,7 @@ function initializeSystems() {
     }
     ctx.postMessage(checkpointActivatedMessage)
   })
-  checkpointSystem.setCheckpointEnteredHandler((entity, alreadyActive) => {
+  checkpointSystem.setCheckpointEnteredHandler((entity, _alreadyActive) => {
     if (!entity.transform) {
       return
     }
@@ -693,7 +693,6 @@ function initializeSystems() {
       CHECKPOINT_PULSE_RADIUS_DENOMINATOR
     effectsEmitter.emitCheckpointPulse(entity.transform.x, pulseY, pulseRadius)
     if (
-      alreadyActive &&
       playerEntity?.stats &&
       playerEntity.transform &&
       !playerEntity.stats.isDead
