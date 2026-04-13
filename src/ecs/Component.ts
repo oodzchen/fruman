@@ -658,6 +658,7 @@ export class WeaponComponent extends Component {
   ultimateHammerLandX = 0 // 落地目标X（世界坐标）
   ultimateHammerJumpOffsetY = 0 // 当前视觉跳跃高度偏移（米，>0 = 上升）
   ultimateHammerVisualDX = 0 // 当前视觉X偏移（米，从起点到落点）
+  ultimateHammerApexX = 0 // 最高点时的视觉X，用于下落阶段平滑插值
   ultimateHammerImpact100 = 0 // 冲击波进度 0-100
   // 枪类绝招专用视觉状态
   ultimateSpearCrossX = 0
@@ -820,6 +821,7 @@ export class WeaponComponent extends Component {
     this.ultimateHammerLandX = 0
     this.ultimateHammerJumpOffsetY = 0
     this.ultimateHammerVisualDX = 0
+    this.ultimateHammerApexX = 0
     this.ultimateHammerImpact100 = 0
     this.ultimateSpearCrossX = 0
     this.ultimateSpearCrossY = 0

@@ -68,6 +68,32 @@ export class UltimateHandler {
   private tempVisualPos = { x: 0, y: 0 }
   private tempPlayerPos = { x: 0, y: 0 }
 
+  private syncEntityFacing(entity: Entity, facing: number): void {
+    if (!entity.input) return
+    entity.input.lastMoveDirection = facing
+    entity.input.facingOverride = facing
+  }
+
+  private releaseEntityFacing(entity: Entity): void {
+    if (!entity.input) return
+    entity.input.facingOverride = null
+  }
+
+  private getHammerFrontAngle(facing: number): number {
+    return facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
+  }
+
+  private clampHammerUltimateLandX(baseX: number, targetX: number): number {
+    const rawDx = targetX - baseX
+    const clampedDx =
+      rawDx > HAMMER_ULTIMATE_MAX_DIST
+        ? HAMMER_ULTIMATE_MAX_DIST
+        : rawDx < -HAMMER_ULTIMATE_MAX_DIST
+          ? -HAMMER_ULTIMATE_MAX_DIST
+          : rawDx
+    return baseX + clampedDx
+  }
+
   setStatsSystem(statsSystem: StatsSystem): void {
     this.statsSystem = statsSystem
   }
@@ -94,6 +120,7 @@ export class UltimateHandler {
     weapon.ultimateElapsedMs += deltaMs
 
     const facing = weapon.ultimateFacing
+    this.syncEntityFacing(entity, facing)
     const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
     const holdX = playerPos.x + facing * (radius + DEFAULT_WEAPON_WIDTH * 0.5)
     const holdY = playerPos.y
@@ -215,6 +242,7 @@ export class UltimateHandler {
           weapon.ultimateElapsedMs = 0
           weapon.isUnstoppable = false
           weapon.attackPhase = 'idle'
+          this.releaseEntityFacing(entity)
           if (entity.stats) entity.stats.isInvincible = false
           if (entity.attackSlots)
             entity.attackSlots.ultimate.cooldownRemainingMs =
@@ -232,6 +260,7 @@ export class UltimateHandler {
     weapon: NonNullable<Entity['weapon']>,
     playerPos: { x: number; y: number }
   ): void {
+    this.syncEntityFacing(entity, weapon.ultimateFacing)
     const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
     const attackRadius =
       radius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE
@@ -338,6 +367,7 @@ export class UltimateHandler {
           weapon.isUnstoppable = false
           weapon.attackPhase = 'idle'
           weapon.ultimateSpearAlpha100 = 0
+          this.releaseEntityFacing(entity)
           if (entity.stats) entity.stats.isInvincible = false
           if (entity.attackSlots) {
             entity.attackSlots.ultimate.cooldownRemainingMs =
@@ -392,9 +422,9 @@ export class UltimateHandler {
     _deltaMs: number
   ): void {
     const facing = weapon.ultimateFacing
+    this.syncEntityFacing(entity, facing)
     const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
-    const frontAngle =
-      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
+    const frontAngle = this.getHammerFrontAngle(facing)
     const headAngle = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
 
     this.tempVisualPos.x = playerPos.x + weapon.ultimateHammerVisualDX
@@ -461,6 +491,7 @@ export class UltimateHandler {
           weapon.ultimatePhase = 'hammer_jump_apex'
           weapon.ultimateElapsedMs = 0
           weapon.ultimateHammerJumpOffsetY = HAMMER_JUMP_HEIGHT
+          weapon.ultimateHammerApexX = visualPos.x
           if (
             entity.input?.lockedTargetId !== null &&
             entity.input?.lockedTargetId !== undefined &&
@@ -468,22 +499,24 @@ export class UltimateHandler {
           ) {
             const locked = this.entityLookup(entity.input.lockedTargetId)
             if (locked?.transform && locked.stats && !locked.stats.isDead) {
-              const newLandX =
+              const targetFacing =
+                locked.transform.x < weapon.ultimateHammerApexX ? -1 : 1
+              const targetFrontAngle = this.getHammerFrontAngle(targetFacing)
+              const targetLandX =
                 locked.transform.x -
-                Math.cos(frontAngle) * (radius + weapon.width / 2)
+                Math.cos(targetFrontAngle) * (radius + weapon.width / 2)
               const baseX = entity.transform?.x ?? playerPos.x
-              const rawDx = newLandX - baseX
-              const clampedDx =
-                rawDx > HAMMER_ULTIMATE_MAX_DIST
-                  ? HAMMER_ULTIMATE_MAX_DIST
-                  : rawDx < -HAMMER_ULTIMATE_MAX_DIST
-                    ? -HAMMER_ULTIMATE_MAX_DIST
-                    : rawDx
-              weapon.ultimateHammerLandX = baseX + clampedDx
+              weapon.ultimateFacing = targetFacing
+              weapon.attackFacing = targetFacing
+              this.syncEntityFacing(entity, targetFacing)
+              weapon.ultimateHammerLandX = this.clampHammerUltimateLandX(
+                baseX,
+                targetLandX
+              )
             }
           }
           weapon.ultimateHammerVisualDX =
-            weapon.ultimateHammerLandX - (entity.transform?.x ?? playerPos.x)
+            weapon.ultimateHammerApexX - playerPos.x
         }
         break
       }
@@ -511,6 +544,12 @@ export class UltimateHandler {
         const fallEase = t * t
         weapon.ultimateHammerJumpOffsetY =
           Math.round(HAMMER_JUMP_HEIGHT * (1 - fallEase) * 100) / 100
+        weapon.ultimateHammerVisualDX =
+          weapon.ultimateHammerApexX -
+          playerPos.x +
+          (weapon.ultimateHammerLandX - weapon.ultimateHammerApexX) * fallEase
+        visualPos.x = playerPos.x + weapon.ultimateHammerVisualDX
+        visualPos.y = playerPos.y - weapon.ultimateHammerJumpOffsetY
         getTransformAtAngle(visualPos, frontAngle, radius, weapon.visual)
         if (t >= 1) {
           weapon.ultimateHammerJumpOffsetY = 0
@@ -518,6 +557,7 @@ export class UltimateHandler {
           this.tempPlayerPos.x = entity.transform?.x ?? playerPos.x
           this.tempPlayerPos.y = entity.transform?.y ?? playerPos.y
           weapon.ultimateHammerVisualDX = 0
+          weapon.ultimateHammerApexX = 0
           getTransformAtAngle(
             this.tempPlayerPos,
             frontAngle,
@@ -593,6 +633,7 @@ export class UltimateHandler {
           weapon.ultimateHammerImpact100 = 0
           weapon.ultimateHammerJumpOffsetY = 0
           weapon.ultimateHammerVisualDX = 0
+          this.releaseEntityFacing(entity)
           if (entity.stats) entity.stats.isInvincible = false
           if (entity.attackSlots)
             entity.attackSlots.ultimate.cooldownRemainingMs =
@@ -982,8 +1023,7 @@ export class UltimateHandler {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const maxDist = maxLandDist ?? HAMMER_ULTIMATE_MAX_DIST
 
-    const frontAngle =
-      facing === 1 ? FRONT_SWING_TILT_RAD : -Math.PI - FRONT_SWING_TILT_RAD
+    const frontAngle = this.getHammerFrontAngle(facing)
     const headOffset = Math.cos(frontAngle) * (radius + weapon.width / 2)
     let landX = entity.transform.x
     if (this.entityLookup && entity.input.lockedTargetId !== null) {
@@ -1006,6 +1046,7 @@ export class UltimateHandler {
     weapon.ultimateHammerLandX = landX
     weapon.ultimateHammerJumpOffsetY = 0
     weapon.ultimateHammerVisualDX = 0
+    weapon.ultimateHammerApexX = 0
     weapon.ultimateHammerImpact100 = 0
     weapon.ultimateDamageDealt = false
     weapon.ultimateGiantX = 0
