@@ -6,6 +6,18 @@ export const PARTICLE_TYPE_SPARK = 0
 export const PARTICLE_TYPE_BLOOD = 1
 export const PARTICLE_TYPE_DEATH = 2
 export const PARTICLE_TYPE_HEAL = 3
+export const PARTICLE_TYPE_CHECKPOINT_PULSE = 4
+const CHECKPOINT_PULSE_EDGE_COLOR = '#ffe260'
+const CHECKPOINT_PULSE_MID_COLOR = '#ffec8a'
+const CHECKPOINT_PULSE_CORE_COLOR = '#fff6bc'
+const CHECKPOINT_PULSE_START_RADIUS_NUMERATOR = 3
+const CHECKPOINT_PULSE_START_RADIUS_DENOMINATOR = 20
+const CHECKPOINT_PULSE_EXPAND_DISTANCE_NUMERATOR = 3
+const CHECKPOINT_PULSE_EXPAND_DISTANCE_DENOMINATOR = 2
+const CHECKPOINT_PULSE_RING_WIDTH_NUMERATOR = 1
+const CHECKPOINT_PULSE_RING_WIDTH_DENOMINATOR = 10
+const CHECKPOINT_PULSE_SOFT_EDGE_NUMERATOR = 2
+const CHECKPOINT_PULSE_SOFT_EDGE_DENOMINATOR = 5
 
 type Particle = {
   x: number
@@ -187,6 +199,62 @@ export class ParticleSystem {
       ctx.fill()
     }
 
+    // 存档点扩散光晕
+    for (let i = 0; i < this.activeCount; i++) {
+      const particle = this.active[i]
+      if (particle.type !== PARTICLE_TYPE_CHECKPOINT_PULSE) continue
+
+      const lifeRatio = particle.age / particle.life
+      const alpha = 1 - lifeRatio
+      const px = particle.x * pixelsPerMeter
+      const py = particle.y * pixelsPerMeter
+      const startRadius =
+        (particle.size * CHECKPOINT_PULSE_START_RADIUS_NUMERATOR) /
+        CHECKPOINT_PULSE_START_RADIUS_DENOMINATOR
+      const expandDistance =
+        (particle.size * CHECKPOINT_PULSE_EXPAND_DISTANCE_NUMERATOR) /
+        CHECKPOINT_PULSE_EXPAND_DISTANCE_DENOMINATOR
+      const ringWidth = Math.max(
+        particle.size / 10,
+        (particle.size * CHECKPOINT_PULSE_RING_WIDTH_NUMERATOR) /
+          CHECKPOINT_PULSE_RING_WIDTH_DENOMINATOR
+      )
+      const softEdge = Math.max(
+        particle.size / 20,
+        (ringWidth * CHECKPOINT_PULSE_SOFT_EDGE_NUMERATOR) /
+          CHECKPOINT_PULSE_SOFT_EDGE_DENOMINATOR
+      )
+      const outerStartRadius = startRadius > ringWidth ? startRadius : ringWidth
+      const ringOuterRadius = outerStartRadius + expandDistance * lifeRatio
+      const ringWidthPx = Math.max(3, ringWidth * pixelsPerMeter)
+      const softEdgePx = Math.max(2, softEdge * pixelsPerMeter)
+      const ringOuterRadiusPx = ringOuterRadius * pixelsPerMeter
+      const ringInnerRadiusPx = Math.max(0, ringOuterRadiusPx - ringWidthPx)
+      const peakAlpha = alpha * 0.82
+      const edgeAlpha = alpha * 0.28
+      ctx.fillStyle = CHECKPOINT_PULSE_EDGE_COLOR
+      ctx.globalAlpha = edgeAlpha
+      this.fillCheckpointRing(
+        ctx,
+        px,
+        py,
+        ringInnerRadiusPx,
+        ringOuterRadiusPx + softEdgePx * 2
+      )
+      ctx.fillStyle = CHECKPOINT_PULSE_MID_COLOR
+      ctx.globalAlpha = peakAlpha * 0.7
+      this.fillCheckpointRing(
+        ctx,
+        px,
+        py,
+        ringInnerRadiusPx,
+        ringOuterRadiusPx + softEdgePx
+      )
+      ctx.fillStyle = CHECKPOINT_PULSE_CORE_COLOR
+      ctx.globalAlpha = peakAlpha
+      this.fillCheckpointRing(ctx, px, py, ringInnerRadiusPx, ringOuterRadiusPx)
+    }
+
     ctx.globalCompositeOperation = savedComposite
     lastColor = ''
 
@@ -336,6 +404,56 @@ export class ParticleSystem {
       this.active[this.activeCount] = particle
       this.activeCount += 1
     }
+  }
+
+  spawnCheckpointPulse(
+    x: number,
+    y: number,
+    color: number,
+    radius: number
+  ): void {
+    if (radius <= 0) return
+    const particle = this.acquire()
+    if (!particle) return
+    particle.x = x
+    particle.y = y
+    particle.prevX = x
+    particle.prevY = y
+    particle.vx = 0
+    particle.vy = 0
+    particle.age = 0
+    particle.life = 0.55
+    particle.size = radius
+    particle.color = color
+    particle.gravity = 0
+    particle.drag = 0
+    particle.type = PARTICLE_TYPE_CHECKPOINT_PULSE
+    particle.curve = 0
+    this.active[this.activeCount] = particle
+    this.activeCount += 1
+  }
+
+  private fillCheckpointRing(
+    ctx: RenderContext2D,
+    x: number,
+    y: number,
+    innerRadius: number,
+    outerRadius: number
+  ): void {
+    if (!(outerRadius > 0) || outerRadius <= innerRadius) {
+      return
+    }
+    if (ctx.fillRing) {
+      ctx.fillRing(x, y, innerRadius, outerRadius)
+      return
+    }
+    const centerRadius = (innerRadius + outerRadius) * 0.5
+    const ringWidth = outerRadius - innerRadius
+    ctx.strokeStyle = ctx.fillStyle
+    ctx.lineWidth = ringWidth < 1 ? 1 : ringWidth
+    ctx.beginPath()
+    ctx.arc(x, y, centerRadius, 0, TWO_PI)
+    ctx.stroke()
   }
 
   private acquire(): Particle | null {

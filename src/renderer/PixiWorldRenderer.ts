@@ -26,6 +26,7 @@ import { getBodySpriteSource, isBodyVisualAssetsReady } from './BodyRenderer'
 import { createCheckpointTreeTextureSource } from './CheckpointTreeTextureFactory'
 import { HUD_ICON_ALPHA, HUD_ICON_COLOR } from './HudWeaponSlotRenderer'
 import {
+  PARTICLE_TYPE_CHECKPOINT_PULSE,
   PARTICLE_TYPE_DEATH,
   PARTICLE_TYPE_HEAL,
   PARTICLE_TYPE_SPARK,
@@ -44,6 +45,20 @@ const PICKUP_SIZE_DENOMINATOR = 100
 const EXP_ORB_SIZE_NUMERATOR = SMALL_SUN_PICKUP_SIZE_NUMERATOR
 const PICKUP_GLOW_SIZE_NUMERATOR = 8
 const PICKUP_GLOW_SIZE_DENOMINATOR = 5
+const CHECKPOINT_PULSE_EDGE_COLOR = '#d4be55'
+const CHECKPOINT_PULSE_MID_COLOR = '#d8c46f'
+const CHECKPOINT_PULSE_CORE_COLOR = '#e2d48d'
+const CHECKPOINT_PULSE_EDGE_ALPHA = 0.18
+const CHECKPOINT_PULSE_MID_ALPHA = 0.32
+const CHECKPOINT_PULSE_CORE_ALPHA = 0.45
+const CHECKPOINT_PULSE_START_RADIUS_NUMERATOR = 3
+const CHECKPOINT_PULSE_START_RADIUS_DENOMINATOR = 20
+const CHECKPOINT_PULSE_EXPAND_DISTANCE_NUMERATOR = 3
+const CHECKPOINT_PULSE_EXPAND_DISTANCE_DENOMINATOR = 2
+const CHECKPOINT_PULSE_RING_WIDTH_NUMERATOR = 1
+const CHECKPOINT_PULSE_RING_WIDTH_DENOMINATOR = 10
+const CHECKPOINT_PULSE_SOFT_EDGE_NUMERATOR = 2
+const CHECKPOINT_PULSE_SOFT_EDGE_DENOMINATOR = 5
 const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
 const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
 const BOW_DRAW_TEXTURE_STEPS = 16
@@ -238,6 +253,7 @@ export class PixiWorldRenderer {
     string,
     CheckpointTextureEntry
   >()
+  private readonly checkpointPulseTextureCache = new Map<string, Texture>()
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
   private frameId = 0
@@ -1418,6 +1434,47 @@ export class PixiWorldRenderer {
 
       const lifeRatio = particle.age / particle.life
       const alpha = 1 - lifeRatio
+      if (particle.type === PARTICLE_TYPE_CHECKPOINT_PULSE) {
+        const startRadius =
+          (particle.size * CHECKPOINT_PULSE_START_RADIUS_NUMERATOR) /
+          CHECKPOINT_PULSE_START_RADIUS_DENOMINATOR
+        const expandDistance =
+          (particle.size * CHECKPOINT_PULSE_EXPAND_DISTANCE_NUMERATOR) /
+          CHECKPOINT_PULSE_EXPAND_DISTANCE_DENOMINATOR
+        const ringWidth = Math.max(
+          particle.size / 10,
+          (particle.size * CHECKPOINT_PULSE_RING_WIDTH_NUMERATOR) /
+            CHECKPOINT_PULSE_RING_WIDTH_DENOMINATOR
+        )
+        const softEdge = Math.max(
+          particle.size / 20,
+          (ringWidth * CHECKPOINT_PULSE_SOFT_EDGE_NUMERATOR) /
+            CHECKPOINT_PULSE_SOFT_EDGE_DENOMINATOR
+        )
+        const outerStartRadius =
+          startRadius > ringWidth ? startRadius : ringWidth
+        const ringOuterRadiusPx =
+          (outerStartRadius + expandDistance * lifeRatio) * this.pixelsPerMeter
+        const ringWidthPx = Math.max(3, ringWidth * this.pixelsPerMeter)
+        const softEdgePx = Math.max(2, softEdge * this.pixelsPerMeter)
+        const texture = this.getCheckpointPulseTexture(
+          ringOuterRadiusPx,
+          ringWidthPx,
+          softEdgePx
+        )
+        sprite.visible = true
+        sprite.texture = texture
+        sprite.position.set(
+          particle.x * this.pixelsPerMeter,
+          particle.y * this.pixelsPerMeter
+        )
+        sprite.tint = 0xffffff
+        sprite.alpha = alpha
+        sprite.scale.set(1)
+        sprite.blendMode = 'add'
+        continue
+      }
+
       let radius = particle.size * (0.4 + alpha * 0.6)
       let blendMode: 'normal' | 'add' = 'normal'
 
@@ -1438,6 +1495,7 @@ export class PixiWorldRenderer {
 
       const diameter = radius * this.pixelsPerMeter * 2
       sprite.visible = true
+      sprite.texture = this.particleTexture
       sprite.position.set(
         particle.x * this.pixelsPerMeter,
         particle.y * this.pixelsPerMeter
@@ -1751,6 +1809,86 @@ export class PixiWorldRenderer {
     const texture = Texture.from(canvas)
     this.iconTextureCache.set(key, texture)
     return texture
+  }
+
+  private getCheckpointPulseTexture(
+    outerRadius: number,
+    ringWidth: number,
+    softEdge: number
+  ): Texture {
+    const outerRadiusPx = Math.max(1, Math.round(outerRadius))
+    const ringWidthPx = Math.max(1, Math.round(ringWidth))
+    const softEdgePx = Math.max(1, Math.round(softEdge))
+    const key = [outerRadiusPx, ringWidthPx, softEdgePx].join('|')
+    const cached = this.checkpointPulseTextureCache.get(key)
+    if (cached) {
+      return cached
+    }
+
+    const maxOuterRadius = outerRadiusPx + softEdgePx * 2
+    const canvasSize = maxOuterRadius * 2 + 4
+    const created = createCanvas2D(canvasSize, canvasSize)
+    if (!created) {
+      return Texture.WHITE
+    }
+
+    const { canvas, ctx } = created
+    const centerX = canvas.width / 2
+    const centerY = canvas.height / 2
+    const innerRadiusPx = Math.max(0, outerRadiusPx - ringWidthPx)
+
+    ctx.fillStyle = CHECKPOINT_PULSE_EDGE_COLOR
+    ctx.globalAlpha = CHECKPOINT_PULSE_EDGE_ALPHA
+    this.fillCheckpointPulseRing(
+      ctx,
+      centerX,
+      centerY,
+      innerRadiusPx,
+      outerRadiusPx + softEdgePx * 2
+    )
+
+    ctx.fillStyle = CHECKPOINT_PULSE_MID_COLOR
+    ctx.globalAlpha = CHECKPOINT_PULSE_MID_ALPHA
+    this.fillCheckpointPulseRing(
+      ctx,
+      centerX,
+      centerY,
+      innerRadiusPx,
+      outerRadiusPx + softEdgePx
+    )
+
+    ctx.fillStyle = CHECKPOINT_PULSE_CORE_COLOR
+    ctx.globalAlpha = CHECKPOINT_PULSE_CORE_ALPHA
+    this.fillCheckpointPulseRing(
+      ctx,
+      centerX,
+      centerY,
+      innerRadiusPx,
+      outerRadiusPx
+    )
+
+    const texture = Texture.from(canvas)
+    this.checkpointPulseTextureCache.set(key, texture)
+    return texture
+  }
+
+  private fillCheckpointPulseRing(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    innerRadius: number,
+    outerRadius: number
+  ): void {
+    if (!(outerRadius > 0) || outerRadius <= innerRadius) {
+      return
+    }
+    ctx.beginPath()
+    ctx.arc(x, y, outerRadius, 0, Math.PI * 2)
+    if (innerRadius > 0) {
+      ctx.moveTo(x + innerRadius, y)
+      ctx.arc(x, y, innerRadius, 0, Math.PI * 2, true)
+    }
+    ctx.fill()
   }
 
   private createGlowingCircleTexture(size: number, color: string): Texture {

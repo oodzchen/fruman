@@ -303,10 +303,12 @@ export class RenderComponent extends Component {
 export class CheckpointComponent extends Component {
   isActive = false
   activationRadius = DEFAULT_CHECKPOINT_ACTIVATION_RADIUS
+  wasPlayerInside = false
 
   reset(): void {
     this.isActive = false
     this.activationRadius = DEFAULT_CHECKPOINT_ACTIVATION_RADIUS
+    this.wasPlayerInside = false
   }
 
   getName(): string {

@@ -106,6 +106,12 @@ export interface RenderContext2D {
   ): void
   quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void
   fill(): void
+  fillRing?(
+    x: number,
+    y: number,
+    innerRadius: number,
+    outerRadius: number
+  ): void
   stroke(): void
   clip(): void
   fillRect(x: number, y: number, width: number, height: number): void
@@ -616,6 +622,22 @@ export class PixiRenderContext2D implements RenderContext2D {
       this.pathCmdCount
     )
     graphics.fill(toPixiFillStyle(this.fillStyle))
+  }
+
+  fillRing(
+    x: number,
+    y: number,
+    innerRadius: number,
+    outerRadius: number
+  ): void {
+    if (!(outerRadius > 0) || outerRadius <= innerRadius) {
+      return
+    }
+    const graphics = this.acquireGraphics()
+    graphics.circle(x, y, outerRadius).fill(toPixiFillStyle(this.fillStyle))
+    if (innerRadius > 0) {
+      graphics.circle(x, y, innerRadius).cut()
+    }
   }
 
   stroke(): void {

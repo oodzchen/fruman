@@ -378,6 +378,11 @@ function queueEffect(
 }
 
 const SUN_COLOR_INT = 0xffd700
+const CHECKPOINT_PULSE_COLOR_INT = 0xffea5c
+const CHECKPOINT_LEAF_CENTER_Y_NUMERATOR = 3
+const CHECKPOINT_LEAF_CENTER_Y_DENOMINATOR = 4
+const CHECKPOINT_PULSE_RADIUS_NUMERATOR = 11
+const CHECKPOINT_PULSE_RADIUS_DENOMINATOR = 4
 
 const effectsEmitter: EffectsEmitter = {
   emitSpark: (x, y) => {
@@ -391,6 +396,15 @@ const effectsEmitter: EffectsEmitter = {
   },
   emitHeal: (x, y) => {
     queueEffect(EFFECT_TYPES.HEAL, x, y, SUN_COLOR_INT, 0)
+  },
+  emitCheckpointPulse: (x, y, radius) => {
+    queueEffect(
+      EFFECT_TYPES.CHECKPOINT_PULSE,
+      x,
+      y,
+      CHECKPOINT_PULSE_COLOR_INT,
+      radius
+    )
   },
   emitCameraShake: (x, y, intensity, durationMs) => {
     queueEffect(EFFECT_TYPES.CAMERA_SHAKE, x, y, intensity, durationMs)
@@ -664,6 +678,32 @@ function initializeSystems() {
       return
     }
     ctx.postMessage(checkpointActivatedMessage)
+  })
+  checkpointSystem.setCheckpointEnteredHandler((entity, alreadyActive) => {
+    if (!entity.transform) {
+      return
+    }
+    const renderRadius = entity.render?.radius ?? 0
+    const pulseY =
+      entity.transform.y -
+      (renderRadius * CHECKPOINT_LEAF_CENTER_Y_NUMERATOR) /
+        CHECKPOINT_LEAF_CENTER_Y_DENOMINATOR
+    const pulseRadius =
+      (renderRadius * CHECKPOINT_PULSE_RADIUS_NUMERATOR) /
+      CHECKPOINT_PULSE_RADIUS_DENOMINATOR
+    effectsEmitter.emitCheckpointPulse(entity.transform.x, pulseY, pulseRadius)
+    if (
+      alreadyActive &&
+      playerEntity?.stats &&
+      playerEntity.transform &&
+      !playerEntity.stats.isDead
+    ) {
+      playerEntity.stats.health = playerEntity.stats.maxHealth
+      effectsEmitter.emitHeal(
+        playerEntity.transform.x,
+        playerEntity.transform.y
+      )
+    }
   })
   checkpointSystem.setPlayerDeadHandler(() => {
     ctx.postMessage(playerDeadMessage)

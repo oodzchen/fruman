@@ -279,6 +279,8 @@ export class ClientRenderer {
         this.particleSystem.spawnDeath(x, y, color, radius)
       } else if (type === EFFECT_TYPES.HEAL) {
         this.particleSystem.spawnHeal(x, y, color)
+      } else if (type === EFFECT_TYPES.CHECKPOINT_PULSE) {
+        this.particleSystem.spawnCheckpointPulse(x, y, color, radius)
       } else if (type === EFFECT_TYPES.CAMERA_SHAKE) {
         const attenuatedIntensity =
           color *

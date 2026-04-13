@@ -52,6 +52,7 @@ export type EffectsEmitter = {
   emitBlood: (x: number, y: number, color: number) => void
   emitDeath: (x: number, y: number, color: number, radius: number) => void
   emitHeal: (x: number, y: number) => void
+  emitCheckpointPulse: (x: number, y: number, radius: number) => void
   emitCameraShake: (
     x: number,
     y: number,

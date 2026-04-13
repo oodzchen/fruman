@@ -9,6 +9,10 @@ import type { Entity } from '../Entity'
 import { System } from '../System'
 
 export type CheckpointActivatedHandler = (entity: Entity) => void
+export type CheckpointEnteredHandler = (
+  entity: Entity,
+  alreadyActive: boolean
+) => void
 export type PlayerDeadHandler = () => void
 
 export class CheckpointSystem extends System {
@@ -21,6 +25,7 @@ export class CheckpointSystem extends System {
   private activeCheckpointY = 0
   private hasActiveCheckpoint = false
   private onCheckpointActivated: CheckpointActivatedHandler | null = null
+  private onCheckpointEntered: CheckpointEnteredHandler | null = null
   private onPlayerDead: PlayerDeadHandler | null = null
   private deathNotified = false
 
@@ -46,6 +51,10 @@ export class CheckpointSystem extends System {
     handler: CheckpointActivatedHandler | null
   ): void {
     this.onCheckpointActivated = handler
+  }
+
+  setCheckpointEnteredHandler(handler: CheckpointEnteredHandler | null): void {
+    this.onCheckpointEntered = handler
   }
 
   setPlayerDeadHandler(handler: PlayerDeadHandler | null): void {
@@ -93,10 +102,12 @@ export class CheckpointSystem extends System {
 
   update(entities: Entity[], _deltaTime: number): void {
     if (!this.player || !this.player.transform || !this.player.stats) {
+      this.clearPlayerInsideState(entities)
       return
     }
 
     if (this.player.stats.isDead) {
+      this.clearPlayerInsideState(entities)
       if (this.player.stats.isVanished) {
         if (!this.deathNotified) {
           this.deathNotified = true
@@ -124,11 +135,16 @@ export class CheckpointSystem extends System {
     const playerLayer = this.player?.render?.renderLayer ?? 0
     let bestEntity: Entity | null = null
     let bestDist = 0
+    let enteredEntity: Entity | null = null
+    let enteredDist = 0
 
     for (let i = 0; i < entities.length; i += 1) {
       const entity = entities[i]
       if (!entity.transform || !entity.checkpoint) continue
-      if ((entity.render?.renderLayer ?? 0) !== playerLayer) continue
+      if ((entity.render?.renderLayer ?? 0) !== playerLayer) {
+        entity.checkpoint.wasPlayerInside = false
+        continue
+      }
 
       const renderRadius = entity.render?.radius ?? 0
       const activationRadius = entity.checkpoint.activationRadius + renderRadius
@@ -137,8 +153,19 @@ export class CheckpointSystem extends System {
       const dx = playerX - entity.transform.x
       const dy = playerY - activationCenterY
       const distSq = dx * dx + dy * dy
+      const isInside = distSq <= radiusSq
+      const wasInside = entity.checkpoint.wasPlayerInside
 
-      if (distSq <= radiusSq) {
+      entity.checkpoint.wasPlayerInside = isInside
+
+      if (isInside && !wasInside) {
+        if (!enteredEntity || distSq < enteredDist) {
+          enteredEntity = entity
+          enteredDist = distSq
+        }
+      }
+
+      if (isInside) {
         if (!bestEntity || distSq < bestDist) {
           bestEntity = entity
           bestDist = distSq
@@ -146,12 +173,28 @@ export class CheckpointSystem extends System {
       }
     }
 
-    if (bestEntity) {
+    if (enteredEntity && this.onCheckpointEntered) {
+      this.onCheckpointEntered(
+        enteredEntity,
+        this.activeCheckpoint === enteredEntity
+      )
+    }
+
+    if (bestEntity && this.activeCheckpoint !== bestEntity) {
       this.setActiveCheckpoint(bestEntity)
     }
   }
 
   hasDefaultSpawnPoint(): boolean {
     return this.hasDefaultSpawn
+  }
+
+  private clearPlayerInsideState(entities: Entity[]): void {
+    for (let i = 0; i < entities.length; i += 1) {
+      const checkpoint = entities[i].checkpoint
+      if (checkpoint) {
+        checkpoint.wasPlayerInside = false
+      }
+    }
   }
 }
