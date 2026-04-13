@@ -2062,36 +2062,63 @@ export class ClientRenderer {
     if (impact100 <= 0) return
 
     const ppm = this.pixelsPerMeter
-    // 冲击波中心 = 锤头触地点，与游戏 AOE 圆心一致
+    // 碎片爆散中心 = 锤头触地点，与游戏 AOE 圆心一致
     const cx = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_X] * ppm
     const cy = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_GROUND_Y] * ppm
 
     const progress = impact100 / 100
-    // AOE 半径与 WeaponSystem.ts 中 HAMMER_AOE_RADIUS 保持一致（4m）
-    const HAMMER_AOE_R_M = 4
-    const maxReach = HAMMER_AOE_R_M * ppm
-    // 固定长度条状物从中心向外飞散，中心保持空旷
-    const BAR_LEN = ppm * 0.8
-    const outerEdge = progress * maxReach
-    const innerEdge = Math.max(0, outerEdge - BAR_LEN)
-    const BAR_COUNT = 7
-    const BAR_W = Math.max(3, ppm * 0.12)
-    const alpha = (1 - progress) * 0.8
+    const maxReach = ppm * 5.2
+    const fragmentCount = 15
+    const strokeWidth = Math.max(1, ppm * 0.045)
+    const alpha = (1 - progress) * 0.9
 
     this.ctx.save()
     this.ctx.globalAlpha = alpha
-    this.ctx.strokeStyle = '#e8e0c8'
-    this.ctx.lineWidth = BAR_W
-    this.ctx.lineCap = 'round'
+    this.ctx.fillStyle = '#d7cab0'
+    this.ctx.strokeStyle = '#f3ecd8'
+    this.ctx.lineWidth = strokeWidth
+    this.ctx.lineJoin = 'round'
 
-    // 上半圆（从右→上→左），贴地爆炸向四周扩散
-    for (let i = 0; i < BAR_COUNT; i++) {
-      const angle = -(i / (BAR_COUNT - 1)) * Math.PI
-      const cos = Math.cos(angle)
-      const sin = Math.sin(angle)
+    for (let i = 0; i < fragmentCount; i++) {
+      const t = i / (fragmentCount - 1)
+      const angle = -Math.PI + t * Math.PI
+      const dirX = Math.cos(angle)
+      const dirY = Math.sin(angle)
+      const speedScale = 0.72 + (i % 4) * 0.16
+      const liftScale = 0.34 + (i % 5) * 0.08
+      const travel = maxReach * progress * speedScale
+      const lift = ppm * liftScale * progress * (1 - progress * 0.35)
+      const shardX = cx + dirX * travel
+      const shardY = cy + dirY * travel - lift
+      const shardLen = ppm * (0.2 + (i % 5) * 0.04) * (1 - progress * 0.22)
+      const shardHalfW = ppm * (0.05 + (i % 4) * 0.015) * (1 - progress * 0.12)
+      const normalX = -dirY
+      const normalY = dirX
+      const tipX = shardX + dirX * shardLen
+      const tipY = shardY + dirY * shardLen
+      const tailX = shardX - dirX * shardLen * 0.55
+      const tailY = shardY - dirY * shardLen * 0.55
+
       this.ctx.beginPath()
-      this.ctx.moveTo(cx + cos * innerEdge, cy + sin * innerEdge)
-      this.ctx.lineTo(cx + cos * outerEdge, cy + sin * outerEdge)
+      this.ctx.moveTo(
+        tailX + normalX * shardHalfW,
+        tailY + normalY * shardHalfW
+      )
+      this.ctx.lineTo(
+        shardX + normalX * shardHalfW * 0.7,
+        shardY + normalY * shardHalfW * 0.7
+      )
+      this.ctx.lineTo(tipX, tipY)
+      this.ctx.lineTo(
+        shardX - normalX * shardHalfW * 0.7,
+        shardY - normalY * shardHalfW * 0.7
+      )
+      this.ctx.lineTo(
+        tailX - normalX * shardHalfW,
+        tailY - normalY * shardHalfW
+      )
+      this.ctx.closePath()
+      this.ctx.fill()
       this.ctx.stroke()
     }
 

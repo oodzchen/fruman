@@ -1225,6 +1225,7 @@ export class PixiWorldRenderer {
     hideSprite(this.giantSwordSprite)
     hideSprite(this.spearTopSprite)
     hideSprite(this.spearBottomSprite)
+    this.hammerShockwaveGraphics.clear()
     hideGraphics(this.hammerShockwaveGraphics)
 
     if (playerOffset === -1) {
@@ -1271,32 +1272,54 @@ export class PixiWorldRenderer {
         const cx = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_X] * ppm
         const cy = buf[playerOffset + OFFSETS.ULTIMATE_SWORD_GROUND_Y] * ppm
         const progress = impact100 / 100
-        const maxReach = 4 * ppm
-        const barLen = ppm * 0.8
-        const outerEdge = progress * maxReach
-        const innerEdge = Math.max(0, outerEdge - barLen)
-        const barCount = 7
-        const barWidth = Math.max(3, ppm * 0.12)
+        const maxReach = ppm * 5.2
+        const fragmentCount = 15
+        const strokeWidth = Math.max(1, ppm * 0.045)
 
         this.hammerShockwaveGraphics.visible = true
-        this.hammerShockwaveGraphics.alpha = (1 - progress) * 0.8
-        for (let i = 0; i < barCount; i++) {
-          const angle = -(i / (barCount - 1)) * Math.PI
-          const cos = Math.cos(angle)
-          const sin = Math.sin(angle)
-          this.hammerShockwaveGraphics.moveTo(
-            cx + cos * innerEdge,
-            cy + sin * innerEdge
-          )
-          this.hammerShockwaveGraphics.lineTo(
-            cx + cos * outerEdge,
-            cy + sin * outerEdge
-          )
+        this.hammerShockwaveGraphics.alpha = (1 - progress) * 0.9
+        for (let i = 0; i < fragmentCount; i++) {
+          const t = i / (fragmentCount - 1)
+          const angle = -Math.PI + t * Math.PI
+          const dirX = Math.cos(angle)
+          const dirY = Math.sin(angle)
+          const speedScale = 0.72 + (i % 4) * 0.16
+          const liftScale = 0.34 + (i % 5) * 0.08
+          const travel = maxReach * progress * speedScale
+          const lift = ppm * liftScale * progress * (1 - progress * 0.35)
+          const shardX = cx + dirX * travel
+          const shardY = cy + dirY * travel - lift
+          const shardLen = ppm * (0.2 + (i % 5) * 0.04) * (1 - progress * 0.22)
+          const shardHalfW =
+            ppm * (0.05 + (i % 4) * 0.015) * (1 - progress * 0.12)
+          const normalX = -dirY
+          const normalY = dirX
+          const tipX = shardX + dirX * shardLen
+          const tipY = shardY + dirY * shardLen
+          const tailX = shardX - dirX * shardLen * 0.55
+          const tailY = shardY - dirY * shardLen * 0.55
+
+          this.hammerShockwaveGraphics
+            .moveTo(tailX + normalX * shardHalfW, tailY + normalY * shardHalfW)
+            .lineTo(
+              shardX + normalX * shardHalfW * 0.7,
+              shardY + normalY * shardHalfW * 0.7
+            )
+            .lineTo(tipX, tipY)
+            .lineTo(
+              shardX - normalX * shardHalfW * 0.7,
+              shardY - normalY * shardHalfW * 0.7
+            )
+            .lineTo(tailX - normalX * shardHalfW, tailY - normalY * shardHalfW)
+            .closePath()
         }
+        this.hammerShockwaveGraphics.fill({
+          color: '#d7cab0',
+        })
         this.hammerShockwaveGraphics.stroke({
-          color: '#e8e0c8',
-          width: barWidth,
-          cap: 'round',
+          color: '#f3ecd8',
+          width: strokeWidth,
+          join: 'round',
         })
       }
     }
