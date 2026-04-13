@@ -545,7 +545,10 @@ export class WeaponSystem extends System {
       return
     }
 
-    if (weapon.attackPhase === 'windup' && entity.movement?.isRolling) {
+    if (
+      weapon.attackPhase === 'windup' &&
+      (entity.movement?.isRolling || entity.movement?.isBackstepping)
+    ) {
       this.resetWeaponToCombatIdle(entity, playerPos, inputFacing)
       return
     }

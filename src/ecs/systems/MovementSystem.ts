@@ -1,4 +1,7 @@
 import {
+  DEFAULT_BACKSTEP_DURATION,
+  DEFAULT_BACKSTEP_HORIZONTAL_IMPULSE,
+  DEFAULT_BACKSTEP_VERTICAL_IMPULSE,
   DEFAULT_GRAVITY,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_PLAYER_WEIGHT,
@@ -285,7 +288,12 @@ export class MovementSystem extends System {
 
   private updateHitStunAnimation(entity: Entity): void {
     if (!entity.movement || !entity.stats) return
-    if (entity.stats.isStaggered || entity.movement.isRolling) return
+    if (
+      entity.stats.isStaggered ||
+      entity.movement.isRolling ||
+      entity.movement.isBackstepping
+    )
+      return
 
     const knockbackDuration = entity.movement.knockbackDuration
     if (knockbackDuration <= 0) {
@@ -325,7 +333,7 @@ export class MovementSystem extends System {
 
     this.handleSprintAndRoll(entity)
 
-    if (entity.movement.isRolling) {
+    if (entity.movement.isRolling || entity.movement.isBackstepping) {
       return
     }
 
@@ -368,15 +376,31 @@ export class MovementSystem extends System {
       return
     }
 
+    // 1b. 处理正在进行的后跳
+    if (entity.movement.isBackstepping) {
+      entity.movement.backstepElapsedTime += this.currentDeltaTime
+      const elapsedMs = entity.movement.backstepElapsedTime * 1000
+      if (elapsedMs >= entity.movement.backstepDuration) {
+        this.endBackstep(entity)
+      }
+      return
+    }
+
     entity.movement.rollCooldownElapsedTime += this.currentDeltaTime
 
-    // 2. 检查翻滚输入 (Ctrl键 -> InputBuffer 'roll')
+    // 2. 检查翻滚/后跳输入 (Ctrl键 -> InputBuffer 'roll')
     const cooldownMs = entity.movement.rollCooldownElapsedTime * 1000
     if (cooldownMs >= DEFAULT_ROLL_COOLDOWN && this.canRoll(entity)) {
       entity.input.inputBuffer.tryExecute(
         'roll',
         () => true,
-        () => this.startRoll(entity)
+        () => {
+          if (entity.input!.moveDirection !== 0) {
+            this.startRoll(entity)
+          } else {
+            this.startBackstep(entity)
+          }
+        }
       )
     }
 
@@ -452,25 +476,11 @@ export class MovementSystem extends System {
     entity.movement.rollElapsedTime = 0
     entity.movement.rollDuration = DEFAULT_ROLL_DURATION
 
-    // 优先使用当前按下的移动方向，如果没有按键则使用朝向
-    const direction =
-      entity.input.moveDirection !== 0
-        ? entity.input.moveDirection
-        : entity.input.lastMoveDirection !== 0
-          ? entity.input.lastMoveDirection
-          : 1
-    entity.movement.rollDirection = direction
+    entity.movement.rollDirection = entity.input.moveDirection || 1
 
     entity.movement.isJumping = false
 
-    // 修改碰撞掩码以穿过敌人
-    const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
-    const renderLayer = entity.render?.renderLayer ?? 0
-    forEachPhysicsShapeId(entity.physics, (shapeId) => {
-      const filter = b2Shape_GetFilter(shapeId)
-      filter.maskBits = getPlayerCollisionMask(renderLayer, true)
-      b2Shape_SetFilter(shapeId, filter)
-    })
+    this.setRollCollisionMask(entity)
 
     // 开始翻滚时立即更新一次物理状态
     this.updateRollPhysics(entity)
@@ -495,7 +505,70 @@ export class MovementSystem extends System {
       this.currentTimeMs + DEFAULT_ROLL_COOLDOWN
     entity.movement.rollCooldownElapsedTime = 0
 
-    // 恢复碰撞掩码
+    this.restoreCollisionMask(entity)
+  }
+
+  private startBackstep(entity: Entity): void {
+    if (!entity.movement || !entity.input || !entity.physics) return
+
+    // 从崩塌状态恢复（与翻滚共享逻辑）
+    if (entity.stats?.isStaggered) {
+      entity.stats.isStaggered = false
+      entity.stats.staggerElapsedTime = 0
+      entity.stats.staggerAnimationPhase = 'none'
+      entity.stats.staggerAnimationElapsed = 0
+      entity.stats.posture = entity.stats.maxPosture
+    }
+
+    entity.movement.isBackstepping = true
+    entity.movement.backstepElapsedTime = 0
+    entity.movement.backstepDuration = DEFAULT_BACKSTEP_DURATION
+    entity.movement.isJumping = false
+
+    // 后跳方向：朝向的反方向
+    const facing =
+      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    const backstepDir = -facing
+
+    // 施加一次性脉冲
+    const {
+      b2Body_ApplyLinearImpulseToCenter,
+      b2Body_SetLinearVelocity,
+      b2Body_GetMass,
+    } = this.box2d
+    const mass = b2Body_GetMass(entity.physics.bodyId)
+
+    // 先清零水平速度再施加脉冲
+    this.tempVec.x = 0
+    this.tempVec.y = 0
+    b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+
+    this.tempVec.x = backstepDir * DEFAULT_BACKSTEP_HORIZONTAL_IMPULSE * mass
+    this.tempVec.y = -DEFAULT_BACKSTEP_VERTICAL_IMPULSE * mass
+    b2Body_ApplyLinearImpulseToCenter(entity.physics.bodyId, this.tempVec, true)
+  }
+
+  private endBackstep(entity: Entity): void {
+    if (!entity.movement || !entity.physics) return
+    entity.movement.isBackstepping = false
+    entity.movement.rollCooldownEndTime =
+      this.currentTimeMs + DEFAULT_ROLL_COOLDOWN
+    entity.movement.rollCooldownElapsedTime = 0
+  }
+
+  private setRollCollisionMask(entity: Entity): void {
+    if (!entity.physics) return
+    const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
+    const renderLayer = entity.render?.renderLayer ?? 0
+    forEachPhysicsShapeId(entity.physics, (shapeId) => {
+      const filter = b2Shape_GetFilter(shapeId)
+      filter.maskBits = getPlayerCollisionMask(renderLayer, true)
+      b2Shape_SetFilter(shapeId, filter)
+    })
+  }
+
+  private restoreCollisionMask(entity: Entity): void {
+    if (!entity.physics) return
     const { b2Shape_GetFilter, b2Shape_SetFilter } = this.box2d
     const renderLayer = entity.render?.renderLayer ?? 0
     forEachPhysicsShapeId(entity.physics, (shapeId) => {

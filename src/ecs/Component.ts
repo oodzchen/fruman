@@ -138,6 +138,10 @@ export class MovementComponent extends Component {
   rollCooldownEndTime = 0
   rollCooldownElapsedTime = 0
 
+  isBackstepping = false
+  backstepElapsedTime = 0
+  backstepDuration = 0
+
   knockbackEndTime = 0
   knockbackDuration = 0
   knockbackElapsedTime = 0
@@ -185,6 +189,9 @@ export class MovementComponent extends Component {
     this.rollAngle = 0
     this.rollCooldownEndTime = 0
     this.rollCooldownElapsedTime = 0
+    this.isBackstepping = false
+    this.backstepElapsedTime = 0
+    this.backstepDuration = 0
     this.knockbackEndTime = 0
     this.knockbackDuration = 0
     this.knockbackElapsedTime = 0
@@ -1045,6 +1052,9 @@ export class NpcAIComponent extends Component {
   leapAttackStage = 0 // 0: inactive, 1: airborne
   leapAttackTimestamp = 0
   leapAttackCooldownEndTimestamp = 0
+  backstepRemaining = 0
+  backstepChecked = false
+  wasInTargetRange = false
 
   // Patrol properties
   patrolWaypoints: { x: number; y: number }[] = []
@@ -1131,6 +1141,9 @@ export class NpcAIComponent extends Component {
     this.leapAttackStage = 0
     this.leapAttackTimestamp = 0
     this.leapAttackCooldownEndTimestamp = 0
+    this.backstepRemaining = 0
+    this.backstepChecked = false
+    this.wasInTargetRange = false
     this.patrolWaypoints = []
     this.currentWaypointIndex = 0
     this.patrolResumeTimestamp = 0

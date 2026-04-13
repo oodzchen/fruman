@@ -26,6 +26,9 @@ import {
   ENEMY_PROBE_SPEED_MULTIPLIER,
   ENEMY_RETREAT_EXTRA_DISTANCE,
   GRAPE_MIN_WINDUP_MS,
+  NPC_BACKSTEP_BASE_CHANCE,
+  NPC_BACKSTEP_MAX_CHANCE,
+  NPC_BACKSTEP_MAX_COUNT,
   WEAPON_DEFAULT_DATA,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
@@ -274,6 +277,7 @@ export class NpcAISystem extends System {
         !!hasCombatLineOfSight,
         isTargetAirborne
       )
+      this.updateBackstep(entity, ai, target, distance)
       const isEngaged =
         !!hasCombatLineOfSight ||
         !!entity.stats?.isInCombat ||
@@ -1796,6 +1800,59 @@ export class NpcAISystem extends System {
       }
       if (entity.input) {
         entity.input.sprintRequested = false
+      }
+    }
+  }
+
+  private updateBackstep(
+    entity: Entity,
+    ai: NpcAIComponent,
+    target: Entity,
+    distance: number
+  ): void {
+    if (!entity.input || !entity.movement) return
+    if (entity.movement.isRolling || entity.movement.isBackstepping) return
+    if (entity.stats?.isDead || entity.stats?.isStaggered) return
+    if (ai.state === 'leapAttack') return
+
+    // 计算玩家的攻击范围
+    const targetAttackRadius = this.getWeaponAttackRadius(target)
+    const entityRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const targetRange = targetAttackRadius + entityRadius
+    const inTargetRange = distance <= targetRange
+
+    if (!inTargetRange) {
+      ai.wasInTargetRange = false
+      ai.backstepChecked = false
+      ai.backstepRemaining = 0
+      return
+    }
+
+    // 有剩余后跳次数则立即执行
+    if (ai.backstepRemaining > 0) {
+      ai.backstepRemaining--
+      entity.input.moveDirection = 0
+      entity.input.inputBuffer.bufferAction('roll')
+      return
+    }
+
+    // 刚进入攻击范围，且尚未检查过
+    if (!ai.wasInTargetRange && !ai.backstepChecked) {
+      ai.wasInTargetRange = true
+      ai.backstepChecked = true
+
+      // 概率 = base + (max - base) * proficiency / 100
+      const chance =
+        NPC_BACKSTEP_BASE_CHANCE +
+        ((NPC_BACKSTEP_MAX_CHANCE - NPC_BACKSTEP_BASE_CHANCE) *
+          ai.parryProficiency) /
+          100
+      if (Math.random() * 100 < chance) {
+        ai.backstepRemaining =
+          1 + Math.floor(Math.random() * NPC_BACKSTEP_MAX_COUNT)
+        ai.backstepRemaining--
+        entity.input.moveDirection = 0
+        entity.input.inputBuffer.bufferAction('roll')
       }
     }
   }

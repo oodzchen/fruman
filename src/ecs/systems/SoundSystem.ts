@@ -100,7 +100,11 @@ export class SoundSystem extends System {
   private updateFootsteps(entities: Entity[], deltaMs: number): void {
     for (const entity of entities) {
       if (!entity.transform || !entity.movement || !entity.render) continue
-      if (entity.stats?.isDead || entity.movement.isRolling) {
+      if (
+        entity.stats?.isDead ||
+        entity.movement.isRolling ||
+        entity.movement.isBackstepping
+      ) {
         entity.movement.footstepTimerMs = 0
         continue
       }

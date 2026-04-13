@@ -381,6 +381,16 @@ export const DEFAULT_ROLL_DURATION = 500
 export const DEFAULT_ROLL_SPEED = 6
 export const DEFAULT_ROLL_COOLDOWN = 200
 
+// 后跳闪避参数
+export const DEFAULT_BACKSTEP_HORIZONTAL_IMPULSE = 10
+export const DEFAULT_BACKSTEP_VERTICAL_IMPULSE = 6
+export const DEFAULT_BACKSTEP_DURATION = 350
+
+// NPC后跳参数
+export const NPC_BACKSTEP_BASE_CHANCE = 10
+export const NPC_BACKSTEP_MAX_CHANCE = 60
+export const NPC_BACKSTEP_MAX_COUNT = 2
+
 // 碰撞分类
 export const CATEGORY_GROUND = 0x0001
 export const CATEGORY_PLAYER = 0x0002
