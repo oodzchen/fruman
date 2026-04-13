@@ -430,6 +430,7 @@ const pendingParams: Record<string, number> = {}
 // Camera tracking logic (moved from Main to here to send correct camera pos)
 const camera = { x: 0, y: 0 }
 let zoom = DEFAULT_CAMERA_ZOOM
+let requestedZoom = DEFAULT_CAMERA_ZOOM
 let targetZoom = DEFAULT_CAMERA_ZOOM
 let canvasWidth = 0
 let isCameraLocked = false
@@ -453,6 +454,10 @@ let lastVerticalUnlockTime = 0
 let initialPlayerScreenRatioY = 0.8
 let verticalLookAheadOffsetY = 0
 let verticalForceCenterAfterEmergency = false
+let ultimateCameraActive = false
+let ultimateCameraTargetX = 0
+let ultimateCameraTargetY = 0
+let ultimateCameraTargetZoom = DEFAULT_CAMERA_ZOOM
 
 const TRANSITION_DURATION = 3
 const VERTICAL_TRANSITION_DURATION = 6
@@ -466,6 +471,11 @@ const VERTICAL_CENTER_UNLOCK_EPSILON_RATIO = 0.02
 const VERTICAL_LOOK_AHEAD_TIME = 0.18
 const VERTICAL_LOOK_AHEAD_MAX = 1.2
 const VERTICAL_LOOK_AHEAD_LERP = 0.2
+const ULTIMATE_CAMERA_SCREEN_RATIO_Y = 0.62
+const ULTIMATE_CAMERA_SWORD_ZOOM = 0.5
+const ULTIMATE_CAMERA_SPEAR_ZOOM = 0.48
+const ULTIMATE_CAMERA_HAMMER_ZOOM = 0.42
+const HAMMER_ULTIMATE_CAMERA_FOCUS_OFFSET_Y = 4
 
 // Reusable message object for sendState
 const stateMessage: WorkerStateMessage = {
@@ -2445,6 +2455,7 @@ function applyMapCamera(map: EditorMapData): void {
   camera.x = map.camera.x
   camera.y = map.camera.y
   zoom = zoomValue
+  requestedZoom = zoomValue
   targetZoom = zoomValue
 
   const isDefaultCamera =
@@ -2791,7 +2802,7 @@ function handleInput(
     }
   }
 
-  targetZoom = mouseZoomTarget
+  requestedZoom = mouseZoomTarget
 }
 
 function fixedUpdate() {
@@ -2826,6 +2837,9 @@ function fixedUpdate() {
       }
     }
   }
+
+  syncUltimateCameraState()
+  targetZoom = ultimateCameraActive ? ultimateCameraTargetZoom : requestedZoom
 
   // Update Zoom logic (smooth transition)
   const zoomDiff = targetZoom - zoom
@@ -2883,7 +2897,7 @@ function fixedUpdate() {
 
   cleanupDestroyedEntities()
 
-  updateCamera(playerEntity.transform ? playerEntity.transform.x : 0)
+  updateCamera()
 }
 
 function update() {
@@ -2963,7 +2977,133 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3)
 }
 
-function updateCamera(playerX: number) {
+function isHammerUltimatePhase(
+  phase: NonNullable<Entity['weapon']>['ultimatePhase'] | null | undefined
+): boolean {
+  return typeof phase === 'string' && phase.startsWith('hammer_')
+}
+
+function isSpearUltimatePhase(
+  phase: NonNullable<Entity['weapon']>['ultimatePhase'] | null | undefined
+): boolean {
+  return typeof phase === 'string' && phase.startsWith('spear_')
+}
+
+function resetCameraTrackingState(): void {
+  isCameraLocked = false
+  isTransitioning = false
+  transitionStartTime = 0
+  transitionStartCameraX = camera.x
+  lastVelocityDirection = 0
+  needsReturnToCenter = false
+  lastUnlockTime = currentTime
+  outOfCenterTime = 0
+  horizontalForceCenterAfterEmergency = false
+
+  isVerticalCameraLocked = false
+  isVerticalTransitioning = false
+  verticalTransitionStartTime = 0
+  verticalTransitionStartCameraY = camera.y
+  verticalOutOfCenterTime = 0
+  lastVerticalUnlockTime = currentTime
+  verticalLookAheadOffsetY = 0
+  verticalForceCenterAfterEmergency = false
+}
+
+function activateUltimateCamera(): void {
+  if (!playerEntity?.transform || !playerEntity.weapon) {
+    ultimateCameraActive = false
+    return
+  }
+
+  const weapon = playerEntity.weapon
+  const phase = weapon.ultimatePhase
+  if (phase === null) {
+    ultimateCameraActive = false
+    return
+  }
+
+  const radius = playerEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+  const playerFeetY = playerEntity.transform.y + radius
+  let focusX = playerEntity.transform.x
+  let focusY = playerFeetY
+  let zoomTarget = requestedZoom
+
+  if (isHammerUltimatePhase(phase)) {
+    focusX = (playerEntity.transform.x + weapon.ultimateHammerLandX) * 0.5
+    focusY = playerFeetY - HAMMER_ULTIMATE_CAMERA_FOCUS_OFFSET_Y
+    zoomTarget = Math.min(requestedZoom, ULTIMATE_CAMERA_HAMMER_ZOOM)
+  } else if (isSpearUltimatePhase(phase)) {
+    focusX = (playerEntity.transform.x + weapon.ultimateSpearCrossX) * 0.5
+    zoomTarget = Math.min(requestedZoom, ULTIMATE_CAMERA_SPEAR_ZOOM)
+  } else {
+    focusX = (playerEntity.transform.x + weapon.ultimateGiantX) * 0.5
+    zoomTarget = Math.min(requestedZoom, ULTIMATE_CAMERA_SWORD_ZOOM)
+  }
+
+  const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+  ultimateCameraTargetZoom = zoomTarget
+  ultimateCameraTargetX = focusX - canvasWidth / (pixelsPerMeter * 2)
+  ultimateCameraTargetY =
+    focusY -
+    canvasHeightInMeters *
+      ((ULTIMATE_CAMERA_SCREEN_RATIO_Y - 1) / ultimateCameraTargetZoom + 1)
+  ultimateCameraActive = true
+  resetCameraTrackingState()
+}
+
+function syncUltimateCameraState(): void {
+  const phase = playerEntity?.weapon?.ultimatePhase
+  if (phase === null || phase === undefined) {
+    if (ultimateCameraActive) {
+      ultimateCameraActive = false
+      resetCameraTrackingState()
+    }
+    return
+  }
+
+  if (!ultimateCameraActive) {
+    activateUltimateCamera()
+  }
+}
+
+function updateCamera() {
+  if (!playerEntity?.transform) return
+  const playerX = playerEntity.transform.x
+
+  if (ultimateCameraActive) {
+    const diffX = ultimateCameraTargetX - camera.x
+    if (Math.abs(diffX) > 0.001) {
+      camera.x += diffX * 0.15
+    } else {
+      camera.x = ultimateCameraTargetX
+    }
+
+    const diffY = ultimateCameraTargetY - camera.y
+    if (Math.abs(diffY) > 0.001) {
+      camera.y += diffY * 0.12
+    } else {
+      camera.y = ultimateCameraTargetY
+    }
+
+    if (DEBUG_DRAW_CAMERA) {
+      const radius = playerEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      const playerFeetY = playerEntity.transform.y + radius
+      const playerScreenY =
+        canvasHeight +
+        ((playerFeetY - camera.y) * pixelsPerMeter - canvasHeight) * zoom
+      debugCameraData.topLimitRatio = 1 - ULTIMATE_CAMERA_SCREEN_RATIO_Y
+      debugCameraData.bottomLimitRatio = ULTIMATE_CAMERA_SCREEN_RATIO_Y
+      debugCameraData.playerScreenY = playerScreenY
+      debugCameraData.playerFeetY = playerFeetY
+      debugCameraData.cameraY = camera.y
+      debugCameraData.zoom = zoom
+      debugCameraData.isOutsideVerticalZone = false
+    }
+
+    return
+  }
+
   // --- Horizontal Logic ---
   const canvasWidthInMeters = canvasWidth / (pixelsPerMeter * zoom)
   let isNpcLocked = false
@@ -4100,6 +4240,10 @@ function restart() {
   initialPlayerScreenRatioY = 0.8
   verticalLookAheadOffsetY = 0
   verticalForceCenterAfterEmergency = false
+  ultimateCameraActive = false
+  ultimateCameraTargetX = 0
+  ultimateCameraTargetY = 0
+  ultimateCameraTargetZoom = DEFAULT_CAMERA_ZOOM
 
   if (activeMapData) {
     applyMapCamera(activeMapData)
@@ -4107,6 +4251,7 @@ function restart() {
     camera.x = 0
     camera.y = 0
     zoom = DEFAULT_CAMERA_ZOOM
+    requestedZoom = DEFAULT_CAMERA_ZOOM
     targetZoom = DEFAULT_CAMERA_ZOOM
 
     const centerX = canvasWidth / 2
@@ -4924,6 +5069,7 @@ function loadFromSave(saveData: SaveData): void {
   camera.x = saveData.camera.x
   camera.y = saveData.camera.y
   zoom = saveData.camera.zoom
+  requestedZoom = saveData.camera.zoom
   targetZoom = saveData.camera.zoom
 
   ctx.postMessage({

@@ -151,8 +151,7 @@ export class AudioManager {
     source.playbackRate.value = playbackRate
     gainNode.gain.value = volume * this.masterVolume
     if (stereoPanner) {
-      const clampedPan =
-        pan === undefined ? 0 : Math.max(-1, Math.min(1, pan))
+      const clampedPan = pan === undefined ? 0 : Math.max(-1, Math.min(1, pan))
       stereoPanner.pan.value = clampedPan
     }
 
