@@ -2,7 +2,11 @@ import {
   CHARACTER_BODY_DRAW_HALF,
   CHARACTER_BODY_DRAW_SIZE,
 } from './characterBodyProfile'
-import { DEFAULT_CAMERA_ZOOM } from './constants'
+import {
+  DEFAULT_CAMERA_ZOOM,
+  DEFAULT_WEAPON_CORNER_RADIUS,
+  WEAPON_DEFAULT_DATA,
+} from './constants'
 import type {
   EditorMapData,
   EditorMapMeta,
@@ -11,10 +15,18 @@ import type {
   MapCharacterBodyProfile,
   MapNpc,
   MapNpcTemplate,
+  MapNpcWeapon,
+  MapPlayerProperties,
 } from './editorMapTypes'
 import { normalizeNpcDropList } from './npcDropUtils'
 import { getDefaultTerrainRenderLayer } from './renderLayers'
-import type { SaveData, SaveMeta, SaveNpcState } from './saveTypes'
+import type {
+  SaveData,
+  SaveMeta,
+  SaveNpcState,
+  SavePlayerState,
+  SaveWeaponSlotState,
+} from './saveTypes'
 import {
   createDefaultTerrainChunkSiteJitter,
   getTerrainChunkMaterialCodes,
@@ -28,6 +40,13 @@ import {
   TERRAIN_CHUNK_SIZE,
 } from './terrain/TerrainTypes'
 import type { NpcType } from './types'
+import {
+  computeWeaponScaleFactor,
+  getDefaultPlayerAmmoForWeaponType,
+  isRangedWeaponType,
+  normalizeWeaponType,
+  resolveWeaponStatsForSize,
+} from './weaponTypeUtils'
 
 const DB_NAME = 'sl2d'
 const DB_VERSION = 5
@@ -137,6 +156,69 @@ interface StoredMapDataRecord {
 interface StoredMapViewRecord {
   id: string
   view: EditorViewportState
+}
+
+function createInitialSaveWeaponSlotState(
+  weaponConfig: MapNpcWeapon | null | undefined
+): SaveWeaponSlotState | null {
+  const weaponType = normalizeWeaponType(weaponConfig?.weaponType)
+  if (!weaponType) {
+    return null
+  }
+
+  const template = WEAPON_DEFAULT_DATA[weaponType]
+  const sizeLevel =
+    typeof weaponConfig?.sizeLevel === 'number' &&
+    Number.isFinite(weaponConfig.sizeLevel) &&
+    weaponConfig.sizeLevel > 0
+      ? Math.round(weaponConfig.sizeLevel)
+      : template.sizeLevel
+  const scaleFactor = computeWeaponScaleFactor(template, sizeLevel)
+  const resolvedStats = resolveWeaponStatsForSize(template, sizeLevel, {
+    attackDamage: weaponConfig?.attackDamage,
+    postureDamage: weaponConfig?.postureDamage,
+    toughnessDamage: weaponConfig?.toughnessDamage,
+  })
+  const bowAmmo =
+    isRangedWeaponType(weaponType) &&
+    typeof weaponConfig?.bowAmmo === 'number' &&
+    Number.isFinite(weaponConfig.bowAmmo) &&
+    weaponConfig.bowAmmo >= 0
+      ? Math.round(weaponConfig.bowAmmo)
+      : getDefaultPlayerAmmoForWeaponType(weaponType)
+  const scaledWidth = template.width * scaleFactor
+  const scaledHeight = template.height * scaleFactor
+
+  return {
+    weaponType,
+    sizeLevel,
+    width: scaledWidth,
+    height: scaledHeight,
+    baseWidth: scaledWidth,
+    sizeMaxLevel: template.sizeMaxLevel,
+    cornerRadius: DEFAULT_WEAPON_CORNER_RADIUS,
+    weight: template.weight * scaleFactor,
+    attackDamage: resolvedStats.attackDamage,
+    postureDamage: resolvedStats.postureDamage,
+    toughnessDamage: resolvedStats.toughnessDamage,
+    bowAmmo: isRangedWeaponType(weaponType) ? bowAmmo : 0,
+    bowAmmoMax: isRangedWeaponType(weaponType) ? bowAmmo : 0,
+  }
+}
+
+function createInitialSavePlayerWeaponState(
+  playerProps: MapPlayerProperties | null | undefined
+): Pick<SavePlayerState, 'mainWeapon' | 'secondaryWeapon' | 'activeSlot'> {
+  const mainWeapon = createInitialSaveWeaponSlotState(playerProps?.mainWeapon)
+  const secondaryWeapon = createInitialSaveWeaponSlotState(
+    playerProps?.secondaryWeapon
+  )
+
+  return {
+    mainWeapon,
+    secondaryWeapon,
+    activeSlot: mainWeapon ? 'main' : secondaryWeapon ? 'secondary' : 'main',
+  }
 }
 
 function compareEditorMapMetaOrder(a: EditorMapMeta, b: EditorMapMeta): number {
@@ -952,9 +1034,36 @@ function normalizeSaveNpcState(npc: SaveNpcState): SaveNpcState {
 }
 
 function normalizeSaveData(saveData: SaveData): SaveData {
+  const normalizedMapData = normalizeEditorMapData(saveData.mapData)
+  const initialPlayerWeapons =
+    saveData.worldStateReady === false
+      ? createInitialSavePlayerWeaponState(normalizedMapData.player)
+      : null
+  const mainWeapon =
+    saveData.player.mainWeapon ?? initialPlayerWeapons?.mainWeapon ?? null
+  const secondaryWeapon =
+    saveData.player.secondaryWeapon ??
+    initialPlayerWeapons?.secondaryWeapon ??
+    null
+  let activeSlot = saveData.player.activeSlot
+
+  if (saveData.worldStateReady === false) {
+    if (activeSlot === 'main' && !mainWeapon && secondaryWeapon) {
+      activeSlot = 'secondary'
+    } else if (activeSlot === 'secondary' && !secondaryWeapon && mainWeapon) {
+      activeSlot = 'main'
+    }
+  }
+
   return {
     ...saveData,
-    mapData: normalizeEditorMapData(saveData.mapData),
+    mapData: normalizedMapData,
+    player: {
+      ...saveData.player,
+      mainWeapon,
+      secondaryWeapon,
+      activeSlot,
+    },
     npcs: (saveData.npcs ?? saveData.enemies ?? []).map(normalizeSaveNpcState),
     groundSunPickups: saveData.groundSunPickups ?? [],
   }
@@ -1022,6 +1131,9 @@ export async function createSave(
     const db = await openDB()
     const now = Date.now()
     const saveId = `save-${now.toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`
+    const initialPlayerWeapons = createInitialSavePlayerWeaponState(
+      mapData.player
+    )
 
     const meta: SaveMeta = {
       id: saveId,
@@ -1053,9 +1165,9 @@ export async function createSave(
         maxPosture: 100,
         toughness: 100,
         maxToughness: 100,
-        mainWeapon: null,
-        secondaryWeapon: null,
-        activeSlot: 'main',
+        mainWeapon: initialPlayerWeapons.mainWeapon,
+        secondaryWeapon: initialPlayerWeapons.secondaryWeapon,
+        activeSlot: initialPlayerWeapons.activeSlot,
       },
       npcs: [],
       groundWeapons: [],
