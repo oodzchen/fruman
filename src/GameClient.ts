@@ -18,6 +18,7 @@ import { saveManager } from './SaveManager'
 import type { EditorMapData } from './editorMapTypes'
 import { collectStaticRenderLayers } from './mapObjectLayers'
 import type { PlayerUpgradeStat } from './playerUpgrade'
+import { DayNightCycle } from './renderer/DayNightCycle'
 import { PatternCreator } from './renderer/PatternCreator'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
@@ -52,6 +53,8 @@ export class GameClient {
 
   // PixiJS scene elements
   private backgroundSprite: TilingSprite | null = null
+  private cloudSprite: TilingSprite | null = null
+  private readonly dayNightCycle = new DayNightCycle()
   private fpsTextEl: Text | null = null
   private worldContainer: Container
   private hudContainer: Container
@@ -273,16 +276,26 @@ export class GameClient {
 
     // PixiJS scene hierarchy
     onInitProgress?.('init_textures')
-    const bgTexture = PatternCreator.createBackgroundTexture()
+    // 天空背景：纯色矩形，通过 tint 实现昼夜颜色渐变
     this.backgroundSprite = new TilingSprite({
-      texture: bgTexture ?? Texture.WHITE,
+      texture: Texture.WHITE,
       width,
       height,
     })
-    if (!bgTexture) {
-      this.backgroundSprite.tint = 0x0d0b18
-    }
+    const initColors = this.dayNightCycle.getColors()
+    this.backgroundSprite.tint = initColors.sky
     app.stage.addChild(this.backgroundSprite)
+    // 云层：白色云朵纹理，通过 tint 实现颜色渐变
+    const cloudTexture = PatternCreator.createCloudTexture()
+    if (cloudTexture) {
+      this.cloudSprite = new TilingSprite({
+        texture: cloudTexture,
+        width,
+        height,
+      })
+      this.cloudSprite.tint = initColors.cloud
+      app.stage.addChild(this.cloudSprite)
+    }
 
     this.worldContainer = new Container()
     this.worldContainer.sortableChildren = true
@@ -402,6 +415,10 @@ export class GameClient {
       if (this.backgroundSprite) {
         this.backgroundSprite.width = newWidth
         this.backgroundSprite.height = newHeight
+      }
+      if (this.cloudSprite) {
+        this.cloudSprite.width = newWidth
+        this.cloudSprite.height = newHeight
       }
       this.worldRenderContext.resize(newWidth, newHeight)
       this.hudRenderContext.resize(newWidth, newHeight)
@@ -1027,6 +1044,12 @@ export class GameClient {
       this.fpsUpdateTime = 0
       shouldRefreshPerfText = true
     }
+
+    // 更新昼夜颜色
+    this.dayNightCycle.update(deltaMs)
+    const dnColors = this.dayNightCycle.getColors()
+    if (this.backgroundSprite) this.backgroundSprite.tint = dnColors.sky
+    if (this.cloudSprite) this.cloudSprite.tint = dnColors.cloud
 
     let updateTimeUs = 0
     if (!this.editorPreview) {
