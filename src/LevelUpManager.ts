@@ -511,7 +511,6 @@ export class LevelUpManager {
     svg.style.cssText = 'position: absolute; inset: 0;'
 
     const stroke = '#e8d6af'
-    const fill = '#b99a62'
 
     if (stat === 'attack') {
       const sword = document.createElementNS(SVG_NS, 'path')
@@ -531,29 +530,38 @@ export class LevelUpManager {
       shield.setAttribute('fill', stroke)
       svg.appendChild(shield)
     } else if (stat === 'agility') {
-      const agility = document.createElementNS(SVG_NS, 'path')
-      agility.setAttribute(
+      const agilityTrail = document.createElementNS(SVG_NS, 'path')
+      agilityTrail.setAttribute(
         'd',
-        'M26 6 H34 L32 24 C40 30 48 38 56 54 L48 56 C44 56 36 48 22 42 C18 42 16 38 17 32 C18 26 22 24 26 6 Z M2 28 H10 V30 H2 Z M14 28 H22 V30 H14 Z M0 38 H8 V40 H0 Z M12 38 H20 V40 H12 Z M4 48 H12 V50 H4 Z M16 48 H24 V50 H16 Z'
+        'M4 18 H17 V22 H4 Z M21 18 H29 V22 H21 Z M1 31 H15 V35 H1 Z M19 31 H30 V35 H19 Z M5 44 H20 V48 H5 Z M24 44 H32 V48 H24 Z'
       )
-      agility.setAttribute('fill', stroke)
-      svg.appendChild(agility)
+      agilityTrail.setAttribute('fill', stroke)
+      svg.appendChild(agilityTrail)
+
+      const agilityFoot = document.createElementNS(SVG_NS, 'path')
+      agilityFoot.setAttribute(
+        'd',
+        'M31 8 H38 L46 11 C44 18 43 24 42 29 C41 33 43 37 48 40 C52 43 54 46 54 49 C54 52 51 54 46 54 H38 C35 54 32 53 30 50 L26 46 C23 43 20 42 16 41 C13 40 12 38 12 35 C12 32 14 30 17 28 C20 26 22 22 23 16 Z'
+      )
+      agilityFoot.setAttribute('fill', stroke)
+      svg.appendChild(agilityFoot)
     } else {
       const rock = document.createElementNS(SVG_NS, 'path')
       rock.setAttribute(
         'd',
-        'M18 24 L28 14 H40 L50 24 L48 42 L38 52 L22 52 L14 38 Z'
+        'M17 30 L26 16 H39 L50 24 L48 40 L39 50 H24 L15 41 L14 33 Z'
       )
       rock.setAttribute('fill', stroke)
       svg.appendChild(rock)
 
-      const cracks = document.createElementNS(SVG_NS, 'path')
-      cracks.setAttribute('d', 'M32 18 L28 28 L34 34 M38 30 L32 42')
-      cracks.setAttribute('fill', 'none')
-      cracks.setAttribute('stroke', 'rgba(0, 0, 0, 0.2)')
-      cracks.setAttribute('stroke-width', '2')
-      cracks.setAttribute('stroke-linecap', 'round')
-      svg.appendChild(cracks)
+      const rockLines = document.createElementNS(SVG_NS, 'path')
+      rockLines.setAttribute('d', 'M29 22 L26 30 L31 35 L28 42 M38 26 L35 33')
+      rockLines.setAttribute('fill', 'none')
+      rockLines.setAttribute('stroke', 'rgba(0, 0, 0, 0.24)')
+      rockLines.setAttribute('stroke-width', '2')
+      rockLines.setAttribute('stroke-linecap', 'round')
+      rockLines.setAttribute('stroke-linejoin', 'round')
+      svg.appendChild(rockLines)
     }
 
     return svg
