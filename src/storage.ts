@@ -19,6 +19,7 @@ import type {
   MapPlayerProperties,
 } from './editorMapTypes'
 import { normalizeNpcDropList } from './npcDropUtils'
+import { clampPlayerLevel, clampPlayerUpgradeLevel } from './playerUpgrade'
 import { getDefaultTerrainRenderLayer } from './renderLayers'
 import type {
   SaveData,
@@ -1060,6 +1061,23 @@ function normalizeSaveData(saveData: SaveData): SaveData {
     mapData: normalizedMapData,
     player: {
       ...saveData.player,
+      level: clampPlayerLevel(saveData.player.level),
+      exp:
+        typeof saveData.player.exp === 'number' &&
+        Number.isFinite(saveData.player.exp) &&
+        saveData.player.exp >= 0
+          ? Math.round(saveData.player.exp)
+          : 0,
+      pendingUpgradePoints:
+        typeof saveData.player.pendingUpgradePoints === 'number' &&
+        Number.isFinite(saveData.player.pendingUpgradePoints) &&
+        saveData.player.pendingUpgradePoints >= 0
+          ? Math.round(saveData.player.pendingUpgradePoints)
+          : 0,
+      attackLevel: clampPlayerUpgradeLevel(saveData.player.attackLevel),
+      defenseLevel: clampPlayerUpgradeLevel(saveData.player.defenseLevel),
+      agilityLevel: clampPlayerUpgradeLevel(saveData.player.agilityLevel),
+      toughnessLevel: clampPlayerUpgradeLevel(saveData.player.toughnessLevel),
       mainWeapon,
       secondaryWeapon,
       activeSlot,
@@ -1159,6 +1177,13 @@ export async function createSave(
       player: {
         position: { x: mapData.playerSpawn.x, y: mapData.playerSpawn.y },
         facing: 1,
+        level: 1,
+        exp: 0,
+        pendingUpgradePoints: 0,
+        attackLevel: 0,
+        defenseLevel: 0,
+        agilityLevel: 0,
+        toughnessLevel: 0,
         health: playerMaxHealth,
         maxHealth: playerMaxHealth,
         posture: 100,

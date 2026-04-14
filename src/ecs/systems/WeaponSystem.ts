@@ -60,6 +60,7 @@ import {
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
 } from '../../physicsLayers'
+import { getPlayerAgilityScalePercent } from '../../playerUpgrade'
 import type { TerrainMaterialTag } from '../../terrain/TerrainTypes'
 import type {
   MainModule,
@@ -332,7 +333,10 @@ export class WeaponSystem extends System {
         this.resetWeaponState(entity)
         continue
       }
-      this.updateWeapon(entity, deltaMs)
+      const attackDeltaMs = entity.level
+        ? (deltaMs * getPlayerAgilityScalePercent(entity.level)) / 100
+        : deltaMs
+      this.updateWeapon(entity, attackDeltaMs)
     }
 
     for (const entity of entities) {

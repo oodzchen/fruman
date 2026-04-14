@@ -95,6 +95,7 @@ export class PhysicsComponent extends Component {
 
 export class MovementComponent extends Component {
   moveSpeed = 0
+  baseMoveSpeed = 0
   jumpForce = 0
   maxJumpDuration = 0
   jumpForceMultiplier = 0
@@ -153,6 +154,7 @@ export class MovementComponent extends Component {
 
   reset(): void {
     this.moveSpeed = 0
+    this.baseMoveSpeed = 0
     this.jumpForce = 0
     this.maxJumpDuration = 0
     this.jumpForceMultiplier = 0
@@ -1278,10 +1280,24 @@ export class ExpOrbComponent extends Component {
 export class LevelComponent extends Component {
   level = 1
   exp = 0
+  pendingUpgradePoints = 0
+  attackLevel = 0
+  defenseLevel = 0
+  agilityLevel = 0
+  toughnessLevel = 0
+  baseMaxHealth = DEFAULT_PLAYER_MAX_HEALTH
+  baseMaxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
 
   reset(): void {
     this.level = 1
     this.exp = 0
+    this.pendingUpgradePoints = 0
+    this.attackLevel = 0
+    this.defenseLevel = 0
+    this.agilityLevel = 0
+    this.toughnessLevel = 0
+    this.baseMaxHealth = DEFAULT_PLAYER_MAX_HEALTH
+    this.baseMaxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
   }
 
   getName(): string {

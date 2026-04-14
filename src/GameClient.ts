@@ -11,11 +11,13 @@ import {
 import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
 import { DialogManager } from './DialogManager'
+import { LevelUpManager } from './LevelUpManager'
 import { localizer } from './Localizer'
 import { MenuAction, MenuManager, MenuMode } from './MenuManager'
 import { saveManager } from './SaveManager'
 import type { EditorMapData } from './editorMapTypes'
 import { collectStaticRenderLayers } from './mapObjectLayers'
+import type { PlayerUpgradeStat } from './playerUpgrade'
 import { PatternCreator } from './renderer/PatternCreator'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
@@ -29,6 +31,7 @@ import type {
   CameraDebugData,
   MainToWorkerMessage,
   WorkerInputMessage,
+  WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
   WorkerToMainMessage,
 } from './worker/protocol'
@@ -65,6 +68,7 @@ export class GameClient {
   private audioManager: AudioManager
   private menuManager: MenuManager
   private dialogManager: DialogManager
+  private levelUpManager: LevelUpManager
   private pixelsPerMeter = 50
 
   private camera = { x: 0, y: 0 }
@@ -325,12 +329,15 @@ export class GameClient {
     )
     this.audioManager = new AudioManager()
     this.menuManager = new MenuManager(this.appCanvas, menuOverlay, inputTarget)
-    const uiLayer = menuOverlay.parentElement as HTMLDivElement
     this.inputTarget = inputTarget
     if (this.inputTarget.tabIndex < 0) {
       this.inputTarget.tabIndex = 0
     }
-    this.dialogManager = new DialogManager(uiLayer, this.inputTarget)
+    this.dialogManager = new DialogManager(this.inputTarget, this.inputTarget)
+    this.levelUpManager = new LevelUpManager(this.inputTarget, this.inputTarget)
+    this.levelUpManager.setSelectionHandler((stat) => {
+      this.handleLevelUpSelection(stat)
+    })
     this.menuManager.setDialogManager(this.dialogManager)
     this.renderer.setAudioManager(this.audioManager)
     const editorOverlay = document.getElementById('editorOverlay')
@@ -508,6 +515,7 @@ export class GameClient {
     } else if (msg.type === 'map_data') {
       this.currentMapData = msg.map
       this.staticRenderLayers = collectStaticRenderLayers(msg.map)
+      this.renderer.resetPlayerHudState()
       this.renderer.setCharacterBodyMap(msg.map)
       this.syncStaticScene(msg.map)
       if (
@@ -524,7 +532,40 @@ export class GameClient {
       void this.handleCheckpointAutosave()
     } else if (msg.type === 'player_dead') {
       void this.handlePlayerDead()
+    } else if (msg.type === 'player_level_up') {
+      this.handlePlayerLevelUp(msg)
     }
+  }
+
+  private handlePlayerLevelUp(msg: WorkerPlayerLevelUpMessage): void {
+    if (msg.level > msg.previousLevel) {
+      this.renderer.deferHealthBarGrowth(msg.previousLevel, msg.level)
+    }
+    if (msg.pendingPoints <= 0) {
+      this.levelUpManager.hide()
+      this.renderer.commitDeferredHealthBarGrowth()
+      this.resumeGameInput()
+      return
+    }
+    this.stop()
+    this.resetInputState()
+    this.setInputEnabled(false)
+    this.levelUpManager.show({
+      level: msg.level,
+      pendingPoints: msg.pendingPoints,
+      attackLevel: msg.attackLevel,
+      defenseLevel: msg.defenseLevel,
+      agilityLevel: msg.agilityLevel,
+      toughnessLevel: msg.toughnessLevel,
+    })
+  }
+
+  private handleLevelUpSelection(stat: PlayerUpgradeStat): void {
+    this.levelUpManager.hide()
+    this.worker.postMessage({
+      type: 'allocate_player_upgrade',
+      stat,
+    } as MainToWorkerMessage)
   }
 
   private handleSaveResponse(msg: WorkerSaveResponseMessage): void {
@@ -654,6 +695,9 @@ export class GameClient {
         if (this.shouldIgnoreKeyEvent(e)) {
           return
         }
+        if (this.levelUpManager.isOpen()) {
+          return
+        }
         const key = e.key.toLowerCase()
 
         if (key === 'escape') {
@@ -725,6 +769,9 @@ export class GameClient {
         if (this.shouldIgnoreKeyEvent(e)) {
           return
         }
+        if (this.levelUpManager.isOpen()) {
+          return
+        }
         if (this.menuManager.isVisible() || !this.inputEnabled) {
           return
         }
@@ -744,6 +791,7 @@ export class GameClient {
         e.preventDefault()
       }
       if (
+        this.levelUpManager.isOpen() ||
         this.menuManager.isVisible() ||
         !this.inputEnabled ||
         this.isEditorOverlayVisible()
@@ -756,6 +804,7 @@ export class GameClient {
 
     this.inputTarget.addEventListener('mouseup', (e) => {
       if (
+        this.levelUpManager.isOpen() ||
         this.menuManager.isVisible() ||
         !this.inputEnabled ||
         this.isEditorOverlayVisible()
@@ -767,6 +816,7 @@ export class GameClient {
     })
 
     this.inputTarget.addEventListener('mouseenter', () => {
+      if (this.levelUpManager.isOpen()) return
       if (this.menuManager.isVisible() || !this.inputEnabled) return
       this.mouseInside = true
       this.mouseCaptured = true
@@ -774,6 +824,7 @@ export class GameClient {
     })
 
     this.inputTarget.addEventListener('mouseleave', () => {
+      if (this.levelUpManager.isOpen()) return
       if (this.menuManager.isVisible() || !this.inputEnabled) return
       this.mouseInside = false
       this.mouseCaptured = false
@@ -781,6 +832,9 @@ export class GameClient {
     })
 
     this.inputTarget.addEventListener('mousemove', (e) => {
+      if (this.levelUpManager.isOpen()) {
+        return
+      }
       if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
@@ -807,6 +861,10 @@ export class GameClient {
     this.inputTarget.addEventListener(
       'contextmenu',
       (e) => {
+        if (this.levelUpManager.isOpen()) {
+          e.preventDefault()
+          return
+        }
         if (this.isEditorOverlayVisible()) {
           return
         }
@@ -824,6 +882,9 @@ export class GameClient {
     )
 
     this.inputTarget.addEventListener('wheel', (e) => {
+      if (this.levelUpManager.isOpen()) {
+        return
+      }
       if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
@@ -890,6 +951,7 @@ export class GameClient {
     if (this.menuManager.isVisible()) return false
     if (this.isEditorOverlayVisible()) return false
     if (this.dialogManager.isDialogOpen()) return false
+    if (this.levelUpManager.isOpen()) return false
     return true
   }
 
@@ -1531,6 +1593,7 @@ export class GameClient {
 
   private resumeGameInput() {
     this.clearStartMenuFlow()
+    this.levelUpManager.hide()
     this.start()
     this.inputEnabled = true
     this.requestGameFocus()

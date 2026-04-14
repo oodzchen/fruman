@@ -113,6 +113,15 @@ import {
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
 } from '../physicsLayers'
+import {
+  type PlayerUpgradeStat,
+  clampPlayerLevel,
+  clampPlayerUpgradeLevel,
+  getPlayerDerivedMaxHealth,
+  getPlayerDerivedMaxToughness,
+  isPlayerUpgradeStatMaxed,
+  setPlayerUpgradeLevel,
+} from '../playerUpgrade'
 import type {
   SaveCheckpointState,
   SaveData,
@@ -169,6 +178,7 @@ import type {
   SoundListenerDebugData,
   SoundWaveDebugData,
   WorkerDebugMessage,
+  WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
   WorkerStateMessage,
 } from './protocol'
@@ -203,6 +213,34 @@ let expOrbSystem: ExpOrbSystem
 
 const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
 const playerDeadMessage = { type: 'player_dead' } as const
+const DEBUG_FORCE_PLAYER_LEVEL = 0
+
+function buildPlayerLevelUpMessage(
+  previousLevel?: number
+): WorkerPlayerLevelUpMessage | null {
+  if (!playerEntity?.level) {
+    return null
+  }
+  const currentLevel = playerEntity.level.level
+  const resolvedPreviousLevel =
+    typeof previousLevel === 'number' &&
+    Number.isFinite(previousLevel) &&
+    previousLevel > 0
+      ? clampPlayerLevel(previousLevel)
+      : currentLevel
+  return {
+    type: 'player_level_up',
+    previousLevel: resolvedPreviousLevel,
+    level: currentLevel,
+    pendingPoints: playerEntity.level.pendingUpgradePoints,
+    previousMaxHealth: playerEntity.stats?.maxHealth ?? 0,
+    currentMaxHealth: playerEntity.stats?.maxHealth ?? 0,
+    attackLevel: playerEntity.level.attackLevel,
+    defenseLevel: playerEntity.level.defenseLevel,
+    agilityLevel: playerEntity.level.agilityLevel,
+    toughnessLevel: playerEntity.level.toughnessLevel,
+  }
+}
 
 let groundShapeIds: b2ShapeId[] = []
 let activeMapData: EditorMapData | null = null
@@ -730,6 +768,16 @@ function initializeSystems() {
   sunPickupSystem.setEffectsEmitter(effectsEmitter)
   expOrbSystem = new ExpOrbSystem()
   expOrbSystem.setEffectsEmitter(effectsEmitter)
+  expOrbSystem.setLevelUpHandler((player) => {
+    const previousLevel =
+      player.level && player.level.level > 1 ? player.level.level - 1 : 1
+    const previousMaxHealth =
+      player.level && player.level.level > 1
+        ? getPlayerDerivedMaxHealth(player.level.baseMaxHealth, previousLevel)
+        : (player.stats?.maxHealth ?? 0)
+    syncPlayerUpgradeState(player, true, false, true)
+    emitPlayerLevelUpPrompt(previousMaxHealth, previousLevel)
+  })
   statsSystem.onNpcDeath = (entity: Entity) => {
     dropNpcConfiguredLoot(entity)
   }
@@ -1101,6 +1149,112 @@ function createObstacles() {
   if (weaponSystem) {
     weaponSystem.setObstacles(obstacles)
   }
+}
+
+function syncPlayerUpgradeState(
+  entity: Entity | null | undefined,
+  restoreHealth: boolean,
+  restoreToughness: boolean,
+  showHud: boolean
+): void {
+  if (!entity?.level || !entity.stats) {
+    return
+  }
+  const level = entity.level
+  if (DEBUG_FORCE_PLAYER_LEVEL > 0) {
+    level.level = DEBUG_FORCE_PLAYER_LEVEL
+    level.exp = 0
+    level.pendingUpgradePoints = 0
+  }
+  level.level = clampPlayerLevel(level.level)
+  level.exp =
+    Number.isFinite(level.exp) && level.exp > 0 ? Math.round(level.exp) : 0
+  level.pendingUpgradePoints =
+    Number.isFinite(level.pendingUpgradePoints) &&
+    level.pendingUpgradePoints > 0
+      ? Math.round(level.pendingUpgradePoints)
+      : 0
+  level.attackLevel = clampPlayerUpgradeLevel(level.attackLevel)
+  level.defenseLevel = clampPlayerUpgradeLevel(level.defenseLevel)
+  level.agilityLevel = clampPlayerUpgradeLevel(level.agilityLevel)
+  level.toughnessLevel = clampPlayerUpgradeLevel(level.toughnessLevel)
+
+  const nextMaxHealth = getPlayerDerivedMaxHealth(
+    level.baseMaxHealth,
+    level.level
+  )
+  entity.stats.maxHealth = nextMaxHealth
+  entity.stats.health = restoreHealth
+    ? nextMaxHealth
+    : Math.min(entity.stats.health, nextMaxHealth)
+  if (showHud) {
+    entity.stats.hudVisibleTimer = entity.stats.combatExitTimeout
+  }
+
+  const nextMaxToughness = getPlayerDerivedMaxToughness(
+    level.baseMaxToughness,
+    level
+  )
+  entity.stats.maxToughness = nextMaxToughness
+  entity.stats.toughness = restoreToughness
+    ? nextMaxToughness
+    : Math.min(entity.stats.toughness, nextMaxToughness)
+
+  if (entity.movement) {
+    entity.movement.moveSpeed = entity.movement.baseMoveSpeed
+  }
+}
+
+function emitPlayerLevelUpPrompt(
+  previousMaxHealth?: number,
+  previousLevel?: number
+): void {
+  const message = buildPlayerLevelUpMessage(previousLevel)
+  if (!message) {
+    return
+  }
+  if (
+    typeof previousMaxHealth === 'number' &&
+    Number.isFinite(previousMaxHealth) &&
+    previousMaxHealth > 0
+  ) {
+    message.previousMaxHealth = previousMaxHealth
+  }
+  if (message.pendingPoints > 0) {
+    isPaused = true
+  }
+  ctx.postMessage(message)
+}
+
+function applyPlayerUpgrade(stat: PlayerUpgradeStat): void {
+  if (!playerEntity?.level) {
+    return
+  }
+  const level = playerEntity.level
+  if (level.pendingUpgradePoints <= 0) {
+    return
+  }
+  if (isPlayerUpgradeStatMaxed(level, stat)) {
+    emitPlayerLevelUpPrompt(undefined, level.level)
+    return
+  }
+  switch (stat) {
+    case 'attack':
+      setPlayerUpgradeLevel(level, stat, level.attackLevel + 1)
+      break
+    case 'defense':
+      setPlayerUpgradeLevel(level, stat, level.defenseLevel + 1)
+      break
+    case 'agility':
+      setPlayerUpgradeLevel(level, stat, level.agilityLevel + 1)
+      break
+    case 'toughness':
+      setPlayerUpgradeLevel(level, stat, level.toughnessLevel + 1)
+      break
+  }
+  level.pendingUpgradePoints -= 1
+  syncPlayerUpgradeState(playerEntity, false, stat === 'toughness', true)
+  emitPlayerLevelUpPrompt(undefined, level.level)
 }
 
 function createEnvironment(): void {
@@ -2189,6 +2343,10 @@ function createPlayerAndWeapon(
     if (!playerEntity.stats.persistentId) {
       playerEntity.stats.persistentId = PLAYER_PERSISTENT_ID
     }
+    if (playerEntity.level) {
+      playerEntity.level.baseMaxHealth = nextMaxHealth
+      playerEntity.level.baseMaxToughness = nextMaxToughness
+    }
   }
 
   if (playerEntity.faction && playerProps?.factionId) {
@@ -2205,6 +2363,7 @@ function createPlayerAndWeapon(
       playerProps.moveSpeed >= 0
         ? playerProps.moveSpeed
         : playerEntity.movement.moveSpeed
+    playerEntity.movement.baseMoveSpeed = nextMoveSpeed
     playerEntity.movement.moveSpeed = nextMoveSpeed
   }
 
@@ -2281,6 +2440,8 @@ function createPlayerAndWeapon(
       playerEntity.weapon.isEquipped = false
     }
   }
+
+  syncPlayerUpgradeState(playerEntity, true, true, false)
 
   if (map?.weapons) {
     for (let i = 0; i < map.weapons.length; i++) {
@@ -4369,6 +4530,9 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
     case 'load_save':
       loadFromSave(msg.saveData)
       break
+    case 'allocate_player_upgrade':
+      applyPlayerUpgrade(msg.stat)
+      break
   }
 }
 
@@ -4885,6 +5049,7 @@ function extractPlayerState(): SavePlayerState {
   const transform = playerEntity.transform
   const stats = playerEntity.stats
   const input = playerEntity.input
+  const level = playerEntity.level
   const weaponSlots = playerEntity.weaponSlots
   const weapon = playerEntity.weapon
   const grapple = playerEntity.grapple
@@ -4897,6 +5062,13 @@ function extractPlayerState(): SavePlayerState {
     id: stats?.persistentId ?? PLAYER_PERSISTENT_ID,
     position: { x: transform?.x ?? 0, y: transform?.y ?? 0 },
     facing: input?.lastMoveDirection ?? 1,
+    level: level?.level ?? 1,
+    exp: level?.exp ?? 0,
+    pendingUpgradePoints: level?.pendingUpgradePoints ?? 0,
+    attackLevel: level?.attackLevel ?? 0,
+    defenseLevel: level?.defenseLevel ?? 0,
+    agilityLevel: level?.agilityLevel ?? 0,
+    toughnessLevel: level?.toughnessLevel ?? 0,
     health: stats?.health ?? 100,
     maxHealth: stats?.maxHealth ?? 100,
     posture: stats?.posture ?? 100,
@@ -5077,11 +5249,35 @@ function loadFromSave(saveData: SaveData): void {
     )
     playerEntity.stats.persistentId = playerState.id ?? PLAYER_PERSISTENT_ID
     playerEntity.stats.health = playerState.health
-    playerEntity.stats.maxHealth = playerState.maxHealth
     playerEntity.stats.posture = playerState.posture
     playerEntity.stats.maxPosture = playerState.maxPosture
     playerEntity.stats.toughness = playerState.toughness
-    playerEntity.stats.maxToughness = playerState.maxToughness
+
+    if (playerEntity.level) {
+      playerEntity.level.level = clampPlayerLevel(playerState.level)
+      playerEntity.level.exp =
+        typeof playerState.exp === 'number' && Number.isFinite(playerState.exp)
+          ? Math.max(0, Math.round(playerState.exp))
+          : 0
+      playerEntity.level.pendingUpgradePoints =
+        typeof playerState.pendingUpgradePoints === 'number' &&
+        Number.isFinite(playerState.pendingUpgradePoints)
+          ? Math.max(0, Math.round(playerState.pendingUpgradePoints))
+          : 0
+      playerEntity.level.attackLevel = clampPlayerUpgradeLevel(
+        playerState.attackLevel
+      )
+      playerEntity.level.defenseLevel = clampPlayerUpgradeLevel(
+        playerState.defenseLevel
+      )
+      playerEntity.level.agilityLevel = clampPlayerUpgradeLevel(
+        playerState.agilityLevel
+      )
+      playerEntity.level.toughnessLevel = clampPlayerUpgradeLevel(
+        playerState.toughnessLevel
+      )
+    }
+    syncPlayerUpgradeState(playerEntity, false, false, false)
 
     if (playerEntity.input) {
       playerEntity.input.lastMoveDirection = playerState.facing
@@ -5115,6 +5311,9 @@ function loadFromSave(saveData: SaveData): void {
     type: 'map_data',
     map: activeMapData,
   })
+  if (playerEntity?.level?.pendingUpgradePoints) {
+    emitPlayerLevelUpPrompt(undefined, playerEntity.level.level)
+  }
 }
 
 function restoreActiveCheckpointFromSave(saveData: SaveData): void {

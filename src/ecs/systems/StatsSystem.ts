@@ -34,6 +34,10 @@ import {
   getPlayerCollisionCategory,
   getPlayerCollisionMask,
 } from '../../physicsLayers'
+import {
+  getPlayerAttackBonusPercent,
+  getPlayerDefenseReductionPercent,
+} from '../../playerUpgrade'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
 import { getWeaponStaggerDropRotationRad } from '../../weaponTypeUtils'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -563,7 +567,7 @@ export class StatsSystem extends System {
     hitSource?: { x: number; y: number },
     attacker?: Entity
   ): void {
-    const attackDamage = Math.max(
+    let attackDamage = Math.max(
       0,
       weapon?.attackDamage ?? DEFAULT_WEAPON_ATTACK_DAMAGE
     )
@@ -576,6 +580,11 @@ export class StatsSystem extends System {
       weapon?.toughnessDamage ?? DEFAULT_WEAPON_TOUGHNESS_DAMAGE
     )
     const impactLevel: ImpactLevel = weapon?.impactLevel ?? 'small'
+    if (attacker?.level) {
+      attackDamage =
+        (attackDamage * (100 + getPlayerAttackBonusPercent(attacker.level))) /
+        100
+    }
     this.applyDamage(
       entity,
       attackDamage,
@@ -655,6 +664,13 @@ export class StatsSystem extends System {
     let finalPostureDamage = Math.max(0, postureDamage)
     let finalToughnessDamage = Math.max(0, toughnessDamage)
     let finalKnockback: number = IMPACT_LEVEL_KNOCKBACK[impactLevel]
+
+    if (entity.level) {
+      finalHealthDamage =
+        (finalHealthDamage *
+          (100 - getPlayerDefenseReductionPercent(entity.level))) /
+        100
+    }
 
     // 崩塌期间受击：伤害翻倍、击退加强、解除崩塌
     const wasStaggered = entity.stats.isStaggered

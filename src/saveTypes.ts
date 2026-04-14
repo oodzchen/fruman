@@ -44,6 +44,13 @@ export interface SavePlayerState {
   id?: string
   position: { x: number; y: number }
   facing: number
+  level?: number
+  exp?: number
+  pendingUpgradePoints?: number
+  attackLevel?: number
+  defenseLevel?: number
+  agilityLevel?: number
+  toughnessLevel?: number
   health: number
   maxHealth: number
   posture: number

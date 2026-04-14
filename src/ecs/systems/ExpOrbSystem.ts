@@ -1,9 +1,4 @@
-import {
-  DEFAULT_PLAYER_MAX_HEALTH,
-  EXP_TABLE,
-  PLAYER_HEALTH_PER_LEVEL,
-  PLAYER_MAX_LEVEL,
-} from '../../constants'
+import { EXP_TABLE, PLAYER_MAX_LEVEL } from '../../constants'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { Entity } from '../Entity'
 
@@ -11,14 +6,21 @@ type EffectsEmitter = {
   playSound: (soundId: number, playbackRate?: number) => void
 }
 
+type LevelUpHandler = (player: Entity) => void
+
 const PICKUP_DELAY = 0.3
 
 export class ExpOrbSystem {
   private readonly pendingRemove: Entity[] = []
   private effectsEmitter?: EffectsEmitter
+  private levelUpHandler?: LevelUpHandler
 
   setEffectsEmitter(emitter: EffectsEmitter | null): void {
     this.effectsEmitter = emitter ?? undefined
+  }
+
+  setLevelUpHandler(handler: LevelUpHandler | null): void {
+    this.levelUpHandler = handler ?? undefined
   }
 
   update(orbEntities: Entity[], players: Entity[], deltaTime: number): void {
@@ -49,15 +51,8 @@ export class ExpOrbSystem {
           if (lv.exp >= needed) {
             lv.exp -= needed
             lv.level++
-            if (player.stats) {
-              player.stats.maxHealth = Math.min(
-                DEFAULT_PLAYER_MAX_HEALTH +
-                  (lv.level - 1) * PLAYER_HEALTH_PER_LEVEL,
-                100
-              )
-              player.stats.health = player.stats.maxHealth
-              player.stats.hudVisibleTimer = player.stats.combatExitTimeout
-            }
+            lv.pendingUpgradePoints++
+            this.levelUpHandler?.(player)
           }
         }
 

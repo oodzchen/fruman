@@ -1,4 +1,4 @@
-import { Container, Graphics, Sprite, Texture } from 'pixi.js'
+import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 
 import type { ClientRenderer } from '../ClientRenderer'
 import {
@@ -68,6 +68,14 @@ const MAX_ENTITY_VIEW_CACHE = 512
 const MAX_WEAPON_TEXTURE_CACHE = 192
 const WEAPON_TEXTURE_RETIRE_FRAMES = 180
 const CHECKPOINT_TREE_TOP_COLOR_ACTIVE_INT = 0x4fae2f
+const DAMAGE_TEXT_FONT_SIZE = 16
+const DAMAGE_TEXT_LIFETIME_MS = 480
+const DAMAGE_TEXT_RISE_PX = 22
+const DAMAGE_TEXT_VERTICAL_GAP_PX = 4
+const DAMAGE_TEXT_COLOR = '#f3d8a2'
+const DAMAGE_TEXT_STROKE_COLOR = '#2c160f'
+const DAMAGE_TEXT_DELTA_EPSILON = 0.01
+const DAMAGE_TEXT_POOL_LIMIT = 96
 
 interface LayerBucket {
   container: Container
@@ -81,15 +89,25 @@ interface EntityView {
   readonly bodySprite: Sprite
   readonly weaponSprite: Sprite
   readonly statusGraphics: Graphics
+  readonly damageTextContainer: Container
   readonly deathGraphics: Graphics
   readonly followBondSprite: Sprite
   readonly followUnbondSprite: Sprite
+  readonly activeDamageTexts: DamageTextView[]
   layer: number
   lastSeenFrame: number
   lastHealthRatio: number
+  lastHealthValue: number
   bodyHash: number
   weaponHash: number
   specialKey: string
+}
+
+interface DamageTextView {
+  readonly text: Text
+  elapsedMs: number
+  baseX: number
+  baseY: number
 }
 
 interface ParticleSpriteView {
@@ -254,6 +272,7 @@ export class PixiWorldRenderer {
     CheckpointTextureEntry
   >()
   private readonly checkpointPulseTextureCache = new Map<string, Texture>()
+  private readonly damageTextPool: DamageTextView[] = []
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
   private frameId = 0
@@ -483,6 +502,9 @@ export class PixiWorldRenderer {
     const statusGraphics = new Graphics()
     root.addChild(statusGraphics)
 
+    const damageTextContainer = new Container()
+    root.addChild(damageTextContainer)
+
     const deathGraphics = new Graphics()
     root.addChild(deathGraphics)
 
@@ -508,12 +530,15 @@ export class PixiWorldRenderer {
       bodySprite,
       weaponSprite,
       statusGraphics,
+      damageTextContainer,
       deathGraphics,
       followBondSprite,
       followUnbondSprite,
+      activeDamageTexts: [],
       layer: 0,
       lastSeenFrame: -1,
       lastHealthRatio: -1,
+      lastHealthValue: -1,
       bodyHash: -1,
       weaponHash: -1,
       specialKey: '',
@@ -561,6 +586,8 @@ export class PixiWorldRenderer {
     hideSprite(view.followBondSprite)
     hideSprite(view.followUnbondSprite)
     view.lastHealthRatio = -1
+    view.lastHealthValue = -1
+    this.recycleDamageTexts(view)
   }
 
   private pruneEntityViews(): void {
@@ -587,6 +614,7 @@ export class PixiWorldRenderer {
   }
 
   private destroyEntityView(id: number, view: EntityView): void {
+    this.recycleDamageTexts(view)
     if (view.root.parent) {
       view.root.parent.removeChild(view.root)
     }
@@ -1033,19 +1061,18 @@ export class PixiWorldRenderer {
     flags: number,
     playerLockedTargetId: number
   ): void {
+    const deltaMs = renderer.getLastRenderDeltaMs()
     const maxHealth = buf[offset + OFFSETS.STATS_HEALTH_MAX]
     const isPlayer = !!(flags & FLAGS.IS_PLAYER)
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const isLocked = (buf[offset + OFFSETS.ID] | 0) === playerLockedTargetId
     const isHealthBarFlash = !!(flags & FLAGS.HEALTH_BAR_FLASH)
 
-    if (
-      !(maxHealth > 0) ||
-      isPlayer ||
-      (!isInCombat && !isLocked && !isHealthBarFlash)
-    ) {
+    if (!(maxHealth > 0)) {
       hideGraphics(view.statusGraphics)
       view.lastHealthRatio = -1
+      view.lastHealthValue = -1
+      this.recycleDamageTexts(view)
       return
     }
 
@@ -1057,6 +1084,20 @@ export class PixiWorldRenderer {
     const ratio = maxHealth > 0 ? health / maxHealth : 0
     const clampedRatio = Math.max(0, Math.min(1, ratio))
     const startX = -barWidth / 2
+    this.maybeSpawnDamageText(
+      view,
+      health,
+      startX + barWidth * clampedRatio,
+      baseY - DAMAGE_TEXT_VERTICAL_GAP_PX
+    )
+    this.updateDamageTexts(view, deltaMs)
+    view.lastHealthValue = health
+
+    if (isPlayer || (!isInCombat && !isLocked && !isHealthBarFlash)) {
+      hideGraphics(view.statusGraphics)
+      view.lastHealthRatio = -1
+      return
+    }
 
     if (clampedRatio !== view.lastHealthRatio) {
       view.lastHealthRatio = clampedRatio
@@ -1073,6 +1114,117 @@ export class PixiWorldRenderer {
     }
 
     view.statusGraphics.visible = true
+  }
+
+  private maybeSpawnDamageText(
+    view: EntityView,
+    health: number,
+    localX: number,
+    localY: number
+  ): void {
+    if (view.lastHealthValue < 0) {
+      return
+    }
+    const damage = view.lastHealthValue - health
+    if (damage <= DAMAGE_TEXT_DELTA_EPSILON) {
+      return
+    }
+
+    const label = this.acquireDamageText()
+    const displayDamage = Math.max(1, Math.round(damage))
+    label.elapsedMs = 0
+    label.baseX = Math.round(localX)
+    label.baseY = Math.round(localY)
+    label.text.text = String(displayDamage)
+    label.text.alpha = 1
+    label.text.visible = true
+    label.text.position.set(label.baseX, label.baseY)
+    view.damageTextContainer.addChild(label.text)
+    view.activeDamageTexts.push(label)
+    view.damageTextContainer.visible = true
+  }
+
+  private updateDamageTexts(view: EntityView, deltaMs: number): void {
+    const activeCount = view.activeDamageTexts.length
+    if (activeCount <= 0) {
+      view.damageTextContainer.visible = false
+      return
+    }
+
+    let writeIndex = 0
+    for (let i = 0; i < activeCount; i++) {
+      const label = view.activeDamageTexts[i]
+      label.elapsedMs += deltaMs
+      if (label.elapsedMs >= DAMAGE_TEXT_LIFETIME_MS) {
+        this.releaseDamageText(label)
+        continue
+      }
+
+      const risePx =
+        (label.elapsedMs * DAMAGE_TEXT_RISE_PX) / DAMAGE_TEXT_LIFETIME_MS
+      const alpha = 1 - label.elapsedMs / DAMAGE_TEXT_LIFETIME_MS
+      label.text.position.set(label.baseX, Math.round(label.baseY - risePx))
+      label.text.alpha = alpha
+      view.activeDamageTexts[writeIndex] = label
+      writeIndex += 1
+    }
+
+    view.activeDamageTexts.length = writeIndex
+    view.damageTextContainer.visible = writeIndex > 0
+  }
+
+  private recycleDamageTexts(view: EntityView): void {
+    const activeCount = view.activeDamageTexts.length
+    for (let i = 0; i < activeCount; i++) {
+      this.releaseDamageText(view.activeDamageTexts[i])
+    }
+    view.activeDamageTexts.length = 0
+    view.damageTextContainer.visible = false
+  }
+
+  private acquireDamageText(): DamageTextView {
+    const pooled = this.damageTextPool.pop()
+    if (pooled) {
+      return pooled
+    }
+
+    const text = new Text({
+      text: '',
+      style: {
+        fontFamily: 'monospace',
+        fontSize: DAMAGE_TEXT_FONT_SIZE,
+        fontWeight: '700',
+        fill: DAMAGE_TEXT_COLOR,
+        stroke: {
+          color: DAMAGE_TEXT_STROKE_COLOR,
+          width: 4,
+        },
+      },
+    })
+    text.anchor.set(0.5, 1)
+    return {
+      text,
+      elapsedMs: 0,
+      baseX: 0,
+      baseY: 0,
+    }
+  }
+
+  private releaseDamageText(label: DamageTextView): void {
+    if (label.text.parent) {
+      label.text.parent.removeChild(label.text)
+    }
+    label.elapsedMs = 0
+    label.baseX = 0
+    label.baseY = 0
+    label.text.visible = false
+    label.text.alpha = 1
+    label.text.text = ''
+    if (this.damageTextPool.length < DAMAGE_TEXT_POOL_LIMIT) {
+      this.damageTextPool.push(label)
+      return
+    }
+    label.text.destroy()
   }
 
   private updateDeathCross(

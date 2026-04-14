@@ -153,6 +153,7 @@ export function createPlayer(
 
   const movement = new MovementComponent()
   movement.moveSpeed = DEFAULT_MOVE_SPEED
+  movement.baseMoveSpeed = DEFAULT_MOVE_SPEED
   movement.jumpForce = DEFAULT_JUMP_FORCE
   movement.maxJumpDuration = DEFAULT_MAX_JUMP_DURATION
   movement.jumpForceMultiplier = DEFAULT_JUMP_FORCE_MULTIPLIER
@@ -207,6 +208,8 @@ export function createPlayer(
   entity.addComponent(solarEnergy)
 
   const levelComp = new LevelComponent()
+  levelComp.baseMaxHealth = DEFAULT_PLAYER_MAX_HEALTH
+  levelComp.baseMaxToughness = DEFAULT_PLAYER_MAX_TOUGHNESS
   entity.addComponent(levelComp)
 
   // 玩家初始武器组件（默认为空，需要在地上拾取）

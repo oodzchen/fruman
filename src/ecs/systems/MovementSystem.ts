@@ -23,6 +23,7 @@ import {
   isGroundCollisionCategory,
   isObstacleCollisionCategory,
 } from '../../physicsLayers'
+import { getPlayerAgilityScalePercent } from '../../playerUpgrade'
 import type { MainModule } from '../../types'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
@@ -662,10 +663,15 @@ export class MovementSystem extends System {
 
     const moveSpeedScale =
       entity.input.moveSpeedScale > 0 ? entity.input.moveSpeedScale : 1
+    const agilityScalePercent = entity.level
+      ? getPlayerAgilityScalePercent(entity.level)
+      : 100
     const moveSpeed =
       (entity.movement.isSprinting
         ? DEFAULT_SPRINT_SPEED
-        : entity.movement.moveSpeed) * moveSpeedScale
+        : entity.movement.moveSpeed) *
+      moveSpeedScale *
+      (agilityScalePercent / 100)
 
     this.tempVec.x = direction * moveSpeed
     this.tempVec.y = entity.physics.velY

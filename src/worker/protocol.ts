@@ -4,6 +4,7 @@ import type {
   WeaponComponent,
 } from '../ecs/Component'
 import type { EditorMapData } from '../editorMapTypes'
+import type { PlayerUpgradeStat } from '../playerUpgrade'
 import type {
   SaveCheckpointState,
   SaveData,
@@ -99,6 +100,11 @@ export type WorkerLoadSaveMessage = {
   saveData: SaveData
 }
 
+export type WorkerAllocatePlayerUpgradeMessage = {
+  type: 'allocate_player_upgrade'
+  stat: PlayerUpgradeStat
+}
+
 export type MainToWorkerMessage =
   | WorkerInitMessage
   | WorkerInputMessage
@@ -107,6 +113,7 @@ export type MainToWorkerMessage =
   | WorkerMapPreviewMessage
   | WorkerSaveRequestMessage
   | WorkerLoadSaveMessage
+  | WorkerAllocatePlayerUpgradeMessage
 
 export type WorkerStateMessage = {
   type: 'state'
@@ -203,6 +210,19 @@ export type WorkerPlayerDeadMessage = {
   type: 'player_dead'
 }
 
+export type WorkerPlayerLevelUpMessage = {
+  type: 'player_level_up'
+  previousLevel: number
+  level: number
+  pendingPoints: number
+  previousMaxHealth: number
+  currentMaxHealth: number
+  attackLevel: number
+  defenseLevel: number
+  agilityLevel: number
+  toughnessLevel: number
+}
+
 export type WorkerToMainMessage =
   | WorkerStateMessage
   | WorkerDebugMessage
@@ -211,3 +231,4 @@ export type WorkerToMainMessage =
   | WorkerSaveResponseMessage
   | WorkerCheckpointActivatedMessage
   | WorkerPlayerDeadMessage
+  | WorkerPlayerLevelUpMessage

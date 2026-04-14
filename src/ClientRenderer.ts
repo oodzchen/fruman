@@ -13,6 +13,7 @@ import {
   BOW_MIN_WINDUP_MS,
   DEATH_CROSS_DURATION_MS,
   DEATH_PRE_SPLATTER_PAUSE_MS,
+  DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_RADIUS,
   GRAPE_GRAVITY_SCALE,
   GRAPE_MAX_SPEED,
@@ -20,6 +21,8 @@ import {
   GRAPE_MIN_SPEED,
   GRAPE_MIN_WINDUP_MS,
   GRAPPLE_ANCHOR_HIGHLIGHT_SCALE,
+  PLAYER_HEALTH_PER_LEVEL,
+  PLAYER_MAX_LEVEL,
   WEAPON_DEFAULT_DATA,
 } from './constants'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
@@ -87,6 +90,12 @@ const EXP_ORB_SIZE_NUMERATOR = SMALL_SUN_PICKUP_SIZE_NUMERATOR
 const PICKUP_GLOW_SIZE_NUMERATOR = 8
 const PICKUP_GLOW_SIZE_DENOMINATOR = 5
 const AUDIO_PAN_FULL_WIDTH_FACTOR = 1
+const HUD_LEFT_MARGIN = 16
+const HUD_SUN_ICON_SIZE = 42
+const HUD_SUN_ICON_GAP = 16
+const HUD_HEALTH_BAR_MIN_WIDTH = 48
+const HUD_HEALTH_BAR_MAX_SCREEN_PERCENT = 42
+const HUD_HEALTH_BAR_RIGHT_SAFE_GAP = 24
 
 export class ClientRenderer {
   private ctx: RenderContext2D
@@ -142,6 +151,8 @@ export class ClientRenderer {
   private healthBarAnimStartWidth = 0
   private healthBarAnimTargetWidth = 0
   private healthBarAnimElapsedSec = 0
+  private deferredHealthBarAnimTargetWidth = 0
+  private pendingHudHealthBarLevel = 0
   private lastRenderDeltaSec = 0
   private readonly HEALTH_BAR_ANIM_SEC = 2.0
   private debugEffectTimer = 0
@@ -250,9 +261,67 @@ export class ClientRenderer {
     }
   }
 
+  resetPlayerHudState(): void {
+    this.healthBarDisplayWidth = 0
+    this.healthBarAnimStartWidth = 0
+    this.healthBarAnimTargetWidth = 0
+    this.healthBarAnimElapsedSec = 0
+    this.deferredHealthBarAnimTargetWidth = 0
+    this.pendingHudHealthBarLevel = 0
+    this.hudLastHash = -1
+    this.hudLastHealthBarWidth = 0
+  }
+
+  deferHealthBarGrowth(previousLevel: number, currentLevel: number): void {
+    const previousLevelInt = previousLevel > 0 ? previousLevel | 0 : 0
+    const currentLevelInt = currentLevel > 0 ? currentLevel | 0 : 0
+    if (currentLevelInt <= previousLevelInt || currentLevelInt <= 0) {
+      return
+    }
+    const canvasWidth = this.getCanvasWidth()
+    const previousWidth = this.getHudHealthBarTargetWidth(
+      previousLevelInt,
+      canvasWidth
+    )
+    const currentWidth = this.getHudHealthBarTargetWidth(
+      currentLevelInt,
+      canvasWidth
+    )
+    if (currentWidth <= previousWidth) {
+      return
+    }
+    this.pendingHudHealthBarLevel = currentLevelInt
+    this.healthBarDisplayWidth = previousWidth
+    this.healthBarAnimStartWidth = previousWidth
+    this.healthBarAnimTargetWidth = previousWidth
+    this.healthBarAnimElapsedSec = 0
+    this.deferredHealthBarAnimTargetWidth = currentWidth
+    this.hudLastHash = -1
+  }
+
+  commitDeferredHealthBarGrowth(): void {
+    if (this.deferredHealthBarAnimTargetWidth <= 0) {
+      return
+    }
+    const targetWidth = this.deferredHealthBarAnimTargetWidth
+    this.deferredHealthBarAnimTargetWidth = 0
+    if (targetWidth <= this.healthBarDisplayWidth) {
+      return
+    }
+    this.healthBarAnimStartWidth = this.healthBarDisplayWidth
+    this.healthBarAnimTargetWidth = targetWidth
+    this.healthBarAnimElapsedSec = 0
+    this.hudLastHash = -1
+  }
+
   update(deltaTime: number): void {
+    this.lastRenderDeltaSec = deltaTime
     this.particleSystem.update(deltaTime)
     this.updateCameraShake(Math.max(0, (deltaTime * 1000) | 0))
+  }
+
+  getLastRenderDeltaMs(): number {
+    return Math.max(0, Math.round(this.lastRenderDeltaSec * 1000))
   }
 
   applyEffects(buffer: ArrayBuffer | SharedArrayBuffer, count: number): void {
@@ -1172,6 +1241,7 @@ export class ClientRenderer {
 
   private static readonly HUD_HASH_OFFSETS = [
     OFFSETS.FLAGS,
+    OFFSETS.PLAYER_LEVEL,
     OFFSETS.STATS_HEALTH_MAX,
     OFFSETS.STATS_HEALTH,
     OFFSETS.STATS_POSTURE_MAX,
@@ -1212,6 +1282,9 @@ export class ClientRenderer {
     ) {
       return true
     }
+    if (this.healthBarDisplayWidth < this.healthBarAnimTargetWidth) {
+      return true
+    }
     if (this.healthBarDisplayWidth !== this.hudLastHealthBarWidth) {
       return true
     }
@@ -1245,6 +1318,39 @@ export class ClientRenderer {
     return -1
   }
 
+  private getHudHealthBarTargetWidth(
+    level: number,
+    canvasWidth: number
+  ): number {
+    const levelInt = level > 1 ? level | 0 : 1
+    const clampedLevel =
+      levelInt > PLAYER_MAX_LEVEL ? PLAYER_MAX_LEVEL : levelInt
+    const desiredWidth =
+      (DEFAULT_PLAYER_MAX_HEALTH +
+        (clampedLevel - 1) * PLAYER_HEALTH_PER_LEVEL) <<
+      1
+    if (canvasWidth <= 0) {
+      return desiredWidth
+    }
+    const weaponTotalWidth = HUD_SLOT_SIZE * 2 + HUD_SLOT_SPACING
+    const maxWidthByScreen =
+      ((canvasWidth * HUD_HEALTH_BAR_MAX_SCREEN_PERCENT) / 100) | 0
+    const maxWidthByLayout =
+      canvasWidth -
+      (HUD_LEFT_MARGIN + HUD_SUN_ICON_SIZE + HUD_SUN_ICON_GAP) -
+      weaponTotalWidth -
+      HUD_SLOT_MARGIN -
+      HUD_HEALTH_BAR_RIGHT_SAFE_GAP
+    const maxWidth =
+      maxWidthByLayout < maxWidthByScreen ? maxWidthByLayout : maxWidthByScreen
+    if (maxWidth <= HUD_HEALTH_BAR_MIN_WIDTH) {
+      return desiredWidth <= HUD_HEALTH_BAR_MIN_WIDTH
+        ? desiredWidth
+        : HUD_HEALTH_BAR_MIN_WIDTH
+    }
+    return desiredWidth <= maxWidth ? desiredWidth : maxWidth
+  }
+
   public renderPlayerUI(): void {
     this.ctx = this.hudCtx
     const buf = this.stateBuffer
@@ -1268,6 +1374,18 @@ export class ClientRenderer {
     const solarSmall = buf[playerOffset + OFFSETS.SOLAR_SMALL] | 0
     const solarLarge = buf[playerOffset + OFFSETS.SOLAR_LARGE] | 0
     const solarLargeMax = buf[playerOffset + OFFSETS.SOLAR_LARGE_MAX] | 0
+    const bufferedPlayerLevel = Math.max(
+      1,
+      buf[playerOffset + OFFSETS.PLAYER_LEVEL] | 0
+    )
+    let playerLevel = bufferedPlayerLevel
+    if (this.pendingHudHealthBarLevel > 0) {
+      if (bufferedPlayerLevel >= this.pendingHudHealthBarLevel) {
+        this.pendingHudHealthBarLevel = 0
+      } else {
+        playerLevel = this.pendingHudHealthBarLevel
+      }
+    }
     const expRatio100 = buf[playerOffset + OFFSETS.PLAYER_EXP_RATIO100] | 0
 
     if (maxHealth <= 0) return
@@ -1289,9 +1407,9 @@ export class ClientRenderer {
     const iconGap = 6
 
     // Sun icon dimensions
-    const sunIconSize = 42
-    const sunIconGap = 16 // gap between sun icon right edge and health bar
-    const leftMargin = 16 // distance from screen left edge to sun icon left edge
+    const sunIconSize = HUD_SUN_ICON_SIZE
+    const sunIconGap = HUD_SUN_ICON_GAP // gap between sun icon right edge and health bar
+    const leftMargin = HUD_LEFT_MARGIN // distance from screen left edge to sun icon left edge
     // Health bar starts after sun icon + gap
     const startX = leftMargin + sunIconSize + sunIconGap
 
@@ -1306,18 +1424,27 @@ export class ClientRenderer {
     // Start drawing
     const startY = leftGroupStartY
 
-    // Scale: 2 pixels per 1 unit of stats（视觉缩小到1/2，数值不变）
-    const pixelsPerUnit = 2
-
-    // 血条宽度动画：升级时最大血量增加，血条等比例变长
-    const targetWidth = maxHealth * pixelsPerUnit
+    // 血条宽度按等级做紧凑映射，避免与实际 maxHealth 数值耦合后被放大
+    const targetWidth = this.getHudHealthBarTargetWidth(
+      playerLevel,
+      canvasWidth
+    )
     if (this.healthBarDisplayWidth === 0) {
       this.healthBarDisplayWidth = targetWidth
       this.healthBarAnimStartWidth = targetWidth
       this.healthBarAnimTargetWidth = targetWidth
     }
-    if (targetWidth > this.healthBarAnimTargetWidth) {
+    if (
+      this.deferredHealthBarAnimTargetWidth <= 0 &&
+      targetWidth > this.healthBarAnimTargetWidth
+    ) {
       this.healthBarAnimStartWidth = this.healthBarDisplayWidth
+      this.healthBarAnimTargetWidth = targetWidth
+      this.healthBarAnimElapsedSec = 0
+    }
+    if (targetWidth < this.healthBarAnimTargetWidth) {
+      this.healthBarDisplayWidth = targetWidth
+      this.healthBarAnimStartWidth = targetWidth
       this.healthBarAnimTargetWidth = targetWidth
       this.healthBarAnimElapsedSec = 0
     }
