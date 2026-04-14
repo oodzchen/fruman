@@ -248,6 +248,12 @@ function getArrowTextureHalfHeight(
   )
 }
 
+// 视差参数：每层级的缩放/移动倍率增量，|layer|=100 时缩放约 0.5x/1.5x
+const PARALLAX_FACTOR_PER_LAYER = 0.005
+// 每层级亮度衰减量，|layer|=100 时亮度约 40%
+const PARALLAX_BRIGHTNESS_PER_LAYER = 0.006
+const PARALLAX_MIN_BRIGHTNESS = 0.3
+
 export class PixiWorldRenderer {
   private readonly root: Container
   private readonly pixelsPerMeter: number
@@ -278,6 +284,12 @@ export class PixiWorldRenderer {
   private frameId = 0
   private pruneSkipCounter = 0
   private readonly reusableShakeOffset = { x: 0, y: 0 }
+  // 视差相机参数（每帧由 GameClient 更新）
+  private parallaxCamX = 0
+  private parallaxCamY = 0
+  private parallaxZoom = 1
+  private parallaxCenterX = 0
+  private parallaxBottomY = 0
 
   constructor(root: Container, pixelsPerMeter: number) {
     this.root = root
@@ -341,6 +353,7 @@ export class PixiWorldRenderer {
 
   render(renderer: ClientRenderer): void {
     this.frameId += 1
+    this.updateBucketParallax()
     const buf = renderer.getStateBuffer()
     const entityCount = renderer.getEntityCount()
 
@@ -558,9 +571,57 @@ export class PixiWorldRenderer {
     const container = new Container()
     container.zIndex = layer * 10 + 5
     this.root.addChild(container)
+
+    // 计算亮度 tint：layer=0 最亮，越远越暗
+    const brightness = Math.max(
+      PARALLAX_MIN_BRIGHTNESS,
+      1 - Math.abs(layer) * PARALLAX_BRIGHTNESS_PER_LAYER
+    )
+    const v = Math.round(brightness * 255)
+    container.tint = (v << 16) | (v << 8) | v
+
     const bucket = { container }
     this.buckets.set(layer, bucket)
     return bucket
+  }
+
+  setParallaxCamera(
+    camX: number,
+    camY: number,
+    zoom: number,
+    centerX: number,
+    bottomY: number
+  ): void {
+    this.parallaxCamX = camX
+    this.parallaxCamY = camY
+    this.parallaxZoom = zoom
+    this.parallaxCenterX = centerX
+    this.parallaxBottomY = bottomY
+  }
+
+  private updateBucketParallax(): void {
+    const {
+      parallaxCamX,
+      parallaxCamY,
+      parallaxZoom,
+      parallaxCenterX,
+      parallaxBottomY,
+    } = this
+    const originX = parallaxCenterX + parallaxCamX / parallaxZoom
+    const originY = parallaxBottomY + parallaxCamY / parallaxZoom
+    for (const [layer, bucket] of this.buckets) {
+      if (layer === 0) continue
+      const factor = Math.max(0.1, 1 + layer * PARALLAX_FACTOR_PER_LAYER)
+      bucket.container.scale.set(factor)
+      bucket.container.position.set(
+        (1 - factor) * originX,
+        (1 - factor) * originY
+      )
+    }
+  }
+
+  addStaticMesh(mesh: Container, layer: number): void {
+    this.ensureBucket(layer).container.addChild(mesh)
   }
 
   private attachViewToLayer(view: EntityView, layer: number): void {

@@ -15,6 +15,7 @@ export interface EditorObjectManagerContext {
   onBringToFront: (object: fabric.Object) => void
   isPriorityBringToFrontObject: (object: fabric.Object) => boolean
   renderObjectTree: () => void
+  getObjectRenderLayer: (object: fabric.Object) => number
 }
 
 export class EditorObjectManager {
@@ -190,12 +191,21 @@ export class EditorObjectManager {
     if (!canvas) {
       return
     }
-    const terrainCanvasIndex = this.moveObjectsByType(
-      canvas,
-      ObjectType.Terrain,
-      0
+    // 按 renderLayer 升序排列：layer 小的先渲染（在下方）
+    const topLevel: fabric.Object[] = []
+    for (let i = 0; i < this.editorObjects.length; i++) {
+      const obj = this.editorObjects[i].object
+      if (obj.canvas === canvas && !this.isTrackedGroupedObject(obj)) {
+        topLevel.push(obj)
+      }
+    }
+    topLevel.sort(
+      (a, b) =>
+        this.ctx.getObjectRenderLayer(a) - this.ctx.getObjectRenderLayer(b)
     )
-    this.moveObjectsByType(canvas, null, terrainCanvasIndex)
+    for (let i = 0; i < topLevel.length; i++) {
+      canvas.moveObjectTo(topLevel[i], i)
+    }
     if (
       this.focusedEditorObject &&
       this.focusedEditorObject.canvas === canvas
@@ -236,26 +246,6 @@ export class EditorObjectManager {
   private bringFocusedObjectToFront(object: fabric.Object) {
     object.canvas?.bringObjectToFront(object)
     this.ctx.onBringToFront(object)
-  }
-
-  private moveObjectsByType(
-    canvas: fabric.Canvas,
-    type: ObjectType | null,
-    canvasIndex: number
-  ): number {
-    for (let i = 0; i < this.editorObjects.length; i++) {
-      const data = this.editorObjects[i]
-      if ((type === null) === (data.type === ObjectType.Terrain)) {
-        continue
-      }
-      const obj = data.object
-      if (obj.canvas !== canvas || this.isTrackedGroupedObject(obj)) {
-        continue
-      }
-      canvas.moveObjectTo(obj, canvasIndex)
-      canvasIndex += 1
-    }
-    return canvasIndex
   }
 
   getEditorObjectById(id: number) {

@@ -541,6 +541,28 @@
         height: calc(100% - 40px);
         min-height: 0;
       }
+      .editor-depth-filter {
+        flex-shrink: 0;
+        margin: 0 0 6px 12px;
+        height: 24px;
+        font-size: 11px;
+        font-family: var(--ui-font);
+        color: var(--ui-muted);
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        cursor: pointer;
+        padding: 0 4px;
+        width: calc(100% - 12px);
+        box-sizing: border-box;
+      }
+      .editor-depth-filter:hover {
+        color: var(--ui-color);
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+      .editor-depth-filter option {
+        background: #1a1a1a;
+        color: var(--ui-color);
+      }
       .editor-object-tree {
         flex: 1;
         min-height: 0;
@@ -1147,6 +1169,9 @@
                   ></button>
                 </div>
                 <div id="editorObjectPanel" class="editor-object-panel">
+                  <select id="editorDepthFilter" class="editor-depth-filter">
+                    <option value="all">全部</option>
+                  </select>
                   <div id="editorObjectTree" class="editor-object-tree"></div>
                 </div>
               </div>

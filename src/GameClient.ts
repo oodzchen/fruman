@@ -1099,6 +1099,12 @@ export class GameClient {
       const centerX = width / 2
       const bottomY = height
       const zoom = this.renderZoom
+      const camX = this.camera.x * this.pixelsPerMeter
+      const camY = this.camera.y * this.pixelsPerMeter
+      const shakeOffsetX = this.renderer.getCameraShakeOffsetX()
+      const shakeOffsetY = this.renderer.getCameraShakeOffsetY()
+
+      // 标准相机变换（layer=0 的基准）
       const worldMatrix = this.reusableDOMMatrix
       worldMatrix.a = 1
       worldMatrix.b = 0
@@ -1109,17 +1115,10 @@ export class GameClient {
       worldMatrix.translateSelf(centerX, bottomY)
       worldMatrix.scaleSelf(zoom, zoom)
       worldMatrix.translateSelf(-centerX, -bottomY)
-
-      const shakeOffsetX = this.renderer.getCameraShakeOffsetX()
-      const shakeOffsetY = this.renderer.getCameraShakeOffsetY()
       if (shakeOffsetX !== 0 || shakeOffsetY !== 0) {
         worldMatrix.translateSelf(shakeOffsetX, shakeOffsetY)
       }
-
-      worldMatrix.translateSelf(
-        -this.camera.x * this.pixelsPerMeter,
-        -this.camera.y * this.pixelsPerMeter
-      )
+      worldMatrix.translateSelf(-camX, -camY)
       const pixiMatrix = this.reusablePixiMatrix
       pixiMatrix.a = worldMatrix.a
       pixiMatrix.b = worldMatrix.b
@@ -1129,6 +1128,8 @@ export class GameClient {
       pixiMatrix.ty = worldMatrix.f
       this.worldContainer.setFromMatrix(pixiMatrix)
 
+      // 传递视差相机参数，PixiWorldRenderer 在 render 时对各 bucket 独立计算偏移
+      this.worldRenderer.setParallaxCamera(camX, camY, zoom, centerX, bottomY)
       this.worldRenderer.render(this.renderer)
       worldTimeUs = Math.round((performance.now() - worldStartMs) * 1000)
     }
@@ -1724,7 +1725,10 @@ export class GameClient {
         { drawStroke: true }
       )
       for (let i = 0; i < this.staticTerrainGraphics.length; i++) {
-        this.worldContainer.addChild(this.staticTerrainGraphics[i])
+        const mesh = this.staticTerrainGraphics[i]
+        // zIndex = resolvedLayer * 10，路由到 PixiWorldRenderer 对应 bucket（含视差和亮度）
+        const resolvedLayer = (mesh.zIndex / 10) | 0
+        this.worldRenderer.addStaticMesh(mesh, resolvedLayer)
       }
     }
     this.staticTerrainSignature = this.computeTerrainRenderSignature(terrain)

@@ -1,7 +1,10 @@
 import * as fabric from 'fabric'
 
 import { localizer } from '../Localizer'
-import { getDefaultTerrainRenderLayer } from '../renderLayers'
+import {
+  getDefaultTerrainRenderLayer,
+  normalizeRenderLayer,
+} from '../renderLayers'
 import { TerrainChunkGrid } from '../terrain/TerrainChunkGrid'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import {
@@ -253,6 +256,9 @@ export class EditorTerrainLayerManager {
   private terrainRenderCacheDirty = true
   private terrainRenderCacheExcludeLayer: TerrainLayerLike | null = null
   private terrainRenderCacheTransform: fabric.TMat2D = [1, 0, 0, 1, 0, 0]
+  private terrainRenderCacheDepthFilter: number | 'all' = 'all'
+  private activeDepthFilter: number | 'all' = 'all'
+  private readonly terrainRenderOrder: EditorTerrainLayer[] = []
   private readonly layerCanvasOffsets = new WeakMap<
     HTMLCanvasElement,
     { x: number; y: number }
@@ -3917,6 +3923,48 @@ export class EditorTerrainLayerManager {
     this.invalidateTerrainRenderCache()
   }
 
+  setSceneDepthFilter(filter: number | 'all'): void {
+    if (this.activeDepthFilter === filter) return
+    this.activeDepthFilter = filter
+    this.terrainRenderCacheDirty = true
+    this.ctx.requestRender()
+  }
+
+  private getTerrainLayerRenderLayer(layer: EditorTerrainLayer): number {
+    return normalizeRenderLayer(
+      layer.serializedLayer.renderLayer,
+      getDefaultTerrainRenderLayer(layer.materialId)
+    )
+  }
+
+  private collectRenderableTerrainLayers(
+    excludeLayer: TerrainLayerLike | null
+  ): readonly EditorTerrainLayer[] {
+    const renderOrder = this.terrainRenderOrder
+    renderOrder.length = 0
+    for (let i = 0; i < this.layers.length; i++) {
+      const layer = this.layers[i]
+      if (excludeLayer && layer.serializedLayer === excludeLayer) {
+        continue
+      }
+      if (
+        this.activeDepthFilter !== 'all' &&
+        this.getTerrainLayerRenderLayer(layer) !== this.activeDepthFilter
+      ) {
+        continue
+      }
+      renderOrder.push(layer)
+    }
+    if (this.activeDepthFilter === 'all' && renderOrder.length > 1) {
+      renderOrder.sort(
+        (a, b) =>
+          this.getTerrainLayerRenderLayer(a) -
+          this.getTerrainLayerRenderLayer(b)
+      )
+    }
+    return renderOrder
+  }
+
   private invalidateTerrainRenderCache(): void {
     this.terrainRenderCacheDirty = true
   }
@@ -4089,6 +4137,7 @@ export class EditorTerrainLayerManager {
     const _needsRebuild =
       this.terrainRenderCacheDirty ||
       this.terrainRenderCacheExcludeLayer !== excludeLayer ||
+      this.terrainRenderCacheDepthFilter !== this.activeDepthFilter ||
       !this.isTerrainRenderCacheTransformMatch(transform)
     if (_needsRebuild) {
       cacheCtx.setTransform(1, 0, 0, 1, 0, 0)
@@ -4104,11 +4153,9 @@ export class EditorTerrainLayerManager {
       )
       cacheCtx.imageSmoothingEnabled = false
 
-      for (let i = 0; i < this.layers.length; i++) {
-        const layer = this.layers[i]
-        if (excludeLayer && layer.serializedLayer === excludeLayer) {
-          continue
-        }
+      const renderLayers = this.collectRenderableTerrainLayers(excludeLayer)
+      for (let i = 0; i < renderLayers.length; i++) {
+        const layer = renderLayers[i]
         const layerCanvas = this.ensureLayerCanvasCache(layer)
         if (layerCanvas) {
           const offset = this.layerCanvasOffsets.get(layerCanvas)
@@ -4121,6 +4168,7 @@ export class EditorTerrainLayerManager {
       cacheCtx.restore()
       this.terrainRenderCacheDirty = false
       this.terrainRenderCacheExcludeLayer = excludeLayer
+      this.terrainRenderCacheDepthFilter = this.activeDepthFilter
       this.terrainRenderCacheTransform = [
         transform[0],
         transform[1],

@@ -199,6 +199,8 @@ export class EditorManager {
   private terrainBrushController!: EditorTerrainBrushController
   private customNpcTemplates: MapNpcTemplate[] = []
   private objectTreeCollapsedPaths: string[] = []
+  private sceneDepthFilter: number | 'all' = 'all'
+  private editorDepthFilterEl: HTMLSelectElement | null = null
 
   constructor() {
     const overlay = document.getElementById('editorOverlay')
@@ -310,6 +312,7 @@ export class EditorManager {
       isPriorityBringToFrontObject: (obj) =>
         this.terrainManager.isTerrainContourProxy(obj),
       renderObjectTree: () => this.renderObjectTree(),
+      getObjectRenderLayer: (obj) => this.getEditorObjectRenderLayer(obj),
     })
 
     this.markerManager = new EditorMarkerManager(
@@ -319,7 +322,7 @@ export class EditorManager {
         getViewportCenter: () => this.getViewportCenter(),
 
         registerEditorObject: (type, obj) =>
-          this.objectManager.registerEditorObject(type, obj),
+          this.registerEditorObjectWithDepth(type, obj),
 
         handleCanvasSelection: (obj) =>
           this.objectManager.handleCanvasSelection(obj ? [obj] : []),
@@ -352,7 +355,7 @@ export class EditorManager {
       requestRender: () => this.fabricCanvas?.requestRenderAll(),
       pixelsPerMeter: EDITOR_PIXELS_PER_METER,
       registerEditorObject: (type, obj, preferredName) =>
-        this.objectManager.registerEditorObject(type, obj, preferredName),
+        this.registerEditorObjectWithDepth(type, obj, preferredName),
       unregisterEditorObject: (obj) =>
         this.objectManager.unregisterEditorObject(obj),
     })
@@ -380,7 +383,7 @@ export class EditorManager {
         this.patternManager.applyObstaclePatternToObject(obj),
 
       registerEditorObject: (type, obj) =>
-        this.objectManager.registerEditorObject(type, obj),
+        this.registerEditorObjectWithDepth(type, obj),
 
       handleCanvasSelection: (obj) =>
         this.objectManager.handleCanvasSelection(obj ? [obj] : []),
@@ -394,7 +397,7 @@ export class EditorManager {
       getViewportCenter: () => this.getViewportCenter(),
 
       registerEditorObject: (type, obj) =>
-        this.objectManager.registerEditorObject(type, obj),
+        this.registerEditorObjectWithDepth(type, obj),
 
       handleCanvasSelection: (obj) =>
         this.objectManager.handleCanvasSelection(obj ? [obj] : []),
@@ -798,6 +801,22 @@ export class EditorManager {
   }
 
   private setupEventListeners() {
+    const depthFilterEl = document.getElementById('editorDepthFilter')
+    if (depthFilterEl instanceof HTMLSelectElement) {
+      this.editorDepthFilterEl = depthFilterEl
+      this.editorDepthFilterEl.value = 'all'
+      this.editorDepthFilterEl.addEventListener('change', () => {
+        const val = this.editorDepthFilterEl?.value
+        if (val === 'all' || val === undefined) {
+          this.sceneDepthFilter = 'all'
+        } else {
+          const n = parseInt(val, 10)
+          this.sceneDepthFilter = isNaN(n) ? 'all' : n
+        }
+        this.applyDepthFilter()
+      })
+    }
+
     this.editorOverlay.addEventListener(
       'pointerdown',
       (event) => {
@@ -1260,7 +1279,7 @@ export class EditorManager {
 
   private updateObjectTreeContext() {
     this.objectTreeManager.updateContext({
-      editorObjects: this.objectManager.getEditorObjects(),
+      editorObjects: this.getDepthFilteredEditorObjects(),
       renamingEditorObjectId: this.objectManager.getRenamingEditorObjectId(),
       selectedEditorObjectId: this.objectManager.getSelectedEditorObjectId(),
       selectedEditorObjectIds: this.objectManager.getSelectedEditorObjectIds(),
@@ -1271,6 +1290,107 @@ export class EditorManager {
   private renderObjectTree() {
     this.updateObjectTreeContext()
     this.objectTreeManager.renderObjectTree()
+    this.refreshDepthFilterOptions()
+  }
+
+  private refreshDepthFilterOptions(): void {
+    const el = this.editorDepthFilterEl
+    if (!el) return
+    const all = this.objectManager.getEditorObjects()
+    const layerSet = new Set<number>()
+    for (let i = 0; i < all.length; i++) {
+      const data = all[i]
+      if (data.type === ObjectType.Empty) continue
+      layerSet.add(this.getEditorObjectRenderLayer(data.object))
+    }
+    const layers = Array.from(layerSet).sort((a, b) => a - b)
+    const currentVal = el.value
+    // 重建选项列表
+    el.innerHTML = '<option value="all">全部</option>'
+    for (let i = 0; i < layers.length; i++) {
+      const opt = document.createElement('option')
+      opt.value = String(layers[i])
+      opt.textContent = `层级 ${layers[i]}`
+      el.appendChild(opt)
+    }
+    // 恢复当前选中值（若仍有效）
+    const stillValid =
+      currentVal === 'all' || layers.some((l) => String(l) === currentVal)
+    el.value = stillValid ? currentVal : 'all'
+    if (el.value !== currentVal && currentVal !== 'all') {
+      this.sceneDepthFilter = 'all'
+      this.applyDepthFilter()
+    }
+  }
+
+  private registerEditorObjectWithDepth(
+    type: ObjectType,
+    obj: fabric.Object,
+    preferredName?: string
+  ): EditorObjectData {
+    const data = this.objectManager.registerEditorObject(
+      type,
+      obj,
+      preferredName
+    )
+    // 按当前选中层级自动设置 renderLayer，并确保对象立即可见
+    if (typeof this.sceneDepthFilter === 'number') {
+      this.setEditorObjectRenderLayer(obj, this.sceneDepthFilter)
+      obj.visible = true
+    } else {
+      // 默认层级也需要排序（新对象插入后可能破坏顺序）
+      this.reorderCanvasObjects()
+    }
+    return data
+  }
+
+  private isObjectMatchingDepthFilter(data: EditorObjectData): boolean {
+    if (this.sceneDepthFilter === 'all') return true
+    // 空容器（分组节点）始终显示，避免破坏树结构
+    if (data.type === ObjectType.Empty) return true
+    const layer = this.getEditorObjectRenderLayer(data.object)
+    return layer === this.sceneDepthFilter
+  }
+
+  private getDepthFilteredEditorObjects(): EditorObjectData[] {
+    const all = this.objectManager.getEditorObjects()
+    if (this.sceneDepthFilter === 'all') return all
+    const idToData = new Map<number, EditorObjectData>()
+    for (let i = 0; i < all.length; i++) {
+      idToData.set(all[i].id, all[i])
+    }
+    const visibleIds = new Set<number>()
+    for (let i = 0; i < all.length; i++) {
+      const data = all[i]
+      if (!this.isObjectMatchingDepthFilter(data)) continue
+      // 把当前节点及所有祖先节点加入可见集合
+      let cur: EditorObjectData | undefined = data
+      while (cur) {
+        visibleIds.add(cur.id)
+        cur = cur.parentId !== null ? idToData.get(cur.parentId) : undefined
+      }
+    }
+    return all.filter((d) => visibleIds.has(d.id))
+  }
+
+  private applyDepthFilter(): void {
+    // 通知地形管理器更新渲染过滤（地形通过 _renderBackground 钩子单独绘制）
+    this.terrainManager.setSceneDepthFilter(this.sceneDepthFilter)
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      this.renderObjectTree()
+      return
+    }
+    const all = this.objectManager.getEditorObjects()
+    for (let i = 0; i < all.length; i++) {
+      const data = all[i]
+      const visible = this.isObjectMatchingDepthFilter(data)
+      if (data.object.visible !== visible) {
+        data.object.visible = visible
+      }
+    }
+    // 切回“全部”时也要重排，避免保留单层模式下的临时前置顺序。
+    this.reorderCanvasObjects()
   }
 
   private handleObjectTreeContextMenu(
@@ -2233,6 +2353,7 @@ export class EditorManager {
     this.objectManager.applyTreeSnapshot(order, parentIds)
     this.objectManager.applyObjectLockStates()
     this.syncAllManagedGroupTargets()
+    this.reorderCanvasObjects()
   }
 
   private nudgeSelectedObject(dx: number, dy: number) {
@@ -2963,7 +3084,12 @@ export class EditorManager {
         renderLayer,
         terrainRenderLayer
       )
-      return this.terrainManager.setProxyRenderLayer(target, nextRenderLayer)
+      const changed = this.terrainManager.setProxyRenderLayer(
+        target,
+        nextRenderLayer
+      )
+      if (changed) this.reorderCanvasObjects()
+      return changed
     }
     const nextRenderLayer = normalizeRenderLayer(
       renderLayer,
@@ -2979,7 +3105,12 @@ export class EditorManager {
       return false
     }
     layeredTarget.renderLayer = nextRenderLayer
+    this.reorderCanvasObjects()
     return true
+  }
+
+  private reorderCanvasObjects(): void {
+    this.objectManager.applyEditorObjectStacking()
   }
 
   private buildDeleteConfirmMessage(ids: readonly number[]): string {
