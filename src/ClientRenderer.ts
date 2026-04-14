@@ -38,10 +38,13 @@ import {
   HUD_AMMO_ALPHA,
   HUD_ICON_ALPHA,
   HUD_ICON_COLOR,
+  HUD_SKILL_SIZE,
+  HUD_SKILL_ULTIMATE_SPACING,
   HUD_SLOT_MARGIN,
   HUD_SLOT_SIZE,
   HUD_SLOT_SPACING,
   HUD_ULTIMATE_SIZE,
+  drawHudSkillSlot,
   drawHudUltimateSlot,
   drawHudWeaponSlot,
 } from './renderer/HudWeaponSlotRenderer'
@@ -350,6 +353,8 @@ export class ClientRenderer {
         this.particleSystem.spawnHeal(x, y, color)
       } else if (type === EFFECT_TYPES.CHECKPOINT_PULSE) {
         this.particleSystem.spawnCheckpointPulse(x, y, color, radius)
+      } else if (type === EFFECT_TYPES.CRIT_BURST) {
+        this.particleSystem.spawnCritBurst(x, y)
       } else if (type === EFFECT_TYPES.CAMERA_SHAKE) {
         const attenuatedIntensity =
           color *
@@ -1273,6 +1278,9 @@ export class ClientRenderer {
     OFFSETS.HAMMER_ULTIMATE_IMPACT100,
     OFFSETS.SPEAR_ULTIMATE_ACTIVE,
     OFFSETS.SPEAR_ULTIMATE_ALPHA100,
+    OFFSETS.SKILL_HAS,
+    OFFSETS.SKILL_CHARGES,
+    OFFSETS.SKILL_MAX_CHARGES,
   ]
 
   isHudDirty(canvasWidth: number, canvasHeight: number): boolean {
@@ -1935,6 +1943,32 @@ export class ClientRenderer {
             : 'sword'
       )
     }
+
+    // 技能槽（始终显示，位于绝招槽左侧）
+    const skillHas = buf[playerOffset + OFFSETS.SKILL_HAS] === 1
+    const skillCharges = buf[playerOffset + OFFSETS.SKILL_CHARGES] | 0
+    const skillMaxCharges = buf[playerOffset + OFFSETS.SKILL_MAX_CHARGES] | 0
+    const activeWeaponType = buf[playerOffset + OFFSETS.WEAPON_TYPE] | 0
+    const skillIconType =
+      skillHas && activeWeaponType === WEAPON_TYPES.BIG_HAMMER
+        ? 'hammer_crit'
+        : ''
+    const ultimateCenterX = canvasWidth >> 1
+    const skillCx =
+      ultimateCenterX -
+      (HUD_ULTIMATE_SIZE >> 1) -
+      HUD_SKILL_ULTIMATE_SPACING -
+      (HUD_SKILL_SIZE >> 1)
+    const skillCy = canvasHeight - HUD_SLOT_MARGIN - HUD_ULTIMATE_SIZE / 2
+    drawHudSkillSlot(
+      this.ctx,
+      skillCx,
+      skillCy,
+      skillHas,
+      skillCharges,
+      skillMaxCharges,
+      skillIconType
+    )
   }
 
   private getAmmoText(ammo: number): string {

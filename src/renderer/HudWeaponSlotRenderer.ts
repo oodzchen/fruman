@@ -219,10 +219,116 @@ export function drawHudWeaponSlot(
   ctx.restore()
 }
 
+export const HUD_SKILL_SIZE = 42
+export const HUD_SKILL_ULTIMATE_SPACING = 12
 export const HUD_ULTIMATE_SIZE = 52
 export const HUD_ULTIMATE_READY_BORDER = 'rgba(255, 255, 255, 0.85)'
 export const HUD_ULTIMATE_COOLDOWN_BORDER = 'rgba(255, 255, 255, 0.25)'
 export const HUD_ULTIMATE_FILL = 'rgba(0, 0, 0, 0.2)'
+const HUD_SKILL_FILL = 'rgba(0, 0, 0, 0.2)'
+const HUD_SKILL_BORDER = 'rgba(255, 255, 255, 0.25)'
+const HUD_SKILL_BORDER_ACTIVE = 'rgba(255, 255, 255, 0.75)'
+
+export function drawHudSkillSlot(
+  ctx: RenderContext2D,
+  cx: number,
+  cy: number,
+  hasSkill: boolean,
+  chargesRemaining: number,
+  maxCharges: number,
+  iconType = ''
+): void {
+  const radius = HUD_SKILL_SIZE >> 1
+  const depleted = chargesRemaining <= 0
+  ctx.save()
+  ctx.globalAlpha = 1
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.fillStyle = HUD_SKILL_FILL
+  ctx.fill()
+
+  if (hasSkill && iconType === 'hammer_crit') {
+    drawHammerCritSkillIcon(ctx, cx, cy, radius, !depleted)
+  }
+
+  // 遮罩：从上到下随已消耗次数增长
+  if (hasSkill && maxCharges > 0 && chargesRemaining < maxCharges) {
+    const usedRatio = (maxCharges - chargesRemaining) / maxCharges
+    const overlayH = Math.ceil(usedRatio * (radius * 2))
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+    ctx.clip()
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+    ctx.fillRect(cx - radius, cy - radius, radius * 2, overlayH)
+    ctx.restore()
+  }
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.strokeStyle =
+    hasSkill && !depleted ? HUD_SKILL_BORDER_ACTIVE : HUD_SKILL_BORDER
+  ctx.lineWidth = 2
+  ctx.stroke()
+
+  ctx.restore()
+}
+
+function drawHammerCritSkillIcon(
+  ctx: RenderContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  isActive: boolean
+): void {
+  const r = radius | 0
+  ctx.save()
+  ctx.translate(cx, cy)
+
+  // 圆形裁剪，锤柄超出圆圈被自然截断
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.clip()
+
+  ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
+  ctx.fillStyle = HUD_ICON_COLOR
+  ctx.strokeStyle = HUD_ICON_COLOR
+  ctx.lineWidth = 1
+
+  // 横向锤子：锤头略偏左，锤柄向左延伸被圆圈截断
+  const hammerW = Math.round(r * 1.8)
+  const hammerH = Math.round(r * 0.7)
+  const headW = Math.round(hammerW * 0.3)
+  const hammerOffsetX = -(hammerW / 2) + headW / 2 - Math.round(r * 0.15)
+  ctx.save()
+  ctx.translate(hammerOffsetX, 0)
+  renderWeaponShape(ctx, 'hammer', hammerW, hammerH, HUD_ICON_COLOR, false, 0)
+  ctx.restore()
+
+  // 气流线：从锤头右侧面向外放射，右半圆密集射线表现力量感
+  // 锤头右面大约在 x = hammerOffsetX + hammerW/2 ≈ +r*0.12
+  const originX = Math.round(r * 0.08)
+  const lineCount = 7
+  ctx.lineCap = 'round'
+  for (let i = 0; i < lineCount; i++) {
+    const t = i / (lineCount - 1)
+    const angle = -Math.PI / 2 + t * Math.PI
+    const outerDist = r * 0.48
+    const innerDist = r * 0.1
+    const endX = originX + Math.cos(angle) * outerDist
+    const endY = Math.sin(angle) * outerDist
+    const startX = originX + Math.cos(angle) * innerDist
+    const startY = Math.sin(angle) * innerDist
+    ctx.lineWidth = 1.2
+    ctx.beginPath()
+    ctx.moveTo(startX, startY)
+    ctx.lineTo(endX, endY)
+    ctx.stroke()
+  }
+
+  ctx.restore()
+}
 const HUD_ULTIMATE_SPEAR_HALF_ANGLE = (35 * Math.PI) / 180
 
 export function drawHudUltimateSlot(

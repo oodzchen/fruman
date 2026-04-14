@@ -7,6 +7,7 @@ export const PARTICLE_TYPE_BLOOD = 1
 export const PARTICLE_TYPE_DEATH = 2
 export const PARTICLE_TYPE_HEAL = 3
 export const PARTICLE_TYPE_CHECKPOINT_PULSE = 4
+export const PARTICLE_TYPE_CRIT_BURST = 5
 const CHECKPOINT_PULSE_EDGE_COLOR = '#ffe260'
 const CHECKPOINT_PULSE_MID_COLOR = '#ffec8a'
 const CHECKPOINT_PULSE_CORE_COLOR = '#fff6bc'
@@ -292,6 +293,8 @@ export class ParticleSystem {
       ctx.fill()
     }
 
+    ctx.globalCompositeOperation = savedComposite
+
     ctx.globalAlpha = savedAlpha
   }
 
@@ -400,6 +403,32 @@ export class ParticleSystem {
       particle.gravity = 0
       particle.drag = 6
       particle.type = PARTICLE_TYPE_HEAL
+      particle.curve = 0
+      this.active[this.activeCount] = particle
+      this.activeCount += 1
+    }
+  }
+
+  spawnCritBurst(x: number, y: number): void {
+    const count = 16
+    for (let i = 0; i < count; i++) {
+      const particle = this.acquire()
+      if (!particle) return
+      const angle = (i * TWO_PI) / count
+      const speed = 14 + Math.floor(Math.random() * 8)
+      particle.x = x
+      particle.y = y
+      particle.prevX = x
+      particle.prevY = y
+      particle.vx = Math.cos(angle) * speed
+      particle.vy = Math.sin(angle) * speed
+      particle.age = 0
+      particle.life = 0.22 + Math.random() * 0.1
+      particle.size = 0.022 + Math.random() * 0.016
+      particle.gravity = 0
+      particle.color = 0xffffff
+      particle.drag = 14
+      particle.type = PARTICLE_TYPE_SPARK
       particle.curve = 0
       this.active[this.activeCount] = particle
       this.activeCount += 1

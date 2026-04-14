@@ -57,6 +57,7 @@ export type EffectsEmitter = {
   emitDeath: (x: number, y: number, color: number, radius: number) => void
   emitHeal: (x: number, y: number) => void
   emitCheckpointPulse: (x: number, y: number, radius: number) => void
+  emitHammerCritHit: (x: number, y: number) => void
   emitCameraShake: (
     x: number,
     y: number,
@@ -356,6 +357,11 @@ export class StatsSystem extends System {
   emitSpark(x: number, y: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.emitSpark(x, y)
+  }
+
+  emitHammerCritHit(x: number, y: number): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.emitHammerCritHit(x, y)
   }
 
   emitDeath(x: number, y: number, color: number, radius: number): void {

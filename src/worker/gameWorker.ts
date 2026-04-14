@@ -55,6 +55,7 @@ import {
 } from '../ecs/AttackMoveRegistry'
 import {
   CheckpointComponent,
+  DEFAULT_SKILL_MAX_CHARGES,
   ExpOrbComponent,
   Faction,
   GrappleAnchorComponent,
@@ -444,6 +445,9 @@ const effectsEmitter: EffectsEmitter = {
       radius
     )
   },
+  emitHammerCritHit: (x, y) => {
+    queueEffect(EFFECT_TYPES.CRIT_BURST, x, y, 0, 0)
+  },
   emitCameraShake: (x, y, intensity, durationMs) => {
     queueEffect(EFFECT_TYPES.CAMERA_SHAKE, x, y, intensity, durationMs)
   },
@@ -740,6 +744,23 @@ function initializeSystems() {
         playerEntity.transform.x,
         playerEntity.transform.y
       )
+    }
+    // 技能次数回满
+    if (playerEntity?.attackSlots) {
+      const skill = playerEntity.attackSlots.skill
+      if (skill.skillId) {
+        skill.chargesRemaining = skill.maxCharges
+        if (playerEntity.weapon) {
+          playerEntity.weapon.skillCharges = skill.maxCharges
+        }
+        if (playerEntity.weaponSlots) {
+          const main = playerEntity.weaponSlots.main
+          const secondary = playerEntity.weaponSlots.secondary
+          if (main.skillId) main.skillCharges = DEFAULT_SKILL_MAX_CHARGES
+          if (secondary.skillId)
+            secondary.skillCharges = DEFAULT_SKILL_MAX_CHARGES
+        }
+      }
     }
   })
   checkpointSystem.setPlayerDeadHandler(() => {
@@ -2209,6 +2230,8 @@ function applyWeaponSlotConfig(
     toughnessDamage: number
     bowAmmo: number
     bowAmmoMax: number
+    skillId: string
+    skillCharges: number
   },
   config: MapNpcWeapon | undefined,
   defaultBowAmmo: number
@@ -2265,6 +2288,8 @@ function applyWeaponSlotConfig(
     slot.bowAmmoMax = 0
     slot.bowAmmo = 0
   }
+  slot.skillId = normalizedConfig.weaponType === 'hammer' ? 'hammer_crit' : ''
+  slot.skillCharges = slot.skillId ? DEFAULT_SKILL_MAX_CHARGES : 0
 }
 
 function createPlayerAndWeapon(
@@ -2425,6 +2450,8 @@ function createPlayerAndWeapon(
       playerEntity.weapon.toughnessDamage = activeSlot.toughnessDamage
       playerEntity.weapon.bowAmmo = activeSlot.bowAmmo
       playerEntity.weapon.bowAmmoMax = activeSlot.bowAmmoMax
+      playerEntity.weapon.skillId = activeSlot.skillId
+      playerEntity.weapon.skillCharges = activeSlot.skillCharges
       playerEntity.weapon.isEquipped = true
       if (playerEntity.attackSlots) {
         playerEntity.attackSlots.normal.hasMoveset =
@@ -2435,6 +2462,13 @@ function createPlayerAndWeapon(
         playerEntity.attackSlots.ultimate.hasMoveset =
           ultimateMovesetId.length > 0
         playerEntity.attackSlots.ultimate.movesetId = ultimateMovesetId
+        // 初始化技能槽（applySkillMoveset 只在武器切换时调用，此处手动初始化）
+        const skill = playerEntity.attackSlots.skill
+        skill.skillId = activeSlot.skillId
+        skill.maxCharges = activeSlot.skillId ? DEFAULT_SKILL_MAX_CHARGES : 0
+        skill.chargesRemaining = activeSlot.skillId
+          ? activeSlot.skillCharges
+          : 0
       }
     } else {
       playerEntity.weapon.isEquipped = false
@@ -2808,14 +2842,6 @@ function handleInput(
 
     playerEntity.input.attackRequested = attackHeld && !isPlayerDead
 
-    if (
-      attackJustPressed &&
-      !isPlayerDead &&
-      !isRangedWeaponType(playerEntity.weapon?.weaponType)
-    ) {
-      weaponSystem.startAttack(playerEntity)
-    }
-
     const rightClickJustPressed =
       currMouseButtons.has(2) && !prevMouseButtons.has(2)
     const freeAimToggleJustPressed = currKeys.has('k') && !prevKeys.has('k')
@@ -2835,6 +2861,19 @@ function handleInput(
       playerEntity.input.blockRequested = true
     } else {
       playerEntity.input.blockRequested = false
+    }
+
+    if (
+      attackJustPressed &&
+      !isPlayerDead &&
+      !isRangedWeaponType(playerEntity.weapon?.weaponType)
+    ) {
+      weaponSystem.startAttack(playerEntity)
+    }
+
+    // F 键 = 技能
+    if (currKeys.has('f') && !prevKeys.has('f') && !isPlayerDead) {
+      weaponSystem.handleSkillRequest(playerEntity)
     }
 
     // Q for lock toggle
@@ -3069,6 +3108,7 @@ function fixedUpdate() {
     playerEntity.input.jumpRequested = false
     playerEntity.input.attackRequested = false
     playerEntity.input.ultimateRequested = false
+    playerEntity.input.skillRequested = false
     playerEntity.input.blockRequested = false
     playerEntity.input.inputBuffer.clearAll()
   }
@@ -4317,6 +4357,18 @@ function sendState() {
           : 0
     } else {
       stateBuffer[offset + OFFSETS.ULTIMATE_FLASH_TIMER100] = 0
+    }
+
+    // 技能槽数据（仅玩家读取）
+    if (e === playerEntity && e.attackSlots) {
+      const skillSlot = e.attackSlots.skill
+      stateBuffer[offset + OFFSETS.SKILL_HAS] = skillSlot.skillId ? 1 : 0
+      stateBuffer[offset + OFFSETS.SKILL_CHARGES] = skillSlot.chargesRemaining
+      stateBuffer[offset + OFFSETS.SKILL_MAX_CHARGES] = skillSlot.maxCharges
+    } else {
+      stateBuffer[offset + OFFSETS.SKILL_HAS] = 0
+      stateBuffer[offset + OFFSETS.SKILL_CHARGES] = 0
+      stateBuffer[offset + OFFSETS.SKILL_MAX_CHARGES] = 0
     }
 
     count++

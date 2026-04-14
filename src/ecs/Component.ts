@@ -220,6 +220,7 @@ export class InputComponent extends Component {
   grappleClimbHeld = 0
   attackRequested = false
   ultimateRequested = false
+  skillRequested = false
   blockRequested = false
   lockedTargetId: number | null = null
   lockToggleRequested = false
@@ -250,6 +251,7 @@ export class InputComponent extends Component {
     this.grappleClimbHeld = 0
     this.attackRequested = false
     this.ultimateRequested = false
+    this.skillRequested = false
     this.blockRequested = false
     this.lockedTargetId = null
     this.lockToggleRequested = false
@@ -480,6 +482,8 @@ export type WeaponSlotData = {
   toughnessDamage: number
   bowAmmo: number
   bowAmmoMax: number
+  skillId: string
+  skillCharges: number
 }
 export type AttackSlotData = {
   hasMoveset: boolean
@@ -487,11 +491,18 @@ export type AttackSlotData = {
 }
 
 export const ULTIMATE_COOLDOWN_MS = 100000
+export const DEFAULT_SKILL_MAX_CHARGES = 10
 
 export type UltimateSlotData = {
   hasMoveset: boolean
   movesetId: string
   cooldownRemainingMs: number
+}
+
+export type SkillSlotData = {
+  skillId: string
+  chargesRemaining: number
+  maxCharges: number
 }
 
 const createWeaponSlotData = (): WeaponSlotData => ({
@@ -510,6 +521,8 @@ const createWeaponSlotData = (): WeaponSlotData => ({
   toughnessDamage: DEFAULT_WEAPON_TOUGHNESS_DAMAGE,
   bowAmmo: 0,
   bowAmmoMax: 0,
+  skillId: '',
+  skillCharges: 0,
 })
 
 const createAttackSlotData = (): AttackSlotData => ({
@@ -521,6 +534,12 @@ const createUltimateSlotData = (): UltimateSlotData => ({
   hasMoveset: false,
   movesetId: '',
   cooldownRemainingMs: 0,
+})
+
+const createSkillSlotData = (): SkillSlotData => ({
+  skillId: '',
+  chargesRemaining: 0,
+  maxCharges: 0,
 })
 
 export class WeaponComponent extends Component {
@@ -590,6 +609,8 @@ export class WeaponComponent extends Component {
   activeSequenceId: string = ''
   activeMoveIndex: number = 0
   activeMoveId: string = ''
+  skillId: string = ''
+  skillCharges: number = 0
 
   isParrying = false
   parryElapsedTime = 0 // 帧数
@@ -686,6 +707,15 @@ export class WeaponComponent extends Component {
   ultimateSpearBottomRot = 0
   ultimateSpearAlpha100 = 0
 
+  // 技能动画状态
+  skillPhase:
+    | 'hammer_crit_windup'
+    | 'hammer_crit_swing'
+    | 'hammer_crit_recover'
+    | null = null
+  skillElapsedMs = 0
+  skillFacing = 1
+
   reset(): void {
     this.width = 0
     this.height = 0
@@ -760,6 +790,8 @@ export class WeaponComponent extends Component {
     this.activeSequenceId = ''
     this.activeMoveIndex = 0
     this.activeMoveId = ''
+    this.skillId = ''
+    this.skillCharges = 0
     this.isParrying = false
     this.parryElapsedTime = 0
     this.parryWindowDuration = 200
@@ -847,6 +879,9 @@ export class WeaponComponent extends Component {
     this.ultimateSpearBottomY = 0
     this.ultimateSpearBottomRot = 0
     this.ultimateSpearAlpha100 = 0
+    this.skillPhase = null
+    this.skillElapsedMs = 0
+    this.skillFacing = 1
   }
 
   getName(): string {
@@ -873,10 +908,12 @@ export class WeaponSlotsComponent extends Component {
 export class AttackSlotsComponent extends Component {
   normal = createAttackSlotData()
   ultimate = createUltimateSlotData()
+  skill = createSkillSlotData()
 
   reset(): void {
     this.normal = createAttackSlotData()
     this.ultimate = createUltimateSlotData()
+    this.skill = createSkillSlotData()
   }
 
   getName(): string {

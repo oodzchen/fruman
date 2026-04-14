@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 85
+export const ENTITY_STRIDE = 88
 
 export const OFFSETS = {
   ID: 0,
@@ -86,6 +86,9 @@ export const OFFSETS = {
   PLAYER_EXP_RATIO100: 82, // 当前经验 / 升级所需经验 × 100（整数 0-100）
   BODY_PROFILE_INDEX: 83,
   RENDER_LAYER: 84,
+  SKILL_HAS: 85, // 当前武器是否有技能：1=有，0=无
+  SKILL_CHARGES: 86, // 技能剩余使用次数
+  SKILL_MAX_CHARGES: 87, // 技能最大使用次数
 }
 
 export const FLAGS = {

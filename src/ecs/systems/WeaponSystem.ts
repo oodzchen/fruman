@@ -92,7 +92,7 @@ import type {
   WeaponSlotId,
   WeaponTransform,
 } from '../Component'
-import { ULTIMATE_COOLDOWN_MS } from '../Component'
+import { DEFAULT_SKILL_MAX_CHARGES, ULTIMATE_COOLDOWN_MS } from '../Component'
 import {
   Faction,
   PhysicsComponent,
@@ -130,6 +130,7 @@ import {
   setWeaponBackTransform,
 } from '../WeaponPoseUtils'
 import type { World } from '../World'
+import { SkillHandler } from './SkillHandler'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
 import { UltimateHandler } from './UltimateHandler'
@@ -162,6 +163,9 @@ const DEFAULT_PROJECTILE_DENSITY = 0.1
 const DEFAULT_PROJECTILE_RESTITUTION = 0.4
 const DEFAULT_PROJECTILE_LIFETIME_MS = 2500
 const DEATH_WEAPON_DROP_CHANCE_DENOMINATOR = 2
+const HAMMER_CRIT_WINDUP_MS = 600
+const HAMMER_CRIT_SWING_MS = 300
+const HAMMER_CRIT_RECOVER_MS = 350
 
 export type ObstacleCollider = {
   bodyId: b2BodyId
@@ -191,6 +195,7 @@ type WeaponDropData = {
   toughnessDamage: number
   bowAmmo: number
   bowAmmoMax: number
+  skillId: string
 }
 
 export class WeaponSystem extends System {
@@ -242,6 +247,7 @@ export class WeaponSystem extends System {
     toughnessDamage: 0,
     bowAmmo: 0,
     bowAmmoMax: 0,
+    skillId: '',
   }
   private tempPlayerPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
@@ -249,6 +255,7 @@ export class WeaponSystem extends System {
   private currentDeltaTime = 0
   private currentTimeMs = 0
   private readonly ultimateHandler = new UltimateHandler()
+  private readonly skillHandler = new SkillHandler()
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -381,6 +388,7 @@ export class WeaponSystem extends System {
     if (
       weapon.attackPhase !== 'block' &&
       weapon.attackPhase !== 'blockReturn' &&
+      weapon.skillPhase === null &&
       weapon.width !== weapon.baseWidth
     ) {
       weapon.width = weapon.baseWidth
@@ -411,6 +419,12 @@ export class WeaponSystem extends System {
         playerPos,
         deltaMs
       )
+      return
+    }
+
+    // 技能动画期间优先处理
+    if (weapon.skillPhase !== null) {
+      this.handleHammerCritPhases(entity, weapon, playerPos, deltaMs)
       return
     }
 
@@ -1873,6 +1887,7 @@ export class WeaponSystem extends System {
     weapon.toughnessDamage = weaponData.toughnessDamage
     weapon.bowAmmo = weaponData.bowAmmo
     weapon.bowAmmoMax = weaponData.bowAmmoMax
+    weapon.skillId = weaponData.skillId
 
     const weaponY = y
     const groundRotation = getWeaponGroundRotationRad(weaponData.weaponType)
@@ -2594,6 +2609,7 @@ export class WeaponSystem extends System {
     if (entity.weapon?.weaponType) {
       this.applyUltimateMoveset(entity, entity.weapon.weaponType)
     }
+    this.applySkillMoveset(entity)
   }
 
   private applyUltimateMoveset(entity: Entity, weaponType: string): void {
@@ -2605,8 +2621,35 @@ export class WeaponSystem extends System {
     entity.attackSlots.ultimate.movesetId = movesetId
   }
 
+  private applySkillMoveset(entity: Entity): void {
+    if (!entity.attackSlots || !entity.weapon) return
+    const skill = entity.attackSlots.skill
+    const skillId = entity.weapon.skillId
+    skill.skillId = skillId
+    skill.maxCharges = skillId ? DEFAULT_SKILL_MAX_CHARGES : 0
+    // 切换武器时，从 weapon.skillCharges 恢复次数
+    skill.chargesRemaining = skillId ? entity.weapon.skillCharges : 0
+  }
+
   handleUltimateRequest(entity: Entity, maxLandDist?: number): void {
     this.ultimateHandler.handleUltimateRequest(entity, maxLandDist)
+  }
+
+  handleSkillRequest(entity: Entity): void {
+    if (!entity.attackSlots || !entity.weapon) return
+    const skill = entity.attackSlots.skill
+    if (!skill.skillId || skill.chargesRemaining <= 0) return
+    skill.chargesRemaining--
+    entity.weapon.skillCharges = skill.chargesRemaining
+    // 同步到当前武器槽
+    if (entity.weaponSlots) {
+      const activeSlotData =
+        entity.weaponSlots.activeSlot === 'main'
+          ? entity.weaponSlots.main
+          : entity.weaponSlots.secondary
+      activeSlotData.skillCharges = skill.chargesRemaining
+    }
+    this.skillHandler.handleSkillRequest(entity)
   }
 
   private getNormalAttackMovesetId(entity: Entity): string {
@@ -2669,6 +2712,8 @@ export class WeaponSystem extends System {
     slot.toughnessDamage = weapon.toughnessDamage
     slot.bowAmmo = weapon.bowAmmo
     slot.bowAmmoMax = weapon.bowAmmoMax
+    slot.skillId = weapon.skillId
+    slot.skillCharges = weapon.skillCharges
   }
 
   private copySlotToWeapon(
@@ -2691,6 +2736,8 @@ export class WeaponSystem extends System {
     weapon.toughnessDamage = slot.toughnessDamage
     weapon.bowAmmo = slot.bowAmmo
     weapon.bowAmmoMax = slot.bowAmmoMax
+    weapon.skillId = slot.skillId
+    weapon.skillCharges = slot.skillCharges
   }
 
   private fillWeaponDropDataFromWeapon(
@@ -2711,6 +2758,7 @@ export class WeaponSystem extends System {
     out.toughnessDamage = weapon.toughnessDamage
     out.bowAmmo = weapon.bowAmmo
     out.bowAmmoMax = weapon.bowAmmoMax
+    out.skillId = weapon.skillId
   }
 
   private fillWeaponDropDataFromSlot(
@@ -2731,6 +2779,7 @@ export class WeaponSystem extends System {
     out.toughnessDamage = slot.toughnessDamage
     out.bowAmmo = slot.bowAmmo
     out.bowAmmoMax = slot.bowAmmoMax
+    out.skillId = slot.skillId
   }
 
   private resetWeaponForSwap(entity: Entity): void {
@@ -4099,6 +4148,108 @@ export class WeaponSystem extends System {
       getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
       copyTransform(weapon.attackStartTransform, weapon.visual)
       weapon.lastAttackTimestamp = now
+    }
+  }
+
+  private handleHammerCritPhases(
+    entity: Entity,
+    weapon: Entity['weapon'],
+    playerPos: { x: number; y: number },
+    deltaMs: number
+  ): void {
+    if (!weapon) return
+
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const facing = weapon.skillFacing
+    const baseWidth = weapon.baseWidth
+    const halfLen = (baseWidth / 2) | 0
+    const chestY = playerPos.y - radius * 0.4
+
+    const backX = playerPos.x - facing * (radius + halfLen * 0.6)
+    const backRot = facing === 1 ? Math.PI : 0
+
+    const frontX = playerPos.x + facing * (radius + halfLen * 0.9)
+    const frontRot = facing === 1 ? 0 : Math.PI
+
+    weapon.skillElapsedMs += deltaMs
+
+    if (weapon.skillPhase === 'hammer_crit_windup') {
+      const t = clamp01(weapon.skillElapsedMs / HAMMER_CRIT_WINDUP_MS)
+      const startX = weapon.attackStartTransform.x
+      const startY = weapon.attackStartTransform.y
+      const startRot = weapon.attackStartTransform.rotation
+      weapon.visual.x = startX + (backX - startX) * t
+      weapon.visual.y = startY + (chestY - startY) * t
+      weapon.visual.rotation = startRot + (backRot - startRot) * t
+
+      if (weapon.skillElapsedMs >= HAMMER_CRIT_WINDUP_MS) {
+        weapon.skillPhase = 'hammer_crit_swing'
+        weapon.skillElapsedMs = 0
+        weapon.hitEntityIds.clear()
+        weapon.originalAttackDamage = weapon.attackDamage
+        weapon.attackDamage = Math.floor((weapon.attackDamage * 6) / 5)
+        weapon.originalPostureDamage = weapon.postureDamage
+        weapon.postureDamage = Math.floor((weapon.postureDamage * 6) / 5)
+        weapon.originalToughnessDamage = weapon.toughnessDamage
+        weapon.toughnessDamage = Math.floor((weapon.toughnessDamage * 6) / 5)
+        weapon.impactLevel = 'extreme'
+      }
+      return
+    }
+
+    if (weapon.skillPhase === 'hammer_crit_swing') {
+      const t = clamp01(weapon.skillElapsedMs / HAMMER_CRIT_SWING_MS)
+      weapon.visual.x = backX + (frontX - backX) * t
+      weapon.visual.y = chestY
+      weapon.visual.rotation = backRot + (frontRot - backRot) * t
+
+      const minWidth = weapon.height
+      weapon.width =
+        minWidth + (baseWidth - minWidth) * (1 - Math.sin(t * Math.PI))
+
+      const prevHitCount = weapon.hitEntityIds.size
+      this.checkEntityHits(entity, weapon)
+      if (weapon.hitEntityIds.size > prevHitCount) {
+        // 发射点在锤头前缘（朝向一侧半幅宽处）
+        const headEdgeX = weapon.visual.x + facing * (baseWidth / 2)
+        this.statsSystem?.emitHammerCritHit(headEdgeX, weapon.visual.y)
+      }
+
+      if (weapon.skillElapsedMs >= HAMMER_CRIT_SWING_MS) {
+        this.restoreDamageOverrides(weapon)
+        weapon.width = baseWidth
+        weapon.skillPhase = 'hammer_crit_recover'
+        weapon.skillElapsedMs = 0
+        weapon.attackStartTransform.x = frontX
+        weapon.attackStartTransform.y = chestY
+        weapon.attackStartTransform.rotation = frontRot
+      }
+      return
+    }
+
+    if (weapon.skillPhase === 'hammer_crit_recover') {
+      const t = clamp01(weapon.skillElapsedMs / HAMMER_CRIT_RECOVER_MS)
+      getFrontTransform(
+        playerPos,
+        facing,
+        this.tempTransform,
+        radius,
+        weapon.weaponType,
+        weapon.width
+      )
+      const startX = weapon.attackStartTransform.x
+      const startY = weapon.attackStartTransform.y
+      const startRot = weapon.attackStartTransform.rotation
+      weapon.visual.x = startX + (this.tempTransform.x - startX) * t
+      weapon.visual.y = startY + (this.tempTransform.y - startY) * t
+      weapon.visual.rotation =
+        startRot + (this.tempTransform.rotation - startRot) * t
+
+      if (weapon.skillElapsedMs >= HAMMER_CRIT_RECOVER_MS) {
+        weapon.skillPhase = null
+        weapon.skillElapsedMs = 0
+        weapon.hitEntityIds.clear()
+      }
     }
   }
 }

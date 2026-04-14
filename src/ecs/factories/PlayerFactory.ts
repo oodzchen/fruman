@@ -72,6 +72,7 @@ import {
 import { createCharacterPhysicsBody } from '../CharacterBodyPhysics'
 import {
   AttackSlotsComponent,
+  DEFAULT_SKILL_MAX_CHARGES,
   Faction,
   FactionComponent,
   FollowComponent,
@@ -839,6 +840,11 @@ export function createWeapon(
   if (isRangedWeaponType(weaponType)) {
     weapon.bowAmmoMax = getDefaultPlayerAmmoForWeaponType(weaponType)
     weapon.bowAmmo = getDefaultPlayerAmmoForWeaponType(weaponType)
+  }
+
+  if (weaponType === 'hammer') {
+    weapon.skillId = 'hammer_crit'
+    weapon.skillCharges = DEFAULT_SKILL_MAX_CHARGES
   }
 
   // Set initial position to spawn point
