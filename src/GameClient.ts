@@ -551,6 +551,7 @@ export class GameClient {
     this.resetInputState()
     this.setInputEnabled(false)
     this.levelUpManager.show({
+      previousLevel: msg.previousLevel,
       level: msg.level,
       pendingPoints: msg.pendingPoints,
       attackLevel: msg.attackLevel,
