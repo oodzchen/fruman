@@ -49,10 +49,12 @@ import type {
   CameraFrame,
   CheckpointMarker,
   EditorEmptyObject,
+  ExpOrbMarker,
   HookAnchorMarker,
   NpcMarker,
   PlayerMarker,
   ShapeResetData,
+  SunPickupMarker,
   WeaponMarker,
 } from './types'
 
@@ -67,6 +69,8 @@ type ClipboardKind =
   | 'camera'
   | 'checkpoint'
   | 'hookAnchor'
+  | 'sunPickup'
+  | 'expOrb'
 
 interface EditorClipboardManagerContext {
   getCanvas: () => fabric.Canvas | null
@@ -97,6 +101,8 @@ type ClipboardTreeNode =
   | ClipboardWeaponTreeNode
   | ClipboardCheckpointTreeNode
   | ClipboardHookAnchorTreeNode
+  | ClipboardSunPickupTreeNode
+  | ClipboardExpOrbTreeNode
 
 interface ClipboardTreeNodeBase {
   kind:
@@ -107,6 +113,8 @@ interface ClipboardTreeNodeBase {
     | 'weapon'
     | 'checkpoint'
     | 'hookAnchor'
+    | 'sunPickup'
+    | 'expOrb'
   parentIndex: number
   offsetX: number
   offsetY: number
@@ -188,6 +196,15 @@ interface ClipboardCheckpointTreeNode extends ClipboardTreeNodeBase {
 
 interface ClipboardHookAnchorTreeNode extends ClipboardTreeNodeBase {
   kind: 'hookAnchor'
+}
+
+interface ClipboardSunPickupTreeNode extends ClipboardTreeNodeBase {
+  kind: 'sunPickup'
+  isLarge: boolean
+}
+
+interface ClipboardExpOrbTreeNode extends ClipboardTreeNodeBase {
+  kind: 'expOrb'
 }
 
 type RectResetData = Extract<ShapeResetData, { kind: 'rect' }>
@@ -366,6 +383,9 @@ export class EditorClipboardManager {
 
   private checkpointSpawn = { x: 0, y: 0 }
   private hookAnchorSpawn = { x: 0, y: 0 }
+  private sunPickupIsLarge = false
+  private sunPickupSpawn = { x: 0, y: 0 }
+  private expOrbSpawn = { x: 0, y: 0 }
 
   private cameraZoom = 1
   private cameraOffset = { x: 0, y: 0, zoom: 1 }
@@ -489,6 +509,12 @@ export class EditorClipboardManager {
     if (this.ctx.markerManager.isHookAnchorMarker(target)) {
       return this.copyHookAnchorMarker(target)
     }
+    if (this.ctx.markerManager.isSunPickupMarker(target)) {
+      return this.copySunPickupMarker(target)
+    }
+    if (this.ctx.markerManager.isExpOrbMarker(target)) {
+      return this.copyExpOrbMarker(target)
+    }
     if (this.ctx.terrainManager.isTerrainProxy(target)) {
       return this.copyTerrain(target)
     }
@@ -547,6 +573,12 @@ export class EditorClipboardManager {
       case 'hookAnchor':
         result = this.pasteHookAnchor(appliedOffset)
         break
+      case 'sunPickup':
+        result = this.pasteSunPickup(appliedOffset)
+        break
+      case 'expOrb':
+        result = this.pasteExpOrb(appliedOffset)
+        break
       default:
         result = null
         break
@@ -586,6 +618,12 @@ export class EditorClipboardManager {
       return true
     }
     if (this.ctx.markerManager.isHookAnchorMarker(target)) {
+      return true
+    }
+    if (this.ctx.markerManager.isSunPickupMarker(target)) {
+      return true
+    }
+    if (this.ctx.markerManager.isExpOrbMarker(target)) {
       return true
     }
     return type === ObjectType.Ground || type === ObjectType.Obstacle
@@ -838,6 +876,31 @@ export class EditorClipboardManager {
     if (this.ctx.markerManager.isHookAnchorMarker(target)) {
       return {
         kind: 'hookAnchor',
+        parentIndex,
+        offsetX,
+        offsetY,
+      }
+    }
+
+    if (this.ctx.markerManager.isSunPickupMarker(target)) {
+      const sunPickupData = this.ctx.markerManager
+        .getSunPickupMarkerMap()
+        .get(target)
+      if (!sunPickupData) {
+        return null
+      }
+      return {
+        kind: 'sunPickup',
+        parentIndex,
+        offsetX,
+        offsetY,
+        isLarge: sunPickupData.isLarge,
+      }
+    }
+
+    if (this.ctx.markerManager.isExpOrbMarker(target)) {
+      return {
+        kind: 'expOrb',
         parentIndex,
         offsetX,
         offsetY,
@@ -1109,7 +1172,13 @@ export class EditorClipboardManager {
     if (node.kind === 'checkpoint') {
       return this.createCheckpointObject(targetLeft, targetTop)
     }
-    return this.createHookAnchorObject(targetLeft, targetTop)
+    if (node.kind === 'hookAnchor') {
+      return this.createHookAnchorObject(targetLeft, targetTop)
+    }
+    if (node.kind === 'sunPickup') {
+      return this.createSunPickupObject(node.isLarge, targetLeft, targetTop)
+    }
+    return this.createExpOrbObject(targetLeft, targetTop)
   }
 
   private createEmptyObject(
@@ -1352,6 +1421,41 @@ export class EditorClipboardManager {
     this.hookAnchorSpawn.y = targetTop * invPixelsPerMeter
     const previousActive = canvas.getActiveObject()
     this.ctx.markerManager.spawnHookAnchorMarker(this.hookAnchorSpawn)
+    const nextActive = canvas.getActiveObject()
+    return nextActive && nextActive !== previousActive ? nextActive : null
+  }
+
+  private createSunPickupObject(
+    isLarge: boolean,
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.sunPickupSpawn.x = targetLeft * invPixelsPerMeter
+    this.sunPickupSpawn.y = targetTop * invPixelsPerMeter
+    const previousActive = canvas.getActiveObject()
+    this.ctx.markerManager.spawnSunPickupMarker(isLarge, this.sunPickupSpawn)
+    const nextActive = canvas.getActiveObject()
+    return nextActive && nextActive !== previousActive ? nextActive : null
+  }
+
+  private createExpOrbObject(
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.expOrbSpawn.x = targetLeft * invPixelsPerMeter
+    this.expOrbSpawn.y = targetTop * invPixelsPerMeter
+    const previousActive = canvas.getActiveObject()
+    this.ctx.markerManager.spawnExpOrbMarker(this.expOrbSpawn)
     const nextActive = canvas.getActiveObject()
     return nextActive && nextActive !== previousActive ? nextActive : null
   }
@@ -1986,6 +2090,54 @@ export class EditorClipboardManager {
     this.hookAnchorSpawn.x = (this.pasteBaseLeft + offset) * invPixelsPerMeter
     this.hookAnchorSpawn.y = (this.pasteBaseTop + offset) * invPixelsPerMeter
     this.ctx.markerManager.spawnHookAnchorMarker(this.hookAnchorSpawn)
+    return canvas.getActiveObject() ?? null
+  }
+
+  private copySunPickupMarker(target: SunPickupMarker): boolean {
+    const sunPickupData = this.ctx.markerManager
+      .getSunPickupMarkerMap()
+      .get(target)
+    if (!sunPickupData) {
+      return false
+    }
+    this.kind = 'sunPickup'
+    this.sourceLeft = target.left ?? 0
+    this.sourceTop = target.top ?? 0
+    this.sunPickupIsLarge = sunPickupData.isLarge
+    return true
+  }
+
+  private pasteSunPickup(offset: number): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.sunPickupSpawn.x = (this.pasteBaseLeft + offset) * invPixelsPerMeter
+    this.sunPickupSpawn.y = (this.pasteBaseTop + offset) * invPixelsPerMeter
+    this.ctx.markerManager.spawnSunPickupMarker(
+      this.sunPickupIsLarge,
+      this.sunPickupSpawn
+    )
+    return canvas.getActiveObject() ?? null
+  }
+
+  private copyExpOrbMarker(target: ExpOrbMarker): boolean {
+    this.kind = 'expOrb'
+    this.sourceLeft = target.left ?? 0
+    this.sourceTop = target.top ?? 0
+    return true
+  }
+
+  private pasteExpOrb(offset: number): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    this.expOrbSpawn.x = (this.pasteBaseLeft + offset) * invPixelsPerMeter
+    this.expOrbSpawn.y = (this.pasteBaseTop + offset) * invPixelsPerMeter
+    this.ctx.markerManager.spawnExpOrbMarker(this.expOrbSpawn)
     return canvas.getActiveObject() ?? null
   }
 

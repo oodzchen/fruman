@@ -776,7 +776,7 @@ export function createNpc(
   }
 
   let dropItems: MapNpcDropItem[]
-  if (options && 'drops' in options) {
+  if (options?.drops !== undefined) {
     dropItems = normalizeNpcDropList(options.drops)
   } else if (npc.weaponSlots) {
     dropItems = buildDefaultNpcDropList(

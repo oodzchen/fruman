@@ -37,6 +37,7 @@ export interface EditorMenuSystemContext {
   onEditCustomNpcTemplate: (templateId: string) => void | Promise<void>
   onCreateCustomNpcTemplate: () => void | Promise<void>
   onSunPickupSelected: (isLarge: boolean) => void
+  onExpOrbSelected: () => void
   onPanelMenuAdd: () => void
   onPanelMenuPaste: () => void
 }
@@ -452,6 +453,11 @@ export class EditorMenuSystem {
         if (sunPickup) {
           this.ctx.onSunPickupSelected(sunPickup === 'large')
           this.hideObjectTypeMenu()
+          return
+        }
+        if (item.dataset.exporb === '1') {
+          this.ctx.onExpOrbSelected()
+          this.hideObjectTypeMenu()
         }
       })
     })
@@ -663,6 +669,7 @@ export class EditorMenuSystem {
     this.propSubmenuItems.forEach((item) => {
       const weapon = item.dataset.weapon
       const sunpickup = item.dataset.sunpickup
+      const isExpOrb = item.dataset.exporb === '1'
       if (weapon) {
         this.setWeaponMenuItemContent(
           item,
@@ -670,6 +677,8 @@ export class EditorMenuSystem {
         )
       } else if (sunpickup) {
         item.textContent = localizer.t(`editor_prop_${sunpickup}`)
+      } else if (isExpOrb) {
+        item.textContent = localizer.t('editor_prop_expOrb')
       }
     })
 

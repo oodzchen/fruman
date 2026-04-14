@@ -282,6 +282,12 @@ export class EditorManager {
         if (this.markerManager.isWeaponMarker(obj)) {
           this.markerManager.removeWeaponMarker(obj)
         }
+        if (this.markerManager.isSunPickupMarker(obj)) {
+          this.markerManager.removeSunPickupMarker(obj)
+        }
+        if (this.markerManager.isExpOrbMarker(obj)) {
+          this.markerManager.removeExpOrbMarker(obj)
+        }
         if (this.markerManager.isHookAnchorMarker(obj)) {
           this.markerManager.removeHookAnchorMarker(obj)
         }
@@ -688,6 +694,18 @@ export class EditorManager {
           })
         } else {
           this.markerManager.spawnSunPickupMarker(isLarge)
+        }
+        this.captureHistorySnapshot()
+      },
+      onExpOrbSelected: () => {
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.markerManager.spawnExpOrbMarker({
+            x: spawn.x * this.invPixelsPerMeter,
+            y: spawn.y * this.invPixelsPerMeter,
+          })
+        } else {
+          this.markerManager.spawnExpOrbMarker()
         }
         this.captureHistorySnapshot()
       },
@@ -2077,6 +2095,7 @@ export class EditorManager {
     const checkpointObjects: EditorObjectData[] = []
     const hookAnchorObjects: EditorObjectData[] = []
     const sunPickupObjects: EditorObjectData[] = []
+    const expOrbObjects: EditorObjectData[] = []
     let playerObject: EditorObjectData | null = null
     let cameraObject: EditorObjectData | null = null
 
@@ -2097,6 +2116,8 @@ export class EditorManager {
         dataItem.type === ObjectType.SunPickupLarge
       ) {
         sunPickupObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.ExpOrb) {
+        expOrbObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Player) {
         playerObject = dataItem
       } else if (dataItem.type === ObjectType.Camera) {
@@ -2154,6 +2175,12 @@ export class EditorManager {
         resolvedData =
           index >= 0 && index < sunPickupObjects.length
             ? sunPickupObjects[index]
+            : null
+      } else if (node.type === 'expOrb') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < expOrbObjects.length
+            ? expOrbObjects[index]
             : null
       } else if (node.type === 'player') {
         resolvedData = playerObject
@@ -2446,6 +2473,12 @@ export class EditorManager {
     if (this.markerManager.isCheckpointMarker(object)) {
       return true
     }
+    if (this.markerManager.isSunPickupMarker(object)) {
+      return true
+    }
+    if (this.markerManager.isExpOrbMarker(object)) {
+      return true
+    }
     if (this.markerManager.isHookAnchorMarker(object)) {
       return true
     }
@@ -2616,6 +2649,19 @@ export class EditorManager {
       return
     }
     if (this.markerManager.isHookAnchorMarker(target)) {
+      this.showPolygonMenuWithActions(
+        ['copy', 'paste', 'commonProperties', 'rename', 'lock', 'delete'],
+        target,
+        -1,
+        clientX,
+        clientY
+      )
+      return
+    }
+    if (
+      this.markerManager.isSunPickupMarker(target) ||
+      this.markerManager.isExpOrbMarker(target)
+    ) {
       this.showPolygonMenuWithActions(
         ['copy', 'paste', 'commonProperties', 'rename', 'lock', 'delete'],
         target,
@@ -2993,6 +3039,12 @@ export class EditorManager {
       }
       if (this.markerManager.isCheckpointMarker(target)) {
         this.markerManager.removeCheckpointMarker(target)
+      }
+      if (this.markerManager.isSunPickupMarker(target)) {
+        this.markerManager.removeSunPickupMarker(target)
+      }
+      if (this.markerManager.isExpOrbMarker(target)) {
+        this.markerManager.removeExpOrbMarker(target)
       }
       if (this.markerManager.isHookAnchorMarker(target)) {
         this.markerManager.removeHookAnchorMarker(target)

@@ -25,9 +25,11 @@ import type {
   MapNpcWeapon,
 } from '../editorMapTypes'
 import {
+  MAX_NPC_DROP_COUNT,
   NPC_DROP_ITEM_TYPES,
   buildDefaultNpcDropList,
   normalizeNpcDropChance,
+  normalizeNpcDropCount,
   normalizeNpcDropItemType,
   normalizeNpcDropList,
 } from '../npcDropUtils'
@@ -282,6 +284,9 @@ export class EditorPropertiesPanel {
     }
     if (itemType === 'sunPickupLarge') {
       return localizer.t('editor_prop_large')
+    }
+    if (itemType === 'expOrb') {
+      return localizer.t('editor_prop_expOrb')
     }
     return localizer.t(`editor_weapon_${itemType}`)
   }
@@ -1105,6 +1110,20 @@ export class EditorPropertiesPanel {
             percentText.style.cssText = 'font-size:12px;color:#ffffff;'
             row.appendChild(percentText)
 
+            const countLabel = document.createElement('span')
+            countLabel.textContent = 'x'
+            countLabel.style.cssText = 'font-size:12px;color:#ffffff;'
+            row.appendChild(countLabel)
+
+            const countInput = EditorUIHelper.createNumberInput({
+              value: rowData.count,
+              min: '1',
+              max: String(MAX_NPC_DROP_COUNT),
+              step: '1',
+              width: '56px',
+            })
+            row.appendChild(countInput)
+
             const removeBtn = EditorUIHelper.createButton(
               localizer.t('editor_enemy_prop_drops_remove')
             )
@@ -1134,6 +1153,19 @@ export class EditorPropertiesPanel {
             chanceInput.addEventListener('change', syncChanceValue)
             chanceInput.addEventListener('blur', syncChanceValue)
 
+            const syncCountValue = () => {
+              const count = Number.parseInt(countInput.value, 10)
+              if (!Number.isFinite(count)) {
+                countInput.value = String(rowData.count)
+                return
+              }
+              rowData.count = normalizeNpcDropCount(count)
+              countInput.value = String(rowData.count)
+            }
+
+            countInput.addEventListener('change', syncCountValue)
+            countInput.addEventListener('blur', syncCountValue)
+
             removeBtn.addEventListener('click', () => {
               dropEntries.splice(i, 1)
               renderDropRows()
@@ -1149,6 +1181,7 @@ export class EditorPropertiesPanel {
           dropEntries.push({
             itemType: defaultItemType,
             chance: 100,
+            count: 1,
           })
           renderDropRows()
         })

@@ -10,8 +10,12 @@ export const NPC_DROP_ITEM_TYPES: NpcDropItemType[] = [
   'hook',
   'sunPickupSmall',
   'sunPickupLarge',
+  'expOrb',
 ]
 export const DEFAULT_NPC_WEAPON_DROP_CHANCE = 50
+export const DEFAULT_NPC_EXP_ORB_DROP_CHANCE = 100
+export const DEFAULT_NPC_DROP_COUNT = 1
+export const MAX_NPC_DROP_COUNT = 999
 
 export function normalizeNpcDropItemType(
   value: string | null | undefined
@@ -45,6 +49,23 @@ export function normalizeNpcDropChance(
   return normalizedChance
 }
 
+export function normalizeNpcDropCount(
+  count: number | null | undefined
+): number {
+  const numericCount = typeof count === 'number' ? count : NaN
+  if (!Number.isFinite(numericCount)) {
+    return DEFAULT_NPC_DROP_COUNT
+  }
+  const normalizedCount = Math.round(numericCount)
+  if (normalizedCount < 1) {
+    return 1
+  }
+  if (normalizedCount > MAX_NPC_DROP_COUNT) {
+    return MAX_NPC_DROP_COUNT
+  }
+  return normalizedCount
+}
+
 export function normalizeNpcDropList(
   drops: ReadonlyArray<MapNpcDropItem> | null | undefined
 ): MapNpcDropItem[] {
@@ -61,6 +82,7 @@ export function normalizeNpcDropList(
     normalizedDrops.push({
       itemType,
       chance: normalizeNpcDropChance(drop.chance),
+      count: normalizeNpcDropCount(drop.count),
     })
   }
   return normalizedDrops
@@ -75,19 +97,30 @@ export function buildDefaultNpcDropList(
     defaultDrops.push({
       itemType: mainWeaponType,
       chance: DEFAULT_NPC_WEAPON_DROP_CHANCE,
+      count: DEFAULT_NPC_DROP_COUNT,
     })
   }
   if (secondaryWeaponType) {
     defaultDrops.push({
       itemType: secondaryWeaponType,
       chance: DEFAULT_NPC_WEAPON_DROP_CHANCE,
+      count: DEFAULT_NPC_DROP_COUNT,
     })
   }
+  defaultDrops.push({
+    itemType: 'expOrb',
+    chance: DEFAULT_NPC_EXP_ORB_DROP_CHANCE,
+    count: DEFAULT_NPC_DROP_COUNT,
+  })
   return defaultDrops
 }
 
 export function isWeaponDropItemType(
   itemType: NpcDropItemType
 ): itemType is WeaponType {
-  return itemType !== 'sunPickupSmall' && itemType !== 'sunPickupLarge'
+  return (
+    itemType !== 'sunPickupSmall' &&
+    itemType !== 'sunPickupLarge' &&
+    itemType !== 'expOrb'
+  )
 }

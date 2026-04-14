@@ -28,6 +28,7 @@ export enum ObjectType {
   Terrain = 'terrain',
   SunPickupSmall = 'sunPickupSmall',
   SunPickupLarge = 'sunPickupLarge',
+  ExpOrb = 'expOrb',
 }
 
 export type GroundShapeType = 'rect' | 'triangle' | 'circle' | 'polygon'
@@ -268,6 +269,14 @@ export type SunPickupMarker = fabric.Group & {
 export interface SunPickupMarkerData {
   marker: SunPickupMarker
   isLarge: boolean
+}
+
+export type ExpOrbMarker = fabric.Group & {
+  editorShape: 'exp-orb-marker'
+}
+
+export interface ExpOrbMarkerData {
+  marker: ExpOrbMarker
 }
 
 export interface EditorMap {

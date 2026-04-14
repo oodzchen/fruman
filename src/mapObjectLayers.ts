@@ -18,6 +18,7 @@ export interface MapObjectLayerLookup {
   hookAnchorLayers: number[]
   sunPickupSmallLayers: number[]
   sunPickupLargeLayers: number[]
+  expOrbLayers: number[]
 }
 
 function getDefaultObjectLayer(): number {
@@ -39,6 +40,7 @@ export function buildMapObjectLayerLookup(
     hookAnchorLayers: [],
     sunPickupSmallLayers: [],
     sunPickupLargeLayers: [],
+    expOrbLayers: [],
   }
   const tree = map?.editorTree
   if (!tree) {
@@ -72,6 +74,8 @@ export function buildMapObjectLayerLookup(
       lookup.sunPickupSmallLayers[index] = layer
     } else if (type === 'sunPickupLarge') {
       lookup.sunPickupLargeLayers[index] = layer
+    } else if (type === 'expOrb') {
+      lookup.expOrbLayers[index] = layer
     }
   }
   return lookup
@@ -181,6 +185,13 @@ export function collectCollisionLayers(
           : lookup.sunPickupSmallLayers[i],
         getDefaultObjectLayer()
       )
+    )
+  }
+  const expOrbs = map.expOrbs ?? []
+  for (let i = 0; i < expOrbs.length; i++) {
+    pushUniqueLayer(
+      layers,
+      normalizeRenderLayer(lookup.expOrbLayers[i], getDefaultObjectLayer())
     )
   }
   return layers

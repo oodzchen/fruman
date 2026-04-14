@@ -17,6 +17,7 @@ import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
 import type {
   CharacterBodyShapeObject,
   CheckpointMarker,
+  ExpOrbMarker,
   HookAnchorMarker,
   NpcMarker,
   PlayerMarker,
@@ -526,6 +527,45 @@ export class EditorObjectFactory {
     }) as SunPickupMarker
     group.editorShape = 'sun-pickup-marker'
     group.isLarge = isLarge
+    return group
+  }
+
+  createExpOrbMarker() {
+    const outerRadius = Math.max(
+      4,
+      Math.round((this.pixelsPerMeter * 16) / 100)
+    )
+    const coreRadius = Math.max(2, Math.round((outerRadius * 5) / 8))
+
+    const glow = new fabric.Circle({
+      radius: outerRadius,
+      fill: 'rgba(61,127,255,0.2)',
+      stroke: 'rgba(255,255,255,0.35)',
+      strokeWidth: 1,
+      originX: 'center',
+      originY: 'center',
+      objectCaching: true,
+    })
+
+    const core = new fabric.Circle({
+      radius: coreRadius,
+      fill: '#3d7fff',
+      originX: 'center',
+      originY: 'center',
+      objectCaching: true,
+    })
+
+    const group = new fabric.Group([glow, core], {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: true,
+    }) as ExpOrbMarker
+    group.editorShape = 'exp-orb-marker'
     return group
   }
 

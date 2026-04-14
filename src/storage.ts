@@ -18,7 +18,11 @@ import type {
   MapNpcWeapon,
   MapPlayerProperties,
 } from './editorMapTypes'
-import { normalizeNpcDropList } from './npcDropUtils'
+import {
+  DEFAULT_NPC_DROP_COUNT,
+  DEFAULT_NPC_EXP_ORB_DROP_CHANCE,
+  normalizeNpcDropList,
+} from './npcDropUtils'
 import { clampPlayerLevel, clampPlayerUpgradeLevel } from './playerUpgrade'
 import { getDefaultTerrainRenderLayer } from './renderLayers'
 import type {
@@ -610,7 +614,7 @@ function buildDefaultMapData(
   )
 
   return {
-    version: 1,
+    version: 3,
     canvasWidth,
     canvasHeight,
     pixelsPerMeter,
@@ -711,27 +715,53 @@ function normalizeBodyProfile(
 }
 
 function normalizeMapNpc(npc: MapNpc): MapNpc {
+  const normalizedDrops =
+    npc.drops === undefined ? undefined : normalizeNpcDropList(npc.drops)
   return {
     ...npc,
     npcType: npc.npcType ?? npc.enemyType ?? ('default' as NpcType),
     npcFactions: npc.npcFactions ?? npc.enemyFactions,
     bodyProfile: normalizeBodyProfile(npc.bodyProfile),
-    drops:
-      npc.drops === undefined ? undefined : normalizeNpcDropList(npc.drops),
+    drops: normalizedDrops,
   }
 }
 
 function normalizeMapNpcTemplate(template: MapNpcTemplate): MapNpcTemplate {
+  const normalizedDrops =
+    template.drops === undefined
+      ? undefined
+      : normalizeNpcDropList(template.drops)
   return {
     ...template,
     npcType: template.npcType ?? template.enemyType ?? ('default' as NpcType),
     npcFactions: template.npcFactions ?? template.enemyFactions,
     bodyProfile: normalizeBodyProfile(template.bodyProfile),
-    drops:
-      template.drops === undefined
-        ? undefined
-        : normalizeNpcDropList(template.drops),
+    drops: normalizedDrops,
   }
+}
+
+function migrateLegacyNpcDrops<
+  T extends { drops?: MapNpc['drops'] | MapNpcTemplate['drops'] },
+>(entry: T, mapVersion: number | undefined): T {
+  if (entry.drops === undefined) {
+    return entry
+  }
+  const drops = normalizeNpcDropList(entry.drops)
+  if ((mapVersion ?? 1) >= 2) {
+    return { ...entry, drops }
+  }
+  for (let i = 0; i < drops.length; i++) {
+    if (drops[i].itemType === 'expOrb') {
+      return { ...entry, drops }
+    }
+  }
+  const migratedDrops = drops.slice()
+  migratedDrops.push({
+    itemType: 'expOrb',
+    chance: DEFAULT_NPC_EXP_ORB_DROP_CHANCE,
+    count: DEFAULT_NPC_DROP_COUNT,
+  })
+  return { ...entry, drops: migratedDrops }
 }
 
 function normalizeMapPlayer(
@@ -749,6 +779,7 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
   if (isMapDataFastNormalized(data)) {
     return data
   }
+  const sourceVersion = data.version
   const shapes = Array.isArray(data.shapes) ? data.shapes : []
   const rawNpcs = data.npcs ?? data.enemies ?? []
   const terrainNormalization = normalizeMapTerrain(
@@ -785,16 +816,24 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
 
   return {
     ...data,
+    version: 3,
     player: normalizeMapPlayer(data.player),
     shapes: [],
-    npcs: rawNpcs.map(normalizeMapNpc),
+    npcs: rawNpcs.map((npc) =>
+      migrateLegacyNpcDrops(normalizeMapNpc(npc), sourceVersion)
+    ),
     terrain: terrainNormalization.terrain,
-    npcTemplates: (data.npcTemplates ?? []).map(normalizeMapNpcTemplate),
+    npcTemplates: (data.npcTemplates ?? []).map((template) =>
+      migrateLegacyNpcDrops(normalizeMapNpcTemplate(template), sourceVersion)
+    ),
     editorTree,
   }
 }
 
 function isMapDataFastNormalized(data: EditorMapData): boolean {
+  if (data.version !== 3) {
+    return false
+  }
   if ((data.shapes?.length ?? 0) > 0 || (data.enemies?.length ?? 0) > 0) {
     return false
   }

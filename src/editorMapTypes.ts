@@ -28,6 +28,7 @@ export type EditorTreeObjectType =
   | 'obstacle'
   | 'sunPickupSmall'
   | 'sunPickupLarge'
+  | 'expOrb'
 
 export interface EditorTreeNode {
   type: EditorTreeObjectType
@@ -130,6 +131,7 @@ export interface MapNpcWeapon {
 export interface MapNpcDropItem {
   itemType: NpcDropItemType
   chance: number
+  count: number
 }
 
 export interface MapNpcConfig {
@@ -191,6 +193,11 @@ export interface MapSunPickup {
   isLarge: boolean
 }
 
+export interface MapExpOrb {
+  x: number
+  y: number
+}
+
 export interface MapWeapon {
   x: number
   y: number
@@ -237,7 +244,7 @@ export interface EditorViewportState {
 }
 
 export interface EditorMapData {
-  version: 1
+  version: 1 | 2 | 3
   canvasWidth: number
   canvasHeight: number
   pixelsPerMeter: number
@@ -251,6 +258,7 @@ export interface EditorMapData {
   checkpoints?: MapCheckpoint[]
   hookAnchors?: MapHookAnchor[]
   sunPickups?: MapSunPickup[]
+  expOrbs?: MapExpOrb[]
   terrain?: MapTerrainData
   npcTemplates?: MapNpcTemplate[]
   editorTree?: EditorTreeData

@@ -47,6 +47,8 @@ import type {
   CharacterBodyShapeObject,
   CheckpointMarker,
   CheckpointMarkerData,
+  ExpOrbMarker,
+  ExpOrbMarkerData,
   HookAnchorMarker,
   HookAnchorMarkerData,
   NpcMarker,
@@ -101,11 +103,13 @@ export class EditorMarkerManager {
   private checkpointMarkers: CheckpointMarkerData[] = []
   private hookAnchorMarkers: HookAnchorMarkerData[] = []
   private sunPickupMarkers: SunPickupMarkerData[] = []
+  private expOrbMarkers: ExpOrbMarkerData[] = []
   private npcMarkerMap = new Map<fabric.Object, NpcMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
   private checkpointMarkerMap = new Map<fabric.Object, CheckpointMarkerData>()
   private hookAnchorMarkerMap = new Map<fabric.Object, HookAnchorMarkerData>()
   private sunPickupMarkerMap = new Map<fabric.Object, SunPickupMarkerData>()
+  private expOrbMarkerMap = new Map<fabric.Object, ExpOrbMarkerData>()
   private bodyTextureCache = new Map<string, HTMLImageElement>()
   private pendingBodyTextureImages = new WeakSet<HTMLImageElement>()
   private tempNpcPos = { x: 0, y: 0 }
@@ -132,6 +136,8 @@ export class EditorMarkerManager {
     this.hookAnchorMarkerMap.clear()
     this.sunPickupMarkers.length = 0
     this.sunPickupMarkerMap.clear()
+    this.expOrbMarkers.length = 0
+    this.expOrbMarkerMap.clear()
     this.bodyTextureCache.clear()
   }
 
@@ -275,6 +281,10 @@ export class EditorMarkerManager {
     return this.sunPickupMarkers
   }
 
+  getExpOrbMarkers() {
+    return this.expOrbMarkers
+  }
+
   getWeaponMarkerMap() {
     return this.weaponMarkerMap
   }
@@ -316,6 +326,14 @@ export class EditorMarkerManager {
 
   getHookAnchorMarkerMap() {
     return this.hookAnchorMarkerMap
+  }
+
+  getSunPickupMarkerMap() {
+    return this.sunPickupMarkerMap
+  }
+
+  getExpOrbMarkerMap() {
+    return this.expOrbMarkerMap
   }
 
   getNpcMarkerMap() {
@@ -378,6 +396,20 @@ export class EditorMarkerManager {
     )
   }
 
+  isSunPickupMarker(object: fabric.Object | null): object is SunPickupMarker {
+    return (
+      object instanceof fabric.Group &&
+      (object as SunPickupMarker).editorShape === 'sun-pickup-marker'
+    )
+  }
+
+  isExpOrbMarker(object: fabric.Object | null): object is ExpOrbMarker {
+    return (
+      object instanceof fabric.Group &&
+      (object as ExpOrbMarker).editorShape === 'exp-orb-marker'
+    )
+  }
+
   removePlayerMarker(marker: fabric.Object) {
     if (this.playerMarker === marker) {
       this.playerMarker = null
@@ -426,6 +458,28 @@ export class EditorMarkerManager {
         this.hookAnchorMarkers.splice(index, 1)
       }
       this.hookAnchorMarkerMap.delete(marker)
+    }
+  }
+
+  removeSunPickupMarker(marker: fabric.Object) {
+    const data = this.sunPickupMarkerMap.get(marker)
+    if (data) {
+      const index = this.sunPickupMarkers.indexOf(data)
+      if (index !== -1) {
+        this.sunPickupMarkers.splice(index, 1)
+      }
+      this.sunPickupMarkerMap.delete(marker)
+    }
+  }
+
+  removeExpOrbMarker(marker: fabric.Object) {
+    const data = this.expOrbMarkerMap.get(marker)
+    if (data) {
+      const index = this.expOrbMarkers.indexOf(data)
+      if (index !== -1) {
+        this.expOrbMarkers.splice(index, 1)
+      }
+      this.expOrbMarkerMap.delete(marker)
     }
   }
 
@@ -858,7 +912,7 @@ export class EditorMarkerManager {
       getDefaultNpcAmmoForWeaponType
     )
     const drops =
-      spawn && 'drops' in spawn
+      spawn?.drops !== undefined
         ? normalizeNpcDropList(spawn.drops)
         : buildDefaultNpcDropList(mainWeaponType, secondaryWeaponType)
     let centerX: number
@@ -1140,6 +1194,35 @@ export class EditorMarkerManager {
     const data: SunPickupMarkerData = { marker, isLarge }
     this.sunPickupMarkers.push(data)
     this.sunPickupMarkerMap.set(marker, data)
+    this.finalizeMarkerSpawn(canvas, marker, options)
+  }
+
+  spawnExpOrbMarker(
+    spawn?: { x: number; y: number },
+    options: EditorMarkerSpawnOptions = {}
+  ) {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) return
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.ctx.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
+    const objectTypeExpOrb = 'expOrb' as ObjectType
+    const marker = this.objectFactory.createExpOrbMarker() as ExpOrbMarker
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    canvas.add(marker)
+    this.ctx.registerEditorObject(objectTypeExpOrb, marker)
+    const data: ExpOrbMarkerData = { marker }
+    this.expOrbMarkers.push(data)
+    this.expOrbMarkerMap.set(marker, data)
     this.finalizeMarkerSpawn(canvas, marker, options)
   }
 

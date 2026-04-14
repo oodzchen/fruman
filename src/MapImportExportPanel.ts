@@ -98,7 +98,7 @@ export class MapImportExportPanel {
     if (
       !data ||
       typeof data !== 'object' ||
-      data.version !== 1 ||
+      (data.version !== 1 && data.version !== 2 && data.version !== 3) ||
       (!Array.isArray(data.shapes) && data.shapes !== undefined)
     ) {
       this.showStatus('无效的地图文件')

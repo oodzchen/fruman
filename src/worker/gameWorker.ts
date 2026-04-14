@@ -355,6 +355,10 @@ function getSunPickupRenderLayer(index: number, isLarge: boolean): number {
   )
 }
 
+function getExpOrbRenderLayer(index: number): number {
+  return getIndexedLayer(activeMapLayerLookup.expOrbLayers, index)
+}
+
 // Helper for color parsing (simple cache)
 const colorCache = new Map<string, number>()
 function parseColor(color: string): number {
@@ -861,55 +865,6 @@ function initializeSystems() {
     p.isLarge = false
     p.pickupRadiusSq = 1
     sun.addComponent(p)
-
-    // 掉落经验球（物理逻辑与小太阳相同，向另一侧弹出）
-    const orb = world.createEntity()
-    const orbT = new TransformComponent()
-    orbT.x = x
-    orbT.y = y
-    orb.addComponent(orbT)
-
-    const orbBodyDef = b2DefaultBodyDef()
-    orbBodyDef.type = b2BodyType.b2_dynamicBody
-    orbBodyDef.position.Set(x, y)
-    orbBodyDef.linearDamping = 1.0
-    orbBodyDef.motionLocks.angularZ = true
-    const orbBodyId = b2CreateBody(worldId, orbBodyDef)
-
-    const orbShapeDef = b2DefaultShapeDef()
-    orbShapeDef.density = 0.3
-    orbShapeDef.material.friction = 0.3
-    orbShapeDef.material.restitution = 0.1
-    orbShapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
-    orbShapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
-
-    const orbCircle = new b2Circle()
-    orbCircle.center.Set(0, 0)
-    orbCircle.radius = 0.12
-    b2CreateCircleShape(orbBodyId, orbShapeDef, orbCircle)
-
-    const orbVel = new box2d.b2Vec2(
-      -(Math.random() * 4 - 2),
-      -(8 + Math.random() * 4)
-    )
-    b2Body_SetLinearVelocity(orbBodyId, orbVel)
-    orbVel.delete()
-    orbBodyDef.delete()
-    orbShapeDef.delete()
-    orbCircle.delete()
-
-    const orbPhysics = new PhysicsComponent()
-    orbPhysics.bodyId = orbBodyId
-    orb.addComponent(orbPhysics)
-
-    const orbRender = new RenderComponent()
-    orbRender.visible = true
-    orbRender.renderLayer = renderLayer
-    orb.addComponent(orbRender)
-
-    const expOrb = new ExpOrbComponent()
-    expOrb.pickupRadiusSq = 1
-    orb.addComponent(expOrb)
   }
   targetingSystem = new TargetingSystem(box2d, worldId)
 
@@ -1287,6 +1242,7 @@ function createEnvironment(): void {
     createCheckpointsFromMap(activeMapData)
     createGrappleAnchorsFromMap(activeMapData)
     createSunPickupsFromMap(activeMapData)
+    createExpOrbsFromMap(activeMapData)
   } else {
     createGround()
     createObstacles()
@@ -1478,6 +1434,15 @@ function createSunPickupsFromMap(map: EditorMapData): void {
   }
 }
 
+function createExpOrbsFromMap(map: EditorMapData): void {
+  if (!world) return
+  const expOrbs = map.expOrbs ?? []
+  for (let i = 0; i < expOrbs.length; i++) {
+    const expOrb = expOrbs[i]
+    createExpOrbEntity(expOrb.x, expOrb.y, getExpOrbRenderLayer(i))
+  }
+}
+
 function createSunPickupEntity(
   x: number,
   y: number,
@@ -1553,6 +1518,67 @@ function createMapSunPickupEntity(
   createSunPickupEntity(x, y, isLarge, renderLayer, 0, 0, mapSpawnIndex)
 }
 
+function createExpOrbEntity(
+  x: number,
+  y: number,
+  renderLayer: number,
+  velocityX = 0,
+  velocityY = 0
+): Entity | null {
+  if (!world) return null
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2CreateCircleShape,
+    b2Circle,
+  } = box2d
+  const entity = world.createEntity()
+  const transform = new TransformComponent()
+  transform.x = x
+  transform.y = y
+  entity.addComponent(transform)
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(x, y)
+  bodyDef.linearDamping = 1.0
+  bodyDef.motionLocks.angularZ = true
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.3
+  shapeDef.material.friction = 0.3
+  shapeDef.material.restitution = 0.1
+  shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
+
+  const circle = new b2Circle()
+  circle.center.Set(0, 0)
+  circle.radius = 0.12
+  b2CreateCircleShape(bodyId, shapeDef, circle)
+  bodyDef.delete()
+  shapeDef.delete()
+  circle.delete()
+
+  const physics = new PhysicsComponent()
+  physics.bodyId = bodyId
+  entity.addComponent(physics)
+
+  const render = new RenderComponent()
+  render.visible = true
+  render.renderLayer = renderLayer
+  entity.addComponent(render)
+
+  const expOrb = new ExpOrbComponent()
+  expOrb.pickupRadiusSq = 1
+  entity.addComponent(expOrb)
+
+  setBodyLinearVelocity(bodyId, velocityX, velocityY)
+  return entity
+}
+
 function rollDropChance(chance: number): boolean {
   return ((Math.random() * 100) | 0) < chance
 }
@@ -1596,40 +1622,48 @@ function dropNpcConfiguredLoot(entity: Entity): void {
     if (!rollDropChance(drop.chance)) {
       continue
     }
+    const dropCount = drop.count > 0 ? drop.count : 1
+    for (let j = 0; j < dropCount; j++) {
+      const offsetX = getNpcDropOffsetX(spawnCount)
+      const velocityX = getNpcDropVelocityX(spawnCount)
+      const velocityY = getNpcDropVelocityY(spawnCount)
+      const spawnX = entity.transform.x + offsetX
+      const spawnY = entity.transform.y
 
-    const offsetX = getNpcDropOffsetX(spawnCount)
-    const velocityX = getNpcDropVelocityX(spawnCount)
-    const velocityY = getNpcDropVelocityY(spawnCount)
-    const spawnX = entity.transform.x + offsetX
-    const spawnY = entity.transform.y
-
-    if (isWeaponDropItemType(drop.itemType)) {
-      const weaponEntity = createWeapon(
-        world,
-        box2d,
-        worldId,
-        spawnX,
-        spawnY,
-        groundTopY,
-        drop.itemType,
-        renderLayer
-      )
-      if (weaponEntity.physics) {
-        setBodyLinearVelocity(weaponEntity.physics.bodyId, velocityX, velocityY)
+      if (isWeaponDropItemType(drop.itemType)) {
+        const weaponEntity = createWeapon(
+          world,
+          box2d,
+          worldId,
+          spawnX,
+          spawnY,
+          groundTopY,
+          drop.itemType,
+          renderLayer
+        )
+        if (weaponEntity.physics) {
+          setBodyLinearVelocity(
+            weaponEntity.physics.bodyId,
+            velocityX,
+            velocityY
+          )
+        }
+        weaponSystem?.setGroundWeaponPickupCooldown(weaponEntity, 500)
+      } else if (drop.itemType === 'expOrb') {
+        createExpOrbEntity(spawnX, spawnY, renderLayer, velocityX, velocityY)
+      } else {
+        createSunPickupEntity(
+          spawnX,
+          spawnY,
+          drop.itemType === 'sunPickupLarge',
+          renderLayer,
+          velocityX,
+          velocityY
+        )
       }
-      weaponSystem?.setGroundWeaponPickupCooldown(weaponEntity, 500)
-    } else {
-      createSunPickupEntity(
-        spawnX,
-        spawnY,
-        drop.itemType === 'sunPickupLarge',
-        renderLayer,
-        velocityX,
-        velocityY
-      )
-    }
 
-    spawnCount += 1
+      spawnCount += 1
+    }
   }
 }
 

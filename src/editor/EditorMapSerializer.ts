@@ -7,6 +7,7 @@ import type {
   EditorTreeNode,
   EditorTreeObjectType,
   MapCharacterBodyProfile,
+  MapExpOrb,
   MapNpcTemplate,
   MapSunPickup,
 } from '../editorMapTypes'
@@ -105,7 +106,7 @@ export class EditorMapSerializer {
     const spawnX = width * 0.5 * invPixelsPerMeter
     const spawnY = Math.max(0.8, height * invPixelsPerMeter - 1.6)
     return {
-      version: 1,
+      version: 3,
       canvasWidth: width,
       canvasHeight: height,
       pixelsPerMeter: this.ctx.getPixelsPerMeter(),
@@ -135,6 +136,8 @@ export class EditorMapSerializer {
     const hookAnchors = this.serializeHookAnchors(hookAnchorIndexMap)
     const sunPickupIndexMap = new Map<fabric.Object, number>()
     const sunPickups = this.serializeSunPickups(sunPickupIndexMap)
+    const expOrbIndexMap = new Map<fabric.Object, number>()
+    const expOrbs = this.serializeExpOrbs(expOrbIndexMap)
     const terrainIndexMap = new Map<fabric.Object, number>()
     const terrain = this.ctx.terrainManager.serialize(
       terrainIndexMap,
@@ -147,10 +150,11 @@ export class EditorMapSerializer {
       checkpointIndexMap,
       hookAnchorIndexMap,
       sunPickupIndexMap,
+      expOrbIndexMap,
       terrainIndexMap,
     })
     return {
-      version: 1,
+      version: 3,
       canvasWidth: base.canvasWidth,
       canvasHeight: base.canvasHeight,
       pixelsPerMeter: base.pixelsPerMeter,
@@ -164,6 +168,7 @@ export class EditorMapSerializer {
       checkpoints,
       hookAnchors,
       sunPickups,
+      expOrbs,
       npcTemplates: this.ctx.getCustomNpcTemplates(),
       editorTree: editorTree ?? undefined,
       factions: this.ctx.getFactions(),
@@ -200,6 +205,7 @@ export class EditorMapSerializer {
       this.applyCheckpoints(data.checkpoints, batchSpawnOptions)
       this.applyHookAnchors(data.hookAnchors, batchSpawnOptions)
       this.applySunPickups(data.sunPickups, batchSpawnOptions)
+      this.applyExpOrbs(data.expOrbs, batchSpawnOptions)
     } finally {
       this.ctx.endObjectBatchMutation()
       canvas.renderOnAddRemove = prevRenderOnAddRemove
@@ -279,6 +285,20 @@ export class EditorMapSerializer {
       this.ctx.markerManager.spawnSunPickupMarker(
         p.isLarge,
         { x: p.x, y: p.y },
+        spawnOptions
+      )
+    }
+  }
+
+  private applyExpOrbs(
+    expOrbs: EditorMapData['expOrbs'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
+    if (!expOrbs) return
+    for (let i = 0; i < expOrbs.length; i++) {
+      const expOrb = expOrbs[i]
+      this.ctx.markerManager.spawnExpOrbMarker(
+        { x: expOrb.x, y: expOrb.y },
         spawnOptions
       )
     }
@@ -381,12 +401,29 @@ export class EditorMapSerializer {
     return pickups
   }
 
+  private serializeExpOrbs(indexMap?: Map<fabric.Object, number>): MapExpOrb[] {
+    const markers = this.ctx.markerManager.getExpOrbMarkers()
+    if (markers.length === 0) return []
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    const expOrbs: MapExpOrb[] = []
+    for (let i = 0; i < markers.length; i++) {
+      const { marker } = markers[i]
+      const center = marker.getCenterPoint()
+      const x = center.x * invPixelsPerMeter
+      const y = center.y * invPixelsPerMeter
+      if (indexMap) indexMap.set(marker, expOrbs.length)
+      expOrbs.push({ x, y })
+    }
+    return expOrbs
+  }
+
   private serializeEditorTree(data: {
     npcIndexMap: Map<fabric.Object, number>
     weaponIndexMap: Map<fabric.Object, number>
     checkpointIndexMap: Map<fabric.Object, number>
     hookAnchorIndexMap: Map<fabric.Object, number>
     sunPickupIndexMap: Map<fabric.Object, number>
+    expOrbIndexMap: Map<fabric.Object, number>
     terrainIndexMap: Map<fabric.Object, number>
   }): EditorTreeData | null {
     const editorObjects = this.ctx.getEditorObjects()
@@ -442,6 +479,12 @@ export class EditorMapSerializer {
         dataItem.type === 'sunPickupLarge'
       ) {
         const index = data.sunPickupIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'expOrb') {
+        const index = data.expOrbIndexMap.get(dataItem.object)
         if (index === undefined) {
           return null
         }
