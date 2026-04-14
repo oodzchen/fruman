@@ -16,8 +16,6 @@ function getPositiveProfileSize(value: number | undefined): number {
     : 0
 }
 
-const MAX_GROUND_PICKUP_RADIUS_BONUS = 0.35
-
 function getProfilePointBounds(points: number[]): {
   width: number
   height: number
@@ -269,6 +267,8 @@ export function getCharacterBodyHalfHeight(
   )
 }
 
+const MAX_GROUND_PICKUP_RADIUS_BONUS = 5.0
+
 export function getCharacterGroundPickupRadius(
   profile: MapCharacterBodyProfile | null | undefined,
   radius: number,
@@ -281,10 +281,10 @@ export function getCharacterGroundPickupRadius(
   const halfWidth = getCharacterBodyHalfWidth(profile, radius)
   const halfHeight = getCharacterBodyHalfHeight(profile, radius, bodyHeight)
   const heightBonus = Math.max(0, halfHeight - radius)
-  const widthBonus = Math.max(0, radius - halfWidth)
+  const widthBonus = Math.max(0, halfWidth - radius)
   return (
     baseRadius +
-    Math.min(MAX_GROUND_PICKUP_RADIUS_BONUS, heightBonus + widthBonus)
+    Math.min(MAX_GROUND_PICKUP_RADIUS_BONUS, Math.max(heightBonus, widthBonus))
   )
 }
 
