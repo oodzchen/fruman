@@ -2331,6 +2331,8 @@ function createPlayerAndWeapon(
   map: EditorMapData | null
 ): void {
   const playerProps = map?.player
+  const playerFacing =
+    typeof playerProps?.facing === 'number' && playerProps.facing < 0 ? -1 : 1
   const playerRadius =
     typeof playerProps?.radius === 'number' &&
     Number.isFinite(playerProps.radius) &&
@@ -2424,6 +2426,10 @@ function createPlayerAndWeapon(
         : playerEntity.movement.moveSpeed
     playerEntity.movement.baseMoveSpeed = nextMoveSpeed
     playerEntity.movement.moveSpeed = nextMoveSpeed
+  }
+
+  if (playerEntity.input) {
+    playerEntity.input.lastMoveDirection = playerFacing
   }
 
   if (playerEntity.attackSlots && playerProps) {

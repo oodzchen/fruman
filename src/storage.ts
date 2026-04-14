@@ -1191,6 +1191,10 @@ export async function createSave(
     const initialPlayerWeapons = createInitialSavePlayerWeaponState(
       mapData.player
     )
+    const initialPlayerFacing =
+      typeof mapData.player?.facing === 'number' && mapData.player.facing < 0
+        ? -1
+        : 1
 
     const meta: SaveMeta = {
       id: saveId,
@@ -1215,7 +1219,7 @@ export async function createSave(
       activeCheckpoint: null,
       player: {
         position: { x: mapData.playerSpawn.x, y: mapData.playerSpawn.y },
-        facing: 1,
+        facing: initialPlayerFacing,
         level: 1,
         exp: 0,
         pendingUpgradePoints: 0,
