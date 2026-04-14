@@ -572,23 +572,13 @@ export class LevelUpManager {
       return
     }
     const key = event.key.toLowerCase()
-    if (
-      key === 'w' ||
-      key === 'a' ||
-      key === 'arrowup' ||
-      key === 'arrowleft'
-    ) {
+    if (key === 'w' || key === 'arrowup') {
       event.preventDefault()
       event.stopPropagation()
       this.moveSelection(-1)
       return
     }
-    if (
-      key === 's' ||
-      key === 'd' ||
-      key === 'arrowdown' ||
-      key === 'arrowright'
-    ) {
+    if (key === 's' || key === 'arrowdown') {
       event.preventDefault()
       event.stopPropagation()
       this.moveSelection(1)
