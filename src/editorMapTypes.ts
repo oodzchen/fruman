@@ -83,6 +83,7 @@ export interface MapPolygonShape {
 
 export interface MapCharacterBodyProfile {
   points: number[]
+  presetId?: MapCharacterBodyPresetId
   width?: number
   height?: number
   color?: string
@@ -99,6 +100,12 @@ export interface MapCharacterBodyProfile {
   surfaceDataUrl?: string
   textureDataUrl?: string
 }
+
+export type MapCharacterBodyPresetId =
+  | 'banana'
+  | 'pineapple'
+  | 'tomato'
+  | 'watermelon'
 
 export interface MapCharacterBodyVisualLayer {
   id: number

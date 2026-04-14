@@ -1,3 +1,5 @@
+import { getCharacterGroundPickupRadius } from '../../characterBodyProfile'
+import { DEFAULT_PLAYER_RADIUS } from '../../constants'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { Entity } from '../Entity'
 
@@ -37,7 +39,14 @@ export class SunPickupSystem {
           continue
         const dx = pickup.transform.x - player.transform.x
         const dy = pickup.transform.y - player.transform.y
-        if (dx * dx + dy * dy > sp.pickupRadiusSq) continue
+        const bodyRadius = player.render?.radius ?? DEFAULT_PLAYER_RADIUS
+        const pickupRadius = getCharacterGroundPickupRadius(
+          player.render?.bodyProfile,
+          bodyRadius,
+          player.render?.bodyHeight ?? 0,
+          Math.sqrt(sp.pickupRadiusSq)
+        )
+        if (dx * dx + dy * dy > pickupRadius * pickupRadius) continue
 
         const solar = player.solarEnergy
         if (sp.isLarge) {

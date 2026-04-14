@@ -1,3 +1,4 @@
+import { isHexColorString, normalizeHexColor } from './colorUtils'
 import type { EditorMapData, MapCharacterBodyProfile } from './editorMapTypes'
 
 export const CHARACTER_BODY_DRAW_SIZE = 128
@@ -14,6 +15,8 @@ function getPositiveProfileSize(value: number | undefined): number {
     ? value
     : 0
 }
+
+const MAX_GROUND_PICKUP_RADIUS_BONUS = 0.35
 
 function getProfilePointBounds(points: number[]): {
   width: number
@@ -92,17 +95,57 @@ function getProfileReferenceHeight(
   )
 }
 
+function resolveCharacterBodyProfileSize(
+  profile: MapCharacterBodyProfile | null | undefined
+): {
+  width: number
+  height: number
+} {
+  const width = getPositiveProfileSize(profile?.width)
+  const height = getPositiveProfileSize(profile?.height)
+  if (width <= 0 && height <= 0) {
+    return { width: 0, height: 0 }
+  }
+  const bounds = getProfilePointBounds(profile?.points ?? [])
+  if (!bounds) {
+    return {
+      width,
+      height: height > 0 ? height : width,
+    }
+  }
+  if (width > 0 && height > 0) {
+    const scaleX = width / bounds.width
+    const scaleY = height / bounds.height
+    const uniformScale = (scaleX + scaleY) * 0.5
+    return {
+      width: bounds.width * uniformScale,
+      height: bounds.height * uniformScale,
+    }
+  }
+  if (width > 0) {
+    const uniformScale = width / bounds.width
+    return {
+      width,
+      height: bounds.height * uniformScale,
+    }
+  }
+  const uniformScale = height / bounds.height
+  return {
+    width: bounds.width * uniformScale,
+    height,
+  }
+}
+
 export function getCharacterBodyProfileWidth(
   profile: MapCharacterBodyProfile | null | undefined
 ): number {
-  return getPositiveProfileSize(profile?.width)
+  return resolveCharacterBodyProfileSize(profile).width
 }
 
 export function getCharacterBodyProfileHeight(
   profile: MapCharacterBodyProfile | null | undefined
 ): number {
-  const height = getPositiveProfileSize(profile?.height)
-  return height > 0 ? height : getPositiveProfileSize(profile?.width)
+  return resolveCharacterBodyProfileSize(profile).height
 }
 
 export function isValidCharacterBodyProfile(
@@ -116,10 +159,10 @@ export function getCharacterBodyColor(
   fallbackColor: string
 ): string {
   const color = profile?.color
-  if (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) {
-    return color
+  if (isHexColorString(color)) {
+    return normalizeHexColor(color)
   }
-  return fallbackColor
+  return normalizeHexColor(fallbackColor)
 }
 
 export function getCharacterBloodColor(
@@ -127,10 +170,13 @@ export function getCharacterBloodColor(
   fallbackColor: string
 ): string {
   const color = profile?.bloodColor
-  if (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) {
-    return color
+  if (isHexColorString(color)) {
+    return normalizeHexColor(color)
   }
-  return fallbackColor
+  if (fallbackColor.length === 0) {
+    return ''
+  }
+  return normalizeHexColor(fallbackColor)
 }
 
 export function clampCharacterEyeCoord(value: number): number {
@@ -143,56 +189,11 @@ export function clampCharacterEyeCoord(value: number): number {
   )
 }
 
-function resolveCharacterEyeDrawCoord(
-  profile: MapCharacterBodyProfile | null | undefined,
-  value: number,
-  axis: 'x' | 'y'
-): number {
-  if (!hasProfileAbsoluteSize(profile)) {
-    return clampCharacterEyeCoord(value)
-  }
-  if (value < 0 || value > CHARACTER_BODY_DRAW_SIZE) {
-    return value
-  }
-  const extents = getProfilePointExtents(profile?.points ?? [])
-  if (!extents || extents.minX >= 0 || extents.maxX <= 0) {
-    return value
-  }
-
-  const shiftedValue = value - CHARACTER_BODY_DRAW_HALF
-  const defaultValue =
-    axis === 'x' ? DEFAULT_CHARACTER_EYE_X : DEFAULT_CHARACTER_EYE_Y
-  const currentDistance = Math.abs(value - defaultValue)
-  const shiftedDistance = Math.abs(shiftedValue - defaultValue)
-  const minValue = axis === 'x' ? extents.minX : extents.minY
-  const maxValue = axis === 'x' ? extents.maxX : extents.maxY
-  const currentOverflow =
-    value < minValue
-      ? minValue - value
-      : value > maxValue
-        ? value - maxValue
-        : 0
-  const shiftedOverflow =
-    shiftedValue < minValue
-      ? minValue - shiftedValue
-      : shiftedValue > maxValue
-        ? shiftedValue - maxValue
-        : 0
-  if (
-    shiftedDistance < currentDistance ||
-    shiftedOverflow < currentOverflow ||
-    (axis === 'y' && value >= 0 && shiftedValue < 0)
-  ) {
-    return shiftedValue
-  }
-  return value
-}
-
 export function getCharacterEyeDrawX(
   profile: MapCharacterBodyProfile | null | undefined
 ): number {
   if (typeof profile?.eyeX === 'number' && Number.isFinite(profile.eyeX)) {
-    return resolveCharacterEyeDrawCoord(profile, profile.eyeX, 'x')
+    return clampCharacterEyeCoord(profile.eyeX)
   }
   return DEFAULT_CHARACTER_EYE_X
 }
@@ -201,7 +202,7 @@ export function getCharacterEyeDrawY(
   profile: MapCharacterBodyProfile | null | undefined
 ): number {
   if (typeof profile?.eyeY === 'number' && Number.isFinite(profile.eyeY)) {
-    return resolveCharacterEyeDrawCoord(profile, profile.eyeY, 'y')
+    return clampCharacterEyeCoord(profile.eyeY)
   }
   return DEFAULT_CHARACTER_EYE_Y
 }
@@ -247,6 +248,44 @@ export function getCharacterBodyHeight(
   radius: number
 ): number {
   return bodyHeight > 0 ? bodyHeight : radius * 2
+}
+
+export function getCharacterBodyHalfWidth(
+  profile: MapCharacterBodyProfile | null | undefined,
+  radius: number
+): number {
+  const width = getCharacterBodyProfileWidth(profile)
+  return (width > 0 ? width : radius * 2) * 0.5
+}
+
+export function getCharacterBodyHalfHeight(
+  profile: MapCharacterBodyProfile | null | undefined,
+  radius: number,
+  bodyHeight: number
+): number {
+  const height = getCharacterBodyProfileHeight(profile)
+  return (
+    (height > 0 ? height : getCharacterBodyHeight(bodyHeight, radius)) * 0.5
+  )
+}
+
+export function getCharacterGroundPickupRadius(
+  profile: MapCharacterBodyProfile | null | undefined,
+  radius: number,
+  bodyHeight: number,
+  baseRadius: number
+): number {
+  if (baseRadius <= 0) {
+    return 0
+  }
+  const halfWidth = getCharacterBodyHalfWidth(profile, radius)
+  const halfHeight = getCharacterBodyHalfHeight(profile, radius, bodyHeight)
+  const heightBonus = Math.max(0, halfHeight - radius)
+  const widthBonus = Math.max(0, radius - halfWidth)
+  return (
+    baseRadius +
+    Math.min(MAX_GROUND_PICKUP_RADIUS_BONUS, heightBonus + widthBonus)
+  )
 }
 
 export function buildCharacterBodyLocalPoints(

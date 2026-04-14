@@ -1,3 +1,9 @@
+import { composeHexColor, splitHexColor } from '../colorUtils'
+
+export type EditorColorInputElement = HTMLDivElement & {
+  value: string
+}
+
 export class EditorUIHelper {
   static createPropertiesDialog(title: string): {
     modal: HTMLDivElement
@@ -320,19 +326,98 @@ export class EditorUIHelper {
     return canvas
   }
 
-  static createColorInput(value: string): HTMLInputElement {
-    const input = document.createElement('input')
-    input.type = 'color'
-    input.value = value
-    input.style.cssText = `
+  static createColorInput(value: string): EditorColorInputElement {
+    const root = document.createElement('div') as EditorColorInputElement
+    const picker = document.createElement('input')
+    const alphaSlider = document.createElement('input')
+    const alphaText = document.createElement('span')
+    let currentValue = composeHexColor('#000000', 255)
+
+    root.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1 1 auto;
+    `
+
+    picker.type = 'color'
+    picker.style.cssText = `
       width: 40px;
       height: 32px;
       padding: 2px;
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.25);
       cursor: pointer;
+      box-sizing: border-box;
+      flex: 0 0 auto;
     `
-    return input
+
+    alphaSlider.type = 'range'
+    alphaSlider.min = '0'
+    alphaSlider.max = '255'
+    alphaSlider.step = '1'
+    alphaSlider.style.cssText = `
+      flex: 1 1 auto;
+      min-width: 56px;
+      margin: 0;
+      cursor: pointer;
+    `
+
+    alphaText.style.cssText = `
+      width: 24px;
+      font-size: 11px;
+      text-align: right;
+      color: rgba(255,255,255,0.8);
+      flex: 0 0 auto;
+    `
+
+    const syncControlState = (nextValue: string) => {
+      const split = splitHexColor(nextValue, '#000000')
+      currentValue = composeHexColor(split.rgbHex, split.alpha)
+      picker.value = split.rgbHex
+      alphaSlider.value = String(split.alpha)
+      alphaText.textContent = split.alpha.toString(16).padStart(2, '0')
+    }
+
+    Object.defineProperty(root, 'value', {
+      configurable: true,
+      enumerable: true,
+      get: () => currentValue,
+      set: (nextValue: string) => {
+        syncControlState(nextValue)
+      },
+    })
+
+    const emitColorEvent = (type: 'input' | 'change') => {
+      currentValue = composeHexColor(
+        picker.value,
+        Number.parseInt(alphaSlider.value, 10)
+      )
+      alphaText.textContent = Number.parseInt(alphaSlider.value, 10)
+        .toString(16)
+        .padStart(2, '0')
+      root.dispatchEvent(new Event(type))
+    }
+
+    picker.addEventListener('input', () => {
+      emitColorEvent('input')
+    })
+    picker.addEventListener('change', () => {
+      emitColorEvent('change')
+    })
+    alphaSlider.addEventListener('input', () => {
+      emitColorEvent('input')
+    })
+    alphaSlider.addEventListener('change', () => {
+      emitColorEvent('change')
+    })
+
+    syncControlState(value)
+    root.appendChild(picker)
+    root.appendChild(alphaSlider)
+    root.appendChild(alphaText)
+    return root
   }
 
   static createMapListItem(): HTMLButtonElement {

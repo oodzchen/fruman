@@ -237,7 +237,7 @@ export class EditorPropertiesPanel {
     profile: MapCharacterBodyProfile | undefined,
     onReady?: () => void
   ): HTMLImageElement | null {
-    const textureDataUrl = profile?.surfaceDataUrl ?? profile?.textureDataUrl
+    const textureDataUrl = profile?.textureDataUrl ?? profile?.surfaceDataUrl
     if (!textureDataUrl || textureDataUrl.length === 0) {
       return null
     }
@@ -903,12 +903,17 @@ export class EditorPropertiesPanel {
           Number.isFinite(bodyHeightVal) && bodyHeightVal > 0
             ? bodyHeightVal
             : currentWidth
+        const currentFacingValue = Number.parseInt(facingSelect.value, 10)
         const nextBodyProfile = await this.bodyDrawer.show({
           title: localizer.t('editor_body_drawer_title'),
           initialProfile: bodyProfile,
           initialColor: getCharacterBodyColor(bodyProfile, options.data.color),
           defaultBodyWidth: currentWidth,
           defaultBodyHeight: currentHeight,
+          initialFacing:
+            Number.isFinite(currentFacingValue) && currentFacingValue < 0
+              ? -1
+              : 1,
         })
         if (nextBodyProfile === undefined) {
           return
@@ -1486,12 +1491,29 @@ export class EditorPropertiesPanel {
           if (Number.isFinite(bodyHeightVal) && bodyHeightVal > 0) {
             bodyProfile.height = bodyHeightVal
           }
+          const resolvedProfileWidth = getCharacterBodyProfileWidth(bodyProfile)
+          const resolvedProfileHeight =
+            getCharacterBodyProfileHeight(bodyProfile)
+          if (resolvedProfileWidth > 0) {
+            bodyProfile.width = resolvedProfileWidth
+            bodyWidthInput.value = String(resolvedProfileWidth)
+          }
+          if (resolvedProfileHeight > 0) {
+            bodyProfile.height = resolvedProfileHeight
+            bodyHeightInput.value = String(resolvedProfileHeight)
+          }
         }
-        if (Number.isFinite(bodyWidthVal) && bodyWidthVal > 0) {
-          const radiusMeters = bodyWidthVal / 2
+        const resolvedBodyWidth = bodyProfile
+          ? getCharacterBodyProfileWidth(bodyProfile)
+          : bodyWidthVal
+        const resolvedBodyHeight = bodyProfile
+          ? getCharacterBodyProfileHeight(bodyProfile)
+          : bodyHeightVal
+        if (Number.isFinite(resolvedBodyWidth) && resolvedBodyWidth > 0) {
+          const radiusMeters = resolvedBodyWidth / 2
           const bodyHeight =
-            Number.isFinite(bodyHeightVal) && bodyHeightVal > 0
-              ? bodyHeightVal
+            Number.isFinite(resolvedBodyHeight) && resolvedBodyHeight > 0
+              ? resolvedBodyHeight
               : 0
           if (options.marker) {
             options.updateMarkerVisual(

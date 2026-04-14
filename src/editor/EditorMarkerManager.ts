@@ -144,7 +144,7 @@ export class EditorMarkerManager {
   private getBodyTextureImage(
     profile: MapCharacterBodyProfile | undefined
   ): HTMLImageElement | null {
-    const textureDataUrl = profile?.surfaceDataUrl ?? profile?.textureDataUrl
+    const textureDataUrl = profile?.textureDataUrl ?? profile?.surfaceDataUrl
     if (!textureDataUrl || textureDataUrl.length === 0) {
       return null
     }

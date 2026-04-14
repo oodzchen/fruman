@@ -1,5 +1,6 @@
 import type { AudioManager } from './AudioManager'
 import { BowTrajectoryCalculator } from './BowTrajectory'
+import { buildCharacterBodyCollisionPolygons } from './characterBodyCollision'
 import {
   getCharacterBodyColor,
   getCharacterBodyProfileFromMap,
@@ -26,7 +27,7 @@ import {
   WEAPON_DEFAULT_DATA,
 } from './constants'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from './constants'
-import type { EditorMapData } from './editorMapTypes'
+import type { EditorMapData, MapCharacterBodyProfile } from './editorMapTypes'
 import {
   computeDistanceAttenuation,
   getCameraShakeFalloffDistance,
@@ -78,6 +79,7 @@ import type {
 const MAX_PARTICLES = 600
 const DEBUG_DRAW_TRAJECTORY = false
 const DEBUG_DRAW_GRAPPLE_JOINTS = false
+const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = true
 const RETICLE_EDGE_PX = 8
 const BOW_ARROW_LENGTH = DEFAULT_WEAPON_WIDTH * 0.9
 const BOW_ARROW_THICKNESS = DEFAULT_WEAPON_HEIGHT * 0.15
@@ -117,6 +119,10 @@ export class ClientRenderer {
   private reticleClampPos = { x: 0, y: 0 }
   private readonly emptyDash: number[] = []
   private readonly dashedLine: number[] = [5, 5]
+  private readonly bodyCollisionDebugCache = new WeakMap<
+    MapCharacterBodyProfile,
+    Map<string, number[][] | null>
+  >()
 
   // Pre-allocated buffer to avoid creating new Float32Array each frame
   private stateBuffer = new Float32Array(MAX_ENTITIES * ENTITY_STRIDE)
@@ -1016,6 +1022,7 @@ export class ClientRenderer {
 
     const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
     const bodyHeightPx = buf[offset + OFFSETS.BODY_HEIGHT] * this.pixelsPerMeter
+    const bodyHeight = buf[offset + OFFSETS.BODY_HEIGHT]
     const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
     const bodyProfile = getCharacterBodyProfileFromMap(
       this.characterBodyMap,
@@ -1085,6 +1092,18 @@ export class ClientRenderer {
           bodyProfile?.layers?.length ?? 0,
         ].join('|')
       )
+      if (
+        DEBUG_DRAW_PLAYER_COLLISION_SHAPE &&
+        (flags & FLAGS.IS_PLAYER) !== 0
+      ) {
+        this.drawPlayerCollisionDebug(
+          bodyProfile,
+          buf[offset + OFFSETS.RADIUS],
+          bodyHeight,
+          bodyRenderHalfWidthPx,
+          bodyRenderHalfHeightPx
+        )
+      }
     }
 
     this.ctx.restore()
@@ -2662,6 +2681,93 @@ export class ClientRenderer {
 
   private getReticlePaddingMeters(): number {
     return RETICLE_EDGE_PX / (this.pixelsPerMeter * this.zoom)
+  }
+
+  getBodyCollisionPolygons(
+    bodyProfile: MapCharacterBodyProfile | null,
+    radius: number,
+    bodyHeight: number
+  ): number[][] | null {
+    return this.getBodyCollisionDebugPolygons(bodyProfile, radius, bodyHeight)
+  }
+
+  private getBodyCollisionDebugPolygons(
+    bodyProfile: MapCharacterBodyProfile | null,
+    radius: number,
+    bodyHeight: number
+  ): number[][] | null {
+    if (!bodyProfile) {
+      return null
+    }
+    const cacheKey = `${Math.round(radius * 1000)}|${Math.round(bodyHeight * 1000)}`
+    let profileCache = this.bodyCollisionDebugCache.get(bodyProfile)
+    if (!profileCache) {
+      profileCache = new Map<string, number[][] | null>()
+      this.bodyCollisionDebugCache.set(bodyProfile, profileCache)
+    }
+    if (profileCache.has(cacheKey)) {
+      return profileCache.get(cacheKey) ?? null
+    }
+    const polygons = buildCharacterBodyCollisionPolygons(
+      bodyProfile,
+      radius,
+      bodyHeight
+    )
+    profileCache.set(cacheKey, polygons)
+    return polygons
+  }
+
+  private drawPlayerCollisionDebug(
+    bodyProfile: MapCharacterBodyProfile | null,
+    radius: number,
+    bodyHeight: number,
+    bodyRenderHalfWidthPx: number,
+    bodyRenderHalfHeightPx: number
+  ): void {
+    const ctx = this.ctx
+    const polygons = this.getBodyCollisionDebugPolygons(
+      bodyProfile,
+      radius,
+      bodyHeight
+    )
+    ctx.save()
+    ctx.lineWidth = 2
+    ctx.strokeStyle = '#ff3b30'
+    ctx.globalAlpha *= 0.95
+    if (polygons && polygons.length > 0) {
+      for (let i = 0; i < polygons.length; i++) {
+        const polygon = polygons[i]
+        if (polygon.length < 6) {
+          continue
+        }
+        ctx.beginPath()
+        ctx.moveTo(
+          polygon[0] * this.pixelsPerMeter,
+          polygon[1] * this.pixelsPerMeter
+        )
+        for (let j = 2; j < polygon.length; j += 2) {
+          ctx.lineTo(
+            polygon[j] * this.pixelsPerMeter,
+            polygon[j + 1] * this.pixelsPerMeter
+          )
+        }
+        ctx.closePath()
+        ctx.stroke()
+      }
+    } else {
+      ctx.beginPath()
+      ctx.ellipse(
+        0,
+        0,
+        bodyRenderHalfWidthPx,
+        bodyRenderHalfHeightPx,
+        0,
+        0,
+        Math.PI * 2
+      )
+      ctx.stroke()
+    }
+    ctx.restore()
   }
 
   private drawSensorDebug(): void {

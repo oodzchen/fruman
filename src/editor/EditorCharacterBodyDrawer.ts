@@ -13,10 +13,11 @@ import {
   getCharacterEyeDrawY,
 } from '../characterBodyProfile'
 import type {
+  MapCharacterBodyPresetId,
   MapCharacterBodyProfile,
   MapCharacterBodyVisualLayer,
 } from '../editorMapTypes'
-import { EditorUIHelper } from './EditorUIHelper'
+import { type EditorColorInputElement, EditorUIHelper } from './EditorUIHelper'
 
 type BodyDrawMode =
   | 'contour'
@@ -71,7 +72,10 @@ interface EditorCharacterBodyDrawerOptions {
   initialColor?: string
   defaultBodyWidth?: number
   defaultBodyHeight?: number
+  initialFacing?: number
 }
+
+type EditorCharacterBodyPresetId = MapCharacterBodyPresetId | 'custom'
 
 const DISPLAY_SIZE = 320
 const DISPLAY_PANEL_SIZE = 480
@@ -97,12 +101,62 @@ const DEFAULT_CONTOUR_SEGMENTS = 16
 const MAX_EDITOR_CONTOUR_POINTS = 96
 const LEGACY_PROFILE_REFERENCE_SIZE = 128
 const DEFAULT_BODY_BLOOD_COLOR = '#7a1010'
+const TRANSPARENT_BODY_COLOR = '#00000000'
 const DEFAULT_EDITOR_EYE_RADIUS = 8
 const DEFAULT_EDITOR_EYE_WHITE_RADIUS = 6
 const DEFAULT_EDITOR_PUPIL_RADIUS = 5
 const CORE_LAYER_ID = 1
 const EYE_LAYER_ID = 2
 const BROW_LAYER_ID = 3
+const CUSTOM_BODY_PRESET_ID = 'custom'
+const BODY_PRESET_IDS: MapCharacterBodyPresetId[] = [
+  'banana',
+  'pineapple',
+  'tomato',
+  'watermelon',
+]
+const PINEAPPLE_PRESET_IMAGE_SRC = '/images/presets/pineapple.png'
+const TOMATO_PRESET_IMAGE_SRC = '/images/presets/tomato.png'
+const WATERMELON_PRESET_IMAGE_SRC = '/images/presets/watermelon.png'
+const BANANA_PRESET_IMAGE_SRC = '/images/presets/banana.png'
+const BANANA_PRESET_POINTS = [
+  5, -71, -8, -58, -25, -48, -35, -31, -40, -9, -38, 15, -29, 34, -17, 48, -3,
+  61, 15, 70, 39, 70, 31, 54, 17, 41, 4, 26, -5, 10, -8, -14, -4, -38, 4, -57,
+] as const
+const PINEAPPLE_PRESET_POINTS = [
+  -18, -64, -8, -90, 0, -72, 10, -96, 20, -66, 34, -78, 30, -52, 48, -36, 56,
+  -8, 52, 22, 38, 50, 12, 64, -12, 64, -38, 50, -52, 24, -56, -8, -48, -36, -28,
+  -52, -34, -76,
+] as const
+const TOMATO_PRESET_POINTS = [
+  -20, -48, -8, -62, 0, -48, 10, -62, 22, -48, 40, -36, 52, -10, 48, 22, 30, 46,
+  0, 56, -30, 46, -48, 22, -52, -10, -40, -36,
+] as const
+const WATERMELON_PRESET_POINTS = [
+  -54, -18, -46, -36, -28, -48, 0, -52, 28, -48, 46, -36, 54, -18, 56, 10, 50,
+  30, 34, 44, 10, 52, -10, 52, -34, 44, -50, 30, -56, 10,
+] as const
+
+interface BodyPresetConfig {
+  color: string
+  bloodColor: string
+  eyeX: number
+  eyeY: number
+  points: readonly number[]
+  imageSrc?: string
+  mirrorImageX?: boolean
+}
+
+interface BodyPresetBounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+  width: number
+  height: number
+  centerX: number
+  centerY: number
+}
 
 interface EditorCharacterBodyDrawerHistorySnapshot {
   mask: EditorCanvasSnapshot
@@ -122,6 +176,7 @@ interface EditorCharacterBodyDrawerHistorySnapshot {
   selectedContourIndex: number
   selectedLayerId: number
   nextLayerId: number
+  presetId: EditorCharacterBodyPresetId
 }
 
 interface EditorCharacterBodyDrawerHistoryContext {
@@ -519,6 +574,49 @@ export class EditorCharacterBodyDrawer {
       'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.72);'
     sidebar.appendChild(info)
 
+    const presetWrap = document.createElement('div')
+    presetWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;'
+    const presetLabel = document.createElement('div')
+    presetLabel.textContent = localizer.t('editor_body_drawer_preset')
+    presetLabel.style.cssText =
+      'font-size:11px;line-height:1;color:rgba(255,255,255,0.78);'
+    const presetSelect = EditorUIHelper.createSelect({
+      options: [
+        {
+          value: CUSTOM_BODY_PRESET_ID,
+          label: localizer.t('editor_body_drawer_preset_custom'),
+        },
+        {
+          value: 'banana',
+          label: localizer.t('editor_body_drawer_preset_banana'),
+        },
+        {
+          value: 'pineapple',
+          label: localizer.t('editor_body_drawer_preset_pineapple'),
+        },
+        {
+          value: 'tomato',
+          label: localizer.t('editor_body_drawer_preset_tomato'),
+        },
+        {
+          value: 'watermelon',
+          label: localizer.t('editor_body_drawer_preset_watermelon'),
+        },
+      ],
+      selected: CUSTOM_BODY_PRESET_ID,
+      width: '100%',
+    })
+    presetSelect.style.flex = '1 1 auto'
+    presetSelect.style.width = '100%'
+    presetSelect.style.background = 'rgba(255,255,255,0.08)'
+    presetSelect.style.borderColor = 'rgba(255,255,255,0.18)'
+    presetSelect.style.color = 'rgba(255,255,255,0.92)'
+    presetSelect.style.padding = '6px 8px'
+    presetSelect.style.fontSize = '11px'
+    presetWrap.appendChild(presetLabel)
+    presetWrap.appendChild(presetSelect)
+    sidebar.appendChild(presetWrap)
+
     const modeRow = EditorUIHelper.createButtonRow({
       gap: '8px',
       marginTop: '0',
@@ -555,7 +653,8 @@ export class EditorCharacterBodyDrawer {
       localizer.t('editor_body_drawer_color'),
       { labelWidth: '36px', gap: '8px', marginBottom: '0' }
     )
-    const colorInput = EditorUIHelper.createColorInput('#d6a86c')
+    const colorInput: EditorColorInputElement =
+      EditorUIHelper.createColorInput('#d6a86c')
     colorInput.value =
       options.initialProfile?.color ?? options.initialColor ?? colorInput.value
     colorRow.row.appendChild(colorInput)
@@ -565,7 +664,8 @@ export class EditorCharacterBodyDrawer {
       localizer.t('editor_body_drawer_blood_color'),
       { labelWidth: '36px', gap: '8px', marginBottom: '0' }
     )
-    const bloodColorInput = EditorUIHelper.createColorInput('#7a1010')
+    const bloodColorInput: EditorColorInputElement =
+      EditorUIHelper.createColorInput('#7a1010')
     bloodColorInput.value =
       options.initialProfile?.bloodColor ?? DEFAULT_BODY_BLOOD_COLOR
     bloodColorRow.row.appendChild(bloodColorInput)
@@ -691,6 +791,12 @@ export class EditorCharacterBodyDrawer {
     let draggingLayerId = -1
     let dragPreviewLayerId = -1
     let dragPreviewAfter = false
+    let currentPresetId: EditorCharacterBodyPresetId = CUSTOM_BODY_PRESET_ID
+    let coreImageShape: HTMLImageElement | null = null
+    let coreImageShapeMirrorX = false
+    const editorFacing =
+      options.initialFacing && options.initialFacing < 0 ? -1 : 1
+    eyeX *= editorFacing
     const layers: EditorBodyLayer[] = []
 
     const createLayerCanvas = (): {
@@ -1541,6 +1647,7 @@ export class EditorCharacterBodyDrawer {
       if (!didMove) {
         return
       }
+      invalidatePresetSelection()
       renderComposite()
       historyManager.capture()
     })
@@ -1595,6 +1702,7 @@ export class EditorCharacterBodyDrawer {
           selectedContourIndex,
           selectedLayerId,
           nextLayerId,
+          presetId: currentPresetId,
         }
       }
 
@@ -1623,6 +1731,7 @@ export class EditorCharacterBodyDrawer {
       selectedContourIndex = snapshot.selectedContourIndex
       selectedLayerId = snapshot.selectedLayerId
       nextLayerId = snapshot.nextLayerId
+      setPresetSelection(snapshot.presetId)
       ensureSelectedLayer()
       renderLayerList()
       renderComposite()
@@ -2191,6 +2300,124 @@ export class EditorCharacterBodyDrawer {
       }
     }
 
+    const canPlaceEyeAtOffset = (
+      nextEyeX: number,
+      nextEyeY: number
+    ): boolean => {
+      const eyeBounds = getEyeBounds()
+      const contourBounds = getContourBounds()
+      if (!eyeBounds || !contourBounds || !contourClosed) {
+        return false
+      }
+      const centerX = contourBounds.centerX + nextEyeX
+      const centerY = contourBounds.centerY + nextEyeY
+      const radius = eyeBounds.radius
+      const radiusSq = radius * radius
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (dx * dx + dy * dy > radiusSq) {
+            continue
+          }
+          if (!isPointInsideBodyMask(centerX + dx, centerY + dy)) {
+            return false
+          }
+        }
+      }
+      return true
+    }
+
+    const clampEyeOffsetToBounds = (
+      nextEyeX: number,
+      nextEyeY: number,
+      radius: number
+    ): { x: number; y: number } => {
+      const contourBounds = getContourBounds()
+      if (!contourBounds) {
+        return { x: nextEyeX, y: nextEyeY }
+      }
+      const minX = contourBounds.minX + radius - contourBounds.centerX
+      const maxX = contourBounds.maxX - radius - contourBounds.centerX
+      const minY = contourBounds.minY + radius - contourBounds.centerY
+      const maxY = contourBounds.maxY - radius - contourBounds.centerY
+      return {
+        x: Math.max(minX, Math.min(maxX, nextEyeX)),
+        y: Math.max(minY, Math.min(maxY, nextEyeY)),
+      }
+    }
+
+    const resolveEyeOffsetInsideBody = (
+      targetEyeX: number,
+      targetEyeY: number
+    ): { x: number; y: number } => {
+      const eyeBounds = getEyeBounds()
+      const contourBounds = getContourBounds()
+      if (!eyeBounds || !contourBounds || !contourClosed) {
+        return { x: targetEyeX, y: targetEyeY }
+      }
+      const clamped = clampEyeOffsetToBounds(
+        targetEyeX,
+        targetEyeY,
+        eyeBounds.radius
+      )
+      if (canPlaceEyeAtOffset(clamped.x, clamped.y)) {
+        return clamped
+      }
+      const inwardStep = clamped.x >= 0 ? -1 : 1
+      const maxDistance = Math.max(
+        1,
+        Math.max(contourBounds.width, contourBounds.height)
+      )
+      for (let distance = 1; distance <= maxDistance; distance++) {
+        for (let offsetY = -distance; offsetY <= distance; offsetY++) {
+          const inwardCandidate = clampEyeOffsetToBounds(
+            clamped.x + inwardStep * distance,
+            clamped.y + offsetY,
+            eyeBounds.radius
+          )
+          if (canPlaceEyeAtOffset(inwardCandidate.x, inwardCandidate.y)) {
+            return inwardCandidate
+          }
+          const outwardCandidate = clampEyeOffsetToBounds(
+            clamped.x - inwardStep * distance,
+            clamped.y + offsetY,
+            eyeBounds.radius
+          )
+          if (canPlaceEyeAtOffset(outwardCandidate.x, outwardCandidate.y)) {
+            return outwardCandidate
+          }
+        }
+        for (let offsetX = -distance + 1; offsetX <= distance - 1; offsetX++) {
+          const topCandidate = clampEyeOffsetToBounds(
+            clamped.x + inwardStep * offsetX,
+            clamped.y - distance,
+            eyeBounds.radius
+          )
+          if (canPlaceEyeAtOffset(topCandidate.x, topCandidate.y)) {
+            return topCandidate
+          }
+          const bottomCandidate = clampEyeOffsetToBounds(
+            clamped.x + inwardStep * offsetX,
+            clamped.y + distance,
+            eyeBounds.radius
+          )
+          if (canPlaceEyeAtOffset(bottomCandidate.x, bottomCandidate.y)) {
+            return bottomCandidate
+          }
+        }
+      }
+      const centered = clampEyeOffsetToBounds(0, 0, eyeBounds.radius)
+      return centered
+    }
+
+    const ensureEyeInsideBody = () => {
+      if (!contourClosed) {
+        return
+      }
+      const resolvedEye = resolveEyeOffsetInsideBody(eyeX, eyeY)
+      eyeX = resolvedEye.x
+      eyeY = resolvedEye.y
+    }
+
     const getSelectableLayerAtPoint = (
       pointX: number,
       pointY: number
@@ -2268,8 +2495,12 @@ export class EditorCharacterBodyDrawer {
         return
       }
       if (layer.kind === 'eye') {
-        eyeX += offsetX
-        eyeY += offsetY
+        const resolvedEye = resolveEyeOffsetInsideBody(
+          eyeX + offsetX,
+          eyeY + offsetY
+        )
+        eyeX = resolvedEye.x
+        eyeY = resolvedEye.y
         return
       }
       if (!layer.ctx || !layer.canvas) {
@@ -2286,6 +2517,8 @@ export class EditorCharacterBodyDrawer {
     }
 
     const fillBodyShape = () => {
+      coreImageShape = null
+      coreImageShapeMirrorX = false
       shapeCtx.save()
       shapeCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       shapeCtx.fillStyle = colorInput.value
@@ -2298,6 +2531,15 @@ export class EditorCharacterBodyDrawer {
       renderComposite()
     }
 
+    const traceContourPath = (ctx: CanvasRenderingContext2D) => {
+      ctx.beginPath()
+      ctx.moveTo(contourPoints[0], contourPoints[1])
+      for (let i = 2; i < contourPoints.length; i += 2) {
+        ctx.lineTo(contourPoints[i], contourPoints[i + 1])
+      }
+      ctx.closePath()
+    }
+
     const drawContourFill = () => {
       if (!contourClosed || contourPoints.length < 6) {
         return
@@ -2306,12 +2548,7 @@ export class EditorCharacterBodyDrawer {
       clearBodyShape()
       maskCtx.save()
       maskCtx.fillStyle = '#ffffff'
-      maskCtx.beginPath()
-      maskCtx.moveTo(contourPoints[0], contourPoints[1])
-      for (let i = 2; i < contourPoints.length; i += 2) {
-        maskCtx.lineTo(contourPoints[i], contourPoints[i + 1])
-      }
-      maskCtx.closePath()
+      traceContourPath(maskCtx)
       maskCtx.fill()
       maskCtx.restore()
       maskState.bounds = contourBounds
@@ -2325,17 +2562,27 @@ export class EditorCharacterBodyDrawer {
       maskState.boundsDirty = false
 
       shapeCtx.save()
-      shapeCtx.fillStyle = colorInput.value
-      shapeCtx.beginPath()
-      shapeCtx.moveTo(contourPoints[0], contourPoints[1])
-      for (let i = 2; i < contourPoints.length; i += 2) {
-        shapeCtx.lineTo(contourPoints[i], contourPoints[i + 1])
+      if (coreImageShape && contourBounds) {
+        traceContourPath(shapeCtx)
+        shapeCtx.clip()
+        this.drawImageToRect(
+          shapeCtx,
+          coreImageShape,
+          contourBounds.minX,
+          contourBounds.minY,
+          contourBounds.width,
+          contourBounds.height,
+          coreImageShapeMirrorX
+        )
+      } else {
+        shapeCtx.fillStyle = colorInput.value
+        traceContourPath(shapeCtx)
+        shapeCtx.fill()
       }
-      shapeCtx.closePath()
-      shapeCtx.fill()
       shapeCtx.restore()
       shapeState.bounds = cloneBounds(maskState.bounds)
       shapeState.boundsDirty = false
+      ensureEyeInsideBody()
     }
 
     const beginContour = (pointX: number, pointY: number) => {
@@ -2468,6 +2715,142 @@ export class EditorCharacterBodyDrawer {
           DRAW_WORLD_HALF + Math.round(Math.sin(angle) * radiusY)
       }
       return points
+    }
+
+    const setPresetSelection = (presetId: EditorCharacterBodyPresetId) => {
+      currentPresetId = presetId
+      presetSelect.value = presetId
+    }
+
+    const invalidatePresetSelection = () => {
+      if (currentPresetId === CUSTOM_BODY_PRESET_ID) {
+        return
+      }
+      setPresetSelection(CUSTOM_BODY_PRESET_ID)
+    }
+
+    const applyPresetTexture = (
+      presetId: MapCharacterBodyPresetId,
+      bounds: BodyPresetBounds
+    ) => {
+      if (presetId === 'banana') {
+        textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+        textureState.bounds = null
+        textureState.boundsDirty = false
+        return
+      }
+      textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      this.drawBodyPresetTexture(textureCtx, presetId, bounds)
+      textureState.bounds = createBoundsFromRect(
+        bounds.minX,
+        bounds.minY,
+        bounds.width,
+        bounds.height
+      )
+      textureState.boundsDirty = false
+    }
+
+    const applyPreset = async (presetId: MapCharacterBodyPresetId) => {
+      flushSettingHistory()
+      hideContourMenu()
+      hideLayerMenu()
+      const preset = this.getBodyPresetConfig(presetId)
+      const presetImageMirrorX = this.shouldMirrorPresetImage(
+        preset,
+        editorFacing
+      )
+      clearBodyShape()
+      coreImageShape = null
+      coreImageShapeMirrorX = false
+      textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      textureState.bounds = null
+      textureState.boundsDirty = false
+      browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      buildDefaultLayers()
+      contourPoints = []
+      contourClosed = true
+      selectedContourIndex = 0
+      contourDragPointIndex = -1
+      pendingContourClose = false
+      selectedLayerId = CORE_LAYER_ID
+      eyeY = preset.eyeY
+      colorInput.value = preset.color
+      bloodColorInput.value = preset.bloodColor
+      bloodColorAssigned = true
+      if (preset.imageSrc) {
+        const presetImage = await this.loadImage(preset.imageSrc)
+        if (!presetImage) {
+          return
+        }
+        const targetHeight = 220
+        const targetWidth = Math.max(
+          1,
+          Math.round((presetImage.width * targetHeight) / presetImage.height)
+        )
+        const drawX = DRAW_WORLD_HALF - Math.round(targetWidth * 0.5)
+        const drawY = DRAW_WORLD_HALF - Math.round(targetHeight * 0.5)
+        workCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+        this.drawImageToRect(
+          workCtx,
+          presetImage,
+          drawX,
+          drawY,
+          targetWidth,
+          targetHeight,
+          presetImageMirrorX
+        )
+        const imageContourPoints = this.buildEditorContourFromMask(workCtx, 160)
+        workCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+        if (!imageContourPoints || imageContourPoints.length < 6) {
+          return
+        }
+        coreImageShape = presetImage
+        coreImageShapeMirrorX = presetImageMirrorX
+        contourPoints = imageContourPoints
+        const contourBounds = getContourBounds()
+        eyeX = contourBounds
+          ? this.getPresetPreferredEyeX(
+              preset,
+              contourBounds.width,
+              editorFacing
+            )
+          : DEFAULT_CHARACTER_EYE_X * editorFacing
+        drawContourFill()
+        textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+        textureState.bounds = null
+        textureState.boundsDirty = false
+      } else {
+        contourPoints = this.buildPresetContourPoints(
+          preset.points,
+          editorFacing
+        )
+        const contourBounds = getContourBounds()
+        eyeX = contourBounds
+          ? this.getPresetPreferredEyeX(
+              preset,
+              contourBounds.width,
+              editorFacing
+            )
+          : DEFAULT_CHARACTER_EYE_X * editorFacing
+        drawContourFill()
+        if (contourBounds) {
+          applyPresetTexture(presetId, contourBounds)
+        }
+      }
+      ensureEyeInsideBody()
+      const contourBounds = getContourBounds()
+      if (contourBounds) {
+        setExportReferenceFromBounds(contourBounds)
+      }
+      setPresetSelection(presetId)
+      mode = 'shape'
+      renderLayerList()
+      renderComposite()
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      updateCursorVisual()
+      historyManager.capture()
     }
 
     const drawEyeLayer = (
@@ -2697,6 +3080,7 @@ export class EditorCharacterBodyDrawer {
         selectedContourIndex < 0 ? 0 : selectedContourIndex,
         getContourPointCount() - 1
       )
+      ensureEyeInsideBody()
       updateAlert()
       updateConfirmState()
       updateModeButtons()
@@ -2727,6 +3111,32 @@ export class EditorCharacterBodyDrawer {
       ctx.restore()
     }
 
+    const strokeMaskedTexturePath = (
+      fromX: number,
+      fromY: number,
+      toX: number,
+      toY: number,
+      brushSize: number,
+      color: string
+    ) => {
+      workCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      strokePath(
+        workCtx,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        brushSize,
+        color,
+        'source-over'
+      )
+      workCtx.globalCompositeOperation = 'destination-in'
+      workCtx.drawImage(this.maskCanvas, 0, 0)
+      workCtx.globalCompositeOperation = 'source-over'
+      textureCtx.drawImage(this.workCanvas, 0, 0)
+      workCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+    }
+
     const drawStroke = (
       fromX: number,
       fromY: number,
@@ -2744,6 +3154,7 @@ export class EditorCharacterBodyDrawer {
           : null
       if (mode === 'erase') {
         if (isCoreLayerSelected()) {
+          coreImageShape = null
           strokePath(
             maskCtx,
             fromX,
@@ -2781,6 +3192,7 @@ export class EditorCharacterBodyDrawer {
         }
       } else if (mode === 'shape') {
         if (isCoreLayerSelected()) {
+          coreImageShape = null
           strokePath(
             maskCtx,
             fromX,
@@ -2841,25 +3253,15 @@ export class EditorCharacterBodyDrawer {
           selectedPaintLayer.boundsDirty = false
         }
       } else if (mode === 'texture' && isCoreLayerSelected()) {
-        strokePath(
-          textureCtx,
+        strokeMaskedTexturePath(
           fromX,
           fromY,
           toX,
           toY,
           brushSize,
-          colorInput.value,
-          'source-over'
+          colorInput.value
         )
-        textureState.bounds = expandBoundsForStroke(
-          textureState.bounds,
-          fromX,
-          fromY,
-          toX,
-          toY,
-          brushSize
-        )
-        textureState.boundsDirty = false
+        textureState.boundsDirty = true
       }
       pointerChanged = true
       renderComposite()
@@ -2867,6 +3269,8 @@ export class EditorCharacterBodyDrawer {
 
     const loadInitialProfile = async () => {
       clearBodyShape()
+      coreImageShape = null
+      coreImageShapeMirrorX = false
       textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       textureState.bounds = null
@@ -2880,36 +3284,78 @@ export class EditorCharacterBodyDrawer {
       selectedLayerId = CORE_LAYER_ID
 
       const profile = options.initialProfile
-      eyeX = getCharacterEyeDrawX(profile)
+      const initialPresetId = this.isBodyPresetId(profile?.presetId)
+        ? profile.presetId
+        : CUSTOM_BODY_PRESET_ID
+      const initialPresetConfig = this.isBodyPresetId(initialPresetId)
+        ? this.getBodyPresetConfig(initialPresetId)
+        : null
+      const initialPresetImageSrc = this.getBodyPresetImageSrc(initialPresetId)
+      const initialContourWidth = profile?.points.length
+        ? this.getProfilePointWidth(profile.points)
+        : 0
+      const initialEyeDrawX =
+        !!initialPresetConfig &&
+        typeof profile?.eyeX === 'number' &&
+        Number.isFinite(profile.eyeX) &&
+        profile.eyeX === 0
+          ? this.getPresetPreferredEyeX(
+              initialPresetConfig,
+              initialContourWidth,
+              1
+            )
+          : getCharacterEyeDrawX(profile)
+      eyeX = initialEyeDrawX * editorFacing
       eyeY = getCharacterEyeDrawY(profile)
       if (profile && profile.points.length >= 6) {
         contourPoints = new Array<number>(profile.points.length)
         for (let i = 0; i < profile.points.length; i += 2) {
-          contourPoints[i] = profile.points[i] + DRAW_WORLD_HALF
+          contourPoints[i] = profile.points[i] * editorFacing + DRAW_WORLD_HALF
           contourPoints[i + 1] = profile.points[i + 1] + DRAW_WORLD_HALF
         }
         contourClosed = true
         drawContourFill()
 
-        const coreDataUrl = profile.textureDataUrl ?? profile.surfaceDataUrl
+        const restorePresetBaseImage =
+          !profile.textureDataUrl &&
+          !!initialPresetImageSrc &&
+          !!profile.embeddedEye
+        const coreDataUrl = restorePresetBaseImage
+          ? initialPresetImageSrc
+          : (profile.textureDataUrl ?? profile.surfaceDataUrl)
         const contourBounds = getContourBounds()
         if (coreDataUrl) {
           const image = await this.loadImage(coreDataUrl)
           if (image && contourBounds) {
-            shapeCtx.drawImage(
-              image,
-              contourBounds.minX,
-              contourBounds.minY,
-              contourBounds.width,
-              contourBounds.height
-            )
-            shapeState.bounds = createBoundsFromRect(
-              contourBounds.minX,
-              contourBounds.minY,
-              contourBounds.width,
-              contourBounds.height
-            )
-            shapeState.boundsDirty = false
+            if (restorePresetBaseImage) {
+              coreImageShape = image
+              coreImageShapeMirrorX =
+                initialPresetConfig !== null
+                  ? this.shouldMirrorPresetImage(
+                      initialPresetConfig,
+                      editorFacing
+                    )
+                  : false
+              colorInput.value = TRANSPARENT_BODY_COLOR
+              drawContourFill()
+            } else {
+              this.drawImageToRect(
+                shapeCtx,
+                image,
+                contourBounds.minX,
+                contourBounds.minY,
+                contourBounds.width,
+                contourBounds.height,
+                editorFacing < 0
+              )
+              shapeState.bounds = createBoundsFromRect(
+                contourBounds.minX,
+                contourBounds.minY,
+                contourBounds.width,
+                contourBounds.height
+              )
+              shapeState.boundsDirty = false
+            }
           }
         }
         if (profile.layers && profile.layers.length > 0 && contourBounds) {
@@ -2934,18 +3380,20 @@ export class EditorCharacterBodyDrawer {
             const drawHeight = Math.max(1, Math.round(visualLayer.height))
             const drawX =
               contourBounds.centerX +
-              Math.round(visualLayer.offsetX) -
+              Math.round(visualLayer.offsetX * editorFacing) -
               Math.round(drawWidth * 0.5)
             const drawY =
               contourBounds.centerY +
               Math.round(visualLayer.offsetY) -
               Math.round(drawHeight * 0.5)
-            targetLayer.ctx.drawImage(
+            this.drawImageToRect(
+              targetLayer.ctx,
               image,
               drawX,
               drawY,
               drawWidth,
-              drawHeight
+              drawHeight,
+              editorFacing < 0
             )
             targetLayer.bounds = createBoundsFromRect(
               drawX,
@@ -2966,6 +3414,7 @@ export class EditorCharacterBodyDrawer {
         selectedContourIndex = 0
         drawContourFill()
       }
+      setPresetSelection(initialPresetId)
       setExportReferenceFromBounds(getContourBounds())
       mode = contourClosed ? 'shape' : 'contour'
       renderLayerList()
@@ -3042,6 +3491,7 @@ export class EditorCharacterBodyDrawer {
       hideContourMenu()
       hideLayerMenu()
       flushSettingHistory()
+      invalidatePresetSelection()
       const layer = appendPaintLayer()
       if (!layer) {
         return
@@ -3060,7 +3510,10 @@ export class EditorCharacterBodyDrawer {
       flushSettingHistory()
       hideContourMenu()
       hideLayerMenu()
+      setPresetSelection(CUSTOM_BODY_PRESET_ID)
       clearBodyShape()
+      coreImageShape = null
+      coreImageShapeMirrorX = false
       contourPoints = []
       contourClosed = false
       selectedContourIndex = -1
@@ -3068,7 +3521,7 @@ export class EditorCharacterBodyDrawer {
       pendingContourClose = false
       hoverVisible = false
       mode = 'contour'
-      eyeX = DEFAULT_CHARACTER_EYE_X
+      eyeX = DEFAULT_CHARACTER_EYE_X * editorFacing
       eyeY = DEFAULT_CHARACTER_EYE_Y
       textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       textureState.bounds = null
@@ -3091,11 +3544,27 @@ export class EditorCharacterBodyDrawer {
       hideContourMenu()
       hideLayerMenu()
       flushSettingHistory()
+      invalidatePresetSelection()
       clearVisualLayer(getSelectedLayer())
       renderComposite()
       historyManager.capture()
     })
+    presetSelect.addEventListener('change', async () => {
+      const nextPresetId = presetSelect.value
+      if (nextPresetId === currentPresetId) {
+        return
+      }
+      if (nextPresetId === CUSTOM_BODY_PRESET_ID) {
+        setPresetSelection(CUSTOM_BODY_PRESET_ID)
+        historyManager.capture()
+        return
+      }
+      if (this.isBodyPresetId(nextPresetId)) {
+        await applyPreset(nextPresetId)
+      }
+    })
     colorInput.addEventListener('input', () => {
+      invalidatePresetSelection()
       settingsChanged = true
       updateCursorVisual()
     })
@@ -3103,6 +3572,7 @@ export class EditorCharacterBodyDrawer {
       flushSettingHistory()
     })
     bloodColorInput.addEventListener('input', () => {
+      invalidatePresetSelection()
       settingsChanged = true
       bloodColorAssigned = true
     })
@@ -3129,6 +3599,7 @@ export class EditorCharacterBodyDrawer {
       const insertX = contourMenuInsertX
       const insertY = contourMenuInsertY
       hideContourMenu()
+      invalidatePresetSelection()
       if (insertContourPointAfter(insertAfterIndex, insertX, insertY)) {
         historyManager.capture()
       }
@@ -3139,6 +3610,7 @@ export class EditorCharacterBodyDrawer {
       if (pointIndex >= 0) {
         selectedContourIndex = pointIndex
       }
+      invalidatePresetSelection()
       if (deleteSelectedContourPoint()) {
         historyManager.capture()
       }
@@ -3150,6 +3622,7 @@ export class EditorCharacterBodyDrawer {
         return
       }
       flushSettingHistory()
+      invalidatePresetSelection()
       const duplicate = cloneLayer(targetLayer)
       if (!duplicate) {
         return
@@ -3181,6 +3654,7 @@ export class EditorCharacterBodyDrawer {
         return
       }
       flushSettingHistory()
+      invalidatePresetSelection()
       if (!deletePaintLayer(targetLayer.id)) {
         return
       }
@@ -3352,9 +3826,11 @@ export class EditorCharacterBodyDrawer {
             return
           }
           if (pointCount === 0) {
+            invalidatePresetSelection()
             beginContour(point.x, point.y)
             historyManager.capture()
           } else {
+            invalidatePresetSelection()
             appendContourPoint(point.x, point.y)
             historyManager.capture()
           }
@@ -3380,6 +3856,7 @@ export class EditorCharacterBodyDrawer {
             event.stopPropagation()
             return
           }
+          invalidatePresetSelection()
           fillBodyShape()
           historyManager.capture()
           event.preventDefault()
@@ -3388,6 +3865,7 @@ export class EditorCharacterBodyDrawer {
         } else {
           shapeStrokeAnchored = false
         }
+        invalidatePresetSelection()
         pointerActive = true
         pointerChanged = false
         lastX = point.x
@@ -3434,6 +3912,7 @@ export class EditorCharacterBodyDrawer {
             if (offsetX !== 0 || offsetY !== 0) {
               const dragLayer = getLayerById(selectionDragLayerId)
               if (dragLayer) {
+                invalidatePresetSelection()
                 translateLayerPixels(dragLayer, offsetX, offsetY)
                 pointerChanged = true
                 lastDragWorldX = point.x
@@ -3449,6 +3928,7 @@ export class EditorCharacterBodyDrawer {
         if (mode === 'contour') {
           if (pointerActive && contourDragPointIndex >= 0) {
             if (point.x !== lastX || point.y !== lastY) {
+              invalidatePresetSelection()
               pointerChanged = true
               pendingContourClose = false
               moveContourPoint(contourDragPointIndex, point.x, point.y)
@@ -3575,6 +4055,7 @@ export class EditorCharacterBodyDrawer {
         mode === 'contour' &&
         (event.key === 'Delete' || event.key === 'Backspace')
       ) {
+        invalidatePresetSelection()
         if (deleteSelectedContourPoint()) {
           historyManager.capture()
         }
@@ -3630,6 +4111,9 @@ export class EditorCharacterBodyDrawer {
                 eyeX,
                 eyeY,
                 bloodColorInput.value,
+                currentPresetId,
+                coreImageShape !== null,
+                editorFacing,
                 exportBaseWidth,
                 exportBaseHeight,
                 exportReferenceWidth,
@@ -3668,7 +4152,8 @@ export class EditorCharacterBodyDrawer {
 
   private readMaskFill(
     maskCtx: CanvasRenderingContext2D,
-    size: number
+    size: number,
+    alphaThreshold = MASK_ALPHA_THRESHOLD
   ): {
     filled: Uint8Array
     minX: number
@@ -3686,7 +4171,7 @@ export class EditorCharacterBodyDrawer {
       const rowOffset = y * size
       for (let x = 0; x < size; x++) {
         const index = rowOffset + x
-        if (imageData[index * 4 + 3] < MASK_ALPHA_THRESHOLD) {
+        if (imageData[index * 4 + 3] < alphaThreshold) {
           continue
         }
         filled[index] = 1
@@ -3711,9 +4196,10 @@ export class EditorCharacterBodyDrawer {
   }
 
   private buildEditorContourFromMask(
-    maskCtx: CanvasRenderingContext2D
+    maskCtx: CanvasRenderingContext2D,
+    alphaThreshold = MASK_ALPHA_THRESHOLD
   ): number[] | null {
-    const maskFill = this.readMaskFill(maskCtx, DRAW_WORLD_SIZE)
+    const maskFill = this.readMaskFill(maskCtx, DRAW_WORLD_SIZE, alphaThreshold)
     if (!maskFill) {
       return null
     }
@@ -3738,6 +4224,9 @@ export class EditorCharacterBodyDrawer {
     eyeX: number,
     eyeY: number,
     bloodColor: string,
+    presetId: EditorCharacterBodyPresetId,
+    usePureImageSurface: boolean,
+    editorFacing: number,
     exportBaseWidth: number,
     exportBaseHeight: number,
     exportReferenceWidth: number,
@@ -3762,72 +4251,105 @@ export class EditorCharacterBodyDrawer {
     const coreCenterX = Math.round((maskFill.minX + maskFill.maxX + 1) * 0.5)
     const coreCenterY = Math.round((maskFill.minY + maskFill.maxY + 1) * 0.5)
     const centered = this.centerLoop(loop, coreCenterX, coreCenterY)
-    const simplified = this.limitEditorLoopPoints(centered, MAX_PROFILE_POINTS)
+    const canonicalCentered =
+      editorFacing < 0 ? this.mirrorLocalPoints(centered) : centered
+    const simplified = this.limitEditorLoopPoints(
+      canonicalCentered,
+      MAX_PROFILE_POINTS
+    )
     if (simplified.length < 6) {
       return null
     }
-    const surfaceBounds = this.drawMergedSurface(
-      workCtx,
-      shapeCtx,
-      textureCtx,
-      browCtx,
-      layers,
-      coreCenterX,
-      coreCenterY,
-      eyeX,
-      eyeY
-    )
+    const surfaceBounds = usePureImageSurface
+      ? {
+          minX: maskFill.minX,
+          minY: maskFill.minY,
+          maxX: maskFill.maxX,
+          maxY: maskFill.maxY,
+        }
+      : this.drawMergedSurface(
+          workCtx,
+          shapeCtx,
+          textureCtx,
+          browCtx,
+          layers,
+          coreCenterX,
+          coreCenterY,
+          eyeX,
+          eyeY
+        )
+    const maskWidthPx = maskFill.maxX + 1 - maskFill.minX
+    const maskHeightPx = maskFill.maxY + 1 - maskFill.minY
+    const scaleX = exportBaseWidth / Math.max(1, exportReferenceWidth)
+    const scaleY = exportBaseHeight / Math.max(1, exportReferenceHeight)
+    const uniformScale =
+      scaleX > 0 && scaleY > 0
+        ? (scaleX + scaleY) * 0.5
+        : scaleX > 0
+          ? scaleX
+          : scaleY
     const width = Math.max(
       0.01,
-      Math.round(
-        (exportBaseWidth * (maskFill.maxX + 1 - maskFill.minX) * 1000) /
-          Math.max(1, exportReferenceWidth)
-      ) / 1000
+      Math.round(maskWidthPx * uniformScale * 1000) / 1000
     )
     const height = Math.max(
       0.01,
-      Math.round(
-        (exportBaseHeight * (maskFill.maxY + 1 - maskFill.minY) * 1000) /
-          Math.max(1, exportReferenceHeight)
-      ) / 1000
+      Math.round(maskHeightPx * uniformScale * 1000) / 1000
     )
 
-    const textureDataUrl = this.buildSurfaceDataUrl(
-      shapeCtx,
-      textureCtx,
-      maskFill.minX,
-      maskFill.minY,
-      maskFill.maxX + 1,
-      maskFill.maxY + 1
-    )
-    const surfaceDataUrl = surfaceBounds
-      ? this.cropCanvasDataUrl(
-          this.workCanvas,
-          surfaceBounds.minX,
-          surfaceBounds.minY,
-          surfaceBounds.maxX + 1,
-          surfaceBounds.maxY + 1
+    const textureDataUrl = usePureImageSurface
+      ? null
+      : this.buildSurfaceDataUrl(
+          shapeCtx,
+          textureCtx,
+          maskFill.minX,
+          maskFill.minY,
+          maskFill.maxX + 1,
+          maskFill.maxY + 1,
+          editorFacing < 0
         )
-      : textureDataUrl
+    const surfaceDataUrl = usePureImageSurface
+      ? this.buildSurfaceDataUrl(
+          shapeCtx,
+          textureCtx,
+          maskFill.minX,
+          maskFill.minY,
+          maskFill.maxX + 1,
+          maskFill.maxY + 1,
+          editorFacing < 0
+        )
+      : surfaceBounds
+        ? this.cropCanvasDataUrl(
+            this.workCanvas,
+            surfaceBounds.minX,
+            surfaceBounds.minY,
+            surfaceBounds.maxX + 1,
+            surfaceBounds.maxY + 1,
+            editorFacing < 0
+          )
+        : textureDataUrl
     const serializedLayers = this.serializeVisualLayers(
       layers,
       coreCenterX,
-      coreCenterY
+      coreCenterY,
+      editorFacing
     )
 
     return {
       points: simplified,
+      presetId: presetId !== CUSTOM_BODY_PRESET_ID ? presetId : undefined,
       width,
       height,
-      color,
+      color: usePureImageSurface ? TRANSPARENT_BODY_COLOR : color,
       bloodColor,
-      eyeX: Math.round(eyeX * 1000) / 1000,
+      eyeX: Math.round(eyeX * editorFacing * 1000) / 1000,
       eyeY: Math.round(eyeY * 1000) / 1000,
-      embeddedEye: !!surfaceDataUrl,
+      embeddedEye: !textureDataUrl && !usePureImageSurface && !!surfaceDataUrl,
       surfaceOffsetX: surfaceBounds
         ? Math.round(
             ((surfaceBounds.minX + surfaceBounds.maxX + 1) * 0.5 -
               coreCenterX) *
+              editorFacing *
               1000
           ) / 1000
         : undefined,
@@ -3844,11 +4366,347 @@ export class EditorCharacterBodyDrawer {
       surfaceHeight: surfaceBounds
         ? surfaceBounds.maxY + 1 - surfaceBounds.minY
         : undefined,
-      layerOrder,
+      layerOrder: serializedLayers.length > 0 ? layerOrder : undefined,
       layers: serializedLayers.length > 0 ? serializedLayers : undefined,
       surfaceDataUrl: surfaceDataUrl ?? undefined,
       textureDataUrl: textureDataUrl ?? undefined,
     }
+  }
+
+  private isBodyPresetId(
+    value: string | undefined
+  ): value is MapCharacterBodyPresetId {
+    if (!value) {
+      return false
+    }
+    for (let i = 0; i < BODY_PRESET_IDS.length; i++) {
+      if (BODY_PRESET_IDS[i] === value) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private getBodyPresetConfig(
+    presetId: MapCharacterBodyPresetId
+  ): BodyPresetConfig {
+    if (presetId === 'banana') {
+      return {
+        color: TRANSPARENT_BODY_COLOR,
+        bloodColor: '#8a5424',
+        eyeX: 0,
+        eyeY: -8,
+        points: BANANA_PRESET_POINTS,
+        imageSrc: BANANA_PRESET_IMAGE_SRC,
+        mirrorImageX: true,
+      }
+    }
+    if (presetId === 'pineapple') {
+      return {
+        color: TRANSPARENT_BODY_COLOR,
+        bloodColor: '#7d4a18',
+        eyeX: 0,
+        eyeY: 52,
+        points: PINEAPPLE_PRESET_POINTS,
+        imageSrc: PINEAPPLE_PRESET_IMAGE_SRC,
+      }
+    }
+    if (presetId === 'tomato') {
+      return {
+        color: TRANSPARENT_BODY_COLOR,
+        bloodColor: '#8f1414',
+        eyeX: 0,
+        eyeY: 4,
+        points: TOMATO_PRESET_POINTS,
+        imageSrc: TOMATO_PRESET_IMAGE_SRC,
+        mirrorImageX: true,
+      }
+    }
+    return {
+      color: TRANSPARENT_BODY_COLOR,
+      bloodColor: '#9b2e22',
+      eyeX: 0,
+      eyeY: 2,
+      points: WATERMELON_PRESET_POINTS,
+      imageSrc: WATERMELON_PRESET_IMAGE_SRC,
+      mirrorImageX: true,
+    }
+  }
+
+  private getProfilePointWidth(points: readonly number[]): number {
+    if (points.length < 2) {
+      return 0
+    }
+    let minX = points[0]
+    let maxX = points[0]
+    for (let i = 2; i < points.length; i += 2) {
+      const pointX = points[i]
+      if (pointX < minX) {
+        minX = pointX
+      }
+      if (pointX > maxX) {
+        maxX = pointX
+      }
+    }
+    return Math.max(1, maxX - minX)
+  }
+
+  private getFacingPreferredEyeX(width: number, facing: number): number {
+    const offset = Math.max(1, Math.floor((Math.max(1, width) * 3 + 5) / 10))
+    return facing < 0 ? -offset : offset
+  }
+
+  private getPresetPreferredEyeX(
+    preset: BodyPresetConfig,
+    contourWidth: number,
+    facing: number
+  ): number {
+    if (preset.eyeX !== 0) {
+      return preset.eyeX * facing
+    }
+    return this.getFacingPreferredEyeX(contourWidth, facing)
+  }
+
+  private shouldMirrorPresetImage(
+    preset: BodyPresetConfig,
+    editorFacing: number
+  ): boolean {
+    return editorFacing < 0 !== (preset.mirrorImageX === true)
+  }
+
+  private getBodyPresetImageSrc(
+    presetId: EditorCharacterBodyPresetId | undefined
+  ): string | null {
+    if (!this.isBodyPresetId(presetId)) {
+      return null
+    }
+    const imageSrc = this.getBodyPresetConfig(presetId).imageSrc
+    return typeof imageSrc === 'string' && imageSrc.length > 0 ? imageSrc : null
+  }
+
+  private mirrorLocalPoints(points: number[]): number[] {
+    const mirrored = new Array<number>(points.length)
+    for (let i = 0; i < points.length; i += 2) {
+      mirrored[i] = -points[i]
+      mirrored[i + 1] = points[i + 1]
+    }
+    return mirrored
+  }
+
+  private buildPresetContourPoints(
+    points: readonly number[],
+    facing: number
+  ): number[] {
+    const contourPoints = new Array<number>(points.length)
+    for (let i = 0; i < points.length; i += 2) {
+      contourPoints[i] = DRAW_WORLD_HALF + points[i] * facing
+      contourPoints[i + 1] = DRAW_WORLD_HALF + points[i + 1]
+    }
+    return contourPoints
+  }
+
+  private drawImageToRect(
+    ctx: CanvasRenderingContext2D,
+    image: CanvasImageSource,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    mirrorHorizontally: boolean
+  ) {
+    if (!mirrorHorizontally) {
+      ctx.drawImage(image, x, y, width, height)
+      return
+    }
+    ctx.save()
+    ctx.translate(x + width, y)
+    ctx.scale(-1, 1)
+    ctx.drawImage(image, 0, 0, width, height)
+    ctx.restore()
+  }
+
+  private fillPresetPolygon(
+    ctx: CanvasRenderingContext2D,
+    points: readonly number[]
+  ) {
+    if (points.length < 6) {
+      return
+    }
+    ctx.beginPath()
+    ctx.moveTo(points[0], points[1])
+    for (let i = 2; i < points.length; i += 2) {
+      ctx.lineTo(points[i], points[i + 1])
+    }
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  private drawBodyPresetTexture(
+    ctx: CanvasRenderingContext2D,
+    presetId: MapCharacterBodyPresetId,
+    bounds: BodyPresetBounds
+  ) {
+    const bandWidth = Math.max(6, Math.round(bounds.width / 10))
+    const stripeWidth = Math.max(8, Math.round(bounds.width / 9))
+    const stripeThinWidth = Math.max(4, Math.round(bounds.width / 16))
+    const topBandY = bounds.minY + Math.round(bounds.height / 3)
+    if (presetId === 'banana') {
+      ctx.save()
+      ctx.lineCap = 'round'
+      ctx.strokeStyle = 'rgba(196,160,38,0.55)'
+      ctx.lineWidth = bandWidth
+      for (let i = -1; i <= 1; i++) {
+        const offsetY = i * Math.max(10, Math.round(bounds.height / 7))
+        ctx.beginPath()
+        ctx.moveTo(bounds.minX + 14, bounds.centerY + offsetY + 10)
+        ctx.quadraticCurveTo(
+          bounds.centerX,
+          bounds.centerY + offsetY - 14,
+          bounds.maxX - 10,
+          bounds.centerY + offsetY - 4
+        )
+        ctx.stroke()
+      }
+      ctx.fillStyle = '#7b4a1f'
+      ctx.beginPath()
+      ctx.arc(bounds.minX + 12, bounds.centerY + 16, 8, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.arc(bounds.maxX - 8, bounds.centerY - 6, 8, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+      return
+    }
+    if (presetId === 'pineapple') {
+      ctx.save()
+      ctx.strokeStyle = 'rgba(110,72,18,0.55)'
+      ctx.lineWidth = Math.max(4, Math.round(bounds.width / 18))
+      for (let x = bounds.minX - bounds.height; x <= bounds.maxX; x += 20) {
+        ctx.beginPath()
+        ctx.moveTo(x, topBandY)
+        ctx.lineTo(x + bounds.height, bounds.maxY)
+        ctx.stroke()
+      }
+      for (let x = bounds.minX; x <= bounds.maxX + bounds.height; x += 20) {
+        ctx.beginPath()
+        ctx.moveTo(x, topBandY)
+        ctx.lineTo(x - bounds.height, bounds.maxY)
+        ctx.stroke()
+      }
+      ctx.fillStyle = '#4e8d2c'
+      this.fillPresetPolygon(ctx, [
+        bounds.centerX - 22,
+        bounds.minY + 18,
+        bounds.centerX - 6,
+        bounds.minY - 30,
+        bounds.centerX + 2,
+        bounds.minY + 10,
+      ])
+      this.fillPresetPolygon(ctx, [
+        bounds.centerX - 6,
+        bounds.minY + 12,
+        bounds.centerX + 10,
+        bounds.minY - 40,
+        bounds.centerX + 18,
+        bounds.minY + 10,
+      ])
+      this.fillPresetPolygon(ctx, [
+        bounds.centerX + 8,
+        bounds.minY + 18,
+        bounds.centerX + 30,
+        bounds.minY - 18,
+        bounds.centerX + 20,
+        bounds.minY + 20,
+      ])
+      ctx.restore()
+      return
+    }
+    if (presetId === 'tomato') {
+      ctx.save()
+      ctx.lineCap = 'round'
+      ctx.strokeStyle = 'rgba(133,22,18,0.3)'
+      ctx.lineWidth = stripeWidth
+      for (let i = -1; i <= 1; i++) {
+        const offsetX = i * Math.max(12, Math.round(bounds.width / 5))
+        ctx.beginPath()
+        ctx.moveTo(bounds.centerX + offsetX, bounds.minY + 6)
+        ctx.quadraticCurveTo(
+          bounds.centerX + offsetX,
+          bounds.centerY,
+          bounds.centerX + offsetX,
+          bounds.maxY - 10
+        )
+        ctx.stroke()
+      }
+      ctx.fillStyle = 'rgba(255,216,216,0.2)'
+      ctx.beginPath()
+      ctx.arc(
+        bounds.centerX - Math.round(bounds.width / 5),
+        bounds.centerY - Math.round(bounds.height / 6),
+        Math.max(8, Math.round(bounds.width / 8)),
+        0,
+        Math.PI * 2
+      )
+      ctx.fill()
+      ctx.fillStyle = '#4f972e'
+      this.fillPresetPolygon(ctx, [
+        bounds.centerX - 6,
+        bounds.minY + 8,
+        bounds.centerX - 26,
+        bounds.minY - 2,
+        bounds.centerX - 10,
+        bounds.minY + 20,
+      ])
+      this.fillPresetPolygon(ctx, [
+        bounds.centerX + 2,
+        bounds.minY + 4,
+        bounds.centerX,
+        bounds.minY - 18,
+        bounds.centerX + 8,
+        bounds.minY + 16,
+      ])
+      this.fillPresetPolygon(ctx, [
+        bounds.centerX + 8,
+        bounds.minY + 8,
+        bounds.centerX + 28,
+        bounds.minY - 2,
+        bounds.centerX + 12,
+        bounds.minY + 20,
+      ])
+      ctx.restore()
+      return
+    }
+    ctx.save()
+    ctx.lineCap = 'round'
+    ctx.strokeStyle = 'rgba(35,104,35,0.46)'
+    ctx.lineWidth = stripeWidth
+    for (let i = -2; i <= 2; i++) {
+      const offsetX = i * Math.max(12, Math.round(bounds.width / 5))
+      ctx.beginPath()
+      ctx.moveTo(bounds.centerX + offsetX, bounds.minY + 4)
+      ctx.quadraticCurveTo(
+        bounds.centerX + offsetX + (i % 2 === 0 ? 8 : -8),
+        bounds.centerY,
+        bounds.centerX + offsetX,
+        bounds.maxY - 6
+      )
+      ctx.stroke()
+    }
+    ctx.strokeStyle = 'rgba(158,212,118,0.4)'
+    ctx.lineWidth = stripeThinWidth
+    for (let i = -1; i <= 1; i++) {
+      const offsetX = i * Math.max(16, Math.round(bounds.width / 4))
+      ctx.beginPath()
+      ctx.moveTo(bounds.centerX + offsetX, bounds.minY + 8)
+      ctx.quadraticCurveTo(
+        bounds.centerX + offsetX - 6,
+        bounds.centerY,
+        bounds.centerX + offsetX,
+        bounds.maxY - 8
+      )
+      ctx.stroke()
+    }
+    ctx.restore()
   }
 
   private extractMaskLoops(
@@ -4189,7 +5047,8 @@ export class EditorCharacterBodyDrawer {
     minX: number,
     minY: number,
     maxX: number,
-    maxY: number
+    maxY: number,
+    mirrorHorizontally: boolean
   ): string | null {
     const width = Math.max(1, maxX - minX)
     const height = Math.max(1, maxY - minY)
@@ -4198,6 +5057,11 @@ export class EditorCharacterBodyDrawer {
       return null
     }
     outputCtx.clearRect(0, 0, width, height)
+    if (mirrorHorizontally) {
+      outputCtx.save()
+      outputCtx.translate(width, 0)
+      outputCtx.scale(-1, 1)
+    }
     outputCtx.drawImage(
       shapeCtx.canvas,
       minX,
@@ -4221,6 +5085,9 @@ export class EditorCharacterBodyDrawer {
       width,
       height
     )
+    if (mirrorHorizontally) {
+      outputCtx.restore()
+    }
     outputCtx.globalCompositeOperation = 'source-over'
     return this.readCroppedCanvasDataUrl(outputCtx, width, height)
   }
@@ -4414,7 +5281,8 @@ export class EditorCharacterBodyDrawer {
     minX: number,
     minY: number,
     maxX: number,
-    maxY: number
+    maxY: number,
+    mirrorHorizontally = false
   ): string | null {
     const width = Math.max(1, maxX - minX)
     const height = Math.max(1, maxY - minY)
@@ -4423,14 +5291,23 @@ export class EditorCharacterBodyDrawer {
       return null
     }
     outputCtx.clearRect(0, 0, width, height)
+    if (mirrorHorizontally) {
+      outputCtx.save()
+      outputCtx.translate(width, 0)
+      outputCtx.scale(-1, 1)
+    }
     outputCtx.drawImage(source, minX, minY, width, height, 0, 0, width, height)
+    if (mirrorHorizontally) {
+      outputCtx.restore()
+    }
     return this.readCroppedCanvasDataUrl(outputCtx, width, height)
   }
 
   private serializeVisualLayers(
     layers: EditorBodyLayer[],
     coreCenterX: number,
-    coreCenterY: number
+    coreCenterY: number,
+    editorFacing: number
   ): MapCharacterBodyVisualLayer[] {
     const serialized: MapCharacterBodyVisualLayer[] = []
     for (let i = 0; i < layers.length; i++) {
@@ -4453,7 +5330,8 @@ export class EditorCharacterBodyDrawer {
         bounds.minX,
         bounds.minY,
         bounds.maxX + 1,
-        bounds.maxY + 1
+        bounds.maxY + 1,
+        editorFacing < 0
       )
       if (!dataUrl) {
         continue
@@ -4464,7 +5342,9 @@ export class EditorCharacterBodyDrawer {
         kind: layer.kind,
         offsetX:
           Math.round(
-            ((bounds.minX + bounds.maxX + 1) * 0.5 - coreCenterX) * 1000
+            ((bounds.minX + bounds.maxX + 1) * 0.5 - coreCenterX) *
+              editorFacing *
+              1000
           ) / 1000,
         offsetY:
           Math.round(

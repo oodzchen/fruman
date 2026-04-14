@@ -1,3 +1,5 @@
+import { getCharacterGroundPickupRadius } from '../../characterBodyProfile'
+import { DEFAULT_PLAYER_RADIUS } from '../../constants'
 import { EXP_TABLE, PLAYER_MAX_LEVEL } from '../../constants'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { Entity } from '../Entity'
@@ -42,7 +44,14 @@ export class ExpOrbSystem {
           continue
         const dx = orb.transform.x - player.transform.x
         const dy = orb.transform.y - player.transform.y
-        if (dx * dx + dy * dy > eo.pickupRadiusSq) continue
+        const bodyRadius = player.render?.radius ?? DEFAULT_PLAYER_RADIUS
+        const pickupRadius = getCharacterGroundPickupRadius(
+          player.render?.bodyProfile,
+          bodyRadius,
+          player.render?.bodyHeight ?? 0,
+          Math.sqrt(eo.pickupRadiusSq)
+        )
+        if (dx * dx + dy * dy > pickupRadius * pickupRadius) continue
 
         const lv = player.level
         if (lv.level < PLAYER_MAX_LEVEL) {

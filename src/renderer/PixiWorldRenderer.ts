@@ -76,6 +76,9 @@ const DAMAGE_TEXT_COLOR = '#f3d8a2'
 const DAMAGE_TEXT_STROKE_COLOR = '#2c160f'
 const DAMAGE_TEXT_DELTA_EPSILON = 0.01
 const DAMAGE_TEXT_POOL_LIMIT = 96
+const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = false
+const COLLISION_DEBUG_COLOR = '#ff3b30'
+const COLLISION_DEBUG_LINE_WIDTH = 2
 
 interface LayerBucket {
   container: Container
@@ -91,6 +94,7 @@ interface EntityView {
   readonly statusGraphics: Graphics
   readonly damageTextContainer: Container
   readonly deathGraphics: Graphics
+  readonly collisionDebugGraphics: Graphics
   readonly followBondSprite: Sprite
   readonly followUnbondSprite: Sprite
   readonly activeDamageTexts: DamageTextView[]
@@ -521,6 +525,10 @@ export class PixiWorldRenderer {
     const deathGraphics = new Graphics()
     root.addChild(deathGraphics)
 
+    const collisionDebugGraphics = new Graphics()
+    hideGraphics(collisionDebugGraphics)
+    root.addChild(collisionDebugGraphics)
+
     const followBondSprite = new Sprite(this.handshakeTexture)
     followBondSprite.anchor.set(0.5)
     followBondSprite.width = 20
@@ -545,6 +553,7 @@ export class PixiWorldRenderer {
       statusGraphics,
       damageTextContainer,
       deathGraphics,
+      collisionDebugGraphics,
       followBondSprite,
       followUnbondSprite,
       activeDamageTexts: [],
@@ -644,6 +653,7 @@ export class PixiWorldRenderer {
     hideGraphics(view.specialGraphics)
     hideGraphics(view.statusGraphics)
     hideGraphics(view.deathGraphics)
+    hideGraphics(view.collisionDebugGraphics)
     hideSprite(view.followBondSprite)
     hideSprite(view.followUnbondSprite)
     view.lastHealthRatio = -1
@@ -708,6 +718,7 @@ export class PixiWorldRenderer {
     hideGraphics(view.specialGraphics)
     hideGraphics(view.statusGraphics)
     hideGraphics(view.deathGraphics)
+    hideGraphics(view.collisionDebugGraphics)
     hideSprite(view.followBondSprite)
     hideSprite(view.followUnbondSprite)
 
@@ -740,6 +751,9 @@ export class PixiWorldRenderer {
 
     if (!isStandaloneWeapon) {
       this.updateBodySprite(view, renderer, buf, offset, flags, alpha)
+      if (DEBUG_DRAW_PLAYER_COLLISION_SHAPE) {
+        this.updateCollisionDebug(view, renderer, buf, offset)
+      }
     } else {
       hideSprite(view.bodySprite)
     }
@@ -1023,6 +1037,70 @@ export class PixiWorldRenderer {
         halfHeight * halfHeight * cosA * cosA
     )
     return halfHeight - rotatedLow
+  }
+
+  private updateCollisionDebug(
+    view: EntityView,
+    renderer: ClientRenderer,
+    buf: Float32Array,
+    offset: number
+  ): void {
+    const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
+    const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
+    const radius = buf[offset + OFFSETS.RADIUS]
+    const bodyHeight = buf[offset + OFFSETS.BODY_HEIGHT]
+    const ppm = this.pixelsPerMeter
+    const g = view.collisionDebugGraphics
+
+    // 与视觉 bodySprite 保持一致：facing 方向翻转 + roll 旋转
+    const facing = renderer.getFacingForEntity(buf, offset)
+    const rollAngle = buf[offset + OFFSETS.ROLL_ANGLE]
+    const radiusPx = radius * ppm
+    const bodyHeightPx = bodyHeight * ppm
+    const offsetY = this.getBodyRollOffsetY(
+      bodyProfile,
+      radiusPx,
+      bodyHeightPx,
+      rollAngle
+    )
+    g.scale.x = facing < 0 ? -1 : 1
+    g.rotation = rollAngle
+    g.position.y = offsetY
+
+    g.clear()
+    g.visible = true
+
+    const polygons = renderer.getBodyCollisionPolygons(
+      bodyProfile,
+      radius,
+      bodyHeight
+    )
+    if (polygons && polygons.length > 0) {
+      for (let i = 0; i < polygons.length; i++) {
+        const polygon = polygons[i]
+        if (polygon.length < 6) {
+          continue
+        }
+        g.moveTo(polygon[0] * ppm, polygon[1] * ppm)
+        for (let j = 2; j < polygon.length; j += 2) {
+          g.lineTo(polygon[j] * ppm, polygon[j + 1] * ppm)
+        }
+        g.closePath()
+      }
+      g.stroke({
+        color: COLLISION_DEBUG_COLOR,
+        width: COLLISION_DEBUG_LINE_WIDTH,
+        alpha: 0.95,
+      })
+    } else {
+      const halfHeightPx = bodyHeight > 0 ? bodyHeightPx / 2 : radiusPx
+      g.ellipse(0, 0, radiusPx, halfHeightPx)
+      g.stroke({
+        color: COLLISION_DEBUG_COLOR,
+        width: COLLISION_DEBUG_LINE_WIDTH,
+        alpha: 0.95,
+      })
+    }
   }
 
   private updateWeaponSprite(
