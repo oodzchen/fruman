@@ -33,7 +33,7 @@ function lerpColor(a: number, b: number, t256: number): number {
 }
 
 export class DayNightCycle {
-  private elapsed = 0
+  private elapsed = 3 * SEG_MS
 
   update(deltaMs: number): void {
     this.elapsed = (this.elapsed + (deltaMs | 0)) % DAY_CYCLE_MS
