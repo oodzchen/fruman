@@ -1,5 +1,6 @@
 import { DialogManager } from './DialogManager'
 import { findDirectionalIndex } from './DirectionalNav'
+import type { DisplayManager } from './DisplayManager'
 import { Language, localizer } from './Localizer'
 import { saveManager } from './SaveManager'
 import type { SaveMeta } from './saveTypes'
@@ -19,6 +20,8 @@ export enum MenuAction {
   SaveListNew,
   SaveListDelete,
   SaveGame,
+  Fullscreen,
+  Resolution,
 }
 
 export enum MenuMode {
@@ -65,6 +68,7 @@ export class MenuManager {
   private hasSavesCache = false
   private saveListCache: SaveMeta[] = []
   private dialogManager: DialogManager | null = null
+  private displayManager: DisplayManager | null = null
   private lastSelectedSaveIndex = -1
 
   constructor(
@@ -126,9 +130,29 @@ export class MenuManager {
     this.dialogManager = dialogManager
   }
 
+  setDisplayManager(displayManager: DisplayManager): void {
+    this.displayManager = displayManager
+    const refresh = () => {
+      if (this.visible) {
+        this.initMenuItems()
+        this.syncMenuDom()
+      }
+    }
+    displayManager.setOnFullscreenChange(refresh)
+    displayManager.setOnResolutionChange(refresh)
+  }
+
   private initMenuItems() {
-    const startY = (this.canvas.offsetHeight || 600) / 2 + 40
-    const spacing = 35
+    const preset = this.displayManager?.getCurrentPreset()
+    const width = preset ? preset.width : this.canvas.offsetWidth || 800
+    const height = preset ? preset.height : this.canvas.offsetHeight || 600
+
+    // Small screen font scaling
+    const isSmallScreen = height < 500 || width < 700
+    this.menuOverlay.classList.toggle('menu-compact', isSmallScreen)
+
+    const startY = height / 2 + (isSmallScreen ? 20 : 40)
+    const spacing = isSmallScreen ? 28 : 35
     this.menuItems = []
 
     if (this.mode === MenuMode.Start) {
@@ -216,6 +240,13 @@ export class MenuManager {
       const currentLang = localizer.getCurrentLanguage()
       const langDisplay =
         currentLang === Language.ZhHans ? '简体中文' : 'English'
+      const isFs = this.displayManager?.isFullscreen() ?? false
+      const fsDisplay = isFs
+        ? localizer.t('menu_settings_fullscreen_on')
+        : localizer.t('menu_settings_fullscreen_off')
+      const resDisplay = isFs
+        ? '-'
+        : (this.displayManager?.getCurrentPreset().label ?? '800×600')
 
       this.menuItems = [
         {
@@ -225,9 +256,21 @@ export class MenuManager {
           value: langDisplay,
         },
         {
+          label: localizer.t('menu_settings_fullscreen'),
+          action: MenuAction.Fullscreen,
+          y: startY + spacing,
+          value: fsDisplay,
+        },
+        {
+          label: localizer.t('menu_settings_resolution'),
+          action: MenuAction.Resolution,
+          y: startY + spacing * 2,
+          value: resDisplay,
+        },
+        {
           label: localizer.t('menu_back'),
           action: MenuAction.Back,
-          y: startY + spacing * 2,
+          y: startY + spacing * 4,
         },
       ]
     } else if (this.mode === MenuMode.SaveList) {
@@ -342,6 +385,12 @@ export class MenuManager {
         if (item.action === MenuAction.Language) {
           e.preventDefault()
           this.cycleLanguage(-1)
+        } else if (item.action === MenuAction.Resolution) {
+          e.preventDefault()
+          this.cycleResolution(-1)
+        } else if (item.action === MenuAction.Fullscreen) {
+          e.preventDefault()
+          void this.handleToggleFullscreen()
         }
       } else if (e.key === 'ArrowRight' || e.key === 'd') {
         if (this.mode === MenuMode.SaveList) {
@@ -354,6 +403,12 @@ export class MenuManager {
         if (item.action === MenuAction.Language) {
           e.preventDefault()
           this.cycleLanguage(1)
+        } else if (item.action === MenuAction.Resolution) {
+          e.preventDefault()
+          this.cycleResolution(1)
+        } else if (item.action === MenuAction.Fullscreen) {
+          e.preventDefault()
+          void this.handleToggleFullscreen()
         }
       } else if (e.key === 'Escape') {
         if (
@@ -494,6 +549,10 @@ export class MenuManager {
       this.cycleLanguage(1)
       return
     }
+    if (item.action === MenuAction.Resolution) {
+      this.cycleResolution(1)
+      return
+    }
     this.selectMenuItem(index)
   }
 
@@ -512,7 +571,11 @@ export class MenuManager {
   private buildMenuItemText(item: MenuItem, isSelected: boolean): string {
     let text = item.label
     if (item.value) {
-      if (isSelected && item.action === MenuAction.Language) {
+      const isCyclable =
+        item.action === MenuAction.Language ||
+        item.action === MenuAction.Resolution ||
+        item.action === MenuAction.Fullscreen
+      if (isSelected && isCyclable) {
         text += ` < ${item.value} >`
       } else {
         text += ` : ${item.value}`
@@ -710,8 +773,24 @@ export class MenuManager {
     }
   }
 
+  private cycleResolution(direction: number): void {
+    if (!this.displayManager) return
+    this.displayManager.cycleResolution(direction)
+    this.initMenuItems()
+    this.syncMenuDom()
+  }
+
+  private async handleToggleFullscreen(): Promise<void> {
+    await this.displayManager?.toggleFullscreen()
+  }
+
   private selectMenuItem(index: number) {
     const item = this.menuItems[index]
+
+    if (item.action === MenuAction.Fullscreen) {
+      void this.handleToggleFullscreen()
+      return
+    }
 
     if (item.action === MenuAction.Settings) {
       this.previousMode = this.mode
@@ -801,14 +880,16 @@ export class MenuManager {
   render(deltaTime: number) {
     if (!this.visible) return
 
-    const height = this.canvas.offsetHeight || 600
+    const preset = this.displayManager?.getCurrentPreset()
+    const height = preset ? preset.height : this.canvas.offsetHeight || 600
 
     this.animTime += deltaTime * 1000
     const duration = 300
     const t = Math.min(1, this.animTime / duration)
     const ease = t
 
-    const titleTargetY = height / 2 - 150
+    const isSmallScreen = height < 500
+    const titleTargetY = isSmallScreen ? height * 0.22 : height / 2 - 150
     const titleStartY = -150
     const titleY = titleStartY + (titleTargetY - titleStartY) * ease
 

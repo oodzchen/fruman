@@ -1,4 +1,5 @@
 import { DialogManager } from './DialogManager'
+import { DisplayManager } from './DisplayManager'
 import { EditorManager } from './EditorManager'
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
@@ -149,6 +150,7 @@ const PARAM_CONFIGS: ParamConfig[] = [
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
 const dialogManager = new DialogManager(gameViewport, gameViewport)
+const displayManager = new DisplayManager(gameViewport)
 const focusOptions: FocusOptions = { preventScroll: true }
 
 const setupDetailsState = (
@@ -276,6 +278,7 @@ async function initialize() {
       initManager.nextStep(step)
     }
   )
+  game.setDisplayManager(displayManager)
   if (gameViewport.tabIndex < 0) {
     gameViewport.tabIndex = 0
   }

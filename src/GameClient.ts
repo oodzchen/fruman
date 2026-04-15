@@ -410,7 +410,7 @@ export class GameClient {
 
     this.setupMenuActions()
 
-    // Resize: sync Pixi render surfaces
+    // Resize: sync Pixi render surfaces and notify worker
     app.renderer.on('resize', (newWidth: number, newHeight: number) => {
       if (this.backgroundSprite) {
         this.backgroundSprite.width = newWidth
@@ -425,6 +425,11 @@ export class GameClient {
       if (this.fpsTextEl) {
         this.fpsTextEl.position.set(newWidth - 10, 10)
       }
+      this.worker.postMessage({
+        type: 'resize',
+        canvasWidth: newWidth,
+        canvasHeight: newHeight,
+      } as MainToWorkerMessage)
     })
 
     // Ticker-based render loop (replaces requestAnimationFrame)
@@ -433,6 +438,40 @@ export class GameClient {
 
   setInputEnabled(enabled: boolean) {
     this.inputEnabled = enabled
+  }
+
+  setDisplayManager(
+    displayManager: import('./DisplayManager').DisplayManager
+  ): void {
+    this.menuManager.setDisplayManager(displayManager)
+    displayManager.setOnResolutionChange((preset) => {
+      // Force Pixi to resize immediately to match new container size
+      // This prevents blank areas by ensuring all render targets sync synchronously
+      this.app.renderer.resize(preset.width, preset.height)
+
+      // Manually trigger background and context sync if resize event hasn't fired yet
+      if (this.backgroundSprite) {
+        this.backgroundSprite.width = preset.width
+        this.backgroundSprite.height = preset.height
+      }
+      if (this.cloudSprite) {
+        this.cloudSprite.width = preset.width
+        this.cloudSprite.height = preset.height
+      }
+      this.worldRenderContext.resize(preset.width, preset.height)
+      this.hudRenderContext.resize(preset.width, preset.height)
+      if (this.fpsTextEl) {
+        this.fpsTextEl.position.set(preset.width - 10, 10)
+      }
+      this.worker.postMessage({
+        type: 'resize',
+        canvasWidth: preset.width,
+        canvasHeight: preset.height,
+      } as MainToWorkerMessage)
+
+      // Re-render immediately to show the change
+      this.renderLoopTick()
+    })
   }
 
   setEditorPreview(enabled: boolean) {

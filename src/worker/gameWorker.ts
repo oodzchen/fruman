@@ -4625,6 +4625,10 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
     case 'allocate_player_upgrade':
       applyPlayerUpgrade(msg.stat)
       break
+    case 'resize':
+      canvasWidth = msg.canvasWidth
+      canvasHeight = msg.canvasHeight
+      break
   }
 }
 

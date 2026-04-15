@@ -59,6 +59,10 @@
         overflow: hidden;
         background: #0d0b18;
       }
+      #gameViewport:fullscreen {
+        width: 100% !important;
+        height: 100% !important;
+      }
       #gameCanvas {
         position: absolute;
         inset: 0;
@@ -268,6 +272,32 @@
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
+      /* Small screen compact styles */
+      .menu-overlay.menu-compact .menu-title {
+        font-size: 80px;
+      }
+      .menu-overlay.menu-compact .menu-item {
+        font-size: 16px;
+        height: 26px;
+        line-height: 26px;
+      }
+      .menu-overlay.menu-compact .menu-item.menu-item-save {
+        width: 450px;
+        padding: 8px 12px;
+      }
+      .menu-overlay.menu-compact .save-item-thumb {
+        width: 80px;
+        height: 60px;
+      }
+      .menu-overlay.menu-compact .save-item-name {
+        font-size: 14px;
+      }
+      .menu-overlay.menu-compact .save-item-info {
+        font-size: 10px;
+      }
+      .menu-overlay.menu-compact .menu-save-list-container {
+        max-height: calc(100% - 100px);
+      }
       .menu-item:focus-visible {
         outline: 1px solid #ffffff;
         outline-offset: 2px;
@@ -319,6 +349,7 @@
       #canvasBottom {
         width: 800px;
         display: flex;
+        transition: width 0s;
         justify-content: space-between;
         align-items: flex-start;
         gap: 8px;

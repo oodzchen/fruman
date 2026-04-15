@@ -105,6 +105,12 @@ export type WorkerAllocatePlayerUpgradeMessage = {
   stat: PlayerUpgradeStat
 }
 
+export type WorkerResizeMessage = {
+  type: 'resize'
+  canvasWidth: number
+  canvasHeight: number
+}
+
 export type MainToWorkerMessage =
   | WorkerInitMessage
   | WorkerInputMessage
@@ -114,6 +120,7 @@ export type MainToWorkerMessage =
   | WorkerSaveRequestMessage
   | WorkerLoadSaveMessage
   | WorkerAllocatePlayerUpgradeMessage
+  | WorkerResizeMessage
 
 export type WorkerStateMessage = {
   type: 'state'
