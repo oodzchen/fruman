@@ -120,8 +120,8 @@ const TOMATO_PRESET_IMAGE_SRC = '/images/presets/tomato.png'
 const WATERMELON_PRESET_IMAGE_SRC = '/images/presets/watermelon.png'
 const BANANA_PRESET_IMAGE_SRC = '/images/presets/banana.png'
 const BANANA_PRESET_POINTS = [
-  5, -71, -8, -58, -25, -48, -35, -31, -40, -9, -38, 15, -29, 34, -17, 48, -3,
-  61, 15, 70, 39, 70, 31, 54, 17, 41, 4, 26, -5, 10, -8, -14, -4, -38, 4, -57,
+  3, -47, -5, -39, -17, -32, -23, -21, -27, -6, -25, 10, -19, 23, -11, 32, -2,
+  41, 10, 47, 26, 47, 21, 36, 11, 27, 3, 17, -3, 7, -5, -9, -3, -25, 3, -38,
 ] as const
 const PINEAPPLE_PRESET_POINTS = [
   -18, -64, -8, -90, 0, -72, 10, -96, 20, -66, 34, -78, 30, -52, 48, -36, 56,
@@ -129,12 +129,12 @@ const PINEAPPLE_PRESET_POINTS = [
   -52, -34, -76,
 ] as const
 const TOMATO_PRESET_POINTS = [
-  -20, -48, -8, -62, 0, -48, 10, -62, 22, -48, 40, -36, 52, -10, 48, 22, 30, 46,
-  0, 56, -30, 46, -48, 22, -52, -10, -40, -36,
+  -13, -32, -5, -41, 0, -32, 7, -41, 15, -32, 27, -24, 35, -7, 32, 15, 20, 31,
+  0, 37, -20, 31, -32, 15, -35, -7, -27, -24,
 ] as const
 const WATERMELON_PRESET_POINTS = [
-  -54, -18, -46, -36, -28, -48, 0, -52, 28, -48, 46, -36, 54, -18, 56, 10, 50,
-  30, 34, 44, 10, 52, -10, 52, -34, 44, -50, 30, -56, 10,
+  -36, -12, -31, -24, -19, -32, 0, -35, 19, -32, 31, -24, 36, -12, 37, 7, 33,
+  20, 23, 29, 7, 35, -7, 35, -23, 29, -33, 20, -37, 7,
 ] as const
 
 interface BodyPresetConfig {
@@ -145,6 +145,7 @@ interface BodyPresetConfig {
   points: readonly number[]
   imageSrc?: string
   mirrorImageX?: boolean
+  imageTargetHeight?: number
 }
 
 interface BodyPresetBounds {
@@ -776,11 +777,11 @@ export class EditorCharacterBodyDrawer {
     let renamingLayerId = -1
     let bloodColorAssigned =
       typeof options.initialProfile?.bloodColor === 'string'
-    const exportBaseWidth =
+    let exportBaseWidth =
       options.defaultBodyWidth && options.defaultBodyWidth > 0
         ? options.defaultBodyWidth
         : 1
-    const exportBaseHeight =
+    let exportBaseHeight =
       options.defaultBodyHeight && options.defaultBodyHeight > 0
         ? options.defaultBodyHeight
         : exportBaseWidth
@@ -2782,7 +2783,7 @@ export class EditorCharacterBodyDrawer {
         if (!presetImage) {
           return
         }
-        const targetHeight = 220
+        const targetHeight = preset.imageTargetHeight ?? 147
         const targetWidth = Math.max(
           1,
           Math.round((presetImage.width * targetHeight) / presetImage.height)
@@ -2841,6 +2842,14 @@ export class EditorCharacterBodyDrawer {
       const contourBounds = getContourBounds()
       if (contourBounds) {
         setExportReferenceFromBounds(contourBounds)
+        exportBaseWidth =
+          Math.round(
+            (contourBounds.width / LEGACY_PROFILE_REFERENCE_SIZE) * 1000
+          ) / 1000
+        exportBaseHeight =
+          Math.round(
+            (contourBounds.height / LEGACY_PROFILE_REFERENCE_SIZE) * 1000
+          ) / 1000
       }
       setPresetSelection(presetId)
       mode = 'shape'
@@ -4395,7 +4404,7 @@ export class EditorCharacterBodyDrawer {
         color: TRANSPARENT_BODY_COLOR,
         bloodColor: '#8a5424',
         eyeX: 0,
-        eyeY: -8,
+        eyeY: -5,
         points: BANANA_PRESET_POINTS,
         imageSrc: BANANA_PRESET_IMAGE_SRC,
         mirrorImageX: true,
@@ -4409,6 +4418,7 @@ export class EditorCharacterBodyDrawer {
         eyeY: 52,
         points: PINEAPPLE_PRESET_POINTS,
         imageSrc: PINEAPPLE_PRESET_IMAGE_SRC,
+        imageTargetHeight: 220,
       }
     }
     if (presetId === 'tomato') {
@@ -4416,7 +4426,7 @@ export class EditorCharacterBodyDrawer {
         color: TRANSPARENT_BODY_COLOR,
         bloodColor: '#8f1414',
         eyeX: 0,
-        eyeY: 4,
+        eyeY: 3,
         points: TOMATO_PRESET_POINTS,
         imageSrc: TOMATO_PRESET_IMAGE_SRC,
         mirrorImageX: true,
@@ -4426,7 +4436,7 @@ export class EditorCharacterBodyDrawer {
       color: TRANSPARENT_BODY_COLOR,
       bloodColor: '#9b2e22',
       eyeX: 0,
-      eyeY: 2,
+      eyeY: 1,
       points: WATERMELON_PRESET_POINTS,
       imageSrc: WATERMELON_PRESET_IMAGE_SRC,
       mirrorImageX: true,
