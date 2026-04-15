@@ -1,5 +1,10 @@
 import { isHexColorString, normalizeHexColor } from './colorUtils'
-import type { EditorMapData, MapCharacterBodyProfile } from './editorMapTypes'
+import type {
+  EditorMapData,
+  MapCharacterBodyBrowStyle,
+  MapCharacterBodyEyeStyle,
+  MapCharacterBodyProfile,
+} from './editorMapTypes'
 
 export const CHARACTER_BODY_DRAW_SIZE = 128
 export const CHARACTER_BODY_DRAW_HALF = CHARACTER_BODY_DRAW_SIZE / 2
@@ -7,8 +12,84 @@ export const PLAYER_BODY_PROFILE_INDEX = 1
 export const NPC_BODY_PROFILE_INDEX_START = 2
 export const DEFAULT_CHARACTER_EYE_X = 32
 export const DEFAULT_CHARACTER_EYE_Y = -32
+export const DEFAULT_CHARACTER_EYE_SCALE = 1
+export const DEFAULT_CHARACTER_EYE_STYLE: MapCharacterBodyEyeStyle = 'standard'
+export const DEFAULT_CHARACTER_BROW_STYLE: MapCharacterBodyBrowStyle = 'none'
+export const DEFAULT_CHARACTER_BROW_OFFSET_X = 0
+export const DEFAULT_CHARACTER_BROW_OFFSET_Y = 0
+export const DEFAULT_CHARACTER_BROW_SCALE = 1
 const MIN_CHARACTER_EYE_COORD = -56
 const MAX_CHARACTER_EYE_COORD = 56
+const MIN_CHARACTER_EYE_SCALE = 0.25
+const MAX_CHARACTER_EYE_SCALE = 8
+const CHARACTER_EYE_OUTER_RADIUS = 8
+const CHARACTER_EYE_WHITE_RADIUS = 6
+const CHARACTER_EYE_PUPIL_RADIUS = 5
+
+type CharacterBodyFeatureDrawStyle = string | CanvasGradient | CanvasPattern
+
+export interface CharacterBodyFeatureDrawContext {
+  fillStyle: CharacterBodyFeatureDrawStyle
+  strokeStyle: CharacterBodyFeatureDrawStyle
+  lineWidth: number
+  lineCap: CanvasLineCap
+  save(): void
+  restore(): void
+  translate(x: number, y: number): void
+  beginPath(): void
+  arc(
+    x: number,
+    y: number,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    counterclockwise?: boolean
+  ): void
+  ellipse(
+    x: number,
+    y: number,
+    radiusX: number,
+    radiusY: number,
+    rotation: number,
+    startAngle: number,
+    endAngle: number,
+    counterclockwise?: boolean
+  ): void
+  moveTo(x: number, y: number): void
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void
+  fill(): void
+  stroke(): void
+  clip(): void
+}
+
+export interface CharacterEyeGeometry {
+  style: MapCharacterBodyEyeStyle
+  centerX: number
+  centerY: number
+  outerRadiusX: number
+  outerRadiusY: number
+  whiteRadiusX: number
+  whiteRadiusY: number
+  pupilRadiusX: number
+  pupilRadiusY: number
+  pupilOffsetX: number
+  highlightOffsetX: number
+  highlightOffsetY: number
+  highlightRadiusX: number
+  highlightRadiusY: number
+  cuteRadiusX: number
+  cuteRadiusY: number
+}
+
+export interface CharacterBrowGeometry {
+  centerX: number
+  centerY: number
+  halfWidth: number
+  halfHeight: number
+  thickness: number
+  archHeight: number
+  baselineOffsetY: number
+}
 
 function getPositiveProfileSize(value: number | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -203,6 +284,457 @@ export function getCharacterEyeDrawY(
     return clampCharacterEyeCoord(profile.eyeY)
   }
   return DEFAULT_CHARACTER_EYE_Y
+}
+
+export function clampCharacterEyeScale(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_CHARACTER_EYE_SCALE
+  }
+  const rounded = Math.round(value * 1000) / 1000
+  return Math.max(
+    MIN_CHARACTER_EYE_SCALE,
+    Math.min(MAX_CHARACTER_EYE_SCALE, rounded)
+  )
+}
+
+export function getCharacterEyeScaleX(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  if (
+    typeof profile?.eyeScaleX === 'number' &&
+    Number.isFinite(profile.eyeScaleX)
+  ) {
+    return clampCharacterEyeScale(profile.eyeScaleX)
+  }
+  return DEFAULT_CHARACTER_EYE_SCALE
+}
+
+export function getCharacterEyeScaleY(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  if (
+    typeof profile?.eyeScaleY === 'number' &&
+    Number.isFinite(profile.eyeScaleY)
+  ) {
+    return clampCharacterEyeScale(profile.eyeScaleY)
+  }
+  return DEFAULT_CHARACTER_EYE_SCALE
+}
+
+export function getCharacterEyeStyle(
+  profile: MapCharacterBodyProfile | null | undefined
+): MapCharacterBodyEyeStyle {
+  const style = profile?.eyeStyle
+  return style === 'noOutline' ||
+    style === 'pupilOnly' ||
+    style === 'cute' ||
+    style === 'standard'
+    ? style
+    : DEFAULT_CHARACTER_EYE_STYLE
+}
+
+export function getCharacterBrowStyle(
+  profile: MapCharacterBodyProfile | null | undefined
+): MapCharacterBodyBrowStyle {
+  const style = profile?.browStyle
+  return style === 'none' ||
+    style === 'thick' ||
+    style === 'thin' ||
+    style === 'custom'
+    ? style
+    : DEFAULT_CHARACTER_BROW_STYLE
+}
+
+export function getCharacterBrowOffsetX(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  const value = profile?.browOffsetX
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(value)
+    : DEFAULT_CHARACTER_BROW_OFFSET_X
+}
+
+export function getCharacterBrowOffsetY(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  const value = profile?.browOffsetY
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(value)
+    : DEFAULT_CHARACTER_BROW_OFFSET_Y
+}
+
+export function getCharacterBrowScaleX(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  const value = profile?.browScaleX
+  return typeof value === 'number' && Number.isFinite(value)
+    ? clampCharacterEyeScale(value)
+    : DEFAULT_CHARACTER_BROW_SCALE
+}
+
+export function getCharacterEyeMoveCircleRadius(
+  referenceWidth: number,
+  referenceHeight: number
+): number {
+  if (!Number.isFinite(referenceWidth) || !Number.isFinite(referenceHeight)) {
+    return 0
+  }
+  const minSize = Math.min(Math.abs(referenceWidth), Math.abs(referenceHeight))
+  return Math.max(0, Math.floor(minSize * 0.5))
+}
+
+export function clampCharacterEyeOffsetToCircle(
+  offsetX: number,
+  offsetY: number,
+  maxRadius: number
+): { x: number; y: number } {
+  if (
+    !Number.isFinite(offsetX) ||
+    !Number.isFinite(offsetY) ||
+    !Number.isFinite(maxRadius) ||
+    maxRadius <= 0
+  ) {
+    return { x: 0, y: 0 }
+  }
+  const dx = Math.round(offsetX)
+  const dy = Math.round(offsetY)
+  const distanceSq = dx * dx + dy * dy
+  const radius = Math.floor(maxRadius)
+  const radiusSq = radius * radius
+  if (distanceSq <= radiusSq) {
+    return { x: dx, y: dy }
+  }
+  const distance = Math.sqrt(distanceSq)
+  if (distance <= 0) {
+    return { x: 0, y: 0 }
+  }
+  return {
+    x: Math.round((dx * radius) / distance),
+    y: Math.round((dy * radius) / distance),
+  }
+}
+
+export function getCharacterBrowScaleY(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  const value = profile?.browScaleY
+  return typeof value === 'number' && Number.isFinite(value)
+    ? clampCharacterEyeScale(value)
+    : DEFAULT_CHARACTER_BROW_SCALE
+}
+
+export function getCharacterEyeGeometry(
+  centerX: number,
+  centerY: number,
+  facingDirection: number,
+  eyeScaleX: number,
+  eyeScaleY: number,
+  style: MapCharacterBodyEyeStyle,
+  scaleX = 1,
+  scaleY = 1
+): CharacterEyeGeometry {
+  const safeScaleX = Math.max(Math.abs(scaleX), 0.001)
+  const safeScaleY = Math.max(Math.abs(scaleY), 0.001)
+  const resolvedEyeScaleX = clampCharacterEyeScale(eyeScaleX)
+  const resolvedEyeScaleY = clampCharacterEyeScale(eyeScaleY)
+  const pupilRadiusX = Math.max(
+    safeScaleX,
+    CHARACTER_EYE_PUPIL_RADIUS * safeScaleX * resolvedEyeScaleX
+  )
+  const pupilRadiusY = Math.max(
+    safeScaleY,
+    CHARACTER_EYE_PUPIL_RADIUS * safeScaleY * resolvedEyeScaleY
+  )
+  const pupilOffsetXBase = Math.max(safeScaleX, pupilRadiusX * 0.5)
+  const highlightRadiusX = Math.max(safeScaleX, pupilRadiusX * 0.4)
+  const highlightRadiusY = Math.max(safeScaleY, pupilRadiusY * 0.4)
+  const cuteHighlightOffsetX = -Math.max(safeScaleX, pupilRadiusX * 0.4)
+  const cuteHighlightOffsetY = -Math.max(safeScaleY, pupilRadiusY * 0.4)
+  return {
+    style,
+    centerX,
+    centerY,
+    outerRadiusX: Math.max(
+      safeScaleX,
+      CHARACTER_EYE_OUTER_RADIUS * safeScaleX * resolvedEyeScaleX
+    ),
+    outerRadiusY: Math.max(
+      safeScaleY,
+      CHARACTER_EYE_OUTER_RADIUS * safeScaleY * resolvedEyeScaleY
+    ),
+    whiteRadiusX: Math.max(
+      safeScaleX,
+      CHARACTER_EYE_WHITE_RADIUS * safeScaleX * resolvedEyeScaleX
+    ),
+    whiteRadiusY: Math.max(
+      safeScaleY,
+      CHARACTER_EYE_WHITE_RADIUS * safeScaleY * resolvedEyeScaleY
+    ),
+    pupilRadiusX,
+    pupilRadiusY,
+    pupilOffsetX: facingDirection < 0 ? -pupilOffsetXBase : pupilOffsetXBase,
+    highlightOffsetX:
+      style === 'cute'
+        ? cuteHighlightOffsetX
+        : -Math.max(safeScaleX, pupilRadiusX * 0.3),
+    highlightOffsetY:
+      style === 'cute'
+        ? cuteHighlightOffsetY
+        : -Math.max(safeScaleY, pupilRadiusY * 0.3),
+    highlightRadiusX,
+    highlightRadiusY,
+    cuteRadiusX: Math.max(
+      safeScaleX,
+      CHARACTER_EYE_OUTER_RADIUS * safeScaleX * resolvedEyeScaleX + safeScaleX
+    ),
+    cuteRadiusY: Math.max(
+      safeScaleY,
+      CHARACTER_EYE_WHITE_RADIUS * safeScaleY * resolvedEyeScaleY + safeScaleY
+    ),
+  }
+}
+
+export function getCharacterEyeGeometryFromProfile(
+  profile: MapCharacterBodyProfile | null | undefined,
+  facingDirection: number,
+  scaleX = 1,
+  scaleY = 1
+): CharacterEyeGeometry {
+  const facing = facingDirection < 0 ? -1 : 1
+  const clampedOffset = clampCharacterEyeOffsetToCircle(
+    getCharacterEyeDrawX(profile),
+    getCharacterEyeDrawY(profile),
+    getCharacterEyeMoveCircleRadius(
+      getProfileReferenceWidth(profile),
+      getProfileReferenceHeight(profile)
+    )
+  )
+  return getCharacterEyeGeometry(
+    clampedOffset.x * scaleX * facing,
+    clampedOffset.y * scaleY,
+    facingDirection,
+    getCharacterEyeScaleX(profile),
+    getCharacterEyeScaleY(profile),
+    getCharacterEyeStyle(profile),
+    scaleX,
+    scaleY
+  )
+}
+
+export function getCharacterBrowGeometry(
+  eyeGeometry: CharacterEyeGeometry,
+  style: MapCharacterBodyBrowStyle,
+  browOffsetX: number,
+  browOffsetY: number,
+  browScaleX: number,
+  browScaleY: number,
+  scaleX = 1,
+  scaleY = 1
+): CharacterBrowGeometry | null {
+  if (style === 'none' || style === 'custom') {
+    return null
+  }
+  const safeScaleX = Math.max(Math.abs(scaleX), 0.001)
+  const safeScaleY = Math.max(Math.abs(scaleY), 0.001)
+  const resolvedScaleX = clampCharacterEyeScale(browScaleX)
+  const resolvedScaleY = clampCharacterEyeScale(browScaleY)
+  const baseHalfWidth = Math.max(
+    8 * safeScaleX,
+    (eyeGeometry.outerRadiusX * 7) / 5
+  )
+  const baseThickness = (style === 'thick' ? 4 : 2) * safeScaleY
+  const baseArchHeight = (style === 'thick' ? 4 : 2) * safeScaleY
+  const thickness = Math.max(safeScaleY, baseThickness * resolvedScaleY)
+  const archHeight = Math.max(safeScaleY, baseArchHeight * resolvedScaleY)
+  const baselineOffsetY = safeScaleY
+  return {
+    centerX: eyeGeometry.centerX + browOffsetX * safeScaleX,
+    centerY:
+      eyeGeometry.centerY -
+      eyeGeometry.outerRadiusY -
+      5 * safeScaleY +
+      browOffsetY * safeScaleY -
+      archHeight * 0.5,
+    halfWidth: Math.max(4 * safeScaleX, baseHalfWidth * resolvedScaleX),
+    halfHeight: thickness + archHeight + baselineOffsetY,
+    thickness,
+    archHeight,
+    baselineOffsetY,
+  }
+}
+
+export function getCharacterBrowGeometryFromProfile(
+  profile: MapCharacterBodyProfile | null | undefined,
+  eyeGeometry: CharacterEyeGeometry,
+  facingDirection: number,
+  scaleX = 1,
+  scaleY = 1
+): CharacterBrowGeometry | null {
+  const facing = facingDirection < 0 ? -1 : 1
+  return getCharacterBrowGeometry(
+    eyeGeometry,
+    getCharacterBrowStyle(profile),
+    getCharacterBrowOffsetX(profile) * facing,
+    getCharacterBrowOffsetY(profile),
+    getCharacterBrowScaleX(profile),
+    getCharacterBrowScaleY(profile),
+    scaleX,
+    scaleY
+  )
+}
+
+export function drawCharacterEyeGeometry(
+  ctx: CharacterBodyFeatureDrawContext,
+  geometry: CharacterEyeGeometry,
+  pupilColor: string
+): void {
+  ctx.save()
+  ctx.translate(geometry.centerX, geometry.centerY)
+  if (geometry.style === 'pupilOnly') {
+    ctx.fillStyle = pupilColor
+    ctx.beginPath()
+    ctx.ellipse(
+      geometry.pupilOffsetX,
+      0,
+      geometry.pupilRadiusX,
+      geometry.pupilRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.fill()
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'
+    ctx.beginPath()
+    ctx.ellipse(
+      geometry.pupilOffsetX + geometry.highlightOffsetX,
+      geometry.highlightOffsetY,
+      geometry.highlightRadiusX,
+      geometry.highlightRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.fill()
+    ctx.restore()
+    return
+  }
+  if (geometry.style === 'standard') {
+    ctx.fillStyle = '#201710'
+    ctx.beginPath()
+    ctx.ellipse(
+      0,
+      0,
+      geometry.outerRadiusX,
+      geometry.outerRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.fill()
+    ctx.fillStyle = '#f4ecdc'
+    ctx.beginPath()
+    ctx.ellipse(
+      0,
+      0,
+      geometry.whiteRadiusX,
+      geometry.whiteRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.fill()
+  } else if (geometry.style === 'cute') {
+    ctx.save()
+    ctx.beginPath()
+    ctx.ellipse(
+      0,
+      0,
+      geometry.cuteRadiusX,
+      geometry.cuteRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.clip()
+    ctx.fillStyle = '#fbf5ea'
+    ctx.beginPath()
+    ctx.ellipse(
+      0,
+      0,
+      geometry.cuteRadiusX,
+      geometry.cuteRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.fill()
+    ctx.restore()
+  } else {
+    ctx.fillStyle = '#f4ecdc'
+    ctx.beginPath()
+    ctx.ellipse(
+      0,
+      0,
+      geometry.outerRadiusX,
+      geometry.outerRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.fill()
+  }
+  ctx.fillStyle = pupilColor
+  ctx.beginPath()
+  ctx.ellipse(
+    geometry.pupilOffsetX,
+    0,
+    geometry.pupilRadiusX,
+    geometry.pupilRadiusY,
+    0,
+    0,
+    Math.PI * 2
+  )
+  ctx.fill()
+  ctx.fillStyle =
+    geometry.style === 'cute'
+      ? 'rgba(255,255,255,0.98)'
+      : 'rgba(255,255,255,0.95)'
+  ctx.beginPath()
+  ctx.ellipse(
+    geometry.pupilOffsetX + geometry.highlightOffsetX,
+    geometry.highlightOffsetY,
+    geometry.highlightRadiusX,
+    geometry.highlightRadiusY,
+    0,
+    0,
+    Math.PI * 2
+  )
+  ctx.fill()
+  ctx.restore()
+}
+
+export function drawCharacterBrowGeometry(
+  ctx: CharacterBodyFeatureDrawContext,
+  geometry: CharacterBrowGeometry,
+  color: string
+): void {
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineCap = 'round'
+  ctx.lineWidth = geometry.thickness
+  ctx.beginPath()
+  ctx.moveTo(
+    geometry.centerX - geometry.halfWidth,
+    geometry.centerY + geometry.baselineOffsetY
+  )
+  ctx.quadraticCurveTo(
+    geometry.centerX,
+    geometry.centerY - geometry.archHeight,
+    geometry.centerX + geometry.halfWidth,
+    geometry.centerY + geometry.baselineOffsetY
+  )
+  ctx.stroke()
+  ctx.restore()
 }
 
 export function getCharacterEyeOffsetX(

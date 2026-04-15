@@ -1,8 +1,10 @@
 import {
+  drawCharacterBrowGeometry,
+  drawCharacterEyeGeometry,
   getCharacterBodyProfileHeight,
   getCharacterBodyProfileWidth,
-  getCharacterEyeDrawX,
-  getCharacterEyeDrawY,
+  getCharacterBrowGeometryFromProfile,
+  getCharacterEyeGeometryFromProfile,
 } from '../characterBodyProfile'
 import type {
   MapCharacterBodyProfile,
@@ -40,7 +42,6 @@ interface BodyContentBounds {
 
 const bodySpriteCache = new Map<string, CachedBodySprite>()
 const bodyLayerImageCache = new Map<string, HTMLImageElement>()
-const BODY_EYE_OUTER_RADIUS = 5
 const BODY_EYE_PADDING = 3
 const MAX_BODY_SPRITE_CACHE = 256
 
@@ -242,6 +243,73 @@ function drawBodyVisualLayers(
   }
 }
 
+function extendBoundsWithBrowStyle(
+  bounds: BodyContentBounds,
+  bodyHalfWidthPx: number,
+  bodyHalfHeightPx: number,
+  bodyProfile: MapCharacterBodyProfile | null,
+  facingDirection: number
+): void {
+  const scaleX = getBodyLayerScaleX(bodyHalfWidthPx, bodyProfile)
+  const scaleY = getBodyLayerScaleY(bodyHalfHeightPx, bodyProfile)
+  const eyeGeometry = getCharacterEyeGeometryFromProfile(
+    bodyProfile,
+    facingDirection,
+    scaleX,
+    scaleY
+  )
+  const browGeometry = getCharacterBrowGeometryFromProfile(
+    bodyProfile,
+    eyeGeometry,
+    facingDirection,
+    scaleX,
+    scaleY
+  )
+  if (!browGeometry) {
+    return
+  }
+  const browMinX =
+    browGeometry.centerX - browGeometry.halfWidth - browGeometry.thickness
+  const browMaxX =
+    browGeometry.centerX + browGeometry.halfWidth + browGeometry.thickness
+  const browMinY =
+    browGeometry.centerY - browGeometry.archHeight - browGeometry.thickness
+  const browMaxY =
+    browGeometry.centerY + browGeometry.thickness + browGeometry.baselineOffsetY
+  if (browMinX < bounds.minX) bounds.minX = browMinX
+  if (browMaxX > bounds.maxX) bounds.maxX = browMaxX
+  if (browMinY < bounds.minY) bounds.minY = browMinY
+  if (browMaxY > bounds.maxY) bounds.maxY = browMaxY
+}
+
+function drawBodyBrow(
+  ctx: BodyPathContext,
+  bodyHalfWidthPx: number,
+  bodyHalfHeightPx: number,
+  facingDirection: number,
+  bodyProfile: MapCharacterBodyProfile | null
+): void {
+  const scaleX = getBodyLayerScaleX(bodyHalfWidthPx, bodyProfile)
+  const scaleY = getBodyLayerScaleY(bodyHalfHeightPx, bodyProfile)
+  const eyeGeometry = getCharacterEyeGeometryFromProfile(
+    bodyProfile,
+    facingDirection,
+    scaleX,
+    scaleY
+  )
+  const browGeometry = getCharacterBrowGeometryFromProfile(
+    bodyProfile,
+    eyeGeometry,
+    facingDirection,
+    scaleX,
+    scaleY
+  )
+  if (!browGeometry) {
+    return
+  }
+  drawCharacterBrowGeometry(ctx, browGeometry, '#231711')
+}
+
 function extendBoundsWithLayer(
   bounds: BodyContentBounds,
   layer: MapCharacterBodyVisualLayer,
@@ -395,13 +463,25 @@ function getBodyContentBounds(
     }
   }
 
+  extendBoundsWithBrowStyle(
+    bounds,
+    bodyHalfWidthPx,
+    bodyHalfHeightPx,
+    bodyProfile,
+    facingDirection
+  )
+
   if (shouldRenderProceduralEye(bodyProfile, showEye)) {
-    const eyeCenterX = getCharacterEyeDrawX(bodyProfile) * scaleX * facing
-    const eyeCenterY = getCharacterEyeDrawY(bodyProfile) * scaleY
-    const eyeMinX = eyeCenterX - BODY_EYE_OUTER_RADIUS
-    const eyeMaxX = eyeCenterX + BODY_EYE_OUTER_RADIUS
-    const eyeMinY = eyeCenterY - BODY_EYE_OUTER_RADIUS
-    const eyeMaxY = eyeCenterY + BODY_EYE_OUTER_RADIUS
+    const eyeGeometry = getCharacterEyeGeometryFromProfile(
+      bodyProfile,
+      facingDirection,
+      scaleX,
+      scaleY
+    )
+    const eyeMinX = eyeGeometry.centerX - eyeGeometry.outerRadiusX
+    const eyeMaxX = eyeGeometry.centerX + eyeGeometry.outerRadiusX
+    const eyeMinY = eyeGeometry.centerY - eyeGeometry.outerRadiusY
+    const eyeMaxY = eyeGeometry.centerY + eyeGeometry.outerRadiusY
     if (eyeMinX < bounds.minX) bounds.minX = eyeMinX
     if (eyeMaxX > bounds.maxX) bounds.maxX = eyeMaxX
     if (eyeMinY < bounds.minY) bounds.minY = eyeMinY
@@ -519,6 +599,13 @@ function drawBodyInternal(
   }
 
   drawBodyVisualLayers(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
+  drawBodyBrow(
+    ctx,
+    bodyHalfWidthPx,
+    bodyHalfHeightPx,
+    facingDirection,
+    bodyProfile
+  )
 
   if (!hasLegacySurfaceTexture) {
     ctx.strokeStyle = bodyColor
@@ -788,40 +875,16 @@ export function renderBodyEye(
 ): void {
   const scaleX = (radiusPx * 2) / getBodyPointReferenceSize(bodyProfile, 'x')
   const scaleY = (radiusYPx * 2) / getBodyPointReferenceSize(bodyProfile, 'y')
-  const facing = facingDirection < 0 ? -1 : 1
-  const eyeX = getCharacterEyeDrawX(bodyProfile) * scaleX * facing
-  const eyeY = getCharacterEyeDrawY(bodyProfile) * scaleY
-  const eyeRadius = 5
-  const eyeWhiteRadius = 4
-  const pupilRadius = 3
-  const highlightRadius = Math.max(1.5, Math.round(pupilRadius * 0.4))
-  const highlightX = -Math.max(1, Math.round(pupilRadius * 0.28))
-  const highlightY = -Math.max(1, Math.round(pupilRadius * 0.32))
-
-  ctx.save()
-  ctx.translate(eyeX, eyeY)
-
-  ctx.fillStyle = '#201710'
-  ctx.beginPath()
-  ctx.arc(0, 0, eyeRadius, 0, Math.PI * 2)
-  ctx.fill()
-
-  ctx.fillStyle = '#f4ecdc'
-  ctx.beginPath()
-  ctx.arc(0, 0, eyeWhiteRadius, 0, Math.PI * 2)
-  ctx.fill()
-
-  ctx.fillStyle = pupilColor
-  ctx.beginPath()
-  ctx.arc(0, 0, pupilRadius, 0, Math.PI * 2)
-  ctx.fill()
-
-  ctx.fillStyle = 'rgba(255,255,255,0.95)'
-  ctx.beginPath()
-  ctx.arc(highlightX, highlightY, highlightRadius, 0, Math.PI * 2)
-  ctx.fill()
-
-  ctx.restore()
+  drawCharacterEyeGeometry(
+    ctx,
+    getCharacterEyeGeometryFromProfile(
+      bodyProfile,
+      facingDirection,
+      scaleX,
+      scaleY
+    ),
+    pupilColor
+  )
 }
 
 function traceBodyPath(

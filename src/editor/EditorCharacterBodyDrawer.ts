@@ -7,12 +7,31 @@ import {
 
 import { localizer } from '../Localizer'
 import {
+  DEFAULT_CHARACTER_BROW_OFFSET_X,
+  DEFAULT_CHARACTER_BROW_OFFSET_Y,
+  DEFAULT_CHARACTER_BROW_SCALE,
+  DEFAULT_CHARACTER_BROW_STYLE,
+  DEFAULT_CHARACTER_EYE_SCALE,
+  DEFAULT_CHARACTER_EYE_STYLE,
   DEFAULT_CHARACTER_EYE_X,
   DEFAULT_CHARACTER_EYE_Y,
+  clampCharacterEyeOffsetToCircle,
+  clampCharacterEyeScale,
+  drawCharacterBrowGeometry,
+  drawCharacterEyeGeometry,
+  getCharacterBrowGeometry,
+  getCharacterBrowOffsetX,
+  getCharacterBrowOffsetY,
+  getCharacterBrowStyle,
   getCharacterEyeDrawX,
   getCharacterEyeDrawY,
+  getCharacterEyeGeometry,
+  getCharacterEyeMoveCircleRadius,
+  getCharacterEyeStyle,
 } from '../characterBodyProfile'
 import type {
+  MapCharacterBodyBrowStyle,
+  MapCharacterBodyEyeStyle,
   MapCharacterBodyPresetId,
   MapCharacterBodyProfile,
   MapCharacterBodyVisualLayer,
@@ -29,6 +48,7 @@ type BodyDrawMode =
 type DecompPoint = [number, number]
 type DecompPolygon = DecompPoint[]
 type EditorBodyLayerKind = 'core' | 'eye' | 'brow' | 'paint'
+type EditorSelectionHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
 
 interface EditorBodyLayer {
   id: number
@@ -64,6 +84,21 @@ interface EditorBodyLayerSnapshot {
   name: string
   kind: 'brow' | 'paint'
   image: EditorCanvasSnapshot
+}
+
+interface EditorSelectionScaleSession {
+  layerId: number
+  handle: EditorSelectionHandle
+  initialBounds: EditorCanvasBounds
+  centerX: number
+  centerY: number
+  handleOffsetX: number
+  handleOffsetY: number
+  coreMask: EditorCanvasSnapshot | null
+  coreShape: EditorCanvasSnapshot | null
+  coreTexture: EditorCanvasSnapshot | null
+  contourPoints: number[] | null
+  layerSnapshot: EditorCanvasSnapshot | null
 }
 
 interface EditorCharacterBodyDrawerOptions {
@@ -103,8 +138,9 @@ const LEGACY_PROFILE_REFERENCE_SIZE = 128
 const DEFAULT_BODY_BLOOD_COLOR = '#7a1010'
 const TRANSPARENT_BODY_COLOR = '#00000000'
 const DEFAULT_EDITOR_EYE_RADIUS = 8
-const DEFAULT_EDITOR_EYE_WHITE_RADIUS = 6
-const DEFAULT_EDITOR_PUPIL_RADIUS = 5
+const SELECTION_HANDLE_SIZE = 10
+const SELECTION_HANDLE_HIT_SIZE = 14
+const SELECTION_MIN_SIZE = 4
 const CORE_LAYER_ID = 1
 const EYE_LAYER_ID = 2
 const BROW_LAYER_ID = 3
@@ -172,6 +208,14 @@ interface EditorCharacterBodyDrawerHistorySnapshot {
   mode: BodyDrawMode
   eyeX: number
   eyeY: number
+  eyeScaleX: number
+  eyeScaleY: number
+  eyeStyle: MapCharacterBodyEyeStyle
+  browStyle: MapCharacterBodyBrowStyle
+  browOffsetX: number
+  browOffsetY: number
+  browScaleX: number
+  browScaleY: number
   contourPoints: number[]
   contourClosed: boolean
   selectedContourIndex: number
@@ -544,6 +588,9 @@ export class EditorCharacterBodyDrawer {
     const renameLayerBtn = EditorUIHelper.createButton(
       localizer.t('editor_body_drawer_layer_rename')
     )
+    const styleLayerBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_layer_style')
+    )
     const duplicateLayerBtn = EditorUIHelper.createButton(
       localizer.t('editor_body_drawer_layer_duplicate')
     )
@@ -556,6 +603,10 @@ export class EditorCharacterBodyDrawer {
     renameLayerBtn.style.fontSize = '10px'
     renameLayerBtn.style.border = 'none'
     renameLayerBtn.style.background = 'rgba(255,255,255,0.08)'
+    styleLayerBtn.style.padding = '6px 8px'
+    styleLayerBtn.style.fontSize = '10px'
+    styleLayerBtn.style.border = 'none'
+    styleLayerBtn.style.background = 'rgba(255,255,255,0.08)'
     duplicateLayerBtn.style.padding = '6px 8px'
     duplicateLayerBtn.style.fontSize = '10px'
     duplicateLayerBtn.style.border = 'none'
@@ -565,6 +616,7 @@ export class EditorCharacterBodyDrawer {
     deleteLayerBtn.style.border = 'none'
     deleteLayerBtn.style.background = 'rgba(255,255,255,0.08)'
     layerMenu.appendChild(renameLayerBtn)
+    layerMenu.appendChild(styleLayerBtn)
     layerMenu.appendChild(duplicateLayerBtn)
     layerMenu.appendChild(deleteLayerBtn)
     form.appendChild(layerMenu)
@@ -749,6 +801,14 @@ export class EditorCharacterBodyDrawer {
     let lastY = 0
     let eyeX = DEFAULT_CHARACTER_EYE_X
     let eyeY = DEFAULT_CHARACTER_EYE_Y
+    let eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
+    let eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+    let eyeStyle: MapCharacterBodyEyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+    let browStyle: MapCharacterBodyBrowStyle = DEFAULT_CHARACTER_BROW_STYLE
+    let browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
+    let browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
+    let browScaleX = DEFAULT_CHARACTER_BROW_SCALE
+    let browScaleY = DEFAULT_CHARACTER_BROW_SCALE
     let resolved = false
     let contourClosed = false
     let contourPoints: number[] = []
@@ -771,6 +831,7 @@ export class EditorCharacterBodyDrawer {
     let viewOriginY = DRAW_WORLD_HALF - DISPLAY_SIZE * 0.5
     let shapeStrokeAnchored = false
     let selectionDragLayerId = -1
+    let selectionScaleSession: EditorSelectionScaleSession | null = null
     let lastDragWorldX = 0
     let lastDragWorldY = 0
     let layerMenuTargetId = -1
@@ -1016,6 +1077,13 @@ export class EditorCharacterBodyDrawer {
       !!layer &&
       (layer.kind === 'eye' || layer.kind === 'brow' || layer.kind === 'paint')
 
+    const isLayerScalable = (layer: EditorBodyLayer | null): boolean =>
+      !!layer &&
+      (layer.kind === 'core' ||
+        layer.kind === 'eye' ||
+        layer.kind === 'brow' ||
+        layer.kind === 'paint')
+
     const ensureSelectedLayer = () => {
       if (getLayerById(selectedLayerId)) {
         return
@@ -1028,6 +1096,9 @@ export class EditorCharacterBodyDrawer {
 
     const canDeleteLayer = (layer: EditorBodyLayer | null): boolean =>
       !!layer && layer.kind === 'paint'
+
+    const canStyleLayer = (layer: EditorBodyLayer | null): boolean =>
+      !!layer && (layer.kind === 'eye' || layer.kind === 'brow')
 
     const getLayerOrderSnapshot = (): number[] => {
       const order = new Array<number>(layers.length)
@@ -1088,6 +1159,17 @@ export class EditorCharacterBodyDrawer {
     const resolveLayerBounds = (
       layer: EditorBodyLayer
     ): EditorCanvasBounds | null => {
+      if (layer.kind === 'brow' && browStyle !== 'custom') {
+        const browBounds = getBrowBounds()
+        return browBounds
+          ? {
+              minX: browBounds.centerX - browBounds.halfWidth,
+              minY: browBounds.centerY - browBounds.halfHeight,
+              maxX: browBounds.centerX + browBounds.halfWidth,
+              maxY: browBounds.centerY + browBounds.halfHeight,
+            }
+          : null
+      }
       if (!layer.ctx || (layer.kind !== 'brow' && layer.kind !== 'paint')) {
         return null
       }
@@ -1361,11 +1443,15 @@ export class EditorCharacterBodyDrawer {
     const updateLayerMenuButtons = () => {
       const targetLayer = getLayerById(layerMenuTargetId)
       const renameEnabled = !!targetLayer
+      const styleEnabled = canStyleLayer(targetLayer)
       const duplicateEnabled = canDuplicateLayer(targetLayer)
       const deleteEnabled = canDeleteLayer(targetLayer)
       renameLayerBtn.disabled = !renameEnabled
       renameLayerBtn.style.opacity = renameEnabled ? '1' : '0.4'
       renameLayerBtn.style.cursor = renameEnabled ? 'pointer' : 'default'
+      styleLayerBtn.disabled = !styleEnabled
+      styleLayerBtn.style.opacity = styleEnabled ? '1' : '0.4'
+      styleLayerBtn.style.cursor = styleEnabled ? 'pointer' : 'default'
       duplicateLayerBtn.disabled = !duplicateEnabled
       duplicateLayerBtn.style.opacity = duplicateEnabled ? '1' : '0.4'
       duplicateLayerBtn.style.cursor = duplicateEnabled ? 'pointer' : 'default'
@@ -1455,6 +1541,100 @@ export class EditorCharacterBodyDrawer {
       })
     }
 
+    const chooseLayerStyle = async (
+      layer: EditorBodyLayer
+    ): Promise<MapCharacterBodyEyeStyle | MapCharacterBodyBrowStyle | null> => {
+      return await new Promise((resolve) => {
+        const { modal: styleModal, close: closeStyle } =
+          EditorUIHelper.createModal({ zIndex: 10003 })
+        const styleForm = EditorUIHelper.createFormContainer({
+          minWidth: '280px',
+        })
+        styleForm.style.minWidth = '280px'
+        styleForm.style.padding = '16px'
+        styleForm.style.gap = '10px'
+        const styleTitle = EditorUIHelper.createFormTitle(
+          localizer.t('editor_body_drawer_layer_style')
+        )
+        styleTitle.style.marginBottom = '4px'
+        const options =
+          layer.kind === 'eye'
+            ? [
+                {
+                  value: 'standard',
+                  label: localizer.t('editor_body_drawer_style_eye_standard'),
+                },
+                {
+                  value: 'noOutline',
+                  label: localizer.t('editor_body_drawer_style_eye_no_outline'),
+                },
+                {
+                  value: 'pupilOnly',
+                  label: localizer.t('editor_body_drawer_style_eye_pupil_only'),
+                },
+                {
+                  value: 'cute',
+                  label: localizer.t('editor_body_drawer_style_eye_cute'),
+                },
+              ]
+            : [
+                {
+                  value: 'none',
+                  label: localizer.t('editor_body_drawer_style_brow_none'),
+                },
+                {
+                  value: 'thick',
+                  label: localizer.t('editor_body_drawer_style_brow_thick'),
+                },
+                {
+                  value: 'thin',
+                  label: localizer.t('editor_body_drawer_style_brow_thin'),
+                },
+              ]
+        const selectedValue = layer.kind === 'eye' ? eyeStyle : browStyle
+        const select = EditorUIHelper.createSelect({
+          options,
+          selected: selectedValue,
+          width: '100%',
+        })
+        const footerRow = EditorUIHelper.createButtonRow({
+          gap: '8px',
+          marginTop: '4px',
+        })
+        const confirmStyleBtn = EditorUIHelper.createButton(
+          localizer.t('editor_btn_confirm'),
+          { primary: true }
+        )
+        const cancelStyleBtn = EditorUIHelper.createButton(
+          localizer.t('editor_btn_cancel')
+        )
+        footerRow.appendChild(confirmStyleBtn)
+        footerRow.appendChild(cancelStyleBtn)
+        styleForm.appendChild(styleTitle)
+        styleForm.appendChild(select)
+        styleForm.appendChild(footerRow)
+        styleModal.appendChild(styleForm)
+        viewport.appendChild(styleModal)
+        confirmStyleBtn.addEventListener('click', () => {
+          const nextValue = select.value as
+            | MapCharacterBodyEyeStyle
+            | MapCharacterBodyBrowStyle
+          closeStyle()
+          resolve(nextValue)
+        })
+        cancelStyleBtn.addEventListener('click', () => {
+          closeStyle()
+          resolve(null)
+        })
+        styleModal.addEventListener('click', (event) => {
+          if (event.target === styleModal) {
+            closeStyle()
+            resolve(null)
+          }
+        })
+      })
+    }
+
     const renderLayerList = () => {
       clearLayerList()
       for (let i = layers.length - 1; i >= 0; i--) {
@@ -1532,7 +1712,7 @@ export class EditorCharacterBodyDrawer {
           hideContourMenu()
           hideLayerMenu()
           selectedLayerId = layer.id
-          if (layer.kind === 'eye') {
+          if (layer.kind === 'eye' || layer.kind === 'brow') {
             mode = 'select'
           } else if (mode === 'select') {
             renderLayerList()
@@ -1698,6 +1878,14 @@ export class EditorCharacterBodyDrawer {
           mode,
           eyeX,
           eyeY,
+          eyeScaleX,
+          eyeScaleY,
+          eyeStyle,
+          browStyle,
+          browOffsetX,
+          browOffsetY,
+          browScaleX,
+          browScaleY,
           contourPoints: contourPoints.slice(),
           contourClosed,
           selectedContourIndex,
@@ -1727,6 +1915,14 @@ export class EditorCharacterBodyDrawer {
       mode = snapshot.mode
       eyeX = snapshot.eyeX
       eyeY = snapshot.eyeY
+      eyeScaleX = snapshot.eyeScaleX
+      eyeScaleY = snapshot.eyeScaleY
+      eyeStyle = snapshot.eyeStyle
+      browStyle = snapshot.browStyle
+      browOffsetX = snapshot.browOffsetX
+      browOffsetY = snapshot.browOffsetY
+      browScaleX = snapshot.browScaleX
+      browScaleY = snapshot.browScaleY
       contourPoints = snapshot.contourPoints.slice()
       contourClosed = snapshot.contourClosed
       selectedContourIndex = snapshot.selectedContourIndex
@@ -2030,7 +2226,8 @@ export class EditorCharacterBodyDrawer {
     const canUsePaintModes = (): boolean =>
       contourClosed &&
       !!getSelectedLayer() &&
-      getSelectedLayer()?.kind !== 'eye'
+      getSelectedLayer()?.kind !== 'eye' &&
+      getSelectedLayer()?.kind !== 'brow'
 
     const setButtonDisabled = (
       button: HTMLButtonElement,
@@ -2267,6 +2464,13 @@ export class EditorCharacterBodyDrawer {
         textureState.boundsDirty = false
         return
       }
+      if (layer.kind === 'brow') {
+        browStyle = 'none'
+        browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
+        browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
+        browScaleX = DEFAULT_CHARACTER_BROW_SCALE
+        browScaleY = DEFAULT_CHARACTER_BROW_SCALE
+      }
       if (layer.ctx) {
         layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
         layer.bounds = null
@@ -2279,135 +2483,116 @@ export class EditorCharacterBodyDrawer {
       x: number,
       y: number
     ): boolean => {
+      if (layer.kind === 'brow' && browStyle === 'none') {
+        return false
+      }
+      if (layer.kind === 'brow' && browStyle !== 'custom') {
+        const browBounds = getBrowBounds()
+        if (!browBounds) {
+          return false
+        }
+        return (
+          x >= browBounds.centerX - browBounds.halfWidth &&
+          x <= browBounds.centerX + browBounds.halfWidth &&
+          y >= browBounds.centerY - browBounds.halfHeight &&
+          y <= browBounds.centerY + browBounds.halfHeight
+        )
+      }
       if (!layer.ctx) {
         return false
       }
       return layer.ctx.getImageData(x, y, 1, 1).data[3] >= MASK_ALPHA_THRESHOLD
     }
 
-    const getEyeBounds = (): {
-      centerX: number
-      centerY: number
-      radius: number
-    } | null => {
+    const getEyeGeometry = () => {
       const contourBounds = getContourBounds()
       if (!contourBounds || !contourClosed) {
         return null
       }
+      return getCharacterEyeGeometry(
+        contourBounds.centerX + eyeX,
+        contourBounds.centerY + eyeY,
+        editorFacing,
+        eyeScaleX,
+        eyeScaleY,
+        eyeStyle
+      )
+    }
+
+    const getEyeBounds = (): {
+      centerX: number
+      centerY: number
+      radiusX: number
+      radiusY: number
+    } | null => {
+      const eyeGeometry = getEyeGeometry()
+      if (!eyeGeometry) {
+        return null
+      }
       return {
-        centerX: contourBounds.centerX + eyeX,
-        centerY: contourBounds.centerY + eyeY,
-        radius: DEFAULT_EDITOR_EYE_RADIUS,
+        centerX: eyeGeometry.centerX,
+        centerY: eyeGeometry.centerY,
+        radiusX: Math.max(1, Math.round(eyeGeometry.outerRadiusX)),
+        radiusY: Math.max(1, Math.round(eyeGeometry.outerRadiusY)),
       }
     }
 
-    const canPlaceEyeAtOffset = (
-      nextEyeX: number,
-      nextEyeY: number
-    ): boolean => {
-      const eyeBounds = getEyeBounds()
-      const contourBounds = getContourBounds()
-      if (!eyeBounds || !contourBounds || !contourClosed) {
-        return false
+    const getBrowBounds = (): {
+      centerX: number
+      centerY: number
+      halfWidth: number
+      halfHeight: number
+      thickness: number
+      archHeight: number
+    } | null => {
+      const eyeGeometry = getEyeGeometry()
+      if (!eyeGeometry || !contourClosed) {
+        return null
       }
-      const centerX = contourBounds.centerX + nextEyeX
-      const centerY = contourBounds.centerY + nextEyeY
-      const radius = eyeBounds.radius
-      const radiusSq = radius * radius
-      for (let dy = -radius; dy <= radius; dy++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          if (dx * dx + dy * dy > radiusSq) {
-            continue
-          }
-          if (!isPointInsideBodyMask(centerX + dx, centerY + dy)) {
-            return false
-          }
-        }
+      const browGeometry = getCharacterBrowGeometry(
+        eyeGeometry,
+        browStyle,
+        browOffsetX,
+        browOffsetY,
+        browScaleX,
+        browScaleY
+      )
+      if (!browGeometry) {
+        return null
       }
-      return true
+      return {
+        centerX: Math.round(browGeometry.centerX),
+        centerY: Math.round(browGeometry.centerY),
+        halfWidth: Math.max(1, Math.round(browGeometry.halfWidth)),
+        halfHeight: Math.max(1, Math.round(browGeometry.halfHeight)),
+        thickness: Math.max(1, Math.round(browGeometry.thickness)),
+        archHeight: Math.max(1, Math.round(browGeometry.archHeight)),
+      }
     }
 
-    const clampEyeOffsetToBounds = (
-      nextEyeX: number,
-      nextEyeY: number,
-      radius: number
-    ): { x: number; y: number } => {
+    const getEyeMoveRangeRadius = (): number => {
       const contourBounds = getContourBounds()
-      if (!contourBounds) {
-        return { x: nextEyeX, y: nextEyeY }
+      if (!contourBounds || !contourClosed) {
+        return 0
       }
-      const minX = contourBounds.minX + radius - contourBounds.centerX
-      const maxX = contourBounds.maxX - radius - contourBounds.centerX
-      const minY = contourBounds.minY + radius - contourBounds.centerY
-      const maxY = contourBounds.maxY - radius - contourBounds.centerY
-      return {
-        x: Math.max(minX, Math.min(maxX, nextEyeX)),
-        y: Math.max(minY, Math.min(maxY, nextEyeY)),
-      }
+      return getCharacterEyeMoveCircleRadius(
+        contourBounds.width,
+        contourBounds.height
+      )
     }
 
     const resolveEyeOffsetInsideBody = (
       targetEyeX: number,
       targetEyeY: number
     ): { x: number; y: number } => {
-      const eyeBounds = getEyeBounds()
-      const contourBounds = getContourBounds()
-      if (!eyeBounds || !contourBounds || !contourClosed) {
+      if (!contourClosed) {
         return { x: targetEyeX, y: targetEyeY }
       }
-      const clamped = clampEyeOffsetToBounds(
+      return clampCharacterEyeOffsetToCircle(
         targetEyeX,
         targetEyeY,
-        eyeBounds.radius
+        getEyeMoveRangeRadius()
       )
-      if (canPlaceEyeAtOffset(clamped.x, clamped.y)) {
-        return clamped
-      }
-      const inwardStep = clamped.x >= 0 ? -1 : 1
-      const maxDistance = Math.max(
-        1,
-        Math.max(contourBounds.width, contourBounds.height)
-      )
-      for (let distance = 1; distance <= maxDistance; distance++) {
-        for (let offsetY = -distance; offsetY <= distance; offsetY++) {
-          const inwardCandidate = clampEyeOffsetToBounds(
-            clamped.x + inwardStep * distance,
-            clamped.y + offsetY,
-            eyeBounds.radius
-          )
-          if (canPlaceEyeAtOffset(inwardCandidate.x, inwardCandidate.y)) {
-            return inwardCandidate
-          }
-          const outwardCandidate = clampEyeOffsetToBounds(
-            clamped.x - inwardStep * distance,
-            clamped.y + offsetY,
-            eyeBounds.radius
-          )
-          if (canPlaceEyeAtOffset(outwardCandidate.x, outwardCandidate.y)) {
-            return outwardCandidate
-          }
-        }
-        for (let offsetX = -distance + 1; offsetX <= distance - 1; offsetX++) {
-          const topCandidate = clampEyeOffsetToBounds(
-            clamped.x + inwardStep * offsetX,
-            clamped.y - distance,
-            eyeBounds.radius
-          )
-          if (canPlaceEyeAtOffset(topCandidate.x, topCandidate.y)) {
-            return topCandidate
-          }
-          const bottomCandidate = clampEyeOffsetToBounds(
-            clamped.x + inwardStep * offsetX,
-            clamped.y + distance,
-            eyeBounds.radius
-          )
-          if (canPlaceEyeAtOffset(bottomCandidate.x, bottomCandidate.y)) {
-            return bottomCandidate
-          }
-        }
-      }
-      const centered = clampEyeOffsetToBounds(0, 0, eyeBounds.radius)
-      return centered
     }
 
     const ensureEyeInsideBody = () => {
@@ -2438,7 +2623,12 @@ export class EditorCharacterBodyDrawer {
           }
           const dx = pointX - eyeBounds.centerX
           const dy = pointY - eyeBounds.centerY
-          if (dx * dx + dy * dy <= eyeBounds.radius * eyeBounds.radius) {
+          const radiusX = Math.max(1, eyeBounds.radiusX)
+          const radiusY = Math.max(1, eyeBounds.radiusY)
+          if (
+            dx * dx * radiusY * radiusY + dy * dy * radiusX * radiusX <=
+            radiusX * radiusX * radiusY * radiusY
+          ) {
             return layer
           }
         }
@@ -2474,10 +2664,10 @@ export class EditorCharacterBodyDrawer {
         const eyeBounds = getEyeBounds()
         return eyeBounds
           ? {
-              minX: eyeBounds.centerX - eyeBounds.radius,
-              minY: eyeBounds.centerY - eyeBounds.radius,
-              maxX: eyeBounds.centerX + eyeBounds.radius,
-              maxY: eyeBounds.centerY + eyeBounds.radius,
+              minX: eyeBounds.centerX - eyeBounds.radiusX,
+              minY: eyeBounds.centerY - eyeBounds.radiusY,
+              maxX: eyeBounds.centerX + eyeBounds.radiusX,
+              maxY: eyeBounds.centerY + eyeBounds.radiusY,
             }
           : null
       }
@@ -2487,25 +2677,411 @@ export class EditorCharacterBodyDrawer {
       return resolveLayerBounds(selectedLayer)
     }
 
+    const scaleContourPointsFromBounds = (
+      sourcePoints: number[],
+      sourceBounds: EditorCanvasBounds,
+      targetBounds: EditorCanvasBounds
+    ) => {
+      const sourceSpanX = Math.max(1, sourceBounds.maxX - sourceBounds.minX)
+      const sourceSpanY = Math.max(1, sourceBounds.maxY - sourceBounds.minY)
+      const targetSpanX = Math.max(1, targetBounds.maxX - targetBounds.minX)
+      const targetSpanY = Math.max(1, targetBounds.maxY - targetBounds.minY)
+      const nextPoints = new Array<number>(sourcePoints.length)
+      for (let i = 0; i < sourcePoints.length; i += 2) {
+        nextPoints[i] =
+          targetBounds.minX +
+          Math.round(
+            ((sourcePoints[i] - sourceBounds.minX) * targetSpanX) / sourceSpanX
+          )
+        nextPoints[i + 1] =
+          targetBounds.minY +
+          Math.round(
+            ((sourcePoints[i + 1] - sourceBounds.minY) * targetSpanY) /
+              sourceSpanY
+          )
+      }
+      contourPoints = nextPoints
+    }
+
+    const drawScaledSnapshot = (
+      ctx: CanvasRenderingContext2D,
+      snapshot: EditorCanvasSnapshot | null,
+      targetBounds: EditorCanvasBounds | null
+    ): EditorCanvasBounds | null => {
+      ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      if (!snapshot?.bounds || !snapshot.image || !targetBounds) {
+        return null
+      }
+      const sourceWidth = snapshot.bounds.maxX + 1 - snapshot.bounds.minX
+      const sourceHeight = snapshot.bounds.maxY + 1 - snapshot.bounds.minY
+      const targetWidth = targetBounds.maxX + 1 - targetBounds.minX
+      const targetHeight = targetBounds.maxY + 1 - targetBounds.minY
+      const outputCtx = this.getOutputContext(sourceWidth, sourceHeight)
+      if (!outputCtx || !this.outputCanvas) {
+        return null
+      }
+      outputCtx.clearRect(0, 0, sourceWidth, sourceHeight)
+      outputCtx.putImageData(snapshot.image, 0, 0)
+      ctx.save()
+      ctx.imageSmoothingEnabled = false
+      ctx.drawImage(
+        this.outputCanvas,
+        0,
+        0,
+        sourceWidth,
+        sourceHeight,
+        targetBounds.minX,
+        targetBounds.minY,
+        targetWidth,
+        targetHeight
+      )
+      ctx.restore()
+      return cloneBounds(targetBounds)
+    }
+
+    const getSelectionHandleCenter = (
+      bounds: EditorCanvasBounds,
+      handle: EditorSelectionHandle
+    ): { x: number; y: number } => {
+      const centerX = Math.round((bounds.minX + bounds.maxX) * 0.5)
+      const centerY = Math.round((bounds.minY + bounds.maxY) * 0.5)
+      if (handle === 'n') return { x: centerX, y: bounds.minY }
+      if (handle === 'ne') return { x: bounds.maxX, y: bounds.minY }
+      if (handle === 'e') return { x: bounds.maxX, y: centerY }
+      if (handle === 'se') return { x: bounds.maxX, y: bounds.maxY }
+      if (handle === 's') return { x: centerX, y: bounds.maxY }
+      if (handle === 'sw') return { x: bounds.minX, y: bounds.maxY }
+      if (handle === 'w') return { x: bounds.minX, y: centerY }
+      return { x: bounds.minX, y: bounds.minY }
+    }
+
+    const getSelectionHandleAtPoint = (
+      pointX: number,
+      pointY: number,
+      bounds: EditorCanvasBounds | null
+    ): EditorSelectionHandle | null => {
+      if (!bounds) {
+        return null
+      }
+      const hitRadius = Math.max(
+        2,
+        Math.round(SELECTION_HANDLE_HIT_SIZE / Math.max(1, viewportScale * 2))
+      )
+      const handles: EditorSelectionHandle[] = [
+        'nw',
+        'n',
+        'ne',
+        'e',
+        'se',
+        's',
+        'sw',
+        'w',
+      ]
+      for (let i = 0; i < handles.length; i++) {
+        const handle = handles[i]
+        const center = getSelectionHandleCenter(bounds, handle)
+        if (
+          Math.abs(pointX - center.x) <= hitRadius &&
+          Math.abs(pointY - center.y) <= hitRadius
+        ) {
+          return handle
+        }
+      }
+      return null
+    }
+
+    const getScaledBoundsFromHandle = (
+      initialBounds: EditorCanvasBounds,
+      handle: EditorSelectionHandle,
+      centerX: number,
+      centerY: number,
+      pointX: number,
+      pointY: number
+    ): EditorCanvasBounds => {
+      const initialHalfWidth = Math.max(
+        1,
+        Math.round((initialBounds.maxX - initialBounds.minX) * 0.5)
+      )
+      const initialHalfHeight = Math.max(
+        1,
+        Math.round((initialBounds.maxY - initialBounds.minY) * 0.5)
+      )
+      const useHorizontal =
+        handle === 'e' ||
+        handle === 'w' ||
+        handle === 'ne' ||
+        handle === 'nw' ||
+        handle === 'se' ||
+        handle === 'sw'
+      const useVertical =
+        handle === 'n' ||
+        handle === 's' ||
+        handle === 'ne' ||
+        handle === 'nw' ||
+        handle === 'se' ||
+        handle === 'sw'
+      const halfWidth = useHorizontal
+        ? Math.max(SELECTION_MIN_SIZE, Math.abs(pointX - centerX))
+        : initialHalfWidth
+      const halfHeight = useVertical
+        ? Math.max(SELECTION_MIN_SIZE, Math.abs(pointY - centerY))
+        : initialHalfHeight
+      const normalizedMinX = Math.max(0, centerX - halfWidth)
+      const normalizedMinY = Math.max(0, centerY - halfHeight)
+      const normalizedMaxX = Math.min(DRAW_WORLD_SIZE - 1, centerX + halfWidth)
+      const normalizedMaxY = Math.min(DRAW_WORLD_SIZE - 1, centerY + halfHeight)
+      return {
+        minX: normalizedMinX,
+        minY: normalizedMinY,
+        maxX: Math.max(normalizedMinX + 1, normalizedMaxX),
+        maxY: Math.max(normalizedMinY + 1, normalizedMaxY),
+      }
+    }
+
+    const beginSelectionScale = (
+      layer: EditorBodyLayer,
+      handle: EditorSelectionHandle,
+      bounds: EditorCanvasBounds,
+      pointerX: number,
+      pointerY: number
+    ): EditorSelectionScaleSession | null => {
+      const centerX = Math.round((bounds.minX + bounds.maxX) * 0.5)
+      const centerY = Math.round((bounds.minY + bounds.maxY) * 0.5)
+      const handleCenter = getSelectionHandleCenter(bounds, handle)
+      const handleOffsetX = pointerX - handleCenter.x
+      const handleOffsetY = pointerY - handleCenter.y
+      if (layer.kind === 'core') {
+        const maskCaptured = captureCanvasSnapshot(
+          maskState.ctx,
+          maskState.bounds,
+          maskState.boundsDirty
+        )
+        const shapeCaptured = captureCanvasSnapshot(
+          shapeState.ctx,
+          shapeState.bounds,
+          shapeState.boundsDirty
+        )
+        const textureCaptured = captureCanvasSnapshot(
+          textureState.ctx,
+          textureState.bounds,
+          textureState.boundsDirty
+        )
+        maskState.bounds = maskCaptured.bounds
+        maskState.boundsDirty = false
+        shapeState.bounds = shapeCaptured.bounds
+        shapeState.boundsDirty = false
+        textureState.bounds = textureCaptured.bounds
+        textureState.boundsDirty = false
+        return {
+          layerId: layer.id,
+          handle,
+          initialBounds: cloneBounds(bounds) as EditorCanvasBounds,
+          centerX,
+          centerY,
+          handleOffsetX,
+          handleOffsetY,
+          coreMask: maskCaptured.snapshot,
+          coreShape: shapeCaptured.snapshot,
+          coreTexture: textureCaptured.snapshot,
+          contourPoints: contourPoints.slice(),
+          layerSnapshot: null,
+        }
+      }
+      if (layer.kind === 'eye') {
+        const eyeBounds = getEyeBounds()
+        if (!eyeBounds) {
+          return null
+        }
+        return {
+          layerId: layer.id,
+          handle,
+          initialBounds: cloneBounds(bounds) as EditorCanvasBounds,
+          centerX,
+          centerY,
+          handleOffsetX,
+          handleOffsetY,
+          coreMask: null,
+          coreShape: null,
+          coreTexture: null,
+          contourPoints: null,
+          layerSnapshot: null,
+        }
+      }
+      if (!layer.ctx) {
+        return null
+      }
+      const captured = captureCanvasSnapshot(
+        layer.ctx,
+        layer.bounds,
+        layer.boundsDirty
+      )
+      layer.bounds = captured.bounds
+      layer.boundsDirty = false
+      return {
+        layerId: layer.id,
+        handle,
+        initialBounds: cloneBounds(bounds) as EditorCanvasBounds,
+        centerX,
+        centerY,
+        handleOffsetX,
+        handleOffsetY,
+        coreMask: null,
+        coreShape: null,
+        coreTexture: null,
+        contourPoints: null,
+        layerSnapshot: captured.snapshot,
+      }
+    }
+
+    const applySelectionScale = (
+      session: EditorSelectionScaleSession,
+      pointX: number,
+      pointY: number
+    ) => {
+      const layer = getLayerById(session.layerId)
+      if (!layer) {
+        return
+      }
+      const scaledBounds = getScaledBoundsFromHandle(
+        session.initialBounds,
+        session.handle,
+        session.centerX,
+        session.centerY,
+        pointX - session.handleOffsetX,
+        pointY - session.handleOffsetY
+      )
+      if (layer.kind === 'core') {
+        maskState.bounds = drawScaledSnapshot(
+          maskState.ctx,
+          session.coreMask,
+          scaledBounds
+        )
+        maskState.boundsDirty = false
+        shapeState.bounds = drawScaledSnapshot(
+          shapeState.ctx,
+          session.coreShape,
+          scaledBounds
+        )
+        shapeState.boundsDirty = false
+        textureState.bounds = drawScaledSnapshot(
+          textureState.ctx,
+          session.coreTexture,
+          scaledBounds
+        )
+        textureState.boundsDirty = false
+        if (session.contourPoints) {
+          scaleContourPointsFromBounds(
+            session.contourPoints,
+            session.initialBounds,
+            scaledBounds
+          )
+        }
+        ensureEyeInsideBody()
+        return
+      }
+      if (layer.kind === 'eye') {
+        const contourBounds = getContourBounds()
+        if (!contourBounds) {
+          return
+        }
+        const centerX = Math.round(
+          (scaledBounds.minX + scaledBounds.maxX) * 0.5
+        )
+        const centerY = Math.round(
+          (scaledBounds.minY + scaledBounds.maxY) * 0.5
+        )
+        eyeX = centerX - contourBounds.centerX
+        eyeY = centerY - contourBounds.centerY
+        eyeScaleX = clampCharacterEyeScale(
+          (scaledBounds.maxX - scaledBounds.minX) /
+            Math.max(1, DEFAULT_EDITOR_EYE_RADIUS * 2)
+        )
+        eyeScaleY = clampCharacterEyeScale(
+          (scaledBounds.maxY - scaledBounds.minY) /
+            Math.max(1, DEFAULT_EDITOR_EYE_RADIUS * 2)
+        )
+        ensureEyeInsideBody()
+        return
+      }
+      if (layer.kind === 'brow' && browStyle !== 'custom') {
+        const eyeGeometry = getEyeGeometry()
+        if (!eyeGeometry) {
+          return
+        }
+        const baseGeometry = getCharacterBrowGeometry(
+          eyeGeometry,
+          browStyle,
+          0,
+          0,
+          DEFAULT_CHARACTER_BROW_SCALE,
+          DEFAULT_CHARACTER_BROW_SCALE
+        )
+        if (!baseGeometry) {
+          return
+        }
+        const centerX = Math.round(
+          (scaledBounds.minX + scaledBounds.maxX) * 0.5
+        )
+        const centerY = Math.round(
+          (scaledBounds.minY + scaledBounds.maxY) * 0.5
+        )
+        browOffsetX = centerX - eyeGeometry.centerX
+        browOffsetY =
+          centerY -
+          (eyeGeometry.centerY -
+            eyeGeometry.outerRadiusY -
+            5 -
+            baseGeometry.archHeight * 0.5)
+        browScaleX = clampCharacterEyeScale(
+          (scaledBounds.maxX - scaledBounds.minX) /
+            Math.max(1, baseGeometry.halfWidth * 2)
+        )
+        browScaleY = clampCharacterEyeScale(
+          (scaledBounds.maxY - scaledBounds.minY) /
+            Math.max(1, baseGeometry.halfHeight * 2)
+        )
+        return
+      }
+      if (!layer.ctx) {
+        return
+      }
+      layer.bounds = drawScaledSnapshot(
+        layer.ctx,
+        session.layerSnapshot,
+        scaledBounds
+      )
+      layer.boundsDirty = false
+    }
+
     const translateLayerPixels = (
       layer: EditorBodyLayer,
       offsetX: number,
       offsetY: number
-    ) => {
+    ): { x: number; y: number } => {
       if (offsetX === 0 && offsetY === 0) {
-        return
+        return { x: 0, y: 0 }
       }
       if (layer.kind === 'eye') {
+        const previousX = eyeX
+        const previousY = eyeY
         const resolvedEye = resolveEyeOffsetInsideBody(
           eyeX + offsetX,
           eyeY + offsetY
         )
         eyeX = resolvedEye.x
         eyeY = resolvedEye.y
-        return
+        return {
+          x: eyeX - previousX,
+          y: eyeY - previousY,
+        }
+      }
+      if (layer.kind === 'brow' && browStyle !== 'custom') {
+        browOffsetX += offsetX
+        browOffsetY += offsetY
+        return { x: offsetX, y: offsetY }
       }
       if (!layer.ctx || !layer.canvas) {
-        return
+        return { x: 0, y: 0 }
       }
       workCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       workCtx.drawImage(layer.canvas, 0, 0)
@@ -2515,6 +3091,7 @@ export class EditorCharacterBodyDrawer {
       if (!layer.boundsDirty) {
         layer.bounds = translateBounds(layer.bounds, offsetX, offsetY)
       }
+      return { x: offsetX, y: offsetY }
     }
 
     const fillBodyShape = () => {
@@ -2775,6 +3352,14 @@ export class EditorCharacterBodyDrawer {
       pendingContourClose = false
       selectedLayerId = CORE_LAYER_ID
       eyeY = preset.eyeY
+      eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
+      eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+      browStyle = DEFAULT_CHARACTER_BROW_STYLE
+      browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
+      browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
+      browScaleX = DEFAULT_CHARACTER_BROW_SCALE
+      browScaleY = DEFAULT_CHARACTER_BROW_SCALE
       colorInput.value = preset.color
       bloodColorInput.value = preset.bloodColor
       bloodColorAssigned = true
@@ -2869,35 +3454,49 @@ export class EditorCharacterBodyDrawer {
       if (!contourClosed || !contourBounds) {
         return
       }
-      ctx.save()
-      ctx.translate(contourBounds.centerX, contourBounds.centerY)
-      const eyeRadius = DEFAULT_EDITOR_EYE_RADIUS
-      const eyeWhiteRadius = DEFAULT_EDITOR_EYE_WHITE_RADIUS
-      const pupilRadius = DEFAULT_EDITOR_PUPIL_RADIUS
-      const highlightRadius = Math.max(1, Math.round((pupilRadius * 2) / 5))
-      ctx.fillStyle = '#201710'
-      ctx.beginPath()
-      ctx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.fillStyle = '#f4ecdc'
-      ctx.beginPath()
-      ctx.arc(eyeX, eyeY, eyeWhiteRadius, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.fillStyle = '#17120e'
-      ctx.beginPath()
-      ctx.arc(eyeX, eyeY, pupilRadius, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.fillStyle = 'rgba(255,255,255,0.95)'
-      ctx.beginPath()
-      ctx.arc(
-        eyeX - Math.max(1, Math.round((pupilRadius * 3) / 10)),
-        eyeY - Math.max(1, Math.round((pupilRadius * 3) / 10)),
-        highlightRadius,
-        0,
-        Math.PI * 2
+      drawCharacterEyeGeometry(
+        ctx,
+        getCharacterEyeGeometry(
+          contourBounds.centerX + eyeX,
+          contourBounds.centerY + eyeY,
+          editorFacing,
+          eyeScaleX,
+          eyeScaleY,
+          eyeStyle
+        ),
+        '#17120e'
       )
-      ctx.fill()
-      ctx.restore()
+    }
+
+    const drawBrowStyle = (
+      ctx: CanvasRenderingContext2D,
+      contourBounds: ReturnType<typeof getContourBounds> | null
+    ) => {
+      if (
+        !contourClosed ||
+        !contourBounds ||
+        browStyle === 'custom' ||
+        browStyle === 'none'
+      ) {
+        return
+      }
+      const browBounds = getBrowBounds()
+      if (!browBounds) {
+        return
+      }
+      drawCharacterBrowGeometry(
+        ctx,
+        {
+          centerX: browBounds.centerX,
+          centerY: browBounds.centerY,
+          halfWidth: browBounds.halfWidth,
+          halfHeight: browBounds.halfHeight,
+          thickness: browBounds.thickness,
+          archHeight: browBounds.archHeight,
+          baselineOffsetY: 1,
+        },
+        '#231711'
+      )
     }
 
     const drawMergedVisualWorld = (
@@ -2923,17 +3522,23 @@ export class EditorCharacterBodyDrawer {
         if (layer.kind === 'eye') {
           drawEyeLayer(ctx, contourBounds)
           if (contourBounds) {
+            const eyeBounds = getEyeBounds()
             mergedBounds = mergeBounds(
               mergedBounds,
-              createBoundsFromRect(
-                contourBounds.centerX + eyeX - DEFAULT_EDITOR_EYE_RADIUS,
-                contourBounds.centerY + eyeY - DEFAULT_EDITOR_EYE_RADIUS,
-                DEFAULT_EDITOR_EYE_RADIUS * 2,
-                DEFAULT_EDITOR_EYE_RADIUS * 2
-              )
+              eyeBounds
+                ? createBoundsFromRect(
+                    eyeBounds.centerX - eyeBounds.radiusX,
+                    eyeBounds.centerY - eyeBounds.radiusY,
+                    eyeBounds.radiusX * 2,
+                    eyeBounds.radiusY * 2
+                  )
+                : null
             )
           }
           continue
+        }
+        if (layer.kind === 'brow') {
+          drawBrowStyle(ctx, contourBounds)
         }
         if (layer.canvas) {
           ctx.drawImage(layer.canvas, 0, 0)
@@ -2962,6 +3567,7 @@ export class EditorCharacterBodyDrawer {
 
       if (mode === 'select') {
         const selectedBounds = getSelectedLayerBounds()
+        const selectedLayer = getSelectedLayer()
         if (selectedBounds) {
           drawCtx.save()
           drawCtx.strokeStyle = 'rgba(255,245,220,0.95)'
@@ -2973,6 +3579,41 @@ export class EditorCharacterBodyDrawer {
             Math.max(1, selectedBounds.maxX - selectedBounds.minX),
             Math.max(1, selectedBounds.maxY - selectedBounds.minY)
           )
+          if (isLayerScalable(selectedLayer)) {
+            const handleSize = Math.max(
+              2,
+              SELECTION_HANDLE_SIZE / viewportScale
+            )
+            const halfHandle = handleSize * 0.5
+            const handles: EditorSelectionHandle[] = [
+              'nw',
+              'n',
+              'ne',
+              'e',
+              'se',
+              's',
+              'sw',
+              'w',
+            ]
+            drawCtx.setLineDash([])
+            drawCtx.fillStyle = '#f7ecd2'
+            drawCtx.strokeStyle = 'rgba(36,24,16,0.96)'
+            for (let i = 0; i < handles.length; i++) {
+              const center = getSelectionHandleCenter(
+                selectedBounds,
+                handles[i]
+              )
+              drawCtx.beginPath()
+              drawCtx.rect(
+                center.x - halfHandle,
+                center.y - halfHandle,
+                handleSize,
+                handleSize
+              )
+              drawCtx.fill()
+              drawCtx.stroke()
+            }
+          }
           drawCtx.restore()
         }
       }
@@ -3291,6 +3932,14 @@ export class EditorCharacterBodyDrawer {
       contourDragPointIndex = -1
       pendingContourClose = false
       selectedLayerId = CORE_LAYER_ID
+      eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
+      eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+      browStyle = DEFAULT_CHARACTER_BROW_STYLE
+      browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
+      browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
+      browScaleX = DEFAULT_CHARACTER_BROW_SCALE
+      browScaleY = DEFAULT_CHARACTER_BROW_SCALE
 
       const profile = options.initialProfile
       const initialPresetId = this.isBodyPresetId(profile?.presetId)
@@ -3316,6 +3965,26 @@ export class EditorCharacterBodyDrawer {
           : getCharacterEyeDrawX(profile)
       eyeX = initialEyeDrawX * editorFacing
       eyeY = getCharacterEyeDrawY(profile)
+      eyeScaleX =
+        typeof profile?.eyeScaleX === 'number'
+          ? clampCharacterEyeScale(profile.eyeScaleX)
+          : DEFAULT_CHARACTER_EYE_SCALE
+      eyeScaleY =
+        typeof profile?.eyeScaleY === 'number'
+          ? clampCharacterEyeScale(profile.eyeScaleY)
+          : DEFAULT_CHARACTER_EYE_SCALE
+      eyeStyle = getCharacterEyeStyle(profile)
+      browStyle = getCharacterBrowStyle(profile)
+      browOffsetX = getCharacterBrowOffsetX(profile) * editorFacing
+      browOffsetY = getCharacterBrowOffsetY(profile)
+      browScaleX =
+        typeof profile?.browScaleX === 'number'
+          ? clampCharacterEyeScale(profile.browScaleX)
+          : DEFAULT_CHARACTER_BROW_SCALE
+      browScaleY =
+        typeof profile?.browScaleY === 'number'
+          ? clampCharacterEyeScale(profile.browScaleY)
+          : DEFAULT_CHARACTER_BROW_SCALE
       if (profile && profile.points.length >= 6) {
         contourPoints = new Array<number>(profile.points.length)
         for (let i = 0; i < profile.points.length; i += 2) {
@@ -3532,6 +4201,14 @@ export class EditorCharacterBodyDrawer {
       mode = 'contour'
       eyeX = DEFAULT_CHARACTER_EYE_X * editorFacing
       eyeY = DEFAULT_CHARACTER_EYE_Y
+      eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
+      eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+      browStyle = DEFAULT_CHARACTER_BROW_STYLE
+      browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
+      browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
+      browScaleX = DEFAULT_CHARACTER_BROW_SCALE
+      browScaleY = DEFAULT_CHARACTER_BROW_SCALE
       textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       textureState.bounds = null
       textureState.boundsDirty = false
@@ -3652,6 +4329,32 @@ export class EditorCharacterBodyDrawer {
       }
       beginLayerRename(targetLayer.id)
     })
+    styleLayerBtn.addEventListener('click', async () => {
+      const targetLayer = getLayerById(layerMenuTargetId)
+      hideLayerMenu()
+      if (!targetLayer || !canStyleLayer(targetLayer)) {
+        return
+      }
+      const nextStyle = await chooseLayerStyle(targetLayer)
+      if (!nextStyle) {
+        return
+      }
+      flushSettingHistory()
+      invalidatePresetSelection()
+      if (targetLayer.kind === 'eye') {
+        if (eyeStyle === nextStyle) {
+          return
+        }
+        eyeStyle = nextStyle as MapCharacterBodyEyeStyle
+      } else if (targetLayer.kind === 'brow') {
+        if (browStyle === nextStyle) {
+          return
+        }
+        browStyle = nextStyle as MapCharacterBodyBrowStyle
+      }
+      renderComposite()
+      historyManager.capture()
+    })
     deleteLayerBtn.addEventListener('click', async () => {
       const targetLayer = getLayerById(layerMenuTargetId)
       hideLayerMenu()
@@ -3678,34 +4381,45 @@ export class EditorCharacterBodyDrawer {
     drawCanvas.addEventListener(
       'contextmenu',
       (event) => {
+        const point = getCanvasPoint(event as PointerEvent)
         hideLayerMenu()
-        if (mode !== 'contour') {
-          hideContourMenu()
+        if (mode === 'contour') {
+          const pointIndex = getNearestContourPointIndex(
+            point.x,
+            point.y,
+            getContourHitDistanceSq(CONTOUR_SELECT_DISTANCE_SQ)
+          )
+          const edge = getNearestContourEdge(
+            point.x,
+            point.y,
+            getContourHitDistanceSq(CONTOUR_EDGE_SELECT_DISTANCE_SQ)
+          )
+          if (pointIndex >= 0) {
+            selectedContourIndex = pointIndex
+          }
+          showContourMenu(
+            event.clientX,
+            event.clientY,
+            pointIndex,
+            edge?.insertAfterIndex ?? -1,
+            edge?.x ?? 0,
+            edge?.y ?? 0
+          )
+          renderComposite()
+          event.preventDefault()
+          event.stopPropagation()
           return
         }
-        const point = getCanvasPoint(event as PointerEvent)
-        const pointIndex = getNearestContourPointIndex(
-          point.x,
-          point.y,
-          getContourHitDistanceSq(CONTOUR_SELECT_DISTANCE_SQ)
-        )
-        const edge = getNearestContourEdge(
-          point.x,
-          point.y,
-          getContourHitDistanceSq(CONTOUR_EDGE_SELECT_DISTANCE_SQ)
-        )
-        if (pointIndex >= 0) {
-          selectedContourIndex = pointIndex
+        hideContourMenu()
+        const hitLayer = getSelectableLayerAtPoint(point.x, point.y)
+        if (hitLayer) {
+          selectedLayerId = hitLayer.id
+          renderLayerList()
+          updateModeButtons()
+          updateCursorVisual()
+          showLayerMenu(event.clientX, event.clientY, hitLayer.id)
+          renderComposite()
         }
-        showContourMenu(
-          event.clientX,
-          event.clientY,
-          pointIndex,
-          edge?.insertAfterIndex ?? -1,
-          edge?.x ?? 0,
-          edge?.y ?? 0
-        )
-        renderComposite()
         event.preventDefault()
         event.stopPropagation()
       },
@@ -3769,6 +4483,38 @@ export class EditorCharacterBodyDrawer {
         hoverVisible = true
         updateCursorPosition(point)
         if (mode === 'select') {
+          const selectedLayer = getSelectedLayer()
+          const selectedBounds = getSelectedLayerBounds()
+          const selectionHandle =
+            isLayerScalable(selectedLayer) && selectedBounds
+              ? getSelectionHandleAtPoint(point.x, point.y, selectedBounds)
+              : null
+          if (selectedLayer && selectedBounds && selectionHandle) {
+            pointerActive = true
+            pointerChanged = false
+            selectionDragLayerId = -1
+            selectionScaleSession = beginSelectionScale(
+              selectedLayer,
+              selectionHandle,
+              selectedBounds,
+              point.x,
+              point.y
+            )
+            if (!selectionScaleSession) {
+              pointerActive = false
+              event.preventDefault()
+              event.stopPropagation()
+              return
+            }
+            invalidatePresetSelection()
+            lastX = point.x
+            lastY = point.y
+            drawCanvas.setPointerCapture(event.pointerId)
+            renderComposite()
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
           const hitLayer = getSelectableLayerAtPoint(point.x, point.y)
           if (!hitLayer) {
             renderComposite()
@@ -3789,6 +4535,7 @@ export class EditorCharacterBodyDrawer {
           pointerActive = true
           pointerChanged = false
           selectionDragLayerId = hitLayer.id
+          selectionScaleSession = null
           lastDragWorldX = point.x
           lastDragWorldY = point.y
           lastX = point.x
@@ -3915,6 +4662,18 @@ export class EditorCharacterBodyDrawer {
             renderComposite()
             return
           }
+          if (selectionScaleSession) {
+            if (point.x !== lastX || point.y !== lastY) {
+              applySelectionScale(selectionScaleSession, point.x, point.y)
+              pointerChanged = true
+              lastX = point.x
+              lastY = point.y
+              renderComposite()
+            }
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
           if (selectionDragLayerId >= 0) {
             const offsetX = point.x - lastDragWorldX
             const offsetY = point.y - lastDragWorldY
@@ -3922,11 +4681,17 @@ export class EditorCharacterBodyDrawer {
               const dragLayer = getLayerById(selectionDragLayerId)
               if (dragLayer) {
                 invalidatePresetSelection()
-                translateLayerPixels(dragLayer, offsetX, offsetY)
-                pointerChanged = true
-                lastDragWorldX = point.x
-                lastDragWorldY = point.y
-                renderComposite()
+                const appliedOffset = translateLayerPixels(
+                  dragLayer,
+                  offsetX,
+                  offsetY
+                )
+                if (appliedOffset.x !== 0 || appliedOffset.y !== 0) {
+                  pointerChanged = true
+                  lastDragWorldX += appliedOffset.x
+                  lastDragWorldY += appliedOffset.y
+                  renderComposite()
+                }
               }
             }
           }
@@ -4003,6 +4768,7 @@ export class EditorCharacterBodyDrawer {
           drawCanvas.releasePointerCapture(event.pointerId)
         }
         selectionDragLayerId = -1
+        selectionScaleSession = null
         lastDragWorldX = 0
         lastDragWorldY = 0
         if (pointerChanged) {
@@ -4119,10 +4885,18 @@ export class EditorCharacterBodyDrawer {
                 colorInput.value,
                 eyeX,
                 eyeY,
+                eyeScaleX,
+                eyeScaleY,
+                eyeStyle,
+                browStyle,
+                editorFacing,
+                browOffsetX,
+                browOffsetY,
+                browScaleX,
+                browScaleY,
                 bloodColorInput.value,
                 currentPresetId,
                 coreImageShape !== null,
-                editorFacing,
                 exportBaseWidth,
                 exportBaseHeight,
                 exportReferenceWidth,
@@ -4232,10 +5006,18 @@ export class EditorCharacterBodyDrawer {
     color: string,
     eyeX: number,
     eyeY: number,
+    eyeScaleX: number,
+    eyeScaleY: number,
+    eyeStyle: MapCharacterBodyEyeStyle,
+    browStyle: MapCharacterBodyBrowStyle,
+    editorFacing: number,
+    browOffsetX: number,
+    browOffsetY: number,
+    browScaleX: number,
+    browScaleY: number,
     bloodColor: string,
     presetId: EditorCharacterBodyPresetId,
     usePureImageSurface: boolean,
-    editorFacing: number,
     exportBaseWidth: number,
     exportBaseHeight: number,
     exportReferenceWidth: number,
@@ -4285,7 +5067,16 @@ export class EditorCharacterBodyDrawer {
           coreCenterX,
           coreCenterY,
           eyeX,
-          eyeY
+          eyeY,
+          eyeScaleX,
+          eyeScaleY,
+          eyeStyle,
+          browStyle,
+          editorFacing,
+          browOffsetX,
+          browOffsetY,
+          browScaleX,
+          browScaleY
         )
     const maskWidthPx = maskFill.maxX + 1 - maskFill.minX
     const maskHeightPx = maskFill.maxY + 1 - maskFill.minY
@@ -4353,6 +5144,33 @@ export class EditorCharacterBodyDrawer {
       bloodColor,
       eyeX: Math.round(eyeX * editorFacing * 1000) / 1000,
       eyeY: Math.round(eyeY * 1000) / 1000,
+      eyeScaleX:
+        Math.abs(eyeScaleX - DEFAULT_CHARACTER_EYE_SCALE) > 0.001
+          ? Math.round(eyeScaleX * 1000) / 1000
+          : undefined,
+      eyeScaleY:
+        Math.abs(eyeScaleY - DEFAULT_CHARACTER_EYE_SCALE) > 0.001
+          ? Math.round(eyeScaleY * 1000) / 1000
+          : undefined,
+      eyeStyle: eyeStyle !== DEFAULT_CHARACTER_EYE_STYLE ? eyeStyle : undefined,
+      browStyle:
+        browStyle !== DEFAULT_CHARACTER_BROW_STYLE ? browStyle : undefined,
+      browOffsetX:
+        browOffsetX !== DEFAULT_CHARACTER_BROW_OFFSET_X
+          ? Math.round(browOffsetX * editorFacing * 1000) / 1000
+          : undefined,
+      browOffsetY:
+        browOffsetY !== DEFAULT_CHARACTER_BROW_OFFSET_Y
+          ? browOffsetY
+          : undefined,
+      browScaleX:
+        Math.abs(browScaleX - DEFAULT_CHARACTER_BROW_SCALE) > 0.001
+          ? Math.round(browScaleX * 1000) / 1000
+          : undefined,
+      browScaleY:
+        Math.abs(browScaleY - DEFAULT_CHARACTER_BROW_SCALE) > 0.001
+          ? Math.round(browScaleY * 1000) / 1000
+          : undefined,
       embeddedEye: !textureDataUrl && !usePureImageSurface && !!surfaceDataUrl,
       surfaceOffsetX: surfaceBounds
         ? Math.round(
@@ -5111,7 +5929,16 @@ export class EditorCharacterBodyDrawer {
     coreCenterX: number,
     coreCenterY: number,
     eyeX: number,
-    eyeY: number
+    eyeY: number,
+    eyeScaleX: number,
+    eyeScaleY: number,
+    eyeStyle: MapCharacterBodyEyeStyle,
+    browStyle: MapCharacterBodyBrowStyle,
+    editorFacing: number,
+    browOffsetX: number,
+    browOffsetY: number,
+    browScaleX: number,
+    browScaleY: number
   ): { minX: number; minY: number; maxX: number; maxY: number } | null {
     let mergedBounds = this.readAlphaBounds(shapeCtx, DRAW_WORLD_SIZE)
     compositeCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
@@ -5126,39 +5953,19 @@ export class EditorCharacterBodyDrawer {
         continue
       }
       if (layer.kind === 'eye') {
-        const eyeRadius = DEFAULT_EDITOR_EYE_RADIUS
-        const eyeWhiteRadius = DEFAULT_EDITOR_EYE_WHITE_RADIUS
-        const pupilRadius = DEFAULT_EDITOR_PUPIL_RADIUS
-        const highlightRadius = Math.max(1, Math.round((pupilRadius * 2) / 5))
-        compositeCtx.save()
-        compositeCtx.translate(coreCenterX, coreCenterY)
-        compositeCtx.fillStyle = '#201710'
-        compositeCtx.beginPath()
-        compositeCtx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2)
-        compositeCtx.fill()
-        compositeCtx.fillStyle = '#f4ecdc'
-        compositeCtx.beginPath()
-        compositeCtx.arc(eyeX, eyeY, eyeWhiteRadius, 0, Math.PI * 2)
-        compositeCtx.fill()
-        compositeCtx.fillStyle = '#17120e'
-        compositeCtx.beginPath()
-        compositeCtx.arc(eyeX, eyeY, pupilRadius, 0, Math.PI * 2)
-        compositeCtx.fill()
-        compositeCtx.fillStyle = 'rgba(255,255,255,0.95)'
-        compositeCtx.beginPath()
-        compositeCtx.arc(
-          eyeX - Math.max(1, Math.round((pupilRadius * 3) / 10)),
-          eyeY - Math.max(1, Math.round((pupilRadius * 3) / 10)),
-          highlightRadius,
-          0,
-          Math.PI * 2
+        const eyeGeometry = getCharacterEyeGeometry(
+          coreCenterX + eyeX,
+          coreCenterY + eyeY,
+          editorFacing,
+          eyeScaleX,
+          eyeScaleY,
+          eyeStyle
         )
-        compositeCtx.fill()
-        compositeCtx.restore()
-        const eyeMinX = coreCenterX + eyeX - eyeRadius
-        const eyeMinY = coreCenterY + eyeY - eyeRadius
-        const eyeMaxX = coreCenterX + eyeX + eyeRadius
-        const eyeMaxY = coreCenterY + eyeY + eyeRadius
+        drawCharacterEyeGeometry(compositeCtx, eyeGeometry, '#17120e')
+        const eyeMinX = eyeGeometry.centerX - eyeGeometry.outerRadiusX
+        const eyeMinY = eyeGeometry.centerY - eyeGeometry.outerRadiusY
+        const eyeMaxX = eyeGeometry.centerX + eyeGeometry.outerRadiusX
+        const eyeMaxY = eyeGeometry.centerY + eyeGeometry.outerRadiusY
         if (!mergedBounds) {
           mergedBounds = {
             minX: eyeMinX,
@@ -5183,6 +5990,56 @@ export class EditorCharacterBodyDrawer {
         continue
       }
       if (layer.kind === 'brow') {
+        if (browStyle !== 'custom' && browStyle !== 'none') {
+          const eyeGeometry = getCharacterEyeGeometry(
+            coreCenterX + eyeX,
+            coreCenterY + eyeY,
+            editorFacing,
+            eyeScaleX,
+            eyeScaleY,
+            eyeStyle
+          )
+          const browGeometry = getCharacterBrowGeometry(
+            eyeGeometry,
+            browStyle,
+            browOffsetX,
+            browOffsetY,
+            browScaleX,
+            browScaleY
+          )
+          if (browGeometry) {
+            drawCharacterBrowGeometry(compositeCtx, browGeometry, '#231711')
+            const browMinX =
+              browGeometry.centerX -
+              browGeometry.halfWidth -
+              browGeometry.thickness
+            const browMaxX =
+              browGeometry.centerX +
+              browGeometry.halfWidth +
+              browGeometry.thickness
+            const browMinY =
+              browGeometry.centerY -
+              browGeometry.archHeight -
+              browGeometry.thickness
+            const browMaxY =
+              browGeometry.centerY +
+              browGeometry.thickness +
+              browGeometry.baselineOffsetY
+            if (!mergedBounds) {
+              mergedBounds = {
+                minX: browMinX,
+                minY: browMinY,
+                maxX: browMaxX,
+                maxY: browMaxY,
+              }
+            } else {
+              if (browMinX < mergedBounds.minX) mergedBounds.minX = browMinX
+              if (browMinY < mergedBounds.minY) mergedBounds.minY = browMinY
+              if (browMaxX > mergedBounds.maxX) mergedBounds.maxX = browMaxX
+              if (browMaxY > mergedBounds.maxY) mergedBounds.maxY = browMaxY
+            }
+          }
+        }
         compositeCtx.drawImage(browCtx.canvas, 0, 0)
         const browBounds = layer.boundsDirty
           ? this.readAlphaBounds(browCtx, DRAW_WORLD_SIZE)

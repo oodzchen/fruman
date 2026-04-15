@@ -90,6 +90,14 @@ export interface MapCharacterBodyProfile {
   bloodColor?: string
   eyeX?: number
   eyeY?: number
+  eyeScaleX?: number
+  eyeScaleY?: number
+  eyeStyle?: MapCharacterBodyEyeStyle
+  browStyle?: MapCharacterBodyBrowStyle
+  browOffsetX?: number
+  browOffsetY?: number
+  browScaleX?: number
+  browScaleY?: number
   embeddedEye?: boolean
   surfaceOffsetX?: number
   surfaceOffsetY?: number
@@ -106,6 +114,14 @@ export type MapCharacterBodyPresetId =
   | 'pineapple'
   | 'tomato'
   | 'watermelon'
+
+export type MapCharacterBodyEyeStyle =
+  | 'standard'
+  | 'noOutline'
+  | 'pupilOnly'
+  | 'cute'
+
+export type MapCharacterBodyBrowStyle = 'none' | 'custom' | 'thick' | 'thin'
 
 export interface MapCharacterBodyVisualLayer {
   id: number
