@@ -3,7 +3,9 @@ import {
   drawCharacterEyeGeometry,
   getCharacterBodyProfileHeight,
   getCharacterBodyProfileWidth,
+  getCharacterBrowBounds,
   getCharacterBrowGeometryFromProfile,
+  getCharacterEyeBounds,
   getCharacterEyeGeometryFromProfile,
 } from '../characterBodyProfile'
 import type {
@@ -213,13 +215,16 @@ function drawBodyVisualLayers(
   ctx: BodyPathContext,
   bodyHalfWidthPx: number,
   bodyHalfHeightPx: number,
-  bodyProfile: MapCharacterBodyProfile | null
+  bodyProfile: MapCharacterBodyProfile | null,
+  facingDirection: number,
+  mirrorBody: boolean
 ): void {
   if (!bodyProfile?.layers || bodyProfile.layers.length === 0) {
     return
   }
   const scaleX = getBodyLayerScaleX(bodyHalfWidthPx, bodyProfile)
   const scaleY = getBodyLayerScaleY(bodyHalfHeightPx, bodyProfile)
+  const facing = facingDirection < 0 ? -1 : 1
   for (let i = 0; i < bodyProfile.layers.length; i++) {
     const layer = bodyProfile.layers[i]
     if (layer.kind !== 'brow' && layer.kind !== 'paint') {
@@ -231,8 +236,16 @@ function drawBodyVisualLayers(
     }
     const widthPx = Math.max(1, layer.width * scaleX)
     const heightPx = Math.max(1, layer.height * scaleY)
-    const offsetXPx = layer.offsetX * scaleX
+    const offsetXPx = layer.offsetX * scaleX * (mirrorBody ? 1 : facing)
     const offsetYPx = layer.offsetY * scaleY
+    if (!mirrorBody && facing < 0) {
+      ctx.save()
+      ctx.translate(offsetXPx, offsetYPx)
+      ctx.scale(-1, 1)
+      ctx.drawImage(image, -widthPx * 0.5, -heightPx * 0.5, widthPx, heightPx)
+      ctx.restore()
+      continue
+    }
     ctx.drawImage(
       image,
       offsetXPx - widthPx * 0.5,
@@ -268,14 +281,11 @@ function extendBoundsWithBrowStyle(
   if (!browGeometry) {
     return
   }
-  const browMinX =
-    browGeometry.centerX - browGeometry.halfWidth - browGeometry.thickness
-  const browMaxX =
-    browGeometry.centerX + browGeometry.halfWidth + browGeometry.thickness
-  const browMinY =
-    browGeometry.centerY - browGeometry.archHeight - browGeometry.thickness
-  const browMaxY =
-    browGeometry.centerY + browGeometry.thickness + browGeometry.baselineOffsetY
+  const browBounds = getCharacterBrowBounds(browGeometry)
+  const browMinX = browBounds.minX
+  const browMaxX = browBounds.maxX
+  const browMinY = browBounds.minY
+  const browMaxY = browBounds.maxY
   if (browMinX < bounds.minX) bounds.minX = browMinX
   if (browMaxX > bounds.maxX) bounds.maxX = browMaxX
   if (browMinY < bounds.minY) bounds.minY = browMinY
@@ -480,10 +490,11 @@ function getBodyContentBounds(
       scaleX,
       scaleY
     )
-    const eyeMinX = eyeGeometry.centerX - eyeGeometry.outerRadiusX
-    const eyeMaxX = eyeGeometry.centerX + eyeGeometry.outerRadiusX
-    const eyeMinY = eyeGeometry.centerY - eyeGeometry.outerRadiusY
-    const eyeMaxY = eyeGeometry.centerY + eyeGeometry.outerRadiusY
+    const eyeBounds = getCharacterEyeBounds(eyeGeometry)
+    const eyeMinX = eyeBounds.minX
+    const eyeMaxX = eyeBounds.maxX
+    const eyeMinY = eyeBounds.minY
+    const eyeMaxY = eyeBounds.maxY
     if (eyeMinX < bounds.minX) bounds.minX = eyeMinX
     if (eyeMaxX > bounds.maxX) bounds.maxX = eyeMaxX
     if (eyeMinY < bounds.minY) bounds.minY = eyeMinY
@@ -556,6 +567,8 @@ function drawBodyInternal(
     typeof bodyProfile?.surfaceOffsetY === 'number'
       ? bodyProfile.surfaceOffsetY * surfaceScaleY
       : 0
+  const featureFacingDirection =
+    mirrorBody && facingDirection < 0 ? 1 : facingDirection
 
   ctx.save()
   if (mirrorBody && facingDirection < 0) {
@@ -600,12 +613,19 @@ function drawBodyInternal(
     }
   }
 
-  drawBodyVisualLayers(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
+  drawBodyVisualLayers(
+    ctx,
+    bodyHalfWidthPx,
+    bodyHalfHeightPx,
+    bodyProfile,
+    facingDirection,
+    mirrorBody
+  )
   drawBodyBrow(
     ctx,
     bodyHalfWidthPx,
     bodyHalfHeightPx,
-    facingDirection,
+    featureFacingDirection,
     bodyProfile
   )
 
@@ -622,7 +642,7 @@ function drawBodyInternal(
       bodyHalfWidthPx,
       bodyHalfHeightPx,
       pixelsPerMeter,
-      facingDirection,
+      featureFacingDirection,
       bodyProfile,
       eyeColor
     )

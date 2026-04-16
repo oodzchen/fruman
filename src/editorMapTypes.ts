@@ -92,12 +92,14 @@ export interface MapCharacterBodyProfile {
   eyeY?: number
   eyeScaleX?: number
   eyeScaleY?: number
+  eyeRotationDeg?: number
   eyeStyle?: MapCharacterBodyEyeStyle
   browStyle?: MapCharacterBodyBrowStyle
   browOffsetX?: number
   browOffsetY?: number
   browScaleX?: number
   browScaleY?: number
+  browRotationDeg?: number
   embeddedEye?: boolean
   surfaceOffsetX?: number
   surfaceOffsetY?: number
@@ -121,7 +123,12 @@ export type MapCharacterBodyEyeStyle =
   | 'pupilOnly'
   | 'cute'
 
-export type MapCharacterBodyBrowStyle = 'none' | 'custom' | 'thick' | 'thin'
+export type MapCharacterBodyBrowStyle =
+  | 'none'
+  | 'custom'
+  | 'thick'
+  | 'thin'
+  | 'straight'
 
 export interface MapCharacterBodyVisualLayer {
   id: number

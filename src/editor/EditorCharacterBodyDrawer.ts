@@ -9,8 +9,10 @@ import { localizer } from '../Localizer'
 import {
   DEFAULT_CHARACTER_BROW_OFFSET_X,
   DEFAULT_CHARACTER_BROW_OFFSET_Y,
+  DEFAULT_CHARACTER_BROW_ROTATION_DEG,
   DEFAULT_CHARACTER_BROW_SCALE,
   DEFAULT_CHARACTER_BROW_STYLE,
+  DEFAULT_CHARACTER_EYE_ROTATION_DEG,
   DEFAULT_CHARACTER_EYE_SCALE,
   DEFAULT_CHARACTER_EYE_STYLE,
   DEFAULT_CHARACTER_EYE_X,
@@ -19,14 +21,18 @@ import {
   clampCharacterEyeScale,
   drawCharacterBrowGeometry,
   drawCharacterEyeGeometry,
+  getCharacterBrowBounds,
   getCharacterBrowGeometry,
   getCharacterBrowOffsetX,
   getCharacterBrowOffsetY,
+  getCharacterBrowRotationDeg,
   getCharacterBrowStyle,
+  getCharacterEyeBounds,
   getCharacterEyeDrawX,
   getCharacterEyeDrawY,
   getCharacterEyeGeometry,
   getCharacterEyeMoveCircleRadius,
+  getCharacterEyeRotationDeg,
   getCharacterEyeStyle,
 } from '../characterBodyProfile'
 import type {
@@ -49,6 +55,7 @@ type DecompPoint = [number, number]
 type DecompPolygon = DecompPoint[]
 type EditorBodyLayerKind = 'core' | 'eye' | 'brow' | 'paint'
 type EditorSelectionHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
+type EditorRotationHandle = 'rotate'
 
 interface EditorBodyLayer {
   id: number
@@ -101,6 +108,20 @@ interface EditorSelectionScaleSession {
   layerSnapshot: EditorCanvasSnapshot | null
 }
 
+interface EditorSelectionRotateSession {
+  layerId: number
+  centerX: number
+  centerY: number
+  startAngleDeg: number
+  coreMask: EditorCanvasSnapshot | null
+  coreShape: EditorCanvasSnapshot | null
+  coreTexture: EditorCanvasSnapshot | null
+  contourPoints: number[] | null
+  layerSnapshot: EditorCanvasSnapshot | null
+  eyeRotationDeg: number
+  browRotationDeg: number
+}
+
 interface EditorCharacterBodyDrawerOptions {
   title: string
   initialProfile?: MapCharacterBodyProfile
@@ -140,6 +161,9 @@ const TRANSPARENT_BODY_COLOR = '#00000000'
 const DEFAULT_EDITOR_EYE_RADIUS = 8
 const SELECTION_HANDLE_SIZE = 10
 const SELECTION_HANDLE_HIT_SIZE = 14
+const SELECTION_ROTATE_HANDLE_SIZE = 12
+const SELECTION_ROTATE_HANDLE_HIT_SIZE = 16
+const SELECTION_ROTATE_HANDLE_OFFSET = 20
 const SELECTION_MIN_SIZE = 4
 const CORE_LAYER_ID = 1
 const EYE_LAYER_ID = 2
@@ -210,12 +234,14 @@ interface EditorCharacterBodyDrawerHistorySnapshot {
   eyeY: number
   eyeScaleX: number
   eyeScaleY: number
+  eyeRotationDeg: number
   eyeStyle: MapCharacterBodyEyeStyle
   browStyle: MapCharacterBodyBrowStyle
   browOffsetX: number
   browOffsetY: number
   browScaleX: number
   browScaleY: number
+  browRotationDeg: number
   contourPoints: number[]
   contourClosed: boolean
   selectedContourIndex: number
@@ -803,12 +829,14 @@ export class EditorCharacterBodyDrawer {
     let eyeY = DEFAULT_CHARACTER_EYE_Y
     let eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
     let eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+    let eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
     let eyeStyle: MapCharacterBodyEyeStyle = DEFAULT_CHARACTER_EYE_STYLE
     let browStyle: MapCharacterBodyBrowStyle = DEFAULT_CHARACTER_BROW_STYLE
     let browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
     let browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
     let browScaleX = DEFAULT_CHARACTER_BROW_SCALE
     let browScaleY = DEFAULT_CHARACTER_BROW_SCALE
+    let browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
     let resolved = false
     let contourClosed = false
     let contourPoints: number[] = []
@@ -832,6 +860,7 @@ export class EditorCharacterBodyDrawer {
     let shapeStrokeAnchored = false
     let selectionDragLayerId = -1
     let selectionScaleSession: EditorSelectionScaleSession | null = null
+    let selectionRotateSession: EditorSelectionRotateSession | null = null
     let lastDragWorldX = 0
     let lastDragWorldY = 0
     let layerMenuTargetId = -1
@@ -1099,6 +1128,38 @@ export class EditorCharacterBodyDrawer {
 
     const canStyleLayer = (layer: EditorBodyLayer | null): boolean =>
       !!layer && (layer.kind === 'eye' || layer.kind === 'brow')
+
+    const isLayerRotatable = (layer: EditorBodyLayer | null): boolean =>
+      !!layer &&
+      (layer.kind === 'core' ||
+        layer.kind === 'eye' ||
+        layer.kind === 'brow' ||
+        layer.kind === 'paint')
+
+    const normalizeRotationDeg = (rotationDeg: number): number => {
+      let normalized = Math.round(rotationDeg) % 360
+      if (normalized > 180) {
+        normalized -= 360
+      } else if (normalized <= -180) {
+        normalized += 360
+      }
+      return normalized
+    }
+
+    const getPointerAngleDeg = (
+      pointX: number,
+      pointY: number,
+      centerX: number,
+      centerY: number
+    ): number =>
+      Math.round(
+        (Math.atan2(pointY - centerY, pointX - centerX) * 180) / Math.PI
+      )
+
+    const getRotationDeltaDeg = (
+      startDeg: number,
+      currentDeg: number
+    ): number => normalizeRotationDeg(currentDeg - startDeg)
 
     const getLayerOrderSnapshot = (): number[] => {
       const order = new Array<number>(layers.length)
@@ -1590,6 +1651,10 @@ export class EditorCharacterBodyDrawer {
                   value: 'thin',
                   label: localizer.t('editor_body_drawer_style_brow_thin'),
                 },
+                {
+                  value: 'straight',
+                  label: localizer.t('editor_body_drawer_style_brow_straight'),
+                },
               ]
         const selectedValue = layer.kind === 'eye' ? eyeStyle : browStyle
         const select = EditorUIHelper.createSelect({
@@ -1880,12 +1945,14 @@ export class EditorCharacterBodyDrawer {
           eyeY,
           eyeScaleX,
           eyeScaleY,
+          eyeRotationDeg,
           eyeStyle,
           browStyle,
           browOffsetX,
           browOffsetY,
           browScaleX,
           browScaleY,
+          browRotationDeg,
           contourPoints: contourPoints.slice(),
           contourClosed,
           selectedContourIndex,
@@ -1917,12 +1984,14 @@ export class EditorCharacterBodyDrawer {
       eyeY = snapshot.eyeY
       eyeScaleX = snapshot.eyeScaleX
       eyeScaleY = snapshot.eyeScaleY
+      eyeRotationDeg = snapshot.eyeRotationDeg
       eyeStyle = snapshot.eyeStyle
       browStyle = snapshot.browStyle
       browOffsetX = snapshot.browOffsetX
       browOffsetY = snapshot.browOffsetY
       browScaleX = snapshot.browScaleX
       browScaleY = snapshot.browScaleY
+      browRotationDeg = snapshot.browRotationDeg
       contourPoints = snapshot.contourPoints.slice()
       contourClosed = snapshot.contourClosed
       selectedContourIndex = snapshot.selectedContourIndex
@@ -2470,6 +2539,7 @@ export class EditorCharacterBodyDrawer {
         browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
         browScaleX = DEFAULT_CHARACTER_BROW_SCALE
         browScaleY = DEFAULT_CHARACTER_BROW_SCALE
+        browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
       }
       if (layer.ctx) {
         layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
@@ -2487,15 +2557,21 @@ export class EditorCharacterBodyDrawer {
         return false
       }
       if (layer.kind === 'brow' && browStyle !== 'custom') {
-        const browBounds = getBrowBounds()
-        if (!browBounds) {
+        const browGeometry = getBrowGeometry()
+        if (!browGeometry) {
           return false
         }
+        const cos = Math.cos(-browGeometry.rotationRad)
+        const sin = Math.sin(-browGeometry.rotationRad)
+        const localX =
+          (x - browGeometry.centerX) * cos - (y - browGeometry.centerY) * sin
+        const localY =
+          (x - browGeometry.centerX) * sin + (y - browGeometry.centerY) * cos
         return (
-          x >= browBounds.centerX - browBounds.halfWidth &&
-          x <= browBounds.centerX + browBounds.halfWidth &&
-          y >= browBounds.centerY - browBounds.halfHeight &&
-          y <= browBounds.centerY + browBounds.halfHeight
+          localX >= -browGeometry.halfWidth &&
+          localX <= browGeometry.halfWidth &&
+          localY >= -browGeometry.halfHeight &&
+          localY <= browGeometry.halfHeight
         )
       }
       if (!layer.ctx) {
@@ -2515,26 +2591,39 @@ export class EditorCharacterBodyDrawer {
         editorFacing,
         eyeScaleX,
         eyeScaleY,
-        eyeStyle
+        eyeStyle,
+        eyeRotationDeg
       )
     }
 
-    const getEyeBounds = (): {
-      centerX: number
-      centerY: number
-      radiusX: number
-      radiusY: number
-    } | null => {
+    const getEyeBounds = (): EditorCanvasBounds | null => {
       const eyeGeometry = getEyeGeometry()
       if (!eyeGeometry) {
         return null
       }
+      const eyeBounds = getCharacterEyeBounds(eyeGeometry)
       return {
-        centerX: eyeGeometry.centerX,
-        centerY: eyeGeometry.centerY,
-        radiusX: Math.max(1, Math.round(eyeGeometry.outerRadiusX)),
-        radiusY: Math.max(1, Math.round(eyeGeometry.outerRadiusY)),
+        minX: Math.floor(eyeBounds.minX),
+        minY: Math.floor(eyeBounds.minY),
+        maxX: Math.ceil(eyeBounds.maxX),
+        maxY: Math.ceil(eyeBounds.maxY),
       }
+    }
+
+    const getBrowGeometry = () => {
+      const eyeGeometry = getEyeGeometry()
+      if (!eyeGeometry || !contourClosed) {
+        return null
+      }
+      return getCharacterBrowGeometry(
+        eyeGeometry,
+        browStyle,
+        browOffsetX,
+        browOffsetY,
+        browScaleX,
+        browScaleY,
+        browRotationDeg
+      )
     }
 
     const getBrowBounds = (): {
@@ -2546,26 +2635,22 @@ export class EditorCharacterBodyDrawer {
       archHeight: number
       baselineOffsetY: number
     } | null => {
-      const eyeGeometry = getEyeGeometry()
-      if (!eyeGeometry || !contourClosed) {
-        return null
-      }
-      const browGeometry = getCharacterBrowGeometry(
-        eyeGeometry,
-        browStyle,
-        browOffsetX,
-        browOffsetY,
-        browScaleX,
-        browScaleY
-      )
+      const browGeometry = getBrowGeometry()
       if (!browGeometry) {
         return null
       }
+      const browBounds = getCharacterBrowBounds(browGeometry)
       return {
         centerX: Math.round(browGeometry.centerX),
         centerY: Math.round(browGeometry.centerY),
-        halfWidth: Math.max(1, Math.round(browGeometry.halfWidth)),
-        halfHeight: Math.max(1, Math.round(browGeometry.halfHeight)),
+        halfWidth: Math.max(
+          1,
+          Math.round((browBounds.maxX - browBounds.minX) * 0.5)
+        ),
+        halfHeight: Math.max(
+          1,
+          Math.round((browBounds.maxY - browBounds.minY) * 0.5)
+        ),
         thickness: Math.max(1, Math.round(browGeometry.thickness)),
         archHeight: Math.max(1, Math.round(browGeometry.archHeight)),
         baselineOffsetY: Math.round(browGeometry.baselineOffsetY),
@@ -2619,16 +2704,23 @@ export class EditorCharacterBodyDrawer {
           return layer
         }
         if (layer.kind === 'eye') {
-          const eyeBounds = getEyeBounds()
-          if (!eyeBounds) {
+          const eyeGeometry = getEyeGeometry()
+          if (!eyeGeometry) {
             continue
           }
-          const dx = pointX - eyeBounds.centerX
-          const dy = pointY - eyeBounds.centerY
-          const radiusX = Math.max(1, eyeBounds.radiusX)
-          const radiusY = Math.max(1, eyeBounds.radiusY)
+          const cos = Math.cos(-eyeGeometry.rotationRad)
+          const sin = Math.sin(-eyeGeometry.rotationRad)
+          const localX =
+            (pointX - eyeGeometry.centerX) * cos -
+            (pointY - eyeGeometry.centerY) * sin
+          const localY =
+            (pointX - eyeGeometry.centerX) * sin +
+            (pointY - eyeGeometry.centerY) * cos
+          const radiusX = Math.max(1, Math.round(eyeGeometry.outerRadiusX))
+          const radiusY = Math.max(1, Math.round(eyeGeometry.outerRadiusY))
           if (
-            dx * dx * radiusY * radiusY + dy * dy * radiusX * radiusX <=
+            localX * localX * radiusY * radiusY +
+              localY * localY * radiusX * radiusX <=
             radiusX * radiusX * radiusY * radiusY
           ) {
             return layer
@@ -2663,15 +2755,7 @@ export class EditorCharacterBodyDrawer {
           : null
       }
       if (selectedLayer.kind === 'eye') {
-        const eyeBounds = getEyeBounds()
-        return eyeBounds
-          ? {
-              minX: eyeBounds.centerX - eyeBounds.radiusX,
-              minY: eyeBounds.centerY - eyeBounds.radiusY,
-              maxX: eyeBounds.centerX + eyeBounds.radiusX,
-              maxY: eyeBounds.centerY + eyeBounds.radiusY,
-            }
-          : null
+        return getEyeBounds()
       }
       if (!selectedLayer.ctx) {
         return null
@@ -2741,6 +2825,40 @@ export class EditorCharacterBodyDrawer {
       return cloneBounds(targetBounds)
     }
 
+    const drawRotatedSnapshot = (
+      ctx: CanvasRenderingContext2D,
+      snapshot: EditorCanvasSnapshot | null,
+      centerX: number,
+      centerY: number,
+      rotationDeg: number
+    ): EditorCanvasBounds | null => {
+      ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      if (!snapshot?.bounds || !snapshot.image) {
+        return null
+      }
+      const sourceWidth = snapshot.bounds.maxX + 1 - snapshot.bounds.minX
+      const sourceHeight = snapshot.bounds.maxY + 1 - snapshot.bounds.minY
+      const outputCtx = this.getOutputContext(sourceWidth, sourceHeight)
+      if (!outputCtx || !this.outputCanvas) {
+        return null
+      }
+      outputCtx.clearRect(0, 0, sourceWidth, sourceHeight)
+      outputCtx.putImageData(snapshot.image, 0, 0)
+      ctx.save()
+      ctx.imageSmoothingEnabled = false
+      ctx.translate(centerX, centerY)
+      ctx.rotate((rotationDeg * Math.PI) / 180)
+      ctx.drawImage(
+        this.outputCanvas,
+        snapshot.bounds.minX - centerX,
+        snapshot.bounds.minY - centerY,
+        sourceWidth,
+        sourceHeight
+      )
+      ctx.restore()
+      return this.readAlphaBounds(ctx, DRAW_WORLD_SIZE)
+    }
+
     const getSelectionHandleCenter = (
       bounds: EditorCanvasBounds,
       handle: EditorSelectionHandle
@@ -2755,6 +2873,16 @@ export class EditorCharacterBodyDrawer {
       if (handle === 'sw') return { x: bounds.minX, y: bounds.maxY }
       if (handle === 'w') return { x: bounds.minX, y: centerY }
       return { x: bounds.minX, y: bounds.minY }
+    }
+
+    const getSelectionRotationHandleCenter = (
+      bounds: EditorCanvasBounds
+    ): { x: number; y: number } => {
+      const centerX = Math.round((bounds.minX + bounds.maxX) * 0.5)
+      return {
+        x: centerX,
+        y: bounds.minY - SELECTION_ROTATE_HANDLE_OFFSET,
+      }
     }
 
     const getSelectionHandleAtPoint = (
@@ -2790,6 +2918,27 @@ export class EditorCharacterBodyDrawer {
         }
       }
       return null
+    }
+
+    const getSelectionRotationHandleAtPoint = (
+      pointX: number,
+      pointY: number,
+      bounds: EditorCanvasBounds | null
+    ): EditorRotationHandle | null => {
+      if (!bounds) {
+        return null
+      }
+      const center = getSelectionRotationHandleCenter(bounds)
+      const hitRadius = Math.max(
+        2,
+        Math.round(
+          SELECTION_ROTATE_HANDLE_HIT_SIZE / Math.max(1, viewportScale * 2)
+        )
+      )
+      return Math.abs(pointX - center.x) <= hitRadius &&
+        Math.abs(pointY - center.y) <= hitRadius
+        ? 'rotate'
+        : null
     }
 
     const getScaledBoundsFromHandle = (
@@ -2935,6 +3084,130 @@ export class EditorCharacterBodyDrawer {
       }
     }
 
+    const rotateContourPoints = (
+      sourcePoints: number[],
+      centerX: number,
+      centerY: number,
+      rotationDeg: number
+    ) => {
+      const nextPoints = new Array<number>(sourcePoints.length)
+      const rotationRad = (rotationDeg * Math.PI) / 180
+      const cos = Math.cos(rotationRad)
+      const sin = Math.sin(rotationRad)
+      for (let i = 0; i < sourcePoints.length; i += 2) {
+        const dx = sourcePoints[i] - centerX
+        const dy = sourcePoints[i + 1] - centerY
+        nextPoints[i] = Math.round(centerX + dx * cos - dy * sin)
+        nextPoints[i + 1] = Math.round(centerY + dx * sin + dy * cos)
+      }
+      contourPoints = nextPoints
+    }
+
+    const beginSelectionRotate = (
+      layer: EditorBodyLayer,
+      bounds: EditorCanvasBounds,
+      pointerX: number,
+      pointerY: number
+    ): EditorSelectionRotateSession | null => {
+      const centerX = Math.round((bounds.minX + bounds.maxX) * 0.5)
+      const centerY = Math.round((bounds.minY + bounds.maxY) * 0.5)
+      const startAngleDeg = getPointerAngleDeg(
+        pointerX,
+        pointerY,
+        centerX,
+        centerY
+      )
+      if (layer.kind === 'core') {
+        const maskCaptured = captureCanvasSnapshot(
+          maskState.ctx,
+          maskState.bounds,
+          maskState.boundsDirty
+        )
+        const shapeCaptured = captureCanvasSnapshot(
+          shapeState.ctx,
+          shapeState.bounds,
+          shapeState.boundsDirty
+        )
+        const textureCaptured = captureCanvasSnapshot(
+          textureState.ctx,
+          textureState.bounds,
+          textureState.boundsDirty
+        )
+        maskState.bounds = maskCaptured.bounds
+        maskState.boundsDirty = false
+        shapeState.bounds = shapeCaptured.bounds
+        shapeState.boundsDirty = false
+        textureState.bounds = textureCaptured.bounds
+        textureState.boundsDirty = false
+        return {
+          layerId: layer.id,
+          centerX,
+          centerY,
+          startAngleDeg,
+          coreMask: maskCaptured.snapshot,
+          coreShape: shapeCaptured.snapshot,
+          coreTexture: textureCaptured.snapshot,
+          contourPoints: contourPoints.slice(),
+          layerSnapshot: null,
+          eyeRotationDeg,
+          browRotationDeg,
+        }
+      }
+      if (layer.kind === 'eye') {
+        return {
+          layerId: layer.id,
+          centerX,
+          centerY,
+          startAngleDeg,
+          coreMask: null,
+          coreShape: null,
+          coreTexture: null,
+          contourPoints: null,
+          layerSnapshot: null,
+          eyeRotationDeg,
+          browRotationDeg,
+        }
+      }
+      if (layer.kind === 'brow' && browStyle !== 'custom') {
+        return {
+          layerId: layer.id,
+          centerX,
+          centerY,
+          startAngleDeg,
+          coreMask: null,
+          coreShape: null,
+          coreTexture: null,
+          contourPoints: null,
+          layerSnapshot: null,
+          eyeRotationDeg,
+          browRotationDeg,
+        }
+      }
+      if (!layer.ctx) {
+        return null
+      }
+      const captured = captureCanvasSnapshot(
+        layer.ctx,
+        layer.bounds,
+        layer.boundsDirty
+      )
+      layer.bounds = captured.bounds
+      layer.boundsDirty = false
+      return {
+        layerId: layer.id,
+        centerX,
+        centerY,
+        startAngleDeg,
+        coreMask: null,
+        coreShape: null,
+        coreTexture: null,
+        contourPoints: null,
+        layerSnapshot: captured.snapshot,
+        eyeRotationDeg,
+        browRotationDeg,
+      }
+    }
+
     const applySelectionScale = (
       session: EditorSelectionScaleSession,
       pointX: number,
@@ -3051,6 +3324,86 @@ export class EditorCharacterBodyDrawer {
         layer.ctx,
         session.layerSnapshot,
         scaledBounds
+      )
+      layer.boundsDirty = false
+    }
+
+    const applySelectionRotation = (
+      session: EditorSelectionRotateSession,
+      pointX: number,
+      pointY: number
+    ) => {
+      const layer = getLayerById(session.layerId)
+      if (!layer) {
+        return
+      }
+      const currentAngleDeg = getPointerAngleDeg(
+        pointX,
+        pointY,
+        session.centerX,
+        session.centerY
+      )
+      const rotationDeg = getRotationDeltaDeg(
+        session.startAngleDeg,
+        currentAngleDeg
+      )
+      if (layer.kind === 'core') {
+        maskState.bounds = drawRotatedSnapshot(
+          maskState.ctx,
+          session.coreMask,
+          session.centerX,
+          session.centerY,
+          rotationDeg
+        )
+        maskState.boundsDirty = false
+        shapeState.bounds = drawRotatedSnapshot(
+          shapeState.ctx,
+          session.coreShape,
+          session.centerX,
+          session.centerY,
+          rotationDeg
+        )
+        shapeState.boundsDirty = false
+        textureState.bounds = drawRotatedSnapshot(
+          textureState.ctx,
+          session.coreTexture,
+          session.centerX,
+          session.centerY,
+          rotationDeg
+        )
+        textureState.boundsDirty = false
+        if (session.contourPoints) {
+          rotateContourPoints(
+            session.contourPoints,
+            session.centerX,
+            session.centerY,
+            rotationDeg
+          )
+        }
+        ensureEyeInsideBody()
+        return
+      }
+      if (layer.kind === 'eye') {
+        eyeRotationDeg = normalizeRotationDeg(
+          session.eyeRotationDeg + rotationDeg
+        )
+        return
+      }
+      if (layer.kind === 'brow' && browStyle !== 'custom') {
+        browRotationDeg = normalizeRotationDeg(
+          session.browRotationDeg + rotationDeg
+        )
+        return
+      }
+      if (!layer.ctx) {
+        return
+      }
+      layer.bounds = drawRotatedSnapshot(
+        layer.ctx,
+        session.layerSnapshot,
+        session.centerX,
+        session.centerY,
+        rotationDeg
       )
       layer.boundsDirty = false
     }
@@ -3356,12 +3709,14 @@ export class EditorCharacterBodyDrawer {
       eyeY = preset.eyeY
       eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
       eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+      eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
       eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
       browStyle = DEFAULT_CHARACTER_BROW_STYLE
       browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
       browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
       browScaleX = DEFAULT_CHARACTER_BROW_SCALE
       browScaleY = DEFAULT_CHARACTER_BROW_SCALE
+      browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
       colorInput.value = preset.color
       bloodColorInput.value = preset.bloodColor
       bloodColorAssigned = true
@@ -3464,7 +3819,8 @@ export class EditorCharacterBodyDrawer {
           editorFacing,
           eyeScaleX,
           eyeScaleY,
-          eyeStyle
+          eyeStyle,
+          eyeRotationDeg
         ),
         '#17120e'
       )
@@ -3482,23 +3838,11 @@ export class EditorCharacterBodyDrawer {
       ) {
         return
       }
-      const browBounds = getBrowBounds()
-      if (!browBounds) {
+      const browGeometry = getBrowGeometry()
+      if (!browGeometry) {
         return
       }
-      drawCharacterBrowGeometry(
-        ctx,
-        {
-          centerX: browBounds.centerX,
-          centerY: browBounds.centerY,
-          halfWidth: browBounds.halfWidth,
-          halfHeight: browBounds.halfHeight,
-          thickness: browBounds.thickness,
-          archHeight: browBounds.archHeight,
-          baselineOffsetY: browBounds.baselineOffsetY,
-        },
-        '#231711'
-      )
+      drawCharacterBrowGeometry(ctx, browGeometry, '#231711')
     }
 
     const drawMergedVisualWorld = (
@@ -3525,17 +3869,7 @@ export class EditorCharacterBodyDrawer {
           drawEyeLayer(ctx, contourBounds)
           if (contourBounds) {
             const eyeBounds = getEyeBounds()
-            mergedBounds = mergeBounds(
-              mergedBounds,
-              eyeBounds
-                ? createBoundsFromRect(
-                    eyeBounds.centerX - eyeBounds.radiusX,
-                    eyeBounds.centerY - eyeBounds.radiusY,
-                    eyeBounds.radiusX * 2,
-                    eyeBounds.radiusY * 2
-                  )
-                : null
-            )
+            mergedBounds = mergeBounds(mergedBounds, eyeBounds)
           }
           continue
         }
@@ -3615,6 +3949,33 @@ export class EditorCharacterBodyDrawer {
               drawCtx.fill()
               drawCtx.stroke()
             }
+          }
+          if (isLayerRotatable(selectedLayer)) {
+            const rotateCenter =
+              getSelectionRotationHandleCenter(selectedBounds)
+            const handleSize = Math.max(
+              2,
+              SELECTION_ROTATE_HANDLE_SIZE / viewportScale
+            )
+            const halfHandle = handleSize * 0.5
+            const anchorY = selectedBounds.minY
+            drawCtx.setLineDash([])
+            drawCtx.strokeStyle = 'rgba(36,24,16,0.96)'
+            drawCtx.beginPath()
+            drawCtx.moveTo(rotateCenter.x, anchorY)
+            drawCtx.lineTo(rotateCenter.x, rotateCenter.y + halfHandle)
+            drawCtx.stroke()
+            drawCtx.fillStyle = '#f7ecd2'
+            drawCtx.beginPath()
+            drawCtx.arc(
+              rotateCenter.x,
+              rotateCenter.y,
+              halfHandle,
+              0,
+              Math.PI * 2
+            )
+            drawCtx.fill()
+            drawCtx.stroke()
           }
           drawCtx.restore()
         }
@@ -3936,12 +4297,14 @@ export class EditorCharacterBodyDrawer {
       selectedLayerId = CORE_LAYER_ID
       eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
       eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+      eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
       eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
       browStyle = DEFAULT_CHARACTER_BROW_STYLE
       browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
       browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
       browScaleX = DEFAULT_CHARACTER_BROW_SCALE
       browScaleY = DEFAULT_CHARACTER_BROW_SCALE
+      browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
 
       const profile = options.initialProfile
       const initialPresetId = this.isBodyPresetId(profile?.presetId)
@@ -3975,6 +4338,7 @@ export class EditorCharacterBodyDrawer {
         typeof profile?.eyeScaleY === 'number'
           ? clampCharacterEyeScale(profile.eyeScaleY)
           : DEFAULT_CHARACTER_EYE_SCALE
+      eyeRotationDeg = getCharacterEyeRotationDeg(profile) * editorFacing
       eyeStyle = getCharacterEyeStyle(profile)
       browStyle = getCharacterBrowStyle(profile)
       browOffsetX = getCharacterBrowOffsetX(profile) * editorFacing
@@ -3987,6 +4351,7 @@ export class EditorCharacterBodyDrawer {
         typeof profile?.browScaleY === 'number'
           ? clampCharacterEyeScale(profile.browScaleY)
           : DEFAULT_CHARACTER_BROW_SCALE
+      browRotationDeg = getCharacterBrowRotationDeg(profile) * editorFacing
       if (profile && profile.points.length >= 6) {
         contourPoints = new Array<number>(profile.points.length)
         for (let i = 0; i < profile.points.length; i += 2) {
@@ -4205,12 +4570,14 @@ export class EditorCharacterBodyDrawer {
       eyeY = DEFAULT_CHARACTER_EYE_Y
       eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
       eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+      eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
       eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
       browStyle = DEFAULT_CHARACTER_BROW_STYLE
       browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
       browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
       browScaleX = DEFAULT_CHARACTER_BROW_SCALE
       browScaleY = DEFAULT_CHARACTER_BROW_SCALE
+      browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
       textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       textureState.bounds = null
       textureState.boundsDirty = false
@@ -4487,6 +4854,40 @@ export class EditorCharacterBodyDrawer {
         if (mode === 'select') {
           const selectedLayer = getSelectedLayer()
           const selectedBounds = getSelectedLayerBounds()
+          const rotationHandle =
+            isLayerRotatable(selectedLayer) && selectedBounds
+              ? getSelectionRotationHandleAtPoint(
+                  point.x,
+                  point.y,
+                  selectedBounds
+                )
+              : null
+          if (selectedLayer && selectedBounds && rotationHandle) {
+            pointerActive = true
+            pointerChanged = false
+            selectionDragLayerId = -1
+            selectionScaleSession = null
+            selectionRotateSession = beginSelectionRotate(
+              selectedLayer,
+              selectedBounds,
+              point.x,
+              point.y
+            )
+            if (!selectionRotateSession) {
+              pointerActive = false
+              event.preventDefault()
+              event.stopPropagation()
+              return
+            }
+            invalidatePresetSelection()
+            lastX = point.x
+            lastY = point.y
+            drawCanvas.setPointerCapture(event.pointerId)
+            renderComposite()
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
           const selectionHandle =
             isLayerScalable(selectedLayer) && selectedBounds
               ? getSelectionHandleAtPoint(point.x, point.y, selectedBounds)
@@ -4495,6 +4896,7 @@ export class EditorCharacterBodyDrawer {
             pointerActive = true
             pointerChanged = false
             selectionDragLayerId = -1
+            selectionRotateSession = null
             selectionScaleSession = beginSelectionScale(
               selectedLayer,
               selectionHandle,
@@ -4538,6 +4940,7 @@ export class EditorCharacterBodyDrawer {
           pointerChanged = false
           selectionDragLayerId = hitLayer.id
           selectionScaleSession = null
+          selectionRotateSession = null
           lastDragWorldX = point.x
           lastDragWorldY = point.y
           lastX = point.x
@@ -4676,6 +5079,18 @@ export class EditorCharacterBodyDrawer {
             event.stopPropagation()
             return
           }
+          if (selectionRotateSession) {
+            if (point.x !== lastX || point.y !== lastY) {
+              applySelectionRotation(selectionRotateSession, point.x, point.y)
+              pointerChanged = true
+              lastX = point.x
+              lastY = point.y
+              renderComposite()
+            }
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
           if (selectionDragLayerId >= 0) {
             const offsetX = point.x - lastDragWorldX
             const offsetY = point.y - lastDragWorldY
@@ -4771,6 +5186,7 @@ export class EditorCharacterBodyDrawer {
         }
         selectionDragLayerId = -1
         selectionScaleSession = null
+        selectionRotateSession = null
         lastDragWorldX = 0
         lastDragWorldY = 0
         if (pointerChanged) {
@@ -4889,6 +5305,7 @@ export class EditorCharacterBodyDrawer {
                 eyeY,
                 eyeScaleX,
                 eyeScaleY,
+                eyeRotationDeg,
                 eyeStyle,
                 browStyle,
                 editorFacing,
@@ -4896,6 +5313,7 @@ export class EditorCharacterBodyDrawer {
                 browOffsetY,
                 browScaleX,
                 browScaleY,
+                browRotationDeg,
                 bloodColorInput.value,
                 currentPresetId,
                 coreImageShape !== null,
@@ -5010,6 +5428,7 @@ export class EditorCharacterBodyDrawer {
     eyeY: number,
     eyeScaleX: number,
     eyeScaleY: number,
+    eyeRotationDeg: number,
     eyeStyle: MapCharacterBodyEyeStyle,
     browStyle: MapCharacterBodyBrowStyle,
     editorFacing: number,
@@ -5017,6 +5436,7 @@ export class EditorCharacterBodyDrawer {
     browOffsetY: number,
     browScaleX: number,
     browScaleY: number,
+    browRotationDeg: number,
     bloodColor: string,
     presetId: EditorCharacterBodyPresetId,
     usePureImageSurface: boolean,
@@ -5072,13 +5492,15 @@ export class EditorCharacterBodyDrawer {
           eyeY,
           eyeScaleX,
           eyeScaleY,
+          eyeRotationDeg,
           eyeStyle,
           browStyle,
           editorFacing,
           browOffsetX,
           browOffsetY,
           browScaleX,
-          browScaleY
+          browScaleY,
+          browRotationDeg
         )
     const maskWidthPx = maskFill.maxX + 1 - maskFill.minX
     const maskHeightPx = maskFill.maxY + 1 - maskFill.minY
@@ -5144,7 +5566,7 @@ export class EditorCharacterBodyDrawer {
       height,
       color: usePureImageSurface ? TRANSPARENT_BODY_COLOR : color,
       bloodColor,
-      eyeX: Math.round(eyeX * 1000) / 1000,
+      eyeX: Math.round(eyeX * editorFacing * 1000) / 1000,
       eyeY: Math.round(eyeY * 1000) / 1000,
       eyeScaleX:
         Math.abs(eyeScaleX - DEFAULT_CHARACTER_EYE_SCALE) > 0.001
@@ -5154,12 +5576,16 @@ export class EditorCharacterBodyDrawer {
         Math.abs(eyeScaleY - DEFAULT_CHARACTER_EYE_SCALE) > 0.001
           ? Math.round(eyeScaleY * 1000) / 1000
           : undefined,
+      eyeRotationDeg:
+        eyeRotationDeg !== DEFAULT_CHARACTER_EYE_ROTATION_DEG
+          ? eyeRotationDeg * editorFacing
+          : undefined,
       eyeStyle: eyeStyle !== DEFAULT_CHARACTER_EYE_STYLE ? eyeStyle : undefined,
       browStyle:
         browStyle !== DEFAULT_CHARACTER_BROW_STYLE ? browStyle : undefined,
       browOffsetX:
         browOffsetX !== DEFAULT_CHARACTER_BROW_OFFSET_X
-          ? Math.round(browOffsetX * 1000) / 1000
+          ? Math.round(browOffsetX * editorFacing * 1000) / 1000
           : undefined,
       browOffsetY:
         browOffsetY !== DEFAULT_CHARACTER_BROW_OFFSET_Y
@@ -5173,10 +5599,15 @@ export class EditorCharacterBodyDrawer {
         Math.abs(browScaleY - DEFAULT_CHARACTER_BROW_SCALE) > 0.001
           ? Math.round(browScaleY * 1000) / 1000
           : undefined,
+      browRotationDeg:
+        browRotationDeg !== DEFAULT_CHARACTER_BROW_ROTATION_DEG
+          ? browRotationDeg * editorFacing
+          : undefined,
       embeddedEye: !textureDataUrl && !usePureImageSurface && !!surfaceDataUrl,
       surfaceOffsetX: surfaceBounds
         ? Math.round(
             ((surfaceBounds.minX + surfaceBounds.maxX) * 0.5 - coreCenterX) *
+              editorFacing *
               1000
           ) / 1000
         : undefined,
@@ -5931,13 +6362,15 @@ export class EditorCharacterBodyDrawer {
     eyeY: number,
     eyeScaleX: number,
     eyeScaleY: number,
+    eyeRotationDeg: number,
     eyeStyle: MapCharacterBodyEyeStyle,
     browStyle: MapCharacterBodyBrowStyle,
     editorFacing: number,
     browOffsetX: number,
     browOffsetY: number,
     browScaleX: number,
-    browScaleY: number
+    browScaleY: number,
+    browRotationDeg: number
   ): { minX: number; minY: number; maxX: number; maxY: number } | null {
     let mergedBounds = this.readAlphaBounds(shapeCtx, DRAW_WORLD_SIZE)
     compositeCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
@@ -5958,13 +6391,15 @@ export class EditorCharacterBodyDrawer {
           editorFacing,
           eyeScaleX,
           eyeScaleY,
-          eyeStyle
+          eyeStyle,
+          eyeRotationDeg
         )
         drawCharacterEyeGeometry(compositeCtx, eyeGeometry, '#17120e')
-        const eyeMinX = eyeGeometry.centerX - eyeGeometry.outerRadiusX
-        const eyeMinY = eyeGeometry.centerY - eyeGeometry.outerRadiusY
-        const eyeMaxX = eyeGeometry.centerX + eyeGeometry.outerRadiusX
-        const eyeMaxY = eyeGeometry.centerY + eyeGeometry.outerRadiusY
+        const eyeBounds = getCharacterEyeBounds(eyeGeometry)
+        const eyeMinX = eyeBounds.minX
+        const eyeMinY = eyeBounds.minY
+        const eyeMaxX = eyeBounds.maxX
+        const eyeMaxY = eyeBounds.maxY
         if (!mergedBounds) {
           mergedBounds = {
             minX: eyeMinX,
@@ -5996,7 +6431,8 @@ export class EditorCharacterBodyDrawer {
             editorFacing,
             eyeScaleX,
             eyeScaleY,
-            eyeStyle
+            eyeStyle,
+            eyeRotationDeg
           )
           const browGeometry = getCharacterBrowGeometry(
             eyeGeometry,
@@ -6004,26 +6440,16 @@ export class EditorCharacterBodyDrawer {
             browOffsetX,
             browOffsetY,
             browScaleX,
-            browScaleY
+            browScaleY,
+            browRotationDeg
           )
           if (browGeometry) {
             drawCharacterBrowGeometry(compositeCtx, browGeometry, '#231711')
-            const browMinX =
-              browGeometry.centerX -
-              browGeometry.halfWidth -
-              browGeometry.thickness
-            const browMaxX =
-              browGeometry.centerX +
-              browGeometry.halfWidth +
-              browGeometry.thickness
-            const browMinY =
-              browGeometry.centerY -
-              browGeometry.archHeight -
-              browGeometry.thickness
-            const browMaxY =
-              browGeometry.centerY +
-              browGeometry.thickness +
-              browGeometry.baselineOffsetY
+            const browBounds = getCharacterBrowBounds(browGeometry)
+            const browMinX = browBounds.minX
+            const browMaxX = browBounds.maxX
+            const browMinY = browBounds.minY
+            const browMaxY = browBounds.maxY
             if (!mergedBounds) {
               mergedBounds = {
                 minX: browMinX,
@@ -6207,8 +6633,11 @@ export class EditorCharacterBodyDrawer {
         name: layer.name,
         kind: layer.kind,
         offsetX:
-          Math.round(((bounds.minX + bounds.maxX) * 0.5 - coreCenterX) * 1000) /
-          1000,
+          Math.round(
+            ((bounds.minX + bounds.maxX) * 0.5 - coreCenterX) *
+              editorFacing *
+              1000
+          ) / 1000,
         offsetY:
           Math.round(((bounds.minY + bounds.maxY) * 0.5 - coreCenterY) * 1000) /
           1000,

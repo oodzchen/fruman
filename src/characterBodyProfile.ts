@@ -13,11 +13,13 @@ export const NPC_BODY_PROFILE_INDEX_START = 2
 export const DEFAULT_CHARACTER_EYE_X = 32
 export const DEFAULT_CHARACTER_EYE_Y = -32
 export const DEFAULT_CHARACTER_EYE_SCALE = 1
+export const DEFAULT_CHARACTER_EYE_ROTATION_DEG = 0
 export const DEFAULT_CHARACTER_EYE_STYLE: MapCharacterBodyEyeStyle = 'standard'
 export const DEFAULT_CHARACTER_BROW_STYLE: MapCharacterBodyBrowStyle = 'none'
 export const DEFAULT_CHARACTER_BROW_OFFSET_X = 0
 export const DEFAULT_CHARACTER_BROW_OFFSET_Y = 0
 export const DEFAULT_CHARACTER_BROW_SCALE = 1
+export const DEFAULT_CHARACTER_BROW_ROTATION_DEG = 0
 const MIN_CHARACTER_EYE_COORD = -56
 const MAX_CHARACTER_EYE_COORD = 56
 const MIN_CHARACTER_EYE_SCALE = 0.25
@@ -36,6 +38,7 @@ export interface CharacterBodyFeatureDrawContext {
   save(): void
   restore(): void
   translate(x: number, y: number): void
+  rotate(angle: number): void
   beginPath(): void
   arc(
     x: number,
@@ -66,6 +69,7 @@ export interface CharacterEyeGeometry {
   style: MapCharacterBodyEyeStyle
   centerX: number
   centerY: number
+  rotationRad: number
   outerRadiusX: number
   outerRadiusY: number
   whiteRadiusX: number
@@ -84,11 +88,66 @@ export interface CharacterEyeGeometry {
 export interface CharacterBrowGeometry {
   centerX: number
   centerY: number
+  rotationRad: number
   halfWidth: number
   halfHeight: number
   thickness: number
   archHeight: number
   baselineOffsetY: number
+}
+
+export interface CharacterFeatureBounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+function getCharacterRotationRad(rotationDeg: number): number {
+  return (rotationDeg * Math.PI) / 180
+}
+
+function getRotatedBounds(
+  centerX: number,
+  centerY: number,
+  minLocalX: number,
+  minLocalY: number,
+  maxLocalX: number,
+  maxLocalY: number,
+  rotationRad: number
+): CharacterFeatureBounds {
+  if (rotationRad === 0) {
+    return {
+      minX: centerX + minLocalX,
+      minY: centerY + minLocalY,
+      maxX: centerX + maxLocalX,
+      maxY: centerY + maxLocalY,
+    }
+  }
+  const cos = Math.cos(rotationRad)
+  const sin = Math.sin(rotationRad)
+  let minX = 0
+  let minY = 0
+  let maxX = 0
+  let maxY = 0
+  for (let i = 0; i < 4; i++) {
+    const localX = i === 0 || i === 3 ? minLocalX : maxLocalX
+    const localY = i < 2 ? minLocalY : maxLocalY
+    const worldX = centerX + localX * cos - localY * sin
+    const worldY = centerY + localX * sin + localY * cos
+    if (i === 0) {
+      minX = worldX
+      minY = worldY
+      maxX = worldX
+      maxY = worldY
+      continue
+    }
+    if (worldX < minX) minX = worldX
+    if (worldY < minY) minY = worldY
+    if (worldX > maxX) maxX = worldX
+    if (worldY > maxY) maxY = worldY
+  }
+  return { minX, minY, maxX, maxY }
 }
 
 function getPositiveProfileSize(value: number | undefined): number {
@@ -333,11 +392,21 @@ export function getCharacterEyeStyle(
     : DEFAULT_CHARACTER_EYE_STYLE
 }
 
+export function getCharacterEyeRotationDeg(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  const value = profile?.eyeRotationDeg
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(value)
+    : DEFAULT_CHARACTER_EYE_ROTATION_DEG
+}
+
 export function getCharacterBrowStyle(
   profile: MapCharacterBodyProfile | null | undefined
 ): MapCharacterBodyBrowStyle {
   const style = profile?.browStyle
   return style === 'none' ||
+    style === 'straight' ||
     style === 'thick' ||
     style === 'thin' ||
     style === 'custom'
@@ -423,6 +492,15 @@ export function getCharacterBrowScaleY(
     : DEFAULT_CHARACTER_BROW_SCALE
 }
 
+export function getCharacterBrowRotationDeg(
+  profile: MapCharacterBodyProfile | null | undefined
+): number {
+  const value = profile?.browRotationDeg
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(value)
+    : DEFAULT_CHARACTER_BROW_ROTATION_DEG
+}
+
 export function getCharacterEyeGeometry(
   centerX: number,
   centerY: number,
@@ -430,6 +508,7 @@ export function getCharacterEyeGeometry(
   eyeScaleX: number,
   eyeScaleY: number,
   style: MapCharacterBodyEyeStyle,
+  rotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG,
   scaleX = 1,
   scaleY = 1
 ): CharacterEyeGeometry {
@@ -454,6 +533,7 @@ export function getCharacterEyeGeometry(
     style,
     centerX,
     centerY,
+    rotationRad: getCharacterRotationRad(rotationDeg),
     outerRadiusX: Math.max(
       safeScaleX,
       CHARACTER_EYE_OUTER_RADIUS * safeScaleX * resolvedEyeScaleX
@@ -500,6 +580,7 @@ export function getCharacterEyeGeometryFromProfile(
   scaleX = 1,
   scaleY = 1
 ): CharacterEyeGeometry {
+  const facing = facingDirection < 0 ? -1 : 1
   const clampedOffset = clampCharacterEyeOffsetToCircle(
     getCharacterEyeDrawX(profile),
     getCharacterEyeDrawY(profile),
@@ -509,12 +590,13 @@ export function getCharacterEyeGeometryFromProfile(
     )
   )
   return getCharacterEyeGeometry(
-    clampedOffset.x * scaleX,
+    clampedOffset.x * scaleX * facing,
     clampedOffset.y * scaleY,
     facingDirection,
     getCharacterEyeScaleX(profile),
     getCharacterEyeScaleY(profile),
     getCharacterEyeStyle(profile),
+    getCharacterEyeRotationDeg(profile) * facing,
     scaleX,
     scaleY
   )
@@ -527,6 +609,7 @@ export function getCharacterBrowGeometry(
   browOffsetY: number,
   browScaleX: number,
   browScaleY: number,
+  browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG,
   scaleX = 1,
   scaleY = 1
 ): CharacterBrowGeometry | null {
@@ -541,10 +624,15 @@ export function getCharacterBrowGeometry(
     8 * safeScaleX,
     (eyeGeometry.outerRadiusX * 7) / 5
   )
-  const baseThickness = (style === 'thick' ? 4 : 2) * safeScaleY
-  const baseArchHeight = (style === 'thick' ? 4 : 2) * safeScaleY
+  const baseThickness =
+    (style === 'thick' ? 4 : style === 'straight' ? 3 : 2) * safeScaleY
+  const baseArchHeight =
+    (style === 'thick' ? 4 : style === 'straight' ? 0 : 2) * safeScaleY
   const thickness = Math.max(safeScaleY, baseThickness * resolvedScaleY)
-  const archHeight = Math.max(safeScaleY, baseArchHeight * resolvedScaleY)
+  const archHeight =
+    style === 'straight'
+      ? 0
+      : Math.max(safeScaleY, baseArchHeight * resolvedScaleY)
   const baselineOffsetY = safeScaleY
   return {
     centerX: eyeGeometry.centerX + browOffsetX * safeScaleX,
@@ -554,6 +642,7 @@ export function getCharacterBrowGeometry(
       5 * safeScaleY +
       browOffsetY * safeScaleY -
       archHeight * 0.5,
+    rotationRad: getCharacterRotationRad(browRotationDeg),
     halfWidth: Math.max(4 * safeScaleX, baseHalfWidth * resolvedScaleX),
     halfHeight: thickness + archHeight + baselineOffsetY,
     thickness,
@@ -569,13 +658,15 @@ export function getCharacterBrowGeometryFromProfile(
   scaleX = 1,
   scaleY = 1
 ): CharacterBrowGeometry | null {
+  const facing = facingDirection < 0 ? -1 : 1
   return getCharacterBrowGeometry(
     eyeGeometry,
     getCharacterBrowStyle(profile),
-    getCharacterBrowOffsetX(profile),
+    getCharacterBrowOffsetX(profile) * facing,
     getCharacterBrowOffsetY(profile),
     getCharacterBrowScaleX(profile),
     getCharacterBrowScaleY(profile),
+    getCharacterBrowRotationDeg(profile) * facing,
     scaleX,
     scaleY
   )
@@ -588,6 +679,9 @@ export function drawCharacterEyeGeometry(
 ): void {
   ctx.save()
   ctx.translate(geometry.centerX, geometry.centerY)
+  if (geometry.rotationRad !== 0) {
+    ctx.rotate(geometry.rotationRad)
+  }
   if (geometry.style === 'pupilOnly') {
     ctx.fillStyle = pupilColor
     ctx.beginPath()
@@ -717,22 +811,79 @@ export function drawCharacterBrowGeometry(
   color: string
 ): void {
   ctx.save()
+  ctx.translate(geometry.centerX, geometry.centerY)
+  if (geometry.rotationRad !== 0) {
+    ctx.rotate(geometry.rotationRad)
+  }
   ctx.strokeStyle = color
   ctx.lineCap = 'round'
   ctx.lineWidth = geometry.thickness
   ctx.beginPath()
-  ctx.moveTo(
-    geometry.centerX - geometry.halfWidth,
-    geometry.centerY + geometry.baselineOffsetY
-  )
+  ctx.moveTo(-geometry.halfWidth, geometry.baselineOffsetY)
   ctx.quadraticCurveTo(
-    geometry.centerX,
-    geometry.centerY - geometry.archHeight,
-    geometry.centerX + geometry.halfWidth,
-    geometry.centerY + geometry.baselineOffsetY
+    0,
+    -geometry.archHeight,
+    geometry.halfWidth,
+    geometry.baselineOffsetY
   )
   ctx.stroke()
   ctx.restore()
+}
+
+export function getCharacterEyeBounds(
+  geometry: CharacterEyeGeometry
+): CharacterFeatureBounds {
+  const minLocalX = Math.min(
+    -geometry.outerRadiusX,
+    geometry.pupilOffsetX - geometry.pupilRadiusX,
+    geometry.pupilOffsetX +
+      geometry.highlightOffsetX -
+      geometry.highlightRadiusX,
+    -geometry.cuteRadiusX
+  )
+  const maxLocalX = Math.max(
+    geometry.outerRadiusX,
+    geometry.pupilOffsetX + geometry.pupilRadiusX,
+    geometry.pupilOffsetX +
+      geometry.highlightOffsetX +
+      geometry.highlightRadiusX,
+    geometry.cuteRadiusX
+  )
+  const minLocalY = Math.min(
+    -geometry.outerRadiusY,
+    -geometry.pupilRadiusY,
+    geometry.highlightOffsetY - geometry.highlightRadiusY,
+    -geometry.cuteRadiusY
+  )
+  const maxLocalY = Math.max(
+    geometry.outerRadiusY,
+    geometry.pupilRadiusY,
+    geometry.highlightOffsetY + geometry.highlightRadiusY,
+    geometry.cuteRadiusY
+  )
+  return getRotatedBounds(
+    geometry.centerX,
+    geometry.centerY,
+    minLocalX,
+    minLocalY,
+    maxLocalX,
+    maxLocalY,
+    geometry.rotationRad
+  )
+}
+
+export function getCharacterBrowBounds(
+  geometry: CharacterBrowGeometry
+): CharacterFeatureBounds {
+  return getRotatedBounds(
+    geometry.centerX,
+    geometry.centerY,
+    -geometry.halfWidth - geometry.thickness,
+    -geometry.archHeight - geometry.thickness,
+    geometry.halfWidth + geometry.thickness,
+    geometry.thickness + geometry.baselineOffsetY,
+    geometry.rotationRad
+  )
 }
 
 export function getCharacterEyeOffsetX(
