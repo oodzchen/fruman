@@ -500,7 +500,6 @@ export function getCharacterEyeGeometryFromProfile(
   scaleX = 1,
   scaleY = 1
 ): CharacterEyeGeometry {
-  const facing = facingDirection < 0 ? -1 : 1
   const clampedOffset = clampCharacterEyeOffsetToCircle(
     getCharacterEyeDrawX(profile),
     getCharacterEyeDrawY(profile),
@@ -510,7 +509,7 @@ export function getCharacterEyeGeometryFromProfile(
     )
   )
   return getCharacterEyeGeometry(
-    clampedOffset.x * scaleX * facing,
+    clampedOffset.x * scaleX,
     clampedOffset.y * scaleY,
     facingDirection,
     getCharacterEyeScaleX(profile),
@@ -570,11 +569,10 @@ export function getCharacterBrowGeometryFromProfile(
   scaleX = 1,
   scaleY = 1
 ): CharacterBrowGeometry | null {
-  const facing = facingDirection < 0 ? -1 : 1
   return getCharacterBrowGeometry(
     eyeGeometry,
     getCharacterBrowStyle(profile),
-    getCharacterBrowOffsetX(profile) * facing,
+    getCharacterBrowOffsetX(profile),
     getCharacterBrowOffsetY(profile),
     getCharacterBrowScaleX(profile),
     getCharacterBrowScaleY(profile),

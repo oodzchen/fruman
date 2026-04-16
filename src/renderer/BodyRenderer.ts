@@ -314,11 +314,13 @@ function extendBoundsWithLayer(
   bounds: BodyContentBounds,
   layer: MapCharacterBodyVisualLayer,
   scaleX: number,
-  scaleY: number
+  scaleY: number,
+  facingDirection: number
 ): void {
   const widthPx = Math.max(1, layer.width * scaleX)
   const heightPx = Math.max(1, layer.height * scaleY)
-  const offsetXPx = layer.offsetX * scaleX
+  const facing = facingDirection < 0 ? -1 : 1
+  const offsetXPx = layer.offsetX * scaleX * facing
   const offsetYPx = layer.offsetY * scaleY
   const layerMinX = offsetXPx - widthPx * 0.5
   const layerMaxX = offsetXPx + widthPx * 0.5
@@ -437,7 +439,7 @@ function getBodyContentBounds(
         : bodyHeightResolvedPx
     const surfaceOffsetXPx =
       typeof bodyProfile?.surfaceOffsetX === 'number'
-        ? bodyProfile.surfaceOffsetX * scaleX
+        ? bodyProfile.surfaceOffsetX * scaleX * facing
         : 0
     const surfaceOffsetYPx =
       typeof bodyProfile?.surfaceOffsetY === 'number'
@@ -459,7 +461,7 @@ function getBodyContentBounds(
       if (layer.kind !== 'brow' && layer.kind !== 'paint') {
         continue
       }
-      extendBoundsWithLayer(bounds, layer, scaleX, scaleY)
+      extendBoundsWithLayer(bounds, layer, scaleX, scaleY, facingDirection)
     }
   }
 
@@ -613,11 +615,10 @@ function drawBodyInternal(
     traceBodyPath(ctx, bodyHalfWidthPx, bodyHalfHeightPx, bodyProfile)
     ctx.stroke()
   }
-  ctx.restore()
 
   if (shouldRenderProceduralEye(bodyProfile, showEye)) {
     renderBodyEye(
-      ctx,
+      ctx as RenderContext2D,
       bodyHalfWidthPx,
       bodyHalfHeightPx,
       pixelsPerMeter,
@@ -626,6 +627,8 @@ function drawBodyInternal(
       eyeColor
     )
   }
+
+  ctx.restore()
 
   if (outlineWidthPx > 0 && outlineColor.length > 0) {
     ctx.strokeStyle = outlineColor

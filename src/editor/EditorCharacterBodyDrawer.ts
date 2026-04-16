@@ -2544,6 +2544,7 @@ export class EditorCharacterBodyDrawer {
       halfHeight: number
       thickness: number
       archHeight: number
+      baselineOffsetY: number
     } | null => {
       const eyeGeometry = getEyeGeometry()
       if (!eyeGeometry || !contourClosed) {
@@ -2567,6 +2568,7 @@ export class EditorCharacterBodyDrawer {
         halfHeight: Math.max(1, Math.round(browGeometry.halfHeight)),
         thickness: Math.max(1, Math.round(browGeometry.thickness)),
         archHeight: Math.max(1, Math.round(browGeometry.archHeight)),
+        baselineOffsetY: Math.round(browGeometry.baselineOffsetY),
       }
     }
 
@@ -3493,7 +3495,7 @@ export class EditorCharacterBodyDrawer {
           halfHeight: browBounds.halfHeight,
           thickness: browBounds.thickness,
           archHeight: browBounds.archHeight,
-          baselineOffsetY: 1,
+          baselineOffsetY: browBounds.baselineOffsetY,
         },
         '#231711'
       )
@@ -5039,8 +5041,8 @@ export class EditorCharacterBodyDrawer {
       return null
     }
 
-    const coreCenterX = Math.round((maskFill.minX + maskFill.maxX + 1) * 0.5)
-    const coreCenterY = Math.round((maskFill.minY + maskFill.maxY + 1) * 0.5)
+    const coreCenterX = Math.round((maskFill.minX + maskFill.maxX) * 0.5)
+    const coreCenterY = Math.round((maskFill.minY + maskFill.maxY) * 0.5)
     const centered = this.centerLoop(loop, coreCenterX, coreCenterY)
     const canonicalCentered =
       editorFacing < 0 ? this.mirrorLocalPoints(centered) : centered
@@ -5142,7 +5144,7 @@ export class EditorCharacterBodyDrawer {
       height,
       color: usePureImageSurface ? TRANSPARENT_BODY_COLOR : color,
       bloodColor,
-      eyeX: Math.round(eyeX * editorFacing * 1000) / 1000,
+      eyeX: Math.round(eyeX * 1000) / 1000,
       eyeY: Math.round(eyeY * 1000) / 1000,
       eyeScaleX:
         Math.abs(eyeScaleX - DEFAULT_CHARACTER_EYE_SCALE) > 0.001
@@ -5157,7 +5159,7 @@ export class EditorCharacterBodyDrawer {
         browStyle !== DEFAULT_CHARACTER_BROW_STYLE ? browStyle : undefined,
       browOffsetX:
         browOffsetX !== DEFAULT_CHARACTER_BROW_OFFSET_X
-          ? Math.round(browOffsetX * editorFacing * 1000) / 1000
+          ? Math.round(browOffsetX * 1000) / 1000
           : undefined,
       browOffsetY:
         browOffsetY !== DEFAULT_CHARACTER_BROW_OFFSET_Y
@@ -5174,16 +5176,13 @@ export class EditorCharacterBodyDrawer {
       embeddedEye: !textureDataUrl && !usePureImageSurface && !!surfaceDataUrl,
       surfaceOffsetX: surfaceBounds
         ? Math.round(
-            ((surfaceBounds.minX + surfaceBounds.maxX + 1) * 0.5 -
-              coreCenterX) *
-              editorFacing *
+            ((surfaceBounds.minX + surfaceBounds.maxX) * 0.5 - coreCenterX) *
               1000
           ) / 1000
         : undefined,
       surfaceOffsetY: surfaceBounds
         ? Math.round(
-            ((surfaceBounds.minY + surfaceBounds.maxY + 1) * 0.5 -
-              coreCenterY) *
+            ((surfaceBounds.minY + surfaceBounds.maxY) * 0.5 - coreCenterY) *
               1000
           ) / 1000
         : undefined,
@@ -6208,15 +6207,11 @@ export class EditorCharacterBodyDrawer {
         name: layer.name,
         kind: layer.kind,
         offsetX:
-          Math.round(
-            ((bounds.minX + bounds.maxX + 1) * 0.5 - coreCenterX) *
-              editorFacing *
-              1000
-          ) / 1000,
+          Math.round(((bounds.minX + bounds.maxX) * 0.5 - coreCenterX) * 1000) /
+          1000,
         offsetY:
-          Math.round(
-            ((bounds.minY + bounds.maxY + 1) * 0.5 - coreCenterY) * 1000
-          ) / 1000,
+          Math.round(((bounds.minY + bounds.maxY) * 0.5 - coreCenterY) * 1000) /
+          1000,
         width: bounds.maxX + 1 - bounds.minX,
         height: bounds.maxY + 1 - bounds.minY,
         dataUrl,
