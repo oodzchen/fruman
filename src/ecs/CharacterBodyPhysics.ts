@@ -9,6 +9,12 @@ export interface CharacterBodyPhysicsConfig {
   radius: number
   bodyHeight: number
   bodyProfile?: MapCharacterBodyProfile
+  segmented?: boolean
+  // 兼容旧数据结构保留这组字段，但 Spine 分段角色的真实碰撞
+  // 已完全交给运行时 bounding box，不再消费这套代理框参数。
+  segmentedProxyHalfWidth?: number
+  segmentedProxyHalfHeight?: number
+  segmentedProxyOffsetY?: number
   density: number
   friction: number
   categoryBits: number
@@ -49,11 +55,26 @@ export function createCharacterPhysicsBody(
   shapeDef.filter.maskBits = config.maskBits
 
   const shapeIds: b2ShapeId[] = []
-  const collisionPolygons = buildCharacterBodyCollisionPolygons(
-    config.bodyProfile,
-    config.radius,
-    config.bodyHeight
-  )
+  const collisionPolygons = config.segmented
+    ? // Spine 分段角色先用轻量代理框完成刚体创建，
+      // 随后会由 SpineSegmentManager 立刻替换为动画驱动的 runtime 多边形。
+      typeof config.segmentedProxyHalfWidth === 'number' &&
+      config.segmentedProxyHalfWidth > 0 &&
+      typeof config.segmentedProxyHalfHeight === 'number' &&
+      config.segmentedProxyHalfHeight > 0
+      ? [
+          buildProxyBoxPolygon(
+            config.segmentedProxyHalfWidth,
+            config.segmentedProxyHalfHeight,
+            config.segmentedProxyOffsetY ?? 0
+          ),
+        ]
+      : null
+    : buildCharacterBodyCollisionPolygons(
+        config.bodyProfile,
+        config.radius,
+        config.bodyHeight
+      )
 
   if (
     collisionPolygons &&
@@ -97,7 +118,41 @@ export function createCharacterPhysicsBody(
   }
 }
 
+function buildProxyBoxPolygon(
+  halfWidth: number,
+  halfHeight: number,
+  offsetY: number
+): number[] {
+  const top = offsetY - halfHeight
+  const bottom = offsetY + halfHeight
+  return [
+    -halfWidth,
+    top,
+    halfWidth,
+    top,
+    halfWidth,
+    bottom,
+    -halfWidth,
+    bottom,
+  ]
+}
 function appendCharacterPolygonShapes(
+  box2d: MainModule,
+  bodyId: ReturnType<MainModule['b2CreateBody']>,
+  shapeDef: ReturnType<MainModule['b2DefaultShapeDef']>,
+  polygons: readonly number[][],
+  outShapeIds: b2ShapeId[]
+): boolean {
+  return appendConvexPolygonShapes(
+    box2d,
+    bodyId,
+    shapeDef,
+    polygons,
+    outShapeIds
+  )
+}
+
+export function appendConvexPolygonShapes(
   box2d: MainModule,
   bodyId: ReturnType<MainModule['b2CreateBody']>,
   shapeDef: ReturnType<MainModule['b2DefaultShapeDef']>,

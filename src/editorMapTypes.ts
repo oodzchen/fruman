@@ -109,6 +109,12 @@ export interface MapCharacterBodyProfile {
   layers?: MapCharacterBodyVisualLayer[]
   surfaceDataUrl?: string
   textureDataUrl?: string
+  spineKey?: string
+  spineAtlasKey?: string
+  spineAnimationName?: string
+  spineScale?: number
+  spineMode?: 'replace' | 'overlay'
+  spineSegmentedCollision?: boolean
 }
 
 export type MapCharacterBodyPresetId =

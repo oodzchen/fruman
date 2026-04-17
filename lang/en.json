@@ -270,6 +270,7 @@
   "editor_enemy_fast": "Fast",
   "editor_enemy_large": "Large",
   "editor_enemy_archer": "Archer",
+  "editor_enemy_caterpillar": "Caterpillar",
   "editor_npc_template_group": "Custom Templates",
   "editor_npc_template_create_prompt": "Enter template name",
   "editor_npc_template_default_name": "Custom Template {0}",

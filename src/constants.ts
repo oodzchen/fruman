@@ -338,7 +338,23 @@ export const CHARACTER_DEFAULT_DATA = {
     maxPosture: 10,
     maxToughness: 6,
   },
+  caterpillar: {
+    moveSpeed: 1.5,
+    radius: 0.35,
+    attackDesire: 0,
+    color: '#4a7c2f',
+    parryProficiency: 0,
+    initialPatrolMode: 'patrol',
+    maxHealth: 10,
+    maxPosture: 5,
+    maxToughness: 3,
+  },
 } as const
+
+export const CATERPILLAR_SPINE_KEY = 'caterpillar_ske'
+export const CATERPILLAR_ATLAS_KEY = 'caterpillar_atlas'
+export const CATERPILLAR_ANIMATION_NAME = 'maomaochong'
+export const CATERPILLAR_SPINE_SCALE = 0.3
 
 export const ENEMY_SPAWNS = {
   left: {

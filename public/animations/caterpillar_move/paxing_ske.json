@@ -1,0 +1,282 @@
+{
+  "skeleton": { "hash": "", "spine": "4.2.40" },
+  "bones": [
+    { "name": "root", "x": 520.67, "y": -1.33, "rotation": 68.66 },
+    {
+      "name": "bone",
+      "parent": "root",
+      "length": 141.67,
+      "x": -7.42,
+      "y": 19.72,
+      "rotation": 111.66
+    },
+    {
+      "name": "bone-1",
+      "parent": "bone",
+      "length": 141.67,
+      "x": 141.67,
+      "rotation": -57.22
+    },
+    {
+      "name": "bone-2",
+      "parent": "bone-1",
+      "length": 141.67,
+      "x": 141.67,
+      "rotation": 0.08
+    },
+    {
+      "name": "bone-3",
+      "parent": "bone-2",
+      "length": 141.67,
+      "x": 141.67,
+      "rotation": 123.73
+    },
+    {
+      "name": "bone-4",
+      "parent": "bone-3",
+      "length": 141.67,
+      "x": 141.67,
+      "rotation": -9.78
+    },
+    {
+      "name": "bone-5",
+      "parent": "bone-4",
+      "length": 141.67,
+      "x": 141.67,
+      "rotation": -57.72
+    }
+  ],
+  "slots": [
+    { "name": "head", "bone": "bone-5", "attachment": "head" },
+    { "name": "body1", "bone": "bone-4", "attachment": "body1" },
+    { "name": "body2", "bone": "bone-3", "attachment": "body2" },
+    { "name": "body3", "bone": "bone-2", "attachment": "body3" },
+    { "name": "body4", "bone": "bone-1", "attachment": "body4" },
+    { "name": "tail", "bone": "bone", "attachment": "tail" },
+    { "name": "slot", "bone": "bone-5", "attachment": "boundingBox" },
+    { "name": "slot1", "bone": "bone-4", "attachment": "boundingBox1" },
+    { "name": "slot2", "bone": "bone-3", "attachment": "boundingBox2" },
+    { "name": "slot3", "bone": "bone-2", "attachment": "boundingBox3" },
+    { "name": "slot4", "bone": "bone-1", "attachment": "boundingBox4" },
+    { "name": "slot5", "bone": "bone", "attachment": "boundingBox5" }
+  ],
+  "animations": {
+    "maomaochong": {
+      "bones": {
+        "bone-1": {
+          "rotate": [
+            { "value": 57.15 },
+            { "time": 0.3333, "value": 34.32 },
+            { "time": 0.6667, "value": -2.61 },
+            { "time": 1, "value": -27.77 },
+            { "time": 1.3333, "value": -27.77 },
+            { "time": 1.6667, "value": -2.61 },
+            { "time": 2, "value": 18.13 },
+            { "time": 2.3333, "value": 34.32 },
+            { "time": 2.6667, "value": 57.15 }
+          ]
+        },
+        "bone-2": {
+          "rotate": [
+            { "value": -1.88 },
+            { "time": 0.6667 },
+            { "time": 1 },
+            { "time": 1.3333 },
+            { "time": 1.6667 },
+            { "time": 2.6667, "value": -1.88 }
+          ]
+        },
+        "bone-3": {
+          "rotate": [
+            { "value": -120.02 },
+            { "time": 0.3333, "value": -75.65 },
+            { "time": 0.6667 },
+            { "time": 1, "value": 40.9 },
+            { "time": 1.3333, "value": 40.9 },
+            { "time": 1.6667 },
+            { "time": 2, "value": -46.36 },
+            { "time": 2.3333, "value": -75.65 },
+            { "time": 2.6667, "value": -120.02 }
+          ]
+        },
+        "bone-4": {
+          "rotate": [
+            { "value": 5.97 },
+            { "time": 0.3333, "value": 4.52 },
+            { "time": 0.6667 },
+            { "time": 1, "value": 11.92 },
+            { "time": 1.3333, "value": 11.92 },
+            { "time": 1.6667 },
+            { "time": 2, "value": 9.77 },
+            { "time": 2.3333, "value": 4.52 },
+            { "time": 2.6667, "value": 5.97 }
+          ]
+        },
+        "bone-5": {
+          "rotate": [
+            { "value": 58.5 },
+            { "time": 0.3333, "value": 39.79 },
+            { "time": 0.6667, "value": 2.23 },
+            { "time": 1, "value": -24.39 },
+            { "time": 1.3333, "value": -24.39 },
+            { "time": 1.6667, "value": 2.23 },
+            { "time": 2, "value": 20.38 },
+            { "time": 2.3333, "value": 39.79 },
+            { "time": 2.6667, "value": 58.5 }
+          ]
+        }
+      }
+    }
+  },
+  "physics": [],
+  "skins": [
+    {
+      "name": "default",
+      "attachments": {
+        "head": {
+          "head": {
+            "name": "head",
+            "width": 79,
+            "height": 122,
+            "x": 63.75,
+            "y": -13.45,
+            "rotation": -177.58,
+            "scaleX": 1.58,
+            "scaleY": 1.58
+          }
+        },
+        "body1": {
+          "body1": {
+            "name": "body1",
+            "width": 90,
+            "height": 92,
+            "x": 69.98,
+            "y": 11.3,
+            "rotation": 177.18,
+            "scaleX": 1.53,
+            "scaleY": 1.53
+          }
+        },
+        "body2": {
+          "body2": {
+            "name": "body2",
+            "width": 91,
+            "height": 92,
+            "x": 71.11,
+            "y": 11.43,
+            "rotation": 178.82,
+            "scaleX": 1.54,
+            "scaleY": 1.54
+          }
+        },
+        "body3": {
+          "body3": {
+            "name": "body3",
+            "width": 91,
+            "height": 92,
+            "x": 70.33,
+            "y": 7.66,
+            "rotation": -178.85,
+            "scaleX": 1.5,
+            "scaleY": 1.5
+          }
+        },
+        "body4": {
+          "body4": {
+            "name": "body4",
+            "width": 90,
+            "height": 92,
+            "x": 74.75,
+            "y": 12.07,
+            "rotation": -177.94,
+            "scaleX": 1.5,
+            "scaleY": 1.5
+          }
+        },
+        "tail": {
+          "tail": {
+            "name": "tail",
+            "width": 90,
+            "height": 74,
+            "x": 75.91,
+            "y": -4.33,
+            "rotation": -1.03,
+            "scaleX": 1.43,
+            "scaleY": 1.43
+          }
+        },
+        "slot": {
+          "boundingBox": {
+            "name": "boundingBox",
+            "type": "boundingbox",
+            "vertexCount": 9,
+            "vertices": [
+              120.5, -21.54, 94.18, -56.48, 42.2, -59, 7.92, -30.68, 1.42,
+              17.92, 23.11, 49.48, 65.64, 62.57, 111.81, 46.37, 125.39, 21.84
+            ]
+          }
+        },
+        "slot1": {
+          "boundingBox1": {
+            "name": "boundingBox1",
+            "type": "boundingbox",
+            "vertexCount": 12,
+            "vertices": [
+              107.13, -53.59, 127.49, -39.65, 138.74, -3.01, 129.29, 33.74,
+              96.48, 53.81, 52.46, 53.16, 23.15, 46.92, 4.73, 26.29, 2.47,
+              -2.16, 11.2, -37.79, 41.05, -58.19, 85.04, -59.93
+            ]
+          }
+        },
+        "slot2": {
+          "boundingBox2": {
+            "name": "boundingBox2",
+            "type": "boundingbox",
+            "vertexCount": 11,
+            "vertices": [
+              92.86, -58.29, 122.56, -46.36, 138.54, -19.25, 138.27, 20.49,
+              118.8, 44.08, 94.22, 52.44, 44.06, 52.8, 14.86, 29.49, 2.65, 5.44,
+              11.83, -45, 44.19, -58.02
+            ]
+          }
+        },
+        "slot3": {
+          "boundingBox3": {
+            "name": "boundingBox3",
+            "type": "boundingbox",
+            "vertexCount": 12,
+            "vertices": [
+              136.82, -24.66, 135.92, 14.16, 109.24, 40.37, 74.24, 46.53, 34.73,
+              39.7, 9.32, 27.64, -0.4, -1.84, 4.25, -26.4, 19.83, -52.51, 51.36,
+              -62.77, 93.31, -60.74, 118.92, -49.6
+            ]
+          }
+        },
+        "slot4": {
+          "boundingBox4": {
+            "name": "boundingBox4",
+            "type": "boundingbox",
+            "vertexCount": 11,
+            "vertices": [
+              114.63, -53.71, 138.39, -27.02, 138.86, 16.44, 123.78, 44.57,
+              98.55, 52.26, 52.13, 53.08, 26.38, 40.42, 11.23, 20.85, 4.08,
+              -20.65, 26.37, -48.71, 55.68, -57.46
+            ]
+          }
+        },
+        "slot5": {
+          "boundingBox5": {
+            "name": "boundingBox5",
+            "type": "boundingbox",
+            "vertexCount": 12,
+            "vertices": [
+              112.32, -50.53, 135.09, -31.99, 139.92, -3.35, 134.73, 23.35,
+              109.52, 44.82, 70.87, 48.37, 36.19, 45.23, 15.38, 20.68, 10.52,
+              -14.63, 27.01, -46.06, 62.96, -55.59, 92.29, -56.42
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

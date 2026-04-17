@@ -110,6 +110,7 @@ import {
   checkOBBvsPolygon,
 } from '../OBBCollision'
 import type { SpatialHash } from '../SpatialHash'
+import type { SpineSegmentManager } from '../SpineSegmentManager'
 import { System } from '../System'
 import {
   FRONT_SWING_TILT_RAD,
@@ -220,6 +221,7 @@ export class WeaponSystem extends System {
   private viewportWidth = 16
   private viewportHeight = 9
   private arrowPools?: ArrowPools
+  private spineSegmentManager: SpineSegmentManager | null = null
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempRelativeTransform: WeaponRelativeTransform = {
@@ -301,6 +303,12 @@ export class WeaponSystem extends System {
 
   setSoundSystem(soundSystem: SoundSystem): void {
     this.soundSystem = soundSystem
+  }
+
+  setSpineSegmentManager(
+    spineSegmentManager: SpineSegmentManager | null
+  ): void {
+    this.spineSegmentManager = spineSegmentManager
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -4008,9 +4016,15 @@ export class WeaponSystem extends System {
       weapon.attackRadius !== 0
         ? weapon.attackRadius
         : this.getAttackRadius(attacker)
+    const segmentedQueryRadius =
+      this.spineSegmentManager?.getMaxActiveCoverageRadius() ?? 0
 
     const nearbyEntities = this.spatialHash
-      ? this.spatialHash.query(weaponX, weaponY, attackRadius + 2)
+      ? this.spatialHash.query(
+          weaponX,
+          weaponY,
+          attackRadius + 2 + segmentedQueryRadius
+        )
       : this.allEntities
     const nearbyCount = this.spatialHash
       ? this.spatialHash.getQueryResultLength()
@@ -4029,15 +4043,31 @@ export class WeaponSystem extends System {
         continue
 
       const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
+      const segmentedCoverageRadius =
+        this.spineSegmentManager?.getEntityCoverageRadius(target) ?? 0
+      const collisionRadius =
+        segmentedCoverageRadius > 0 ? segmentedCoverageRadius : targetRadius
 
-      const hitRange = attackRadius + targetRadius
+      const hitRange = attackRadius + collisionRadius
       const dx = weaponX - target.transform.x
       const dy = weaponY - target.transform.y
       if (dx * dx + dy * dy > hitRange * hitRange) continue
 
       if (weapon.hitEntityIds.has(target.id)) continue
 
-      if (
+      const isSegmentHit =
+        segmentedCoverageRadius > 0 &&
+        this.spineSegmentManager?.testWeaponHit(
+          target.id,
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation
+        ) === true
+
+      const isCircleHit =
+        segmentedCoverageRadius <= 0 &&
         checkOBBvsCircle(
           weaponX,
           weaponY,
@@ -4048,7 +4078,8 @@ export class WeaponSystem extends System {
           target.transform.y,
           targetRadius
         )
-      ) {
+
+      if (isSegmentHit || isCircleHit) {
         this.tempHitSource.x = weaponX
         this.tempHitSource.y = weaponY
         this.statsSystem.applyWeaponHit(

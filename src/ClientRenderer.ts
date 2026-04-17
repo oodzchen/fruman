@@ -52,6 +52,10 @@ import {
 import { ParticleSystem } from './renderer/ParticleSystem'
 import type { ParticleSnapshot } from './renderer/ParticleSystem'
 import type { RenderContext2D } from './renderer/RenderContext2D'
+import {
+  getSpineBoundsAtScale,
+  getSpinePreviewMatchedScale,
+} from './renderer/SpineBodyManager'
 import { renderWeapon as renderWeaponShape } from './renderer/WeaponRenderer'
 import { getGrapeChargeRangeScale } from './weaponTypeUtils'
 import {
@@ -74,6 +78,8 @@ import type {
   SensorDebugData,
   SoundListenerDebugData,
   SoundWaveDebugData,
+  SpineCollisionDebugData,
+  WorkerSpineCollisionData,
 } from './worker/protocol'
 
 const MAX_PARTICLES = 600
@@ -123,6 +129,14 @@ export class ClientRenderer {
     MapCharacterBodyProfile,
     Map<string, number[][] | null>
   >()
+  private readonly spineBodyHeightCache = new WeakMap<
+    MapCharacterBodyProfile,
+    number
+  >()
+  private readonly spineCollisionProfileData = new Map<
+    string,
+    WorkerSpineCollisionData
+  >()
 
   // Pre-allocated buffer to avoid creating new Float32Array each frame
   private stateBuffer = new Float32Array(MAX_ENTITIES * ENTITY_STRIDE)
@@ -144,6 +158,7 @@ export class ClientRenderer {
   private sensorDebugData: SensorDebugData[] = []
   private soundWaveDebugData: SoundWaveDebugData[] = []
   private soundListenerDebugData: SoundListenerDebugData[] = []
+  private spineCollisionDebugData = new Map<number, number[][]>()
   private ammoTextCache: string[] = []
   private grappleLineActive = false
   private grappleLineAutoHideRemainingMs = 0
@@ -394,6 +409,25 @@ export class ClientRenderer {
     this.soundListenerDebugData = listeners
   }
 
+  setSpineCollisionDebugData(spineCollisions: SpineCollisionDebugData[]): void {
+    this.spineCollisionDebugData.clear()
+    for (let i = 0; i < spineCollisions.length; i++) {
+      const collision = spineCollisions[i]
+      this.spineCollisionDebugData.set(collision.entityId, collision.polygons)
+    }
+  }
+
+  setSpineCollisionProfiles(
+    collisionProfiles: readonly WorkerSpineCollisionData[]
+  ): void {
+    this.spineCollisionProfileData.clear()
+    for (let i = 0; i < collisionProfiles.length; i++) {
+      const profile = collisionProfiles[i]
+      const key = `${profile.spineKey}|${profile.animationName}`
+      this.spineCollisionProfileData.set(key, profile)
+    }
+  }
+
   setCamera(x: number, y: number, zoom: number = 1.0) {
     this.camera.x = x
     this.camera.y = y
@@ -460,6 +494,53 @@ export class ClientRenderer {
 
   getFacingForEntity(buf: Float32Array, offset: number): number {
     return this.getEntityFacing(buf, offset)
+  }
+
+  getSpineCollisionDebugPolygons(entityId: number): number[][] | null {
+    return this.spineCollisionDebugData.get(entityId) ?? null
+  }
+
+  getSpineCollisionRenderOffsetYPx(
+    bodyProfile: MapCharacterBodyProfile | null
+  ): number {
+    if (!bodyProfile?.spineKey || !bodyProfile.spineAnimationName) {
+      return 0
+    }
+    const key = `${bodyProfile.spineKey}|${bodyProfile.spineAnimationName}`
+    const collisionData = this.spineCollisionProfileData.get(key)
+    if (!collisionData || !(collisionData.spineScale > 0)) {
+      return 0
+    }
+
+    const profileScale =
+      typeof bodyProfile.spineScale === 'number' &&
+      Number.isFinite(bodyProfile.spineScale) &&
+      bodyProfile.spineScale > 0
+        ? bodyProfile.spineScale
+        : collisionData.spineScale
+
+    return (
+      (collisionData.segmentOffsetY * profileScale * this.pixelsPerMeter) /
+      collisionData.spineScale
+    )
+  }
+
+  getSpineBodyHeightPx(bodyProfile: MapCharacterBodyProfile | null): number {
+    if (!bodyProfile?.spineKey) {
+      return 0
+    }
+    const cached = this.spineBodyHeightCache.get(bodyProfile)
+    if (typeof cached === 'number') {
+      return cached
+    }
+    const scale = getSpinePreviewMatchedScale(
+      bodyProfile.spineKey,
+      bodyProfile.spineScale ?? 1
+    )
+    const bounds = getSpineBoundsAtScale(bodyProfile.spineKey, scale)
+    const height = bounds.height > 0 ? bounds.height : 0
+    this.spineBodyHeightCache.set(bodyProfile, height)
+    return height
   }
 
   getClampedReticlePosition(

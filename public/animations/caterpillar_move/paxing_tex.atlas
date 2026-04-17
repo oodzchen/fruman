@@ -1,0 +1,48 @@
+
+paxing_tex.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+head
+  rotate: false
+  xy: 1,1
+  size: 79,122
+  orig: 79,122
+  offset:0,0
+  index: -1
+body1
+  rotate: false
+  xy: 94,95
+  size: 90,92
+  orig: 90,92
+  offset:0,0
+  index: -1
+body2
+  rotate: false
+  xy: 1,125
+  size: 91,92
+  orig: 91,92
+  offset:0,0
+  index: -1
+body3
+  rotate: false
+  xy: 82,1
+  size: 91,92
+  orig: 91,92
+  offset:0,0
+  index: -1
+body4
+  rotate: false
+  xy: 175,1
+  size: 90,92
+  orig: 90,92
+  offset:0,0
+  index: -1
+tail
+  rotate: false
+  xy: 186,95
+  size: 90,74
+  orig: 90,74
+  offset:0,0
+  index: -1

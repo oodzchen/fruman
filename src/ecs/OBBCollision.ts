@@ -176,6 +176,47 @@ export function checkOBBvsPolygon(
   return true
 }
 
+export function checkOBBvsFlatPolygon(
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+  wRot: number,
+  vertices: readonly number[]
+): boolean {
+  if (vertices.length < 6 || vertices.length % 2 !== 0) {
+    return false
+  }
+
+  const cos = Math.cos(wRot)
+  const sin = Math.sin(wRot)
+  const hw = ww / 2
+  const hh = wh / 2
+
+  _tempObbVerts[0].x = wx + (cos * -hw - sin * -hh)
+  _tempObbVerts[0].y = wy + (sin * -hw + cos * -hh)
+  _tempObbVerts[1].x = wx + (cos * hw - sin * -hh)
+  _tempObbVerts[1].y = wy + (sin * hw + cos * -hh)
+  _tempObbVerts[2].x = wx + (cos * hw - sin * hh)
+  _tempObbVerts[2].y = wy + (sin * hw + cos * hh)
+  _tempObbVerts[3].x = wx + (cos * -hw - sin * hh)
+  _tempObbVerts[3].y = wy + (sin * -hw + cos * hh)
+
+  if (!_checkFlatAxis(cos, sin, _tempObbVerts, vertices)) return false
+  if (!_checkFlatAxis(-sin, cos, _tempObbVerts, vertices)) return false
+
+  for (let i = 0; i < vertices.length; i += 2) {
+    const nextIndex = i + 2 < vertices.length ? i + 2 : 0
+    const edgeX = vertices[nextIndex] - vertices[i]
+    const edgeY = vertices[nextIndex + 1] - vertices[i + 1]
+    if (!_checkFlatAxis(-edgeY, edgeX, _tempObbVerts, vertices)) {
+      return false
+    }
+  }
+
+  return true
+}
+
 function _checkOBBvsPolyAxis(
   axisX: number,
   axisY: number,
@@ -196,6 +237,32 @@ function _checkOBBvsPolyAxis(
   for (let i = 0; i < polyVerts.length; i++) {
     const v = polyVerts[i]
     const proj = v.x * axisX + v.y * axisY
+    if (proj < minPoly) minPoly = proj
+    if (proj > maxPoly) maxPoly = proj
+  }
+
+  return !(maxOBB < minPoly || maxPoly < minOBB)
+}
+
+function _checkFlatAxis(
+  axisX: number,
+  axisY: number,
+  obbVerts: { x: number; y: number }[],
+  polyVerts: readonly number[]
+): boolean {
+  let minOBB = Infinity
+  let maxOBB = -Infinity
+  for (let i = 0; i < obbVerts.length; i++) {
+    const v = obbVerts[i]
+    const proj = v.x * axisX + v.y * axisY
+    if (proj < minOBB) minOBB = proj
+    if (proj > maxOBB) maxOBB = proj
+  }
+
+  let minPoly = Infinity
+  let maxPoly = -Infinity
+  for (let i = 0; i < polyVerts.length; i += 2) {
+    const proj = polyVerts[i] * axisX + polyVerts[i + 1] * axisY
     if (proj < minPoly) minPoly = proj
     if (proj > maxPoly) maxPoly = proj
   }

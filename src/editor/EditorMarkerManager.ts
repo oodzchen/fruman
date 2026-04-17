@@ -22,7 +22,9 @@ import type {
   MapPlayerProperties,
   WeaponCategory,
 } from '../editorMapTypes'
+import { resolveNpcBodyProfile } from '../npcBodyProfileUtils'
 import { buildDefaultNpcDropList, normalizeNpcDropList } from '../npcDropUtils'
+import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import type {
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
@@ -866,7 +868,7 @@ export class EditorMarkerManager {
       CHARACTER_DEFAULT_DATA[npcType] ?? CHARACTER_DEFAULT_DATA.default
     const radius = spawn?.radius ?? template.radius
     const bodyHeight = spawn?.bodyHeight ?? 0
-    const bodyProfile = spawn?.bodyProfile
+    const bodyProfile = resolveNpcBodyProfile(npcType, spawn?.bodyProfile)
     const moveSpeed = spawn?.moveSpeed ?? template.moveSpeed
     const attackDesire = spawn?.attackDesire ?? template.attackDesire
     const parryProficiency =
@@ -1272,8 +1274,10 @@ export class EditorMarkerManager {
     marker.color = getCharacterBodyColor(marker.bodyProfile, nextColor)
     marker.facing = nextFacing
     this.updateNpcWeaponVisual(marker)
-    marker.width = bodyRadiusXPx * 2
-    marker.height = bodyRadiusYPx * 2
+    const spineKey = marker.bodyProfile?.spineKey
+    const preview = spineKey ? getSpinePreviewCanvas(spineKey) : null
+    marker.width = preview ? preview.width : bodyRadiusXPx * 2
+    marker.height = preview ? preview.height : bodyRadiusYPx * 2
     marker.dirty = true
     marker.setCoords()
   }

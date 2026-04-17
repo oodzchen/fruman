@@ -18,6 +18,7 @@ import type {
   MapNpcWeapon,
   MapPlayerProperties,
 } from './editorMapTypes'
+import { resolveNpcBodyProfile } from './npcBodyProfileUtils'
 import {
   DEFAULT_NPC_DROP_COUNT,
   DEFAULT_NPC_EXP_ORB_DROP_CHANCE,
@@ -717,11 +718,15 @@ function normalizeBodyProfile(
 function normalizeMapNpc(npc: MapNpc): MapNpc {
   const normalizedDrops =
     npc.drops === undefined ? undefined : normalizeNpcDropList(npc.drops)
+  const npcType = npc.npcType ?? npc.enemyType ?? ('default' as NpcType)
   return {
     ...npc,
-    npcType: npc.npcType ?? npc.enemyType ?? ('default' as NpcType),
+    npcType,
     npcFactions: npc.npcFactions ?? npc.enemyFactions,
-    bodyProfile: normalizeBodyProfile(npc.bodyProfile),
+    bodyProfile: resolveNpcBodyProfile(
+      npcType,
+      normalizeBodyProfile(npc.bodyProfile)
+    ),
     drops: normalizedDrops,
   }
 }
@@ -731,11 +736,16 @@ function normalizeMapNpcTemplate(template: MapNpcTemplate): MapNpcTemplate {
     template.drops === undefined
       ? undefined
       : normalizeNpcDropList(template.drops)
+  const npcType =
+    template.npcType ?? template.enemyType ?? ('default' as NpcType)
   return {
     ...template,
-    npcType: template.npcType ?? template.enemyType ?? ('default' as NpcType),
+    npcType,
     npcFactions: template.npcFactions ?? template.enemyFactions,
-    bodyProfile: normalizeBodyProfile(template.bodyProfile),
+    bodyProfile: resolveNpcBodyProfile(
+      npcType,
+      normalizeBodyProfile(template.bodyProfile)
+    ),
     drops: normalizedDrops,
   }
 }

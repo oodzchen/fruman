@@ -34,6 +34,7 @@ import type {
   MapCharacterBodyProfile,
   MapNpcDropItem,
 } from '../../editorMapTypes'
+import { resolveNpcBodyProfile } from '../../npcBodyProfileUtils'
 import {
   buildDefaultNpcDropList,
   normalizeNpcDropList,
@@ -41,6 +42,7 @@ import {
 import {
   getEnemyCollisionCategory,
   getEnemyCollisionMask,
+  getEnvironmentCollisionMask,
   getPlayerCollisionCategory,
   getPlayerCollisionMask,
   getWeaponCollisionCategory,
@@ -124,7 +126,11 @@ export function createPlayer(
   radius: number = DEFAULT_PLAYER_RADIUS,
   bodyHeight = 0,
   bodyProfile?: MapCharacterBodyProfile,
-  renderLayer = 0
+  renderLayer = 0,
+  segmentedCollision = false,
+  segmentedProxyHalfWidth = 0,
+  segmentedProxyHalfHeight = 0,
+  segmentedProxyOffsetY = 0
 ): Entity {
   const entity = world.createEntity()
 
@@ -140,6 +146,10 @@ export function createPlayer(
     radius,
     bodyHeight,
     bodyProfile,
+    segmented: segmentedCollision,
+    segmentedProxyHalfWidth,
+    segmentedProxyHalfHeight,
+    segmentedProxyOffsetY,
     density: 1.0,
     friction: DEFAULT_BODY_FRICTION,
     categoryBits: getPlayerCollisionCategory(renderLayer),
@@ -189,6 +199,10 @@ export function createPlayer(
   render.radius = radius
   render.bodyHeight = bodyHeight
   render.bodyProfile = bodyProfile ?? null
+  render.segmentedCollision = segmentedCollision
+  render.segmentedProxyHalfWidth = segmentedProxyHalfWidth
+  render.segmentedProxyHalfHeight = segmentedProxyHalfHeight
+  render.segmentedProxyOffsetY = segmentedProxyOffsetY
   render.renderLayer = renderLayer
   render.bloodColor = getCharacterBloodColor(bodyProfile, '')
   entity.addComponent(render)
@@ -300,6 +314,10 @@ export interface NpcSpawnConfig {
   enemyFactions?: string[]
   allyFactions?: string[]
   renderLayer?: number
+  segmentedCollision?: boolean
+  segmentedProxyHalfWidth?: number
+  segmentedProxyHalfHeight?: number
+  segmentedProxyOffsetY?: number
 }
 
 export function createNpc(
@@ -337,6 +355,12 @@ export function createNpc(
   const debugNoDeath = options?.debugNoDeath === true
   const initialNormalMovesetId = options?.initialNormalMovesetId ?? ''
   const renderLayer = options?.renderLayer ?? 0
+  const resolvedBodyProfile: MapCharacterBodyProfile | undefined =
+    resolveNpcBodyProfile(npcType, options?.bodyProfile)
+  const segmentedCollision =
+    options?.segmentedCollision ??
+    resolvedBodyProfile?.spineSegmentedCollision === true
+
   const npc = createPlayer(
     world,
     box2d,
@@ -346,8 +370,12 @@ export function createNpc(
     groundTopY,
     radius,
     bodyHeight,
-    options?.bodyProfile,
-    renderLayer
+    resolvedBodyProfile,
+    renderLayer,
+    segmentedCollision,
+    options?.segmentedProxyHalfWidth ?? 0,
+    options?.segmentedProxyHalfHeight ?? 0,
+    options?.segmentedProxyOffsetY ?? 0
   )
 
   // 重置 NPC 的脱战超时为10秒
@@ -414,7 +442,9 @@ export function createNpc(
     forEachPhysicsShapeId(npc.physics, (shapeId) => {
       const filter = b2Shape_GetFilter(shapeId)
       filter.categoryBits = getEnemyCollisionCategory(renderLayer)
-      filter.maskBits = getEnemyCollisionMask(renderLayer)
+      filter.maskBits = segmentedCollision
+        ? getEnemyCollisionMask(renderLayer)
+        : getEnemyCollisionMask(renderLayer)
       b2Shape_SetFilter(shapeId, filter)
     })
   }
@@ -427,9 +457,9 @@ export function createNpc(
   }
 
   if (npc.render) {
-    npc.render.color = getCharacterBodyColor(options?.bodyProfile, color)
-    npc.render.bloodColor = getCharacterBloodColor(options?.bodyProfile, '')
-    npc.render.bodyProfile = options?.bodyProfile ?? null
+    npc.render.color = getCharacterBodyColor(resolvedBodyProfile, color)
+    npc.render.bloodColor = getCharacterBloodColor(resolvedBodyProfile, '')
+    npc.render.bodyProfile = resolvedBodyProfile ?? null
     npc.render.renderLayer = renderLayer
   }
 

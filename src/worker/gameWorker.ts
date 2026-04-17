@@ -15,9 +15,11 @@ import {
   getCharacterEyeOffsetX,
   getCharacterEyeOffsetY,
   getNpcBodyProfileIndex,
+  hasRenderableBodyProfile,
   isValidCharacterBodyProfile,
 } from '../characterBodyProfile'
 import {
+  CHARACTER_DEFAULT_DATA,
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
   DEBUG_DRAW_CAMERA,
@@ -68,8 +70,10 @@ import {
 import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
 import { SpatialHash } from '../ecs/SpatialHash'
+import { SpineSegmentManager } from '../ecs/SpineSegmentManager'
 import { World } from '../ecs/World'
 import {
+  type NpcSpawnConfig,
   applyWeaponSizeLevel,
   createNpc,
   createPlayer,
@@ -140,6 +144,7 @@ import type { TerrainMaterialTag } from '../terrain/TerrainTypes'
 import { VoronoiCollisionBuilder } from '../terrain/VoronoiCollisionBuilder'
 import type {
   MainModule,
+  NpcType,
   WeaponType,
   WeaponVisualType,
   b2BodyId,
@@ -181,6 +186,7 @@ import type {
   WorkerDebugMessage,
   WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
+  WorkerSpineCollisionData,
   WorkerStateMessage,
 } from './protocol'
 
@@ -211,10 +217,46 @@ let grappleSystem: GrappleSystem
 let arrowPools: ArrowPools
 let sunPickupSystem: SunPickupSystem
 let expOrbSystem: ExpOrbSystem
+let spineSegmentManager: SpineSegmentManager
 
 const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
 const playerDeadMessage = { type: 'player_dead' } as const
 const DEBUG_FORCE_PLAYER_LEVEL = 0
+const spineCollisionDataByNpcType = new Map<NpcType, WorkerSpineCollisionData>()
+
+function isPositiveNumber(value: number | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function buildSegmentedProxyMetrics(
+  collisionData: WorkerSpineCollisionData,
+  bodyProfile: MapNpc['bodyProfile'] | undefined,
+  radius: number
+): {
+  halfWidth: number
+  halfHeight: number
+  offsetY: number
+} | null {
+  const profileScale = isPositiveNumber(bodyProfile?.spineScale)
+    ? bodyProfile.spineScale
+    : collisionData.spineScale
+  const scale =
+    isPositiveNumber(collisionData.spineScale) && isPositiveNumber(profileScale)
+      ? profileScale / collisionData.spineScale
+      : 1
+  const halfWidth = collisionData.proxyHalfWidth * scale
+  const topY = radius + collisionData.proxyTopY * scale
+  const bottomY = radius
+  const height = bottomY - topY
+  if (!(halfWidth > 0) || !(height > 0)) {
+    return null
+  }
+  return {
+    halfWidth,
+    halfHeight: height * 0.5,
+    offsetY: (topY + bottomY) * 0.5,
+  }
+}
 
 function buildPlayerLevelUpMessage(
   previousLevel?: number
@@ -554,6 +596,7 @@ const debugMessage: WorkerDebugMessage = {
   soundWaves: [],
   soundListeners: [],
   camera: null,
+  spineCollisions: [],
 }
 const debugSensors: SensorDebugData[] = []
 const debugSoundWaves: SoundWaveDebugData[] = []
@@ -570,6 +613,8 @@ const debugCameraData: CameraDebugData = {
 const emptySoundWaves: SoundWaveDebugData[] = []
 const emptySoundListeners: SoundListenerDebugData[] = []
 const emptySensors: SensorDebugData[] = []
+const emptySpineCollisions: WorkerDebugMessage['spineCollisions'] = []
+let hadSpineCollisionDebugLastFrame = false
 const playerEntityView: Entity[] = []
 const sunPickupEntityBuffer: Entity[] = []
 const expOrbEntityBuffer: Entity[] = []
@@ -776,6 +821,7 @@ function initializeSystems() {
   physicsSystem = new PhysicsSystem(box2d, worldId)
   movementSystem = new MovementSystem(box2d)
   grappleSystem = new GrappleSystem(world, box2d, worldId)
+  spineSegmentManager = new SpineSegmentManager(box2d, worldId)
   weaponSystem = new WeaponSystem(box2d, statsSystem)
   arrowSystem = new ArrowSystem(box2d, statsSystem)
   arrowPools = new ArrowPools()
@@ -871,10 +917,16 @@ function initializeSystems() {
   const entityLookup = world.getEntityById.bind(world)
   npcAISystem.setEntityLookup(entityLookup)
   movementSystem.setEntityLookup(entityLookup)
+  spineSegmentManager.setEntityLookup(entityLookup)
   targetingSystem.setEntityLookup(entityLookup)
   targetingSystem.setSpatialHash(spatialHash)
   weaponSystem.setEntityLookup(entityLookup)
   followSystem.setEntityLookup(entityLookup)
+  weaponSystem.setSpineSegmentManager(spineSegmentManager)
+
+  for (const collisionData of spineCollisionDataByNpcType.values()) {
+    spineSegmentManager.setCollisionData(collisionData)
+  }
 
   // 关键：MovementSystem必须在PhysicsSystem之前执行
   // 这样施加的力才能在当前帧的b2World_Step中被处理
@@ -885,6 +937,7 @@ function initializeSystems() {
   world.addSystem(followSystem)
   world.addSystem(movementSystem)
   world.addSystem(grappleSystem)
+  world.addSystem(spineSegmentManager)
   world.addSystem(physicsSystem)
   world.addSystem(weaponSystem)
   world.addSystem(arrowSystem)
@@ -903,6 +956,51 @@ function initializeSystems() {
   arrowSystem.setSpatialHash(spatialHash)
   arrowSystem.setWorld(world)
   arrowSystem.setArrowPools(arrowPools)
+  physicsSystem.addAfterStepCallback(() => {
+    spineSegmentManager.syncAfterPhysics()
+  })
+}
+
+function createGameNpc(
+  x: number,
+  y: number,
+  groundY: number,
+  npcType: NpcType,
+  options?: NpcSpawnConfig
+): Entity {
+  const collisionData = spineCollisionDataByNpcType.get(npcType)
+  const profileSpineKey = options?.bodyProfile?.spineKey
+  const profileAnimationName = options?.bodyProfile?.spineAnimationName
+  const segmentedCollision =
+    npcType === 'caterpillar' &&
+    collisionData !== undefined &&
+    spineSegmentManager.hasDataForNpcType('caterpillar') &&
+    (!profileSpineKey || profileSpineKey === collisionData.spineKey) &&
+    (!profileAnimationName ||
+      profileAnimationName === collisionData.animationName)
+  const template =
+    CHARACTER_DEFAULT_DATA[npcType as keyof typeof CHARACTER_DEFAULT_DATA] ??
+    CHARACTER_DEFAULT_DATA.default
+  const spawnRadius = options?.radius ?? template.radius
+  const segmentedProxyMetrics =
+    segmentedCollision && collisionData
+      ? buildSegmentedProxyMetrics(
+          collisionData,
+          options?.bodyProfile,
+          spawnRadius
+        )
+      : null
+  const created = createNpc(world, box2d, worldId, x, y, groundY, npcType, {
+    ...options,
+    segmentedCollision,
+    segmentedProxyHalfWidth: segmentedProxyMetrics?.halfWidth ?? 0,
+    segmentedProxyHalfHeight: segmentedProxyMetrics?.halfHeight ?? 0,
+    segmentedProxyOffsetY: segmentedProxyMetrics?.offsetY ?? 0,
+  })
+  if (segmentedCollision) {
+    spineSegmentManager.createSegments(created, npcType)
+  }
+  return created
 }
 
 function createGround(): b2BodyId {
@@ -2644,21 +2742,12 @@ function createPlayerAndWeapon(
     npcEntity = null
     for (let i = 0; i < map.npcs.length; i++) {
       const npc = map.npcs[i]
-      const created = createNpc(
-        world,
-        box2d,
-        worldId,
-        npc.x,
-        npc.y,
-        groundY,
-        npc.npcType,
-        {
-          ...npc,
-          renderLayer: getNpcRenderLayer(i),
-        }
-      )
+      const created = createGameNpc(npc.x, npc.y, groundY, npc.npcType, {
+        ...npc,
+        renderLayer: getNpcRenderLayer(i),
+      })
       if (created.render) {
-        created.render.bodyProfileIndex = isValidCharacterBodyProfile(
+        created.render.bodyProfileIndex = hasRenderableBodyProfile(
           npc.bodyProfile
         )
           ? getNpcBodyProfileIndex(i)
@@ -3788,6 +3877,9 @@ function cleanupDestroyedEntities() {
       entity.weapon.hitEntityIds.clear()
       entity.removeComponent('Weapon')
     }
+    if (!isPlayer && (entity.stats?.isDead || entity.stats?.isVanished)) {
+      spineSegmentManager.destroySegments(entity.id)
+    }
     if (entity.stats?.isVanished && !isPlayer) {
       if (npcEntity && npcEntity.id === entity.id) {
         npcEntity = null
@@ -4431,8 +4523,14 @@ function sendState() {
   stateMessage.camera.x = camera.x
   stateMessage.camera.y = camera.y
   stateMessage.zoom = zoom
+  const hasSpineCollisionDebug =
+    spineSegmentManager.getMaxActiveCoverageRadius() > 0
   const shouldSendDebug =
-    DEBUG_DRAW_SENSORS || DEBUG_DRAW_SOUND || DEBUG_DRAW_CAMERA
+    DEBUG_DRAW_SENSORS ||
+    DEBUG_DRAW_SOUND ||
+    DEBUG_DRAW_CAMERA ||
+    hasSpineCollisionDebug ||
+    hadSpineCollisionDebugLastFrame
   if (sharedStateBuffer) {
     ctx.postMessage(stateMessage)
     if (shouldSendDebug) {
@@ -4446,6 +4544,10 @@ function sendState() {
         ? collectSoundListenerDebugData(entities)
         : emptySoundListeners
       debugMessage.camera = DEBUG_DRAW_CAMERA ? debugCameraData : null
+      debugMessage.spineCollisions = hasSpineCollisionDebug
+        ? spineSegmentManager.collectDebugCollisionData()
+        : emptySpineCollisions
+      hadSpineCollisionDebugLastFrame = hasSpineCollisionDebug
       ctx.postMessage(debugMessage)
     }
     effectsCount = 0
@@ -4465,6 +4567,10 @@ function sendState() {
       ? collectSoundListenerDebugData(entities)
       : emptySoundListeners
     debugMessage.camera = DEBUG_DRAW_CAMERA ? debugCameraData : null
+    debugMessage.spineCollisions = hasSpineCollisionDebug
+      ? spineSegmentManager.collectDebugCollisionData()
+      : emptySpineCollisions
+    hadSpineCollisionDebugLastFrame = hasSpineCollisionDebug
     ctx.postMessage(debugMessage)
   }
   effectsCount = 0
@@ -4477,6 +4583,10 @@ function sendState() {
 
 function restart() {
   if (!world || !box2d) return
+  if (spineSegmentManager) {
+    spineSegmentManager.clear()
+  }
+  hadSpineCollisionDebugLastFrame = false
   world.clear()
   if (worldId) {
     const { b2DestroyWorld } = box2d
@@ -4585,6 +4695,12 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       break
     case 'buffer_release':
       releaseStateBuffer(msg.buffer)
+      break
+    case 'spine_collision_data':
+      spineCollisionDataByNpcType.set(msg.data.npcType, msg.data)
+      if (spineSegmentManager) {
+        spineSegmentManager.setCollisionData(msg.data)
+      }
       break
     case 'control':
       if (msg.action === 'stop') isPaused = true
@@ -5605,10 +5721,7 @@ function restoreNpcsState(npcsState: SaveNpcState[]): void {
     }
     const mapNpc = resolveNpcMapConfig(savedState)
     const npcType = mapNpc?.npcType ?? savedState.npcType ?? 'default'
-    const created = createNpc(
-      world,
-      box2d,
-      worldId,
+    const created = createGameNpc(
       savedState.position.x,
       savedState.position.y,
       groundTopY,
@@ -5616,7 +5729,7 @@ function restoreNpcsState(npcsState: SaveNpcState[]): void {
       mapNpc
     )
     if (created.render && mapNpc) {
-      created.render.bodyProfileIndex = isValidCharacterBodyProfile(
+      created.render.bodyProfileIndex = hasRenderableBodyProfile(
         mapNpc.bodyProfile
       )
         ? getNpcBodyProfileIndex(savedState.spawnIndex)
@@ -5636,10 +5749,7 @@ function restoreNpcsState(npcsState: SaveNpcState[]): void {
     }
     const mapNpc = resolveNpcMapConfig(savedState)
     const npcType = mapNpc?.npcType ?? savedState.npcType ?? 'default'
-    const created = createNpc(
-      world,
-      box2d,
-      worldId,
+    const created = createGameNpc(
       savedState.position.x,
       savedState.position.y,
       groundTopY,
@@ -5647,7 +5757,7 @@ function restoreNpcsState(npcsState: SaveNpcState[]): void {
       mapNpc
     )
     if (created.render && mapNpc) {
-      created.render.bodyProfileIndex = isValidCharacterBodyProfile(
+      created.render.bodyProfileIndex = hasRenderableBodyProfile(
         mapNpc.bodyProfile
       )
         ? getNpcBodyProfileIndex(savedState.spawnIndex)

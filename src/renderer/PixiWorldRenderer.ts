@@ -1,3 +1,4 @@
+import type { Spine } from '@esotericsoftware/spine-pixi-v8'
 import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
 
 import type { ClientRenderer } from '../ClientRenderer'
@@ -31,6 +32,13 @@ import {
   PARTICLE_TYPE_HEAL,
   PARTICLE_TYPE_SPARK,
 } from './ParticleSystem'
+import {
+  acquireSpine,
+  getSpineBoundsAtScale,
+  getSpinePreviewMatchedScale,
+  isSpineLoaded,
+  releaseSpine,
+} from './SpineBodyManager'
 import { type WeaponRenderType, renderWeapon } from './WeaponRenderer'
 
 const FOLLOW_BOUND_BORDER_COLOR = '#ffee58'
@@ -76,7 +84,7 @@ const DAMAGE_TEXT_COLOR = '#f3d8a2'
 const DAMAGE_TEXT_STROKE_COLOR = '#2c160f'
 const DAMAGE_TEXT_DELTA_EPSILON = 0.01
 const DAMAGE_TEXT_POOL_LIMIT = 96
-const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = false
+const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = true
 const COLLISION_DEBUG_COLOR = '#ff3b30'
 const COLLISION_DEBUG_LINE_WIDTH = 2
 
@@ -105,6 +113,9 @@ interface EntityView {
   bodyHash: number
   weaponHash: number
   specialKey: string
+  spineBody: Spine | null
+  spineKey: string
+  spineAnimState: string
 }
 
 interface DamageTextView {
@@ -285,6 +296,7 @@ export class PixiWorldRenderer {
   private readonly damageTextPool: DamageTextView[] = []
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
+  private readonly activeSpineViews = new Set<EntityView>()
   private frameId = 0
   private pruneSkipCounter = 0
   private readonly reusableShakeOffset = { x: 0, y: 0 }
@@ -355,7 +367,7 @@ export class PixiWorldRenderer {
     return this.weaponTextureCache.size
   }
 
-  render(renderer: ClientRenderer): void {
+  render(renderer: ClientRenderer, deltaMs: number): void {
     this.frameId += 1
     this.updateBucketParallax()
     const buf = renderer.getStateBuffer()
@@ -440,6 +452,7 @@ export class PixiWorldRenderer {
 
       this.updateSpecialIcons(
         view,
+        entityId,
         renderer,
         buf,
         offset,
@@ -487,6 +500,13 @@ export class PixiWorldRenderer {
     )
     this.updateUltimateOverlays(renderer, playerOffset)
     this.updateParticles(renderer)
+
+    if (deltaMs > 0) {
+      const deltaSec = deltaMs / 1000
+      for (const view of this.activeSpineViews) {
+        view.spineBody?.update(deltaSec)
+      }
+    }
   }
 
   private ensureEntityView(id: number): EntityView {
@@ -564,6 +584,9 @@ export class PixiWorldRenderer {
       bodyHash: -1,
       weaponHash: -1,
       specialKey: '',
+      spineBody: null,
+      spineKey: '',
+      spineAnimState: '',
     }
 
     this.entityViews.set(id, view)
@@ -659,6 +682,10 @@ export class PixiWorldRenderer {
     view.lastHealthRatio = -1
     view.lastHealthValue = -1
     this.recycleDamageTexts(view)
+    if (view.spineBody) {
+      view.spineBody.visible = false
+      this.activeSpineViews.delete(view)
+    }
   }
 
   private pruneEntityViews(): void {
@@ -686,6 +713,13 @@ export class PixiWorldRenderer {
 
   private destroyEntityView(id: number, view: EntityView): void {
     this.recycleDamageTexts(view)
+    if (view.spineBody) {
+      releaseSpine(view.spineKey, view.spineBody)
+      view.spineBody = null
+      view.spineKey = ''
+      view.spineAnimState = ''
+      this.activeSpineViews.delete(view)
+    }
     if (view.root.parent) {
       view.root.parent.removeChild(view.root)
     }
@@ -704,6 +738,7 @@ export class PixiWorldRenderer {
 
   private updateSpecialIcons(
     view: EntityView,
+    entityId: number,
     renderer: ClientRenderer,
     buf: Float32Array,
     offset: number,
@@ -750,12 +785,30 @@ export class PixiWorldRenderer {
       !isProjectileWeaponType(weaponTypeId)
 
     if (!isStandaloneWeapon) {
-      this.updateBodySprite(view, renderer, buf, offset, flags, alpha)
+      const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
+      const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
+      const spineKey = bodyProfile?.spineKey ?? ''
+      this.updateSpineBody(
+        view,
+        renderer,
+        buf,
+        offset,
+        flags,
+        alpha,
+        bodyProfile,
+        spineKey
+      )
+      if (!spineKey || bodyProfile?.spineMode === 'overlay') {
+        this.updateBodySprite(view, renderer, buf, offset, flags, alpha)
+      } else {
+        hideSprite(view.bodySprite)
+      }
       if (DEBUG_DRAW_PLAYER_COLLISION_SHAPE) {
-        this.updateCollisionDebug(view, renderer, buf, offset)
+        this.updateCollisionDebug(view, renderer, buf, offset, entityId)
       }
     } else {
       hideSprite(view.bodySprite)
+      this.clearSpineBody(view)
     }
 
     this.updateWeaponSprite(
@@ -910,6 +963,75 @@ export class PixiWorldRenderer {
     hideSprite(view.weaponSprite)
   }
 
+  private clearSpineBody(view: EntityView): void {
+    if (!view.spineBody) return
+    releaseSpine(view.spineKey, view.spineBody)
+    view.spineBody = null
+    view.spineKey = ''
+    view.spineAnimState = ''
+    this.activeSpineViews.delete(view)
+  }
+
+  private updateSpineBody(
+    view: EntityView,
+    renderer: ClientRenderer,
+    buf: Float32Array,
+    offset: number,
+    flags: number,
+    alpha: number,
+    bodyProfile: MapCharacterBodyProfile | null,
+    spineKey: string
+  ): void {
+    if (!spineKey || !isSpineLoaded(spineKey)) {
+      this.clearSpineBody(view)
+      return
+    }
+
+    if (view.spineKey !== spineKey) {
+      this.clearSpineBody(view)
+      const spine = acquireSpine(spineKey)
+      if (!spine) return
+      view.spineBody = spine
+      view.spineKey = spineKey
+      view.root.addChild(spine)
+    }
+
+    const spine = view.spineBody
+    if (!spine) return
+
+    const animName = bodyProfile?.spineAnimationName ?? ''
+    if (animName && view.spineAnimState !== animName) {
+      spine.state.setAnimation(0, animName, true)
+      spine.update(0)
+      view.spineAnimState = animName
+    }
+
+    const scale = getSpinePreviewMatchedScale(
+      spineKey,
+      bodyProfile?.spineScale ?? 1
+    )
+    // 渲染基准必须吃到与 Spine 分段碰撞同源的纵向偏移，
+    // 否则动画本体会与 runtime bounding box 线框长期存在固定错位。
+    const collisionOffsetY =
+      renderer.getSpineCollisionRenderOffsetYPx(bodyProfile)
+    const facing = renderer.getFacingForEntity(buf, offset)
+    const radiusPx = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    const bounds = getSpineBoundsAtScale(spineKey, scale)
+
+    // 水平：以包围盒中心对齐物理体中心，翻转时位置随之调整
+    // 垂直：对齐包围盒底部与物理体底部（地面接触点）
+    const spineCenterOffsetX = bounds.offsetX + bounds.width / 2
+    spine.scale.set(-facing * scale, scale)
+    spine.position.set(
+      facing * spineCenterOffsetX,
+      radiusPx - bounds.offsetY - bounds.height + collisionOffsetY
+    )
+    spine.alpha = alpha
+    spine.visible = true
+
+    this.activeSpineViews.add(view)
+  }
+
   private updateBodySprite(
     view: EntityView,
     renderer: ClientRenderer,
@@ -1043,10 +1165,12 @@ export class PixiWorldRenderer {
     view: EntityView,
     renderer: ClientRenderer,
     buf: Float32Array,
-    offset: number
+    offset: number,
+    entityId: number
   ): void {
     const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
     const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
+    const isSegmentedBody = bodyProfile?.spineSegmentedCollision === true
     const radius = buf[offset + OFFSETS.RADIUS]
     const bodyHeight = buf[offset + OFFSETS.BODY_HEIGHT]
     const ppm = this.pixelsPerMeter
@@ -1070,23 +1194,40 @@ export class PixiWorldRenderer {
     g.clear()
     g.visible = true
 
-    const polygons = renderer.getBodyCollisionPolygons(
+    const spineCollisionPolygons =
+      renderer.getSpineCollisionDebugPolygons(entityId)
+    if (spineCollisionPolygons && spineCollisionPolygons.length > 0) {
+      g.scale.x = 1
+      g.rotation = 0
+      g.position.y = 0
+      // Spine 角色调试时只画运行时分段碰撞；
+      // 旧版静态轮廓不能与其叠加，否则会误导“真实碰撞形状”的判断。
+      if (!this.appendCollisionDebugPolygons(g, spineCollisionPolygons, ppm)) {
+        g.visible = false
+        return
+      }
+      g.stroke({
+        color: COLLISION_DEBUG_COLOR,
+        width: COLLISION_DEBUG_LINE_WIDTH,
+        alpha: 0.95,
+      })
+      return
+    }
+
+    if (isSegmentedBody) {
+      g.visible = false
+      return
+    }
+
+    const bodyCollisionPolygons = renderer.getBodyCollisionPolygons(
       bodyProfile,
       radius,
       bodyHeight
     )
-    if (polygons && polygons.length > 0) {
-      for (let i = 0; i < polygons.length; i++) {
-        const polygon = polygons[i]
-        if (polygon.length < 6) {
-          continue
-        }
-        g.moveTo(polygon[0] * ppm, polygon[1] * ppm)
-        for (let j = 2; j < polygon.length; j += 2) {
-          g.lineTo(polygon[j] * ppm, polygon[j + 1] * ppm)
-        }
-        g.closePath()
-      }
+    if (
+      bodyCollisionPolygons &&
+      this.appendCollisionDebugPolygons(g, bodyCollisionPolygons, ppm)
+    ) {
       g.stroke({
         color: COLLISION_DEBUG_COLOR,
         width: COLLISION_DEBUG_LINE_WIDTH,
@@ -1101,6 +1242,35 @@ export class PixiWorldRenderer {
         alpha: 0.95,
       })
     }
+  }
+
+  private appendCollisionDebugPolygons(
+    graphics: Graphics,
+    polygons: number[][] | null,
+    pixelsPerMeter: number
+  ): boolean {
+    if (!polygons || polygons.length === 0) {
+      return false
+    }
+
+    let hasPolygon = false
+    for (let i = 0; i < polygons.length; i++) {
+      const polygon = polygons[i]
+      if (polygon.length < 6) {
+        continue
+      }
+      graphics.moveTo(polygon[0] * pixelsPerMeter, polygon[1] * pixelsPerMeter)
+      for (let j = 2; j < polygon.length; j += 2) {
+        graphics.lineTo(
+          polygon[j] * pixelsPerMeter,
+          polygon[j + 1] * pixelsPerMeter
+        )
+      }
+      graphics.closePath()
+      hasPolygon = true
+    }
+
+    return hasPolygon
   }
 
   private updateWeaponSprite(
@@ -1217,9 +1387,15 @@ export class PixiWorldRenderer {
 
     const health = buf[offset + OFFSETS.STATS_HEALTH]
     const radiusMeters = buf[offset + OFFSETS.RADIUS]
+    const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
+    const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
     const barWidth = 1.1 * this.pixelsPerMeter
     const barHeight = 6
-    const baseY = -radiusMeters * this.pixelsPerMeter - 18
+    const spineBodyHeightPx = renderer.getSpineBodyHeightPx(bodyProfile)
+    const baseY =
+      spineBodyHeightPx > 0
+        ? radiusMeters * this.pixelsPerMeter - spineBodyHeightPx - 18
+        : -radiusMeters * this.pixelsPerMeter - 18
     const ratio = maxHealth > 0 ? health / maxHealth : 0
     const clampedRatio = Math.max(0, Math.min(1, ratio))
     const startX = -barWidth / 2

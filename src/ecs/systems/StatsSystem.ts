@@ -31,6 +31,7 @@ import {
 import {
   getEnemyCollisionCategory,
   getEnemyCollisionMask,
+  getEnvironmentCollisionMask,
   getPlayerCollisionCategory,
   getPlayerCollisionMask,
 } from '../../physicsLayers'
@@ -1124,12 +1125,17 @@ export class StatsSystem extends System {
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const isPlayer = entity.faction?.factionId === Faction.Player
     const renderLayer = entity.render?.renderLayer ?? 0
+    const segmentedCollision = entity.render?.segmentedCollision === true
     const bodyResult = createCharacterPhysicsBody(this.box2d, this.worldId, {
       x: entity.transform.x,
       y: entity.transform.y,
       radius,
       bodyHeight: entity.render?.bodyHeight ?? 0,
       bodyProfile: entity.render?.bodyProfile ?? undefined,
+      segmented: segmentedCollision,
+      segmentedProxyHalfWidth: entity.render?.segmentedProxyHalfWidth ?? 0,
+      segmentedProxyHalfHeight: entity.render?.segmentedProxyHalfHeight ?? 0,
+      segmentedProxyOffsetY: entity.render?.segmentedProxyOffsetY ?? 0,
       density: 1.0,
       friction: DEFAULT_BODY_FRICTION,
       categoryBits: isPlayer
@@ -1137,7 +1143,9 @@ export class StatsSystem extends System {
         : getEnemyCollisionCategory(renderLayer),
       maskBits: isPlayer
         ? getPlayerCollisionMask(renderLayer)
-        : getEnemyCollisionMask(renderLayer),
+        : segmentedCollision
+          ? getEnemyCollisionMask(renderLayer)
+          : getEnemyCollisionMask(renderLayer),
     })
 
     const physics = new PhysicsComponent()

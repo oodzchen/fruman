@@ -15,14 +15,27 @@ import { LevelUpManager } from './LevelUpManager'
 import { localizer } from './Localizer'
 import { MenuAction, MenuManager, MenuMode } from './MenuManager'
 import { saveManager } from './SaveManager'
+import {
+  CATERPILLAR_ATLAS_KEY,
+  CATERPILLAR_SPINE_KEY,
+  CATERPILLAR_SPINE_SCALE,
+} from './constants'
 import type { EditorMapData } from './editorMapTypes'
 import { collectStaticRenderLayers } from './mapObjectLayers'
+import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
 import { DayNightCycle } from './renderer/DayNightCycle'
 import { PatternCreator } from './renderer/PatternCreator'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
+import {
+  acquireSpine,
+  loadSpineAssets,
+  releaseSpine,
+  storeSpinePreview,
+} from './renderer/SpineBodyManager'
 import type { SaveData } from './saveTypes'
+import { buildSpineCollisionKeyframes } from './spineCollisionKeyframes'
 import { getDefaultMap } from './storage'
 import { hasTerrainContent } from './terrain/TerrainDataUtils'
 import { TerrainRenderer } from './terrain/TerrainRenderer'
@@ -34,6 +47,7 @@ import type {
   WorkerInputMessage,
   WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
+  WorkerSpineCollisionDataMessage,
   WorkerToMainMessage,
 } from './worker/protocol'
 
@@ -47,6 +61,7 @@ export class GameClient {
   private static readonly PREVIEW_CAPTURE_MIN_RENDER_FRAMES = 6
   private static readonly PREVIEW_CAPTURE_STABLE_FRAMES = 3
   private static readonly PREVIEW_CAPTURE_MAX_RENDER_FRAMES = 24
+  private static readonly DEFAULT_PIXELS_PER_METER = 50
   private worker: Worker
   private app: Application
   private appCanvas: HTMLCanvasElement
@@ -72,7 +87,7 @@ export class GameClient {
   private menuManager: MenuManager
   private dialogManager: DialogManager
   private levelUpManager: LevelUpManager
-  private pixelsPerMeter = 50
+  private pixelsPerMeter = GameClient.DEFAULT_PIXELS_PER_METER
 
   private camera = { x: 0, y: 0 }
   private rendererLabel: 'webgpu' | 'webgl' | 'canvas'
@@ -195,11 +210,41 @@ export class GameClient {
     appCanvas.id = 'gameCanvas'
     appCanvas.classList.add('game-canvas')
     inputTarget.prepend(appCanvas)
+    await loadSpineAssets(
+      CATERPILLAR_SPINE_KEY,
+      '/animations/caterpillar_move/paxing_ske.json',
+      CATERPILLAR_ATLAS_KEY,
+      '/animations/caterpillar_move/paxing_tex.atlas'
+    )
+    const previewSpine = acquireSpine(CATERPILLAR_SPINE_KEY)
+    if (previewSpine) {
+      previewSpine.scale.set(CATERPILLAR_SPINE_SCALE)
+      previewSpine.update(0)
+      const extracted = app.renderer.extract.canvas(previewSpine)
+      storeSpinePreview(CATERPILLAR_SPINE_KEY, extracted as HTMLCanvasElement)
+      releaseSpine(CATERPILLAR_SPINE_KEY, previewSpine)
+    }
+    const spineCollisionMessages: WorkerSpineCollisionDataMessage[] = []
+    const caterpillarBodyProfile = getDefaultNpcBodyProfile('caterpillar')
+    if (caterpillarBodyProfile) {
+      const collisionData = buildSpineCollisionKeyframes(
+        'caterpillar',
+        caterpillarBodyProfile,
+        GameClient.DEFAULT_PIXELS_PER_METER
+      )
+      if (collisionData) {
+        spineCollisionMessages.push({
+          type: 'spine_collision_data',
+          data: collisionData,
+        })
+      }
+    }
     return new GameClient(
       app,
       rendererLabel,
       menuOverlay,
       inputTarget,
+      spineCollisionMessages,
       onInitProgress
     )
   }
@@ -265,6 +310,7 @@ export class GameClient {
     rendererLabel: 'webgpu' | 'webgl' | 'canvas',
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement,
+    spineCollisionMessages: WorkerSpineCollisionDataMessage[],
     onInitProgress?: (step: string) => void
   ) {
     this.app = app
@@ -336,6 +382,9 @@ export class GameClient {
       this.hudRenderContext,
       this.pixelsPerMeter
     )
+    this.renderer.setSpineCollisionProfiles(
+      spineCollisionMessages.map((message) => message.data)
+    )
     this.worldRenderer = new PixiWorldRenderer(
       this.worldContainer,
       this.pixelsPerMeter
@@ -391,6 +440,11 @@ export class GameClient {
     onInitProgress?.('init_game_logic')
     this.worker = new GameWorker()
     this.worker.onmessage = this.boundHandleWorkerMessage
+
+    for (let i = 0; i < spineCollisionMessages.length; i++) {
+      const message = spineCollisionMessages[i]
+      this.worker.postMessage(message, [message.data.boneTransforms])
+    }
 
     this.worker.postMessage({
       type: 'init',
@@ -555,6 +609,7 @@ export class GameClient {
     } else if (msg.type === 'debug') {
       this.renderer.setSensorDebugData(msg.sensors)
       this.renderer.setSoundDebugData(msg.soundWaves, msg.soundListeners)
+      this.renderer.setSpineCollisionDebugData(msg.spineCollisions)
       if (msg.camera) {
         this.cameraDebug.topLimitRatio = msg.camera.topLimitRatio
         this.cameraDebug.bottomLimitRatio = msg.camera.bottomLimitRatio
@@ -1169,7 +1224,7 @@ export class GameClient {
 
       // 传递视差相机参数，PixiWorldRenderer 在 render 时对各 bucket 独立计算偏移
       this.worldRenderer.setParallaxCamera(camX, camY, zoom, centerX, bottomY)
-      this.worldRenderer.render(this.renderer)
+      this.worldRenderer.render(this.renderer, this.inputEnabled ? deltaMs : 0)
       worldTimeUs = Math.round((performance.now() - worldStartMs) * 1000)
     }
     this.lastWorldRenderTimeUs = worldTimeUs

@@ -35,7 +35,7 @@ export interface NpcTemplate {
   initialPatrolMode: NpcPatrolMode
 }
 
-export type NpcType = 'default' | 'archer'
+export type NpcType = 'default' | 'archer' | 'caterpillar'
 
 export interface WeaponTemplate {
   width: number

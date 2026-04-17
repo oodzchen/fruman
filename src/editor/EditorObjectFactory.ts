@@ -7,6 +7,7 @@ import {
 import type { MapNpcWeapon, WeaponCategory } from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
 import { createCheckpointTreeTextureSource } from '../renderer/CheckpointTreeTextureFactory'
+import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import type { NpcType, WeaponType } from '../types'
 import {
   getWeaponGroundRotationRad,
@@ -295,6 +296,14 @@ class NpcMarkerRenderObject extends fabric.FabricObject {
   }
 
   override _render(ctx: CanvasRenderingContext2D): void {
+    const spineKey = this.bodyProfile?.spineKey
+    if (spineKey) {
+      const preview = getSpinePreviewCanvas(spineKey)
+      if (preview) {
+        ctx.drawImage(preview, -(preview.width >> 1), -(preview.height >> 1))
+        return
+      }
+    }
     if (this.weaponVisible && this.weaponDrawBehind) {
       this.renderEquippedWeapon(ctx)
     }
@@ -363,6 +372,13 @@ class NpcMarkerRenderObject extends fabric.FabricObject {
 
   private getRenderWidthPx(): number {
     let halfWidthPx = this.bodyRadiusXPx
+    const spineKey = this.bodyProfile?.spineKey
+    if (spineKey) {
+      const preview = getSpinePreviewCanvas(spineKey)
+      if (preview) {
+        halfWidthPx = Math.max(halfWidthPx, Math.ceil(preview.width / 2))
+      }
+    }
     if (this.weaponVisible) {
       halfWidthPx = Math.max(
         halfWidthPx,
@@ -374,6 +390,13 @@ class NpcMarkerRenderObject extends fabric.FabricObject {
 
   private getRenderHeightPx(): number {
     let halfHeightPx = this.bodyRadiusYPx
+    const spineKey = this.bodyProfile?.spineKey
+    if (spineKey) {
+      const preview = getSpinePreviewCanvas(spineKey)
+      if (preview) {
+        halfHeightPx = Math.max(halfHeightPx, Math.ceil(preview.height / 2))
+      }
+    }
     if (this.weaponVisible) {
       halfHeightPx = Math.max(
         halfHeightPx,

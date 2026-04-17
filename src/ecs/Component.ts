@@ -281,6 +281,10 @@ export class RenderComponent extends Component {
   bodyHeight = 0
   bodyProfileIndex = 0
   bodyProfile: MapCharacterBodyProfile | null = null
+  segmentedCollision = false
+  segmentedProxyHalfWidth = 0
+  segmentedProxyHalfHeight = 0
+  segmentedProxyOffsetY = 0
   renderLayer = 0
   color = '#FF7A1A'
   bloodColor = ''
@@ -292,6 +296,10 @@ export class RenderComponent extends Component {
     this.bodyHeight = 0
     this.bodyProfileIndex = 0
     this.bodyProfile = null
+    this.segmentedCollision = false
+    this.segmentedProxyHalfWidth = 0
+    this.segmentedProxyHalfHeight = 0
+    this.segmentedProxyOffsetY = 0
     this.renderLayer = 0
     this.color = '#FF7A1A'
     this.bloodColor = ''

@@ -13,6 +13,7 @@ import type {
   SaveNpcState,
   SavePlayerState,
 } from '../saveTypes'
+import type { NpcType } from '../types'
 
 export type RenderEntity = {
   id: number
@@ -111,6 +112,27 @@ export type WorkerResizeMessage = {
   canvasHeight: number
 }
 
+export interface WorkerSpineCollisionData {
+  npcType: NpcType
+  spineKey: string
+  animationName: string
+  spineScale: number
+  animationDuration: number
+  sampleCount: number
+  segmentCount: number
+  coverageRadius: number
+  proxyHalfWidth: number
+  proxyTopY: number
+  segmentOffsetY: number
+  segmentShapes: number[][][]
+  boneTransforms: ArrayBuffer
+}
+
+export type WorkerSpineCollisionDataMessage = {
+  type: 'spine_collision_data'
+  data: WorkerSpineCollisionData
+}
+
 export type MainToWorkerMessage =
   | WorkerInitMessage
   | WorkerInputMessage
@@ -120,6 +142,7 @@ export type MainToWorkerMessage =
   | WorkerSaveRequestMessage
   | WorkerLoadSaveMessage
   | WorkerAllocatePlayerUpgradeMessage
+  | WorkerSpineCollisionDataMessage
   | WorkerResizeMessage
 
 export type WorkerStateMessage = {
@@ -178,12 +201,18 @@ export type CameraDebugData = {
   isOutsideVerticalZone: boolean
 }
 
+export type SpineCollisionDebugData = {
+  entityId: number
+  polygons: number[][]
+}
+
 export type WorkerDebugMessage = {
   type: 'debug'
   sensors: SensorDebugData[]
   soundWaves: SoundWaveDebugData[]
   soundListeners: SoundListenerDebugData[]
   camera: CameraDebugData | null
+  spineCollisions: SpineCollisionDebugData[]
 }
 
 export type WorkerMapDataMessage = {

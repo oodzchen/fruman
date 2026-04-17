@@ -6,6 +6,7 @@ import { System } from '../System'
 export class PhysicsSystem extends System {
   private box2d: MainModule
   private worldId: b2WorldId
+  private readonly afterStepCallbacks: Array<() => void> = []
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
@@ -15,6 +16,10 @@ export class PhysicsSystem extends System {
     const transformType = componentRegistry.getComponentType('Transform')
     const physicsType = componentRegistry.getComponentType('Physics')
     this.setRequiredComponents([transformType, physicsType])
+  }
+
+  addAfterStepCallback(callback: () => void): void {
+    this.afterStepCallbacks.push(callback)
   }
 
   update(entities: Entity[], _deltaTime: number): void {
@@ -42,6 +47,10 @@ export class PhysicsSystem extends System {
       entity.physics.hasPrev = true
       pos.delete()
       vel.delete()
+    }
+
+    for (let i = 0; i < this.afterStepCallbacks.length; i++) {
+      this.afterStepCallbacks[i]()
     }
   }
 }

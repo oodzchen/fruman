@@ -275,6 +275,7 @@
   "editor_enemy_fast": "快速敌人",
   "editor_enemy_large": "巨型敌人",
   "editor_enemy_archer": "弓箭手",
+  "editor_enemy_caterpillar": "毛毛虫",
   "editor_npc_template_group": "自定义模板",
   "editor_npc_template_create_prompt": "请输入模板名称",
   "editor_npc_template_default_name": "自定义模板{0}",

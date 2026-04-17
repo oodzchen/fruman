@@ -292,6 +292,16 @@ export function isValidCharacterBodyProfile(
   return !!profile && profile.points.length >= 6
 }
 
+/**
+ * 判断 profile 是否需要被渲染侧识别（有自定义多边形或 spine 动画）。
+ * 与 isValidCharacterBodyProfile 不同，此函数允许 points 为空（spine 专用 profile）。
+ */
+export function hasRenderableBodyProfile(
+  profile: MapCharacterBodyProfile | null | undefined
+): profile is MapCharacterBodyProfile {
+  return !!profile && (profile.points.length >= 6 || !!profile.spineKey)
+}
+
 export function getCharacterBodyColor(
   profile: MapCharacterBodyProfile | null | undefined,
   fallbackColor: string
