@@ -1,4 +1,23 @@
 const STORAGE_KEY_RESOLUTION = 'sl2d_resolution'
+const DEFAULT_RESOLUTION_VALUE = '800x600'
+const DEFAULT_RESOLUTION_INDEX_FALLBACK = 5 // 800×600
+const LEGACY_RESOLUTION_VALUES: string[] = [
+  '568x320',
+  '667x375',
+  '800x600',
+  '812x375',
+  '844x390',
+  '926x428',
+  '1024x768',
+  '1180x820',
+  '1194x834',
+  '1280x720',
+  '1366x768',
+  '1366x1024',
+  '1600x900',
+  '1920x1080',
+  '2560x1440',
+]
 
 export interface ResolutionPreset {
   label: string
@@ -9,14 +28,15 @@ export interface ResolutionPreset {
 export const RESOLUTION_PRESETS: ResolutionPreset[] = [
   { label: '568×320', width: 568, height: 320 },
   { label: '667×375', width: 667, height: 375 },
-  { label: '800×600', width: 800, height: 600 },
+  // 按总像素数递增排列，保证左右切换的方向稳定。
   { label: '812×375', width: 812, height: 375 },
   { label: '844×390', width: 844, height: 390 },
   { label: '926×428', width: 926, height: 428 },
+  { label: '800×600', width: 800, height: 600 },
   { label: '1024×768', width: 1024, height: 768 },
+  { label: '1280×720', width: 1280, height: 720 },
   { label: '1180×820', width: 1180, height: 820 },
   { label: '1194×834', width: 1194, height: 834 },
-  { label: '1280×720', width: 1280, height: 720 },
   { label: '1366×768', width: 1366, height: 768 },
   { label: '1366×1024', width: 1366, height: 1024 },
   { label: '1600×900', width: 1600, height: 900 },
@@ -24,7 +44,33 @@ export const RESOLUTION_PRESETS: ResolutionPreset[] = [
   { label: '2560×1440', width: 2560, height: 1440 },
 ]
 
-const DEFAULT_RESOLUTION_INDEX = 2 // 800×600
+const DEFAULT_RESOLUTION_INDEX = findResolutionIndex(DEFAULT_RESOLUTION_VALUE)
+
+function getResolutionStorageValue(preset: ResolutionPreset): string {
+  return `${preset.width}x${preset.height}`
+}
+
+function findResolutionIndex(value: string): number {
+  const normalized = value.replace('×', 'x')
+  const index = RESOLUTION_PRESETS.findIndex(
+    (preset) => getResolutionStorageValue(preset) === normalized
+  )
+  return index >= 0 ? index : DEFAULT_RESOLUTION_INDEX_FALLBACK
+}
+
+function resolveStoredResolutionIndex(savedValue: string | null): number {
+  if (savedValue === null) {
+    return DEFAULT_RESOLUTION_INDEX
+  }
+  if (/^\d+$/.test(savedValue)) {
+    const legacyIndex = Number.parseInt(savedValue, 10)
+    if (legacyIndex >= 0 && legacyIndex < LEGACY_RESOLUTION_VALUES.length) {
+      return findResolutionIndex(LEGACY_RESOLUTION_VALUES[legacyIndex])
+    }
+    return DEFAULT_RESOLUTION_INDEX
+  }
+  return findResolutionIndex(savedValue)
+}
 
 export class DisplayManager {
   private viewport: HTMLElement
@@ -38,13 +84,10 @@ export class DisplayManager {
     this.viewport = viewport
     this.canvasBottom = document.getElementById('canvasBottom')
 
-    const saved = localStorage.getItem(STORAGE_KEY_RESOLUTION)
-    const savedIndex =
-      saved !== null ? parseInt(saved, 10) : DEFAULT_RESOLUTION_INDEX
-    this.resolutionIndex =
-      savedIndex >= 0 && savedIndex < RESOLUTION_PRESETS.length
-        ? savedIndex
-        : DEFAULT_RESOLUTION_INDEX
+    this.resolutionIndex = resolveStoredResolutionIndex(
+      localStorage.getItem(STORAGE_KEY_RESOLUTION)
+    )
+    this.persistResolution()
 
     this.applyResolution()
 
@@ -81,7 +124,7 @@ export class DisplayManager {
     if (this.fullscreenActive) return
     const len = RESOLUTION_PRESETS.length
     this.resolutionIndex = (this.resolutionIndex + direction + len) % len
-    localStorage.setItem(STORAGE_KEY_RESOLUTION, String(this.resolutionIndex))
+    this.persistResolution()
     this.applyResolution()
     this.onResolutionChangeCallback?.(RESOLUTION_PRESETS[this.resolutionIndex])
   }
@@ -105,5 +148,12 @@ export class DisplayManager {
     if (this.canvasBottom) {
       this.canvasBottom.style.width = `${preset.width}px`
     }
+  }
+
+  private persistResolution(): void {
+    localStorage.setItem(
+      STORAGE_KEY_RESOLUTION,
+      getResolutionStorageValue(RESOLUTION_PRESETS[this.resolutionIndex])
+    )
   }
 }

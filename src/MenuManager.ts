@@ -545,15 +545,37 @@ export class MenuManager {
     if (!Number.isFinite(index)) return
     const item = this.menuItems[index]
     if (!item) return
+    this.setSelectedIndex(index)
+    const direction = this.getDirectionalCycleClickDirection(event)
     if (item.action === MenuAction.Language) {
-      this.cycleLanguage(1)
+      if (direction !== 0) {
+        this.cycleLanguage(direction)
+      }
       return
     }
     if (item.action === MenuAction.Resolution) {
-      this.cycleResolution(1)
+      if (direction !== 0) {
+        this.cycleResolution(direction)
+      }
       return
     }
     this.selectMenuItem(index)
+  }
+
+  private getDirectionalCycleClickDirection(event: Event): number {
+    const target = event.target
+    if (!(target instanceof HTMLElement)) {
+      return 0
+    }
+    const control = target.closest<HTMLElement>('[data-cycle-direction]')
+    if (!control) {
+      return 0
+    }
+    const direction = Number.parseInt(control.dataset.cycleDirection ?? '', 10)
+    if (direction === -1 || direction === 1) {
+      return direction
+    }
+    return 0
   }
 
   private ensureMenuItemElements(count: number) {
@@ -568,18 +590,10 @@ export class MenuManager {
     }
   }
 
-  private buildMenuItemText(item: MenuItem, isSelected: boolean): string {
+  private buildMenuItemText(item: MenuItem): string {
     let text = item.label
     if (item.value) {
-      const isCyclable =
-        item.action === MenuAction.Language ||
-        item.action === MenuAction.Resolution ||
-        item.action === MenuAction.Fullscreen
-      if (isSelected && isCyclable) {
-        text += ` < ${item.value} >`
-      } else {
-        text += ` : ${item.value}`
-      }
+      text += ` : ${item.value}`
     }
     return text
   }
@@ -600,6 +614,14 @@ export class MenuManager {
     element.classList.toggle('menu-item-back', item.action === MenuAction.Back)
     element.classList.toggle('menu-item-save', isSaveItem)
     element.classList.toggle(
+      'menu-item-value',
+      this.hasAlignedValueContent(item)
+    )
+    element.classList.toggle(
+      'menu-item-cycle',
+      this.isDirectionalCycleItem(item)
+    )
+    element.classList.toggle(
       'menu-item-save-new',
       item.action === MenuAction.SaveListNew && this.mode === MenuMode.SaveList
     )
@@ -615,9 +637,68 @@ export class MenuManager {
 
     if (isSaveItem && item.saveMeta) {
       this.renderSaveItemContent(element, item.saveMeta)
+    } else if (this.hasAlignedValueContent(item)) {
+      this.renderAlignedValueContent(element, item)
     } else {
-      element.textContent = this.buildMenuItemText(item, isSelected)
+      element.textContent = this.buildMenuItemText(item)
     }
+  }
+
+  private hasAlignedValueContent(item: MenuItem): boolean {
+    return !!item.value
+  }
+
+  private isDirectionalCycleItem(item: MenuItem): boolean {
+    return (
+      item.action === MenuAction.Language ||
+      item.action === MenuAction.Resolution
+    )
+  }
+
+  private renderAlignedValueContent(
+    element: HTMLButtonElement,
+    item: MenuItem
+  ) {
+    const label = document.createElement('span')
+    label.className = 'menu-item-value-label'
+    label.textContent = item.label
+
+    const colon = document.createElement('span')
+    colon.className = 'menu-item-value-colon'
+    colon.textContent = ':'
+
+    const content = document.createElement('span')
+    content.className = 'menu-item-value-content'
+
+    if (!this.isDirectionalCycleItem(item)) {
+      const value = document.createElement('span')
+      value.className = 'menu-item-static-value'
+      value.textContent = item.value ?? ''
+      content.appendChild(value)
+      element.replaceChildren(label, colon, content)
+      return
+    }
+
+    const controls = document.createElement('span')
+    controls.className = 'menu-item-cycle-controls'
+
+    const leftArrow = document.createElement('span')
+    leftArrow.className = 'menu-item-cycle-arrow'
+    leftArrow.dataset.cycleDirection = '-1'
+    leftArrow.textContent = '<'
+
+    const value = document.createElement('span')
+    value.className = 'menu-item-cycle-value'
+    value.textContent = item.value ?? ''
+
+    const rightArrow = document.createElement('span')
+    rightArrow.className = 'menu-item-cycle-arrow'
+    rightArrow.dataset.cycleDirection = '1'
+    rightArrow.textContent = '>'
+
+    controls.append(leftArrow, value, rightArrow)
+    content.appendChild(controls)
+    element.replaceChildren(label, colon, content)
   }
 
   private renderSaveItemContent(element: HTMLButtonElement, meta: SaveMeta) {

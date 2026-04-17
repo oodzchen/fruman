@@ -253,6 +253,63 @@
         font-family: var(--ui-font);
         pointer-events: auto;
       }
+      .menu-item.menu-item-value {
+        width: 420px;
+        display: grid;
+        grid-template-columns: 148px 12px 1fr;
+        align-items: center;
+        gap: 8px;
+        text-align: left;
+      }
+      .menu-item.menu-item-cycle {
+        grid-template-columns: 148px 12px 1fr;
+      }
+      .menu-item-value-label {
+        text-align: right;
+        pointer-events: none;
+      }
+      .menu-item-value-colon {
+        text-align: center;
+        pointer-events: none;
+      }
+      .menu-item-value-content {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        min-width: 0;
+      }
+      .menu-item-static-value {
+        pointer-events: none;
+      }
+      .menu-item-cycle-controls {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
+        min-width: 144px;
+      }
+      .menu-item-cycle-arrow {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        color: var(--ui-muted);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        pointer-events: auto;
+      }
+      .menu-item:hover .menu-item-cycle-arrow,
+      .menu-item.is-selected .menu-item-cycle-arrow {
+        color: var(--ui-color);
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+      .menu-item-cycle-value {
+        min-width: 80px;
+        text-align: center;
+        pointer-events: none;
+      }
       .menu-item.menu-item-back {
         width: auto;
         height: 34px;
@@ -280,6 +337,19 @@
         font-size: 16px;
         height: 26px;
         line-height: 26px;
+      }
+      .menu-overlay.menu-compact .menu-item.menu-item-value,
+      .menu-overlay.menu-compact .menu-item.menu-item-cycle {
+        width: 340px;
+        grid-template-columns: 116px 10px 1fr;
+        gap: 6px;
+      }
+      .menu-overlay.menu-compact .menu-item-cycle-controls {
+        min-width: 118px;
+      }
+      .menu-overlay.menu-compact .menu-item-cycle-arrow {
+        width: 20px;
+        height: 20px;
       }
       .menu-overlay.menu-compact .menu-item.menu-item-save {
         width: 450px;
