@@ -87,6 +87,8 @@ const DAMAGE_TEXT_DELTA_EPSILON = 0.01
 const DAMAGE_TEXT_POOL_LIMIT = 96
 const COLLISION_DEBUG_COLOR = '#ff3b30'
 const COLLISION_DEBUG_LINE_WIDTH = 2
+const ENTITY_GROUND_SORT_SCALE = 16
+const STANDALONE_WEAPON_SORT_OFFSET = -1
 
 interface LayerBucket {
   container: Container
@@ -438,6 +440,7 @@ export class PixiWorldRenderer {
       const alpha = this.getDeathAlpha(buf, offset, flags)
 
       view.root.visible = true
+      view.root.zIndex = this.getEntityGroundSortZ(buf, offset, centerY)
       view.root.position.set(centerX, centerY)
 
       if (
@@ -601,6 +604,7 @@ export class PixiWorldRenderer {
     }
 
     const container = new Container()
+    container.sortableChildren = true
     container.zIndex = layer * 10 + 5
     this.root.addChild(container)
 
@@ -734,6 +738,25 @@ export class PixiWorldRenderer {
     view.followBondSprite.destroy()
     view.followUnbondSprite.destroy()
     this.entityViews.delete(id)
+  }
+
+  private getEntityGroundSortZ(
+    buf: Float32Array,
+    offset: number,
+    centerY: number
+  ): number {
+    const radiusPx = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    const healthMax = buf[offset + OFFSETS.STATS_HEALTH_MAX]
+    const weaponActive = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
+    const isStandaloneWeapon =
+      weaponActive && !(radiusPx > 0) && !(healthMax > 0)
+    const groundY = isStandaloneWeapon
+      ? (buf[offset + OFFSETS.WEAPON_Y] +
+          Math.max(0, buf[offset + OFFSETS.WEAPON_H] * 0.5)) *
+        this.pixelsPerMeter
+      : centerY + Math.max(0, radiusPx)
+    const sortOffset = isStandaloneWeapon ? STANDALONE_WEAPON_SORT_OFFSET : 0
+    return Math.round(groundY * ENTITY_GROUND_SORT_SCALE) + sortOffset
   }
 
   private updateSpecialIcons(

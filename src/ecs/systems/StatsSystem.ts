@@ -87,6 +87,28 @@ const TOUGHNESS_BREAK_KNOCKBACK_DENOMINATOR = 5
 const ULTIMATE_COOLDOWN_HIT_REWARD_MS = 1000
 const ULTIMATE_COOLDOWN_KILL_REWARD_MS = 2000
 
+function getBodyHalfHeight(
+  render: { radius?: number; bodyHeight?: number } | undefined,
+  defaultRadius: number
+): number {
+  if (!render) {
+    return defaultRadius
+  }
+  const bodyHeight = render.bodyHeight ?? 0
+  const halfHeight = bodyHeight > 0 ? bodyHeight * 0.5 : defaultRadius
+  return Math.max(defaultRadius, halfHeight)
+}
+
+function getStaggerWeaponDropOffsetX(
+  facing: number,
+  radius: number,
+  weaponWidth: number
+): number {
+  const extraReach =
+    weaponWidth > 0 ? Math.min(weaponWidth * 0.25, radius * 2) : radius * 0.5
+  return -facing * (radius + extraReach)
+}
+
 export class StatsSystem extends System {
   private box2d?: MainModule
   private worldId?: b2WorldId
@@ -512,8 +534,20 @@ export class StatsSystem extends System {
 
       // 目标相对偏移：角色脚下横放（位于角色中心正下方地面）
       const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-      weapon.dropEndOffset.dx = 0
-      weapon.dropEndOffset.dy = radius - DEFAULT_WEAPON_HEIGHT / 2
+      const bodyHalfHeight = getBodyHalfHeight(entity.render, radius)
+      const weaponHeight =
+        weapon.height > 0 ? weapon.height : DEFAULT_WEAPON_HEIGHT
+      const weaponWidth = weapon.width > 0 ? weapon.width : weaponHeight
+      let facing = entity.input?.lastMoveDirection ?? 0
+      if (facing === 0) {
+        facing = entity.npcAI?.lastFacing ?? 1
+      }
+      weapon.dropEndOffset.dx = getStaggerWeaponDropOffsetX(
+        facing,
+        radius,
+        weaponWidth
+      )
+      weapon.dropEndOffset.dy = bodyHalfHeight - weaponHeight / 2
       weapon.dropEndOffset.rotation = getWeaponStaggerDropRotationRad(
         weapon.weaponType
       )
