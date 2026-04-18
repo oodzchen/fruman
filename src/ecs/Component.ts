@@ -1366,6 +1366,7 @@ export class FollowComponent extends Component {
   obstacleJumpStage = 0
   obstacleJumpDirection: -1 | 1 = 1
   jumpStartTimestamp = 0
+  jumpLastTriggerTimestamp = 0
   jumpStartX = 0
   jumpStartY = 0
   bondFlashTimer = 0
@@ -1389,6 +1390,7 @@ export class FollowComponent extends Component {
     this.obstacleJumpStage = 0
     this.obstacleJumpDirection = 1
     this.jumpStartTimestamp = 0
+    this.jumpLastTriggerTimestamp = 0
     this.jumpStartX = 0
     this.jumpStartY = 0
     this.bondFlashTimer = 0

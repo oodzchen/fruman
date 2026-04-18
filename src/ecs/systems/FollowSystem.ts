@@ -12,6 +12,7 @@ import { System } from '../System'
 
 export class FollowSystem extends System {
   private currentTimeMs = 0
+  private currentEntities: Entity[] = []
   private entityLookup?: (id: number) => Entity | undefined
 
   constructor() {
@@ -27,6 +28,7 @@ export class FollowSystem extends System {
   }
 
   update(entities: Entity[], deltaTime: number): void {
+    this.currentEntities = entities
     const deltaMs = deltaTime > 0 ? deltaTime * 1000 : 0
     this.currentTimeMs += deltaMs
     const now = this.currentTimeMs
@@ -132,7 +134,9 @@ export class FollowSystem extends System {
           ? follow.preferredDistance + FOLLOW_APPROACH_HYSTERESIS
           : follow.preferredDistance
 
-      if (fullDist <= waitThreshold) {
+      if (
+        this.shouldWaitNearTarget(entity, follow, fullDist, dy, waitThreshold)
+      ) {
         entity.input.moveDirection = 0
         entity.input.sprintRequested = false
         entity.input.facingOverride = stableFacing
@@ -180,6 +184,86 @@ export class FollowSystem extends System {
     return dx * targetMoveDir > 0 && distance < FOLLOW_BLOCK_CHECK_DISTANCE
   }
 
+  private shouldWaitNearTarget(
+    entity: Entity,
+    follow: FollowComponent,
+    distance: number,
+    dy: number,
+    waitThreshold: number
+  ): boolean {
+    if (distance > waitThreshold) {
+      return false
+    }
+    if (Math.abs(dy) > follow.minDistance) {
+      return false
+    }
+    const target =
+      follow.followTargetId !== null
+        ? this.entityLookup?.(follow.followTargetId)
+        : undefined
+    if (
+      target &&
+      this.hasDynamicBlockerAhead(
+        entity,
+        target,
+        entity.input?.moveDirection || entity.input?.lastMoveDirection || 0
+      )
+    ) {
+      return false
+    }
+    return !(entity.movement?.isTouchingWall ?? false)
+  }
+
+  private hasDynamicBlockerAhead(
+    entity: Entity,
+    target: Entity,
+    moveDir: number
+  ): boolean {
+    if (!entity.transform || !target.transform) {
+      return false
+    }
+    const resolvedMoveDir =
+      moveDir !== 0
+        ? moveDir
+        : target.transform.x >= entity.transform.x
+          ? 1
+          : -1
+    const selfX = entity.transform.x
+    const selfY = entity.transform.y
+    const targetDx = (target.transform.x - selfX) * resolvedMoveDir
+    if (targetDx <= 0) {
+      return false
+    }
+    const selfRadius = entity.render?.radius ?? 0.5
+
+    for (let i = 0; i < this.currentEntities.length; i++) {
+      const other = this.currentEntities[i]
+      if (other.id === entity.id || other.id === target.id) continue
+      if (!other.transform || !other.render) continue
+      if (other.stats?.isDead) continue
+      if (
+        (other.render.renderLayer ?? 0) !== (entity.render?.renderLayer ?? 0)
+      ) {
+        continue
+      }
+      const otherRadius = other.render.radius
+      if (!(otherRadius > 0)) continue
+
+      const dx = (other.transform.x - selfX) * resolvedMoveDir
+      if (dx <= 0 || dx >= targetDx) continue
+
+      const allowedVerticalGap = selfRadius + otherRadius
+      const verticalGap = Math.abs(other.transform.y - selfY)
+      if (verticalGap > allowedVerticalGap) continue
+
+      const horizontalGap = dx - (selfRadius + otherRadius)
+      if (horizontalGap > FOLLOW_BLOCK_CHECK_DISTANCE) continue
+
+      return true
+    }
+    return false
+  }
+
   private checkStuck(
     entity: Entity,
     follow: FollowComponent,
@@ -198,11 +282,9 @@ export class FollowSystem extends System {
       now - follow.lastPositionUpdateTime >
       FOLLOW_POSITION_CHECK_INTERVAL_MS
     ) {
-      const moved = Math.hypot(
-        entity.transform.x - follow.lastPositionX,
-        entity.transform.y - follow.lastPositionY
-      )
-      if (moved < 0.2) {
+      const deltaX = Math.abs(entity.transform.x - follow.lastPositionX)
+      const deltaY = Math.abs(entity.transform.y - follow.lastPositionY)
+      if (deltaX <= 0.3 && deltaY <= 0.3) {
         follow.stuckTimer += now - follow.lastPositionUpdateTime
       } else {
         follow.stuckTimer = 0
@@ -227,7 +309,8 @@ export class FollowSystem extends System {
       follow.obstacleJumpStage !== 0 ||
       !entity.input ||
       !entity.transform ||
-      !entity.movement
+      !entity.movement ||
+      now < follow.jumpLastTriggerTimestamp
     )
       return
     // 碰墙或太近退步被卡住均可触发
@@ -240,15 +323,19 @@ export class FollowSystem extends System {
         target.transform.x - entity.transform.x,
         target.transform.y - entity.transform.y
       ) < follow.minDistance
-    if (!entity.movement.isTouchingWall && !isTooClose) return
-
     const moveDir =
       entity.input.moveDirection !== 0
         ? entity.input.moveDirection
         : entity.input.lastMoveDirection !== 0
           ? entity.input.lastMoveDirection
           : 1
+    const blockedByEntity =
+      target != null && this.hasDynamicBlockerAhead(entity, target, moveDir)
+    if (!entity.movement.isTouchingWall && !isTooClose && !blockedByEntity)
+      return
+
     follow.obstacleJumpDirection = (moveDir >= 0 ? 1 : -1) as -1 | 1
+    follow.jumpLastTriggerTimestamp = now + 800
     entity.input.jumpRequested = true
     entity.input.inputBuffer.bufferAction('jump')
     follow.obstacleJumpStage = 1
@@ -264,6 +351,8 @@ export class FollowSystem extends System {
   ): void {
     if (!entity.movement || !entity.input || !entity.transform) return
     entity.input.moveDirection = follow.obstacleJumpDirection
+    entity.input.sprintRequested = true
+    entity.input.facingOverride = follow.obstacleJumpDirection
 
     if (follow.obstacleJumpStage === 1) {
       if (now - follow.jumpStartTimestamp >= 300) {
@@ -278,9 +367,15 @@ export class FollowSystem extends System {
     if (follow.obstacleJumpStage === 2) {
       if (now - follow.jumpStartTimestamp < 500) return
       if (entity.movement.isGrounded) {
+        const deltaX = Math.abs(entity.transform.x - follow.jumpStartX)
+        const deltaY = Math.abs(entity.transform.y - follow.jumpStartY)
+        const distanceMoved = Math.hypot(deltaX, deltaY)
         follow.obstacleJumpStage = 0
         follow.stuckTimer = 0
         follow.lastPositionUpdateTime = 0
+        if (distanceMoved <= 2.0) {
+          follow.jumpLastTriggerTimestamp = now + 300
+        }
       }
     }
   }
