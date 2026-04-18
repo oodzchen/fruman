@@ -143,6 +143,43 @@ export class EditorMarkerManager {
     this.bodyTextureCache.clear()
   }
 
+  private markPlayerMarkerDirty(marker: PlayerMarker): void {
+    const bodyItem = marker.item(1)
+    const body =
+      bodyItem && this.isCharacterBodyShapeObject(bodyItem) ? bodyItem : null
+    if (body) {
+      body.dirty = true
+    }
+    marker.dirty = true
+    marker.setCoords()
+  }
+
+  private markNpcMarkerDirty(marker: NpcMarker): void {
+    marker.dirty = true
+    marker.setCoords()
+  }
+
+  private markCharacterMarkersUsingTextureDirty(textureDataUrl: string): void {
+    const playerData = this.playerMarkerData
+    if (
+      playerData &&
+      (playerData.bodyProfile?.textureDataUrl === textureDataUrl ||
+        playerData.bodyProfile?.surfaceDataUrl === textureDataUrl)
+    ) {
+      this.markPlayerMarkerDirty(playerData.marker)
+    }
+    for (let i = 0; i < this.npcMarkers.length; i++) {
+      const marker = this.npcMarkers[i].marker
+      if (
+        marker.bodyProfile?.textureDataUrl !== textureDataUrl &&
+        marker.bodyProfile?.surfaceDataUrl !== textureDataUrl
+      ) {
+        continue
+      }
+      this.markNpcMarkerDirty(marker)
+    }
+  }
+
   private getBodyTextureImage(
     profile: MapCharacterBodyProfile | undefined
   ): HTMLImageElement | null {
@@ -157,6 +194,7 @@ export class EditorMarkerManager {
         cached.addEventListener(
           'load',
           () => {
+            this.markCharacterMarkersUsingTextureDirty(textureDataUrl)
             this.ctx.requestRender()
           },
           { once: true }
@@ -167,6 +205,7 @@ export class EditorMarkerManager {
     const image = new Image()
     this.pendingBodyTextureImages.add(image)
     image.onload = () => {
+      this.markCharacterMarkersUsingTextureDirty(textureDataUrl)
       this.ctx.requestRender()
     }
     image.src = textureDataUrl
