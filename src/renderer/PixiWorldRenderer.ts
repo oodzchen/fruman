@@ -17,6 +17,7 @@ import {
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
+import { getPublicAssetUrl } from '../publicAssetUrl'
 import {
   ENTITY_STRIDE,
   FLAGS,
@@ -160,8 +161,17 @@ function createCanvas2D(
 function createImageTexture(path: string): Texture {
   const image = new Image()
   image.decoding = 'async'
-  image.src = path
-  return Texture.from(image)
+  const texture = Texture.from(image)
+  image.onload = () => {
+    texture.source.update()
+    texture.update()
+  }
+  image.src = getPublicAssetUrl(path)
+  if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+    texture.source.update()
+    texture.update()
+  }
+  return texture
 }
 
 function hideSprite(sprite: Sprite): void {
@@ -332,8 +342,8 @@ export class PixiWorldRenderer {
     this.hammerShockwaveGraphics = new Graphics()
     this.overlayContainer.addChild(this.hammerShockwaveGraphics)
 
-    this.handshakeTexture = createImageTexture('/images/handshake_yellow.png')
-    this.wavingTexture = createImageTexture('/images/waving_hand.png')
+    this.handshakeTexture = createImageTexture('images/handshake_yellow.png')
+    this.wavingTexture = createImageTexture('images/waving_hand.png')
     this.particleTexture = this.createCircleTexture(24, '#ffffff')
 
     this.lockedReticleSprite = new Sprite(this.getReticleTexture())
@@ -566,14 +576,14 @@ export class PixiWorldRenderer {
     followBondSprite.width = 20
     followBondSprite.height = 20
     hideSprite(followBondSprite)
-    this.overlayContainer.addChild(followBondSprite)
+    root.addChild(followBondSprite)
 
     const followUnbondSprite = new Sprite(this.wavingTexture)
     followUnbondSprite.anchor.set(0.5)
     followUnbondSprite.width = 20
     followUnbondSprite.height = 20
     hideSprite(followUnbondSprite)
-    this.overlayContainer.addChild(followUnbondSprite)
+    root.addChild(followUnbondSprite)
 
     const view: EntityView = {
       id,
@@ -736,16 +746,8 @@ export class PixiWorldRenderer {
     if (view.root.parent) {
       view.root.parent.removeChild(view.root)
     }
-    if (view.followBondSprite.parent) {
-      view.followBondSprite.parent.removeChild(view.followBondSprite)
-    }
-    if (view.followUnbondSprite.parent) {
-      view.followUnbondSprite.parent.removeChild(view.followUnbondSprite)
-    }
 
     view.root.destroy({ children: true })
-    view.followBondSprite.destroy()
-    view.followUnbondSprite.destroy()
     this.entityViews.delete(id)
   }
 
@@ -1636,26 +1638,28 @@ export class PixiWorldRenderer {
       const npcX = buf[offset + OFFSETS.X]
       const npcY = buf[offset + OFFSETS.Y]
       const npcRadius = buf[offset + OFFSETS.RADIUS]
-      const midX = ((playerX + npcX) / 2) * this.pixelsPerMeter
-      const baseY =
-        (Math.min(playerY, npcY) - npcRadius) * this.pixelsPerMeter - 42
       const progress = buf[offset + OFFSETS.FOLLOW_FLASH_PROGRESS]
       const elapsed = (1 - progress) * 1200
       const riseOffset =
         elapsed < 300 ? Math.round(15 * (1 - elapsed / 300)) : 0
       const alpha = elapsed > 800 ? (1200 - elapsed) / 400 : 1
+      const npcCenterX = npcX * this.pixelsPerMeter
+      const npcCenterY = npcY * this.pixelsPerMeter
+      const midX = ((playerX + npcX) / 2) * this.pixelsPerMeter
+      const baseY =
+        (Math.min(playerY, npcY) - npcRadius) * this.pixelsPerMeter - 42
 
       view.followBondSprite.visible = true
-      view.followBondSprite.position.set(midX, baseY + riseOffset)
+      view.followBondSprite.position.set(
+        midX - npcCenterX,
+        baseY + riseOffset - npcCenterY
+      )
       view.followBondSprite.alpha = alpha
     }
 
     const unbondProgress = buf[offset + OFFSETS.UNBOND_FLASH_PROGRESS]
     if (unbondProgress > 0) {
-      const npcX = buf[offset + OFFSETS.X]
-      const npcY = buf[offset + OFFSETS.Y]
       const npcRadius = buf[offset + OFFSETS.RADIUS]
-      const baseY = (npcY - npcRadius) * this.pixelsPerMeter - 42
       const elapsed = (1 - unbondProgress) * 1200
       const riseOffset =
         elapsed < 300 ? Math.round(15 * (1 - elapsed / 300)) : 0
@@ -1663,8 +1667,8 @@ export class PixiWorldRenderer {
 
       view.followUnbondSprite.visible = true
       view.followUnbondSprite.position.set(
-        npcX * this.pixelsPerMeter,
-        baseY + riseOffset
+        0,
+        -npcRadius * this.pixelsPerMeter - 42 + riseOffset
       )
       view.followUnbondSprite.alpha = alpha
     }

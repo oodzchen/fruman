@@ -34,6 +34,7 @@ import {
   getCameraShakeFalloffDistance,
   getSoundFalloffDistance,
 } from './effectAttenuation'
+import { getPublicAssetUrl } from './publicAssetUrl'
 import { renderBody } from './renderer/BodyRenderer'
 import { renderBodyCached } from './renderer/BodyRenderer'
 import {
@@ -219,12 +220,12 @@ export class ClientRenderer {
     this.handshakeIcon.onload = () => {
       this.handshakeIconLoaded = true
     }
-    this.handshakeIcon.src = '/images/handshake_yellow.png'
+    this.handshakeIcon.src = getPublicAssetUrl('images/handshake_yellow.png')
     this.wavingHandIcon = new Image()
     this.wavingHandIcon.onload = () => {
       this.wavingHandIconLoaded = true
     }
-    this.wavingHandIcon.src = '/images/waving_hand.png'
+    this.wavingHandIcon.src = getPublicAssetUrl('images/waving_hand.png')
   }
 
   setAudioManager(audioManager: AudioManager): void {
