@@ -8,7 +8,6 @@ import {
   DEFAULT_ROLL_COOLDOWN,
   DEFAULT_ROLL_DURATION,
   DEFAULT_ROLL_SPEED,
-  DEFAULT_SPRINT_SPEED,
   DEFAULT_WALL_SLIDE_FRICTION,
   FALL_DAMAGE_KINETIC_FATAL,
   FALL_DAMAGE_KINETIC_THRESHOLD,
@@ -17,6 +16,7 @@ import {
   PLAYER_WEIGHT_REFERENCE,
   SOUND_DB_LAND,
   SPRINT_HOLD_THRESHOLD_MS,
+  getSprintSpeedFromMoveSpeed,
 } from '../../constants'
 import {
   getPlayerCollisionMask,
@@ -668,7 +668,7 @@ export class MovementSystem extends System {
       : 100
     const moveSpeed =
       (entity.movement.isSprinting
-        ? DEFAULT_SPRINT_SPEED
+        ? getSprintSpeedFromMoveSpeed(entity.movement.moveSpeed)
         : entity.movement.moveSpeed) *
       moveSpeedScale *
       (agilityScalePercent / 100)

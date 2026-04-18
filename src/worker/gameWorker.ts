@@ -23,6 +23,7 @@ import {
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
   DEBUG_DRAW_CAMERA,
+  DEBUG_DRAW_PLAYER_COLLISION_SHAPE,
   DEBUG_DRAW_SENSORS,
   DEBUG_DRAW_SOUND,
   DEFAULT_CAMERA_ZOOM,
@@ -4524,6 +4525,7 @@ function sendState() {
   stateMessage.camera.y = camera.y
   stateMessage.zoom = zoom
   const hasSpineCollisionDebug =
+    DEBUG_DRAW_PLAYER_COLLISION_SHAPE &&
     spineSegmentManager.getMaxActiveCoverageRadius() > 0
   const shouldSendDebug =
     DEBUG_DRAW_SENSORS ||

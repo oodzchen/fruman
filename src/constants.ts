@@ -56,6 +56,7 @@ export const DEBUG_ANIMATION_SLOWDOWN = 1
 export const DEBUG_DRAW_SENSORS = false
 export const DEBUG_DRAW_SOUND = false
 export const DEBUG_DRAW_CAMERA = false
+export const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = false
 
 // 武器默认伤害与削架势
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
@@ -121,8 +122,23 @@ export const DEFAULT_MAX_WALL_JUMPS = 1
 
 // 角色左右移动速度
 export const DEFAULT_MOVE_SPEED = 4
+export const DEFAULT_SLOW_SPEED = DEFAULT_MOVE_SPEED / 2
 export const DEFAULT_SPRINT_SPEED = 6
 export const SPRINT_HOLD_THRESHOLD_MS = 200
+
+export function getSlowSpeedFromMoveSpeed(moveSpeed: number): number {
+  if (!(moveSpeed > 0) || !(DEFAULT_MOVE_SPEED > 0)) {
+    return 0
+  }
+  return (moveSpeed * DEFAULT_SLOW_SPEED) / DEFAULT_MOVE_SPEED
+}
+
+export function getSprintSpeedFromMoveSpeed(moveSpeed: number): number {
+  if (!(moveSpeed > 0) || !(DEFAULT_MOVE_SPEED > 0)) {
+    return 0
+  }
+  return (moveSpeed * DEFAULT_SPRINT_SPEED) / DEFAULT_MOVE_SPEED
+}
 
 // 角色与其他物体接触时的摩擦力
 export const DEFAULT_BODY_FRICTION = 0.8
@@ -251,7 +267,6 @@ export const ENEMY_ATTACK_RANGE_BUFFER = 0.35
 export const ENEMY_PACE_SWITCH_INTERVAL_MS = 3000
 export const ENEMY_DECISION_COOLDOWN_MS = 90
 export const ENEMY_PACE_PAUSE_MS = 1200
-export const ENEMY_PACE_SPEED = 1.5
 export const ENEMY_PACE_MIN_SWITCH_INTERVAL_MS = 800
 export const ENEMY_PACE_MIN_PAUSE_MS = 300
 export const ENEMY_PACE_MIN_DISTANCE = 0.4
@@ -261,7 +276,6 @@ export const ENEMY_ALERT_ACCEL_RANGE_MULTIPLIER = 1.25
 export const ENEMY_ALERT_PACE_SPEED_MULTIPLIER = 0.35
 export const ENEMY_RETREAT_EXTRA_DISTANCE = 1
 export const ENEMY_PROBE_DISTANCE_MULTIPLIER = 3
-export const ENEMY_PROBE_SPEED_MULTIPLIER = 0.5
 export const ENEMY_PROBE_CHASE_DURATION_MS = 4000
 export const ENEMY_PROBE_DURATION_MIN_MS = 5000
 export const ENEMY_PROBE_DURATION_MAX_MS = 10000

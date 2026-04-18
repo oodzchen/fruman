@@ -1,7 +1,6 @@
 import {
   BOW_MIN_WINDUP_MS,
   DEFAULT_PLAYER_RADIUS,
-  DEFAULT_SPRINT_SPEED,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   ENEMY_ALERT_ACCEL_RANGE_MULTIPLIER,
@@ -15,7 +14,6 @@ import {
   ENEMY_PACE_MIN_DISTANCE,
   ENEMY_PACE_MIN_PAUSE_MS,
   ENEMY_PACE_MIN_SWITCH_INTERVAL_MS,
-  ENEMY_PACE_SPEED,
   ENEMY_PROBE_CHASE_DURATION_MS,
   ENEMY_PROBE_DISTANCE_MULTIPLIER,
   ENEMY_PROBE_DURATION_MAX_MS,
@@ -23,13 +21,14 @@ import {
   ENEMY_PROBE_PACE_MIN_DISTANCE,
   ENEMY_PROBE_PACE_SWITCH_INTERVAL_MS,
   ENEMY_PROBE_RANGE_BUFFER_RATIO,
-  ENEMY_PROBE_SPEED_MULTIPLIER,
   ENEMY_RETREAT_EXTRA_DISTANCE,
   GRAPE_MIN_WINDUP_MS,
   NPC_BACKSTEP_BASE_CHANCE,
   NPC_BACKSTEP_MAX_CHANCE,
   NPC_BACKSTEP_MAX_COUNT,
   WEAPON_DEFAULT_DATA,
+  getSlowSpeedFromMoveSpeed,
+  getSprintSpeedFromMoveSpeed,
 } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
 import { isRangedWeaponType } from '../../weaponTypeUtils'
@@ -343,13 +342,16 @@ export class NpcAISystem extends System {
               entity.input.blockRequested = true
               entity.input.sprintRequested = false
               if (entity.movement) {
-                entity.movement.moveSpeed = ai.moveSpeed * 0.5
+                entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(
+                  ai.moveSpeed
+                )
               }
             } else {
               entity.input.blockRequested = false
               entity.input.sprintRequested =
                 !!entity.movement &&
-                entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED
+                getSprintSpeedFromMoveSpeed(entity.movement.moveSpeed) >
+                  entity.movement.moveSpeed
               if (entity.movement) {
                 entity.movement.moveSpeed = ai.moveSpeed
               }
@@ -602,7 +604,7 @@ export class NpcAISystem extends System {
           entity.input.blockRequested = true
           entity.input.sprintRequested = false
           if (entity.movement) {
-            entity.movement.moveSpeed = ai.moveSpeed * 0.5
+            entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(ai.moveSpeed)
           }
 
           // 检测是否被阻挡（每300ms检查一次位置变化）
@@ -628,7 +630,9 @@ export class NpcAISystem extends System {
                   ai.stuckTimer = 0
                   ai.obstacleJumpStage = 0
                   if (entity.movement) {
-                    entity.movement.moveSpeed = ENEMY_PACE_SPEED
+                    entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(
+                      ai.moveSpeed
+                    )
                   }
                 }
               }
@@ -671,8 +675,10 @@ export class NpcAISystem extends System {
 
           entity.input.moveDirection = stableFacing
           if (entity.movement && hasCombatLineOfSight) {
-            // 如果基础速度小于奔跑速度（人类奔跑速度），则尝试奔跑
-            if (entity.movement.moveSpeed < DEFAULT_SPRINT_SPEED) {
+            if (
+              getSprintSpeedFromMoveSpeed(entity.movement.moveSpeed) >
+              entity.movement.moveSpeed
+            ) {
               entity.input.sprintRequested = true
             } else {
               entity.input.sprintRequested = false
@@ -684,7 +690,9 @@ export class NpcAISystem extends System {
             entity.input.blockRequested = true
             entity.input.sprintRequested = false
             if (entity.movement) {
-              entity.movement.moveSpeed = ai.moveSpeed * 0.5
+              entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(
+                ai.moveSpeed
+              )
             }
           } else if (entity.movement) {
             entity.movement.moveSpeed = ai.moveSpeed
@@ -717,7 +725,9 @@ export class NpcAISystem extends System {
                   ai.stuckTimer = 0
                   ai.obstacleJumpStage = 0
                   if (entity.movement) {
-                    entity.movement.moveSpeed = ENEMY_PACE_SPEED
+                    entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(
+                      ai.moveSpeed
+                    )
                   }
                 }
               }
@@ -830,10 +840,10 @@ export class NpcAISystem extends System {
           entity.input.blockRequested = true
           entity.input.sprintRequested = false
           if (entity.movement) {
-            entity.movement.moveSpeed = ai.moveSpeed * 0.5
+            entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(ai.moveSpeed)
           }
         } else if (entity.movement) {
-          entity.movement.moveSpeed = ai.moveSpeed
+          entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(ai.moveSpeed)
         }
 
         // 调试日志
@@ -1466,7 +1476,7 @@ export class NpcAISystem extends System {
       ai.probeLastPositionY = entity.transform.y
     }
     if (entity.movement) {
-      entity.movement.moveSpeed = ai.moveSpeed * ENEMY_PROBE_SPEED_MULTIPLIER
+      entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(ai.moveSpeed)
     }
     if (entity.weapon) {
       entity.weapon.attackQueued = false
@@ -1497,7 +1507,7 @@ export class NpcAISystem extends System {
     }
 
     if (entity.movement) {
-      entity.movement.moveSpeed = ai.moveSpeed * ENEMY_PROBE_SPEED_MULTIPLIER
+      entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(ai.moveSpeed)
     }
 
     const probeTargetDistance = weaponRange * ENEMY_PROBE_DISTANCE_MULTIPLIER
@@ -1593,7 +1603,7 @@ export class NpcAISystem extends System {
           ai.stuckTimer = 0
           ai.obstacleJumpStage = 0
           if (entity.movement) {
-            entity.movement.moveSpeed = ENEMY_PACE_SPEED
+            entity.movement.moveSpeed = getSlowSpeedFromMoveSpeed(ai.moveSpeed)
           }
         }
       }
