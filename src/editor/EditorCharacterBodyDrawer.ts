@@ -7,6 +7,10 @@ import {
 
 import { localizer } from '../Localizer'
 import {
+  buildAutoCharacterBodyCollisionShapesFromLocalPoints,
+  buildCollisionOutlineLoopsFromShapes,
+} from '../characterBodyCollision'
+import {
   DEFAULT_CHARACTER_BROW_OFFSET_X,
   DEFAULT_CHARACTER_BROW_OFFSET_Y,
   DEFAULT_CHARACTER_BROW_ROTATION_DEG,
@@ -37,6 +41,7 @@ import {
 } from '../characterBodyProfile'
 import type {
   MapCharacterBodyBrowStyle,
+  MapCharacterBodyCollisionShape,
   MapCharacterBodyEyeStyle,
   MapCharacterBodyPresetId,
   MapCharacterBodyProfile,
@@ -47,6 +52,7 @@ import { type EditorColorInputElement, EditorUIHelper } from './EditorUIHelper'
 type BodyDrawMode =
   | 'contour'
   | 'select'
+  | 'collision'
   | 'shape'
   | 'fill'
   | 'erase'
@@ -56,6 +62,7 @@ type DecompPolygon = DecompPoint[]
 type EditorBodyLayerKind = 'core' | 'eye' | 'brow' | 'paint'
 type EditorSelectionHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
 type EditorRotationHandle = 'rotate'
+type EditorCollisionShapeKind = 'circle' | 'ellipse' | 'capsule'
 
 interface EditorBodyLayer {
   id: number
@@ -122,6 +129,56 @@ interface EditorSelectionRotateSession {
   browRotationDeg: number
 }
 
+interface EditorCollisionShapeBase {
+  id: number
+  kind: EditorCollisionShapeKind
+  centerX: number
+  centerY: number
+}
+
+interface EditorCollisionCircleShape extends EditorCollisionShapeBase {
+  kind: 'circle'
+  radius: number
+}
+
+interface EditorCollisionEllipseShape extends EditorCollisionShapeBase {
+  kind: 'ellipse'
+  radiusX: number
+  radiusY: number
+  rotationDeg: number
+}
+
+interface EditorCollisionCapsuleShape extends EditorCollisionShapeBase {
+  kind: 'capsule'
+  halfWidth: number
+  halfHeight: number
+  rotationDeg: number
+}
+
+type EditorCollisionShape =
+  | EditorCollisionCircleShape
+  | EditorCollisionEllipseShape
+  | EditorCollisionCapsuleShape
+
+interface EditorCollisionScaleSession {
+  shapeId: number
+  handle: EditorSelectionHandle
+  centerX: number
+  centerY: number
+  rotationDeg: number
+  handleOffsetLocalX: number
+  handleOffsetLocalY: number
+  initialShape: EditorCollisionShape
+}
+
+interface EditorCollisionRotateSession {
+  shapeId: number
+  centerX: number
+  centerY: number
+  startAngleDeg: number
+  initialRotationDeg: number
+}
+
 interface EditorCharacterBodyDrawerOptions {
   title: string
   initialProfile?: MapCharacterBodyProfile
@@ -168,6 +225,8 @@ const SELECTION_MIN_SIZE = 4
 const CORE_LAYER_ID = 1
 const EYE_LAYER_ID = 2
 const BROW_LAYER_ID = 3
+const MIN_COLLISION_RADIUS = 4
+const MIN_COLLISION_HALF_EXTENT = 4
 const CUSTOM_BODY_PRESET_ID = 'custom'
 const BODY_PRESET_IDS: MapCharacterBodyPresetId[] = [
   'banana',
@@ -248,6 +307,11 @@ interface EditorCharacterBodyDrawerHistorySnapshot {
   selectedLayerId: number
   nextLayerId: number
   presetId: EditorCharacterBodyPresetId
+  collisionShapes: EditorCollisionShape[]
+  nextCollisionShapeId: number
+  selectedCollisionShapeId: number
+  collisionToolKind: EditorCollisionShapeKind
+  collisionShapesCustomized: boolean
 }
 
 interface EditorCharacterBodyDrawerHistoryContext {
@@ -885,10 +949,21 @@ export class EditorCharacterBodyDrawer {
     let currentPresetId: EditorCharacterBodyPresetId = CUSTOM_BODY_PRESET_ID
     let coreImageShape: HTMLImageElement | null = null
     let coreImageShapeMirrorX = false
+    let collisionToolKind: EditorCollisionShapeKind = 'circle'
+    let nextCollisionShapeId = 1
+    let selectedCollisionShapeId = -1
+    let collisionPointerShapeId = -1
+    let collisionCreating = false
+    let collisionScaleSession: EditorCollisionScaleSession | null = null
+    let collisionRotateSession: EditorCollisionRotateSession | null = null
+    let collisionShapesCustomized = false
+    let collisionPreviewDirty = true
+    let collisionPreviewLoops: number[][] | null = null
     const editorFacing =
       options.initialFacing && options.initialFacing < 0 ? -1 : 1
     eyeX *= editorFacing
     const layers: EditorBodyLayer[] = []
+    const collisionShapes: EditorCollisionShape[] = []
 
     const createLayerCanvas = (): {
       canvas: HTMLCanvasElement
@@ -940,6 +1015,96 @@ export class EditorCharacterBodyDrawer {
         )
       )
       return { minX, minY, maxX, maxY }
+    }
+
+    const cloneCollisionShape = (
+      shape: EditorCollisionShape
+    ): EditorCollisionShape => {
+      if (shape.kind === 'circle') {
+        return {
+          id: shape.id,
+          kind: 'circle',
+          centerX: shape.centerX,
+          centerY: shape.centerY,
+          radius: shape.radius,
+        }
+      }
+      if (shape.kind === 'ellipse') {
+        return {
+          id: shape.id,
+          kind: 'ellipse',
+          centerX: shape.centerX,
+          centerY: shape.centerY,
+          radiusX: shape.radiusX,
+          radiusY: shape.radiusY,
+          rotationDeg: shape.rotationDeg,
+        }
+      }
+      return {
+        id: shape.id,
+        kind: 'capsule',
+        centerX: shape.centerX,
+        centerY: shape.centerY,
+        halfWidth: shape.halfWidth,
+        halfHeight: shape.halfHeight,
+        rotationDeg: shape.rotationDeg,
+      }
+    }
+
+    const copyCollisionShapesSnapshot = (): EditorCollisionShape[] => {
+      const snapshot = new Array<EditorCollisionShape>(collisionShapes.length)
+      for (let i = 0; i < collisionShapes.length; i++) {
+        snapshot[i] = cloneCollisionShape(collisionShapes[i])
+      }
+      return snapshot
+    }
+
+    const invalidateCollisionPreview = () => {
+      collisionPreviewDirty = true
+    }
+
+    const clearCollisionShapes = () => {
+      collisionShapes.length = 0
+      selectedCollisionShapeId = -1
+      collisionPointerShapeId = -1
+      collisionCreating = false
+      collisionScaleSession = null
+      collisionRotateSession = null
+      nextCollisionShapeId = 1
+      invalidateCollisionPreview()
+    }
+
+    const restoreCollisionShapesSnapshot = (
+      snapshot: readonly EditorCollisionShape[]
+    ) => {
+      collisionShapes.length = 0
+      for (let i = 0; i < snapshot.length; i++) {
+        collisionShapes.push(cloneCollisionShape(snapshot[i]))
+      }
+      let maxShapeId = 0
+      for (let i = 0; i < collisionShapes.length; i++) {
+        if (collisionShapes[i].id > maxShapeId) {
+          maxShapeId = collisionShapes[i].id
+        }
+      }
+      nextCollisionShapeId = maxShapeId + 1
+      if (selectedCollisionShapeId >= 0) {
+        let selectedFound = false
+        for (let i = 0; i < collisionShapes.length; i++) {
+          if (collisionShapes[i].id === selectedCollisionShapeId) {
+            selectedFound = true
+            break
+          }
+        }
+        if (!selectedFound) {
+          selectedCollisionShapeId = -1
+        }
+      }
+      collisionPointerShapeId = -1
+      collisionCreating = false
+      collisionScaleSession = null
+      collisionRotateSession = null
+      invalidateCollisionPreview()
     }
 
     const mergeBounds = (
@@ -1183,6 +1348,38 @@ export class EditorCharacterBodyDrawer {
     const hideLayerMenu = () => {
       layerMenu.style.display = 'none'
       layerMenuTargetId = -1
+    }
+
+    const hideCollisionToolMenu = () => {
+      collisionToolMenu.style.display = 'none'
+    }
+
+    const showPopupMenuAt = (
+      menu: HTMLDivElement,
+      clientX: number,
+      clientY: number
+    ) => {
+      menu.style.display = 'flex'
+      menu.style.left = '0px'
+      menu.style.top = '0px'
+      const formRect = form.getBoundingClientRect()
+      const menuRect = menu.getBoundingClientRect()
+      let left = clientX - formRect.left
+      let top = clientY - formRect.top
+      if (left + menuRect.width > formRect.width - 4) {
+        left = formRect.width - menuRect.width - 4
+      }
+      if (top + menuRect.height > formRect.height - 4) {
+        top = formRect.height - menuRect.height - 4
+      }
+      if (left < 4) left = 4
+      if (top < 4) top = 4
+      menu.style.left = `${left}px`
+      menu.style.top = `${top}px`
+    }
+
+    const hideCollisionShapeMenu = () => {
+      collisionShapeMenu.style.display = 'none'
     }
 
     const beginLayerRename = (layerId: number) => {
@@ -1702,9 +1899,47 @@ export class EditorCharacterBodyDrawer {
 
     const renderLayerList = () => {
       clearLayerList()
+      const collisionRow = document.createElement('div')
+      collisionRow.className = 'editor-body-layer-row'
+      collisionRow.style.cssText = [
+        'width:100%',
+        'padding:6px 6px',
+        mode === 'collision'
+          ? 'background:rgba(255,255,255,0.18)'
+          : 'background:rgba(255,255,255,0.08)',
+        mode === 'collision'
+          ? 'border:1px solid rgba(255,255,255,0.4)'
+          : 'border:1px solid rgba(255,255,255,0.18)',
+        'color:rgba(255,255,255,0.9)',
+        'font-family:monospace',
+        'font-size:10px',
+        'line-height:1.2',
+        'text-align:left',
+        'word-break:break-all',
+        'cursor:pointer',
+        'box-sizing:border-box',
+      ].join(';')
+      collisionRow.textContent = localizer.t(
+        'editor_body_drawer_layer_collision'
+      )
+      collisionRow.addEventListener('click', () => {
+        if (!contourClosed) {
+          return
+        }
+        hideContourMenu()
+        hideLayerMenu()
+        hideCollisionToolMenu()
+        hideCollisionShapeMenu()
+        mode = 'collision'
+        renderLayerList()
+        updateModeButtons()
+        updateCursorVisual()
+        renderComposite()
+      })
+      layerList.appendChild(collisionRow)
       for (let i = layers.length - 1; i >= 0; i--) {
         const layer = layers[i]
-        const active = layer.id === selectedLayerId
+        const active = mode !== 'collision' && layer.id === selectedLayerId
         const row = document.createElement('div')
         row.className = 'editor-body-layer-row'
         row.draggable = true
@@ -1776,6 +2011,8 @@ export class EditorCharacterBodyDrawer {
         row.addEventListener('click', () => {
           hideContourMenu()
           hideLayerMenu()
+          hideCollisionToolMenu()
+          hideCollisionShapeMenu()
           selectedLayerId = layer.id
           if (layer.kind === 'eye' || layer.kind === 'brow') {
             mode = 'select'
@@ -1795,6 +2032,8 @@ export class EditorCharacterBodyDrawer {
         })
         row.addEventListener('contextmenu', (event) => {
           hideContourMenu()
+          hideCollisionToolMenu()
+          hideCollisionShapeMenu()
           selectedLayerId = layer.id
           renderLayerList()
           showLayerMenu(event.clientX, event.clientY, layer.id)
@@ -1959,6 +2198,11 @@ export class EditorCharacterBodyDrawer {
           selectedLayerId,
           nextLayerId,
           presetId: currentPresetId,
+          collisionShapes: copyCollisionShapesSnapshot(),
+          nextCollisionShapeId,
+          selectedCollisionShapeId,
+          collisionToolKind,
+          collisionShapesCustomized,
         }
       }
 
@@ -1998,6 +2242,11 @@ export class EditorCharacterBodyDrawer {
       selectedLayerId = snapshot.selectedLayerId
       nextLayerId = snapshot.nextLayerId
       setPresetSelection(snapshot.presetId)
+      selectedCollisionShapeId = snapshot.selectedCollisionShapeId
+      collisionToolKind = snapshot.collisionToolKind
+      collisionShapesCustomized = snapshot.collisionShapesCustomized
+      restoreCollisionShapesSnapshot(snapshot.collisionShapes)
+      nextCollisionShapeId = snapshot.nextCollisionShapeId
       ensureSelectedLayer()
       renderLayerList()
       renderComposite()
@@ -2031,6 +2280,10 @@ export class EditorCharacterBodyDrawer {
       localizer.t('editor_body_drawer_mode_select'),
       { primary: true }
     )
+    const collisionBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_mode_collision'),
+      { primary: true }
+    )
     const shapeBtn = EditorUIHelper.createButton(
       localizer.t('editor_body_drawer_mode_shape'),
       { primary: true }
@@ -2047,6 +2300,7 @@ export class EditorCharacterBodyDrawer {
     const modeButtons = [
       contourBtn,
       selectBtn,
+      collisionBtn,
       shapeBtn,
       fillBtn,
       eraseBtn,
@@ -2071,10 +2325,71 @@ export class EditorCharacterBodyDrawer {
     clearTextureBtn.style.fontSize = '10px'
     modeRow.appendChild(contourBtn)
     modeRow.appendChild(selectBtn)
+    modeRow.appendChild(collisionBtn)
     modeRow.appendChild(shapeBtn)
     modeRow.appendChild(fillBtn)
     modeRow.appendChild(eraseBtn)
     modeRow.appendChild(textureBtn)
+
+    const collisionToolMenu = document.createElement('div')
+    collisionToolMenu.style.cssText = [
+      'position:absolute',
+      'display:none',
+      'flex-direction:column',
+      'gap:4px',
+      'padding:0',
+      'background:rgba(10,9,7,0.96)',
+      'z-index:3',
+      'min-width:96px',
+      'box-sizing:border-box',
+    ].join(';')
+    const collisionCircleBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_collision_shape_circle')
+    )
+    const collisionEllipseBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_collision_shape_ellipse')
+    )
+    const collisionCapsuleBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_collision_shape_capsule')
+    )
+    collisionCircleBtn.style.padding = '6px 8px'
+    collisionCircleBtn.style.fontSize = '10px'
+    collisionCircleBtn.style.border = 'none'
+    collisionCircleBtn.style.background = 'rgba(255,255,255,0.08)'
+    collisionEllipseBtn.style.padding = '6px 8px'
+    collisionEllipseBtn.style.fontSize = '10px'
+    collisionEllipseBtn.style.border = 'none'
+    collisionEllipseBtn.style.background = 'rgba(255,255,255,0.08)'
+    collisionCapsuleBtn.style.padding = '6px 8px'
+    collisionCapsuleBtn.style.fontSize = '10px'
+    collisionCapsuleBtn.style.border = 'none'
+    collisionCapsuleBtn.style.background = 'rgba(255,255,255,0.08)'
+    collisionToolMenu.appendChild(collisionCircleBtn)
+    collisionToolMenu.appendChild(collisionEllipseBtn)
+    collisionToolMenu.appendChild(collisionCapsuleBtn)
+    form.appendChild(collisionToolMenu)
+
+    const collisionShapeMenu = document.createElement('div')
+    collisionShapeMenu.style.cssText = [
+      'position:absolute',
+      'display:none',
+      'flex-direction:column',
+      'gap:4px',
+      'padding:0',
+      'background:rgba(10,9,7,0.96)',
+      'z-index:3',
+      'min-width:96px',
+      'box-sizing:border-box',
+    ].join(';')
+    const deleteCollisionShapeBtn = EditorUIHelper.createButton(
+      localizer.t('editor_body_drawer_collision_delete')
+    )
+    deleteCollisionShapeBtn.style.padding = '6px 8px'
+    deleteCollisionShapeBtn.style.fontSize = '10px'
+    deleteCollisionShapeBtn.style.border = 'none'
+    deleteCollisionShapeBtn.style.background = 'rgba(255,255,255,0.08)'
+    collisionShapeMenu.appendChild(deleteCollisionShapeBtn)
+    form.appendChild(collisionShapeMenu)
 
     const getBrushSize = (): number => {
       const parsed = Number.parseInt(brushSlider.value, 10)
@@ -2133,6 +2448,819 @@ export class EditorCharacterBodyDrawer {
       }
       exportReferenceWidth = Math.max(1, bounds.width)
       exportReferenceHeight = Math.max(1, bounds.height)
+    }
+
+    const getEditorCollisionShapeRotationDeg = (
+      shape: EditorCollisionShape
+    ): number => {
+      if (shape.kind === 'circle') {
+        return 0
+      }
+      return normalizeRotationDeg(shape.rotationDeg)
+    }
+
+    const getEditorCollisionShapeHalfWidth = (
+      shape: EditorCollisionShape
+    ): number => {
+      if (shape.kind === 'circle') {
+        return shape.radius
+      }
+      return shape.kind === 'ellipse' ? shape.radiusX : shape.halfWidth
+    }
+
+    const getEditorCollisionShapeHalfHeight = (
+      shape: EditorCollisionShape
+    ): number => {
+      if (shape.kind === 'circle') {
+        return shape.radius
+      }
+      return shape.kind === 'ellipse' ? shape.radiusY : shape.halfHeight
+    }
+
+    const rotateEditorLocalPoint = (
+      localX: number,
+      localY: number,
+      rotationDeg: number
+    ): { x: number; y: number } => {
+      if (rotationDeg === 0) {
+        return { x: localX, y: localY }
+      }
+      const rotationRad = (rotationDeg * Math.PI) / 180
+      const cos = Math.cos(rotationRad)
+      const sin = Math.sin(rotationRad)
+      return {
+        x: localX * cos - localY * sin,
+        y: localX * sin + localY * cos,
+      }
+    }
+
+    const getCollisionShapeLocalPoint = (
+      shape: EditorCollisionShape,
+      worldX: number,
+      worldY: number
+    ): { x: number; y: number } => {
+      const rotationDeg = getEditorCollisionShapeRotationDeg(shape)
+      return rotateEditorLocalPoint(
+        worldX - shape.centerX,
+        worldY - shape.centerY,
+        -rotationDeg
+      )
+    }
+
+    const getCollisionShapeSelectionHandleLocalPoint = (
+      shape: EditorCollisionShape,
+      handle: EditorSelectionHandle
+    ): { x: number; y: number } => {
+      const halfWidth = getEditorCollisionShapeHalfWidth(shape)
+      const halfHeight = getEditorCollisionShapeHalfHeight(shape)
+      const centerX = 0
+      const centerY = 0
+      if (handle === 'n') return { x: centerX, y: -halfHeight }
+      if (handle === 'ne') return { x: halfWidth, y: -halfHeight }
+      if (handle === 'e') return { x: halfWidth, y: centerY }
+      if (handle === 'se') return { x: halfWidth, y: halfHeight }
+      if (handle === 's') return { x: centerX, y: halfHeight }
+      if (handle === 'sw') return { x: -halfWidth, y: halfHeight }
+      if (handle === 'w') return { x: -halfWidth, y: centerY }
+      return { x: -halfWidth, y: -halfHeight }
+    }
+
+    const getCollisionShapeSelectionHandleCenter = (
+      shape: EditorCollisionShape,
+      handle: EditorSelectionHandle
+    ): { x: number; y: number } => {
+      const localPoint = getCollisionShapeSelectionHandleLocalPoint(
+        shape,
+        handle
+      )
+      const rotated = rotateEditorLocalPoint(
+        localPoint.x,
+        localPoint.y,
+        getEditorCollisionShapeRotationDeg(shape)
+      )
+      return {
+        x: shape.centerX + rotated.x,
+        y: shape.centerY + rotated.y,
+      }
+    }
+
+    const getCollisionShapeRotationHandleCenter = (
+      shape: EditorCollisionShape
+    ): { x: number; y: number } => {
+      const localPoint = rotateEditorLocalPoint(
+        0,
+        -getEditorCollisionShapeHalfHeight(shape) -
+          SELECTION_ROTATE_HANDLE_OFFSET,
+        getEditorCollisionShapeRotationDeg(shape)
+      )
+      return {
+        x: shape.centerX + localPoint.x,
+        y: shape.centerY + localPoint.y,
+      }
+    }
+
+    const traceCollisionShapeSelectionFrame = (
+      ctx: CanvasRenderingContext2D,
+      shape: EditorCollisionShape
+    ) => {
+      const corners = [
+        rotateEditorLocalPoint(
+          -getEditorCollisionShapeHalfWidth(shape),
+          -getEditorCollisionShapeHalfHeight(shape),
+          getEditorCollisionShapeRotationDeg(shape)
+        ),
+        rotateEditorLocalPoint(
+          getEditorCollisionShapeHalfWidth(shape),
+          -getEditorCollisionShapeHalfHeight(shape),
+          getEditorCollisionShapeRotationDeg(shape)
+        ),
+        rotateEditorLocalPoint(
+          getEditorCollisionShapeHalfWidth(shape),
+          getEditorCollisionShapeHalfHeight(shape),
+          getEditorCollisionShapeRotationDeg(shape)
+        ),
+        rotateEditorLocalPoint(
+          -getEditorCollisionShapeHalfWidth(shape),
+          getEditorCollisionShapeHalfHeight(shape),
+          getEditorCollisionShapeRotationDeg(shape)
+        ),
+      ]
+      ctx.beginPath()
+      ctx.moveTo(shape.centerX + corners[0].x, shape.centerY + corners[0].y)
+      for (let i = 1; i < corners.length; i++) {
+        ctx.lineTo(shape.centerX + corners[i].x, shape.centerY + corners[i].y)
+      }
+      ctx.closePath()
+    }
+
+    const getSelectedCollisionShape = (): EditorCollisionShape | null =>
+      getCollisionShapeById(selectedCollisionShapeId)
+
+    const buildMapCollisionShapeFromEditor = (
+      shape: EditorCollisionShape
+    ): MapCharacterBodyCollisionShape => {
+      if (shape.kind === 'circle') {
+        return {
+          kind: 'circle',
+          center: {
+            x: shape.centerX,
+            y: shape.centerY,
+          },
+          radius: shape.radius,
+        }
+      }
+      if (shape.kind === 'ellipse') {
+        return {
+          kind: 'ellipse',
+          center: {
+            x: shape.centerX,
+            y: shape.centerY,
+          },
+          radiusX: shape.radiusX,
+          radiusY: shape.radiusY,
+          rotationDeg: shape.rotationDeg,
+        }
+      }
+      return {
+        kind: 'capsule',
+        center: {
+          x: shape.centerX,
+          y: shape.centerY,
+        },
+        halfWidth: shape.halfWidth,
+        halfHeight: shape.halfHeight,
+        rotationDeg: shape.rotationDeg,
+      }
+    }
+
+    const getCollisionPreviewLoops = (): number[][] | null => {
+      if (
+        pointerActive &&
+        mode === 'collision' &&
+        collisionPointerShapeId >= 0
+      ) {
+        return null
+      }
+      if (!collisionPreviewDirty) {
+        return collisionPreviewLoops
+      }
+      collisionPreviewDirty = false
+      if (collisionShapes.length === 0) {
+        collisionPreviewLoops = null
+        return collisionPreviewLoops
+      }
+      const shapes = new Array<MapCharacterBodyCollisionShape>(
+        collisionShapes.length
+      )
+      for (let i = 0; i < collisionShapes.length; i++) {
+        shapes[i] = buildMapCollisionShapeFromEditor(collisionShapes[i])
+      }
+      collisionPreviewLoops = buildCollisionOutlineLoopsFromShapes(shapes)
+      return collisionPreviewLoops
+    }
+
+    const getCollisionShapeBounds = (
+      shape: EditorCollisionShape
+    ): EditorCanvasBounds => {
+      if (shape.kind === 'circle') {
+        return {
+          minX: shape.centerX - shape.radius,
+          minY: shape.centerY - shape.radius,
+          maxX: shape.centerX + shape.radius,
+          maxY: shape.centerY + shape.radius,
+        }
+      }
+      if (shape.kind === 'ellipse') {
+        const rotationRad = (shape.rotationDeg * Math.PI) / 180
+        const cos = Math.cos(rotationRad)
+        const sin = Math.sin(rotationRad)
+        const extentX = Math.sqrt(
+          shape.radiusX * shape.radiusX * cos * cos +
+            shape.radiusY * shape.radiusY * sin * sin
+        )
+        const extentY = Math.sqrt(
+          shape.radiusX * shape.radiusX * sin * sin +
+            shape.radiusY * shape.radiusY * cos * cos
+        )
+        return {
+          minX: shape.centerX - extentX,
+          minY: shape.centerY - extentY,
+          maxX: shape.centerX + extentX,
+          maxY: shape.centerY + extentY,
+        }
+      }
+      const rotationRad = (shape.rotationDeg * Math.PI) / 180
+      const cos = Math.cos(rotationRad)
+      const sin = Math.sin(rotationRad)
+      const halfWidth = shape.halfWidth
+      const halfHeight = shape.halfHeight
+      const extentX = Math.abs(halfWidth * cos) + Math.abs(halfHeight * sin)
+      const extentY = Math.abs(halfWidth * sin) + Math.abs(halfHeight * cos)
+      return {
+        minX: shape.centerX - extentX,
+        minY: shape.centerY - extentY,
+        maxX: shape.centerX + extentX,
+        maxY: shape.centerY + extentY,
+      }
+    }
+
+    const traceEditorCollisionShape = (
+      ctx: CanvasRenderingContext2D,
+      shape: EditorCollisionShape
+    ) => {
+      if (shape.kind === 'circle') {
+        ctx.beginPath()
+        ctx.arc(shape.centerX, shape.centerY, shape.radius, 0, Math.PI * 2)
+        return
+      }
+      if (shape.kind === 'ellipse') {
+        ctx.beginPath()
+        ctx.ellipse(
+          shape.centerX,
+          shape.centerY,
+          shape.radiusX,
+          shape.radiusY,
+          (shape.rotationDeg * Math.PI) / 180,
+          0,
+          Math.PI * 2
+        )
+        return
+      }
+      const radius = Math.min(shape.halfWidth, shape.halfHeight)
+      const left = -shape.halfWidth
+      const top = -shape.halfHeight
+      const width = shape.halfWidth * 2
+      const height = shape.halfHeight * 2
+      ctx.save()
+      ctx.translate(shape.centerX, shape.centerY)
+      ctx.rotate((shape.rotationDeg * Math.PI) / 180)
+      ctx.beginPath()
+      ctx.moveTo(left + radius, top)
+      ctx.lineTo(left + width - radius, top)
+      ctx.arc(left + width - radius, top + radius, radius, -Math.PI / 2, 0)
+      ctx.lineTo(left + width, top + height - radius)
+      ctx.arc(
+        left + width - radius,
+        top + height - radius,
+        radius,
+        0,
+        Math.PI / 2
+      )
+      ctx.lineTo(left + radius, top + height)
+      ctx.arc(
+        left + radius,
+        top + height - radius,
+        radius,
+        Math.PI / 2,
+        Math.PI
+      )
+      ctx.lineTo(left, top + radius)
+      ctx.arc(left + radius, top + radius, radius, Math.PI, 1.5 * Math.PI)
+      ctx.closePath()
+      ctx.restore()
+    }
+
+    const isPointInsideCollisionShape = (
+      shape: EditorCollisionShape,
+      pointX: number,
+      pointY: number
+    ): boolean => {
+      if (shape.kind === 'circle') {
+        const dx = pointX - shape.centerX
+        const dy = pointY - shape.centerY
+        return dx * dx + dy * dy <= shape.radius * shape.radius
+      }
+      if (shape.kind === 'ellipse') {
+        const localPoint = getCollisionShapeLocalPoint(shape, pointX, pointY)
+        const radiusX = Math.max(1, shape.radiusX)
+        const radiusY = Math.max(1, shape.radiusY)
+        return (
+          localPoint.x * localPoint.x * radiusY * radiusY +
+            localPoint.y * localPoint.y * radiusX * radiusX <=
+          radiusX * radiusX * radiusY * radiusY
+        )
+      }
+      const localPoint = getCollisionShapeLocalPoint(shape, pointX, pointY)
+      const dx = Math.abs(localPoint.x)
+      const dy = Math.abs(localPoint.y)
+      if (dx > shape.halfWidth || dy > shape.halfHeight) {
+        return false
+      }
+      const radius = Math.min(shape.halfWidth, shape.halfHeight)
+      const innerWidth = shape.halfWidth - radius
+      const innerHeight = shape.halfHeight - radius
+      if (dx <= innerWidth || dy <= innerHeight) {
+        return true
+      }
+      const rx = dx - innerWidth
+      const ry = dy - innerHeight
+      return rx * rx + ry * ry <= radius * radius
+    }
+
+    const getCollisionShapeAtPoint = (
+      pointX: number,
+      pointY: number
+    ): EditorCollisionShape | null => {
+      for (let i = collisionShapes.length - 1; i >= 0; i--) {
+        const shape = collisionShapes[i]
+        if (isPointInsideCollisionShape(shape, pointX, pointY)) {
+          return shape
+        }
+      }
+      return null
+    }
+
+    const isCollisionShapeRotatable = (
+      shape: EditorCollisionShape | null
+    ): boolean => !!shape && shape.kind !== 'circle'
+
+    const getCollisionShapeSelectionHandleAtPoint = (
+      pointX: number,
+      pointY: number,
+      shape: EditorCollisionShape | null
+    ): EditorSelectionHandle | null => {
+      if (!shape) {
+        return null
+      }
+      const hitRadius = Math.max(
+        2,
+        Math.round(SELECTION_HANDLE_HIT_SIZE / Math.max(1, viewportScale * 2))
+      )
+      const handles: EditorSelectionHandle[] = [
+        'nw',
+        'n',
+        'ne',
+        'e',
+        'se',
+        's',
+        'sw',
+        'w',
+      ]
+      for (let i = 0; i < handles.length; i++) {
+        const center = getCollisionShapeSelectionHandleCenter(shape, handles[i])
+        if (
+          Math.abs(pointX - center.x) <= hitRadius &&
+          Math.abs(pointY - center.y) <= hitRadius
+        ) {
+          return handles[i]
+        }
+      }
+      return null
+    }
+
+    const getCollisionShapeRotationHandleAtPoint = (
+      pointX: number,
+      pointY: number,
+      shape: EditorCollisionShape | null
+    ): EditorRotationHandle | null => {
+      if (!shape || !isCollisionShapeRotatable(shape)) {
+        return null
+      }
+      const center = getCollisionShapeRotationHandleCenter(shape)
+      const hitRadius = Math.max(
+        2,
+        Math.round(
+          SELECTION_ROTATE_HANDLE_HIT_SIZE / Math.max(1, viewportScale * 2)
+        )
+      )
+      return Math.abs(pointX - center.x) <= hitRadius &&
+        Math.abs(pointY - center.y) <= hitRadius
+        ? 'rotate'
+        : null
+    }
+
+    const beginCollisionShapeScale = (
+      shape: EditorCollisionShape,
+      handle: EditorSelectionHandle,
+      pointerX: number,
+      pointerY: number
+    ): EditorCollisionScaleSession => {
+      const localHandle = getCollisionShapeSelectionHandleLocalPoint(
+        shape,
+        handle
+      )
+      const localPointer = getCollisionShapeLocalPoint(
+        shape,
+        pointerX,
+        pointerY
+      )
+      return {
+        shapeId: shape.id,
+        handle,
+        centerX: shape.centerX,
+        centerY: shape.centerY,
+        rotationDeg: getEditorCollisionShapeRotationDeg(shape),
+        handleOffsetLocalX: localPointer.x - localHandle.x,
+        handleOffsetLocalY: localPointer.y - localHandle.y,
+        initialShape: cloneCollisionShape(shape),
+      }
+    }
+
+    const applyCollisionShapeScale = (
+      session: EditorCollisionScaleSession,
+      pointX: number,
+      pointY: number
+    ) => {
+      const shape = getCollisionShapeById(session.shapeId)
+      if (!shape) {
+        return
+      }
+      const localPointer = rotateEditorLocalPoint(
+        pointX - session.centerX,
+        pointY - session.centerY,
+        -session.rotationDeg
+      )
+      const resolvedLocalX = localPointer.x - session.handleOffsetLocalX
+      const resolvedLocalY = localPointer.y - session.handleOffsetLocalY
+      const useHorizontal =
+        session.handle === 'e' ||
+        session.handle === 'w' ||
+        session.handle === 'ne' ||
+        session.handle === 'nw' ||
+        session.handle === 'se' ||
+        session.handle === 'sw'
+      const useVertical =
+        session.handle === 'n' ||
+        session.handle === 's' ||
+        session.handle === 'ne' ||
+        session.handle === 'nw' ||
+        session.handle === 'se' ||
+        session.handle === 'sw'
+      if (shape.kind === 'circle') {
+        const nextRadiusX = useHorizontal
+          ? Math.max(MIN_COLLISION_RADIUS, Math.round(Math.abs(resolvedLocalX)))
+          : session.initialShape.kind === 'circle'
+            ? session.initialShape.radius
+            : MIN_COLLISION_RADIUS
+        const nextRadiusY = useVertical
+          ? Math.max(MIN_COLLISION_RADIUS, Math.round(Math.abs(resolvedLocalY)))
+          : session.initialShape.kind === 'circle'
+            ? session.initialShape.radius
+            : MIN_COLLISION_RADIUS
+        shape.radius =
+          useHorizontal && useVertical
+            ? Math.max(nextRadiusX, nextRadiusY)
+            : useHorizontal
+              ? nextRadiusX
+              : nextRadiusY
+        return
+      }
+      if (shape.kind === 'ellipse' && session.initialShape.kind === 'ellipse') {
+        shape.radiusX = useHorizontal
+          ? Math.max(MIN_COLLISION_RADIUS, Math.round(Math.abs(resolvedLocalX)))
+          : session.initialShape.radiusX
+        shape.radiusY = useVertical
+          ? Math.max(MIN_COLLISION_RADIUS, Math.round(Math.abs(resolvedLocalY)))
+          : session.initialShape.radiusY
+        shape.rotationDeg = session.initialShape.rotationDeg
+        return
+      }
+      if (shape.kind === 'capsule' && session.initialShape.kind === 'capsule') {
+        shape.halfWidth = useHorizontal
+          ? Math.max(
+              MIN_COLLISION_HALF_EXTENT,
+              Math.round(Math.abs(resolvedLocalX))
+            )
+          : session.initialShape.halfWidth
+        shape.halfHeight = useVertical
+          ? Math.max(
+              MIN_COLLISION_HALF_EXTENT,
+              Math.round(Math.abs(resolvedLocalY))
+            )
+          : session.initialShape.halfHeight
+        shape.rotationDeg = session.initialShape.rotationDeg
+      }
+    }
+
+    const beginCollisionShapeRotate = (
+      shape: EditorCollisionShape,
+      pointerX: number,
+      pointerY: number
+    ): EditorCollisionRotateSession => ({
+      shapeId: shape.id,
+      centerX: shape.centerX,
+      centerY: shape.centerY,
+      startAngleDeg: getPointerAngleDeg(
+        pointerX,
+        pointerY,
+        shape.centerX,
+        shape.centerY
+      ),
+      initialRotationDeg: getEditorCollisionShapeRotationDeg(shape),
+    })
+
+    const applyCollisionShapeRotate = (
+      session: EditorCollisionRotateSession,
+      pointX: number,
+      pointY: number
+    ) => {
+      const shape = getCollisionShapeById(session.shapeId)
+      if (!shape || shape.kind === 'circle') {
+        return
+      }
+      const currentAngleDeg = getPointerAngleDeg(
+        pointX,
+        pointY,
+        session.centerX,
+        session.centerY
+      )
+      const deltaDeg = getRotationDeltaDeg(
+        session.startAngleDeg,
+        currentAngleDeg
+      )
+      shape.rotationDeg = Math.round(
+        normalizeRotationDeg(session.initialRotationDeg + deltaDeg)
+      )
+    }
+
+    const setCollisionShapesFromMap = (
+      shapes: readonly MapCharacterBodyCollisionShape[],
+      centerX: number,
+      centerY: number,
+      facing: number
+    ) => {
+      clearCollisionShapes()
+      for (let i = 0; i < shapes.length; i++) {
+        const shape = shapes[i]
+        if (shape.kind === 'circle') {
+          collisionShapes.push({
+            id: nextCollisionShapeId++,
+            kind: 'circle',
+            centerX: centerX + Math.round(shape.center.x * facing),
+            centerY: centerY + Math.round(shape.center.y),
+            radius: Math.max(MIN_COLLISION_RADIUS, Math.round(shape.radius)),
+          })
+          continue
+        }
+        if (shape.kind === 'ellipse') {
+          const rotationDeg = Math.round(
+            normalizeRotationDeg((shape.rotationDeg ?? 0) * facing)
+          )
+          collisionShapes.push({
+            id: nextCollisionShapeId++,
+            kind: 'ellipse',
+            centerX: centerX + Math.round(shape.center.x * facing),
+            centerY: centerY + Math.round(shape.center.y),
+            radiusX: Math.max(MIN_COLLISION_RADIUS, Math.round(shape.radiusX)),
+            radiusY: Math.max(MIN_COLLISION_RADIUS, Math.round(shape.radiusY)),
+            rotationDeg,
+          })
+          continue
+        }
+        const rotationDeg = Math.round(
+          normalizeRotationDeg((shape.rotationDeg ?? 0) * facing)
+        )
+        collisionShapes.push({
+          id: nextCollisionShapeId++,
+          kind: 'capsule',
+          centerX: centerX + Math.round(shape.center.x * facing),
+          centerY: centerY + Math.round(shape.center.y),
+          halfWidth: Math.max(
+            MIN_COLLISION_HALF_EXTENT,
+            Math.round(shape.halfWidth)
+          ),
+          halfHeight: Math.max(
+            MIN_COLLISION_HALF_EXTENT,
+            Math.round(shape.halfHeight)
+          ),
+          rotationDeg,
+        })
+      }
+      selectedCollisionShapeId =
+        collisionShapes.length > 0
+          ? collisionShapes[collisionShapes.length - 1].id
+          : -1
+      invalidateCollisionPreview()
+    }
+
+    const regenerateAutoCollisionShapesFromContour = (): boolean => {
+      const contourBounds = getContourBounds()
+      if (!contourClosed || !contourBounds || contourPoints.length < 6) {
+        clearCollisionShapes()
+        return false
+      }
+      const localPoints = new Array<number>(contourPoints.length)
+      for (let i = 0; i < contourPoints.length; i += 2) {
+        localPoints[i] = contourPoints[i] - contourBounds.centerX
+        localPoints[i + 1] = contourPoints[i + 1] - contourBounds.centerY
+      }
+      const shapes =
+        buildAutoCharacterBodyCollisionShapesFromLocalPoints(localPoints)
+      if (!shapes || shapes.length === 0) {
+        clearCollisionShapes()
+        return false
+      }
+      setCollisionShapesFromMap(
+        shapes,
+        contourBounds.centerX,
+        contourBounds.centerY,
+        1
+      )
+      collisionShapesCustomized = false
+      return true
+    }
+
+    const syncAutoCollisionShapesIfNeeded = () => {
+      if (collisionShapesCustomized) {
+        return
+      }
+      regenerateAutoCollisionShapesFromContour()
+    }
+
+    const appendCollisionShape = (shape: EditorCollisionShape) => {
+      collisionShapes.push(shape)
+      selectedCollisionShapeId = shape.id
+      collisionShapesCustomized = true
+      invalidateCollisionPreview()
+    }
+
+    const createCollisionShapeFromDrag = (
+      shapeId: number,
+      startX: number,
+      startY: number,
+      endX: number,
+      endY: number
+    ): EditorCollisionShape => {
+      const minX = Math.min(startX, endX)
+      const maxX = Math.max(startX, endX)
+      const minY = Math.min(startY, endY)
+      const maxY = Math.max(startY, endY)
+      const centerX = Math.round((minX + maxX) * 0.5)
+      const centerY = Math.round((minY + maxY) * 0.5)
+      if (collisionToolKind === 'circle') {
+        const halfWidth = Math.max(
+          MIN_COLLISION_RADIUS,
+          Math.round((maxX - minX) * 0.5)
+        )
+        const halfHeight = Math.max(
+          MIN_COLLISION_RADIUS,
+          Math.round((maxY - minY) * 0.5)
+        )
+        return {
+          id: shapeId,
+          kind: 'circle',
+          centerX,
+          centerY,
+          radius: Math.max(halfWidth, halfHeight),
+        }
+      }
+      if (collisionToolKind === 'ellipse') {
+        return {
+          id: shapeId,
+          kind: 'ellipse',
+          centerX,
+          centerY,
+          radiusX: Math.max(
+            MIN_COLLISION_RADIUS,
+            Math.round((maxX - minX) * 0.5)
+          ),
+          radiusY: Math.max(
+            MIN_COLLISION_RADIUS,
+            Math.round((maxY - minY) * 0.5)
+          ),
+          rotationDeg: 0,
+        }
+      }
+      return {
+        id: shapeId,
+        kind: 'capsule',
+        centerX,
+        centerY,
+        halfWidth: Math.max(
+          MIN_COLLISION_HALF_EXTENT,
+          Math.round((maxX - minX) * 0.5)
+        ),
+        halfHeight: Math.max(
+          MIN_COLLISION_HALF_EXTENT,
+          Math.round((maxY - minY) * 0.5)
+        ),
+        rotationDeg: 0,
+      }
+    }
+
+    const getCollisionShapeById = (
+      shapeId: number
+    ): EditorCollisionShape | null => {
+      for (let i = 0; i < collisionShapes.length; i++) {
+        if (collisionShapes[i].id === shapeId) {
+          return collisionShapes[i]
+        }
+      }
+      return null
+    }
+
+    const deleteSelectedCollisionShape = (): boolean => {
+      if (selectedCollisionShapeId < 0) {
+        return false
+      }
+      for (let i = 0; i < collisionShapes.length; i++) {
+        if (collisionShapes[i].id !== selectedCollisionShapeId) {
+          continue
+        }
+        collisionShapes.splice(i, 1)
+        selectedCollisionShapeId =
+          collisionShapes.length > 0
+            ? collisionShapes[collisionShapes.length - 1].id
+            : -1
+        collisionPointerShapeId = -1
+        collisionShapesCustomized = true
+        invalidateCollisionPreview()
+        return true
+      }
+      return false
+    }
+
+    const serializeCollisionShapes = (
+      centerX: number,
+      centerY: number
+    ): MapCharacterBodyCollisionShape[] => {
+      const result = new Array<MapCharacterBodyCollisionShape>(
+        collisionShapes.length
+      )
+      for (let i = 0; i < collisionShapes.length; i++) {
+        const shape = collisionShapes[i]
+        if (shape.kind === 'circle') {
+          result[i] = {
+            kind: 'circle',
+            center: {
+              x: Math.round((shape.centerX - centerX) * editorFacing),
+              y: Math.round(shape.centerY - centerY),
+            },
+            radius: shape.radius,
+          }
+          continue
+        }
+        if (shape.kind === 'ellipse') {
+          const rotationDeg = Math.round(
+            normalizeRotationDeg(shape.rotationDeg * editorFacing)
+          )
+          result[i] = {
+            kind: 'ellipse',
+            center: {
+              x: Math.round((shape.centerX - centerX) * editorFacing),
+              y: Math.round(shape.centerY - centerY),
+            },
+            radiusX: shape.radiusX,
+            radiusY: shape.radiusY,
+            rotationDeg,
+          }
+          continue
+        }
+        const rotationDeg = Math.round(
+          normalizeRotationDeg(shape.rotationDeg * editorFacing)
+        )
+        result[i] = {
+          kind: 'capsule',
+          center: {
+            x: Math.round((shape.centerX - centerX) * editorFacing),
+            y: Math.round(shape.centerY - centerY),
+          },
+          halfWidth: shape.halfWidth,
+          halfHeight: shape.halfHeight,
+          rotationDeg,
+        }
+      }
+      return result
     }
 
     const getCanvasLocalPoint = (
@@ -2457,12 +3585,14 @@ export class EditorCharacterBodyDrawer {
       }
       applyActive(contourBtn, mode === 'contour')
       applyActive(selectBtn, mode === 'select')
+      applyActive(collisionBtn, mode === 'collision')
       applyActive(shapeBtn, mode === 'shape')
       applyActive(fillBtn, mode === 'fill')
       applyActive(eraseBtn, mode === 'erase')
       applyActive(textureBtn, mode === 'texture')
       setButtonDisabled(contourBtn, selectedKind !== 'core')
       setButtonDisabled(selectBtn, !contourClosed)
+      setButtonDisabled(collisionBtn, !contourClosed)
       setButtonDisabled(shapeBtn, !canFreePaint)
       setButtonDisabled(fillBtn, !canFillCore)
       setButtonDisabled(eraseBtn, !canFreePaint)
@@ -2487,20 +3617,30 @@ export class EditorCharacterBodyDrawer {
         return
       }
       const sizePx =
-        (mode === 'texture'
-          ? Math.max(2, Math.round(getBrushSize() * viewportScale))
-          : mode === 'contour' || mode === 'fill'
-            ? CONTOUR_CURSOR_SIZE
-            : Math.max(2, Math.round(getBrushSize() * viewportScale))) *
+        (mode === 'collision'
+          ? CONTOUR_CURSOR_SIZE
+          : mode === 'texture'
+            ? Math.max(2, Math.round(getBrushSize() * viewportScale))
+            : mode === 'contour' || mode === 'fill'
+              ? CONTOUR_CURSOR_SIZE
+              : Math.max(2, Math.round(getBrushSize() * viewportScale))) *
         canvasDisplayScale
       cursorEl.style.width = `${sizePx}px`
       cursorEl.style.height = `${sizePx}px`
-      if (mode === 'contour' || mode === 'fill') {
+      if (mode === 'contour' || mode === 'fill' || mode === 'collision') {
         cursorEl.style.borderRadius = '2px'
-        cursorEl.style.borderColor = 'rgba(70,42,0,0.95)'
-        cursorEl.style.boxShadow = '0 0 0 1px rgba(255,231,163,0.92)'
+        cursorEl.style.borderColor =
+          mode === 'collision' ? 'rgba(63,18,14,0.95)' : 'rgba(70,42,0,0.95)'
+        cursorEl.style.boxShadow =
+          mode === 'collision'
+            ? '0 0 0 1px rgba(244,132,92,0.92)'
+            : '0 0 0 1px rgba(255,231,163,0.92)'
         cursorEl.style.background =
-          mode === 'fill' ? colorInput.value : 'rgba(245,208,96,0.88)'
+          mode === 'fill'
+            ? colorInput.value
+            : mode === 'collision'
+              ? 'rgba(208,112,84,0.82)'
+              : 'rgba(245,208,96,0.88)'
         return
       }
       cursorEl.style.borderRadius = '50%'
@@ -3516,6 +4656,7 @@ export class EditorCharacterBodyDrawer {
       shapeState.bounds = cloneBounds(maskState.bounds)
       shapeState.boundsDirty = false
       ensureEyeInsideBody()
+      syncAutoCollisionShapesIfNeeded()
     }
 
     const beginContour = (pointX: number, pointY: number) => {
@@ -3699,6 +4840,8 @@ export class EditorCharacterBodyDrawer {
       textureState.bounds = null
       textureState.boundsDirty = false
       browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      clearCollisionShapes()
+      collisionShapesCustomized = false
       buildDefaultLayers()
       contourPoints = []
       contourClosed = true
@@ -3884,6 +5027,113 @@ export class EditorCharacterBodyDrawer {
       return mergedBounds
     }
 
+    const drawCollisionOverlay = (ctx: CanvasRenderingContext2D) => {
+      if (collisionShapes.length === 0) {
+        return
+      }
+      ctx.save()
+      ctx.setLineDash([8 / viewportScale, 5 / viewportScale])
+      for (let i = 0; i < collisionShapes.length; i++) {
+        const shape = collisionShapes[i]
+        traceEditorCollisionShape(ctx, shape)
+        ctx.lineWidth =
+          shape.id === selectedCollisionShapeId
+            ? Math.max(2 / viewportScale, 1)
+            : Math.max(1 / viewportScale, 1)
+        ctx.strokeStyle =
+          shape.id === selectedCollisionShapeId
+            ? 'rgba(255,214,188,0.96)'
+            : 'rgba(214,116,78,0.88)'
+        ctx.stroke()
+      }
+      ctx.setLineDash([])
+      const loops = getCollisionPreviewLoops()
+      if (loops && loops.length > 0) {
+        ctx.strokeStyle = 'rgba(255,132,86,0.98)'
+        ctx.lineWidth = Math.max(2 / viewportScale, 1)
+        for (let i = 0; i < loops.length; i++) {
+          const loop = loops[i]
+          if (loop.length < 6) {
+            continue
+          }
+          ctx.beginPath()
+          ctx.moveTo(loop[0], loop[1])
+          for (let j = 2; j < loop.length; j += 2) {
+            ctx.lineTo(loop[j], loop[j + 1])
+          }
+          ctx.closePath()
+          ctx.stroke()
+        }
+      }
+      const selectedShape =
+        mode === 'collision' ? getSelectedCollisionShape() : null
+      if (selectedShape) {
+        ctx.strokeStyle = 'rgba(255,245,220,0.95)'
+        ctx.lineWidth = Math.max(1 / viewportScale, 1)
+        ctx.setLineDash([6 / viewportScale, 4 / viewportScale])
+        traceCollisionShapeSelectionFrame(ctx, selectedShape)
+        ctx.stroke()
+        const handleSize = Math.max(2, SELECTION_HANDLE_SIZE / viewportScale)
+        const halfHandle = handleSize * 0.5
+        const handles: EditorSelectionHandle[] = [
+          'nw',
+          'n',
+          'ne',
+          'e',
+          'se',
+          's',
+          'sw',
+          'w',
+        ]
+        ctx.setLineDash([])
+        ctx.fillStyle = '#f7ecd2'
+        ctx.strokeStyle = 'rgba(36,24,16,0.96)'
+        for (let i = 0; i < handles.length; i++) {
+          const center = getCollisionShapeSelectionHandleCenter(
+            selectedShape,
+            handles[i]
+          )
+          ctx.beginPath()
+          ctx.rect(
+            center.x - halfHandle,
+            center.y - halfHandle,
+            handleSize,
+            handleSize
+          )
+          ctx.fill()
+          ctx.stroke()
+        }
+        if (isCollisionShapeRotatable(selectedShape)) {
+          const rotateCenter =
+            getCollisionShapeRotationHandleCenter(selectedShape)
+          const anchorCenter = getCollisionShapeSelectionHandleCenter(
+            selectedShape,
+            'n'
+          )
+          const rotateHandleSize = Math.max(
+            2,
+            SELECTION_ROTATE_HANDLE_SIZE / viewportScale
+          )
+          const rotateHalfHandle = rotateHandleSize * 0.5
+          ctx.beginPath()
+          ctx.moveTo(anchorCenter.x, anchorCenter.y)
+          ctx.lineTo(rotateCenter.x, rotateCenter.y + rotateHalfHandle)
+          ctx.stroke()
+          ctx.beginPath()
+          ctx.arc(
+            rotateCenter.x,
+            rotateCenter.y,
+            rotateHalfHandle,
+            0,
+            Math.PI * 2
+          )
+          ctx.fill()
+          ctx.stroke()
+        }
+      }
+      ctx.restore()
+    }
+
     const renderComposite = () => {
       drawCtx.clearRect(0, 0, DISPLAY_SIZE, DISPLAY_SIZE)
       drawCtx.fillStyle = '#090705'
@@ -3900,6 +5150,7 @@ export class EditorCharacterBodyDrawer {
         -viewOriginY * viewportScale
       )
       drawMergedVisualWorld(drawCtx, false)
+      drawCollisionOverlay(drawCtx)
 
       if (mode === 'select') {
         const selectedBounds = getSelectedLayerBounds()
@@ -4094,6 +5345,7 @@ export class EditorCharacterBodyDrawer {
         getContourPointCount() - 1
       )
       ensureEyeInsideBody()
+      syncAutoCollisionShapesIfNeeded()
       updateAlert()
       updateConfirmState()
       updateModeButtons()
@@ -4359,6 +5611,8 @@ export class EditorCharacterBodyDrawer {
           contourPoints[i + 1] = profile.points[i + 1] + DRAW_WORLD_HALF
         }
         contourClosed = true
+        clearCollisionShapes()
+        collisionShapesCustomized = false
         drawContourFill()
 
         const restorePresetBaseImage =
@@ -4452,11 +5706,25 @@ export class EditorCharacterBodyDrawer {
         if (profile.layerOrder && profile.layerOrder.length > 0) {
           applyLayerOrder(profile.layerOrder)
         }
+        if (profile.collisionShapes && profile.collisionShapes.length > 0) {
+          const contourBounds = getContourBounds()
+          if (contourBounds) {
+            setCollisionShapesFromMap(
+              profile.collisionShapes,
+              contourBounds.centerX,
+              contourBounds.centerY,
+              editorFacing
+            )
+            collisionShapesCustomized = true
+          }
+        }
         selectedContourIndex = 0
       } else {
         contourPoints = buildDefaultContourPoints()
         contourClosed = true
         selectedContourIndex = 0
+        clearCollisionShapes()
+        collisionShapesCustomized = false
         drawContourFill()
       }
       setPresetSelection(initialPresetId)
@@ -4486,11 +5754,37 @@ export class EditorCharacterBodyDrawer {
       }
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       mode = 'select'
       renderLayerList()
       updateModeButtons()
       updateCursorVisual()
       renderComposite()
+    })
+    collisionBtn.addEventListener('click', () => {
+      if (!contourClosed) {
+        return
+      }
+      hideContourMenu()
+      hideLayerMenu()
+      hideCollisionShapeMenu()
+      mode = 'collision'
+      renderLayerList()
+      updateModeButtons()
+      updateCursorVisual()
+      renderComposite()
+    })
+    collisionBtn.addEventListener('contextmenu', (event) => {
+      if (!contourClosed) {
+        return
+      }
+      hideContourMenu()
+      hideLayerMenu()
+      hideCollisionShapeMenu()
+      showPopupMenuAt(collisionToolMenu, event.clientX, event.clientY)
+      event.preventDefault()
+      event.stopPropagation()
     })
     shapeBtn.addEventListener('click', () => {
       if (!canUsePaintModes()) {
@@ -4498,6 +5792,8 @@ export class EditorCharacterBodyDrawer {
       }
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       mode = 'shape'
       updateModeButtons()
       updateCursorVisual()
@@ -4508,6 +5804,8 @@ export class EditorCharacterBodyDrawer {
       }
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       mode = 'fill'
       updateModeButtons()
       updateCursorVisual()
@@ -4518,6 +5816,8 @@ export class EditorCharacterBodyDrawer {
       }
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       mode = 'erase'
       updateModeButtons()
       updateCursorVisual()
@@ -4528,6 +5828,8 @@ export class EditorCharacterBodyDrawer {
       }
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       mode = 'texture'
       updateModeButtons()
       updateCursorVisual()
@@ -4535,6 +5837,8 @@ export class EditorCharacterBodyDrawer {
     addLayerBtn.addEventListener('click', () => {
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       flushSettingHistory()
       invalidatePresetSelection()
       const layer = appendPaintLayer()
@@ -4555,6 +5859,8 @@ export class EditorCharacterBodyDrawer {
       flushSettingHistory()
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       setPresetSelection(CUSTOM_BODY_PRESET_ID)
       clearBodyShape()
       coreImageShape = null
@@ -4582,6 +5888,8 @@ export class EditorCharacterBodyDrawer {
       textureState.bounds = null
       textureState.boundsDirty = false
       browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      clearCollisionShapes()
+      collisionShapesCustomized = false
       buildDefaultLayers()
       selectedLayerId = CORE_LAYER_ID
       renderLayerList()
@@ -4598,6 +5906,8 @@ export class EditorCharacterBodyDrawer {
       }
       hideContourMenu()
       hideLayerMenu()
+      hideCollisionToolMenu()
+      hideCollisionShapeMenu()
       flushSettingHistory()
       invalidatePresetSelection()
       clearVisualLayer(getSelectedLayer())
@@ -4746,12 +6056,33 @@ export class EditorCharacterBodyDrawer {
       renderComposite()
       historyManager.capture()
     })
+    collisionCircleBtn.addEventListener('click', () => {
+      collisionToolKind = 'circle'
+      hideCollisionToolMenu()
+    })
+    collisionEllipseBtn.addEventListener('click', () => {
+      collisionToolKind = 'ellipse'
+      hideCollisionToolMenu()
+    })
+    collisionCapsuleBtn.addEventListener('click', () => {
+      collisionToolKind = 'capsule'
+      hideCollisionToolMenu()
+    })
+    deleteCollisionShapeBtn.addEventListener('click', () => {
+      hideCollisionShapeMenu()
+      if (!deleteSelectedCollisionShape()) {
+        return
+      }
+      renderComposite()
+      historyManager.capture()
+    })
 
     drawCanvas.addEventListener(
       'contextmenu',
       (event) => {
         const point = getCanvasPoint(event as PointerEvent)
         hideLayerMenu()
+        hideCollisionToolMenu()
         if (mode === 'contour') {
           const pointIndex = getNearestContourPointIndex(
             point.x,
@@ -4780,6 +6111,21 @@ export class EditorCharacterBodyDrawer {
           return
         }
         hideContourMenu()
+        if (mode === 'collision') {
+          const hitShape = getCollisionShapeAtPoint(point.x, point.y)
+          if (hitShape) {
+            selectedCollisionShapeId = hitShape.id
+            showPopupMenuAt(collisionShapeMenu, event.clientX, event.clientY)
+            renderLayerList()
+            renderComposite()
+          } else {
+            hideCollisionShapeMenu()
+          }
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
+        hideCollisionShapeMenu()
         const hitLayer = getSelectableLayerAtPoint(point.x, point.y)
         if (hitLayer) {
           selectedLayerId = hitLayer.id
@@ -4800,6 +6146,8 @@ export class EditorCharacterBodyDrawer {
       (event) => {
         hideContourMenu()
         hideLayerMenu()
+        hideCollisionToolMenu()
+        hideCollisionShapeMenu()
         const nextZoom = Math.round(
           canvasZoomPercent * Math.pow(0.999, event.deltaY)
         )
@@ -4836,6 +6184,8 @@ export class EditorCharacterBodyDrawer {
       (event) => {
         hideContourMenu()
         hideLayerMenu()
+        hideCollisionToolMenu()
+        hideCollisionShapeMenu()
         if (event.button === 1) {
           canvasPanActive = true
           lastPanClientX = event.clientX
@@ -5000,6 +6350,100 @@ export class EditorCharacterBodyDrawer {
           event.stopPropagation()
           return
         }
+        if (mode === 'collision') {
+          const selectedShape = getSelectedCollisionShape()
+          const collisionRotationHandle =
+            getCollisionShapeRotationHandleAtPoint(
+              point.x,
+              point.y,
+              selectedShape
+            )
+          if (selectedShape && collisionRotationHandle) {
+            pointerActive = true
+            pointerChanged = false
+            collisionCreating = false
+            collisionPointerShapeId = selectedShape.id
+            collisionScaleSession = null
+            collisionRotateSession = beginCollisionShapeRotate(
+              selectedShape,
+              point.x,
+              point.y
+            )
+            lastX = point.x
+            lastY = point.y
+            drawCanvas.setPointerCapture(event.pointerId)
+            renderComposite()
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          const collisionSelectionHandle =
+            getCollisionShapeSelectionHandleAtPoint(
+              point.x,
+              point.y,
+              selectedShape
+            )
+          if (selectedShape && collisionSelectionHandle) {
+            pointerActive = true
+            pointerChanged = false
+            collisionCreating = false
+            collisionPointerShapeId = selectedShape.id
+            collisionRotateSession = null
+            collisionScaleSession = beginCollisionShapeScale(
+              selectedShape,
+              collisionSelectionHandle,
+              point.x,
+              point.y
+            )
+            lastX = point.x
+            lastY = point.y
+            drawCanvas.setPointerCapture(event.pointerId)
+            renderComposite()
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          const hitShape = getCollisionShapeAtPoint(point.x, point.y)
+          if (hitShape) {
+            selectedCollisionShapeId = hitShape.id
+            collisionPointerShapeId = hitShape.id
+            collisionCreating = false
+            collisionScaleSession = null
+            collisionRotateSession = null
+            pointerActive = true
+            pointerChanged = false
+            lastDragWorldX = point.x
+            lastDragWorldY = point.y
+            drawCanvas.setPointerCapture(event.pointerId)
+            renderLayerList()
+            renderComposite()
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          const createdShape = createCollisionShapeFromDrag(
+            nextCollisionShapeId++,
+            point.x,
+            point.y,
+            point.x,
+            point.y
+          )
+          appendCollisionShape(createdShape)
+          collisionPointerShapeId = createdShape.id
+          collisionCreating = true
+          collisionScaleSession = null
+          collisionRotateSession = null
+          pointerActive = true
+          pointerChanged = false
+          lastX = point.x
+          lastY = point.y
+          drawCanvas.setPointerCapture(event.pointerId)
+          renderLayerList()
+          renderComposite()
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
         if (mode === 'shape') {
           if (isCoreLayerSelected()) {
             shapeStrokeAnchored = isPointInsideBodyMask(point.x, point.y)
@@ -5133,6 +6577,104 @@ export class EditorCharacterBodyDrawer {
           renderComposite()
           return
         }
+        if (mode === 'collision') {
+          if (!pointerActive || collisionPointerShapeId < 0) {
+            renderComposite()
+            return
+          }
+          const activeShape = getCollisionShapeById(collisionPointerShapeId)
+          if (!activeShape) {
+            return
+          }
+          if (collisionRotateSession) {
+            if (point.x !== lastX || point.y !== lastY) {
+              applyCollisionShapeRotate(
+                collisionRotateSession,
+                point.x,
+                point.y
+              )
+              pointerChanged = true
+              collisionShapesCustomized = true
+              lastX = point.x
+              lastY = point.y
+              invalidateCollisionPreview()
+              renderComposite()
+            }
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          if (collisionScaleSession) {
+            if (point.x !== lastX || point.y !== lastY) {
+              applyCollisionShapeScale(collisionScaleSession, point.x, point.y)
+              pointerChanged = true
+              collisionShapesCustomized = true
+              lastX = point.x
+              lastY = point.y
+              invalidateCollisionPreview()
+              renderComposite()
+            }
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          if (!collisionCreating) {
+            const moveX = point.x - lastDragWorldX
+            const moveY = point.y - lastDragWorldY
+            if (moveX !== 0 || moveY !== 0) {
+              activeShape.centerX += moveX
+              activeShape.centerY += moveY
+              lastDragWorldX = point.x
+              lastDragWorldY = point.y
+              pointerChanged = true
+              collisionShapesCustomized = true
+              invalidateCollisionPreview()
+              renderComposite()
+            }
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+          if (point.x !== lastX || point.y !== lastY) {
+            const nextShape = createCollisionShapeFromDrag(
+              activeShape.id,
+              lastX,
+              lastY,
+              point.x,
+              point.y
+            )
+            if (activeShape.kind === 'circle' && nextShape.kind === 'circle') {
+              activeShape.centerX = nextShape.centerX
+              activeShape.centerY = nextShape.centerY
+              activeShape.radius = nextShape.radius
+            } else if (
+              activeShape.kind === 'ellipse' &&
+              nextShape.kind === 'ellipse'
+            ) {
+              activeShape.centerX = nextShape.centerX
+              activeShape.centerY = nextShape.centerY
+              activeShape.radiusX = nextShape.radiusX
+              activeShape.radiusY = nextShape.radiusY
+              activeShape.rotationDeg = nextShape.rotationDeg
+            } else if (
+              activeShape.kind === 'capsule' &&
+              nextShape.kind === 'capsule'
+            ) {
+              activeShape.centerX = nextShape.centerX
+              activeShape.centerY = nextShape.centerY
+              activeShape.halfWidth = nextShape.halfWidth
+              activeShape.halfHeight = nextShape.halfHeight
+              activeShape.rotationDeg = nextShape.rotationDeg
+            }
+            pointerChanged = true
+            collisionShapesCustomized = true
+            invalidateCollisionPreview()
+            renderComposite()
+          }
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
         if (!pointerActive) {
           return
         }
@@ -5160,6 +6702,7 @@ export class EditorCharacterBodyDrawer {
       }
       const wasContourDrag = mode === 'contour'
       const wasSelectDrag = mode === 'select'
+      const wasCollisionDrag = mode === 'collision'
       pointerActive = false
       if (wasContourDrag) {
         if (drawCanvas.hasPointerCapture(event.pointerId)) {
@@ -5199,6 +6742,40 @@ export class EditorCharacterBodyDrawer {
         event.stopPropagation()
         return
       }
+      if (wasCollisionDrag) {
+        if (drawCanvas.hasPointerCapture(event.pointerId)) {
+          drawCanvas.releasePointerCapture(event.pointerId)
+        }
+        if (collisionCreating && !pointerChanged) {
+          const createdShape = getCollisionShapeById(collisionPointerShapeId)
+          if (createdShape) {
+            const bounds = getCollisionShapeBounds(createdShape)
+            const width = bounds.maxX - bounds.minX
+            const height = bounds.maxY - bounds.minY
+            if (
+              width <= MIN_COLLISION_HALF_EXTENT &&
+              height <= MIN_COLLISION_HALF_EXTENT
+            ) {
+              deleteSelectedCollisionShape()
+            }
+          }
+        }
+        collisionPointerShapeId = -1
+        collisionCreating = false
+        collisionScaleSession = null
+        collisionRotateSession = null
+        if (pointerChanged) {
+          historyManager.capture()
+        }
+        pointerChanged = false
+        cursorEl.style.display = 'none'
+        hoverVisible = false
+        renderLayerList()
+        renderComposite()
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       const shouldSyncContourFromMask = mode === 'shape' && pointerChanged
       if (pointerChanged) {
         if (shouldSyncContourFromMask && isCoreLayerSelected()) {
@@ -5227,6 +6804,12 @@ export class EditorCharacterBodyDrawer {
         if (!layerMenu.contains(event.target as Node)) {
           hideLayerMenu()
         }
+        if (!collisionToolMenu.contains(event.target as Node)) {
+          hideCollisionToolMenu()
+        }
+        if (!collisionShapeMenu.contains(event.target as Node)) {
+          hideCollisionShapeMenu()
+        }
       },
       true
     )
@@ -5250,6 +6833,18 @@ export class EditorCharacterBodyDrawer {
       ) {
         invalidatePresetSelection()
         if (deleteSelectedContourPoint()) {
+          historyManager.capture()
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+      if (
+        mode === 'collision' &&
+        (event.key === 'Delete' || event.key === 'Backspace')
+      ) {
+        if (deleteSelectedCollisionShape()) {
+          renderComposite()
           historyManager.capture()
         }
         event.preventDefault()
@@ -5291,6 +6886,13 @@ export class EditorCharacterBodyDrawer {
             updateAlert()
             return
           }
+          const contourBounds = getContourBounds()
+          const serializedCollisionShapes = contourBounds
+            ? serializeCollisionShapes(
+                contourBounds.centerX,
+                contourBounds.centerY
+              )
+            : []
           resolve(
             finish(
               this.buildProfile(
@@ -5317,6 +6919,7 @@ export class EditorCharacterBodyDrawer {
                 bloodColorInput.value,
                 currentPresetId,
                 coreImageShape !== null,
+                serializedCollisionShapes,
                 exportBaseWidth,
                 exportBaseHeight,
                 exportReferenceWidth,
@@ -5440,6 +7043,7 @@ export class EditorCharacterBodyDrawer {
     bloodColor: string,
     presetId: EditorCharacterBodyPresetId,
     usePureImageSurface: boolean,
+    collisionShapes: MapCharacterBodyCollisionShape[],
     exportBaseWidth: number,
     exportBaseHeight: number,
     exportReferenceWidth: number,
@@ -5561,6 +7165,7 @@ export class EditorCharacterBodyDrawer {
 
     return {
       points: simplified,
+      collisionShapes: collisionShapes.length > 0 ? collisionShapes : undefined,
       presetId: presetId !== CUSTOM_BODY_PRESET_ID ? presetId : undefined,
       width,
       height,

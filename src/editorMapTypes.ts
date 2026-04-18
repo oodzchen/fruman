@@ -81,8 +81,36 @@ export interface MapPolygonShape {
   points: number[]
 }
 
+export interface MapCharacterBodyCollisionCircleShape {
+  kind: 'circle'
+  center: MapVector2
+  radius: number
+}
+
+export interface MapCharacterBodyCollisionEllipseShape {
+  kind: 'ellipse'
+  center: MapVector2
+  radiusX: number
+  radiusY: number
+  rotationDeg?: number
+}
+
+export interface MapCharacterBodyCollisionCapsuleShape {
+  kind: 'capsule'
+  center: MapVector2
+  halfWidth: number
+  halfHeight: number
+  rotationDeg?: number
+}
+
+export type MapCharacterBodyCollisionShape =
+  | MapCharacterBodyCollisionCircleShape
+  | MapCharacterBodyCollisionEllipseShape
+  | MapCharacterBodyCollisionCapsuleShape
+
 export interface MapCharacterBodyProfile {
   points: number[]
+  collisionShapes?: MapCharacterBodyCollisionShape[]
   presetId?: MapCharacterBodyPresetId
   width?: number
   height?: number

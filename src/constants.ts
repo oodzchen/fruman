@@ -56,7 +56,7 @@ export const DEBUG_ANIMATION_SLOWDOWN = 1
 export const DEBUG_DRAW_SENSORS = false
 export const DEBUG_DRAW_SOUND = false
 export const DEBUG_DRAW_CAMERA = false
-export const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = false
+export const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = true
 
 // 武器默认伤害与削架势
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
