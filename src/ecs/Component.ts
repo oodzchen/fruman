@@ -30,6 +30,7 @@ import {
 } from '../constants'
 import type { MapCharacterBodyProfile, MapNpcDropItem } from '../editorMapTypes'
 import type {
+  NpcAttackMove,
   NpcPatrolMode,
   NpcType,
   WeaponVisualType,
@@ -1118,6 +1119,7 @@ export class NpcAIComponent extends Component {
   retreatDelayMs = 0
   retreatDelayTimerMs = 0
   movesetId: string = ''
+  attackMoves: NpcAttackMove[] = []
 
   reset(): void {
     this.attackDesire = DEFAULT_ENEMY_ATTACK_DESIRE
@@ -1205,6 +1207,7 @@ export class NpcAIComponent extends Component {
     this.retreatDelayMs = 0
     this.retreatDelayTimerMs = 0
     this.movesetId = ''
+    this.attackMoves = []
   }
 
   getName(): string {

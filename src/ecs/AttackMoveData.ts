@@ -1,4 +1,4 @@
-import type { WeaponType } from '../types'
+import type { NpcAttackCondition, WeaponType } from '../types'
 
 export type AttackKind = 'slash' | 'thrust' | 'strike' | 'sweep'
 
@@ -47,4 +47,6 @@ export type AttackMoveset = {
   defaultSequenceId: string
   sequences: AttackSequenceData[]
   derivations: AttackDerivation[]
+  // 内置触发条件：AI 据此决定该招式集适用的战斗情形
+  condition: NpcAttackCondition
 }

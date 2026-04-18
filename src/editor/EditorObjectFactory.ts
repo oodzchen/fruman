@@ -658,7 +658,7 @@ export class EditorObjectFactory {
         lockScalingY: true,
         objectCaching: true,
       }
-    ) as NpcMarker
+    ) as unknown as NpcMarker
     marker.editorShape = 'npc-marker'
     marker.npcType = npcType
     marker.color = color
@@ -666,6 +666,7 @@ export class EditorObjectFactory {
     marker.bodyRadiusXPx = radius
     marker.bodyRadiusYPx = radius
     marker.eyeColor = this.npcEyeColor
+    marker.attackMoves = []
     return marker
   }
 

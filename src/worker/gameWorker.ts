@@ -2774,6 +2774,7 @@ function createPlayerAndWeapon(
         }
         if (created.npcAI) {
           created.npcAI.movesetId = nextMovesetId
+          created.npcAI.attackMoves = npc.attackMoves ?? []
         }
       }
       if (created.npcAI) {

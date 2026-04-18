@@ -9,6 +9,7 @@ import type {
 import type { TerrainMaterialId } from '../terrain/TerrainTypes'
 import type {
   NormalAttackMovesetId,
+  NpcAttackMove,
   NpcDetectionRangeLevel,
   NpcPatrolMode,
   NpcType,
@@ -79,6 +80,7 @@ export type NpcMarker = fabric.Object & {
   color: string
   facing: number // 1 for right, -1 for left
   initialNormalMovesetId: NormalAttackMovesetId
+  attackMoves: NpcAttackMove[]
   debugNoDamage: boolean
   debugNoDeath: boolean
   redTapeEnabled: boolean
@@ -198,6 +200,7 @@ export interface NpcMarkerData {
   color: string
   facing: number
   initialNormalMovesetId: NormalAttackMovesetId
+  attackMoves: NpcAttackMove[]
   debugNoDamage: boolean
   debugNoDeath: boolean
   redTapeEnabled: boolean

@@ -740,7 +740,7 @@ export class NpcAISystem extends System {
             ai.lastPositionUpdateTime = now
           }
         } else {
-          this.enterComboState(entity, ai, stableFacing)
+          this.enterComboState(entity, ai, stableFacing, distance, weaponRange)
         }
         continue
       }
@@ -796,28 +796,8 @@ export class NpcAISystem extends System {
         const tooCloseThreshold = weaponRange
 
         if (distance < tooCloseThreshold) {
-          ai.state = 'combo'
-          ai.comboSwingsDone = 0
-          if (entity.weapon) {
-            const movesetId =
-              ai.movesetId ||
-              (entity.attackSlots?.normal.hasMoveset
-                ? entity.attackSlots.normal.movesetId
-                : '')
-            if (movesetId) {
-              const moveset = ATTACK_MOVESETS[movesetId]
-              if (moveset) {
-                const seq = moveset.sequences.find(
-                  (s: any) => s.id === moveset.defaultSequenceId
-                )
-                if (seq) {
-                  ai.comboSwingTarget = seq.moves.length
-                }
-              }
-            }
-          }
+          this.enterComboState(entity, ai, stableFacing, distance, weaponRange)
           entity.input.moveDirection = 0
-          this.queueAttack(entity, stableFacing, ai)
         } else if (distance < targetDistance) {
           entity.input.moveDirection = ai.retreatDirection
         } else {
@@ -1610,10 +1590,49 @@ export class NpcAISystem extends System {
     }
   }
 
+  private pickMovesetForCombo(
+    ai: NpcAIComponent,
+    distance: number,
+    weaponRange: number
+  ): string {
+    const fallback = ai.movesetId || ''
+    if (!ai.attackMoves || ai.attackMoves.length === 0) {
+      return fallback
+    }
+    // 按招式集内置条件过滤
+    const eligible = ai.attackMoves.filter((m) => {
+      const moveset = ATTACK_MOVESETS[m.movesetId]
+      if (!moveset) return false
+      switch (moveset.condition) {
+        case 'any':
+          return true
+        case 'enemy_close':
+          return distance < weaponRange * 2
+        case 'enemy_mid':
+          return distance >= weaponRange * 2 && distance < weaponRange * 5
+        case 'enemy_far':
+          return distance >= weaponRange * 5
+        default:
+          return true
+      }
+    })
+    if (eligible.length === 0) return fallback
+    // 绝对概率：roll 0-99，按累计概率命中对应招式，未命中则用默认
+    const roll = Math.floor(Math.random() * 100)
+    let cumulative = 0
+    for (const m of eligible) {
+      cumulative += m.probability
+      if (roll < cumulative) return m.movesetId
+    }
+    return fallback
+  }
+
   private enterComboState(
     entity: Entity,
     ai: NpcAIComponent,
-    facing: number
+    facing: number,
+    distance = 0,
+    weaponRange = 1
   ): void {
     if (!entity.input) return
     ai.state = 'combo'
@@ -1621,7 +1640,7 @@ export class NpcAISystem extends System {
     ai.lastFacing = facing as -1 | 1
     if (entity.weapon) {
       const movesetId =
-        ai.movesetId ||
+        this.pickMovesetForCombo(ai, distance, weaponRange) ||
         (entity.attackSlots?.normal.hasMoveset
           ? entity.attackSlots.normal.movesetId
           : '')
@@ -1634,6 +1653,10 @@ export class NpcAISystem extends System {
           if (seq) {
             ai.comboSwingTarget = seq.moves.length
           }
+        }
+        entity.weapon.movesetId = movesetId
+        if (entity.attackSlots?.normal) {
+          entity.attackSlots.normal.movesetId = movesetId
         }
       }
       entity.weapon.attackQueued = false

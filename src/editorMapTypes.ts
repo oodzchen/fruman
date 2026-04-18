@@ -1,6 +1,7 @@
 import type { MapTerrainData } from './terrain/TerrainTypes'
 import type {
   NormalAttackMovesetId,
+  NpcAttackMove,
   NpcDetectionRangeLevel,
   NpcDropItemType,
   NpcPatrolMode,
@@ -215,6 +216,7 @@ export interface MapNpcConfig {
   color?: string
   facing?: number
   initialNormalMovesetId?: NormalAttackMovesetId
+  attackMoves?: NpcAttackMove[]
   debugNoDamage?: boolean
   debugNoDeath?: boolean
   redTapeEnabled?: boolean

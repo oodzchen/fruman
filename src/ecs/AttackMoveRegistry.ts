@@ -314,6 +314,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'any',
   },
   sword_thrust: {
     id: 'sword_thrust',
@@ -332,6 +333,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'enemy_close',
   },
   hammer_strike: {
     id: 'hammer_strike',
@@ -350,6 +352,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'any',
   },
   // 绝招占位（具体招式待实现）
   sword_ultimate: {
@@ -363,6 +366,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'any',
   },
   hammer_ultimate: {
     id: 'hammer_ultimate',
@@ -375,6 +379,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'any',
   },
   spear_ultimate: {
     id: 'spear_ultimate',
@@ -387,6 +392,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'any',
   },
   bow_ultimate: {
     id: 'bow_ultimate',
@@ -399,6 +405,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'enemy_far',
   },
   // Used for testing combo
   test_combo: {
@@ -416,6 +423,7 @@ export const ATTACK_MOVESETS: Record<string, AttackMoveset> = {
       },
     ],
     derivations: [],
+    condition: 'any',
   },
 }
 

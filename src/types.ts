@@ -15,6 +15,19 @@ export type b2Rot = InstanceType<MainModule['b2Rot']>
 export type NpcPatrolMode = 'guard' | 'patrol'
 export type NpcDetectionRangeLevel = 'near' | 'medium' | 'far'
 
+// 攻击招式触发条件
+export type NpcAttackCondition =
+  | 'any'
+  | 'enemy_close'
+  | 'enemy_mid'
+  | 'enemy_far'
+
+// 可配置的攻击招式条目（触发条件由招式集内置，不在此配置）
+export type NpcAttackMove = {
+  movesetId: NormalAttackMovesetId
+  probability: number // 1-100，相对权重
+}
+
 export type NormalAttackMovesetId =
   | 'sword_default'
   | 'sword_thrust'

@@ -41,6 +41,7 @@ import {
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type {
   NormalAttackMovesetId,
+  NpcAttackMove,
   NpcDetectionRangeLevel,
   NpcDropItemType,
   NpcPatrolMode,
@@ -101,6 +102,7 @@ type CharacterDialogOptions = {
     color: string
     facing: number
     initialNormalMovesetId: NormalAttackMovesetId
+    attackMoves?: NpcAttackMove[]
     debugNoDamage: boolean
     debugNoDeath: boolean
     redTapeEnabled?: boolean
@@ -124,6 +126,7 @@ type CharacterDialogOptions = {
   showDetectionRange?: boolean
   showCanBeFollower?: boolean
   showDrops?: boolean
+  showAttackMoves?: boolean
   confirmLabel?: string
   useMapSnapshot?: boolean
   captureHistoryOnCommit?: boolean
@@ -146,6 +149,7 @@ type CharacterDialogOptions = {
     detectionRangeLevel?: NpcDetectionRangeLevel
     facing: number
     initialNormalMovesetId: NormalAttackMovesetId
+    attackMoves?: NpcAttackMove[]
     maxHealth: number
     maxPosture: number
     maxToughness: number
@@ -726,6 +730,211 @@ export class EditorPropertiesPanel {
       })
       initialAttackModuleRow.row.appendChild(initialAttackModuleSelect)
       basicPanel.appendChild(initialAttackModuleRow.row)
+
+      // Attack Moves List
+      let buildAttackMoveValues: (() => NpcAttackMove[]) | null = null
+      if (options.showAttackMoves) {
+        let attackMoveEntries: NpcAttackMove[] = (
+          options.data.attackMoves ?? []
+        ).map((m) => ({ movesetId: m.movesetId, probability: m.probability }))
+
+        const allMovesetOptions = NORMAL_ATTACK_MOVESET_OPTIONS.map((opt) => ({
+          value: opt.value as NormalAttackMovesetId,
+          label: localizer.t(opt.labelKey),
+        }))
+
+        const attackMovesHeaderRow = EditorUIHelper.createFormRow(
+          localizer.t('editor_attack_moves_label')
+        )
+        const addMoveBtn = EditorUIHelper.createButton(
+          localizer.t('editor_attack_moves_add')
+        )
+        addMoveBtn.style.padding = '4px 8px'
+        addMoveBtn.style.fontSize = '11px'
+        attackMovesHeaderRow.row.appendChild(addMoveBtn)
+        basicPanel.appendChild(attackMovesHeaderRow.row)
+
+        const moveList = document.createElement('div')
+        moveList.style.cssText =
+          'display:flex;flex-direction:column;gap:8px;margin:-4px 0 4px 110px;'
+        basicPanel.appendChild(moveList)
+
+        // 总计显示行
+        const totalRow = document.createElement('div')
+        totalRow.style.cssText =
+          'font-size:11px;color:rgba(255,255,255,0.5);margin:0 0 10px 110px;'
+        basicPanel.appendChild(totalRow)
+
+        // 新增时均分所有条目概率
+        const redistributeEqually = () => {
+          const n = attackMoveEntries.length
+          if (n === 0) return
+          const base = Math.floor(100 / n)
+          const extra = 100 - base * n
+          for (let j = 0; j < n; j++) {
+            attackMoveEntries[j].probability = base + (j === 0 ? extra : 0)
+          }
+        }
+
+        const getTotalProbability = () =>
+          attackMoveEntries.reduce((s, m) => s + m.probability, 0)
+
+        const updateTotalDisplay = () => {
+          const total = getTotalProbability()
+          totalRow.textContent = `${localizer.t('editor_attack_moves_total')} ${total}%`
+          totalRow.style.color =
+            total > 100
+              ? '#e05555'
+              : total === 100
+                ? 'rgba(255,255,255,0.4)'
+                : 'rgba(255,255,255,0.5)'
+        }
+
+        // 浮动选择菜单（挂在 modal 上，随弹窗一起销毁）
+        const pickerMenu = document.createElement('div')
+        pickerMenu.style.cssText = [
+          'position:fixed;z-index:20000;',
+          'background:rgba(20,20,20,0.97);',
+          'border:1px solid rgba(255,255,255,0.2);',
+          'display:none;flex-direction:column;',
+          'min-width:140px;',
+        ].join('')
+        modal.appendChild(pickerMenu)
+
+        const hidePicker = () => {
+          pickerMenu.style.display = 'none'
+        }
+        modal.addEventListener('click', hidePicker)
+
+        const showPicker = () => {
+          const added = new Set(attackMoveEntries.map((e) => e.movesetId))
+          const available = allMovesetOptions.filter(
+            (opt) => !added.has(opt.value)
+          )
+          if (available.length === 0) return
+          pickerMenu.innerHTML = ''
+          for (const opt of available) {
+            const item = document.createElement('div')
+            item.textContent = opt.label
+            item.style.cssText = [
+              'padding:6px 12px;cursor:pointer;font-size:12px;',
+              'color:#fff;font-family:monospace;',
+            ].join('')
+            item.addEventListener('mouseenter', () => {
+              item.style.background = 'rgba(255,255,255,0.12)'
+            })
+            item.addEventListener('mouseleave', () => {
+              item.style.background = ''
+            })
+            item.addEventListener('click', (e) => {
+              e.stopPropagation()
+              attackMoveEntries.push({ movesetId: opt.value, probability: 0 })
+              redistributeEqually()
+              hidePicker()
+              renderMoveRows()
+            })
+            pickerMenu.appendChild(item)
+          }
+          const rect = addMoveBtn.getBoundingClientRect()
+          pickerMenu.style.left = `${rect.left}px`
+          pickerMenu.style.top = `${rect.bottom + 2}px`
+          pickerMenu.style.display = 'flex'
+        }
+
+        addMoveBtn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          if (pickerMenu.style.display === 'flex') {
+            hidePicker()
+          } else {
+            showPicker()
+          }
+        })
+
+        const renderMoveRows = () => {
+          moveList.innerHTML = ''
+          updateTotalDisplay()
+          if (attackMoveEntries.length === 0) {
+            const emptyText = document.createElement('div')
+            emptyText.textContent = localizer.t('editor_attack_moves_empty')
+            emptyText.style.cssText =
+              'font-size:11px;color:rgba(255,255,255,0.45);padding:2px 0;'
+            moveList.appendChild(emptyText)
+            return
+          }
+
+          for (let i = 0; i < attackMoveEntries.length; i++) {
+            const entry = attackMoveEntries[i]
+            const row = document.createElement('div')
+            row.style.cssText = 'display:flex;align-items:center;gap:6px;'
+
+            // 招式名称（静态文字）
+            const nameLabel = document.createElement('span')
+            const opt = allMovesetOptions.find(
+              (o) => o.value === entry.movesetId
+            )
+            nameLabel.textContent = opt?.label ?? entry.movesetId
+            nameLabel.style.cssText =
+              'font-size:12px;color:#fff;font-family:monospace;width:100px;flex-shrink:0;'
+            row.appendChild(nameLabel)
+
+            // 概率
+            const probInput = EditorUIHelper.createNumberInput({
+              value: entry.probability,
+              min: '1',
+              max: '100',
+              step: '1',
+              width: '52px',
+            })
+            row.appendChild(probInput)
+
+            const pctLabel = document.createElement('span')
+            pctLabel.textContent = '%'
+            pctLabel.style.cssText =
+              'font-size:12px;color:rgba(255,255,255,0.6);flex-shrink:0;'
+            row.appendChild(pctLabel)
+
+            const removeBtn = EditorUIHelper.createButton(
+              localizer.t('editor_attack_moves_remove')
+            )
+            removeBtn.style.padding = '3px 7px'
+            removeBtn.style.fontSize = '11px'
+            row.appendChild(removeBtn)
+
+            const syncProb = () => {
+              const v = Number.parseInt(probInput.value, 10)
+              if (!Number.isFinite(v)) {
+                probInput.value = String(entry.probability)
+                return
+              }
+              // 其余条目之和
+              const othersSum = attackMoveEntries.reduce(
+                (s, m, idx) => s + (idx !== i ? m.probability : 0),
+                0
+              )
+              const maxAllowed = Math.max(1, 100 - othersSum)
+              entry.probability = Math.max(1, Math.min(maxAllowed, v))
+              probInput.value = String(entry.probability)
+              updateTotalDisplay()
+            }
+            probInput.addEventListener('change', syncProb)
+            probInput.addEventListener('blur', syncProb)
+            removeBtn.addEventListener('click', () => {
+              attackMoveEntries.splice(i, 1)
+              if (attackMoveEntries.length > 0) redistributeEqually()
+              renderMoveRows()
+            })
+
+            moveList.appendChild(row)
+          }
+        }
+
+        renderMoveRows()
+        buildAttackMoveValues = () =>
+          attackMoveEntries.map((m) => ({
+            movesetId: m.movesetId,
+            probability: m.probability,
+          }))
+      }
 
       // Health
       const healthRow = EditorUIHelper.createFormRow(
@@ -1689,6 +1898,9 @@ export class EditorPropertiesPanel {
             : undefined,
           facing,
           initialNormalMovesetId,
+          attackMoves: buildAttackMoveValues
+            ? buildAttackMoveValues()
+            : undefined,
           maxHealth,
           maxPosture,
           maxToughness,
@@ -1809,6 +2021,7 @@ export class EditorPropertiesPanel {
       showDetectionRange: true,
       showCanBeFollower: true,
       showDrops: true,
+      showAttackMoves: true,
       weaponBindings: [mainBinding, secondaryBinding],
       updateMarkerVisual: (m, r, bh, c, f) =>
         this.context.updateNpcMarkerVisual(m as NpcMarker, r, bh, c, f),
@@ -1829,6 +2042,10 @@ export class EditorPropertiesPanel {
         data.color = values.color
         data.facing = values.facing
         data.initialNormalMovesetId = values.initialNormalMovesetId
+        if (values.attackMoves !== undefined) {
+          data.attackMoves = values.attackMoves
+          marker.attackMoves = values.attackMoves
+        }
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
         if (values.redTapeEnabled !== undefined) {
@@ -2019,6 +2236,7 @@ export class EditorPropertiesPanel {
           initialNormalMovesetId:
             template.initialNormalMovesetId ??
             getDefaultNormalAttackMovesetId('npc'),
+          attackMoves: template.attackMoves ?? [],
           debugNoDamage: template.debugNoDamage === true,
           debugNoDeath: template.debugNoDeath === true,
           redTapeEnabled: template.redTapeEnabled === true,
@@ -2043,6 +2261,7 @@ export class EditorPropertiesPanel {
         showDetectionRange: true,
         showCanBeFollower: true,
         showDrops: true,
+        showAttackMoves: true,
         confirmLabel,
         useMapSnapshot: false,
         captureHistoryOnCommit: false,
@@ -2065,6 +2284,7 @@ export class EditorPropertiesPanel {
             color: values.color,
             facing: values.facing,
             initialNormalMovesetId: values.initialNormalMovesetId,
+            attackMoves: values.attackMoves,
             debugNoDamage: values.debugNoDamage,
             debugNoDeath: values.debugNoDeath,
             redTapeEnabled: values.redTapeEnabled,

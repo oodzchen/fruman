@@ -27,6 +27,7 @@ import { buildDefaultNpcDropList, normalizeNpcDropList } from '../npcDropUtils'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import type {
   NormalAttackMovesetId,
+  NpcAttackMove,
   NpcDetectionRangeLevel,
   NpcPatrolMode,
   NpcType,
@@ -881,6 +882,7 @@ export class EditorMarkerManager {
       color?: string
       facing?: number
       initialNormalMovesetId?: NormalAttackMovesetId
+      attackMoves?: NpcAttackMove[]
       debugNoDamage?: boolean
       debugNoDeath?: boolean
       redTapeEnabled?: boolean
@@ -924,6 +926,7 @@ export class EditorMarkerManager {
     const facing = spawn?.facing ?? 1
     const initialNormalMovesetId =
       spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('npc')
+    const attackMoves: NpcAttackMove[] = spawn?.attackMoves ?? []
     const debugNoDamage = spawn?.debugNoDamage === true
     const debugNoDeath = spawn?.debugNoDeath === true
     const redTapeEnabled = spawn?.redTapeEnabled === true
@@ -990,6 +993,7 @@ export class EditorMarkerManager {
     marker.color = resolvedColor
     marker.facing = facing
     marker.initialNormalMovesetId = initialNormalMovesetId
+    marker.attackMoves = attackMoves
     marker.debugNoDamage = debugNoDamage
     marker.debugNoDeath = debugNoDeath
     marker.redTapeEnabled = redTapeEnabled
@@ -1022,6 +1026,7 @@ export class EditorMarkerManager {
       color: resolvedColor,
       facing,
       initialNormalMovesetId,
+      attackMoves,
       debugNoDamage,
       debugNoDeath,
       redTapeEnabled,
