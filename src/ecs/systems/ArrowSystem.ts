@@ -215,7 +215,7 @@ export class ArrowSystem extends System {
   ): void {
     if (!this.statsSystem) return
 
-    this.statsSystem.emitSpark(hitX, hitY)
+    this.statsSystem.emitParrySpark(hitX, hitY, Math.atan2(dirY, dirX))
     this.statsSystem.playSoundAt(SOUND_IDS.SWORD_PARRY, hitX, hitY)
     if (this.soundSystem) {
       const radius = defender.render?.radius ?? DEFAULT_PLAYER_RADIUS

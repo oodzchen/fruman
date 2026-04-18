@@ -853,7 +853,11 @@ export class WeaponSystem extends System {
         weapon.parryHitWeaponIds.add(attacker.id)
         const sparkX = (weaponX + attackerX) * 0.5
         const sparkY = (weaponY + attackerY) * 0.5
-        this.statsSystem?.emitSpark(sparkX, sparkY)
+        this.statsSystem?.emitParrySpark(
+          sparkX,
+          sparkY,
+          Math.atan2(weaponY - attackerY, weaponX - attackerX)
+        )
         this.statsSystem?.playSoundAt(SOUND_IDS.SWORD_PARRY, sparkX, sparkY)
         this.emitSoundAt(sparkX, sparkY, defender, SOUND_DB_PARRY)
         this.applyParryEffect(defender, attacker)

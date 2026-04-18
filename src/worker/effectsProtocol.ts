@@ -18,6 +18,7 @@ export const EFFECT_TYPES = {
   CAMERA_SHAKE: 5,
   CHECKPOINT_PULSE: 6,
   CRIT_BURST: 7,
+  PARRY_SPARK: 8,
 } as const
 
 export const SOUND_IDS = {

@@ -27,6 +27,7 @@ import { ROPE_POINT_STRIDE } from '../worker/effectsProtocol'
 import { getBodySpriteSource, isBodyVisualAssetsReady } from './BodyRenderer'
 import { createCheckpointTreeTextureSource } from './CheckpointTreeTextureFactory'
 import { HUD_ICON_ALPHA, HUD_ICON_COLOR } from './HudWeaponSlotRenderer'
+import { ParrySparkEmitterPool } from './ParrySparkEmitterPool'
 import {
   PARTICLE_TYPE_CHECKPOINT_PULSE,
   PARTICLE_TYPE_DEATH,
@@ -298,6 +299,7 @@ export class PixiWorldRenderer {
   private readonly damageTextPool: DamageTextView[] = []
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
+  private readonly parrySparkEmitterPool: ParrySparkEmitterPool
   private readonly activeSpineViews = new Set<EntityView>()
   private frameId = 0
   private pruneSkipCounter = 0
@@ -320,6 +322,9 @@ export class PixiWorldRenderer {
     this.particleContainer = new Container()
     this.particleContainer.zIndex = 850000
     this.root.addChild(this.particleContainer)
+    this.parrySparkEmitterPool = new ParrySparkEmitterPool(
+      this.particleContainer
+    )
 
     this.ropeGraphics = new Graphics()
     this.overlayContainer.addChild(this.ropeGraphics)
@@ -362,7 +367,10 @@ export class PixiWorldRenderer {
   }
 
   getParticleSpriteCount(): number {
-    return this.particleSprites.length
+    return (
+      this.particleSprites.length +
+      this.parrySparkEmitterPool.getActiveParticleCount()
+    )
   }
 
   getWeaponTextureCacheSize(): number {
@@ -503,6 +511,7 @@ export class PixiWorldRenderer {
     )
     this.updateUltimateOverlays(renderer, playerOffset)
     this.updateParticles(renderer)
+    this.updateParrySparkEffects(renderer, deltaMs)
 
     if (deltaMs > 0) {
       const deltaSec = deltaMs / 1000
@@ -1998,6 +2007,25 @@ export class PixiWorldRenderer {
           : alpha
       sprite.scale.set(diameter / 24)
       sprite.blendMode = blendMode
+    }
+  }
+
+  private updateParrySparkEffects(
+    renderer: ClientRenderer,
+    deltaMs: number
+  ): void {
+    const parrySparkCount = renderer.getParrySparkEventCount()
+    for (let i = 0; i < parrySparkCount; i++) {
+      this.parrySparkEmitterPool.emit(
+        renderer.getParrySparkEventX(i),
+        renderer.getParrySparkEventY(i),
+        renderer.getParrySparkEventDirection(i)
+      )
+    }
+    renderer.clearParrySparkEvents()
+
+    if (deltaMs > 0) {
+      this.parrySparkEmitterPool.update(deltaMs / 1000)
     }
   }
 

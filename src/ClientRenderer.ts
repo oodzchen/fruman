@@ -84,6 +84,7 @@ import type {
 } from './worker/protocol'
 
 const MAX_PARTICLES = 600
+const MAX_PARRY_SPARK_EVENTS = 16
 const DEBUG_DRAW_TRAJECTORY = false
 const DEBUG_DRAW_GRAPPLE_JOINTS = false
 const RETICLE_EDGE_PX = 8
@@ -151,6 +152,12 @@ export class ClientRenderer {
   // Cache for int -> hex color
   private colorCache = new Map<number, string>()
   private particleSystem: ParticleSystem
+  private readonly parrySparkX = new Float32Array(MAX_PARRY_SPARK_EVENTS)
+  private readonly parrySparkY = new Float32Array(MAX_PARRY_SPARK_EVENTS)
+  private readonly parrySparkDirection = new Float32Array(
+    MAX_PARRY_SPARK_EVENTS
+  )
+  private parrySparkCount = 0
   private effectsBuffer: ArrayBuffer | SharedArrayBuffer | null = null
   private effectsView: Float32Array | null = null
   private audioManager: AudioManager | null = null
@@ -366,6 +373,8 @@ export class ClientRenderer {
       const radius = view[base + EFFECT_OFFSETS.RADIUS]
       if (type === EFFECT_TYPES.SPARK) {
         this.particleSystem.spawnSpark(x, y, color)
+      } else if (type === EFFECT_TYPES.PARRY_SPARK) {
+        this.queueParrySpark(x, y, radius)
       } else if (type === EFFECT_TYPES.BLOOD) {
         this.particleSystem.spawnBlood(x, y, color)
       } else if (type === EFFECT_TYPES.DEATH) {
@@ -478,8 +487,41 @@ export class ClientRenderer {
     return this.particleSystem.getActiveParticle(index)
   }
 
+  getParrySparkEventCount(): number {
+    return this.parrySparkCount
+  }
+
+  getParrySparkEventX(index: number): number {
+    return this.parrySparkX[index]
+  }
+
+  getParrySparkEventY(index: number): number {
+    return this.parrySparkY[index]
+  }
+
+  getParrySparkEventDirection(index: number): number {
+    return this.parrySparkDirection[index]
+  }
+
+  clearParrySparkEvents(): void {
+    this.parrySparkCount = 0
+  }
+
   getCharacterBodyProfile(index: number) {
     return getCharacterBodyProfileFromMap(this.characterBodyMap, index)
+  }
+
+  private queueParrySpark(x: number, y: number, direction: number): void {
+    const index =
+      this.parrySparkCount < MAX_PARRY_SPARK_EVENTS
+        ? this.parrySparkCount
+        : MAX_PARRY_SPARK_EVENTS - 1
+    this.parrySparkX[index] = x * this.pixelsPerMeter
+    this.parrySparkY[index] = y * this.pixelsPerMeter
+    this.parrySparkDirection[index] = direction
+    if (this.parrySparkCount < MAX_PARRY_SPARK_EVENTS) {
+      this.parrySparkCount += 1
+    }
   }
 
   getCharacterBodyTextureSource(

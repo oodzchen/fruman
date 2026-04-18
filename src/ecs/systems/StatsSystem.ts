@@ -54,6 +54,7 @@ import type { WeaponSystem } from './WeaponSystem'
 
 export type EffectsEmitter = {
   emitSpark: (x: number, y: number) => void
+  emitParrySpark: (x: number, y: number, directionRad: number) => void
   emitBlood: (x: number, y: number, color: number) => void
   emitDeath: (x: number, y: number, color: number, radius: number) => void
   emitHeal: (x: number, y: number) => void
@@ -380,6 +381,11 @@ export class StatsSystem extends System {
   emitSpark(x: number, y: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.emitSpark(x, y)
+  }
+
+  emitParrySpark(x: number, y: number, directionRad: number): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.emitParrySpark(x, y, directionRad)
   }
 
   emitHammerCritHit(x: number, y: number): void {

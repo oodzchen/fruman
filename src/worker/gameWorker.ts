@@ -474,6 +474,9 @@ const effectsEmitter: EffectsEmitter = {
   emitSpark: (x, y) => {
     queueEffect(EFFECT_TYPES.SPARK, x, y, SPARK_COLOR_INT, 0)
   },
+  emitParrySpark: (x, y, directionRad) => {
+    queueEffect(EFFECT_TYPES.PARRY_SPARK, x, y, SPARK_COLOR_INT, directionRad)
+  },
   emitBlood: (x, y, color) => {
     queueEffect(EFFECT_TYPES.BLOOD, x, y, color, 0)
   },
