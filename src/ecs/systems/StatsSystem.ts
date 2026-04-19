@@ -676,8 +676,10 @@ export class StatsSystem extends System {
     if (entity.npcAI && hitSource && entity.transform) {
       const dx = hitSource.x - entity.transform.x
       entity.npcAI.forcedChaseDirection = dx >= 0 ? 1 : -1
-      entity.npcAI.forcedChaseDistanceRemaining =
-        entity.npcAI.detectionRange * 2
+      entity.npcAI.forcedChaseDistanceRemaining = Math.max(
+        3,
+        entity.npcAI.detectionRange / 2
+      )
       entity.npcAI.forcedChaseLastX = entity.transform.x
     }
     if (entity.npcAI && weaponType === 'arrow' && entity.stats) {

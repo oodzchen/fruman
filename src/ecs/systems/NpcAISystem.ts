@@ -324,6 +324,8 @@ export class NpcAISystem extends System {
 
       const wasForcedChasing = ai.forcedChaseDistanceRemaining > 0
       if (wasForcedChasing) {
+        const forcedChaseDirection = (dx >= 0 ? 1 : -1) as -1 | 1
+        ai.forcedChaseDirection = forcedChaseDirection
         const movedDistance = Math.abs(entity.transform.x - ai.forcedChaseLastX)
         ai.forcedChaseDistanceRemaining = Math.max(
           0,
@@ -336,7 +338,7 @@ export class NpcAISystem extends System {
             ai.forcedChaseDistanceRemaining = 0
             ai.forcedChaseLastX = entity.transform.x
           } else {
-            entity.input.moveDirection = ai.forcedChaseDirection
+            entity.input.moveDirection = forcedChaseDirection
             if (ai.arrowDefenseActive) {
               entity.input.blockRequested = true
               entity.input.sprintRequested = false
@@ -356,8 +358,9 @@ export class NpcAISystem extends System {
               }
             }
             entity.input.attackRequested = false
-            entity.input.lockedTargetId = null
-            entity.input.facingOverride = ai.forcedChaseDirection
+            entity.input.lockedTargetId = target.id
+            entity.input.lockLostTimer = 0
+            entity.input.facingOverride = forcedChaseDirection
             if (entity.weapon) {
               entity.weapon.attackQueued = false
             }

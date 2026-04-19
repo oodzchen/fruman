@@ -706,8 +706,10 @@ export class GrappleSystem extends System {
     if (attacker.transform && target.transform) {
       const dx = attacker.transform.x - target.transform.x
       target.npcAI.forcedChaseDirection = dx >= 0 ? 1 : -1
-      target.npcAI.forcedChaseDistanceRemaining =
-        target.npcAI.detectionRange * 2
+      target.npcAI.forcedChaseDistanceRemaining = Math.max(
+        3,
+        target.npcAI.detectionRange / 2
+      )
       target.npcAI.forcedChaseLastX = target.transform.x
     }
 
