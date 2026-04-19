@@ -784,8 +784,14 @@ export class NpcAISystem extends System {
           weapon.attackPhase === 'idle' &&
           !weapon.attackQueued
         if (comboFinished) {
-          const retreatChance = Math.max(0, (100 - effectiveAttackDesire) / 200)
-          if (Math.random() < retreatChance) {
+          let shouldRetreatForLeap = false
+          if (this.hasConfiguredAttackMoves(ai)) {
+            ai.pendingAttackMoveId = this.pickConfiguredAttackIntent(ai)
+            shouldRetreatForLeap = ai.pendingAttackMoveId === 'leap_attack'
+          } else {
+            ai.pendingAttackMoveId = ''
+          }
+          if (shouldRetreatForLeap) {
             ai.state = 'retreat'
             ai.retreatDirection = (ai.lastFacing === 1 ? -1 : 1) as -1 | 1
             ai.retreatTargetDistance =
@@ -1694,6 +1700,15 @@ export class NpcAISystem extends System {
       weaponRange * ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER
     const leapMaxDistance =
       weaponRange * ENEMY_LEAP_ATTACK_MAX_DISTANCE_MULTIPLIER
+
+    if (
+      ai.state !== 'retreat' &&
+      this.hasConfiguredNormalAttackMove(ai) &&
+      distance < leapMinDistance
+    ) {
+      ai.pendingAttackMoveId = ''
+      return false
+    }
 
     let moveDirection = 0
     if (distance <= leapMinDistance) {
