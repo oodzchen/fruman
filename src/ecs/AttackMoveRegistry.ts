@@ -48,7 +48,7 @@ export const NPC_ATTACK_MOVE_OPTIONS: Array<{
 ]
 
 export const DEFAULT_NPC_ATTACK_MOVES: ReadonlyArray<Readonly<NpcAttackMove>> =
-  Object.freeze([{ movesetId: 'leap_attack', probability: 90 }])
+  Object.freeze([{ movesetId: 'leap_attack', probability: 10 }])
 
 export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_slash_front: {
@@ -530,15 +530,70 @@ export function isNpcAttackMoveId(
   return value === 'leap_attack' || isNormalAttackMovesetId(value)
 }
 
-export function buildDefaultNpcAttackMoves(): NpcAttackMove[] {
-  const result: NpcAttackMove[] = []
-  for (let i = 0; i < DEFAULT_NPC_ATTACK_MOVES.length; i++) {
-    const attackMove = DEFAULT_NPC_ATTACK_MOVES[i]
-    result.push({
-      movesetId: attackMove.movesetId,
-      probability: attackMove.probability,
-    })
+export function buildDefaultNpcAttackMoves(
+  weaponType?: WeaponType
+): NpcAttackMove[] {
+  const defaultMovesetId = weaponType
+    ? getDefaultAttackMovesetIdForWeaponType(weaponType)
+    : ''
+
+  if (defaultMovesetId && isNpcAttackMoveId(defaultMovesetId)) {
+    return [
+      { movesetId: 'leap_attack', probability: 10 },
+      { movesetId: defaultMovesetId, probability: 90 },
+    ]
   }
+
+  // 默认回退（如果没有武器或武器不支持）
+  return [{ movesetId: 'leap_attack', probability: 100 }]
+}
+
+export function normalizeNpcAttackMoves(
+  moves: NpcAttackMove[] | undefined,
+  weaponType?: WeaponType
+): NpcAttackMove[] {
+  if (!moves || moves.length === 0) {
+    return buildDefaultNpcAttackMoves(weaponType)
+  }
+
+  const result: NpcAttackMove[] = []
+  let hasLeapAttack = false
+  let hasWeaponMove = false
+  const defaultWeaponMoveId = weaponType
+    ? getDefaultAttackMovesetIdForWeaponType(weaponType)
+    : undefined
+
+  for (let i = 0; i < moves.length; i++) {
+    const move = moves[i]
+    if (move.movesetId === 'leap_attack') {
+      hasLeapAttack = true
+      // 如果是旧的默认 90%，修正为 10%
+      result.push({
+        movesetId: 'leap_attack',
+        probability: move.probability === 90 ? 10 : move.probability,
+      })
+    } else {
+      if (move.movesetId === defaultWeaponMoveId) {
+        hasWeaponMove = true
+      }
+      result.push({ ...move })
+    }
+  }
+
+  // 如果没有跳跃攻击且概率没分配完，补上
+  if (!hasLeapAttack) {
+    result.push({ movesetId: 'leap_attack', probability: 10 })
+  }
+
+  // 如果有武器但列表中没包含武器招式，补上
+  if (
+    !hasWeaponMove &&
+    defaultWeaponMoveId &&
+    isNpcAttackMoveId(defaultWeaponMoveId)
+  ) {
+    result.push({ movesetId: defaultWeaponMoveId, probability: 90 })
+  }
+
   return result
 }
 

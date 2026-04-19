@@ -51,11 +51,11 @@ import {
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
 import {
-  buildDefaultNpcAttackMoves,
   getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
   getUltimateMovesetIdForWeaponType,
   isNormalAttackMovesetId,
+  normalizeNpcAttackMoves,
 } from '../ecs/AttackMoveRegistry'
 import {
   CheckpointComponent,
@@ -2912,8 +2912,10 @@ function createPlayerAndWeapon(
         }
         if (created.npcAI) {
           created.npcAI.movesetId = nextMovesetId
-          created.npcAI.attackMoves =
-            npc.attackMoves ?? buildDefaultNpcAttackMoves()
+          created.npcAI.attackMoves = normalizeNpcAttackMoves(
+            npc.attackMoves,
+            npc.mainWeapon?.weaponType
+          )
         }
       }
       if (created.npcAI) {

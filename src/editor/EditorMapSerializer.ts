@@ -1,6 +1,7 @@
 import * as fabric from 'fabric'
 
 import { DEFAULT_CAMERA_ZOOM } from '../constants'
+import { normalizeNpcAttackMoves } from '../ecs/AttackMoveRegistry'
 import type {
   EditorMapData,
   EditorTreeData,
@@ -226,7 +227,19 @@ export class EditorMapSerializer {
   ) {
     for (let i = 0; i < npcs.length; i++) {
       const npc = npcs[i]
-      this.ctx.markerManager.spawnNpcMarker(npc.npcType, npc, spawnOptions)
+      const mainWeaponType = normalizeWeaponTypeAndSizeLevel(
+        npc.mainWeapon?.weaponType,
+        npc.mainWeapon?.sizeLevel
+      )?.weaponType
+      const normalizedNpc = {
+        ...npc,
+        attackMoves: normalizeNpcAttackMoves(npc.attackMoves, mainWeaponType),
+      }
+      this.ctx.markerManager.spawnNpcMarker(
+        npc.npcType,
+        normalizedNpc,
+        spawnOptions
+      )
     }
   }
 

@@ -405,7 +405,9 @@ export function createNpc(
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
   ai.lastFacing = facing as -1 | 1
-  ai.attackMoves = options?.attackMoves ?? buildDefaultNpcAttackMoves()
+  ai.attackMoves =
+    options?.attackMoves ??
+    buildDefaultNpcAttackMoves(options?.mainWeapon?.weaponType)
   if (options?.detectionRangeLevel) {
     ai.detectionRange =
       ENEMY_DETECTION_RANGE *

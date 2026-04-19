@@ -965,20 +965,6 @@ export class EditorMarkerManager {
     const facing = spawn?.facing ?? 1
     const initialNormalMovesetId =
       spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('npc')
-    const attackMoves: NpcAttackMove[] =
-      spawn?.attackMoves ?? buildDefaultNpcAttackMoves()
-    const debugNoDamage = spawn?.debugNoDamage === true
-    const debugNoDeath = spawn?.debugNoDeath === true
-    const redTapeEnabled = spawn?.redTapeEnabled === true
-    const retreatEnabled = spawn?.retreatEnabled === true
-    const retreatDelaySec = spawn?.retreatDelaySec ?? 0
-    const canBeFollower = spawn?.canBeFollower === true
-    const equipWeapon =
-      spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
-    const factionId = spawn?.factionId ?? Faction.Enemy
-    const npcFactions = spawn?.npcFactions ??
-      spawn?.enemyFactions ?? [Faction.Player]
-    const allyFactions = spawn?.allyFactions ?? []
     const mainWeaponType = normalizeWeaponTypeAndSizeLevel(
       spawn?.mainWeapon?.weaponType,
       spawn?.mainWeapon?.sizeLevel
@@ -995,6 +981,21 @@ export class EditorMarkerManager {
       spawn?.secondaryWeapon,
       getDefaultNpcAmmoForWeaponType
     )
+
+    const attackMoves: NpcAttackMove[] =
+      spawn?.attackMoves ?? buildDefaultNpcAttackMoves(mainWeaponType)
+    const debugNoDamage = spawn?.debugNoDamage === true
+    const debugNoDeath = spawn?.debugNoDeath === true
+    const redTapeEnabled = spawn?.redTapeEnabled === true
+    const retreatEnabled = spawn?.retreatEnabled === true
+    const retreatDelaySec = spawn?.retreatDelaySec ?? 0
+    const canBeFollower = spawn?.canBeFollower === true
+    const equipWeapon =
+      spawn?.equipWeapon ?? !!(spawn?.mainWeapon || spawn?.secondaryWeapon)
+    const factionId = spawn?.factionId ?? Faction.Enemy
+    const npcFactions = spawn?.npcFactions ??
+      spawn?.enemyFactions ?? [Faction.Player]
+    const allyFactions = spawn?.allyFactions ?? []
     const drops =
       spawn?.drops !== undefined
         ? normalizeNpcDropList(spawn.drops)

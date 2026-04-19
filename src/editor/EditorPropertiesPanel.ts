@@ -15,6 +15,7 @@ import {
   getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
   isMovesetCompatibleWithWeaponType,
+  normalizeNpcAttackMoves,
 } from '../ecs/AttackMoveRegistry'
 import { Faction } from '../ecs/Component'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
@@ -736,9 +737,14 @@ export class EditorPropertiesPanel {
 
       // Attack Moves List
       let buildAttackMoveValues: (() => NpcAttackMove[]) | null = null
+      let updateAttackMovesForWeapon:
+        | ((wt: WeaponType | 'none') => void)
+        | null = null
+
       if (options.showAttackMoves) {
-        let attackMoveEntries: NpcAttackMove[] = (
-          options.data.attackMoves ?? buildDefaultNpcAttackMoves()
+        let attackMoveEntries: NpcAttackMove[] = normalizeNpcAttackMoves(
+          options.data.attackMoves,
+          options.data.mainWeaponConfig?.weaponType
         ).map((m) => ({ movesetId: m.movesetId, probability: m.probability }))
 
         const allMovesetOptions = NPC_ATTACK_MOVE_OPTIONS.map((opt) => ({
@@ -937,6 +943,13 @@ export class EditorPropertiesPanel {
             movesetId: m.movesetId,
             probability: m.probability,
           }))
+
+        updateAttackMovesForWeapon = (wt: WeaponType | 'none') => {
+          const weaponType = wt === 'none' ? undefined : wt
+          const defaults = buildDefaultNpcAttackMoves(weaponType)
+          attackMoveEntries = defaults.map((m) => ({ ...m }))
+          renderMoveRows()
+        }
       }
 
       // Health
@@ -1231,6 +1244,10 @@ export class EditorPropertiesPanel {
                   initialAttackModuleSelect.value = defaultId
                 }
               }
+
+              if (updateAttackMovesForWeapon) {
+                updateAttackMovesForWeapon(weaponType as WeaponType)
+              }
             }
           } else {
             const marker = binding.getWeaponMarker()
@@ -1239,6 +1256,10 @@ export class EditorPropertiesPanel {
             }
             binding.setWeaponMarker(undefined)
             binding.setWeaponType(undefined)
+
+            if (binding.slot === 'main' && updateAttackMovesForWeapon) {
+              updateAttackMovesForWeapon('none')
+            }
           }
           updateConfigBtnVisibility()
           updateCharacterVisualFromInputs()
@@ -2239,7 +2260,8 @@ export class EditorPropertiesPanel {
           initialNormalMovesetId:
             template.initialNormalMovesetId ??
             getDefaultNormalAttackMovesetId('npc'),
-          attackMoves: template.attackMoves ?? buildDefaultNpcAttackMoves(),
+          attackMoves:
+            template.attackMoves ?? buildDefaultNpcAttackMoves(mainWeaponType),
           debugNoDamage: template.debugNoDamage === true,
           debugNoDeath: template.debugNoDeath === true,
           redTapeEnabled: template.redTapeEnabled === true,
