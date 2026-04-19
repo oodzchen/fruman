@@ -7,6 +7,9 @@ import {
 } from '../constants'
 import type {
   NormalAttackMovesetId,
+  NpcAttackCondition,
+  NpcAttackMove,
+  NpcAttackMoveId,
   UltimateMovesetId,
   WeaponType,
   WeaponVisualType,
@@ -32,6 +35,20 @@ export const NORMAL_ATTACK_MOVESET_OPTIONS: Array<{
     labelKey: 'editor_attack_module_strike',
   },
 ]
+
+export const NPC_ATTACK_MOVE_OPTIONS: Array<{
+  value: NpcAttackMoveId
+  labelKey: string
+}> = [
+  ...NORMAL_ATTACK_MOVESET_OPTIONS,
+  {
+    value: 'leap_attack',
+    labelKey: 'editor_attack_module_leap_attack',
+  },
+]
+
+export const DEFAULT_NPC_ATTACK_MOVES: ReadonlyArray<Readonly<NpcAttackMove>> =
+  Object.freeze([{ movesetId: 'leap_attack', probability: 90 }])
 
 export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_slash_front: {
@@ -496,6 +513,33 @@ export function getDefaultNormalAttackMovesetId(
   owner: AttackMovesetOwner
 ): NormalAttackMovesetId {
   return owner === 'npc' ? 'sword_default' : 'sword_default'
+}
+
+export function getNpcAttackMoveCondition(
+  movesetId: NpcAttackMoveId
+): NpcAttackCondition {
+  if (movesetId === 'leap_attack') {
+    return 'any'
+  }
+  return ATTACK_MOVESETS[movesetId]?.condition ?? 'any'
+}
+
+export function isNpcAttackMoveId(
+  value: string | undefined
+): value is NpcAttackMoveId {
+  return value === 'leap_attack' || isNormalAttackMovesetId(value)
+}
+
+export function buildDefaultNpcAttackMoves(): NpcAttackMove[] {
+  const result: NpcAttackMove[] = []
+  for (let i = 0; i < DEFAULT_NPC_ATTACK_MOVES.length; i++) {
+    const attackMove = DEFAULT_NPC_ATTACK_MOVES[i]
+    result.push({
+      movesetId: attackMove.movesetId,
+      probability: attackMove.probability,
+    })
+  }
+  return result
 }
 
 export function isNormalAttackMovesetId(

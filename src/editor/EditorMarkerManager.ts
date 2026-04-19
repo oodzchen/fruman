@@ -10,7 +10,10 @@ import {
   DEFAULT_PLAYER_RADIUS,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
-import { getDefaultNormalAttackMovesetId } from '../ecs/AttackMoveRegistry'
+import {
+  buildDefaultNpcAttackMoves,
+  getDefaultNormalAttackMovesetId,
+} from '../ecs/AttackMoveRegistry'
 import { Faction } from '../ecs/Component'
 import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type {
@@ -926,7 +929,8 @@ export class EditorMarkerManager {
     const facing = spawn?.facing ?? 1
     const initialNormalMovesetId =
       spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('npc')
-    const attackMoves: NpcAttackMove[] = spawn?.attackMoves ?? []
+    const attackMoves: NpcAttackMove[] =
+      spawn?.attackMoves ?? buildDefaultNpcAttackMoves()
     const debugNoDamage = spawn?.debugNoDamage === true
     const debugNoDeath = spawn?.debugNoDeath === true
     const redTapeEnabled = spawn?.redTapeEnabled === true

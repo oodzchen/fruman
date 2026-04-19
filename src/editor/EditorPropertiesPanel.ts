@@ -10,6 +10,8 @@ import { CHARACTER_DEFAULT_DATA, WEAPON_DEFAULT_DATA } from '../constants'
 import {
   type AttackMovesetOwner,
   NORMAL_ATTACK_MOVESET_OPTIONS,
+  NPC_ATTACK_MOVE_OPTIONS,
+  buildDefaultNpcAttackMoves,
   getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
   isMovesetCompatibleWithWeaponType,
@@ -42,6 +44,7 @@ import { renderWeapon } from '../renderer/WeaponRenderer'
 import type {
   NormalAttackMovesetId,
   NpcAttackMove,
+  NpcAttackMoveId,
   NpcDetectionRangeLevel,
   NpcDropItemType,
   NpcPatrolMode,
@@ -735,11 +738,11 @@ export class EditorPropertiesPanel {
       let buildAttackMoveValues: (() => NpcAttackMove[]) | null = null
       if (options.showAttackMoves) {
         let attackMoveEntries: NpcAttackMove[] = (
-          options.data.attackMoves ?? []
+          options.data.attackMoves ?? buildDefaultNpcAttackMoves()
         ).map((m) => ({ movesetId: m.movesetId, probability: m.probability }))
 
-        const allMovesetOptions = NORMAL_ATTACK_MOVESET_OPTIONS.map((opt) => ({
-          value: opt.value as NormalAttackMovesetId,
+        const allMovesetOptions = NPC_ATTACK_MOVE_OPTIONS.map((opt) => ({
+          value: opt.value as NpcAttackMoveId,
           label: localizer.t(opt.labelKey),
         }))
 
@@ -2236,7 +2239,7 @@ export class EditorPropertiesPanel {
           initialNormalMovesetId:
             template.initialNormalMovesetId ??
             getDefaultNormalAttackMovesetId('npc'),
-          attackMoves: template.attackMoves ?? [],
+          attackMoves: template.attackMoves ?? buildDefaultNpcAttackMoves(),
           debugNoDamage: template.debugNoDamage === true,
           debugNoDeath: template.debugNoDeath === true,
           redTapeEnabled: template.redTapeEnabled === true,

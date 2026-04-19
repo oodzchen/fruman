@@ -51,6 +51,7 @@ import {
 import type {
   MainModule,
   NormalAttackMovesetId,
+  NpcAttackMove,
   NpcDetectionRangeLevel,
   NpcPatrolMode,
   NpcType,
@@ -68,6 +69,7 @@ import {
   resolveWeaponStatsForSize,
 } from '../../weaponTypeUtils'
 import {
+  buildDefaultNpcAttackMoves,
   getDefaultAttackMovesetIdForWeaponType,
   getUltimateMovesetIdForWeaponType,
 } from '../AttackMoveRegistry'
@@ -309,6 +311,7 @@ export interface NpcSpawnConfig {
   secondaryWeapon?: NpcWeaponConfig
   drops?: MapNpcDropItem[]
   initialNormalMovesetId?: NormalAttackMovesetId
+  attackMoves?: NpcAttackMove[]
   factionId?: string
   npcFactions?: string[]
   enemyFactions?: string[]
@@ -402,6 +405,7 @@ export function createNpc(
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
   ai.lastFacing = facing as -1 | 1
+  ai.attackMoves = options?.attackMoves ?? buildDefaultNpcAttackMoves()
   if (options?.detectionRangeLevel) {
     ai.detectionRange =
       ENEMY_DETECTION_RANGE *

@@ -6,7 +6,6 @@ import {
   ENEMY_ALERT_ACCEL_RANGE_MULTIPLIER,
   ENEMY_ALERT_PACE_SPEED_MULTIPLIER,
   ENEMY_ALERT_RANGE_MULTIPLIER,
-  ENEMY_LEAP_ATTACK_CHANCE,
   ENEMY_LEAP_ATTACK_COOLDOWN_MS,
   ENEMY_LEAP_ATTACK_MAX_DISTANCE_MULTIPLIER,
   ENEMY_LEAP_ATTACK_MAX_DURATION_MS,
@@ -30,7 +29,7 @@ import {
   getSlowSpeedFromMoveSpeed,
   getSprintSpeedFromMoveSpeed,
 } from '../../constants'
-import type { MainModule, b2WorldId } from '../../types'
+import type { MainModule, NpcAttackMoveId, b2WorldId } from '../../types'
 import { isRangedWeaponType } from '../../weaponTypeUtils'
 import { ATTACK_MOVESETS } from '../AttackMoveRegistry'
 import {
@@ -647,9 +646,14 @@ export class NpcAISystem extends System {
           continue
         }
 
-        if (distance > weaponRange) {
-          if (now - ai.lastAggressionCheckTimestamp > 1000) {
-            ai.lastAggressionCheckTimestamp = now
+        if (
+          !ai.pendingAttackMoveId &&
+          this.hasConfiguredAttackMoves(ai) &&
+          (distance <= weaponRange ||
+            now - ai.lastAggressionCheckTimestamp > 1000)
+        ) {
+          ai.lastAggressionCheckTimestamp = now
+          if (distance > weaponRange) {
             const hesitationChance = Math.max(
               0,
               (100 - effectiveAttackDesire) / 100
@@ -658,21 +662,25 @@ export class NpcAISystem extends System {
               this.startProbeState(entity, ai, effectiveAttackDesire)
               continue
             }
-            // 跳跃攻击：距离较远时有概率直扑目标
-            if (
-              entity.movement?.isGrounded &&
-              ai.leapAttackCooldownEndTimestamp <= now &&
-              distance >
-                weaponRange * ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER &&
-              distance <
-                weaponRange * ENEMY_LEAP_ATTACK_MAX_DISTANCE_MULTIPLIER &&
-              Math.random() < ENEMY_LEAP_ATTACK_CHANCE
-            ) {
-              this.startLeapAttack(entity, ai, stableFacing, now)
-              continue
-            }
           }
+          ai.pendingAttackMoveId = this.pickConfiguredAttackIntent(ai)
+        }
 
+        if (
+          this.handlePendingLeapAttackIntent(
+            entity,
+            ai,
+            stableFacing,
+            distance,
+            weaponRange,
+            !!hasCombatLineOfSight,
+            now
+          )
+        ) {
+          continue
+        }
+
+        if (distance > weaponRange) {
           entity.input.moveDirection = stableFacing
           if (entity.movement && hasCombatLineOfSight) {
             if (
@@ -790,6 +798,19 @@ export class NpcAISystem extends System {
       }
 
       if (ai.state === 'retreat') {
+        if (
+          this.handlePendingLeapAttackIntent(
+            entity,
+            ai,
+            stableFacing,
+            distance,
+            weaponRange,
+            !!hasCombatLineOfSight,
+            now
+          )
+        ) {
+          continue
+        }
         entity.input.sprintRequested = false
         const targetDistance = weaponRange + ENEMY_RETREAT_EXTRA_DISTANCE
         // 如果在撤退时玩家紧追（处于攻击范围内），不再撤退而是直接迎击
@@ -1031,6 +1052,7 @@ export class NpcAISystem extends System {
     ai.alertLastPaceSwitchTimestamp = 0
     ai.alertNextPaceResumeTimestamp = 0
     ai.alertChaseActive = false
+    ai.pendingAttackMoveId = ''
     if (entity.movement) {
       entity.movement.moveSpeed = ai.moveSpeed
     }
@@ -1590,41 +1612,176 @@ export class NpcAISystem extends System {
     }
   }
 
-  private pickMovesetForCombo(
-    ai: NpcAIComponent,
-    distance: number,
-    weaponRange: number
-  ): string {
-    const fallback = ai.movesetId || ''
-    if (!ai.attackMoves || ai.attackMoves.length === 0) {
-      return fallback
-    }
-    // 按招式集内置条件过滤
-    const eligible = ai.attackMoves.filter((m) => {
-      const moveset = ATTACK_MOVESETS[m.movesetId]
-      if (!moveset) return false
-      switch (moveset.condition) {
-        case 'any':
-          return true
-        case 'enemy_close':
-          return distance < weaponRange * 2
-        case 'enemy_mid':
-          return distance >= weaponRange * 2 && distance < weaponRange * 5
-        case 'enemy_far':
-          return distance >= weaponRange * 5
-        default:
-          return true
+  private hasConfiguredAttackMoves(ai: NpcAIComponent): boolean {
+    return ai.attackMoves.length > 0
+  }
+
+  private hasConfiguredNormalAttackMove(ai: NpcAIComponent): boolean {
+    for (let i = 0; i < ai.attackMoves.length; i++) {
+      if (ai.attackMoves[i].movesetId !== 'leap_attack') {
+        return true
       }
-    })
-    if (eligible.length === 0) return fallback
-    // 绝对概率：roll 0-99，按累计概率命中对应招式，未命中则用默认
+    }
+    return false
+  }
+
+  private isConfiguredAttackMoveValid(movesetId: NpcAttackMoveId): boolean {
+    return (
+      movesetId === 'leap_attack' || ATTACK_MOVESETS[movesetId] !== undefined
+    )
+  }
+
+  private pickConfiguredAttackIntent(ai: NpcAIComponent): NpcAttackMoveId | '' {
+    if (!ai.attackMoves || ai.attackMoves.length === 0) {
+      return ''
+    }
     const roll = Math.floor(Math.random() * 100)
     let cumulative = 0
-    for (const m of eligible) {
-      cumulative += m.probability
-      if (roll < cumulative) return m.movesetId
+    for (let i = 0; i < ai.attackMoves.length; i++) {
+      const attackMove = ai.attackMoves[i]
+      if (!this.isConfiguredAttackMoveValid(attackMove.movesetId)) {
+        continue
+      }
+      if (attackMove.probability <= 0) {
+        continue
+      }
+      cumulative += attackMove.probability
+      if (roll < cumulative) {
+        return attackMove.movesetId
+      }
     }
-    return fallback
+    return ''
+  }
+
+  private canStartLeapAttack(
+    entity: Entity,
+    ai: NpcAIComponent,
+    distance: number,
+    weaponRange: number,
+    now: number
+  ): boolean {
+    return (
+      entity.movement?.isGrounded === true &&
+      ai.leapAttackCooldownEndTimestamp <= now &&
+      distance > weaponRange * ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER &&
+      distance < weaponRange * ENEMY_LEAP_ATTACK_MAX_DISTANCE_MULTIPLIER
+    )
+  }
+
+  private handlePendingLeapAttackIntent(
+    entity: Entity,
+    ai: NpcAIComponent,
+    facing: number,
+    distance: number,
+    weaponRange: number,
+    hasCombatLineOfSight: boolean,
+    now: number
+  ): boolean {
+    if (ai.pendingAttackMoveId !== 'leap_attack' || !entity.input) {
+      return false
+    }
+
+    if (this.canStartLeapAttack(entity, ai, distance, weaponRange, now)) {
+      ai.pendingAttackMoveId = ''
+      this.startLeapAttack(entity, ai, facing, now)
+      return true
+    }
+
+    const leapMinDistance =
+      weaponRange * ENEMY_LEAP_ATTACK_MIN_DISTANCE_MULTIPLIER
+    const leapMaxDistance =
+      weaponRange * ENEMY_LEAP_ATTACK_MAX_DISTANCE_MULTIPLIER
+
+    let moveDirection = 0
+    if (distance <= leapMinDistance) {
+      moveDirection = -facing as -1 | 1
+    } else if (distance >= leapMaxDistance) {
+      moveDirection = facing as -1 | 1
+    } else {
+      moveDirection = this.getLeapIntentPaceDirection(entity, ai, facing, now)
+    }
+
+    entity.input.moveDirection = moveDirection
+    entity.input.blockRequested = false
+    entity.input.sprintRequested =
+      distance > leapMaxDistance &&
+      moveDirection !== 0 &&
+      hasCombatLineOfSight &&
+      getSprintSpeedFromMoveSpeed(ai.moveSpeed) > ai.moveSpeed
+    if (entity.movement) {
+      entity.movement.moveSpeed =
+        distance > leapMinDistance && distance < leapMaxDistance
+          ? getSlowSpeedFromMoveSpeed(ai.moveSpeed)
+          : ai.moveSpeed
+    }
+    ai.state = 'approach'
+    ai.comboSwingsDone = 0
+    return true
+  }
+
+  private getLeapIntentPaceDirection(
+    entity: Entity,
+    ai: NpcAIComponent,
+    facing: number,
+    now: number
+  ): -1 | 1 {
+    if (entity.transform) {
+      const deltaX = entity.transform.x - ai.paceLastPositionX
+      const deltaY = entity.transform.y - ai.paceLastPositionY
+      ai.paceMovedDistance += Math.abs(deltaX) + Math.abs(deltaY)
+      ai.paceLastPositionX = entity.transform.x
+      ai.paceLastPositionY = entity.transform.y
+    }
+
+    if (ai.lastPaceSwitchTimestamp <= 0) {
+      ai.paceDirection = -1
+      ai.lastPaceSwitchTimestamp = now
+      ai.paceMovedDistance = 0
+      if (entity.transform) {
+        ai.paceLastPositionX = entity.transform.x
+        ai.paceLastPositionY = entity.transform.y
+      }
+    } else {
+      const paceSwitchIntervalMs = Math.max(
+        ai.paceSwitchIntervalMs,
+        ENEMY_PACE_MIN_SWITCH_INTERVAL_MS
+      )
+      if (
+        now - ai.lastPaceSwitchTimestamp >= paceSwitchIntervalMs &&
+        ai.paceMovedDistance >= ENEMY_PACE_MIN_DISTANCE
+      ) {
+        ai.paceDirection = (ai.paceDirection === 1 ? -1 : 1) as -1 | 1
+        ai.lastPaceSwitchTimestamp = now
+        ai.paceMovedDistance = 0
+      }
+    }
+
+    return (facing * ai.paceDirection) as -1 | 1
+  }
+
+  private resolveComboMovesetId(entity: Entity, ai: NpcAIComponent): string {
+    const selectedAttackMoveId =
+      ai.pendingAttackMoveId || this.pickConfiguredAttackIntent(ai)
+    ai.pendingAttackMoveId = ''
+    if (selectedAttackMoveId && selectedAttackMoveId !== 'leap_attack') {
+      return selectedAttackMoveId
+    }
+    if (
+      this.hasConfiguredAttackMoves(ai) &&
+      selectedAttackMoveId === 'leap_attack'
+    ) {
+      return ''
+    }
+    if (
+      this.hasConfiguredAttackMoves(ai) &&
+      !this.hasConfiguredNormalAttackMove(ai)
+    ) {
+      return ''
+    }
+    if (entity.attackSlots?.normal.hasMoveset) {
+      return entity.attackSlots.normal.movesetId
+    }
+    return ai.movesetId || ''
   }
 
   private enterComboState(
@@ -1632,32 +1789,34 @@ export class NpcAISystem extends System {
     ai: NpcAIComponent,
     facing: number,
     distance = 0,
-    weaponRange = 1
+    weaponRange = 1,
+    now = this.currentTimeMs
   ): void {
     if (!entity.input) return
-    ai.state = 'combo'
-    ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
-    ai.lastFacing = facing as -1 | 1
     if (entity.weapon) {
-      const movesetId =
-        this.pickMovesetForCombo(ai, distance, weaponRange) ||
-        (entity.attackSlots?.normal.hasMoveset
-          ? entity.attackSlots.normal.movesetId
-          : '')
-      if (movesetId) {
-        const moveset = ATTACK_MOVESETS[movesetId]
-        if (moveset) {
-          const seq = moveset.sequences.find(
-            (s: any) => s.id === moveset.defaultSequenceId
-          )
-          if (seq) {
-            ai.comboSwingTarget = seq.moves.length
-          }
+      const movesetId = this.resolveComboMovesetId(entity, ai)
+      if (!movesetId) {
+        ai.state = 'approach'
+        ai.comboSwingsDone = 0
+        entity.input.moveDirection = 0
+        entity.input.sprintRequested = false
+        return
+      }
+      ai.state = 'combo'
+      ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+      ai.lastFacing = facing as -1 | 1
+      const moveset = ATTACK_MOVESETS[movesetId]
+      if (moveset) {
+        const seq = moveset.sequences.find(
+          (s: any) => s.id === moveset.defaultSequenceId
+        )
+        if (seq) {
+          ai.comboSwingTarget = seq.moves.length
         }
-        entity.weapon.movesetId = movesetId
-        if (entity.attackSlots?.normal) {
-          entity.attackSlots.normal.movesetId = movesetId
-        }
+      }
+      entity.weapon.movesetId = movesetId
+      if (entity.attackSlots?.normal) {
+        entity.attackSlots.normal.movesetId = movesetId
       }
       entity.weapon.attackQueued = false
       if (entity.weapon.attackPhase === 'idle') {
@@ -1669,6 +1828,9 @@ export class NpcAISystem extends System {
         ai.comboSwingsDone = entity.weapon.comboCount
       }
     } else {
+      ai.state = 'combo'
+      ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+      ai.lastFacing = facing as -1 | 1
       ai.comboSwingsDone = 0
     }
     entity.input.moveDirection = 0
@@ -1727,15 +1889,22 @@ export class NpcAISystem extends System {
       return
     }
 
-    // stage 2: 空中飞行+攻击中，持续冲向目标，落地后交给combo
+    // stage 2: 空中飞行+攻击中，持续冲向目标
     entity.input.moveDirection = facing as -1 | 1
     entity.input.sprintRequested = true
 
     if (entity.movement.isGrounded && elapsed > 100) {
-      this.endLeapAttack(entity, ai, now, 'combo')
+      const nextState = this.hasConfiguredNormalAttackMove(ai)
+        ? 'combo'
+        : 'approach'
+      this.endLeapAttack(entity, ai, now, nextState)
       ai.lastFacing = facing as -1 | 1
-      ai.comboSwingsDone = entity.weapon?.comboCount ?? 1
-      ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+      if (nextState === 'combo') {
+        ai.comboSwingsDone = entity.weapon?.comboCount ?? 1
+        ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+      } else {
+        ai.comboSwingsDone = 0
+      }
       ai.stuckTimer = 0
       ai.lastDecisionTimestamp = 0
     }

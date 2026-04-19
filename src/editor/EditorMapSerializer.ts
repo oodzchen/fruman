@@ -598,7 +598,7 @@ export class EditorMapSerializer {
         color: data.color,
         facing: data.facing,
         initialNormalMovesetId: data.initialNormalMovesetId,
-        attackMoves: data.attackMoves?.length ? data.attackMoves : undefined,
+        attackMoves: data.attackMoves,
         debugNoDamage: data.debugNoDamage,
         debugNoDeath: data.debugNoDeath,
         redTapeEnabled: data.redTapeEnabled,

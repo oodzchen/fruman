@@ -22,9 +22,11 @@ export type NpcAttackCondition =
   | 'enemy_mid'
   | 'enemy_far'
 
-// 可配置的攻击招式条目（触发条件由招式集内置，不在此配置）
+export type NpcAttackMoveId = NormalAttackMovesetId | 'leap_attack'
+
+// 可配置的攻击招式条目（触发条件由招式/动作内置，不在此配置）
 export type NpcAttackMove = {
-  movesetId: NormalAttackMovesetId
+  movesetId: NpcAttackMoveId
   probability: number // 1-100，相对权重
 }
 

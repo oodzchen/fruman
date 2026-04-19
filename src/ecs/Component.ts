@@ -31,6 +31,7 @@ import {
 import type { MapCharacterBodyProfile, MapNpcDropItem } from '../editorMapTypes'
 import type {
   NpcAttackMove,
+  NpcAttackMoveId,
   NpcPatrolMode,
   NpcType,
   WeaponVisualType,
@@ -1119,6 +1120,7 @@ export class NpcAIComponent extends Component {
   retreatDelayMs = 0
   retreatDelayTimerMs = 0
   movesetId: string = ''
+  pendingAttackMoveId: NpcAttackMoveId | '' = ''
   attackMoves: NpcAttackMove[] = []
 
   reset(): void {
@@ -1207,6 +1209,7 @@ export class NpcAIComponent extends Component {
     this.retreatDelayMs = 0
     this.retreatDelayTimerMs = 0
     this.movesetId = ''
+    this.pendingAttackMoveId = ''
     this.attackMoves = []
   }
 
