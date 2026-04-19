@@ -378,6 +378,16 @@ export class StatsSystem extends System {
     this.bloodEffectsEnabled = enabled
   }
 
+  private enqueueDamageText(entity: Entity, damage: number): void {
+    if (!entity.stats || !(damage > 0)) {
+      return
+    }
+
+    const displayDamage = Math.max(1, Math.round(damage))
+    entity.stats.pendingDamageTextValue += displayDamage
+    entity.stats.pendingDamageTextToken += 1
+  }
+
   emitSpark(x: number, y: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.emitSpark(x, y)
@@ -800,6 +810,8 @@ export class StatsSystem extends System {
       finalToughnessDamage = 0
       finalKnockback = 0
     }
+
+    this.enqueueDamageText(entity, finalHealthDamage)
 
     const healthBefore = entity.stats.health
     entity.stats.health = Math.max(0, entity.stats.health - finalHealthDamage)

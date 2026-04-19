@@ -425,6 +425,8 @@ export class StatsComponent extends Component {
   staggerAnimationElapsed = 0
   persistentId = ''
   healingMs = 0
+  pendingDamageTextValue = 0
+  pendingDamageTextToken = 0
 
   reset(): void {
     this.maxHealth = DEFAULT_PLAYER_MAX_HEALTH
@@ -462,6 +464,8 @@ export class StatsComponent extends Component {
     this.staggerAnimationElapsed = 0
     this.persistentId = ''
     this.healingMs = 0
+    this.pendingDamageTextValue = 0
+    this.pendingDamageTextToken = 0
   }
 
   getName(): string {

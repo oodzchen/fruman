@@ -85,7 +85,6 @@ const DAMAGE_TEXT_RISE_PX = 22
 const DAMAGE_TEXT_VERTICAL_GAP_PX = 4
 const DAMAGE_TEXT_COLOR = '#f3d8a2'
 const DAMAGE_TEXT_STROKE_COLOR = '#2c160f'
-const DAMAGE_TEXT_DELTA_EPSILON = 0.01
 const DAMAGE_TEXT_POOL_LIMIT = 96
 const COLLISION_DEBUG_COLOR = '#ff3b30'
 const COLLISION_DEBUG_LINE_WIDTH = 2
@@ -113,7 +112,7 @@ interface EntityView {
   layer: number
   lastSeenFrame: number
   lastHealthRatio: number
-  lastHealthValue: number
+  lastDamageTextToken: number
   bodyHash: number
   weaponHash: number
   specialKey: string
@@ -602,7 +601,7 @@ export class PixiWorldRenderer {
       layer: 0,
       lastSeenFrame: -1,
       lastHealthRatio: -1,
-      lastHealthValue: -1,
+      lastDamageTextToken: -1,
       bodyHash: -1,
       weaponHash: -1,
       specialKey: '',
@@ -703,7 +702,7 @@ export class PixiWorldRenderer {
     hideSprite(view.followBondSprite)
     hideSprite(view.followUnbondSprite)
     view.lastHealthRatio = -1
-    view.lastHealthValue = -1
+    view.lastDamageTextToken = -1
     this.recycleDamageTexts(view)
     if (view.spineBody) {
       view.spineBody.visible = false
@@ -1414,12 +1413,17 @@ export class PixiWorldRenderer {
     if (!(maxHealth > 0)) {
       hideGraphics(view.statusGraphics)
       view.lastHealthRatio = -1
-      view.lastHealthValue = -1
+      view.lastDamageTextToken = -1
       this.recycleDamageTexts(view)
       return
     }
 
     const health = buf[offset + OFFSETS.STATS_HEALTH]
+    const damageTextValue = Math.max(
+      0,
+      Math.round(buf[offset + OFFSETS.STATS_DAMAGE_TEXT_VALUE])
+    )
+    const damageTextToken = buf[offset + OFFSETS.STATS_DAMAGE_TEXT_TOKEN] | 0
     const radiusMeters = buf[offset + OFFSETS.RADIUS]
     const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
     const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
@@ -1435,12 +1439,12 @@ export class PixiWorldRenderer {
     const startX = -barWidth / 2
     this.maybeSpawnDamageText(
       view,
-      health,
+      damageTextValue,
+      damageTextToken,
       startX + barWidth * clampedRatio,
       baseY - DAMAGE_TEXT_VERTICAL_GAP_PX
     )
     this.updateDamageTexts(view, deltaMs)
-    view.lastHealthValue = health
 
     if (isPlayer || (!isInCombat && !isLocked && !isHealthBarFlash)) {
       hideGraphics(view.statusGraphics)
@@ -1467,24 +1471,24 @@ export class PixiWorldRenderer {
 
   private maybeSpawnDamageText(
     view: EntityView,
-    health: number,
+    damageTextValue: number,
+    damageTextToken: number,
     localX: number,
     localY: number
   ): void {
-    if (view.lastHealthValue < 0) {
+    if (view.lastDamageTextToken === damageTextToken) {
       return
     }
-    const damage = view.lastHealthValue - health
-    if (damage <= DAMAGE_TEXT_DELTA_EPSILON) {
+    view.lastDamageTextToken = damageTextToken
+    if (damageTextValue <= 0) {
       return
     }
 
     const label = this.acquireDamageText()
-    const displayDamage = Math.max(1, Math.round(damage))
     label.elapsedMs = 0
     label.baseX = Math.round(localX)
     label.baseY = Math.round(localY)
-    label.text.text = String(displayDamage)
+    label.text.text = String(damageTextValue)
     label.text.alpha = 1
     label.text.visible = true
     label.text.position.set(label.baseX, label.baseY)

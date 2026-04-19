@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 88
+export const ENTITY_STRIDE = 90
 
 export const OFFSETS = {
   ID: 0,
@@ -89,6 +89,8 @@ export const OFFSETS = {
   SKILL_HAS: 85, // 当前武器是否有技能：1=有，0=无
   SKILL_CHARGES: 86, // 技能剩余使用次数
   SKILL_MAX_CHARGES: 87, // 技能最大使用次数
+  STATS_DAMAGE_TEXT_VALUE: 88, // 当帧需显示的受击数值
+  STATS_DAMAGE_TEXT_TOKEN: 89, // 受击事件序号，用于前端去重
 }
 
 export const FLAGS = {

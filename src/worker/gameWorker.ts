@@ -4237,8 +4237,15 @@ function sendState() {
         e.stats.hitShakeIntensity
       stateBuffer[offset + OFFSETS.STATS_SHAKE_DIR_X] =
         e.stats.hitShakeDirectionX
+      stateBuffer[offset + OFFSETS.STATS_DAMAGE_TEXT_VALUE] =
+        e.stats.pendingDamageTextValue
+      stateBuffer[offset + OFFSETS.STATS_DAMAGE_TEXT_TOKEN] =
+        e.stats.pendingDamageTextToken
+      e.stats.pendingDamageTextValue = 0
     } else {
       stateBuffer[offset + OFFSETS.STATS_HEALTH_MAX] = 0
+      stateBuffer[offset + OFFSETS.STATS_DAMAGE_TEXT_VALUE] = 0
+      stateBuffer[offset + OFFSETS.STATS_DAMAGE_TEXT_TOKEN] = 0
     }
 
     if (e.grapple) {
