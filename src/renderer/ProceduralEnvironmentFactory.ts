@@ -4,7 +4,6 @@ import type { TerrainResolvedLayerView } from '../terrain/TerrainDataUtils'
 import { getTerrainMaterialCodeById } from '../terrain/TerrainMaterialRegistry'
 import {
   createNaturalMaterialStyle,
-  createSmoothSunContourPoints,
   createTrapezoidContourPoints,
   drawVoronoiLayer,
 } from './CheckpointTreeTextureFactory'
@@ -20,6 +19,21 @@ const ENV_SEED_MIX = 0x9e3779b9 | 0
 const ENV_TREE_VORONOI_SEED = 38291
 const ENV_HILL_VORONOI_SEED = 52847
 const ENV_HOUSE_VORONOI_SEED = 71503
+
+type EnvironmentTreeCrownShape = 0 | 1 | 2
+
+const ENV_TREE_CROWN_UNIT_X = [
+  0, 38, 71, 92, 100, 92, 71, 38, 0, -38, -71, -92, -100, -92, -71, -38,
+] as const
+const ENV_TREE_CROWN_UNIT_Y = [
+  -100, -92, -71, -38, 0, 38, 71, 92, 100, 92, 71, 38, 0, -38, -71, -92,
+] as const
+const ENV_TREE_TRIANGLE_SIDE_Y = [
+  -100, -82, -62, -38, -8, 24, 54, 82, 100,
+] as const
+const ENV_TREE_TRIANGLE_SIDE_WIDTH = [
+  0, 18, 32, 48, 66, 84, 96, 100, 70,
+] as const
 
 export interface EnvironmentTextureSource {
   canvas: HTMLCanvasElement
@@ -88,24 +102,42 @@ export function createEnvironmentTreeTextureSource(
   ppm: number
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
-  const rayCount = lcgRange(s, 4, 9)
+  const crownShape = lcgRange(s, 0, 2) as EnvironmentTreeCrownShape
   s = lcgStep(s)
-  const crownScaleNum = lcgRange(s, 90, 150)
+  const crownHalfWidthNum =
+    crownShape === 0
+      ? lcgRange(s, 90, 130)
+      : crownShape === 1
+        ? lcgRange(s, 110, 165)
+        : lcgRange(s, 95, 140)
+  s = lcgStep(s)
+  const crownHalfHeightNum =
+    crownShape === 0
+      ? lcgRange(s, 85, 125)
+      : crownShape === 1
+        ? lcgRange(s, 70, 105)
+        : lcgRange(s, 120, 180)
+  s = lcgStep(s)
+  const crownCenterYNum =
+    crownShape === 2 ? lcgRange(s, 90, 120) : lcgRange(s, 65, 95)
+  s = lcgStep(s)
+  const crownCenterXNum = lcgRange(s, -12, 12)
   s = lcgStep(s)
   const trunkHeightNum = lcgRange(s, 140, 240)
   s = lcgStep(s)
   const trunkWidthNum = lcgRange(s, 55, 95)
 
   const baseRadius = Math.max(16, Math.round((ppm * 120) / 100))
-  const leafCoreRadius = Math.max(
+  const leafHalfWidth = Math.max(
     18,
-    Math.round((baseRadius * crownScaleNum) / 100)
+    Math.round((baseRadius * crownHalfWidthNum) / 100)
   )
-  const leafTipRadius = Math.max(
-    leafCoreRadius + 4,
-    Math.round((leafCoreRadius * 13) / 10)
+  const leafHalfHeight = Math.max(
+    18,
+    Math.round((baseRadius * crownHalfHeightNum) / 100)
   )
-  const leafCenterY = -Math.round((baseRadius * 3) / 4)
+  const leafCenterX = roundDiv(baseRadius * crownCenterXNum, 100)
+  const leafCenterY = -Math.round((baseRadius * crownCenterYNum) / 100)
   const trunkTopY = 0
   const trunkBottomY = Math.round((ppm * trunkHeightNum) / 100)
   const trunkTopHalfWidth = Math.max(
@@ -117,11 +149,28 @@ export function createEnvironmentTreeTextureSource(
     Math.round((trunkTopHalfWidth * 14) / 10)
   )
 
+  const leafContour = createEnvironmentTreeLeafContourPoints(
+    crownShape,
+    leafCenterX,
+    leafCenterY,
+    leafHalfWidth,
+    leafHalfHeight,
+    s
+  )
+  const trunkContour = createTrapezoidContourPoints(
+    0,
+    trunkTopY,
+    trunkBottomY,
+    trunkTopHalfWidth,
+    trunkBottomHalfWidth
+  )
+  const leafBounds = getContourBounds(leafContour)
+  const trunkBounds = getContourBounds(trunkContour)
   const padding = 8
-  const localMinX = -Math.max(leafTipRadius, trunkBottomHalfWidth)
-  const localMaxX = Math.max(leafTipRadius, trunkBottomHalfWidth)
-  const localMinY = Math.min(leafCenterY - leafTipRadius, 0)
-  const localMaxY = trunkBottomY
+  const localMinX = Math.min(leafBounds.minX, trunkBounds.minX)
+  const localMaxX = Math.max(leafBounds.maxX, trunkBounds.maxX)
+  const localMinY = Math.min(leafBounds.minY, trunkBounds.minY)
+  const localMaxY = Math.max(leafBounds.maxY, trunkBounds.maxY)
   const contentWidth = localMaxX - localMinX
   const contentHeight = localMaxY - localMinY
   const canvasSide = Math.max(contentWidth, contentHeight) + padding * 2
@@ -141,22 +190,8 @@ export function createEnvironmentTreeTextureSource(
   const originX = Math.round((canvas.width - contentWidth) / 2 - localMinX)
   const originY = padding - localMinY
   const cellSize = Math.max(8, Math.round(baseRadius / 4))
-
-  const leafContour = createSmoothSunContourPoints(
-    originX,
-    originY + leafCenterY,
-    leafCoreRadius,
-    leafTipRadius,
-    rayCount,
-    64
-  )
-  const trunkContour = createTrapezoidContourPoints(
-    originX,
-    originY + trunkTopY,
-    originY + trunkBottomY,
-    trunkTopHalfWidth,
-    trunkBottomHalfWidth
-  )
+  offsetContourPoints(leafContour, originX, originY)
+  offsetContourPoints(trunkContour, originX, originY)
 
   const trunkLayer = buildLayer(
     canvas,
@@ -420,6 +455,177 @@ export function createEnvironmentTextureSource(
 }
 
 // ===== SHARED HELPERS =====
+
+function roundDiv(numerator: number, denominator: number): number {
+  if (denominator === 0) {
+    return 0
+  }
+  if (numerator < 0) {
+    return -(((-numerator + (denominator >> 1)) / denominator) | 0)
+  }
+  return ((numerator + (denominator >> 1)) / denominator) | 0
+}
+
+function createEnvironmentTreeLeafContourPoints(
+  shape: EnvironmentTreeCrownShape,
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number,
+  seed: number
+): number[] {
+  if (shape === 2) {
+    return createOrganicTriangleContourPoints(
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      seed
+    )
+  }
+
+  let s = lcgStep(seed)
+  const leanPercent = lcgRange(s, -10, 10)
+  s = lcgStep(s)
+  const edgeVariancePercent =
+    shape === 0 ? lcgRange(s, 4, 10) : lcgRange(s, 6, 14)
+  s = lcgStep(s)
+  const bottomDroopPercent =
+    shape === 0 ? lcgRange(s, 8, 16) : lcgRange(s, 12, 22)
+  return createOrganicEllipseContourPoints(
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    edgeVariancePercent,
+    bottomDroopPercent,
+    leanPercent,
+    s
+  )
+}
+
+function createOrganicEllipseContourPoints(
+  centerX: number,
+  centerY: number,
+  radiusX: number,
+  radiusY: number,
+  edgeVariancePercent: number,
+  bottomDroopPercent: number,
+  leanPercent: number,
+  seed: number
+): number[] {
+  const points = new Array<number>(ENV_TREE_CROWN_UNIT_X.length * 2)
+  let s = seed
+  let writeIndex = 0
+
+  for (let i = 0; i < ENV_TREE_CROWN_UNIT_X.length; i++) {
+    const unitX = ENV_TREE_CROWN_UNIT_X[i]
+    const unitY = ENV_TREE_CROWN_UNIT_Y[i]
+    s = lcgStep(s)
+    const variancePercent = lcgRange(
+      s,
+      -edgeVariancePercent,
+      edgeVariancePercent
+    )
+    const radiusPercent = 100 + variancePercent
+    const droopPercent =
+      unitY > 0 ? roundDiv(unitY * bottomDroopPercent, 100) : 0
+    const leanOffsetX = roundDiv(unitY * leanPercent * radiusX, 10000)
+    points[writeIndex] =
+      centerX + roundDiv(unitX * radiusX * radiusPercent, 10000) + leanOffsetX
+    points[writeIndex + 1] =
+      centerY +
+      roundDiv(unitY * radiusY * (radiusPercent + droopPercent), 10000)
+    writeIndex += 2
+  }
+
+  return points
+}
+
+function createOrganicTriangleContourPoints(
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number,
+  seed: number
+): number[] {
+  const sidePointCount = ENV_TREE_TRIANGLE_SIDE_Y.length
+  const points = new Array<number>((sidePointCount * 2 - 1) * 2)
+  let s = lcgStep(seed)
+  const bendPercent = lcgRange(s, -12, 12)
+  let writeIndex = 0
+
+  for (let i = 0; i < sidePointCount; i++) {
+    const unitY = ENV_TREE_TRIANGLE_SIDE_Y[i]
+    const baseWidthPercent = ENV_TREE_TRIANGLE_SIDE_WIDTH[i]
+    s = lcgStep(s)
+    const widthVariance = i === 0 ? 0 : lcgRange(s, -8, 8)
+    const widthPercent = Math.max(0, baseWidthPercent + widthVariance)
+    const bendOffsetX =
+      unitY > 0 ? roundDiv(unitY * bendPercent * halfWidth, 10000) : 0
+    points[writeIndex] =
+      centerX - roundDiv(halfWidth * widthPercent, 100) + bendOffsetX
+    points[writeIndex + 1] = centerY + roundDiv(halfHeight * unitY, 100)
+    writeIndex += 2
+  }
+
+  for (let i = sidePointCount - 1; i >= 1; i--) {
+    const unitY = ENV_TREE_TRIANGLE_SIDE_Y[i]
+    const baseWidthPercent = ENV_TREE_TRIANGLE_SIDE_WIDTH[i]
+    s = lcgStep(s)
+    const widthVariance =
+      i === sidePointCount - 1 ? lcgRange(s, -4, 10) : lcgRange(s, -8, 8)
+    const widthPercent = Math.max(0, baseWidthPercent + widthVariance)
+    const bendOffsetX =
+      unitY > 0 ? roundDiv(unitY * bendPercent * halfWidth, 10000) : 0
+    points[writeIndex] =
+      centerX + roundDiv(halfWidth * widthPercent, 100) + bendOffsetX
+    points[writeIndex + 1] = centerY + roundDiv(halfHeight * unitY, 100)
+    writeIndex += 2
+  }
+
+  return points
+}
+
+function getContourBounds(points: readonly number[]): {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+} {
+  let minX = points[0] ?? 0
+  let maxX = minX
+  let minY = points[1] ?? 0
+  let maxY = minY
+
+  for (let i = 2; i < points.length; i += 2) {
+    const x = points[i]
+    const y = points[i + 1]
+    if (x < minX) {
+      minX = x
+    } else if (x > maxX) {
+      maxX = x
+    }
+    if (y < minY) {
+      minY = y
+    } else if (y > maxY) {
+      maxY = y
+    }
+  }
+
+  return { minX, minY, maxX, maxY }
+}
+
+function offsetContourPoints(
+  points: number[],
+  offsetX: number,
+  offsetY: number
+): void {
+  for (let i = 0; i < points.length; i += 2) {
+    points[i] += offsetX
+    points[i + 1] += offsetY
+  }
+}
 
 function createHillContourPoints(
   centerX: number,
