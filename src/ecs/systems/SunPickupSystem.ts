@@ -2,6 +2,7 @@ import { getCharacterGroundPickupRadius } from '../../characterBodyProfile'
 import { DEFAULT_PLAYER_RADIUS } from '../../constants'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { Entity } from '../Entity'
+import { showEntityHud } from '../hudVisibility'
 
 type EffectsEmitter = {
   playSound: (soundId: number, playbackRate?: number) => void
@@ -55,7 +56,6 @@ export class SunPickupSystem {
           // 大太阳道具：立即回满血
           if (player.stats) {
             player.stats.health = player.stats.maxHealth
-            player.stats.hudVisibleTimer = player.stats.combatExitTimeout
           }
         } else {
           solar.smallCount++
@@ -64,6 +64,7 @@ export class SunPickupSystem {
             if (solar.largeCount < solar.largeMaxCount) solar.largeCount++
           }
         }
+        showEntityHud(player)
         this.effectsEmitter?.playSound(SOUND_IDS.PICKUP_ITEM)
         this.pendingRemove.push(pickup)
         break

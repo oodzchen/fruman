@@ -3,6 +3,7 @@ import { DEFAULT_PLAYER_RADIUS } from '../../constants'
 import { EXP_TABLE, PLAYER_MAX_LEVEL } from '../../constants'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { Entity } from '../Entity'
+import { showEntityHud } from '../hudVisibility'
 
 type EffectsEmitter = {
   playSound: (soundId: number, playbackRate?: number) => void
@@ -65,6 +66,7 @@ export class ExpOrbSystem {
           }
         }
 
+        showEntityHud(player)
         this.effectsEmitter?.playSound(SOUND_IDS.PICKUP_ITEM)
         this.pendingRemove.push(orb)
         break

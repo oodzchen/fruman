@@ -132,6 +132,7 @@ import {
   setWeaponBackTransform,
 } from '../WeaponPoseUtils'
 import type { World } from '../World'
+import { showEntityHud } from '../hudVisibility'
 import { SkillHandler } from './SkillHandler'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
@@ -3162,8 +3163,7 @@ export class WeaponSystem extends System {
   }
 
   private showHud(entity: Entity): void {
-    if (!entity.stats) return
-    entity.stats.hudVisibleTimer = entity.stats.combatExitTimeout
+    showEntityHud(entity)
   }
 
   dropWeaponsOnDeath(entity: Entity): void {

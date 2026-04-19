@@ -1,6 +1,7 @@
 import { FOLLOW_INTERACTION_RANGE } from '../../constants'
 import type { Entity } from '../Entity'
 import { System } from '../System'
+import { showEntityHud } from '../hudVisibility'
 import type { WeaponSystem } from './WeaponSystem'
 
 /**
@@ -112,8 +113,7 @@ export class InteractionSystem extends System {
    * 切换HUD显示
    */
   private toggleHUDVisibility(entity: Entity): void {
-    if (!entity.stats) return
-    entity.stats.hudVisibleTimer = entity.stats.combatExitTimeout
+    showEntityHud(entity)
   }
 
   // 未来扩展：开门交互
