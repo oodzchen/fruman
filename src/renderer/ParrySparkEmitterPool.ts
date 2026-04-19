@@ -45,8 +45,6 @@ const FLASH_EMITTER_PARTICLES = 6
 const CORE_EMITTER_PARTICLES = 20
 const SPRAY_EMITTER_PARTICLES = 14
 const ACTIVE_DETECTION_COUNT = 1
-const PERF_SAMPLE_INTERVAL = 60
-const PERF_LOG_THRESHOLD_US = 500
 const FLASH_COLOR_BRIGHT = '#fffef2'
 const FLASH_COLOR_MID = '#fff2a8'
 const CORE_COLOR_BRIGHT = '#fffde6'
@@ -80,12 +78,6 @@ export class ParrySparkEmitterPool {
   private pendingCount = 0
   private activeCount = 0
   private nextEmitterIndex = 0
-  private perfUpdateTotalUs = 0
-  private perfEmitTotalUs = 0
-  private perfEmitCleanupUs = 0
-  private perfEmitNowUs = 0
-  private perfSampleFrame = 0
-  private perfEmitCount = 0
 
   constructor(parent: Container) {
     this.root = new Container()
@@ -101,7 +93,6 @@ export class ParrySparkEmitterPool {
       return
     }
 
-    const t0 = performance.now()
     for (let i = 0; i < this.activeCount; ) {
       const emitter = this.activeEmitters[i]
       emitter.flash.update(deltaSec)
@@ -119,12 +110,6 @@ export class ParrySparkEmitterPool {
       emitter.container.visible = false
       this.activeCount -= 1
       this.activeEmitters[i] = this.activeEmitters[this.activeCount]
-    }
-    this.perfUpdateTotalUs += Math.round((performance.now() - t0) * 1000)
-
-    this.perfSampleFrame += 1
-    if (this.perfSampleFrame >= PERF_SAMPLE_INTERVAL) {
-      this.logPerfAndReset()
     }
   }
 
@@ -220,20 +205,15 @@ export class ParrySparkEmitterPool {
       return
     }
 
-    const emitStart = performance.now()
     const emitter = this.emitters[this.nextEmitterIndex]
     this.nextEmitterIndex = (this.nextEmitterIndex + 1) % this.emitters.length
 
     emitter.container.visible = true
     emitter.container.position.set(x, y)
 
-    const cleanupStart = performance.now()
     emitter.flash.cleanup()
     emitter.core.cleanup()
     emitter.spray.cleanup()
-    this.perfEmitCleanupUs += Math.round(
-      (performance.now() - cleanupStart) * 1000
-    )
 
     emitter.flash.updateOwnerPos(0, 0)
     emitter.core.updateOwnerPos(0, 0)
@@ -245,15 +225,11 @@ export class ParrySparkEmitterPool {
     emitter.core.rotate(directionDeg)
     emitter.spray.rotate(directionDeg)
 
-    const emitNowStart = performance.now()
     emitter.flash.emitNow()
     emitter.core.emitNow()
     emitter.spray.emitNow()
-    this.perfEmitNowUs += Math.round((performance.now() - emitNowStart) * 1000)
 
     this.markEmitterActive(emitter)
-    this.perfEmitTotalUs += Math.round((performance.now() - emitStart) * 1000)
-    this.perfEmitCount += 1
   }
 
   private markEmitterActive(emitter: PooledParryEmitter): void {
@@ -292,25 +268,6 @@ export class ParrySparkEmitterPool {
       )
     }
     this.pendingCount = 0
-  }
-
-  private logPerfAndReset(): void {
-    const frames = this.perfSampleFrame
-    if (
-      this.perfEmitCount > 0 ||
-      this.perfUpdateTotalUs > PERF_LOG_THRESHOLD_US
-    ) {
-      const updateAvgUs = Math.round(this.perfUpdateTotalUs / frames)
-      console.log(
-        `[ParrySpark perf] ${frames}f | update total=${this.perfUpdateTotalUs}us avg=${updateAvgUs}us | emits=${this.perfEmitCount} total=${this.perfEmitTotalUs}us cleanup=${this.perfEmitCleanupUs}us emitNow=${this.perfEmitNowUs}us | active=${this.activeCount} particles=${this.getActiveParticleCount()}`
-      )
-    }
-    this.perfSampleFrame = 0
-    this.perfUpdateTotalUs = 0
-    this.perfEmitTotalUs = 0
-    this.perfEmitCleanupUs = 0
-    this.perfEmitNowUs = 0
-    this.perfEmitCount = 0
   }
 
   private createCoreConfig(): ParticleEmitterConfig {
