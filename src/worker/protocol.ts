@@ -226,6 +226,27 @@ export type WorkerPerfLogMessage = {
   message: string
 }
 
+export type WorkerPerfSnapshotMessage = {
+  type: 'perf_snapshot'
+  updateAvgUs: number
+  updateMaxUs: number
+  fixedAvgUs: number
+  fixedMaxUs: number
+  fixedStepsAvg100: number
+  fixedStepsMax: number
+  spatialHashAvgUs: number
+  worldUpdateAvgUs: number
+  pickupCollectAvgUs: number
+  pickupUpdateAvgUs: number
+  cleanupAvgUs: number
+  cameraAvgUs: number
+  sendStateAvgUs: number
+  entityCount: number
+  systemNames: string[]
+  systemAvgUs: number[]
+  systemMaxUs: number[]
+}
+
 export type WorkerSaveResponseMessage = {
   type: 'save_response'
   saveId: string
@@ -264,6 +285,7 @@ export type WorkerToMainMessage =
   | WorkerDebugMessage
   | WorkerMapDataMessage
   | WorkerPerfLogMessage
+  | WorkerPerfSnapshotMessage
   | WorkerSaveResponseMessage
   | WorkerCheckpointActivatedMessage
   | WorkerPlayerDeadMessage

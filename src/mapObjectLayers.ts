@@ -19,6 +19,7 @@ export interface MapObjectLayerLookup {
   sunPickupSmallLayers: number[]
   sunPickupLargeLayers: number[]
   expOrbLayers: number[]
+  environmentObjectLayers: number[]
 }
 
 function getDefaultObjectLayer(): number {
@@ -41,6 +42,7 @@ export function buildMapObjectLayerLookup(
     sunPickupSmallLayers: [],
     sunPickupLargeLayers: [],
     expOrbLayers: [],
+    environmentObjectLayers: [],
   }
   const tree = map?.editorTree
   if (!tree) {
@@ -76,6 +78,12 @@ export function buildMapObjectLayerLookup(
       lookup.sunPickupLargeLayers[index] = layer
     } else if (type === 'expOrb') {
       lookup.expOrbLayers[index] = layer
+    } else if (
+      type === 'envTree' ||
+      type === 'envHill' ||
+      type === 'envHouse'
+    ) {
+      lookup.environmentObjectLayers[index] = layer
     }
   }
   return lookup

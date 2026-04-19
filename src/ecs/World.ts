@@ -7,6 +7,8 @@ export class World {
   private entityManager = new EntityManager()
   private systems: System[] = []
   private systemEntityCache = new Map<System, Entity[]>()
+  private systemPerfNames: string[] = []
+  private systemPerfLastUs: number[] = []
   private cacheNeedsRebuild = true
 
   createEntity(): Entity {
@@ -25,6 +27,8 @@ export class World {
 
   addSystem(system: System): void {
     this.systems.push(system)
+    this.systemPerfNames.push(system.constructor.name || 'System')
+    this.systemPerfLastUs.push(0)
     this.cacheNeedsRebuild = true
   }
 
@@ -59,12 +63,25 @@ export class World {
       this.rebuildCache()
     }
 
-    for (const system of this.systems) {
+    for (let i = 0; i < this.systems.length; i++) {
+      const system = this.systems[i]
       const matchingEntities = this.systemEntityCache.get(system) || []
+      const startMs = performance.now()
       system.update(matchingEntities, deltaTime)
+      this.systemPerfLastUs[i] = Math.round(
+        (performance.now() - startMs) * 1000
+      )
     }
 
     this.entityManager.update()
+  }
+
+  getSystemPerfNames(): readonly string[] {
+    return this.systemPerfNames
+  }
+
+  getSystemPerfLastUs(): readonly number[] {
+    return this.systemPerfLastUs
   }
 
   getEntities(): Entity[] {
@@ -79,6 +96,8 @@ export class World {
     this.entityManager.clear()
     this.systems = []
     this.systemEntityCache.clear()
+    this.systemPerfNames = []
+    this.systemPerfLastUs = []
     this.cacheNeedsRebuild = true
   }
 }

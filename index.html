@@ -1303,6 +1303,10 @@
                   <button class="editor-object-item" data-type="prop"></button>
                   <button
                     class="editor-object-item"
+                    data-type="environment"
+                  ></button>
+                  <button
+                    class="editor-object-item"
                     data-type="terrainMaterial"
                   ></button>
                   <button
@@ -1346,6 +1350,15 @@
                   data-action="back"
                 ></button>
               </div>
+              <div id="editorEnvironmentSubmenu" class="editor-submenu">
+                <button class="editor-submenu-item" data-env="tree"></button>
+                <button class="editor-submenu-item" data-env="hill"></button>
+                <button class="editor-submenu-item" data-env="house"></button>
+                <button
+                  class="editor-submenu-item editor-submenu-back"
+                  data-action="back"
+                ></button>
+              </div>
               <div id="editorPropSubmenu" class="editor-submenu">
                 <button
                   class="editor-submenu-item"
@@ -1375,6 +1388,10 @@
                   class="editor-submenu-item"
                   data-brush="leaves"
                 ></button>
+                <button
+                  class="editor-submenu-item"
+                  data-brush="thatch"
+                ></button>
                 <button class="editor-submenu-item" data-brush="erase"></button>
                 <button
                   class="editor-submenu-item editor-submenu-back"
@@ -1401,6 +1418,10 @@
                 <button
                   class="editor-submenu-item"
                   data-fill-material="leaves"
+                ></button>
+                <button
+                  class="editor-submenu-item"
+                  data-fill-material="thatch"
                 ></button>
                 <button
                   class="editor-submenu-item editor-submenu-back"

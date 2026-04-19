@@ -7,6 +7,7 @@ import type {
   EditorTreeNode,
   EditorTreeObjectType,
   MapCharacterBodyProfile,
+  MapEnvironmentObject,
   MapExpOrb,
   MapNpcTemplate,
   MapSunPickup,
@@ -138,6 +139,9 @@ export class EditorMapSerializer {
     const sunPickups = this.serializeSunPickups(sunPickupIndexMap)
     const expOrbIndexMap = new Map<fabric.Object, number>()
     const expOrbs = this.serializeExpOrbs(expOrbIndexMap)
+    const environmentIndexMap = new Map<fabric.Object, number>()
+    const environmentObjects =
+      this.serializeEnvironmentObjects(environmentIndexMap)
     const terrainIndexMap = new Map<fabric.Object, number>()
     const terrain = this.ctx.terrainManager.serialize(
       terrainIndexMap,
@@ -151,6 +155,7 @@ export class EditorMapSerializer {
       hookAnchorIndexMap,
       sunPickupIndexMap,
       expOrbIndexMap,
+      environmentIndexMap,
       terrainIndexMap,
     })
     return {
@@ -169,6 +174,7 @@ export class EditorMapSerializer {
       hookAnchors,
       sunPickups,
       expOrbs,
+      environmentObjects,
       npcTemplates: this.ctx.getCustomNpcTemplates(),
       editorTree: editorTree ?? undefined,
       factions: this.ctx.getFactions(),
@@ -206,6 +212,7 @@ export class EditorMapSerializer {
       this.applyHookAnchors(data.hookAnchors, batchSpawnOptions)
       this.applySunPickups(data.sunPickups, batchSpawnOptions)
       this.applyExpOrbs(data.expOrbs, batchSpawnOptions)
+      this.applyEnvironmentObjects(data.environmentObjects, batchSpawnOptions)
     } finally {
       this.ctx.endObjectBatchMutation()
       canvas.renderOnAddRemove = prevRenderOnAddRemove
@@ -301,6 +308,17 @@ export class EditorMapSerializer {
         { x: expOrb.x, y: expOrb.y },
         spawnOptions
       )
+    }
+  }
+
+  private applyEnvironmentObjects(
+    envObjects: EditorMapData['environmentObjects'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
+    if (!envObjects) return
+    for (let i = 0; i < envObjects.length; i++) {
+      const obj = envObjects[i]
+      this.ctx.markerManager.spawnEnvironmentMarker(obj.type, obj, spawnOptions)
     }
   }
 
@@ -417,6 +435,24 @@ export class EditorMapSerializer {
     return expOrbs
   }
 
+  private serializeEnvironmentObjects(
+    indexMap?: Map<fabric.Object, number>
+  ): MapEnvironmentObject[] {
+    const markers = this.ctx.markerManager.getEnvironmentMarkers()
+    if (markers.length === 0) return []
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    const result: MapEnvironmentObject[] = []
+    for (let i = 0; i < markers.length; i++) {
+      const { marker, envType, envSeed } = markers[i]
+      const center = marker.getCenterPoint()
+      const anchorX = (center.x + marker.anchorDX) * invPixelsPerMeter
+      const anchorY = (center.y + marker.anchorDY) * invPixelsPerMeter
+      if (indexMap) indexMap.set(marker, result.length)
+      result.push({ type: envType, x: anchorX, y: anchorY, seed: envSeed })
+    }
+    return result
+  }
+
   private serializeEditorTree(data: {
     npcIndexMap: Map<fabric.Object, number>
     weaponIndexMap: Map<fabric.Object, number>
@@ -424,6 +460,7 @@ export class EditorMapSerializer {
     hookAnchorIndexMap: Map<fabric.Object, number>
     sunPickupIndexMap: Map<fabric.Object, number>
     expOrbIndexMap: Map<fabric.Object, number>
+    environmentIndexMap: Map<fabric.Object, number>
     terrainIndexMap: Map<fabric.Object, number>
   }): EditorTreeData | null {
     const editorObjects = this.ctx.getEditorObjects()
@@ -485,6 +522,16 @@ export class EditorMapSerializer {
         node.index = index
       } else if (dataItem.type === 'expOrb') {
         const index = data.expOrbIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (
+        dataItem.type === 'envTree' ||
+        dataItem.type === 'envHill' ||
+        dataItem.type === 'envHouse'
+      ) {
+        const index = data.environmentIndexMap.get(dataItem.object)
         if (index === undefined) {
           return null
         }

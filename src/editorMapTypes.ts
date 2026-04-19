@@ -15,6 +15,15 @@ export type MapObjectKind = 'ground' | 'obstacle'
 
 export type WeaponCategory = 'main' | 'secondary' | 'item'
 
+export type MapEnvironmentObjectType = 'tree' | 'hill' | 'house'
+
+export interface MapEnvironmentObject {
+  type: MapEnvironmentObjectType
+  x: number
+  y: number
+  seed: number
+}
+
 export type EditorTreeObjectType =
   | 'empty'
   | 'player'
@@ -30,6 +39,9 @@ export type EditorTreeObjectType =
   | 'sunPickupSmall'
   | 'sunPickupLarge'
   | 'expOrb'
+  | 'envTree'
+  | 'envHill'
+  | 'envHouse'
 
 export interface EditorTreeNode {
   type: EditorTreeObjectType
@@ -332,6 +344,7 @@ export interface EditorMapData {
   npcTemplates?: MapNpcTemplate[]
   editorTree?: EditorTreeData
   factions?: string[]
+  environmentObjects?: MapEnvironmentObject[]
 }
 
 export interface StoredEditorMap {

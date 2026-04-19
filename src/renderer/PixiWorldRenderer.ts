@@ -90,9 +90,24 @@ const COLLISION_DEBUG_COLOR = '#ff3b30'
 const COLLISION_DEBUG_LINE_WIDTH = 2
 const ENTITY_GROUND_SORT_SCALE = 16
 const STANDALONE_WEAPON_SORT_OFFSET = -1
+const PIXI_WORLD_PERF_SECTION_COUNT = 11
+const PIXI_WORLD_PERF_PARALLAX = 0
+const PIXI_WORLD_PERF_PLAYER_SCAN = 1
+const PIXI_WORLD_PERF_ENTITY_LOOP = 2
+const PIXI_WORLD_PERF_HIDE_STALE = 3
+const PIXI_WORLD_PERF_PRUNE = 4
+const PIXI_WORLD_PERF_RETICLE = 5
+const PIXI_WORLD_PERF_ROPE = 6
+const PIXI_WORLD_PERF_ULTIMATE = 7
+const PIXI_WORLD_PERF_PARTICLES = 8
+const PIXI_WORLD_PERF_PARRY = 9
+const PIXI_WORLD_PERF_SPINE = 10
 
 interface LayerBucket {
   container: Container
+  staticContainer: Container
+  dynamicContainer: Container
+  staticCacheDirty: boolean
 }
 
 interface EntityView {
@@ -119,6 +134,7 @@ interface EntityView {
   spineBody: Spine | null
   spineKey: string
   spineAnimState: string
+  weaponChildIndex: number
 }
 
 interface DamageTextView {
@@ -310,6 +326,20 @@ export class PixiWorldRenderer {
   private readonly particleSprites: ParticleSpriteView[] = []
   private readonly parrySparkEmitterPool: ParrySparkEmitterPool
   private readonly activeSpineViews = new Set<EntityView>()
+  private readonly perfSectionLastUs = new Int32Array(
+    PIXI_WORLD_PERF_SECTION_COUNT
+  )
+  private readonly perfSectionTotalsUs = new Float64Array(
+    PIXI_WORLD_PERF_SECTION_COUNT
+  )
+  private readonly perfSectionMaxUs = new Int32Array(
+    PIXI_WORLD_PERF_SECTION_COUNT
+  )
+  private readonly perfSectionAvgUs = new Int32Array(
+    PIXI_WORLD_PERF_SECTION_COUNT
+  )
+  private perfSampleCount = 0
+  private perfVisibleEntityCount = 0
   private frameId = 0
   private pruneSkipCounter = 0
   private readonly reusableShakeOffset = { x: 0, y: 0 }
@@ -386,11 +416,71 @@ export class PixiWorldRenderer {
     return this.weaponTextureCache.size
   }
 
+  getVisibleEntityCount(): number {
+    return this.perfVisibleEntityCount
+  }
+
+  getActiveSpineCount(): number {
+    return this.activeSpineViews.size
+  }
+
+  getBucketCount(): number {
+    return this.buckets.size
+  }
+
+  getStaticCacheBucketCount(): number {
+    let cachedCount = 0
+    for (const bucket of this.buckets.values()) {
+      if (bucket.staticContainer.isCachedAsTexture) {
+        cachedCount++
+      }
+    }
+    return cachedCount
+  }
+
+  getPerfSectionAvgUs(index: number): number {
+    return this.perfSectionAvgUs[index] | 0
+  }
+
+  commitPerfWindow(shouldRefresh: boolean): void {
+    this.perfSampleCount++
+    for (let i = 0; i < PIXI_WORLD_PERF_SECTION_COUNT; i++) {
+      const timeUs = this.perfSectionLastUs[i] | 0
+      this.perfSectionTotalsUs[i] += timeUs
+      if (timeUs > this.perfSectionMaxUs[i]) {
+        this.perfSectionMaxUs[i] = timeUs
+      }
+    }
+    if (!shouldRefresh || this.perfSampleCount <= 0) {
+      return
+    }
+    for (let i = 0; i < PIXI_WORLD_PERF_SECTION_COUNT; i++) {
+      this.perfSectionAvgUs[i] = Math.round(
+        this.perfSectionTotalsUs[i] / this.perfSampleCount
+      )
+      this.perfSectionTotalsUs[i] = 0
+      this.perfSectionMaxUs[i] = 0
+    }
+    this.perfSampleCount = 0
+  }
+
+  buildPerfDebugLines(formatUs: (timeUs: number) => string): string[] {
+    return [
+      `pixi player ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PLAYER_SCAN])}  ent ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ENTITY_LOOP])}  hide ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_HIDE_STALE])}  spine ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_SPINE])}`,
+      `pixi ptx ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PARTICLES])}  parry ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PARRY])}  rope ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ROPE])}  ult ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ULTIMATE])}`,
+    ]
+  }
+
   render(renderer: ClientRenderer, deltaMs: number): void {
     this.frameId += 1
+    let sectionStartMs = performance.now()
     this.updateBucketParallax()
+    this.perfSectionLastUs[PIXI_WORLD_PERF_PARALLAX] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
     const buf = renderer.getStateBuffer()
     const entityCount = renderer.getEntityCount()
+    this.perfVisibleEntityCount = 0
 
     let playerOffset = -1
     let playerLockedTargetId = -1
@@ -406,6 +496,7 @@ export class PixiWorldRenderer {
     let playerGrappleTargetX = 0
     let playerGrappleTargetY = 0
 
+    sectionStartMs = performance.now()
     for (let i = 0; i < entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
@@ -426,11 +517,15 @@ export class PixiWorldRenderer {
         break
       }
     }
+    this.perfSectionLastUs[PIXI_WORLD_PERF_PLAYER_SCAN] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
 
     let lockTargetCenterX = 0
     let lockTargetCenterY = 0
     let hasLockTarget = false
 
+    sectionStartMs = performance.now()
     for (let i = 0; i < entityCount; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = buf[offset + OFFSETS.FLAGS]
@@ -445,6 +540,7 @@ export class PixiWorldRenderer {
         continue
       }
 
+      this.perfVisibleEntityCount++
       const view = this.ensureEntityView(entityId)
       view.lastSeenFrame = this.frameId
 
@@ -484,20 +580,32 @@ export class PixiWorldRenderer {
         playerY
       )
     }
+    this.perfSectionLastUs[PIXI_WORLD_PERF_ENTITY_LOOP] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
 
+    sectionStartMs = performance.now()
     for (const view of this.entityViews.values()) {
       if (view.lastSeenFrame !== this.frameId) {
         this.hideEntityView(view)
       }
     }
+    this.perfSectionLastUs[PIXI_WORLD_PERF_HIDE_STALE] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
 
+    let pruneUs = 0
     this.pruneSkipCounter++
     if (this.pruneSkipCounter >= 30) {
+      const pruneStartMs = performance.now()
       this.pruneSkipCounter = 0
       this.pruneEntityViews()
       this.pruneWeaponTextures()
+      pruneUs = Math.round((performance.now() - pruneStartMs) * 1000)
     }
+    this.perfSectionLastUs[PIXI_WORLD_PERF_PRUNE] = pruneUs
 
+    sectionStartMs = performance.now()
     this.updateLockReticle(hasLockTarget, lockTargetCenterX, lockTargetCenterY)
     this.updateFreeAimReticle(
       renderer,
@@ -510,6 +618,11 @@ export class PixiWorldRenderer {
       playerDrawRatio,
       playerDrawActive
     )
+    this.perfSectionLastUs[PIXI_WORLD_PERF_RETICLE] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
+
+    sectionStartMs = performance.now()
     this.updateRope(
       renderer,
       playerGrappleActive,
@@ -518,16 +631,38 @@ export class PixiWorldRenderer {
       playerGrappleTargetX,
       playerGrappleTargetY
     )
-    this.updateUltimateOverlays(renderer, playerOffset)
-    this.updateParticles(renderer)
-    this.updateParrySparkEffects(renderer, deltaMs)
+    this.perfSectionLastUs[PIXI_WORLD_PERF_ROPE] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
 
+    sectionStartMs = performance.now()
+    this.updateUltimateOverlays(renderer, playerOffset)
+    this.perfSectionLastUs[PIXI_WORLD_PERF_ULTIMATE] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
+
+    sectionStartMs = performance.now()
+    this.updateParticles(renderer)
+    this.perfSectionLastUs[PIXI_WORLD_PERF_PARTICLES] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
+
+    sectionStartMs = performance.now()
+    this.updateParrySparkEffects(renderer, deltaMs)
+    this.perfSectionLastUs[PIXI_WORLD_PERF_PARRY] = Math.round(
+      (performance.now() - sectionStartMs) * 1000
+    )
+
+    let spineUs = 0
     if (deltaMs > 0) {
+      const spineStartMs = performance.now()
       const deltaSec = deltaMs / 1000
       for (const view of this.activeSpineViews) {
         view.spineBody?.update(deltaSec)
       }
+      spineUs = Math.round((performance.now() - spineStartMs) * 1000)
     }
+    this.perfSectionLastUs[PIXI_WORLD_PERF_SPINE] = spineUs
   }
 
   private ensureEntityView(id: number): EntityView {
@@ -608,6 +743,7 @@ export class PixiWorldRenderer {
       spineBody: null,
       spineKey: '',
       spineAnimState: '',
+      weaponChildIndex: -1,
     }
 
     this.entityViews.set(id, view)
@@ -622,9 +758,15 @@ export class PixiWorldRenderer {
     }
 
     const container = new Container()
-    container.sortableChildren = true
     container.zIndex = layer * 10 + 5
     this.root.addChild(container)
+
+    const staticContainer = new Container()
+    container.addChild(staticContainer)
+
+    const dynamicContainer = new Container()
+    dynamicContainer.sortableChildren = true
+    container.addChild(dynamicContainer)
 
     // 计算亮度 tint：layer=0 最亮，越远越暗
     const brightness = Math.max(
@@ -634,7 +776,12 @@ export class PixiWorldRenderer {
     const v = Math.round(brightness * 255)
     container.tint = (v << 16) | (v << 8) | v
 
-    const bucket = { container }
+    const bucket = {
+      container,
+      staticContainer,
+      dynamicContainer,
+      staticCacheDirty: false,
+    }
     this.buckets.set(layer, bucket)
     return bucket
   }
@@ -675,7 +822,40 @@ export class PixiWorldRenderer {
   }
 
   addStaticMesh(mesh: Container, layer: number): void {
-    this.ensureBucket(layer).container.addChild(mesh)
+    const bucket = this.ensureBucket(layer)
+    if (bucket.staticContainer.isCachedAsTexture) {
+      bucket.staticContainer.cacheAsTexture(false)
+    }
+    bucket.staticContainer.addChild(mesh)
+    bucket.staticCacheDirty = true
+  }
+
+  invalidateStaticMeshCaches(): void {
+    for (const bucket of this.buckets.values()) {
+      if (bucket.staticContainer.isCachedAsTexture) {
+        bucket.staticContainer.cacheAsTexture(false)
+      }
+      bucket.staticCacheDirty = bucket.staticContainer.children.length > 0
+    }
+  }
+
+  refreshStaticMeshCaches(): void {
+    for (const bucket of this.buckets.values()) {
+      const staticContainer = bucket.staticContainer
+      if (staticContainer.children.length === 0) {
+        if (staticContainer.isCachedAsTexture) {
+          staticContainer.cacheAsTexture(false)
+        }
+        bucket.staticCacheDirty = false
+        continue
+      }
+      if (bucket.staticCacheDirty) {
+        staticContainer.cacheAsTexture(true)
+        bucket.staticCacheDirty = false
+      } else if (!staticContainer.isCachedAsTexture) {
+        staticContainer.cacheAsTexture(true)
+      }
+    }
   }
 
   private attachViewToLayer(view: EntityView, layer: number): void {
@@ -684,8 +864,8 @@ export class PixiWorldRenderer {
     }
 
     const bucket = this.ensureBucket(layer)
-    if (view.root.parent !== bucket.container) {
-      bucket.container.addChild(view.root)
+    if (view.root.parent !== bucket.dynamicContainer) {
+      bucket.dynamicContainer.addChild(view.root)
     }
     view.layer = layer
   }
@@ -703,6 +883,7 @@ export class PixiWorldRenderer {
     hideSprite(view.followUnbondSprite)
     view.lastHealthRatio = -1
     view.lastDamageTextToken = -1
+    view.weaponChildIndex = -1
     this.recycleDamageTexts(view)
     if (view.spineBody) {
       view.spineBody.visible = false
@@ -1387,10 +1568,11 @@ export class PixiWorldRenderer {
     view.weaponSprite.alpha = isStandaloneWeapon ? HUD_ICON_ALPHA : alpha
 
     if (view.weaponSprite.parent === view.root) {
-      if (renderer.getFacingForEntity(buf, offset) < 0) {
-        view.root.setChildIndex(view.weaponSprite, 2)
-      } else {
-        view.root.setChildIndex(view.weaponSprite, 3)
+      const targetChildIndex =
+        renderer.getFacingForEntity(buf, offset) < 0 ? 2 : 3
+      if (view.weaponChildIndex !== targetChildIndex) {
+        view.root.setChildIndex(view.weaponSprite, targetChildIndex)
+        view.weaponChildIndex = targetChildIndex
       }
     }
   }

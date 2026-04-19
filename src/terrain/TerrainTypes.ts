@@ -6,7 +6,13 @@ export const VORONOI_SITE_JITTER_SCALE = 256
 
 export type TerrainMaterialTag = 'ground' | 'obstacle' | 'foliage'
 
-export type TerrainMaterialId = 'dirt' | 'grass' | 'stone' | 'wood' | 'leaves'
+export type TerrainMaterialId =
+  | 'dirt'
+  | 'grass'
+  | 'stone'
+  | 'wood'
+  | 'leaves'
+  | 'thatch'
 
 export type TerrainBrushId =
   | 'dirt'
@@ -14,6 +20,7 @@ export type TerrainBrushId =
   | 'stone'
   | 'wood'
   | 'leaves'
+  | 'thatch'
   | 'contour'
   | 'erase'
 

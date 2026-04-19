@@ -7,6 +7,7 @@ export enum EditorSubmenuMode {
   Weapon = 'weapon',
   Npc = 'npc',
   Prop = 'prop',
+  Environment = 'environment',
 }
 
 type EditorMenuItemList = ArrayLike<HTMLButtonElement>

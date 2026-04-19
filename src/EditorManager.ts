@@ -293,6 +293,9 @@ export class EditorManager {
         if (this.markerManager.isHookAnchorMarker(obj)) {
           this.markerManager.removeHookAnchorMarker(obj)
         }
+        if (this.markerManager.isEnvironmentMarker(obj)) {
+          this.markerManager.removeEnvironmentMarker(obj)
+        }
         this.patternManager.deletePattern(obj)
       },
       onSelectionChanged: (obj) => {
@@ -709,6 +712,22 @@ export class EditorManager {
           })
         } else {
           this.markerManager.spawnExpOrbMarker()
+        }
+        this.captureHistorySnapshot()
+      },
+      onEnvironmentObjectSelected: (envType) => {
+        this.hideAllSubmenus()
+        this.menuSystem.hideObjectTypeMenu()
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.markerManager.spawnEnvironmentMarker(envType, {
+            type: envType,
+            x: spawn.x * this.invPixelsPerMeter,
+            y: spawn.y * this.invPixelsPerMeter,
+            seed: (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0,
+          })
+        } else {
+          this.markerManager.spawnEnvironmentMarker(envType)
         }
         this.captureHistorySnapshot()
       },
@@ -1197,6 +1216,13 @@ export class EditorManager {
         this.markerManager.spawnHookAnchorMarker()
       }
       this.captureHistorySnapshot()
+      return
+    }
+
+    if (type === 'environment') {
+      this.setActiveObjectType(null)
+      this.hideAllSubmenus()
+      this.menuSystem.showEnvironmentSubmenu()
       return
     }
 
@@ -2603,6 +2629,9 @@ export class EditorManager {
     if (this.markerManager.isHookAnchorMarker(object)) {
       return true
     }
+    if (this.markerManager.isEnvironmentMarker(object)) {
+      return true
+    }
     if (this.isEmptyObject(object)) {
       return true
     }
@@ -3179,6 +3208,9 @@ export class EditorManager {
       }
       if (this.markerManager.isHookAnchorMarker(target)) {
         this.markerManager.removeHookAnchorMarker(target)
+      }
+      if (this.markerManager.isEnvironmentMarker(target)) {
+        this.markerManager.removeEnvironmentMarker(target)
       }
       this.objectManager.unregisterEditorObject(target)
       canvas.remove(target)

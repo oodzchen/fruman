@@ -4,9 +4,14 @@ import {
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
 } from '../constants'
-import type { MapNpcWeapon, WeaponCategory } from '../editorMapTypes'
+import type {
+  MapEnvironmentObjectType,
+  MapNpcWeapon,
+  WeaponCategory,
+} from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
 import { createCheckpointTreeTextureSource } from '../renderer/CheckpointTreeTextureFactory'
+import { createEnvironmentTextureSource } from '../renderer/ProceduralEnvironmentFactory'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import type { NpcType, WeaponType } from '../types'
 import {
@@ -18,6 +23,7 @@ import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
 import type {
   CharacterBodyShapeObject,
   CheckpointMarker,
+  EnvironmentMarker,
   ExpOrbMarker,
   HookAnchorMarker,
   NpcMarker,
@@ -188,6 +194,37 @@ class CheckpointMarkerRenderObject extends fabric.FabricObject {
 
   override _render(ctx: CanvasRenderingContext2D): void {
     ctx.drawImage(this.textureCanvas, -this.drawOriginX, -this.drawOriginY)
+  }
+}
+
+class EnvironmentMarkerRenderObject extends fabric.FabricObject {
+  static override type = 'customEnvironmentMarker'
+
+  declare editorShape: EnvironmentMarker['editorShape']
+  declare envType: EnvironmentMarker['envType']
+  declare envSeed: EnvironmentMarker['envSeed']
+  declare anchorDX: EnvironmentMarker['anchorDX']
+  declare anchorDY: EnvironmentMarker['anchorDY']
+
+  private readonly textureCanvas: HTMLCanvasElement
+
+  constructor(
+    textureCanvas: HTMLCanvasElement,
+    originX: number,
+    originY: number,
+    options?: FabricObjectOptions
+  ) {
+    super(options)
+    this.textureCanvas = textureCanvas
+    this.width = textureCanvas.width
+    this.height = textureCanvas.height
+    this.anchorDX = originX - (textureCanvas.width >> 1)
+    this.anchorDY = originY - (textureCanvas.height >> 1)
+    this.editorShape = 'environment-marker'
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    ctx.drawImage(this.textureCanvas, -(this.width >> 1), -(this.height >> 1))
   }
 }
 
@@ -826,5 +863,31 @@ export class EditorObjectFactory {
     }
 
     return { weaponMarker, weaponData, weaponType, category, slot }
+  }
+
+  createEnvironmentMarker(envType: MapEnvironmentObjectType, envSeed: number) {
+    const source = createEnvironmentTextureSource(
+      envType,
+      envSeed,
+      this.pixelsPerMeter
+    )
+    const marker = new EnvironmentMarkerRenderObject(
+      source.canvas,
+      source.originX,
+      source.originY,
+      {
+        originX: 'center',
+        originY: 'center',
+        selectable: true,
+        hasControls: false,
+        lockRotation: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        objectCaching: false,
+      }
+    ) as EnvironmentMarker
+    marker.envType = envType
+    marker.envSeed = envSeed
+    return marker
   }
 }

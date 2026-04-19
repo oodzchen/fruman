@@ -57,6 +57,16 @@ const TERRAIN_MATERIALS: readonly TerrainMaterialDefinition[] = [
     fillPalette: ['#557a39', '#648a44', '#496930'],
     strokeColor: '#29401b',
   },
+  {
+    id: 'thatch',
+    code: 6,
+    materialTag: 'ground',
+    labelKey: 'editor_terrain_brush_thatch',
+    breakable: true,
+    hardness: 6,
+    fillPalette: ['#b89030', '#c8a438', '#a47c28'],
+    strokeColor: '#5c4010',
+  },
 ] as const
 
 const TERRAIN_BRUSHES: readonly TerrainBrushDefinition[] = [
@@ -90,6 +100,12 @@ const TERRAIN_BRUSHES: readonly TerrainBrushDefinition[] = [
     labelKey: 'editor_terrain_brush_leaves',
     mode: 'fill',
     fillMaterialId: 'leaves',
+  },
+  {
+    id: 'thatch',
+    labelKey: 'editor_terrain_brush_thatch',
+    mode: 'fill',
+    fillMaterialId: 'thatch',
   },
   {
     id: 'erase',

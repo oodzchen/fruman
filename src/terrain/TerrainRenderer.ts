@@ -1,4 +1,4 @@
-import { Color, Container, Geometry, Mesh, Texture } from 'pixi.js'
+import { Container, Sprite, Texture } from 'pixi.js'
 
 import {
   getDefaultTerrainRenderLayer,
@@ -9,7 +9,6 @@ import { getTerrainLayerViews } from './TerrainDataUtils'
 import {
   appendTerrainCellPath,
   getTerrainPaletteIndex,
-  mixHash,
 } from './TerrainGeometry'
 import { getTerrainMaterialByCode } from './TerrainMaterialRegistry'
 import type { TerrainDataLike } from './TerrainTypes'
@@ -38,45 +37,22 @@ interface TerrainVisibleCellBounds {
   maxCellY: number
 }
 
-class TerrainGeometryBuilder {
-  private vertices: number[] = []
-  private indices: number[] = []
-
-  addPolygon(points: number[]): void {
-    const startIdx = this.vertices.length / 2
-    const count = points.length / 2
-    if (count < 3) return
-
-    for (let i = 0; i < points.length; i++) {
-      this.vertices.push(points[i])
-    }
-
-    // Triangle fan triangulation (works for convex polygons like Voronoi cells)
-    for (let i = 1; i < count - 1; i++) {
-      this.indices.push(startIdx, startIdx + i, startIdx + i + 1)
-    }
-  }
-
-  build(): Geometry | null {
-    if (this.vertices.length === 0) return null
-    return new Geometry({
-      attributes: {
-        aPosition: new Float32Array(this.vertices),
-        aUV: new Float32Array(this.vertices.length), // Dummy UVs
-      },
-      indexBuffer: new Uint32Array(this.indices),
-    })
-  }
+interface TerrainPixelBounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
 }
 
 export class TerrainRenderer {
+  private static readonly TERRAIN_SPRITE_PADDING_PX = 4
+
   static createPixiTerrainGraphics(
     terrain: TerrainDataLike,
     cellSizeUnits: number,
     options: TerrainDrawOptions = {}
   ): Container[] {
-    const chunkSize = terrain.chunkSize
-    if (chunkSize <= 0) {
+    if (terrain.chunkSize <= 0) {
       return []
     }
 
@@ -88,12 +64,7 @@ export class TerrainRenderer {
 
     for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
       const layer = layers[layerIndex]
-      const resolvedLayer =
-        layer.renderLayer !== undefined
-          ? layer.renderLayer
-          : layer.materialId
-            ? getDefaultTerrainRenderLayer(layer.materialId)
-            : 0
+      const resolvedLayer = this.getResolvedRenderLayer(layer)
       if (
         targetLayer !== undefined &&
         !isRenderLayerMatch(layer.renderLayer, targetLayer, resolvedLayer)
@@ -105,213 +76,340 @@ export class TerrainRenderer {
       }
 
       const layerPixelOffset = getLayerPixelOffset?.(layer)
-      const offsetX =
-        layer.version >= 4
-          ? (layerPixelOffset?.x ?? 0)
-          : layer.offsetCellX * cellSizeUnits +
-            layer.offsetXUnits +
-            (layerPixelOffset?.x ?? 0)
-      const offsetY =
-        layer.version >= 4
-          ? (layerPixelOffset?.y ?? 0)
-          : layer.offsetCellY * cellSizeUnits +
-            layer.offsetYUnits +
-            (layerPixelOffset?.y ?? 0)
-      const zIndex = resolvedLayer * 10
-
-      const fillBuilders = new Map<string, TerrainGeometryBuilder>()
-
-      if (layer.version >= 4) {
-        this.collectVoronoiGeometries(fillBuilders, layer, cellSizeUnits)
-      } else {
-        this.collectGridGeometries(
-          fillBuilders,
-          layer,
-          chunkSize,
-          cellSizeUnits
-        )
+      const sprite = this.createPixiTerrainLayerGraphic(layer, cellSizeUnits, {
+        drawStroke: options.drawStroke,
+        layerPixelOffset,
+        clipVoronoiContoursOnCanvas: options.clipVoronoiContoursOnCanvas,
+      })
+      if (!sprite) {
+        continue
       }
-
-      for (const [colorStr, builder] of fillBuilders) {
-        const geometry = builder.build()
-        if (geometry) {
-          const mesh = new Mesh({
-            geometry,
-            texture: Texture.WHITE,
-          })
-          mesh.tint = new Color(colorStr).toNumber()
-          mesh.position.set(offsetX, offsetY)
-          mesh.zIndex = zIndex
-          result.push(mesh)
-        }
-      }
+      sprite.zIndex = resolvedLayer * 10
+      result.push(sprite)
     }
 
     return result
   }
 
-  private static collectGridGeometries(
-    builders: Map<string, TerrainGeometryBuilder>,
-    terrain: TerrainDataLike,
-    chunkSize: number,
-    cellSizeUnits: number
+  static createPixiTerrainLayerGraphic(
+    layer: TerrainResolvedLayerView,
+    cellSizeUnits: number,
+    options: TerrainLayerDrawOptions = {}
+  ): Sprite | null {
+    const bounds = this.getLayerPixelBounds(
+      layer,
+      cellSizeUnits,
+      options.layerPixelOffset
+    )
+    if (!bounds) {
+      return null
+    }
+    const width = Math.max(1, bounds.maxX - bounds.minX)
+    const height = Math.max(1, bounds.maxY - bounds.minY)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      return null
+    }
+    ctx.translate(-bounds.minX, -bounds.minY)
+    this.drawLayerView(ctx, layer, cellSizeUnits, options)
+    const sprite = new Sprite(Texture.from(canvas))
+    sprite.x = bounds.minX
+    sprite.y = bounds.minY
+    return sprite
+  }
+
+  static createPixiTerrainChunkGraphic(
+    layer: TerrainResolvedLayerView,
+    chunkIndex: number,
+    cellSizeUnits: number,
+    options: TerrainLayerDrawOptions = {}
+  ): Sprite | null {
+    if (layer.version >= 4) {
+      return this.createPixiTerrainLayerGraphic(layer, cellSizeUnits, options)
+    }
+    const chunk = layer.chunks[chunkIndex]
+    if (!chunk || !this.hasChunkContent(chunk.cells)) {
+      return null
+    }
+    const bounds = this.getGridChunkPixelBounds(
+      layer,
+      chunkIndex,
+      cellSizeUnits,
+      options.layerPixelOffset
+    )
+    if (!bounds) {
+      return null
+    }
+    const width = Math.max(1, bounds.maxX - bounds.minX)
+    const height = Math.max(1, bounds.maxY - bounds.minY)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      return null
+    }
+    ctx.translate(-bounds.minX, -bounds.minY)
+    ctx.save()
+    this.applyLayerBaseTranslation(
+      ctx,
+      layer,
+      cellSizeUnits,
+      options.layerPixelOffset
+    )
+    this.drawGridChunk(
+      ctx,
+      layer,
+      chunkIndex,
+      cellSizeUnits,
+      options.drawStroke === true
+    )
+    ctx.restore()
+    const sprite = new Sprite(Texture.from(canvas))
+    sprite.x = bounds.minX
+    sprite.y = bounds.minY
+    return sprite
+  }
+
+  private static getResolvedRenderLayer(
+    layer: TerrainResolvedLayerView
+  ): number {
+    return layer.renderLayer !== undefined
+      ? layer.renderLayer
+      : layer.materialId
+        ? getDefaultTerrainRenderLayer(layer.materialId)
+        : 0
+  }
+
+  private static applyLayerBaseTranslation(
+    ctx: CanvasRenderingContext2D,
+    layer: TerrainResolvedLayerView,
+    cellSizeUnits: number,
+    layerPixelOffset: { x: number; y: number } | null | undefined
   ): void {
-    const randomSeed = terrain.randomSeed | 0
-    for (let chunkIndex = 0; chunkIndex < terrain.chunks.length; chunkIndex++) {
-      const chunk = terrain.chunks[chunkIndex]
-      const chunkBaseX = chunk.chunkX * chunkSize
-      const chunkBaseY = chunk.chunkY * chunkSize
-      const cells = chunk.cells
-      for (let localY = 0; localY < chunkSize; localY++) {
-        const rowOffset = localY * chunkSize
-        for (let localX = 0; localX < chunkSize; localX++) {
-          const cellIndex = rowOffset + localX
-          const materialCode = cells[cellIndex] | 0
-          if (materialCode <= 0) {
-            continue
-          }
-          const material = getTerrainMaterialByCode(materialCode)
-          if (!material) {
-            continue
-          }
-          const cellX = chunkBaseX + localX
-          const cellY = chunkBaseY + localY
-          const paletteIndex = getTerrainPaletteIndex(
-            randomSeed,
-            cellX,
-            cellY,
-            materialCode,
-            material.fillPalette.length
-          )
-          const color = material.fillPalette[paletteIndex]
-          let builder = builders.get(color)
-          if (!builder) {
-            builder = new TerrainGeometryBuilder()
-            builders.set(color, builder)
-          }
-          const points = this.getGridCellPoints(
-            cellX,
-            cellY,
-            cellSizeUnits,
-            randomSeed
-          )
-          builder.addPolygon(points)
+    if (layer.version >= 4) {
+      ctx.translate(layerPixelOffset?.x ?? 0, layerPixelOffset?.y ?? 0)
+      return
+    }
+    ctx.translate(
+      layer.offsetCellX * cellSizeUnits +
+        layer.offsetXUnits +
+        (layerPixelOffset?.x ?? 0),
+      layer.offsetCellY * cellSizeUnits +
+        layer.offsetYUnits +
+        (layerPixelOffset?.y ?? 0)
+    )
+  }
+
+  private static hasChunkContent(cells: ArrayLike<number>): boolean {
+    for (let i = 0; i < cells.length; i++) {
+      if ((cells[i] | 0) > 0) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private static getGridChunkPixelBounds(
+    layer: TerrainResolvedLayerView,
+    chunkIndex: number,
+    cellSizeUnits: number,
+    layerPixelOffset: { x: number; y: number } | null | undefined
+  ): TerrainPixelBounds | null {
+    const chunk = layer.chunks[chunkIndex]
+    const chunkSize = layer.chunkSize | 0
+    if (!chunk || chunkSize <= 0) {
+      return null
+    }
+    const padding = TerrainRenderer.TERRAIN_SPRITE_PADDING_PX
+    const offsetX =
+      layer.offsetCellX * cellSizeUnits +
+      layer.offsetXUnits +
+      (layerPixelOffset?.x ?? 0)
+    const offsetY =
+      layer.offsetCellY * cellSizeUnits +
+      layer.offsetYUnits +
+      (layerPixelOffset?.y ?? 0)
+    const minX =
+      Math.floor(offsetX + chunk.chunkX * chunkSize * cellSizeUnits) - padding
+    const minY =
+      Math.floor(offsetY + chunk.chunkY * chunkSize * cellSizeUnits) - padding
+    const maxX =
+      Math.ceil(offsetX + (chunk.chunkX + 1) * chunkSize * cellSizeUnits) +
+      padding
+    const maxY =
+      Math.ceil(offsetY + (chunk.chunkY + 1) * chunkSize * cellSizeUnits) +
+      padding
+    return { minX, minY, maxX, maxY }
+  }
+
+  private static getLayerPixelBounds(
+    layer: TerrainResolvedLayerView,
+    cellSizeUnits: number,
+    layerPixelOffset: { x: number; y: number } | null | undefined
+  ): TerrainPixelBounds | null {
+    if (layer.version >= 4) {
+      return this.getVoronoiLayerPixelBounds(
+        layer,
+        cellSizeUnits,
+        layerPixelOffset
+      )
+    }
+    return this.getGridLayerPixelBounds(layer, cellSizeUnits, layerPixelOffset)
+  }
+
+  private static getGridLayerPixelBounds(
+    layer: TerrainResolvedLayerView,
+    cellSizeUnits: number,
+    layerPixelOffset: { x: number; y: number } | null | undefined
+  ): TerrainPixelBounds | null {
+    const chunkSize = layer.chunkSize | 0
+    const chunkCount = layer.chunks.length
+    if (chunkSize <= 0 || chunkCount <= 0) {
+      return null
+    }
+
+    let minChunkX = layer.chunks[0].chunkX | 0
+    let minChunkY = layer.chunks[0].chunkY | 0
+    let maxChunkX = minChunkX
+    let maxChunkY = minChunkY
+    for (let chunkIndex = 1; chunkIndex < chunkCount; chunkIndex++) {
+      const chunk = layer.chunks[chunkIndex]
+      const chunkX = chunk.chunkX | 0
+      const chunkY = chunk.chunkY | 0
+      if (chunkX < minChunkX) {
+        minChunkX = chunkX
+      }
+      if (chunkY < minChunkY) {
+        minChunkY = chunkY
+      }
+      if (chunkX > maxChunkX) {
+        maxChunkX = chunkX
+      }
+      if (chunkY > maxChunkY) {
+        maxChunkY = chunkY
+      }
+    }
+
+    const padding = TerrainRenderer.TERRAIN_SPRITE_PADDING_PX
+    const offsetX =
+      layer.offsetCellX * cellSizeUnits +
+      layer.offsetXUnits +
+      (layerPixelOffset?.x ?? 0)
+    const offsetY =
+      layer.offsetCellY * cellSizeUnits +
+      layer.offsetYUnits +
+      (layerPixelOffset?.y ?? 0)
+    const minX =
+      Math.floor(offsetX + minChunkX * chunkSize * cellSizeUnits) - padding
+    const minY =
+      Math.floor(offsetY + minChunkY * chunkSize * cellSizeUnits) - padding
+    const maxX =
+      Math.ceil(offsetX + (maxChunkX + 1) * chunkSize * cellSizeUnits) + padding
+    const maxY =
+      Math.ceil(offsetY + (maxChunkY + 1) * chunkSize * cellSizeUnits) + padding
+    return { minX, minY, maxX, maxY }
+  }
+
+  private static getVoronoiLayerPixelBounds(
+    layer: TerrainResolvedLayerView,
+    cellSizeUnits: number,
+    layerPixelOffset: { x: number; y: number } | null | undefined
+  ): TerrainPixelBounds | null {
+    const padding = TerrainRenderer.TERRAIN_SPRITE_PADDING_PX
+    const offsetX = layerPixelOffset?.x ?? 0
+    const offsetY = layerPixelOffset?.y ?? 0
+
+    if (layer.contourClipPoints && layer.contourClipPoints.length >= 6) {
+      return this.getFlatPolygonPixelBounds(
+        layer.contourClipPoints,
+        offsetX,
+        offsetY,
+        padding
+      )
+    }
+
+    const build = getVoronoiLayerBuild(layer, cellSizeUnits)
+    if (build.cells.length <= 0) {
+      return null
+    }
+
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let cellIndex = 0; cellIndex < build.cells.length; cellIndex++) {
+      const points = build.cells[cellIndex].points
+      for (let pointIndex = 0; pointIndex < points.length; pointIndex += 2) {
+        const x = points[pointIndex]
+        const y = points[pointIndex + 1]
+        if (x < minX) {
+          minX = x
+        }
+        if (y < minY) {
+          minY = y
+        }
+        if (x > maxX) {
+          maxX = x
+        }
+        if (y > maxY) {
+          maxY = y
         }
       }
     }
-  }
 
-  private static collectVoronoiGeometries(
-    builders: Map<string, TerrainGeometryBuilder>,
-    terrain: TerrainDataLike,
-    cellSizeUnits: number
-  ): void {
-    const randomSeed = terrain.randomSeed | 0
-    const build = getVoronoiLayerBuild(
-      terrain as TerrainResolvedLayerView,
-      cellSizeUnits
-    )
-    for (let cellIndex = 0; cellIndex < build.cells.length; cellIndex++) {
-      const cell = build.cells[cellIndex]
-      const material = getTerrainMaterialByCode(cell.materialCode)
-      if (!material) {
-        continue
-      }
-      const paletteIndex = getTerrainPaletteIndex(
-        randomSeed,
-        cell.localCellX,
-        cell.localCellY,
-        cell.materialCode,
-        material.fillPalette.length
-      )
-      const color = material.fillPalette[paletteIndex]
-      let builder = builders.get(color)
-      if (!builder) {
-        builder = new TerrainGeometryBuilder()
-        builders.set(color, builder)
-      }
-      builder.addPolygon(cell.points as number[])
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+      return null
+    }
+
+    return {
+      minX: Math.floor(minX + offsetX) - padding,
+      minY: Math.floor(minY + offsetY) - padding,
+      maxX: Math.ceil(maxX + offsetX) + padding,
+      maxY: Math.ceil(maxY + offsetY) + padding,
     }
   }
 
-  private static getGridCellPoints(
-    cellX: number,
-    cellY: number,
-    cellSizeUnits: number,
-    randomSeed: number
-  ): number[] {
-    const size = Math.max(1, cellSizeUnits)
-    const half = size * 0.5
-    const baseX = cellX * size
-    const baseY = cellY * size
-    const cornerJitter = Math.max(1, Math.floor(size / 8))
-    const edgeJitter = Math.max(1, Math.floor(size / 10))
-
-    const hashOffset = (
-      s: number,
-      a: number,
-      b: number,
-      c: number,
-      span: number
-    ) => {
-      const val = mixHash(
-        mixHash(s) ^
-          Math.imul(mixHash(a), 0x9e3779b1) ^
-          Math.imul(mixHash(b), 0x85ebca6b) ^
-          Math.imul(mixHash(c), 0xc2b2ae35)
-      )
-      const max = span * 2 + 1
-      return (val % max) - span
+  private static getFlatPolygonPixelBounds(
+    points: readonly number[],
+    offsetX: number,
+    offsetY: number,
+    padding: number
+  ): TerrainPixelBounds | null {
+    if (points.length < 6) {
+      return null
     }
 
-    const tlX = baseX + hashOffset(randomSeed, cellX, cellY, 0, cornerJitter)
-    const tlY = baseY + hashOffset(randomSeed, cellX, cellY, 1, cornerJitter)
-    const trX =
-      baseX + size + hashOffset(randomSeed, cellX + 1, cellY, 0, cornerJitter)
-    const trY =
-      baseY + hashOffset(randomSeed, cellX + 1, cellY, 1, cornerJitter)
-    const brX =
-      baseX +
-      size +
-      hashOffset(randomSeed, cellX + 1, cellY + 1, 0, cornerJitter)
-    const brY =
-      baseY +
-      size +
-      hashOffset(randomSeed, cellX + 1, cellY + 1, 1, cornerJitter)
-    const blX =
-      baseX + hashOffset(randomSeed, cellX, cellY + 1, 0, cornerJitter)
-    const blY =
-      baseY + size + hashOffset(randomSeed, cellX, cellY + 1, 1, cornerJitter)
+    let minX = points[0]
+    let minY = points[1]
+    let maxX = minX
+    let maxY = minY
+    for (let index = 2; index < points.length; index += 2) {
+      const x = points[index]
+      const y = points[index + 1]
+      if (x < minX) {
+        minX = x
+      }
+      if (y < minY) {
+        minY = y
+      }
+      if (x > maxX) {
+        maxX = x
+      }
+      if (y > maxY) {
+        maxY = y
+      }
+    }
 
-    const topMidX = baseX + half
-    const topMidY = baseY + hashOffset(randomSeed, cellX, cellY, 2, edgeJitter)
-    const rightMidX =
-      baseX + size + hashOffset(randomSeed, cellX + 1, cellY, 3, edgeJitter)
-    const rightMidY = baseY + half
-    const bottomMidX = baseX + half
-    const bottomMidY =
-      baseY + size + hashOffset(randomSeed, cellX, cellY + 1, 2, edgeJitter)
-    const leftMidX = baseX + hashOffset(randomSeed, cellX, cellY, 3, edgeJitter)
-    const leftMidY = baseY + half
-
-    return [
-      tlX,
-      tlY,
-      topMidX,
-      topMidY,
-      trX,
-      trY,
-      rightMidX,
-      rightMidY,
-      brX,
-      brY,
-      bottomMidX,
-      bottomMidY,
-      blX,
-      blY,
-      leftMidX,
-      leftMidY,
-    ]
+    return {
+      minX: Math.floor(minX + offsetX) - padding,
+      minY: Math.floor(minY + offsetY) - padding,
+      maxX: Math.ceil(maxX + offsetX) + padding,
+      maxY: Math.ceil(maxY + offsetY) + padding,
+    }
   }
 
   static drawTerrain(
@@ -364,12 +462,14 @@ export class TerrainRenderer {
       return
     }
     const drawStroke = options.drawStroke === true
-    const layerPixelOffset = options.layerPixelOffset
     if (layer.version >= 4) {
       ctx.save()
-      if (layerPixelOffset) {
-        ctx.translate(layerPixelOffset.x, layerPixelOffset.y)
-      }
+      this.applyLayerBaseTranslation(
+        ctx,
+        layer,
+        cellSizeUnits,
+        options.layerPixelOffset
+      )
       this.drawSingleLayer(
         ctx,
         layer,
@@ -382,13 +482,11 @@ export class TerrainRenderer {
       return
     }
     ctx.save()
-    ctx.translate(
-      layer.offsetCellX * cellSizeUnits +
-        layer.offsetXUnits +
-        (layerPixelOffset?.x ?? 0),
-      layer.offsetCellY * cellSizeUnits +
-        layer.offsetYUnits +
-        (layerPixelOffset?.y ?? 0)
+    this.applyLayerBaseTranslation(
+      ctx,
+      layer,
+      cellSizeUnits,
+      options.layerPixelOffset
     )
     this.drawSingleLayer(
       ctx,
@@ -425,60 +523,87 @@ export class TerrainRenderer {
     const randomSeed = terrain.randomSeed | 0
     const visibleBounds = this.getVisibleCellBounds(ctx, cellSizeUnits)
     for (let chunkIndex = 0; chunkIndex < terrain.chunks.length; chunkIndex++) {
-      const chunk = terrain.chunks[chunkIndex]
-      const chunkBaseX = chunk.chunkX * chunkSize
-      const chunkBaseY = chunk.chunkY * chunkSize
-      if (
-        visibleBounds &&
-        (chunkBaseX > visibleBounds.maxCellX ||
-          chunkBaseY > visibleBounds.maxCellY ||
-          chunkBaseX + chunkSize - 1 < visibleBounds.minCellX ||
-          chunkBaseY + chunkSize - 1 < visibleBounds.minCellY)
-      ) {
-        continue
-      }
-      const cells = chunk.cells
-      const localStartX = visibleBounds
-        ? Math.max(0, visibleBounds.minCellX - chunkBaseX)
-        : 0
-      const localEndX = visibleBounds
-        ? Math.min(chunkSize - 1, visibleBounds.maxCellX - chunkBaseX)
-        : chunkSize - 1
-      const localStartY = visibleBounds
-        ? Math.max(0, visibleBounds.minCellY - chunkBaseY)
-        : 0
-      const localEndY = visibleBounds
-        ? Math.min(chunkSize - 1, visibleBounds.maxCellY - chunkBaseY)
-        : chunkSize - 1
-      for (let localY = localStartY; localY <= localEndY; localY++) {
-        const rowOffset = localY * chunkSize
-        for (let localX = localStartX; localX <= localEndX; localX++) {
-          const cellIndex = rowOffset + localX
-          const materialCode = cells[cellIndex] | 0
-          if (materialCode <= 0) {
-            continue
-          }
-          const material = getTerrainMaterialByCode(materialCode)
-          if (!material) {
-            continue
-          }
-          const cellX = chunkBaseX + localX
-          const cellY = chunkBaseY + localY
-          const paletteIndex = getTerrainPaletteIndex(
-            randomSeed,
-            cellX,
-            cellY,
-            materialCode,
-            material.fillPalette.length
-          )
-          ctx.beginPath()
-          appendTerrainCellPath(ctx, cellX, cellY, cellSizeUnits, randomSeed)
-          ctx.fillStyle = material.fillPalette[paletteIndex]
-          ctx.fill()
-          if (drawStroke) {
-            ctx.strokeStyle = material.strokeColor
-            ctx.stroke()
-          }
+      this.drawGridChunk(
+        ctx,
+        terrain as TerrainResolvedLayerView,
+        chunkIndex,
+        cellSizeUnits,
+        drawStroke,
+        visibleBounds,
+        randomSeed
+      )
+    }
+  }
+
+  private static drawGridChunk(
+    ctx: CanvasRenderingContext2D,
+    terrain: TerrainResolvedLayerView,
+    chunkIndex: number,
+    cellSizeUnits: number,
+    drawStroke: boolean,
+    visibleBounds?: TerrainVisibleCellBounds | null,
+    randomSeedValue?: number
+  ): void {
+    const chunk = terrain.chunks[chunkIndex]
+    const chunkSize = terrain.chunkSize | 0
+    if (!chunk || chunkSize <= 0) {
+      return
+    }
+    const chunkBaseX = chunk.chunkX * chunkSize
+    const chunkBaseY = chunk.chunkY * chunkSize
+    if (
+      visibleBounds &&
+      (chunkBaseX > visibleBounds.maxCellX ||
+        chunkBaseY > visibleBounds.maxCellY ||
+        chunkBaseX + chunkSize - 1 < visibleBounds.minCellX ||
+        chunkBaseY + chunkSize - 1 < visibleBounds.minCellY)
+    ) {
+      return
+    }
+
+    const cells = chunk.cells
+    const localStartX = visibleBounds
+      ? Math.max(0, visibleBounds.minCellX - chunkBaseX)
+      : 0
+    const localEndX = visibleBounds
+      ? Math.min(chunkSize - 1, visibleBounds.maxCellX - chunkBaseX)
+      : chunkSize - 1
+    const localStartY = visibleBounds
+      ? Math.max(0, visibleBounds.minCellY - chunkBaseY)
+      : 0
+    const localEndY = visibleBounds
+      ? Math.min(chunkSize - 1, visibleBounds.maxCellY - chunkBaseY)
+      : chunkSize - 1
+    const randomSeed = randomSeedValue ?? terrain.randomSeed | 0
+
+    for (let localY = localStartY; localY <= localEndY; localY++) {
+      const rowOffset = localY * chunkSize
+      for (let localX = localStartX; localX <= localEndX; localX++) {
+        const cellIndex = rowOffset + localX
+        const materialCode = cells[cellIndex] | 0
+        if (materialCode <= 0) {
+          continue
+        }
+        const material = getTerrainMaterialByCode(materialCode)
+        if (!material) {
+          continue
+        }
+        const cellX = chunkBaseX + localX
+        const cellY = chunkBaseY + localY
+        const paletteIndex = getTerrainPaletteIndex(
+          randomSeed,
+          cellX,
+          cellY,
+          materialCode,
+          material.fillPalette.length
+        )
+        ctx.beginPath()
+        appendTerrainCellPath(ctx, cellX, cellY, cellSizeUnits, randomSeed)
+        ctx.fillStyle = material.fillPalette[paletteIndex]
+        ctx.fill()
+        if (drawStroke) {
+          ctx.strokeStyle = material.strokeColor
+          ctx.stroke()
         }
       }
     }

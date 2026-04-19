@@ -30,7 +30,7 @@ interface RgbColor {
   b: number
 }
 
-interface TintedMaterialStyle {
+export interface TintedMaterialStyle {
   readonly fillPalette: readonly string[]
   readonly strokeColor: string
 }
@@ -163,7 +163,7 @@ export function createCheckpointTreeTextureSource(
   return { canvas, originX, originY }
 }
 
-function createFilledContourLayer(
+export function createFilledContourLayer(
   chunkSize: number,
   cellSize: number,
   materialCode: number,
@@ -204,7 +204,7 @@ function createFilledContourLayer(
   }
 }
 
-function drawVoronoiLayer(
+export function drawVoronoiLayer(
   ctx: CanvasRenderingContext2D,
   layer: TerrainResolvedLayerView,
   cellSize: number,
@@ -238,7 +238,7 @@ function drawVoronoiLayer(
   }
 }
 
-function createSmoothSunContourPoints(
+export function createSmoothSunContourPoints(
   centerX: number,
   centerY: number,
   coreRadius: number,
@@ -263,7 +263,7 @@ function createSmoothSunContourPoints(
   return points
 }
 
-function createTrapezoidContourPoints(
+export function createTrapezoidContourPoints(
   centerX: number,
   topY: number,
   bottomY: number,
@@ -416,4 +416,20 @@ function rgbToHex(color: RgbColor): string {
   return `#${color.r.toString(16).padStart(2, '0')}${color.g
     .toString(16)
     .padStart(2, '0')}${color.b.toString(16).padStart(2, '0')}`
+}
+
+export function createNaturalMaterialStyle(
+  materialCode: number
+): TintedMaterialStyle {
+  const material = getTerrainMaterialByCode(materialCode)
+  if (!material) {
+    return {
+      fillPalette: ['#808080', '#909090', '#707070'],
+      strokeColor: '#404040',
+    }
+  }
+  return {
+    fillPalette: material.fillPalette,
+    strokeColor: material.strokeColor,
+  }
 }

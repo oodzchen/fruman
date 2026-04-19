@@ -19,6 +19,8 @@ import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type {
   MapCharacterBodyProfile,
   MapCheckpoint,
+  MapEnvironmentObject,
+  MapEnvironmentObjectType,
   MapHookAnchor,
   MapNpcDropItem,
   MapNpcWeapon,
@@ -53,6 +55,8 @@ import type {
   CharacterBodyShapeObject,
   CheckpointMarker,
   CheckpointMarkerData,
+  EnvironmentMarker,
+  EnvironmentMarkerData,
   ExpOrbMarker,
   ExpOrbMarkerData,
   HookAnchorMarker,
@@ -110,12 +114,14 @@ export class EditorMarkerManager {
   private hookAnchorMarkers: HookAnchorMarkerData[] = []
   private sunPickupMarkers: SunPickupMarkerData[] = []
   private expOrbMarkers: ExpOrbMarkerData[] = []
+  private environmentMarkers: EnvironmentMarkerData[] = []
   private npcMarkerMap = new Map<fabric.Object, NpcMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
   private checkpointMarkerMap = new Map<fabric.Object, CheckpointMarkerData>()
   private hookAnchorMarkerMap = new Map<fabric.Object, HookAnchorMarkerData>()
   private sunPickupMarkerMap = new Map<fabric.Object, SunPickupMarkerData>()
   private expOrbMarkerMap = new Map<fabric.Object, ExpOrbMarkerData>()
+  private environmentMarkerMap = new Map<fabric.Object, EnvironmentMarkerData>()
   private bodyTextureCache = new Map<string, HTMLImageElement>()
   private pendingBodyTextureImages = new WeakSet<HTMLImageElement>()
   private tempNpcPos = { x: 0, y: 0 }
@@ -144,6 +150,8 @@ export class EditorMarkerManager {
     this.sunPickupMarkerMap.clear()
     this.expOrbMarkers.length = 0
     this.expOrbMarkerMap.clear()
+    this.environmentMarkers.length = 0
+    this.environmentMarkerMap.clear()
     this.bodyTextureCache.clear()
   }
 
@@ -381,6 +389,14 @@ export class EditorMarkerManager {
     return this.expOrbMarkerMap
   }
 
+  getEnvironmentMarkers() {
+    return this.environmentMarkers
+  }
+
+  getEnvironmentMarkerMap() {
+    return this.environmentMarkerMap
+  }
+
   getNpcMarkerMap() {
     return this.npcMarkerMap
   }
@@ -455,6 +471,15 @@ export class EditorMarkerManager {
     )
   }
 
+  isEnvironmentMarker(
+    object: fabric.Object | null
+  ): object is EnvironmentMarker {
+    return (
+      !!object &&
+      (object as EnvironmentMarker).editorShape === 'environment-marker'
+    )
+  }
+
   removePlayerMarker(marker: fabric.Object) {
     if (this.playerMarker === marker) {
       this.playerMarker = null
@@ -525,6 +550,17 @@ export class EditorMarkerManager {
         this.expOrbMarkers.splice(index, 1)
       }
       this.expOrbMarkerMap.delete(marker)
+    }
+  }
+
+  removeEnvironmentMarker(marker: fabric.Object) {
+    const data = this.environmentMarkerMap.get(marker)
+    if (data) {
+      const index = this.environmentMarkers.indexOf(data)
+      if (index !== -1) {
+        this.environmentMarkers.splice(index, 1)
+      }
+      this.environmentMarkerMap.delete(marker)
     }
   }
 
@@ -1273,6 +1309,43 @@ export class EditorMarkerManager {
     const data: ExpOrbMarkerData = { marker }
     this.expOrbMarkers.push(data)
     this.expOrbMarkerMap.set(marker, data)
+    this.finalizeMarkerSpawn(canvas, marker, options)
+  }
+
+  spawnEnvironmentMarker(
+    envType: MapEnvironmentObjectType,
+    spawn?: MapEnvironmentObject,
+    options: EditorMarkerSpawnOptions = {}
+  ) {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) return
+    const envSeed =
+      spawn?.seed ?? (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.ctx.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
+    const objectType = ('env' +
+      envType.charAt(0).toUpperCase() +
+      envType.slice(1)) as ObjectType
+    const marker = this.objectFactory.createEnvironmentMarker(
+      envType,
+      envSeed
+    ) as EnvironmentMarker
+    marker.left = centerX - marker.anchorDX
+    marker.top = centerY - marker.anchorDY
+    marker.setCoords()
+    canvas.add(marker)
+    this.ctx.registerEditorObject(objectType, marker)
+    const envData: EnvironmentMarkerData = { marker, envType, envSeed }
+    this.environmentMarkers.push(envData)
+    this.environmentMarkerMap.set(marker, envData)
     this.finalizeMarkerSpawn(canvas, marker, options)
   }
 

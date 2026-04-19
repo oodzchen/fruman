@@ -3,6 +3,7 @@ import {
   Container,
   type Graphics,
   Matrix,
+  Sprite,
   Text,
   Texture,
   TilingSprite,
@@ -20,13 +21,18 @@ import {
   CATERPILLAR_SPINE_KEY,
   CATERPILLAR_SPINE_SCALE,
 } from './constants'
-import type { EditorMapData } from './editorMapTypes'
-import { collectStaticRenderLayers } from './mapObjectLayers'
+import type { EditorMapData, MapEnvironmentObject } from './editorMapTypes'
+import {
+  buildMapObjectLayerLookup,
+  collectStaticRenderLayers,
+} from './mapObjectLayers'
 import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
+import { getDefaultTerrainRenderLayer } from './renderLayers'
 import { DayNightCycle } from './renderer/DayNightCycle'
 import { PatternCreator } from './renderer/PatternCreator'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
+import { createEnvironmentTextureSource } from './renderer/ProceduralEnvironmentFactory'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
 import {
   acquireSpine,
@@ -37,7 +43,11 @@ import {
 import type { SaveData } from './saveTypes'
 import { buildSpineCollisionKeyframes } from './spineCollisionKeyframes'
 import { getDefaultMap } from './storage'
-import { hasTerrainContent } from './terrain/TerrainDataUtils'
+import {
+  getTerrainLayerViews,
+  hasTerrainContent,
+} from './terrain/TerrainDataUtils'
+import type { TerrainResolvedLayerView } from './terrain/TerrainDataUtils'
 import { TerrainRenderer } from './terrain/TerrainRenderer'
 import type { TerrainDataLike, TerrainLayerLike } from './terrain/TerrainTypes'
 import GameWorker from './worker/gameWorker?worker'
@@ -45,6 +55,7 @@ import type {
   CameraDebugData,
   MainToWorkerMessage,
   WorkerInputMessage,
+  WorkerPerfSnapshotMessage,
   WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
   WorkerSpineCollisionDataMessage,
@@ -56,12 +67,28 @@ interface PixiApplicationInitResult {
   rendererLabel: 'webgpu' | 'webgl' | 'canvas'
 }
 
+interface EnvironmentTextureEntry {
+  texture: Texture
+  anchorX: number
+  anchorY: number
+}
+
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
   private static readonly PREVIEW_CAPTURE_MIN_RENDER_FRAMES = 6
   private static readonly PREVIEW_CAPTURE_STABLE_FRAMES = 3
   private static readonly PREVIEW_CAPTURE_MAX_RENDER_FRAMES = 24
   private static readonly DEFAULT_PIXELS_PER_METER = 50
+  private static readonly PERF_DEBUG_QUERY_PARAM = 'perf'
+  private static readonly STATIC_SCENE_BUILD_BUDGET_MS = 2
+  private static readonly PERF_LOG_HEARTBEAT_WINDOWS = 12
+  private static readonly PERF_LOG_FRAME_WARN_US = 18000
+  private static readonly PERF_LOG_FRAME_MAX_WARN_US = 30000
+  private static readonly PERF_LOG_FRAME_SPIKE_GUARD_US = 6000
+  private static readonly PERF_LOG_WORLD_WARN_US = 12000
+  private static readonly PERF_LOG_WORKER_WARN_US = 12000
+  private static readonly PERF_LOG_SYSTEM_WARN_US = 4000
+  private static readonly PERF_LOG_STATIC_BUILD_WARN_US = 3000
   private worker: Worker
   private app: Application
   private appCanvas: HTMLCanvasElement
@@ -76,8 +103,25 @@ export class GameClient {
   private worldRenderContext: PixiRenderContext2D
   private hudRenderContext: PixiRenderContext2D
   private staticTerrainGraphics: Container[] = []
+  private staticEnvironmentSprites: Sprite[] = []
   private staticTerrainSignature = 0
+  private staticEnvironmentSignature = 0
   private staticTerrainReady = false
+  private staticEnvironmentReady = false
+  private pendingStaticTerrainSignature = 0
+  private pendingStaticTerrainLayers: TerrainResolvedLayerView[] | null = null
+  private pendingStaticTerrainLayerIndex = 0
+  private pendingStaticTerrainChunkIndex = 0
+  private pendingStaticTerrainTaskIndex = 0
+  private pendingStaticTerrainTaskTotal = 0
+  private pendingStaticEnvironmentSignature = 0
+  private pendingStaticEnvironmentObjects: MapEnvironmentObject[] | null = null
+  private pendingStaticEnvironmentLayers: number[] | null = null
+  private pendingStaticEnvironmentIndex = 0
+  private readonly environmentTextureCache = new Map<
+    string,
+    EnvironmentTextureEntry
+  >()
   private readonly reusableDOMMatrix = new DOMMatrix()
   private readonly reusablePixiMatrix = new Matrix()
   private worldRenderer: PixiWorldRenderer
@@ -91,6 +135,7 @@ export class GameClient {
 
   private camera = { x: 0, y: 0 }
   private rendererLabel: 'webgpu' | 'webgl' | 'canvas'
+  private readonly perfDebugEnabled: boolean
   private renderFps = 0
   private fpsText = '0 FPS'
   private lastDeltaTime = 0
@@ -111,13 +156,39 @@ export class GameClient {
   private perfWorldAvgUs = 0
   private perfHudAvgUs = 0
   private perfMenuAvgUs = 0
+  private perfStateSyncTotalUs = 0
+  private perfStateSyncAvgUs = 0
+  private perfEffectsApplyTotalUs = 0
+  private perfEffectsApplyAvgUs = 0
+  private perfStaticBuildTotalUs = 0
+  private perfStaticBuildAvgUs = 0
+  private perfStaticBuildMaxUs = 0
+  private perfStaticBuildCount = 0
+  private perfTerrainBuildTotalUs = 0
+  private perfTerrainBuildAvgUs = 0
+  private perfTerrainBuildMaxUs = 0
+  private perfTerrainBuildCount = 0
+  private perfEnvironmentBuildTotalUs = 0
+  private perfEnvironmentBuildAvgUs = 0
+  private perfEnvironmentBuildMaxUs = 0
+  private perfEnvironmentBuildCount = 0
+  private perfEnvironmentCacheHits = 0
+  private perfEnvironmentCacheMisses = 0
   private lastRenderTimeUs = 0
   private lastWorldRenderTimeUs = 0
   private lastHudRenderTimeUs = 0
   private lastMenuRenderTimeUs = 0
   private lastPlayerUITimeUs = 0
+  private lastStateSyncTimeUs = 0
+  private lastEffectsApplyTimeUs = 0
+  private lastStaticBuildTimeUs = 0
+  private lastTerrainBuildTimeUs = 0
+  private lastEnvironmentBuildTimeUs = 0
   private renderFrameRevision = 0
   private workerStateRevision = 0
+  private workerPerfSnapshot: WorkerPerfSnapshotMessage | null = null
+  private perfLogWindowsSinceEmit = 0
+  private perfLastStaticQueueActive = false
 
   private hasReceivedFirstState = false
   private isFirstFrameRendered = false
@@ -305,6 +376,14 @@ export class GameClient {
       : new Error('Failed to initialize Pixi renderer')
   }
 
+  private static readPerfDebugFlag(): boolean {
+    return (
+      new URLSearchParams(window.location.search).get(
+        GameClient.PERF_DEBUG_QUERY_PARAM
+      ) === '1'
+    )
+  }
+
   private constructor(
     app: Application,
     rendererLabel: 'webgpu' | 'webgl' | 'canvas',
@@ -316,6 +395,7 @@ export class GameClient {
     this.app = app
     this.appCanvas = app.canvas as HTMLCanvasElement
     this.rendererLabel = rendererLabel
+    this.perfDebugEnabled = GameClient.readPerfDebugFlag()
 
     const width = app.renderer.width
     const height = app.renderer.height
@@ -363,7 +443,7 @@ export class GameClient {
 
     // FPS text
     this.fpsTextEl = new Text({
-      text: '0 FPS',
+      text: this.fpsText,
       style: {
         fontFamily: 'monospace',
         fontSize: 14,
@@ -587,18 +667,28 @@ export class GameClient {
   private handleWorkerMessage(e: MessageEvent<WorkerToMainMessage>) {
     const msg = e.data
     if (msg.type === 'state') {
+      const stateSyncStartMs = performance.now()
       this.workerStateRevision++
       this.renderer.updateState(
         msg.entitiesBuffer,
         msg.entityCount,
         msg.ropePointCount
       )
+      this.lastStateSyncTimeUs = Math.round(
+        (performance.now() - stateSyncStartMs) * 1000
+      )
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
       this.renderZoom = msg.zoom
       this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
       if (!this.editorPreview) {
+        const effectsStartMs = performance.now()
         this.renderer.applyEffects(msg.entitiesBuffer, msg.effectsCount)
+        this.lastEffectsApplyTimeUs = Math.round(
+          (performance.now() - effectsStartMs) * 1000
+        )
+      } else {
+        this.lastEffectsApplyTimeUs = 0
       }
       this.releaseStateBuffer(msg.entitiesBuffer)
       this.hasReceivedFirstState = true
@@ -622,6 +712,15 @@ export class GameClient {
         this.cameraDebug.enabled = true
       } else {
         this.cameraDebug.enabled = false
+      }
+    } else if (msg.type === 'perf_snapshot') {
+      this.workerPerfSnapshot = msg
+    } else if (msg.type === 'perf_log') {
+      if (this.perfDebugEnabled) {
+        console.info(
+          msg.scope === 'worker' ? '[Perf][Worker]' : '[Perf][Main]',
+          msg.message
+        )
       }
     } else if (msg.type === 'map_data') {
       this.currentMapData = msg.map
@@ -1152,7 +1251,11 @@ export class GameClient {
       updateTimeUs = Math.round((performance.now() - updateStartMs) * 1000)
     }
     this.updateStartMenuFlow(deltaMs | 0)
+    this.pumpStaticSceneBuild()
     this.render(deltaMs | 0)
+    if (!this.editorPreview) {
+      this.worldRenderer.commitPerfWindow(shouldRefreshPerfText)
+    }
     this.renderFrameRevision++
     this.updatePreviewCaptureState()
 
@@ -1277,6 +1380,10 @@ export class GameClient {
     this.perfWorldTimeTotalUs += this.lastWorldRenderTimeUs
     this.perfHudTimeTotalUs += this.lastHudRenderTimeUs
     this.perfMenuTimeTotalUs += this.lastMenuRenderTimeUs
+    this.perfStateSyncTotalUs += this.lastStateSyncTimeUs
+    this.perfEffectsApplyTotalUs += this.lastEffectsApplyTimeUs
+    this.lastStateSyncTimeUs = 0
+    this.lastEffectsApplyTimeUs = 0
     if (frameTimeUs > this.perfFrameTimeMaxUs) {
       this.perfFrameTimeMaxUs = frameTimeUs
     }
@@ -1293,6 +1400,29 @@ export class GameClient {
     this.perfWorldAvgUs = Math.round(this.perfWorldTimeTotalUs / sampleCount)
     this.perfHudAvgUs = Math.round(this.perfHudTimeTotalUs / sampleCount)
     this.perfMenuAvgUs = Math.round(this.perfMenuTimeTotalUs / sampleCount)
+    this.perfStateSyncAvgUs = Math.round(
+      this.perfStateSyncTotalUs / sampleCount
+    )
+    this.perfEffectsApplyAvgUs = Math.round(
+      this.perfEffectsApplyTotalUs / sampleCount
+    )
+    this.perfStaticBuildAvgUs =
+      this.perfStaticBuildCount > 0
+        ? Math.round(this.perfStaticBuildTotalUs / this.perfStaticBuildCount)
+        : 0
+    this.perfTerrainBuildAvgUs =
+      this.perfTerrainBuildCount > 0
+        ? Math.round(this.perfTerrainBuildTotalUs / this.perfTerrainBuildCount)
+        : 0
+    this.perfEnvironmentBuildAvgUs =
+      this.perfEnvironmentBuildCount > 0
+        ? Math.round(
+            this.perfEnvironmentBuildTotalUs / this.perfEnvironmentBuildCount
+          )
+        : 0
+    if (this.perfDebugEnabled) {
+      this.maybeEmitPerfLogs()
+    }
     this.fpsText = this.buildDebugOverlayText()
 
     this.perfSampleCount = 0
@@ -1303,17 +1433,206 @@ export class GameClient {
     this.perfWorldTimeTotalUs = 0
     this.perfHudTimeTotalUs = 0
     this.perfMenuTimeTotalUs = 0
+    this.perfStateSyncTotalUs = 0
+    this.perfEffectsApplyTotalUs = 0
+    this.perfStaticBuildTotalUs = 0
+    this.perfStaticBuildMaxUs = 0
+    this.perfStaticBuildCount = 0
+    this.perfTerrainBuildTotalUs = 0
+    this.perfTerrainBuildMaxUs = 0
+    this.perfTerrainBuildCount = 0
+    this.perfEnvironmentBuildTotalUs = 0
+    this.perfEnvironmentBuildMaxUs = 0
+    this.perfEnvironmentBuildCount = 0
+    this.perfEnvironmentCacheHits = 0
+    this.perfEnvironmentCacheMisses = 0
   }
 
   private buildDebugOverlayText(): string {
-    return [
-      `${this.renderFps} FPS`,
-      `frame avg ${this.formatUsAsMs(this.perfFrameAvgUs)}  max ${this.formatUsAsMs(this.perfFrameMaxUs)}`,
-      `update ${this.formatUsAsMs(this.perfUpdateAvgUs)}  render ${this.formatUsAsMs(this.perfRenderAvgUs)}`,
-      `world ${this.formatUsAsMs(this.perfWorldAvgUs)}  hud ${this.formatUsAsMs(this.perfHudAvgUs)}  menu ${this.formatUsAsMs(this.perfMenuAvgUs)}`,
-      `renderer ${this.rendererLabel}  ent ${this.renderer.getEntityCount()}  ptc ${this.renderer.getActiveParticleCount()}`,
-      `views ${this.worldRenderer.getEntityViewCount()}  pSprites ${this.worldRenderer.getParticleSpriteCount()}  wTex ${this.worldRenderer.getWeaponTextureCacheSize()}`,
-    ].join('\n')
+    if (!this.perfDebugEnabled) {
+      return `${this.renderFps} FPS`
+    }
+    const workerSummary = this.workerPerfSnapshot
+      ? `worker ${this.formatUsAsMs(this.workerPerfSnapshot.updateAvgUs)}`
+      : 'worker --.-ms'
+    const lines = [
+      `${this.renderFps} FPS  frame ${this.formatUsAsMs(this.perfFrameAvgUs)} max ${this.formatUsAsMs(this.perfFrameMaxUs)}`,
+      `main upd ${this.formatUsAsMs(this.perfUpdateAvgUs)}  world ${this.formatUsAsMs(this.perfWorldAvgUs)}  render ${this.formatUsAsMs(this.perfRenderAvgUs)}  ${workerSummary}`,
+      `ent ${this.renderer.getEntityCount()} vis ${this.worldRenderer.getVisibleEntityCount()} ptc ${this.renderer.getActiveParticleCount()} spine ${this.worldRenderer.getActiveSpineCount()} static t ${this.pendingStaticTerrainTaskIndex}/${this.pendingStaticTerrainTaskTotal} e ${this.pendingStaticEnvironmentIndex}/${this.pendingStaticEnvironmentObjects?.length ?? 0}`,
+    ]
+    if (this.workerPerfSnapshot) {
+      lines.push(this.buildWorkerPerfOverlayLine(this.workerPerfSnapshot))
+    }
+    return lines.join('\n')
+  }
+
+  private buildWorkerPerfOverlayLine(
+    snapshot: WorkerPerfSnapshotMessage
+  ): string {
+    let bestIndex = -1
+    for (let i = 0; i < snapshot.systemAvgUs.length; i++) {
+      if (
+        bestIndex === -1 ||
+        (snapshot.systemAvgUs[i] | 0) > (snapshot.systemAvgUs[bestIndex] | 0)
+      ) {
+        bestIndex = i
+      }
+    }
+    if (bestIndex < 0) {
+      return `worker fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)}  sys n/a`
+    }
+    return `worker fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)}  sys ${snapshot.systemNames[bestIndex]} ${this.formatUsAsMs(snapshot.systemAvgUs[bestIndex] | 0)}`
+  }
+
+  private buildWorkerPerfLine(snapshot: WorkerPerfSnapshotMessage): string {
+    return `worker upd ${this.formatUsAsMs(snapshot.updateAvgUs)} max ${this.formatUsAsMs(snapshot.updateMaxUs)}  fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)} x${(snapshot.fixedStepsAvg100 / 100).toFixed(2)}  world ${this.formatUsAsMs(snapshot.worldUpdateAvgUs)}  send ${this.formatUsAsMs(snapshot.sendStateAvgUs)}`
+  }
+
+  private buildWorkerSystemPerfLine(
+    snapshot: WorkerPerfSnapshotMessage
+  ): string {
+    let bestAIndex = -1
+    let bestBIndex = -1
+    let bestCIndex = -1
+    for (let i = 0; i < snapshot.systemAvgUs.length; i++) {
+      const value = snapshot.systemAvgUs[i] | 0
+      if (bestAIndex === -1 || value > (snapshot.systemAvgUs[bestAIndex] | 0)) {
+        bestCIndex = bestBIndex
+        bestBIndex = bestAIndex
+        bestAIndex = i
+      } else if (
+        bestBIndex === -1 ||
+        value > (snapshot.systemAvgUs[bestBIndex] | 0)
+      ) {
+        bestCIndex = bestBIndex
+        bestBIndex = i
+      } else if (
+        bestCIndex === -1 ||
+        value > (snapshot.systemAvgUs[bestCIndex] | 0)
+      ) {
+        bestCIndex = i
+      }
+    }
+    const topA =
+      bestAIndex >= 0
+        ? `${snapshot.systemNames[bestAIndex]} ${this.formatUsAsMs(snapshot.systemAvgUs[bestAIndex] | 0)}`
+        : 'n/a'
+    const topB =
+      bestBIndex >= 0
+        ? `${snapshot.systemNames[bestBIndex]} ${this.formatUsAsMs(snapshot.systemAvgUs[bestBIndex] | 0)}`
+        : 'n/a'
+    const topC =
+      bestCIndex >= 0
+        ? `${snapshot.systemNames[bestCIndex]} ${this.formatUsAsMs(snapshot.systemAvgUs[bestCIndex] | 0)}`
+        : 'n/a'
+    return `worker sys ${topA}  ${topB}  ${topC}  hash ${this.formatUsAsMs(snapshot.spatialHashAvgUs)}  clean ${this.formatUsAsMs(snapshot.cleanupAvgUs)}`
+  }
+
+  private maybeEmitPerfLogs(): void {
+    this.perfLogWindowsSinceEmit++
+    const terrainQueueTotal = this.pendingStaticTerrainTaskTotal
+    const terrainQueueIndex = this.pendingStaticTerrainTaskIndex
+    const terrainQueueActive =
+      terrainQueueTotal > 0 && terrainQueueIndex < terrainQueueTotal
+    const environmentQueueTotal =
+      this.pendingStaticEnvironmentObjects?.length ?? 0
+    const environmentQueueIndex = this.pendingStaticEnvironmentIndex
+    const environmentQueueActive =
+      environmentQueueTotal > 0 && environmentQueueIndex < environmentQueueTotal
+    const queueActive = terrainQueueActive || environmentQueueActive
+    const queueStarted = queueActive && !this.perfLastStaticQueueActive
+    const queueFinished = !queueActive && this.perfLastStaticQueueActive
+    this.perfLastStaticQueueActive = queueActive
+
+    const workerSnapshot = this.workerPerfSnapshot
+    const workerTopSystemUs = this.getWorkerTopSystemAvgUs(workerSnapshot)
+    const frameSpikeSlow =
+      this.perfFrameMaxUs >= GameClient.PERF_LOG_FRAME_MAX_WARN_US &&
+      (this.perfFrameAvgUs >= GameClient.PERF_LOG_FRAME_SPIKE_GUARD_US ||
+        this.perfRenderAvgUs >= GameClient.PERF_LOG_FRAME_SPIKE_GUARD_US ||
+        this.perfWorldAvgUs >= GameClient.PERF_LOG_FRAME_SPIKE_GUARD_US ||
+        this.perfUpdateAvgUs >= GameClient.PERF_LOG_FRAME_SPIKE_GUARD_US)
+    const mainSlow =
+      this.perfFrameAvgUs >= GameClient.PERF_LOG_FRAME_WARN_US ||
+      frameSpikeSlow ||
+      this.perfWorldAvgUs >= GameClient.PERF_LOG_WORLD_WARN_US
+    const workerSlow =
+      !!workerSnapshot &&
+      (workerSnapshot.updateAvgUs >= GameClient.PERF_LOG_WORKER_WARN_US ||
+        workerSnapshot.worldUpdateAvgUs >= GameClient.PERF_LOG_WORLD_WARN_US ||
+        workerTopSystemUs >= GameClient.PERF_LOG_SYSTEM_WARN_US)
+    const staticHeavy =
+      (this.perfStaticBuildCount > 0 &&
+        this.perfStaticBuildMaxUs >=
+          GameClient.PERF_LOG_STATIC_BUILD_WARN_US) ||
+      (this.perfTerrainBuildCount > 0 &&
+        this.perfTerrainBuildMaxUs >=
+          GameClient.PERF_LOG_STATIC_BUILD_WARN_US) ||
+      (this.perfEnvironmentBuildCount > 0 &&
+        this.perfEnvironmentBuildMaxUs >=
+          GameClient.PERF_LOG_STATIC_BUILD_WARN_US)
+    const shouldEmit =
+      queueStarted ||
+      queueFinished ||
+      staticHeavy ||
+      mainSlow ||
+      workerSlow ||
+      (this.perfLogWindowsSinceEmit >= GameClient.PERF_LOG_HEARTBEAT_WINDOWS &&
+        (queueActive || mainSlow || workerSlow))
+
+    if (!shouldEmit) {
+      return
+    }
+
+    const reason = queueStarted
+      ? 'queue-start'
+      : queueFinished
+        ? 'queue-finish'
+        : staticHeavy
+          ? 'static-heavy'
+          : mainSlow
+            ? 'main-slow'
+            : workerSlow
+              ? 'worker-slow'
+              : 'heartbeat'
+    const mainSummary =
+      `reason=${reason} ` +
+      `frame=${this.formatUsAsMs(this.perfFrameAvgUs)}/${this.formatUsAsMs(this.perfFrameMaxUs)} ` +
+      `main=${this.formatUsAsMs(this.perfUpdateAvgUs)} world=${this.formatUsAsMs(this.perfWorldAvgUs)} render=${this.formatUsAsMs(this.perfRenderAvgUs)} ` +
+      `state=${this.formatUsAsMs(this.perfStateSyncAvgUs)} fx=${this.formatUsAsMs(this.perfEffectsApplyAvgUs)} ` +
+      `static=${this.formatUsAsMs(this.perfStaticBuildAvgUs)}/${this.formatUsAsMs(this.perfStaticBuildMaxUs)} ` +
+      `terrain=${this.formatUsAsMs(this.perfTerrainBuildAvgUs)} env=${this.formatUsAsMs(this.perfEnvironmentBuildAvgUs)} ` +
+      `queue=t${terrainQueueIndex}/${terrainQueueTotal} e${environmentQueueIndex}/${environmentQueueTotal} envCache=${this.perfEnvironmentCacheHits}/${this.perfEnvironmentCacheMisses} ` +
+      `ent=${this.renderer.getEntityCount()} vis=${this.worldRenderer.getVisibleEntityCount()} ptc=${this.renderer.getActiveParticleCount()} spine=${this.worldRenderer.getActiveSpineCount()}`
+    console.info('[Perf]', mainSummary)
+
+    if (
+      workerSnapshot &&
+      (workerSlow || queueStarted || queueFinished || staticHeavy)
+    ) {
+      console.info(
+        '[Perf]',
+        `${this.buildWorkerPerfLine(workerSnapshot)} | ${this.buildWorkerSystemPerfLine(workerSnapshot)}`
+      )
+    }
+
+    this.perfLogWindowsSinceEmit = 0
+  }
+
+  private getWorkerTopSystemAvgUs(
+    snapshot: WorkerPerfSnapshotMessage | null
+  ): number {
+    if (!snapshot || snapshot.systemAvgUs.length === 0) {
+      return 0
+    }
+    let best = 0
+    for (let i = 0; i < snapshot.systemAvgUs.length; i++) {
+      const value = snapshot.systemAvgUs[i] | 0
+      if (value > best) {
+        best = value
+      }
+    }
+    return best
   }
 
   private formatUsAsMs(timeUs: number): string {
@@ -1801,43 +2120,126 @@ export class GameClient {
   }
 
   private rebuildStaticScene(): void {
-    this.destroyStaticGraphics(this.staticTerrainGraphics)
-    this.staticTerrainGraphics.length = 0
-    this.staticTerrainReady = false
-
+    const staticBuildStartMs = performance.now()
     const mapData = this.currentMapData
     if (!mapData) {
+      this.worldRenderer.invalidateStaticMeshCaches()
+      this.destroyStaticGraphics(this.staticTerrainGraphics)
+      this.staticTerrainGraphics.length = 0
+      this.destroyStaticEnvironmentSprites()
+      this.clearPendingStaticTerrainBuild()
+      this.clearPendingStaticEnvironmentBuild()
       this.staticTerrainSignature = 0
+      this.staticEnvironmentSignature = 0
+      this.staticTerrainReady = false
+      this.staticEnvironmentReady = false
+      this.recordStaticBuildTime(staticBuildStartMs)
       return
     }
 
     const terrain = mapData.terrain
-    if (terrain && hasTerrainContent(terrain)) {
-      this.staticTerrainGraphics = TerrainRenderer.createPixiTerrainGraphics(
-        terrain,
-        terrain.cellSize * this.pixelsPerMeter,
-        { drawStroke: true }
-      )
-      for (let i = 0; i < this.staticTerrainGraphics.length; i++) {
-        const mesh = this.staticTerrainGraphics[i]
-        // zIndex = resolvedLayer * 10，路由到 PixiWorldRenderer 对应 bucket（含视差和亮度）
-        const resolvedLayer = (mesh.zIndex / 10) | 0
-        this.worldRenderer.addStaticMesh(mesh, resolvedLayer)
+    const nextTerrainSignature = this.computeTerrainRenderSignature(terrain)
+    if (
+      !this.staticTerrainReady ||
+      this.staticTerrainSignature !== nextTerrainSignature
+    ) {
+      this.worldRenderer.invalidateStaticMeshCaches()
+      this.destroyStaticGraphics(this.staticTerrainGraphics)
+      this.staticTerrainGraphics.length = 0
+      this.clearPendingStaticTerrainBuild()
+      if (terrain && hasTerrainContent(terrain)) {
+        this.preparePendingStaticTerrainBuild(terrain, nextTerrainSignature)
+      } else {
+        this.staticTerrainSignature = nextTerrainSignature
+        this.staticTerrainReady = true
       }
     }
-    this.staticTerrainSignature = this.computeTerrainRenderSignature(terrain)
-    this.staticTerrainReady = true
+
+    const envObjects = mapData.environmentObjects
+    const nextEnvSignature = this.computeEnvironmentRenderSignature(envObjects)
+    if (
+      !this.staticEnvironmentReady ||
+      this.staticEnvironmentSignature !== nextEnvSignature
+    ) {
+      this.worldRenderer.invalidateStaticMeshCaches()
+      this.destroyStaticEnvironmentSprites()
+      this.clearPendingStaticEnvironmentBuild()
+
+      if (envObjects && envObjects.length > 0) {
+        const layerLookup = buildMapObjectLayerLookup(mapData)
+        this.pendingStaticEnvironmentObjects = envObjects
+        this.pendingStaticEnvironmentLayers =
+          layerLookup.environmentObjectLayers
+        this.pendingStaticEnvironmentIndex = 0
+        this.pendingStaticEnvironmentSignature = nextEnvSignature
+        this.staticEnvironmentReady = false
+      } else {
+        this.staticEnvironmentSignature = nextEnvSignature
+        this.staticEnvironmentReady = true
+      }
+    }
+
+    this.finalizeStaticSceneCaches()
+    this.recordStaticBuildTime(staticBuildStartMs)
   }
 
   private syncStaticScene(map: EditorMapData | null): void {
-    const nextSignature = this.computeTerrainRenderSignature(map?.terrain)
+    const nextTerrainSignature = this.computeTerrainRenderSignature(
+      map?.terrain
+    )
+    const nextEnvSignature = this.computeEnvironmentRenderSignature(
+      map?.environmentObjects
+    )
     if (
-      this.staticTerrainReady &&
-      this.staticTerrainSignature === nextSignature
+      ((this.staticTerrainReady &&
+        this.staticTerrainSignature === nextTerrainSignature) ||
+        (!this.staticTerrainReady &&
+          this.pendingStaticTerrainSignature === nextTerrainSignature)) &&
+      ((this.staticEnvironmentReady &&
+        this.staticEnvironmentSignature === nextEnvSignature) ||
+        (!this.staticEnvironmentReady &&
+          this.pendingStaticEnvironmentSignature === nextEnvSignature))
     ) {
       return
     }
     this.rebuildStaticScene()
+  }
+
+  private finalizeStaticSceneCaches(): void {
+    if (!this.staticTerrainReady || !this.staticEnvironmentReady) {
+      return
+    }
+    this.worldRenderer.refreshStaticMeshCaches()
+  }
+
+  private recordStaticBuildTime(startMs: number): void {
+    const elapsedUs = Math.round((performance.now() - startMs) * 1000)
+    this.lastStaticBuildTimeUs = elapsedUs
+    this.perfStaticBuildTotalUs += elapsedUs
+    this.perfStaticBuildCount++
+    if (elapsedUs > this.perfStaticBuildMaxUs) {
+      this.perfStaticBuildMaxUs = elapsedUs
+    }
+  }
+
+  private recordTerrainBuildTime(startMs: number): void {
+    const elapsedUs = Math.round((performance.now() - startMs) * 1000)
+    this.lastTerrainBuildTimeUs = elapsedUs
+    this.perfTerrainBuildTotalUs += elapsedUs
+    this.perfTerrainBuildCount++
+    if (elapsedUs > this.perfTerrainBuildMaxUs) {
+      this.perfTerrainBuildMaxUs = elapsedUs
+    }
+  }
+
+  private recordEnvironmentBuildTime(startMs: number): void {
+    const elapsedUs = Math.round((performance.now() - startMs) * 1000)
+    this.lastEnvironmentBuildTimeUs = elapsedUs
+    this.perfEnvironmentBuildTotalUs += elapsedUs
+    this.perfEnvironmentBuildCount++
+    if (elapsedUs > this.perfEnvironmentBuildMaxUs) {
+      this.perfEnvironmentBuildMaxUs = elapsedUs
+    }
   }
 
   private destroyStaticGraphics(list: Container[]): void {
@@ -1846,8 +2248,232 @@ export class GameClient {
       if (graphics.parent) {
         graphics.parent.removeChild(graphics)
       }
+      if (graphics instanceof Sprite) {
+        const texture = graphics.texture
+        graphics.destroy()
+        if (texture !== Texture.EMPTY && texture !== Texture.WHITE) {
+          texture.destroy(true)
+        }
+        continue
+      }
       graphics.destroy()
     }
+  }
+
+  private destroyStaticEnvironmentSprites(): void {
+    for (let i = 0; i < this.staticEnvironmentSprites.length; i++) {
+      const sprite = this.staticEnvironmentSprites[i]
+      if (sprite.parent) {
+        sprite.parent.removeChild(sprite)
+      }
+      sprite.destroy()
+    }
+    this.staticEnvironmentSprites.length = 0
+  }
+
+  private preparePendingStaticTerrainBuild(
+    terrain: TerrainDataLike,
+    nextTerrainSignature: number
+  ): void {
+    const layers = getTerrainLayerViews(terrain)
+    if (layers.length <= 0) {
+      this.staticTerrainSignature = nextTerrainSignature
+      this.staticTerrainReady = true
+      return
+    }
+
+    let taskTotal = 0
+    for (let i = 0; i < layers.length; i++) {
+      taskTotal += layers[i].version >= 4 ? 1 : layers[i].chunks.length
+    }
+    if (taskTotal <= 0) {
+      this.staticTerrainSignature = nextTerrainSignature
+      this.staticTerrainReady = true
+      return
+    }
+
+    this.pendingStaticTerrainSignature = nextTerrainSignature
+    this.pendingStaticTerrainLayers = layers
+    this.pendingStaticTerrainLayerIndex = 0
+    this.pendingStaticTerrainChunkIndex = 0
+    this.pendingStaticTerrainTaskIndex = 0
+    this.pendingStaticTerrainTaskTotal = taskTotal
+    this.staticTerrainReady = false
+  }
+
+  private clearPendingStaticTerrainBuild(): void {
+    this.pendingStaticTerrainSignature = 0
+    this.pendingStaticTerrainLayers = null
+    this.pendingStaticTerrainLayerIndex = 0
+    this.pendingStaticTerrainChunkIndex = 0
+    this.pendingStaticTerrainTaskIndex = 0
+    this.pendingStaticTerrainTaskTotal = 0
+  }
+
+  private clearPendingStaticEnvironmentBuild(): void {
+    this.pendingStaticEnvironmentSignature = 0
+    this.pendingStaticEnvironmentObjects = null
+    this.pendingStaticEnvironmentLayers = null
+    this.pendingStaticEnvironmentIndex = 0
+  }
+
+  private pumpStaticSceneBuild(): void {
+    const deadline = performance.now() + GameClient.STATIC_SCENE_BUILD_BUDGET_MS
+    this.pumpStaticTerrainBuild(deadline)
+    if (performance.now() >= deadline) {
+      return
+    }
+    this.pumpStaticEnvironmentBuild(deadline)
+  }
+
+  private pumpStaticTerrainBuild(deadlineMs: number): void {
+    const layers = this.pendingStaticTerrainLayers
+    if (!layers || layers.length === 0) {
+      return
+    }
+
+    while (this.pendingStaticTerrainLayerIndex < layers.length) {
+      const layer = layers[this.pendingStaticTerrainLayerIndex]
+      const resolvedLayer = this.resolveStaticTerrainRenderLayer(layer)
+      const terrainBuildStartMs = performance.now()
+      let sprite: Sprite | null
+      if (layer.version >= 4) {
+        sprite = TerrainRenderer.createPixiTerrainLayerGraphic(
+          layer,
+          layer.cellSize * this.pixelsPerMeter,
+          { drawStroke: true }
+        )
+        this.pendingStaticTerrainLayerIndex++
+      } else {
+        sprite = TerrainRenderer.createPixiTerrainChunkGraphic(
+          layer,
+          this.pendingStaticTerrainChunkIndex,
+          layer.cellSize * this.pixelsPerMeter,
+          { drawStroke: true }
+        )
+        this.pendingStaticTerrainChunkIndex++
+        if (this.pendingStaticTerrainChunkIndex >= layer.chunks.length) {
+          this.pendingStaticTerrainChunkIndex = 0
+          this.pendingStaticTerrainLayerIndex++
+        }
+      }
+
+      if (sprite) {
+        sprite.zIndex = resolvedLayer * 10
+        this.worldRenderer.addStaticMesh(sprite, resolvedLayer)
+        this.staticTerrainGraphics.push(sprite)
+      }
+      this.pendingStaticTerrainTaskIndex++
+      this.recordTerrainBuildTime(terrainBuildStartMs)
+      if (
+        this.pendingStaticTerrainLayerIndex < layers.length &&
+        performance.now() >= deadlineMs
+      ) {
+        return
+      }
+    }
+
+    this.staticTerrainSignature = this.pendingStaticTerrainSignature
+    this.staticTerrainReady = true
+    this.clearPendingStaticTerrainBuild()
+    this.finalizeStaticSceneCaches()
+  }
+
+  private pumpStaticEnvironmentBuild(deadlineMs: number): void {
+    const envObjects = this.pendingStaticEnvironmentObjects
+    if (!envObjects || envObjects.length === 0) {
+      return
+    }
+
+    const envLayers = this.pendingStaticEnvironmentLayers
+    const ppm = this.pixelsPerMeter
+
+    while (this.pendingStaticEnvironmentIndex < envObjects.length) {
+      const index = this.pendingStaticEnvironmentIndex
+      const obj = envObjects[index]
+      const envBuildStartMs = performance.now()
+      const textureEntry = this.getEnvironmentTextureEntry(
+        obj.type,
+        obj.seed,
+        ppm
+      )
+      const sprite = new Sprite(textureEntry.texture)
+      sprite.anchor.set(textureEntry.anchorX, textureEntry.anchorY)
+      sprite.x = obj.x * ppm
+      sprite.y = obj.y * ppm
+      this.worldRenderer.addStaticMesh(sprite, envLayers?.[index] ?? 0)
+      this.staticEnvironmentSprites.push(sprite)
+      this.pendingStaticEnvironmentIndex = index + 1
+      this.recordEnvironmentBuildTime(envBuildStartMs)
+      if (
+        this.pendingStaticEnvironmentIndex < envObjects.length &&
+        performance.now() >= deadlineMs
+      ) {
+        return
+      }
+    }
+
+    this.staticEnvironmentSignature = this.pendingStaticEnvironmentSignature
+    this.staticEnvironmentReady = true
+    this.clearPendingStaticEnvironmentBuild()
+    this.finalizeStaticSceneCaches()
+  }
+
+  private resolveStaticTerrainRenderLayer(
+    layer: TerrainResolvedLayerView
+  ): number {
+    return layer.renderLayer !== undefined
+      ? layer.renderLayer
+      : layer.materialId
+        ? getDefaultTerrainRenderLayer(layer.materialId)
+        : 0
+  }
+
+  private getEnvironmentTextureEntry(
+    type: MapEnvironmentObject['type'],
+    seed: number,
+    ppm: number
+  ): EnvironmentTextureEntry {
+    const key = `${type}_${seed}_${ppm}`
+    const cached = this.environmentTextureCache.get(key)
+    if (cached) {
+      this.perfEnvironmentCacheHits++
+      return cached
+    }
+
+    this.perfEnvironmentCacheMisses++
+    const source = createEnvironmentTextureSource(type, seed, ppm)
+    const entry: EnvironmentTextureEntry = {
+      texture: Texture.from(source.canvas),
+      anchorX: source.originX / source.canvas.width,
+      anchorY: source.originY / source.canvas.height,
+    }
+    this.environmentTextureCache.set(key, entry)
+    return entry
+  }
+
+  private computeEnvironmentRenderSignature(
+    envObjects: MapEnvironmentObject[] | null | undefined
+  ): number {
+    if (!envObjects || envObjects.length === 0) {
+      return 0
+    }
+    let hash = this.mixTerrainSignatureValue(envObjects.length)
+    for (let i = 0; i < envObjects.length; i++) {
+      const obj = envObjects[i]
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(obj.x | 0, 0x9e3779b1)
+      )
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(obj.y | 0, 0x85ebca6b)
+      )
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(obj.seed | 0, 0xc2b2ae35)
+      )
+      const typeCode = obj.type === 'tree' ? 1 : obj.type === 'hill' ? 2 : 3
+      hash = this.mixTerrainSignatureValue(hash ^ Math.imul(typeCode, 0x19660d))
+    }
+    return hash
   }
 
   private computeTerrainRenderSignature(
@@ -1977,9 +2603,16 @@ export class GameClient {
 
         const settledFrames =
           this.renderFrameRevision - this.previewFirstRenderRevision
+        const terrainReady =
+          this.staticTerrainReady || this.pendingStaticTerrainSignature === 0
+        const environmentReady =
+          this.staticEnvironmentReady ||
+          this.pendingStaticEnvironmentSignature === 0
         if (
           settledFrames >= GameClient.PREVIEW_CAPTURE_MAX_RENDER_FRAMES ||
-          (settledFrames >= GameClient.PREVIEW_CAPTURE_MIN_RENDER_FRAMES &&
+          (terrainReady &&
+            environmentReady &&
+            settledFrames >= GameClient.PREVIEW_CAPTURE_MIN_RENDER_FRAMES &&
             this.previewCameraStableFrames >=
               GameClient.PREVIEW_CAPTURE_STABLE_FRAMES)
         ) {

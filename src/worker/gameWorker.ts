@@ -186,6 +186,7 @@ import type {
   SoundListenerDebugData,
   SoundWaveDebugData,
   WorkerDebugMessage,
+  WorkerPerfSnapshotMessage,
   WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
   WorkerSpineCollisionData,
@@ -603,6 +604,26 @@ const debugMessage: WorkerDebugMessage = {
   camera: null,
   spineCollisions: [],
 }
+const perfSnapshotMessage: WorkerPerfSnapshotMessage = {
+  type: 'perf_snapshot',
+  updateAvgUs: 0,
+  updateMaxUs: 0,
+  fixedAvgUs: 0,
+  fixedMaxUs: 0,
+  fixedStepsAvg100: 0,
+  fixedStepsMax: 0,
+  spatialHashAvgUs: 0,
+  worldUpdateAvgUs: 0,
+  pickupCollectAvgUs: 0,
+  pickupUpdateAvgUs: 0,
+  cleanupAvgUs: 0,
+  cameraAvgUs: 0,
+  sendStateAvgUs: 0,
+  entityCount: 0,
+  systemNames: [],
+  systemAvgUs: [],
+  systemMaxUs: [],
+}
 const debugSensors: SensorDebugData[] = []
 const debugSoundWaves: SoundWaveDebugData[] = []
 const debugSoundListeners: SoundListenerDebugData[] = []
@@ -623,6 +644,26 @@ let hadSpineCollisionDebugLastFrame = false
 const playerEntityView: Entity[] = []
 const sunPickupEntityBuffer: Entity[] = []
 const expOrbEntityBuffer: Entity[] = []
+const workerPerfSystemNames: string[] = []
+const workerPerfSystemTotalsUs: number[] = []
+const workerPerfSystemMaxUs: number[] = []
+let workerPerfWindowMs = 0
+let workerPerfUpdateCount = 0
+let workerPerfUpdateTotalUs = 0
+let workerPerfUpdateMaxUs = 0
+let workerPerfFixedCount = 0
+let workerPerfFixedTotalUs = 0
+let workerPerfFixedMaxUs = 0
+let workerPerfFixedStepsTotal = 0
+let workerPerfFixedStepsMax = 0
+let workerPerfSpatialHashTotalUs = 0
+let workerPerfWorldUpdateTotalUs = 0
+let workerPerfPickupCollectTotalUs = 0
+let workerPerfPickupUpdateTotalUs = 0
+let workerPerfCleanupTotalUs = 0
+let workerPerfCameraTotalUs = 0
+let workerPerfSendStateCount = 0
+let workerPerfSendStateTotalUs = 0
 
 // Loop Logic
 let lastTime = performance.now()
@@ -668,6 +709,8 @@ async function init(width: number, height: number, ppm: number) {
   createEnvironment()
 
   initializeSystems()
+  syncWorkerPerfSystemBuffers()
+  resetWorkerPerfWindow()
   npcEntity = null
   createPlayerAndWeapon(groundTopY, activeMapData)
 
@@ -732,6 +775,99 @@ function initStateBuffers(): void {
   if (initialView) {
     stateBuffer = initialView
   }
+}
+
+function syncWorkerPerfSystemBuffers(): void {
+  const systemNames = world.getSystemPerfNames()
+  if (workerPerfSystemNames.length === systemNames.length) {
+    return
+  }
+  workerPerfSystemNames.length = systemNames.length
+  workerPerfSystemTotalsUs.length = systemNames.length
+  workerPerfSystemMaxUs.length = systemNames.length
+  for (let i = 0; i < systemNames.length; i++) {
+    workerPerfSystemNames[i] = systemNames[i]
+    workerPerfSystemTotalsUs[i] = 0
+    workerPerfSystemMaxUs[i] = 0
+  }
+}
+
+function resetWorkerPerfWindow(): void {
+  workerPerfWindowMs = 0
+  workerPerfUpdateCount = 0
+  workerPerfUpdateTotalUs = 0
+  workerPerfUpdateMaxUs = 0
+  workerPerfFixedCount = 0
+  workerPerfFixedTotalUs = 0
+  workerPerfFixedMaxUs = 0
+  workerPerfFixedStepsTotal = 0
+  workerPerfFixedStepsMax = 0
+  workerPerfSpatialHashTotalUs = 0
+  workerPerfWorldUpdateTotalUs = 0
+  workerPerfPickupCollectTotalUs = 0
+  workerPerfPickupUpdateTotalUs = 0
+  workerPerfCleanupTotalUs = 0
+  workerPerfCameraTotalUs = 0
+  workerPerfSendStateCount = 0
+  workerPerfSendStateTotalUs = 0
+  for (let i = 0; i < workerPerfSystemTotalsUs.length; i++) {
+    workerPerfSystemTotalsUs[i] = 0
+    workerPerfSystemMaxUs[i] = 0
+  }
+}
+
+function postWorkerPerfSnapshot(entityCount: number): void {
+  const systemAvgUs = perfSnapshotMessage.systemAvgUs
+  const systemMaxUs = perfSnapshotMessage.systemMaxUs
+  const systemNames = perfSnapshotMessage.systemNames
+  const fixedCount = workerPerfFixedCount > 0 ? workerPerfFixedCount : 1
+  const updateCount = workerPerfUpdateCount > 0 ? workerPerfUpdateCount : 1
+  perfSnapshotMessage.updateAvgUs = Math.round(
+    workerPerfUpdateTotalUs / updateCount
+  )
+  perfSnapshotMessage.updateMaxUs = workerPerfUpdateMaxUs
+  perfSnapshotMessage.fixedAvgUs = Math.round(
+    workerPerfFixedTotalUs / fixedCount
+  )
+  perfSnapshotMessage.fixedMaxUs = workerPerfFixedMaxUs
+  perfSnapshotMessage.fixedStepsAvg100 = Math.round(
+    (workerPerfFixedStepsTotal * 100) / updateCount
+  )
+  perfSnapshotMessage.fixedStepsMax = workerPerfFixedStepsMax
+  perfSnapshotMessage.spatialHashAvgUs = Math.round(
+    workerPerfSpatialHashTotalUs / fixedCount
+  )
+  perfSnapshotMessage.worldUpdateAvgUs = Math.round(
+    workerPerfWorldUpdateTotalUs / fixedCount
+  )
+  perfSnapshotMessage.pickupCollectAvgUs = Math.round(
+    workerPerfPickupCollectTotalUs / fixedCount
+  )
+  perfSnapshotMessage.pickupUpdateAvgUs = Math.round(
+    workerPerfPickupUpdateTotalUs / fixedCount
+  )
+  perfSnapshotMessage.cleanupAvgUs = Math.round(
+    workerPerfCleanupTotalUs / fixedCount
+  )
+  perfSnapshotMessage.cameraAvgUs = Math.round(
+    workerPerfCameraTotalUs / fixedCount
+  )
+  perfSnapshotMessage.sendStateAvgUs = Math.round(
+    workerPerfSendStateTotalUs /
+      (workerPerfSendStateCount > 0 ? workerPerfSendStateCount : 1)
+  )
+  perfSnapshotMessage.entityCount = entityCount
+
+  systemNames.length = workerPerfSystemNames.length
+  systemAvgUs.length = workerPerfSystemNames.length
+  systemMaxUs.length = workerPerfSystemNames.length
+  for (let i = 0; i < workerPerfSystemNames.length; i++) {
+    systemNames[i] = workerPerfSystemNames[i]
+    systemAvgUs[i] = Math.round(workerPerfSystemTotalsUs[i] / fixedCount)
+    systemMaxUs[i] = workerPerfSystemMaxUs[i]
+  }
+  ctx.postMessage(perfSnapshotMessage)
+  resetWorkerPerfWindow()
 }
 
 function releaseStateBuffer(buffer: ArrayBuffer): void {
@@ -964,6 +1100,7 @@ function initializeSystems() {
   physicsSystem.addAfterStepCallback(() => {
     spineSegmentManager.syncAfterPhysics()
   })
+  syncWorkerPerfSystemBuffers()
 }
 
 function createGameNpc(
@@ -3181,6 +3318,7 @@ function handleInput(
 }
 
 function fixedUpdate() {
+  const fixedStartMs = performance.now()
   // Accumulate time using delta time
   currentTime += TIME_STEP
   playTimeMs += FIXED_STEP_MS
@@ -3225,7 +3363,11 @@ function fixedUpdate() {
   }
 
   const entities = world.getEntities()
+  const spatialHashStartMs = performance.now()
   spatialHash.update(entities)
+  workerPerfSpatialHashTotalUs += Math.round(
+    (performance.now() - spatialHashStartMs) * 1000
+  )
 
   weaponSystem.setEntities(entities)
   weaponSystem.setSpatialHash(spatialHash)
@@ -3249,10 +3391,30 @@ function fixedUpdate() {
     playerEntity.input.inputBuffer.clearAll()
   }
 
+  const worldUpdateStartMs = performance.now()
   world.update(TIME_STEP)
+  const worldUpdateUs = Math.round(
+    (performance.now() - worldUpdateStartMs) * 1000
+  )
+  workerPerfWorldUpdateTotalUs += worldUpdateUs
+  const systemPerfLastUs = world.getSystemPerfLastUs()
+  syncWorkerPerfSystemBuffers()
+  for (let i = 0; i < systemPerfLastUs.length; i++) {
+    const timeUs = systemPerfLastUs[i] | 0
+    workerPerfSystemTotalsUs[i] += timeUs
+    if (timeUs > workerPerfSystemMaxUs[i]) {
+      workerPerfSystemMaxUs[i] = timeUs
+    }
+  }
 
+  const pickupCollectStartMs = performance.now()
   collectPickupEntities(entities)
   playerEntityView[0] = playerEntity
+  workerPerfPickupCollectTotalUs += Math.round(
+    (performance.now() - pickupCollectStartMs) * 1000
+  )
+
+  const pickupUpdateStartMs = performance.now()
   sunPickupSystem.update(sunPickupEntityBuffer, playerEntityView, TIME_STEP)
   for (const e of sunPickupSystem.getPendingRemove()) {
     if (e.physics) {
@@ -3270,15 +3432,33 @@ function fixedUpdate() {
     }
     world.destroyEntity(e)
   }
+  workerPerfPickupUpdateTotalUs += Math.round(
+    (performance.now() - pickupUpdateStartMs) * 1000
+  )
 
+  const cleanupStartMs = performance.now()
   cleanupDestroyedEntities()
+  workerPerfCleanupTotalUs += Math.round(
+    (performance.now() - cleanupStartMs) * 1000
+  )
 
+  const cameraStartMs = performance.now()
   updateCamera()
+  workerPerfCameraTotalUs += Math.round(
+    (performance.now() - cameraStartMs) * 1000
+  )
+  const fixedUs = Math.round((performance.now() - fixedStartMs) * 1000)
+  workerPerfFixedCount++
+  workerPerfFixedTotalUs += fixedUs
+  if (fixedUs > workerPerfFixedMaxUs) {
+    workerPerfFixedMaxUs = fixedUs
+  }
 }
 
 function update() {
   if (isPaused || !world) return
 
+  const updateStartMs = performance.now()
   const now = performance.now()
   let frameTime = (now - lastTime) / 1000
   lastTime = now
@@ -3288,12 +3468,35 @@ function update() {
 
   accumulator += frameTime
 
+  let fixedSteps = 0
   while (accumulator >= TIME_STEP) {
     fixedUpdate()
     accumulator -= TIME_STEP
+    fixedSteps++
   }
 
+  const sendStateStartMs = performance.now()
   sendState()
+  const sendStateUs = Math.round((performance.now() - sendStateStartMs) * 1000)
+  workerPerfSendStateCount++
+  workerPerfSendStateTotalUs += sendStateUs
+
+  const updateUs = Math.round((performance.now() - updateStartMs) * 1000)
+  workerPerfWindowMs += frameTime * 1000
+  workerPerfUpdateCount++
+  workerPerfUpdateTotalUs += updateUs
+  workerPerfFixedStepsTotal += fixedSteps
+  if (fixedSteps > workerPerfFixedStepsMax) {
+    workerPerfFixedStepsMax = fixedSteps
+  }
+  if (updateUs > workerPerfUpdateMaxUs) {
+    workerPerfUpdateMaxUs = updateUs
+  }
+
+  if (workerPerfWindowMs >= 1000) {
+    const entityCount = world.getEntities().length
+    postWorkerPerfSnapshot(entityCount)
+  }
 }
 
 function collectPickupEntities(entities: Entity[]): void {
@@ -4687,6 +4890,7 @@ function restart() {
   lastTime = performance.now()
   accumulator = 0
   currentTime = 0
+  resetWorkerPerfWindow()
 }
 
 // Message Handler

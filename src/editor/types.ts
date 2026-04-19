@@ -2,6 +2,7 @@ import * as fabric from 'fabric'
 
 import type {
   MapCharacterBodyProfile,
+  MapEnvironmentObjectType,
   MapNpcDropItem,
   MapNpcWeapon,
   WeaponCategory,
@@ -30,6 +31,9 @@ export enum ObjectType {
   SunPickupSmall = 'sunPickupSmall',
   SunPickupLarge = 'sunPickupLarge',
   ExpOrb = 'expOrb',
+  EnvTree = 'envTree',
+  EnvHill = 'envHill',
+  EnvHouse = 'envHouse',
 }
 
 export type GroundShapeType = 'rect' | 'triangle' | 'circle' | 'polygon'
@@ -280,6 +284,20 @@ export type ExpOrbMarker = fabric.Group & {
 
 export interface ExpOrbMarkerData {
   marker: ExpOrbMarker
+}
+
+export type EnvironmentMarker = fabric.Object & {
+  editorShape: 'environment-marker'
+  envType: MapEnvironmentObjectType
+  envSeed: number
+  anchorDX: number
+  anchorDY: number
+}
+
+export interface EnvironmentMarkerData {
+  marker: EnvironmentMarker
+  envType: MapEnvironmentObjectType
+  envSeed: number
 }
 
 export interface EditorMap {
