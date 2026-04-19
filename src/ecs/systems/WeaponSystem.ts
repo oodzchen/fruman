@@ -72,6 +72,7 @@ import type {
 import {
   getGrapeChargeRangeScale,
   getWeaponGroundRotationRad,
+  getWeaponStaggerDropRotationRad,
   isRangedAttackWeaponVisualType,
   isRangedWeaponType,
   isSecondaryWeaponType,
@@ -167,6 +168,8 @@ const DEATH_WEAPON_DROP_CHANCE_DENOMINATOR = 2
 const HAMMER_CRIT_WINDUP_MS = 600
 const HAMMER_CRIT_SWING_MS = 300
 const HAMMER_CRIT_RECOVER_MS = 350
+const STAGGER_DROP_SETTLE_MIN_TIME = 0.1
+const STAGGER_DROP_SETTLE_SPEED_SQ = 0.01
 
 export type ObstacleCollider = {
   bodyId: b2BodyId
@@ -386,6 +389,56 @@ export class WeaponSystem extends System {
     this.ultimateHandler.setEntityLookup(entityLookup)
   }
 
+  startStaggerWeaponDrop(entity: Entity): void {
+    if (!entity.transform || !entity.weapon) return
+
+    const weapon = entity.weapon
+    if (entity.render) {
+      weapon.renderLayer = entity.render.renderLayer
+    }
+    this.destroyStaggerDropBody(weapon)
+
+    weapon.isDropping = true
+    weapon.isDropped = false
+    weapon.isRecovering = false
+    weapon.dropElapsedTime = 0
+    weapon.dropStartTransform.x = weapon.visual.x
+    weapon.dropStartTransform.y = weapon.visual.y
+    weapon.dropStartTransform.rotation = weapon.visual.rotation
+
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const bodyHalfHeight = getBodyHalfHeight(entity.render, radius)
+    const weaponRadius = DEFAULT_WEAPON_HEIGHT * 0.4
+    const spawnX = entity.transform.x
+    const spawnY = entity.transform.y - bodyHalfHeight + weaponRadius
+    const groundRotation = getWeaponStaggerDropRotationRad(weapon.weaponType)
+    const initialVelX = entity.physics?.velX ?? 0
+    const initialVelY = entity.physics?.velY ?? 0
+
+    weapon.dropEndTransform.x = spawnX
+    weapon.dropEndTransform.y = spawnY
+    weapon.dropEndTransform.rotation = groundRotation
+    weapon.visual.x = spawnX
+    weapon.visual.y = spawnY
+
+    if (
+      !this.createStaggerDropBody(
+        weapon,
+        spawnX,
+        spawnY,
+        initialVelX,
+        initialVelY
+      )
+    ) {
+      weapon.isDropping = false
+      weapon.isDropped = true
+      weapon.visual.rotation = groundRotation
+      weapon.position.x = spawnX
+      weapon.position.y = spawnY
+      weapon.rotation = groundRotation
+    }
+  }
+
   private updateWeapon(entity: Entity, deltaMs: number): void {
     if (!entity.transform || !entity.weapon) return
 
@@ -444,58 +497,32 @@ export class WeaponSystem extends System {
       return
     }
 
-    // 处理武器掉落动画（使用相对偏移量，跟随玩家移动）
     if (weapon.isDropping) {
-      weapon.dropElapsedTime += this.currentDeltaTime
-      const elapsedMs = weapon.dropElapsedTime * 1000
-      const progress = Math.min(1, elapsedMs / WEAPON_DROP_DURATION_MS)
-
-      // 使用缓动函数使动画更自然
-      const eased = 1 - Math.pow(1 - progress, 2)
-
-      // 插值相对偏移量
-      lerpRelativeTransform(
-        weapon.dropStartOffset,
-        weapon.dropEndOffset,
-        eased,
-        this.tempRelativeTransform
-      )
-
-      // 应用到当前玩家位置
-      applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
-
-      if (progress >= 1) {
-        weapon.isDropping = false
-        weapon.isDropped = true
-      }
+      this.updateStaggerDroppingWeapon(weapon)
       this.clearAttackImpactState(weapon)
       return
     }
 
-    // 崩塌期间保持武器在地上（跟随玩家位置）
     if (entity.stats?.isStaggered) {
       if (weapon.isDropped) {
-        // 武器掉落完成，保持在玩家脚下
-        applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+        this.syncStaggerDroppedWeapon(weapon)
       }
       this.clearAttackImpactState(weapon)
       return
     }
 
-    // 崩塌解除后启动武器回收动画
     if (weapon.isDropped && !weapon.isRecovering) {
       if (
         isRangedWeaponType(weapon.weaponType) &&
         entity.stats &&
         !entity.stats.isInCombat
       ) {
-        applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+        this.syncStaggerDroppedWeapon(weapon)
         return
       }
       this.startWeaponRecover(entity)
     }
 
-    // 处理武器回收动画（使用相对偏移量，跟随玩家移动）
     if (weapon.isRecovering) {
       weapon.dropElapsedTime += this.currentDeltaTime
       const elapsedMs = weapon.dropElapsedTime * 1000
@@ -927,10 +954,10 @@ export class WeaponSystem extends System {
     this.tempPlayerPos.y = entity.transform.y
     const playerPos = this.tempPlayerPos
 
-    // 计算起始相对偏移（当前武器位置相对于玩家）
+    this.syncStaggerDroppedWeapon(weapon)
     getOffsetFromTransform(weapon.visual, playerPos, weapon.dropStartOffset)
+    this.destroyStaggerDropBody(weapon)
 
-    // 计算目标相对偏移（回到角色身侧）
     const facing =
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
@@ -3145,6 +3172,12 @@ export class WeaponSystem extends System {
     const transform = entity.transform
     const weaponSlots = entity.weaponSlots
     const weapon = entity.weapon
+    if (weapon) {
+      this.destroyStaggerDropBody(weapon)
+      weapon.isDropping = false
+      weapon.isDropped = false
+      weapon.isRecovering = false
+    }
     let facing =
       weapon?.attackFacing ??
       entity.input?.lastMoveDirection ??
@@ -3883,6 +3916,7 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
 
     const weapon = entity.weapon
+    this.destroyStaggerDropBody(weapon)
     weapon.attackQueued = false
     if (this.statsSystem) {
       this.statsSystem.exitCombat(entity)
@@ -3893,6 +3927,9 @@ export class WeaponSystem extends System {
     weapon.isBlocking = false
     weapon.isParrying = false
     weapon.parryElapsedTime = 0
+    weapon.isDropping = false
+    weapon.isDropped = false
+    weapon.isRecovering = false
     weapon.hitEntityIds.clear()
     weapon.width = weapon.baseWidth
     this.clearAttackImpactState(weapon)
@@ -3922,6 +3959,130 @@ export class WeaponSystem extends System {
       weapon.width,
       getBodyHalfHeight(entity.render, radius)
     )
+  }
+
+  private createStaggerDropBody(
+    weapon: WeaponComponent,
+    x: number,
+    y: number,
+    initialVelX: number,
+    initialVelY: number
+  ): boolean {
+    if (
+      !this.box2d ||
+      !this.worldId ||
+      !this.dropBodyDef ||
+      !this.dropShapeDef ||
+      !this.dropCircle ||
+      !this.tempVec
+    ) {
+      return false
+    }
+
+    const {
+      b2CreateBody,
+      b2BodyType,
+      b2CreateCircleShape,
+      b2Body_SetLinearVelocity,
+    } = this.box2d
+
+    const bodyDef = this.dropBodyDef
+    bodyDef.type = b2BodyType.b2_dynamicBody
+    bodyDef.position.Set(x, y)
+    bodyDef.linearDamping = 2.0
+    bodyDef.motionLocks.angularZ = true
+    const bodyId = b2CreateBody(this.worldId, bodyDef)
+
+    const circle = this.dropCircle
+    circle.center.Set(0, 0)
+    circle.radius = DEFAULT_WEAPON_HEIGHT * 0.4
+
+    const shapeDef = this.dropShapeDef
+    shapeDef.density = 0.5
+    shapeDef.material.friction = 0.3
+    shapeDef.material.restitution = 0
+    shapeDef.filter.categoryBits = getWeaponCollisionCategory(
+      weapon.renderLayer
+    )
+    shapeDef.filter.maskBits = getWeaponCollisionMask(weapon.renderLayer)
+    b2CreateCircleShape(bodyId, shapeDef, circle)
+
+    this.tempVec.x = initialVelX
+    this.tempVec.y = initialVelY
+    b2Body_SetLinearVelocity(bodyId, this.tempVec)
+    weapon.staggerDropBodyId = bodyId
+    return true
+  }
+
+  private destroyStaggerDropBody(weapon: WeaponComponent): void {
+    if (!this.box2d || !weapon.staggerDropBodyId) {
+      weapon.staggerDropBodyId = null
+      return
+    }
+
+    this.box2d.b2DestroyBody(weapon.staggerDropBodyId)
+    weapon.staggerDropBodyId = null
+  }
+
+  private syncStaggerDroppedWeapon(weapon: WeaponComponent): void {
+    if (!this.box2d || !weapon.staggerDropBodyId) {
+      return
+    }
+
+    const pos = this.box2d.b2Body_GetPosition(weapon.staggerDropBodyId)
+    weapon.visual.x = pos.x
+    weapon.visual.y = pos.y
+    weapon.position.x = pos.x
+    weapon.position.y = pos.y
+    weapon.visual.rotation = weapon.dropEndTransform.rotation
+    weapon.rotation = weapon.dropEndTransform.rotation
+    pos.delete()
+  }
+
+  private updateStaggerDroppingWeapon(weapon: WeaponComponent): void {
+    if (!this.box2d || !weapon.staggerDropBodyId) {
+      weapon.isDropping = false
+      weapon.isDropped = true
+      weapon.visual.rotation = weapon.dropEndTransform.rotation
+      weapon.position.x = weapon.visual.x
+      weapon.position.y = weapon.visual.y
+      weapon.rotation = weapon.visual.rotation
+      return
+    }
+
+    const pos = this.box2d.b2Body_GetPosition(weapon.staggerDropBodyId)
+    const velocity = this.box2d.b2Body_GetLinearVelocity(
+      weapon.staggerDropBodyId
+    )
+
+    weapon.visual.x = pos.x
+    weapon.visual.y = pos.y
+    weapon.position.x = pos.x
+    weapon.position.y = pos.y
+    weapon.dropElapsedTime += this.currentDeltaTime
+
+    const progress = clamp01(
+      (weapon.dropElapsedTime * 1000) / WEAPON_DROP_DURATION_MS
+    )
+    weapon.visual.rotation =
+      weapon.dropStartTransform.rotation +
+      (weapon.dropEndTransform.rotation - weapon.dropStartTransform.rotation) *
+        progress
+    weapon.rotation = weapon.visual.rotation
+
+    const speedSq = velocity.x * velocity.x + velocity.y * velocity.y
+    if (
+      speedSq <= STAGGER_DROP_SETTLE_SPEED_SQ &&
+      weapon.dropElapsedTime >= STAGGER_DROP_SETTLE_MIN_TIME
+    ) {
+      weapon.isDropping = false
+      weapon.isDropped = true
+      weapon.visual.rotation = weapon.dropEndTransform.rotation
+      weapon.rotation = weapon.dropEndTransform.rotation
+    }
+
+    pos.delete()
+    velocity.delete()
   }
 
   private checkObstacleCollision(weapon?: Entity['weapon']): boolean {

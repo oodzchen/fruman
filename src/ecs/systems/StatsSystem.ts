@@ -40,7 +40,6 @@ import {
   getPlayerDefenseReductionPercent,
 } from '../../playerUpgrade'
 import type { MainModule, WeaponVisualType, b2WorldId } from '../../types'
-import { getWeaponStaggerDropRotationRad } from '../../weaponTypeUtils'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ImpactLevel } from '../AttackMoveData'
 import { createCharacterPhysicsBody } from '../CharacterBodyPhysics'
@@ -87,28 +86,6 @@ const TOUGHNESS_BREAK_KNOCKBACK_NUMERATOR = 4
 const TOUGHNESS_BREAK_KNOCKBACK_DENOMINATOR = 5
 const ULTIMATE_COOLDOWN_HIT_REWARD_MS = 1000
 const ULTIMATE_COOLDOWN_KILL_REWARD_MS = 2000
-
-function getBodyHalfHeight(
-  render: { radius?: number; bodyHeight?: number } | undefined,
-  defaultRadius: number
-): number {
-  if (!render) {
-    return defaultRadius
-  }
-  const bodyHeight = render.bodyHeight ?? 0
-  const halfHeight = bodyHeight > 0 ? bodyHeight * 0.5 : defaultRadius
-  return Math.max(defaultRadius, halfHeight)
-}
-
-function getStaggerWeaponDropOffsetX(
-  facing: number,
-  radius: number,
-  weaponWidth: number
-): number {
-  const extraReach =
-    weaponWidth > 0 ? Math.min(weaponWidth * 0.25, radius * 2) : radius * 0.5
-  return -facing * (radius + extraReach)
-}
 
 export class StatsSystem extends System {
   private box2d?: MainModule
@@ -533,40 +510,7 @@ export class StatsSystem extends System {
       entity.weapon.isParrying = false
       entity.weapon.parryElapsedTime = 0
       entity.weapon.hitEntityIds.clear()
-
-      // 启动武器掉落 logic
-      const weapon = entity.weapon
-      weapon.isDropping = true
-      weapon.isDropped = false
-      weapon.isRecovering = false
-      weapon.dropElapsedTime = 0
-
-      // 计算起始相对偏移（当前武器位置相对于玩家）
-      const dx = weapon.visual.x - entity.transform.x
-      const dy = weapon.visual.y - entity.transform.y
-      weapon.dropStartOffset.dx = dx
-      weapon.dropStartOffset.dy = dy
-      weapon.dropStartOffset.rotation = weapon.visual.rotation
-
-      // 目标相对偏移：角色脚下横放（位于角色中心正下方地面）
-      const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-      const bodyHalfHeight = getBodyHalfHeight(entity.render, radius)
-      const weaponHeight =
-        weapon.height > 0 ? weapon.height : DEFAULT_WEAPON_HEIGHT
-      const weaponWidth = weapon.width > 0 ? weapon.width : weaponHeight
-      let facing = entity.input?.lastMoveDirection ?? 0
-      if (facing === 0) {
-        facing = entity.npcAI?.lastFacing ?? 1
-      }
-      weapon.dropEndOffset.dx = getStaggerWeaponDropOffsetX(
-        facing,
-        radius,
-        weaponWidth
-      )
-      weapon.dropEndOffset.dy = bodyHalfHeight - weaponHeight / 2
-      weapon.dropEndOffset.rotation = getWeaponStaggerDropRotationRad(
-        weapon.weaponType
-      )
+      this.weaponSystem?.startStaggerWeaponDrop(entity)
     }
   }
 

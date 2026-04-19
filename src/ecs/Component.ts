@@ -669,6 +669,7 @@ export class WeaponComponent extends Component {
   dropEndTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   dropStartOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   dropEndOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
+  staggerDropBodyId: b2BodyId | null = null
 
   pickupCooldownEndTime = 0 // 在此时间之前不可拾取（毫秒时间戳）
 
@@ -863,6 +864,7 @@ export class WeaponComponent extends Component {
     this.dropEndOffset.dx = 0
     this.dropEndOffset.dy = 0
     this.dropEndOffset.rotation = 0
+    this.staggerDropBodyId = null
     this.pickupCooldownEndTime = 0
     this.ultimatePhase = null
     this.ultimateElapsedMs = 0
