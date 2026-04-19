@@ -63,6 +63,7 @@ export interface CharacterBodyFeatureDrawContext {
   fill(): void
   stroke(): void
   clip(): void
+  setLineDash?(segments: number[]): void
 }
 
 export interface CharacterEyeGeometry {
@@ -397,6 +398,7 @@ export function getCharacterEyeStyle(
   return style === 'noOutline' ||
     style === 'pupilOnly' ||
     style === 'cute' ||
+    style === 'transparent' ||
     style === 'standard'
     ? style
     : DEFAULT_CHARACTER_EYE_STYLE
@@ -692,6 +694,34 @@ export function drawCharacterEyeGeometry(
   if (geometry.rotationRad !== 0) {
     ctx.rotate(geometry.rotationRad)
   }
+  if (geometry.style === 'transparent') {
+    const outlineWidth = Math.max(
+      1,
+      Math.round(Math.min(geometry.outerRadiusX, geometry.outerRadiusY) / 4)
+    )
+    const dashLength = Math.max(outlineWidth * 2, Math.round(outlineWidth * 3))
+    const gapLength = Math.max(
+      outlineWidth + 1,
+      Math.round((outlineWidth * 3) / 2)
+    )
+    ctx.strokeStyle = 'rgba(36,24,16,0.78)'
+    ctx.lineWidth = outlineWidth
+    ctx.setLineDash?.([dashLength, gapLength])
+    ctx.beginPath()
+    ctx.ellipse(
+      0,
+      0,
+      geometry.outerRadiusX,
+      geometry.outerRadiusY,
+      0,
+      0,
+      Math.PI * 2
+    )
+    ctx.stroke()
+    ctx.setLineDash?.([])
+    ctx.restore()
+    return
+  }
   if (geometry.style === 'pupilOnly') {
     ctx.fillStyle = pupilColor
     ctx.beginPath()
@@ -843,6 +873,17 @@ export function drawCharacterBrowGeometry(
 export function getCharacterEyeBounds(
   geometry: CharacterEyeGeometry
 ): CharacterFeatureBounds {
+  if (geometry.style === 'transparent') {
+    return getRotatedBounds(
+      geometry.centerX,
+      geometry.centerY,
+      -geometry.outerRadiusX,
+      -geometry.outerRadiusY,
+      geometry.outerRadiusX,
+      geometry.outerRadiusY,
+      geometry.rotationRad
+    )
+  }
   const minLocalX = Math.min(
     -geometry.outerRadiusX,
     geometry.pupilOffsetX - geometry.pupilRadiusX,

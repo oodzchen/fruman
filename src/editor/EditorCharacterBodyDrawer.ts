@@ -230,6 +230,8 @@ const MIN_COLLISION_HALF_EXTENT = 4
 const CUSTOM_BODY_PRESET_ID = 'custom'
 const BODY_PRESET_IDS: MapCharacterBodyPresetId[] = [
   'banana',
+  'kiwano',
+  'pandaAnt',
   'pineapple',
   'tomato',
   'watermelon',
@@ -238,9 +240,20 @@ const PINEAPPLE_PRESET_IMAGE_SRC = '/images/presets/pineapple.png'
 const TOMATO_PRESET_IMAGE_SRC = '/images/presets/tomato.png'
 const WATERMELON_PRESET_IMAGE_SRC = '/images/presets/watermelon.png'
 const BANANA_PRESET_IMAGE_SRC = '/images/presets/banana.png'
+const KIWANO_PRESET_IMAGE_SRC = '/images/presets/kiwano.png'
+const PANDA_ANT_PRESET_IMAGE_SRC = '/images/presets/panda_ant.png'
 const BANANA_PRESET_POINTS = [
   3, -47, -5, -39, -17, -32, -23, -21, -27, -6, -25, 10, -19, 23, -11, 32, -2,
   41, 10, 47, 26, 47, 21, 36, 11, 27, 3, 17, -3, 7, -5, -9, -3, -25, 3, -38,
+] as const
+const KIWANO_PRESET_POINTS = [
+  -58, -6, -54, -20, -42, -30, -24, -37, 0, -40, 24, -37, 42, -30, 54, -18, 58,
+  -3, 56, 12, 46, 24, 28, 33, 2, 36, -24, 34, -44, 24, -56, 10,
+] as const
+const PANDA_ANT_PRESET_POINTS = [
+  -64, 2, -52, -8, -42, -12, -28, -16, -14, -12, -4, -3, 10, -8, 24, -18, 42,
+  -16, 56, -8, 68, 2, 56, 14, 44, 18, 30, 22, 12, 26, -6, 20, -18, 14, -30, 16,
+  -42, 12, -54, 10,
 ] as const
 const PINEAPPLE_PRESET_POINTS = [
   -18, -64, -8, -90, 0, -72, 10, -96, 20, -66, 34, -78, 30, -52, 48, -36, 56,
@@ -732,6 +745,14 @@ export class EditorCharacterBodyDrawer {
         {
           value: 'banana',
           label: localizer.t('editor_body_drawer_preset_banana'),
+        },
+        {
+          value: 'kiwano',
+          label: localizer.t('editor_body_drawer_preset_kiwano'),
+        },
+        {
+          value: 'pandaAnt',
+          label: localizer.t('editor_body_drawer_preset_panda_ant'),
         },
         {
           value: 'pineapple',
@@ -1833,6 +1854,12 @@ export class EditorCharacterBodyDrawer {
                 {
                   value: 'cute',
                   label: localizer.t('editor_body_drawer_style_eye_cute'),
+                },
+                {
+                  value: 'transparent',
+                  label: localizer.t(
+                    'editor_body_drawer_style_eye_transparent'
+                  ),
                 },
               ]
             : [
@@ -7261,6 +7288,30 @@ export class EditorCharacterBodyDrawer {
         points: BANANA_PRESET_POINTS,
         imageSrc: BANANA_PRESET_IMAGE_SRC,
         mirrorImageX: true,
+      }
+    }
+    if (presetId === 'kiwano') {
+      return {
+        color: TRANSPARENT_BODY_COLOR,
+        bloodColor: '#8e5a17',
+        eyeX: 20,
+        eyeY: -2,
+        points: KIWANO_PRESET_POINTS,
+        imageSrc: KIWANO_PRESET_IMAGE_SRC,
+        mirrorImageX: true,
+        imageTargetHeight: 156,
+      }
+    }
+    if (presetId === 'pandaAnt') {
+      return {
+        color: TRANSPARENT_BODY_COLOR,
+        bloodColor: '#2e241f',
+        eyeX: 34,
+        eyeY: -8,
+        points: PANDA_ANT_PRESET_POINTS,
+        imageSrc: PANDA_ANT_PRESET_IMAGE_SRC,
+        mirrorImageX: true,
+        imageTargetHeight: 120,
       }
     }
     if (presetId === 'pineapple') {

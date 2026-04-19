@@ -148,6 +148,8 @@ export interface MapCharacterBodyProfile {
 
 export type MapCharacterBodyPresetId =
   | 'banana'
+  | 'kiwano'
+  | 'pandaAnt'
   | 'pineapple'
   | 'tomato'
   | 'watermelon'
@@ -157,6 +159,7 @@ export type MapCharacterBodyEyeStyle =
   | 'noOutline'
   | 'pupilOnly'
   | 'cute'
+  | 'transparent'
 
 export type MapCharacterBodyBrowStyle =
   | 'none'
