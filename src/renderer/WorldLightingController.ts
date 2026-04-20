@@ -520,7 +520,7 @@ export class WorldLightingController {
     screenWidth: number,
     screenHeight: number
   ): void {
-    const visibility255 = Math.max(DAYTIME_LIGHT_FLOOR_255, lightVisibility255)
+    const visibility255 = lightVisibility255
     const smallCount = renderer.getSunPickupSmallCount()
     for (let i = 0; i < smallCount; i++) {
       const intensity255 = (SUN_SMALL_LIGHT_INTENSITY_255 * visibility255) >> 8
@@ -583,7 +583,7 @@ export class WorldLightingController {
     if (!renderer.hasPlayerPosition()) {
       return
     }
-    const visibility255 = Math.max(DAYTIME_LIGHT_FLOOR_255, lightVisibility255)
+    const visibility255 = lightVisibility255
     const intensity255 = (PLAYER_LIGHT_INTENSITY_255 * visibility255) >> 8
     if (intensity255 <= 4) {
       return

@@ -36,8 +36,8 @@ const PHASES: readonly DayPhase[] = [
     cloudColor: 0xffffff,
     ambientColor: 0xffffff,
     ambientIntensity255: 255,
-    localLightVisibility255: 32,
-  }, // 中午：最亮环境光，灯光几乎不可见
+    localLightVisibility255: 0,
+  }, // 中午：最亮环境光，无需局部灯光
   {
     skyColor: 0xc8740a,
     cloudColor: 0xddc480,
