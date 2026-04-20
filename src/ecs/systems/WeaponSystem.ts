@@ -403,40 +403,34 @@ export class WeaponSystem extends System {
     weapon.isDropped = false
     weapon.isRecovering = false
     weapon.dropElapsedTime = 0
-    weapon.dropStartTransform.x = weapon.visual.x
-    weapon.dropStartTransform.y = weapon.visual.y
-    weapon.dropStartTransform.rotation = weapon.visual.rotation
+    copyTransform(weapon.dropStartTransform, weapon.visual)
 
-    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    const bodyHalfHeight = getBodyHalfHeight(entity.render, radius)
-    const weaponRadius = DEFAULT_WEAPON_HEIGHT * 0.4
-    const spawnX = entity.transform.x
-    const spawnY = entity.transform.y - bodyHalfHeight + weaponRadius
-    const groundRotation = getWeaponStaggerDropRotationRad(weapon.weaponType)
+    this.tempPlayerPos.x = entity.transform.x
+    this.tempPlayerPos.y = entity.transform.y
+    const playerPos = this.tempPlayerPos
+    getOffsetFromTransform(weapon.visual, playerPos, weapon.dropStartOffset)
+
+    this.setStaggerDropTransform(entity, weapon, playerPos, this.tempTransform)
+    copyTransform(weapon.dropEndTransform, this.tempTransform)
+    getOffsetFromTransform(this.tempTransform, playerPos, weapon.dropEndOffset)
+
     const initialVelX = entity.physics?.velX ?? 0
     const initialVelY = entity.physics?.velY ?? 0
-
-    weapon.dropEndTransform.x = spawnX
-    weapon.dropEndTransform.y = spawnY
-    weapon.dropEndTransform.rotation = groundRotation
-    weapon.visual.x = spawnX
-    weapon.visual.y = spawnY
-
     if (
       !this.createStaggerDropBody(
         weapon,
-        spawnX,
-        spawnY,
+        weapon.visual.x,
+        weapon.visual.y,
         initialVelX,
         initialVelY
       )
     ) {
       weapon.isDropping = false
       weapon.isDropped = true
-      weapon.visual.rotation = groundRotation
-      weapon.position.x = spawnX
-      weapon.position.y = spawnY
-      weapon.rotation = groundRotation
+      applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+      weapon.position.x = weapon.visual.x
+      weapon.position.y = weapon.visual.y
+      weapon.rotation = weapon.visual.rotation
     }
   }
 
@@ -499,28 +493,20 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.isDropping) {
-      this.updateStaggerDroppingWeapon(weapon)
+      this.updateStaggerDroppingWeapon(weapon, playerPos)
       this.clearAttackImpactState(weapon)
       return
     }
 
     if (entity.stats?.isStaggered) {
       if (weapon.isDropped) {
-        this.syncStaggerDroppedWeapon(weapon)
+        this.syncStaggerDroppedWeapon(weapon, playerPos)
       }
       this.clearAttackImpactState(weapon)
       return
     }
 
     if (weapon.isDropped && !weapon.isRecovering) {
-      if (
-        isRangedWeaponType(weapon.weaponType) &&
-        entity.stats &&
-        !entity.stats.isInCombat
-      ) {
-        this.syncStaggerDroppedWeapon(weapon)
-        return
-      }
       this.startWeaponRecover(entity)
     }
 
@@ -542,6 +528,9 @@ export class WeaponSystem extends System {
 
       // 应用到当前玩家位置
       applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
+      weapon.position.x = weapon.visual.x
+      weapon.position.y = weapon.visual.y
+      weapon.rotation = weapon.visual.rotation
 
       if (progress >= 1) {
         weapon.isRecovering = false
@@ -955,7 +944,6 @@ export class WeaponSystem extends System {
     this.tempPlayerPos.y = entity.transform.y
     const playerPos = this.tempPlayerPos
 
-    this.syncStaggerDroppedWeapon(weapon)
     getOffsetFromTransform(weapon.visual, playerPos, weapon.dropStartOffset)
     this.destroyStaggerDropBody(weapon)
 
@@ -964,7 +952,7 @@ export class WeaponSystem extends System {
         ? entity.input.lastMoveDirection
         : weapon.attackFacing || 1
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
-    if (isRangedWeaponType(weapon.weaponType)) {
+    if (entity.stats?.isInCombat) {
       getFrontTransform(
         playerPos,
         facing,
@@ -973,16 +961,31 @@ export class WeaponSystem extends System {
         weapon.weaponType,
         weapon.width
       )
-      getOffsetFromTransform(
-        this.tempTransform,
-        playerPos,
-        weapon.dropEndOffset
-      )
     } else {
-      weapon.dropEndOffset.dx = -facing * (radius + 0.2)
-      weapon.dropEndOffset.dy = radius * -0.2
-      weapon.dropEndOffset.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+      setWeaponBackTransform(
+        playerPos,
+        facing,
+        this.tempTransform,
+        radius,
+        weapon.weaponType,
+        weapon.width,
+        getBodyHalfHeight(entity.render, radius)
+      )
     }
+    getOffsetFromTransform(this.tempTransform, playerPos, weapon.dropEndOffset)
+  }
+
+  private setStaggerDropTransform(
+    entity: Entity,
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number },
+    out: WeaponTransform
+  ): void {
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const bodyHalfHeight = getBodyHalfHeight(entity.render, radius)
+    out.x = playerPos.x
+    out.y = playerPos.y + bodyHalfHeight + weapon.height / 2
+    out.rotation = getWeaponStaggerDropRotationRad(weapon.weaponType)
   }
 
   private handleIdlePhase(
@@ -4024,26 +4027,24 @@ export class WeaponSystem extends System {
     weapon.staggerDropBodyId = null
   }
 
-  private syncStaggerDroppedWeapon(weapon: WeaponComponent): void {
-    if (!this.box2d || !weapon.staggerDropBodyId) {
-      return
-    }
-
-    const pos = this.box2d.b2Body_GetPosition(weapon.staggerDropBodyId)
-    weapon.visual.x = pos.x
-    weapon.visual.y = pos.y
-    weapon.position.x = pos.x
-    weapon.position.y = pos.y
-    weapon.visual.rotation = weapon.dropEndTransform.rotation
-    weapon.rotation = weapon.dropEndTransform.rotation
-    pos.delete()
+  private syncStaggerDroppedWeapon(
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number }
+  ): void {
+    applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+    weapon.position.x = weapon.visual.x
+    weapon.position.y = weapon.visual.y
+    weapon.rotation = weapon.visual.rotation
   }
 
-  private updateStaggerDroppingWeapon(weapon: WeaponComponent): void {
+  private updateStaggerDroppingWeapon(
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number }
+  ): void {
     if (!this.box2d || !weapon.staggerDropBodyId) {
       weapon.isDropping = false
       weapon.isDropped = true
-      weapon.visual.rotation = weapon.dropEndTransform.rotation
+      applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
       weapon.position.x = weapon.visual.x
       weapon.position.y = weapon.visual.y
       weapon.rotation = weapon.visual.rotation
@@ -4072,13 +4073,17 @@ export class WeaponSystem extends System {
 
     const speedSq = velocity.x * velocity.x + velocity.y * velocity.y
     if (
-      speedSq <= STAGGER_DROP_SETTLE_SPEED_SQ &&
-      weapon.dropElapsedTime >= STAGGER_DROP_SETTLE_MIN_TIME
+      progress >= 1 ||
+      (speedSq <= STAGGER_DROP_SETTLE_SPEED_SQ &&
+        weapon.dropElapsedTime >= STAGGER_DROP_SETTLE_MIN_TIME)
     ) {
+      this.destroyStaggerDropBody(weapon)
       weapon.isDropping = false
       weapon.isDropped = true
-      weapon.visual.rotation = weapon.dropEndTransform.rotation
-      weapon.rotation = weapon.dropEndTransform.rotation
+      applyOffset(weapon.dropEndOffset, playerPos, weapon.visual)
+      weapon.position.x = weapon.visual.x
+      weapon.position.y = weapon.visual.y
+      weapon.rotation = weapon.visual.rotation
     }
 
     pos.delete()
