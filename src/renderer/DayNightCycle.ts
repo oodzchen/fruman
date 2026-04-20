@@ -9,16 +9,63 @@ const PHASE_MASK_OFFSET_MS = 3 * SEG_MS
 interface DayPhase {
   readonly skyColor: number
   readonly cloudColor: number
+  readonly ambientColor: number
+  readonly ambientIntensity255: number
+  readonly localLightVisibility255: number
+}
+
+export interface DayNightLightingState {
+  readonly sky: number
+  readonly cloud: number
+  readonly ambientColor: number
+  readonly ambientIntensity255: number
+  readonly localLightVisibility255: number
 }
 
 // 6个时间节点：早晨 中午 傍晚 夜晚 深夜 凌晨
 const PHASES: readonly DayPhase[] = [
-  { skyColor: 0x4a90d9, cloudColor: 0xe8f0f8 }, // 早晨：蓝天，淡白云
-  { skyColor: 0x5bbfff, cloudColor: 0xffffff }, // 中午：亮蓝天，纯白云
-  { skyColor: 0xc8740a, cloudColor: 0xddc480 }, // 傍晚：昏黄天，黄白云
-  { skyColor: 0x0d0b18, cloudColor: 0x2a2444 }, // 夜晚：近黑天，暗色云
-  { skyColor: 0x000000, cloudColor: 0x000000 }, // 深夜：纯黑，云不可见
-  { skyColor: 0x0a0f2e, cloudColor: 0x1c1c3a }, // 凌晨：暗蓝天，暗色云
+  {
+    skyColor: 0x4a90d9,
+    cloudColor: 0xe8f0f8,
+    ambientColor: 0xfff1d3,
+    ambientIntensity255: 206,
+    localLightVisibility255: 72,
+  }, // 早晨：暖日环境光，局部灯光开始淡出
+  {
+    skyColor: 0x5bbfff,
+    cloudColor: 0xffffff,
+    ambientColor: 0xffffff,
+    ambientIntensity255: 255,
+    localLightVisibility255: 32,
+  }, // 中午：最亮环境光，灯光几乎不可见
+  {
+    skyColor: 0xc8740a,
+    cloudColor: 0xddc480,
+    ambientColor: 0xf4c37a,
+    ambientIntensity255: 168,
+    localLightVisibility255: 124,
+  }, // 傍晚：暖色环境光，灯光重新显现
+  {
+    skyColor: 0x0d0b18,
+    cloudColor: 0x2a2444,
+    ambientColor: 0x7c86b5,
+    ambientIntensity255: 84,
+    localLightVisibility255: 255,
+  }, // 夜晚：冷色低环境光，灯光最明显
+  {
+    skyColor: 0x000000,
+    cloudColor: 0x000000,
+    ambientColor: 0x53608e,
+    ambientIntensity255: 52,
+    localLightVisibility255: 255,
+  }, // 深夜：最低环境光
+  {
+    skyColor: 0x0a0f2e,
+    cloudColor: 0x1c1c3a,
+    ambientColor: 0x8694c8,
+    ambientIntensity255: 108,
+    localLightVisibility255: 196,
+  }, // 凌晨：冷蓝过渡，灯光仍然明显
 ]
 
 function lerpColor(a: number, b: number, t256: number): number {
@@ -32,6 +79,10 @@ function lerpColor(a: number, b: number, t256: number): number {
   const g = ag + (((bg - ag) * t256) >> 8)
   const bv = ab + (((bb - ab) * t256) >> 8)
   return (r << 16) | (g << 8) | bv
+}
+
+function lerpByte(a: number, b: number, t256: number): number {
+  return a + (((b - a) * t256) >> 8)
 }
 
 export class DayNightCycle {
@@ -66,7 +117,7 @@ export class DayNightCycle {
     this.elapsed = ((seg + 1) % PHASES.length) * SEG_MS
   }
 
-  getColors(): { sky: number; cloud: number } {
+  getLightingState(): DayNightLightingState {
     const seg = (this.elapsed / SEG_MS) | 0
     const segElapsed = this.elapsed - seg * SEG_MS
     const t256 = ((segElapsed << 8) / SEG_MS) | 0
@@ -77,6 +128,25 @@ export class DayNightCycle {
     return {
       sky: lerpColor(a.skyColor, b.skyColor, t256),
       cloud: lerpColor(a.cloudColor, b.cloudColor, t256),
+      ambientColor: lerpColor(a.ambientColor, b.ambientColor, t256),
+      ambientIntensity255: lerpByte(
+        a.ambientIntensity255,
+        b.ambientIntensity255,
+        t256
+      ),
+      localLightVisibility255: lerpByte(
+        a.localLightVisibility255,
+        b.localLightVisibility255,
+        t256
+      ),
+    }
+  }
+
+  getColors(): { sky: number; cloud: number } {
+    const lightingState = this.getLightingState()
+    return {
+      sky: lightingState.sky,
+      cloud: lightingState.cloud,
     }
   }
 }

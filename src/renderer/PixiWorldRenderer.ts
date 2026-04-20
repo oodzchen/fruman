@@ -299,6 +299,7 @@ const PARALLAX_MIN_BRIGHTNESS = 0.3
 
 export class PixiWorldRenderer {
   private readonly root: Container
+  private readonly emissiveEntityContainer: Container
   private readonly pixelsPerMeter: number
   private readonly buckets = new Map<number, LayerBucket>()
   private readonly entityViews = new Map<number, EntityView>()
@@ -350,9 +351,17 @@ export class PixiWorldRenderer {
   private parallaxCenterX = 0
   private parallaxBottomY = 0
 
-  constructor(root: Container, pixelsPerMeter: number) {
+  constructor(
+    root: Container,
+    emissiveRoot: Container,
+    pixelsPerMeter: number
+  ) {
     this.root = root
     this.pixelsPerMeter = pixelsPerMeter
+
+    this.emissiveEntityContainer = new Container()
+    this.emissiveEntityContainer.sortableChildren = true
+    emissiveRoot.addChild(this.emissiveEntityContainer)
 
     this.overlayContainer = new Container()
     this.overlayContainer.zIndex = 900000
@@ -360,7 +369,7 @@ export class PixiWorldRenderer {
 
     this.particleContainer = new Container()
     this.particleContainer.zIndex = 850000
-    this.root.addChild(this.particleContainer)
+    emissiveRoot.addChild(this.particleContainer)
     this.parrySparkEmitterPool = new ParrySparkEmitterPool(
       this.particleContainer
     )
@@ -1068,6 +1077,7 @@ export class PixiWorldRenderer {
       ? this.getSunTexture(true)
       : this.getSunTexture(false)
     view.specialSprite.alpha = 1
+    this.emissiveEntityContainer.addChild(view.root)
     hideSprite(view.bodySprite)
     hideSprite(view.weaponSprite)
   }
@@ -1102,6 +1112,9 @@ export class PixiWorldRenderer {
 
     view.specialSprite.visible = true
     view.specialSprite.alpha = alpha
+    if (active) {
+      this.emissiveEntityContainer.addChild(view.root)
+    }
     hideSprite(view.bodySprite)
     hideSprite(view.weaponSprite)
   }

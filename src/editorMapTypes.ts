@@ -24,6 +24,18 @@ export interface MapEnvironmentObject {
   seed: number
 }
 
+export type MapLightFlickerMode = 'none' | 'candle' | 'torch'
+
+export interface MapLightObject {
+  x: number
+  y: number
+  radius: number
+  color?: string
+  intensity?: number
+  flicker?: MapLightFlickerMode
+  nightOnly?: boolean
+}
+
 export type EditorTreeObjectType =
   | 'empty'
   | 'player'
@@ -345,6 +357,7 @@ export interface EditorMapData {
   editorTree?: EditorTreeData
   factions?: string[]
   environmentObjects?: MapEnvironmentObject[]
+  lights?: MapLightObject[]
 }
 
 export interface StoredEditorMap {

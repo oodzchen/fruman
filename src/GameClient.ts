@@ -41,6 +41,7 @@ import {
   releaseSpine,
   storeSpinePreview,
 } from './renderer/SpineBodyManager'
+import { WorldLightingController } from './renderer/WorldLightingController'
 import type { SaveData } from './saveTypes'
 import { buildSpineCollisionKeyframes } from './spineCollisionKeyframes'
 import { getDefaultMap } from './storage'
@@ -108,7 +109,10 @@ export class GameClient {
   private readonly dayNightCycle = new DayNightCycle()
   private fpsTextEl: Text | null = null
   private sceneContainer: Container
+  private lightingContainer: Container
   private worldContainer: Container
+  private glowContainer: Container
+  private emissiveContainer: Container
   private hudContainer: Container
   private sleepOverlayContainer: Container
   private sleepOverlayGraphics: Graphics
@@ -141,6 +145,7 @@ export class GameClient {
   private readonly reusableDOMMatrix = new DOMMatrix()
   private readonly reusablePixiMatrix = new Matrix()
   private worldRenderer: PixiWorldRenderer
+  private lightingController: WorldLightingController
 
   private renderer: ClientRenderer
   private audioManager: AudioManager
@@ -432,8 +437,8 @@ export class GameClient {
       width,
       height,
     })
-    const initColors = this.dayNightCycle.getColors()
-    this.backgroundSprite.tint = initColors.sky
+    const initLightingState = this.dayNightCycle.getLightingState()
+    this.backgroundSprite.tint = initLightingState.sky
     this.sceneContainer.addChild(this.backgroundSprite)
     // 云层：白色云朵纹理，通过 tint 实现颜色渐变
     const cloudTexture = PatternCreator.createCloudTexture()
@@ -443,13 +448,28 @@ export class GameClient {
         width,
         height,
       })
-      this.cloudSprite.tint = initColors.cloud
+      this.cloudSprite.tint = initLightingState.cloud
       this.sceneContainer.addChild(this.cloudSprite)
     }
 
+    this.lightingContainer = new Container()
+    this.lightingContainer.sortableChildren = true
+    this.lightingContainer.filterArea = app.screen
+    this.sceneContainer.addChild(this.lightingContainer)
     this.worldContainer = new Container()
     this.worldContainer.sortableChildren = true
-    this.sceneContainer.addChild(this.worldContainer)
+    this.lightingContainer.addChild(this.worldContainer)
+    this.glowContainer = new Container()
+    this.glowContainer.zIndex = -10000
+    this.worldContainer.addChild(this.glowContainer)
+    this.emissiveContainer = new Container()
+    this.emissiveContainer.sortableChildren = true
+    this.sceneContainer.addChild(this.emissiveContainer)
+    this.lightingController = new WorldLightingController(
+      this.glowContainer,
+      this.pixelsPerMeter
+    )
+    this.lightingContainer.filters = [this.lightingController.getFilter()]
 
     this.hudContainer = new Container()
     this.hudContainer.sortableChildren = true
@@ -518,6 +538,7 @@ export class GameClient {
     )
     this.worldRenderer = new PixiWorldRenderer(
       this.worldContainer,
+      this.emissiveContainer,
       this.pixelsPerMeter
     )
     this.audioManager = new AudioManager()
@@ -598,6 +619,7 @@ export class GameClient {
     // Resize: sync Pixi render surfaces and notify worker
     app.renderer.on('resize', (newWidth: number, newHeight: number) => {
       this.sceneContainer.filterArea = this.app.screen
+      this.lightingContainer.filterArea = this.app.screen
       this.sleepOverlayContainer.filterArea = this.app.screen
       if (this.backgroundSprite) {
         this.backgroundSprite.width = newWidth
@@ -636,6 +658,7 @@ export class GameClient {
       // This prevents blank areas by ensuring all render targets sync synchronously
       this.app.renderer.resize(preset.width, preset.height)
       this.sceneContainer.filterArea = this.app.screen
+      this.lightingContainer.filterArea = this.app.screen
       this.sleepOverlayContainer.filterArea = this.app.screen
 
       // Manually trigger background and context sync if resize event hasn't fired yet
@@ -688,6 +711,7 @@ export class GameClient {
     this.currentMapData = map
     this.staticRenderLayers = collectStaticRenderLayers(map)
     this.renderer.setCharacterBodyMap(map)
+    this.lightingController.setMap(map)
     this.syncStaticScene(map)
 
     if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
@@ -782,6 +806,7 @@ export class GameClient {
       this.staticRenderLayers = collectStaticRenderLayers(msg.map)
       this.renderer.resetPlayerHudState()
       this.renderer.setCharacterBodyMap(msg.map)
+      this.lightingController.setMap(msg.map)
       this.syncStaticScene(msg.map)
       if (
         msg.map.camera &&
@@ -1594,9 +1619,22 @@ export class GameClient {
       pixiMatrix.tx = worldMatrix.e
       pixiMatrix.ty = worldMatrix.f
       this.worldContainer.setFromMatrix(pixiMatrix)
+      this.emissiveContainer.setFromMatrix(pixiMatrix)
 
       // 传递视差相机参数，PixiWorldRenderer 在 render 时对各 bucket 独立计算偏移
       this.worldRenderer.setParallaxCamera(camX, camY, zoom, centerX, bottomY)
+      this.lightingController.update(
+        deltaMs,
+        this.dayNightCycle.getLightingState(),
+        this.renderer,
+        camX,
+        camY,
+        zoom,
+        shakeOffsetX,
+        shakeOffsetY,
+        width,
+        height
+      )
       this.worldRenderer.render(this.renderer, this.inputEnabled ? deltaMs : 0)
       worldTimeUs = Math.round((performance.now() - worldStartMs) * 1000)
     }
