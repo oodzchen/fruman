@@ -68,7 +68,6 @@ void main(void)
         return;
     }
 
-    vec3 baseColor = color.rgb / color.a;
     vec3 lighting = uAmbient.rgb * uAmbient.a;
     int lightCount = int(uLightingMeta.x + 0.5);
 
@@ -78,21 +77,20 @@ void main(void)
         }
 
         vec4 light = uLightData[i];
-        float radius = light.z;
-        if (radius <= 0.0) {
+        float invRadiusSq = light.z;
+        if (invRadiusSq <= 0.0) {
             continue;
         }
 
         vec2 delta = vScreenPos - light.xy;
-        float normalizedDistanceSq = dot(delta, delta) / (radius * radius);
+        float normalizedDistanceSq = dot(delta, delta) * invRadiusSq;
         float falloff = max(0.0, 1.0 - min(1.0, normalizedDistanceSq));
         falloff *= falloff;
         lighting += uLightColor[i].rgb * (falloff * light.w);
     }
 
     lighting = min(lighting, vec3(1.55));
-    baseColor *= lighting;
-    finalColor = vec4(baseColor * color.a, color.a);
+    finalColor = vec4(color.rgb * lighting, color.a);
 }
 `
 
@@ -160,7 +158,6 @@ fn mainFragment(
         return color;
     }
 
-    var baseColor = color.rgb / color.a;
     var lighting = lightingUniforms.uAmbient.rgb * lightingUniforms.uAmbient.a;
     let lightCount = i32(lightingUniforms.uLightingMeta.x + 0.5);
 
@@ -170,21 +167,20 @@ fn mainFragment(
         }
 
         let light = lightingUniforms.uLightData[i];
-        let radius = light.z;
-        if (radius <= 0.0) {
+        let invRadiusSq = light.z;
+        if (invRadiusSq <= 0.0) {
             continue;
         }
 
         let delta = screenPos - light.xy;
-        let normalizedDistanceSq = dot(delta, delta) / (radius * radius);
+        let normalizedDistanceSq = dot(delta, delta) * invRadiusSq;
         var falloff = max(0.0, 1.0 - min(1.0, normalizedDistanceSq));
         falloff = falloff * falloff;
         lighting += lightingUniforms.uLightColor[i].rgb * (falloff * light.w);
     }
 
     lighting = min(lighting, vec3(1.55));
-    baseColor *= lighting;
-    return vec4(baseColor * color.a, color.a);
+    return vec4(color.rgb * lighting, color.a);
 }
 `
 

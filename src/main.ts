@@ -278,6 +278,13 @@ async function initialize() {
       initManager.nextStep(step)
     }
   )
+  window.addEventListener(
+    'pagehide',
+    () => {
+      game.destroy()
+    },
+    { once: true }
+  )
   game.setDisplayManager(displayManager)
   if (gameViewport.tabIndex < 0) {
     gameViewport.tabIndex = 0

@@ -444,6 +444,53 @@ export class PixiWorldRenderer {
     return this.buckets.size
   }
 
+  destroy(): void {
+    for (const bucket of this.buckets.values()) {
+      if (bucket.staticContainer.isCachedAsTexture) {
+        bucket.staticContainer.cacheAsTexture(false)
+      }
+    }
+
+    for (const [, view] of this.entityViews) {
+      this.recycleDamageTexts(view)
+      if (view.spineBody) {
+        releaseSpine(view.spineKey, view.spineBody)
+        view.spineBody = null
+      }
+    }
+    this.entityViews.clear()
+    this.activeSpineViews.clear()
+
+    for (const [, entry] of this.weaponTextureCache) {
+      entry.texture.destroy(true)
+    }
+    this.weaponTextureCache.clear()
+
+    for (const [, texture] of this.iconTextureCache) {
+      if (texture !== Texture.WHITE) {
+        texture.destroy(true)
+      }
+    }
+    this.iconTextureCache.clear()
+
+    for (const [, entry] of this.checkpointTextureCache) {
+      entry.texture.destroy(true)
+    }
+    this.checkpointTextureCache.clear()
+
+    for (const [, texture] of this.checkpointPulseTextureCache) {
+      if (texture !== Texture.WHITE) {
+        texture.destroy(true)
+      }
+    }
+    this.checkpointPulseTextureCache.clear()
+
+    this.handshakeTexture.destroy(true)
+    this.wavingTexture.destroy(true)
+    this.particleTexture.destroy(true)
+    this.parrySparkEmitterPool.destroy()
+  }
+
   getStaticCacheBucketCount(): number {
     let cachedCount = 0
     for (const bucket of this.buckets.values()) {

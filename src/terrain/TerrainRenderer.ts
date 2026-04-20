@@ -336,40 +336,15 @@ export class TerrainRenderer {
     if (build.cells.length <= 0) {
       return null
     }
-
-    let minX = Infinity
-    let minY = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    for (let cellIndex = 0; cellIndex < build.cells.length; cellIndex++) {
-      const points = build.cells[cellIndex].points
-      for (let pointIndex = 0; pointIndex < points.length; pointIndex += 2) {
-        const x = points[pointIndex]
-        const y = points[pointIndex + 1]
-        if (x < minX) {
-          minX = x
-        }
-        if (y < minY) {
-          minY = y
-        }
-        if (x > maxX) {
-          maxX = x
-        }
-        if (y > maxY) {
-          maxY = y
-        }
-      }
-    }
-
-    if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+    if (!Number.isFinite(build.minX) || !Number.isFinite(build.minY)) {
       return null
     }
 
     return {
-      minX: Math.floor(minX + offsetX) - padding,
-      minY: Math.floor(minY + offsetY) - padding,
-      maxX: Math.ceil(maxX + offsetX) + padding,
-      maxY: Math.ceil(maxY + offsetY) + padding,
+      minX: Math.floor(build.minX + offsetX) - padding,
+      minY: Math.floor(build.minY + offsetY) - padding,
+      maxX: Math.ceil(build.maxX + offsetX) + padding,
+      maxY: Math.ceil(build.maxY + offsetY) + padding,
     }
   }
 

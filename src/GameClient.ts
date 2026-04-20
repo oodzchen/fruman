@@ -2,6 +2,7 @@ import {
   Application,
   BlurFilter,
   Container,
+  Filter,
   Graphics,
   Matrix,
   Sprite,
@@ -33,7 +34,12 @@ import { getDefaultTerrainRenderLayer } from './renderLayers'
 import { DayNightCycle } from './renderer/DayNightCycle'
 import { PatternCreator } from './renderer/PatternCreator'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
-import { createEnvironmentTextureSource } from './renderer/ProceduralEnvironmentFactory'
+import {
+  buildEnvironmentTextureCacheKey,
+  clearEnvironmentTextureSourceCache,
+  createEnvironmentTextureSource,
+  pruneEnvironmentTextureSourceCache,
+} from './renderer/ProceduralEnvironmentFactory'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
 import {
   acquireSpine,
@@ -52,6 +58,7 @@ import {
 import type { TerrainResolvedLayerView } from './terrain/TerrainDataUtils'
 import { TerrainRenderer } from './terrain/TerrainRenderer'
 import type { TerrainDataLike, TerrainLayerLike } from './terrain/TerrainTypes'
+import { getVoronoiBuildPerfSnapshot } from './terrain/VoronoiBuilder'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
@@ -70,6 +77,7 @@ interface PixiApplicationInitResult {
 }
 
 interface EnvironmentTextureEntry {
+  key: string
   texture: Texture
   anchorX: number
   anchorY: number
@@ -93,6 +101,7 @@ export class GameClient {
   private static readonly PERF_LOG_WORKER_WARN_US = 12000
   private static readonly PERF_LOG_SYSTEM_WARN_US = 4000
   private static readonly PERF_LOG_STATIC_BUILD_WARN_US = 3000
+  private static readonly ENVIRONMENT_TEXTURE_CACHE_LIMIT = 96
   private static readonly SLEEP_CLOSE_DURATION_MS = 640
   private static readonly SLEEP_BLACKOUT_DURATION_MS = 1000
   private static readonly SLEEP_OPEN_DURATION_MS = 320
@@ -110,6 +119,8 @@ export class GameClient {
   private fpsTextEl: Text | null = null
   private sceneContainer: Container
   private lightingContainer: Container
+  private lightingFilters: Filter[] | null = null
+  private lightingFilterApplied = false
   private worldContainer: Container
   private glowContainer: Container
   private emissiveContainer: Container
@@ -142,6 +153,8 @@ export class GameClient {
     string,
     EnvironmentTextureEntry
   >()
+  private readonly activeEnvironmentTextureKeys = new Set<string>()
+  private readonly pendingEnvironmentTextureKeys = new Set<string>()
   private readonly reusableDOMMatrix = new DOMMatrix()
   private readonly reusablePixiMatrix = new Matrix()
   private worldRenderer: PixiWorldRenderer
@@ -168,6 +181,8 @@ export class GameClient {
   private perfUpdateTimeTotalUs = 0
   private perfRenderTimeTotalUs = 0
   private perfWorldTimeTotalUs = 0
+  private perfLightingTimeTotalUs = 0
+  private perfSceneRenderTimeTotalUs = 0
   private perfHudTimeTotalUs = 0
   private perfMenuTimeTotalUs = 0
   private perfFrameAvgUs = 0
@@ -175,6 +190,8 @@ export class GameClient {
   private perfUpdateAvgUs = 0
   private perfRenderAvgUs = 0
   private perfWorldAvgUs = 0
+  private perfLightingAvgUs = 0
+  private perfSceneRenderAvgUs = 0
   private perfHudAvgUs = 0
   private perfMenuAvgUs = 0
   private perfStateSyncTotalUs = 0
@@ -197,6 +214,8 @@ export class GameClient {
   private perfEnvironmentCacheMisses = 0
   private lastRenderTimeUs = 0
   private lastWorldRenderTimeUs = 0
+  private lastLightingTimeUs = 0
+  private lastSceneRenderTimeUs = 0
   private lastHudRenderTimeUs = 0
   private lastMenuRenderTimeUs = 0
   private lastPlayerUITimeUs = 0
@@ -210,6 +229,7 @@ export class GameClient {
   private workerPerfSnapshot: WorkerPerfSnapshotMessage | null = null
   private perfLogWindowsSinceEmit = 0
   private perfLastStaticQueueActive = false
+  private destroyed = false
 
   private hasReceivedFirstState = false
   private isFirstFrameRendered = false
@@ -469,7 +489,11 @@ export class GameClient {
       this.glowContainer,
       this.pixelsPerMeter
     )
-    this.lightingContainer.filters = [this.lightingController.getFilter()]
+    this.lightingFilters = [this.lightingController.getFilter()]
+    this.lightingFilterApplied = this.lightingController.isFilterActive()
+    this.lightingContainer.filters = this.lightingFilterApplied
+      ? this.lightingFilters
+      : null
 
     this.hudContainer = new Container()
     this.hudContainer.sortableChildren = true
@@ -1587,6 +1611,8 @@ export class GameClient {
       this.hudRenderContext.beginFrame()
     }
     let worldTimeUs = 0
+    this.lastLightingTimeUs = 0
+    this.lastSceneRenderTimeUs = 0
 
     if (!this.editorPreview) {
       const worldStartMs = performance.now()
@@ -1625,6 +1651,7 @@ export class GameClient {
 
       // 传递视差相机参数，PixiWorldRenderer 在 render 时对各 bucket 独立计算偏移
       this.worldRenderer.setParallaxCamera(camX, camY, zoom, centerX, bottomY)
+      const lightingStartMs = performance.now()
       this.lightingController.update(
         deltaMs,
         this.dayNightCycle.getLightingState(),
@@ -1637,7 +1664,22 @@ export class GameClient {
         width,
         height
       )
+      this.lastLightingTimeUs = Math.round(
+        (performance.now() - lightingStartMs) * 1000
+      )
+      const shouldApplyLightingFilter = this.lightingController.isFilterActive()
+      if (shouldApplyLightingFilter !== this.lightingFilterApplied) {
+        this.lightingContainer.filters =
+          shouldApplyLightingFilter && this.lightingFilters
+            ? this.lightingFilters
+            : null
+        this.lightingFilterApplied = shouldApplyLightingFilter
+      }
+      const sceneRenderStartMs = performance.now()
       this.worldRenderer.render(this.renderer, this.inputEnabled ? deltaMs : 0)
+      this.lastSceneRenderTimeUs = Math.round(
+        (performance.now() - sceneRenderStartMs) * 1000
+      )
       worldTimeUs = Math.round((performance.now() - worldStartMs) * 1000)
     }
     this.lastWorldRenderTimeUs = worldTimeUs
@@ -1688,6 +1730,8 @@ export class GameClient {
     this.perfUpdateTimeTotalUs += updateTimeUs
     this.perfRenderTimeTotalUs += this.lastRenderTimeUs
     this.perfWorldTimeTotalUs += this.lastWorldRenderTimeUs
+    this.perfLightingTimeTotalUs += this.lastLightingTimeUs
+    this.perfSceneRenderTimeTotalUs += this.lastSceneRenderTimeUs
     this.perfHudTimeTotalUs += this.lastHudRenderTimeUs
     this.perfMenuTimeTotalUs += this.lastMenuRenderTimeUs
     this.perfStateSyncTotalUs += this.lastStateSyncTimeUs
@@ -1708,6 +1752,12 @@ export class GameClient {
     this.perfUpdateAvgUs = Math.round(this.perfUpdateTimeTotalUs / sampleCount)
     this.perfRenderAvgUs = Math.round(this.perfRenderTimeTotalUs / sampleCount)
     this.perfWorldAvgUs = Math.round(this.perfWorldTimeTotalUs / sampleCount)
+    this.perfLightingAvgUs = Math.round(
+      this.perfLightingTimeTotalUs / sampleCount
+    )
+    this.perfSceneRenderAvgUs = Math.round(
+      this.perfSceneRenderTimeTotalUs / sampleCount
+    )
     this.perfHudAvgUs = Math.round(this.perfHudTimeTotalUs / sampleCount)
     this.perfMenuAvgUs = Math.round(this.perfMenuTimeTotalUs / sampleCount)
     this.perfStateSyncAvgUs = Math.round(
@@ -1741,6 +1791,8 @@ export class GameClient {
     this.perfUpdateTimeTotalUs = 0
     this.perfRenderTimeTotalUs = 0
     this.perfWorldTimeTotalUs = 0
+    this.perfLightingTimeTotalUs = 0
+    this.perfSceneRenderTimeTotalUs = 0
     this.perfHudTimeTotalUs = 0
     this.perfMenuTimeTotalUs = 0
     this.perfStateSyncTotalUs = 0
@@ -1767,11 +1819,18 @@ export class GameClient {
       : 'worker --.-ms'
     const lines = [
       `${this.renderFps} FPS  frame ${this.formatUsAsMs(this.perfFrameAvgUs)} max ${this.formatUsAsMs(this.perfFrameMaxUs)}`,
-      `main upd ${this.formatUsAsMs(this.perfUpdateAvgUs)}  world ${this.formatUsAsMs(this.perfWorldAvgUs)}  render ${this.formatUsAsMs(this.perfRenderAvgUs)}  ${workerSummary}`,
+      `main upd ${this.formatUsAsMs(this.perfUpdateAvgUs)}  world ${this.formatUsAsMs(this.perfWorldAvgUs)}  light ${this.formatUsAsMs(this.perfLightingAvgUs)}  scene ${this.formatUsAsMs(this.perfSceneRenderAvgUs)}  render ${this.formatUsAsMs(this.perfRenderAvgUs)}  ${workerSummary}`,
       `ent ${this.renderer.getEntityCount()} vis ${this.worldRenderer.getVisibleEntityCount()} ptc ${this.renderer.getActiveParticleCount()} spine ${this.worldRenderer.getActiveSpineCount()} static t ${this.pendingStaticTerrainTaskIndex}/${this.pendingStaticTerrainTaskTotal} e ${this.pendingStaticEnvironmentIndex}/${this.pendingStaticEnvironmentObjects?.length ?? 0}`,
+      `light fx ${this.lightingFilterApplied ? 'on' : 'off'} vis ${this.lightingController.getVisibleLightCount()} map ${this.lightingController.getMapLightCount()} renderer ${this.rendererLabel}`,
     ]
     if (this.workerPerfSnapshot) {
       lines.push(this.buildWorkerPerfOverlayLine(this.workerPerfSnapshot))
+    }
+    const voronoiPerf = getVoronoiBuildPerfSnapshot()
+    if (voronoiPerf.buildTimeUs > 0) {
+      lines.push(
+        `vor ${this.formatUsAsMs(voronoiPerf.buildTimeUs)} sites ${voronoiPerf.siteCount} cells ${voronoiPerf.renderCellCount} clip ${voronoiPerf.clippedPolygonCount}`
+      )
     }
     for (const line of this.worldRenderer.buildPerfDebugLines(
       this.formatUsAsMs.bind(this)
@@ -1861,6 +1920,8 @@ export class GameClient {
 
     const workerSnapshot = this.workerPerfSnapshot
     const workerTopSystemUs = this.getWorkerTopSystemAvgUs(workerSnapshot)
+    const lightingSlow =
+      this.perfLightingAvgUs >= GameClient.PERF_LOG_SYSTEM_WARN_US
     const frameSpikeSlow =
       this.perfFrameMaxUs >= GameClient.PERF_LOG_FRAME_MAX_WARN_US &&
       (this.perfFrameAvgUs >= GameClient.PERF_LOG_FRAME_SPIKE_GUARD_US ||
@@ -1870,7 +1931,8 @@ export class GameClient {
     const mainSlow =
       this.perfFrameAvgUs >= GameClient.PERF_LOG_FRAME_WARN_US ||
       frameSpikeSlow ||
-      this.perfWorldAvgUs >= GameClient.PERF_LOG_WORLD_WARN_US
+      this.perfWorldAvgUs >= GameClient.PERF_LOG_WORLD_WARN_US ||
+      lightingSlow
     const workerSlow =
       !!workerSnapshot &&
       (workerSnapshot.updateAvgUs >= GameClient.PERF_LOG_WORKER_WARN_US ||
@@ -1905,21 +1967,35 @@ export class GameClient {
         ? 'queue-finish'
         : staticHeavy
           ? 'static-heavy'
-          : mainSlow
-            ? 'main-slow'
-            : workerSlow
-              ? 'worker-slow'
-              : 'heartbeat'
+          : lightingSlow
+            ? 'lighting-slow'
+            : mainSlow
+              ? 'main-slow'
+              : workerSlow
+                ? 'worker-slow'
+                : 'heartbeat'
+    const voronoiPerf = getVoronoiBuildPerfSnapshot()
     const mainSummary =
       `reason=${reason} ` +
       `frame=${this.formatUsAsMs(this.perfFrameAvgUs)}/${this.formatUsAsMs(this.perfFrameMaxUs)} ` +
-      `main=${this.formatUsAsMs(this.perfUpdateAvgUs)} world=${this.formatUsAsMs(this.perfWorldAvgUs)} render=${this.formatUsAsMs(this.perfRenderAvgUs)} ` +
+      `main=${this.formatUsAsMs(this.perfUpdateAvgUs)} world=${this.formatUsAsMs(this.perfWorldAvgUs)} light=${this.formatUsAsMs(this.perfLightingAvgUs)} scene=${this.formatUsAsMs(this.perfSceneRenderAvgUs)} render=${this.formatUsAsMs(this.perfRenderAvgUs)} ` +
       `state=${this.formatUsAsMs(this.perfStateSyncAvgUs)} fx=${this.formatUsAsMs(this.perfEffectsApplyAvgUs)} ` +
       `static=${this.formatUsAsMs(this.perfStaticBuildAvgUs)}/${this.formatUsAsMs(this.perfStaticBuildMaxUs)} ` +
       `terrain=${this.formatUsAsMs(this.perfTerrainBuildAvgUs)} env=${this.formatUsAsMs(this.perfEnvironmentBuildAvgUs)} ` +
+      `lights=${this.lightingController.getVisibleLightCount()}/${this.lightingController.getMapLightCount()} filter=${this.lightingFilterApplied ? 'on' : 'off'} ` +
       `queue=t${terrainQueueIndex}/${terrainQueueTotal} e${environmentQueueIndex}/${environmentQueueTotal} envCache=${this.perfEnvironmentCacheHits}/${this.perfEnvironmentCacheMisses} ` +
       `ent=${this.renderer.getEntityCount()} vis=${this.worldRenderer.getVisibleEntityCount()} ptc=${this.renderer.getActiveParticleCount()} spine=${this.worldRenderer.getActiveSpineCount()}`
     console.info('[Perf]', mainSummary)
+
+    if (
+      voronoiPerf.buildTimeUs > 0 &&
+      (staticHeavy || queueStarted || queueFinished)
+    ) {
+      console.info(
+        '[Perf]',
+        `voronoi build=${this.formatUsAsMs(voronoiPerf.buildTimeUs)} sites=${voronoiPerf.siteCount} cells=${voronoiPerf.renderCellCount} clip=${voronoiPerf.clippedPolygonCount} chunks=${voronoiPerf.sourceChunkCount}/${voronoiPerf.includedChunkCount}`
+      )
+    }
 
     if (
       workerSnapshot &&
@@ -2452,6 +2528,8 @@ export class GameClient {
       this.destroyStaticGraphics(this.staticTerrainGraphics)
       this.staticTerrainGraphics.length = 0
       this.destroyStaticEnvironmentSprites()
+      this.activeEnvironmentTextureKeys.clear()
+      this.pruneEnvironmentTextureCaches(this.activeEnvironmentTextureKeys)
       this.clearPendingStaticTerrainBuild()
       this.clearPendingStaticEnvironmentBuild()
       this.staticTerrainSignature = 0
@@ -2497,10 +2575,13 @@ export class GameClient {
           layerLookup.environmentObjectLayers
         this.pendingStaticEnvironmentIndex = 0
         this.pendingStaticEnvironmentSignature = nextEnvSignature
+        this.pendingEnvironmentTextureKeys.clear()
         this.staticEnvironmentReady = false
       } else {
         this.staticEnvironmentSignature = nextEnvSignature
         this.staticEnvironmentReady = true
+        this.activeEnvironmentTextureKeys.clear()
+        this.pruneEnvironmentTextureCaches(this.activeEnvironmentTextureKeys)
       }
     }
 
@@ -2640,6 +2721,7 @@ export class GameClient {
     this.pendingStaticEnvironmentObjects = null
     this.pendingStaticEnvironmentLayers = null
     this.pendingStaticEnvironmentIndex = 0
+    this.pendingEnvironmentTextureKeys.clear()
   }
 
   private pumpStaticSceneBuild(): void {
@@ -2722,6 +2804,7 @@ export class GameClient {
         obj.seed,
         ppm
       )
+      this.pendingEnvironmentTextureKeys.add(textureEntry.key)
       const sprite = new Sprite(textureEntry.texture)
       sprite.anchor.set(textureEntry.anchorX, textureEntry.anchorY)
       sprite.x = obj.x * ppm
@@ -2740,6 +2823,7 @@ export class GameClient {
 
     this.staticEnvironmentSignature = this.pendingStaticEnvironmentSignature
     this.staticEnvironmentReady = true
+    this.commitActiveEnvironmentTextureKeys()
     this.clearPendingStaticEnvironmentBuild()
     this.finalizeStaticSceneCaches()
   }
@@ -2759,22 +2843,51 @@ export class GameClient {
     seed: number,
     ppm: number
   ): EnvironmentTextureEntry {
-    const key = `${type}_${seed}_${ppm}`
+    const key = buildEnvironmentTextureCacheKey(type, seed, ppm)
     const cached = this.environmentTextureCache.get(key)
     if (cached) {
       this.perfEnvironmentCacheHits++
+      this.environmentTextureCache.delete(key)
+      this.environmentTextureCache.set(key, cached)
       return cached
     }
 
     this.perfEnvironmentCacheMisses++
     const source = createEnvironmentTextureSource(type, seed, ppm)
     const entry: EnvironmentTextureEntry = {
+      key,
       texture: Texture.from(source.canvas),
       anchorX: source.originX / source.canvas.width,
       anchorY: source.originY / source.canvas.height,
     }
     this.environmentTextureCache.set(key, entry)
     return entry
+  }
+
+  private commitActiveEnvironmentTextureKeys(): void {
+    this.activeEnvironmentTextureKeys.clear()
+    for (const key of this.pendingEnvironmentTextureKeys) {
+      this.activeEnvironmentTextureKeys.add(key)
+    }
+    this.pruneEnvironmentTextureCaches(this.activeEnvironmentTextureKeys)
+  }
+
+  private pruneEnvironmentTextureCaches(activeKeys: ReadonlySet<string>): void {
+    const maxEntries = Math.max(
+      GameClient.ENVIRONMENT_TEXTURE_CACHE_LIMIT,
+      activeKeys.size
+    )
+    for (const [key, entry] of this.environmentTextureCache) {
+      if (activeKeys.has(key)) {
+        continue
+      }
+      if (this.environmentTextureCache.size <= maxEntries) {
+        break
+      }
+      entry.texture.destroy(true)
+      this.environmentTextureCache.delete(key)
+    }
+    pruneEnvironmentTextureSourceCache(activeKeys, maxEntries)
   }
 
   private computeEnvironmentRenderSignature(
@@ -2884,6 +2997,34 @@ export class GameClient {
     mixed = Math.imul(mixed ^ (mixed >>> 16), 0x45d9f3b)
     mixed = Math.imul(mixed ^ (mixed >>> 16), 0x45d9f3b)
     return (mixed ^ (mixed >>> 16)) >>> 0
+  }
+
+  destroy(): void {
+    if (this.destroyed) {
+      return
+    }
+    this.destroyed = true
+
+    this.stop()
+    this.worker.terminate()
+    this.worldRenderer.destroy()
+    this.lightingController.destroy()
+
+    for (const [, entry] of this.environmentTextureCache) {
+      entry.texture.destroy(true)
+    }
+    this.environmentTextureCache.clear()
+    clearEnvironmentTextureSourceCache()
+
+    this.app.destroy(
+      { removeView: true },
+      {
+        children: true,
+        texture: true,
+        textureSource: true,
+        context: true,
+      }
+    )
   }
 
   private captureSaveThumbnail(): Promise<string | null> {

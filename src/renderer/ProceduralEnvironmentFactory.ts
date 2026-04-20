@@ -440,15 +440,26 @@ export function createEnvironmentHouseTextureSource(
 // ===== DISPATCH =====
 
 const textureCache = new Map<string, EnvironmentTextureSource>()
+const ENVIRONMENT_TEXTURE_SOURCE_CACHE_LIMIT = 96
+
+export function buildEnvironmentTextureCacheKey(
+  type: MapEnvironmentObjectType,
+  seed: number,
+  ppm: number
+): string {
+  return `${type}_${seed}_${ppm}`
+}
 
 export function createEnvironmentTextureSource(
   type: MapEnvironmentObjectType,
   seed: number,
   ppm: number
 ): EnvironmentTextureSource {
-  const key = `${type}_${seed}_${ppm}`
+  const key = buildEnvironmentTextureCacheKey(type, seed, ppm)
   const cached = textureCache.get(key)
   if (cached) {
+    textureCache.delete(key)
+    textureCache.set(key, cached)
     return cached
   }
 
@@ -463,6 +474,25 @@ export function createEnvironmentTextureSource(
 
   textureCache.set(key, source)
   return source
+}
+
+export function pruneEnvironmentTextureSourceCache(
+  activeKeys?: ReadonlySet<string>,
+  maxEntries: number = ENVIRONMENT_TEXTURE_SOURCE_CACHE_LIMIT
+): void {
+  for (const [key] of textureCache) {
+    if (activeKeys?.has(key)) {
+      continue
+    }
+    if (textureCache.size <= maxEntries && activeKeys) {
+      break
+    }
+    textureCache.delete(key)
+  }
+}
+
+export function clearEnvironmentTextureSourceCache(): void {
+  textureCache.clear()
 }
 
 // ===== SHARED HELPERS =====

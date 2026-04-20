@@ -44,6 +44,8 @@ const CHECKPOINT_PULSE_GLOW_RADIUS_SCALE = 0.48
 const PLAYER_LIGHT_COLOR = 0xffe8c8
 const PLAYER_LIGHT_RADIUS_METERS = 5.2
 const PLAYER_LIGHT_INTENSITY_255 = 210
+const FILTER_BYPASS_MIN_CHANNEL_255 = 248
+const FILTER_BYPASS_MIN_INTENSITY_255 = 248
 
 type LightFlickerModeCode = 0 | 1 | 2
 
@@ -135,6 +137,7 @@ export class WorldLightingController {
   private mapLightCount = 0
   private visibleLightCount = 0
   private elapsedMs = 0
+  private filterActive = true
 
   constructor(glowContainer: Container, pixelsPerMeter: number) {
     this.glowContainer = glowContainer
@@ -147,6 +150,28 @@ export class WorldLightingController {
 
   getFilter(): LightingFilter {
     return this.filter
+  }
+
+  getVisibleLightCount(): number {
+    return this.visibleLightCount
+  }
+
+  getMapLightCount(): number {
+    return this.mapLightCount
+  }
+
+  isFilterActive(): boolean {
+    return this.filterActive
+  }
+
+  destroy(): void {
+    for (let i = 0; i < this.glowSprites.length; i++) {
+      this.glowSprites[i].destroy()
+    }
+    this.glowSprites.length = 0
+    if (this.glowTexture !== Texture.WHITE) {
+      this.glowTexture.destroy(true)
+    }
   }
 
   setMap(map: EditorMapData | null): void {
@@ -271,8 +296,16 @@ export class WorldLightingController {
       )
     }
 
-    this.filter.setLightCount(this.visibleLightCount)
-    this.filter.commit()
+    this.filterActive =
+      this.visibleLightCount > 0 ||
+      !this.isAmbientNearIdentity(
+        lightingState.ambientColor,
+        lightingState.ambientIntensity255
+      )
+    if (this.filterActive) {
+      this.filter.setLightCount(this.visibleLightCount)
+      this.filter.commit()
+    }
     this.updateGlowSprites()
   }
 
@@ -769,9 +802,11 @@ export class WorldLightingController {
     glowAlpha: number
   ): void {
     const base = index << 2
+    const invRadiusSq =
+      screenRadiusPx > 0 ? 1 / (screenRadiusPx * screenRadiusPx) : 0
     this.lightData[base] = screenX
     this.lightData[base + 1] = screenY
-    this.lightData[base + 2] = screenRadiusPx
+    this.lightData[base + 2] = invRadiusSq
     this.lightData[base + 3] = shaderIntensity
     this.lightColor[base] = ((color >> 16) & 0xff) / 255
     this.lightColor[base + 1] = ((color >> 8) & 0xff) / 255
@@ -785,6 +820,7 @@ export class WorldLightingController {
   }
 
   private updateGlowSprites(): void {
+    this.glowContainer.visible = this.visibleLightCount > 0
     for (let i = 0; i < this.visibleLightCount; i++) {
       const sprite = this.ensureGlowSprite(i)
       const base = i << 2
@@ -864,5 +900,16 @@ export class WorldLightingController {
     }
     const triangle = phase <= half ? phase : periodMs - phase
     return Math.min(256, Math.max(0, (triangle << 8) / half))
+  }
+
+  private isAmbientNearIdentity(color: number, intensity255: number): boolean {
+    if (intensity255 < FILTER_BYPASS_MIN_INTENSITY_255) {
+      return false
+    }
+    return (
+      ((color >> 16) & 0xff) >= FILTER_BYPASS_MIN_CHANNEL_255 &&
+      ((color >> 8) & 0xff) >= FILTER_BYPASS_MIN_CHANNEL_255 &&
+      (color & 0xff) >= FILTER_BYPASS_MIN_CHANNEL_255
+    )
   }
 }

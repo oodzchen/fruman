@@ -10,6 +10,9 @@ import { intersectFlatPolygon } from './TerrainPolygonUtils'
 import { VORONOI_SITE_JITTER_SCALE } from './TerrainTypes'
 import type { VoronoiPickedCell, VoronoiRenderCell } from './VoronoiTypes'
 
+type TerrainChunkView = TerrainResolvedLayerView['chunks'][number]
+type ChunkLookup<T> = Map<number, Map<number, T>>
+
 interface VoronoiInternal {
   _cell(i: number): number[] | null
   _clip(i: number): number[] | null
@@ -40,13 +43,39 @@ interface FlatPolygonBoundsValues {
 
 export interface VoronoiLayerBuild {
   cells: readonly VoronoiRenderCell[]
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+  siteCount: number
   pickCellAt: (x: number, y: number) => VoronoiPickedCell | null
+}
+
+export interface VoronoiBuildPerfSnapshot {
+  buildTimeUs: number
+  sourceChunkCount: number
+  includedChunkCount: number
+  siteCount: number
+  renderCellCount: number
+  clippedPolygonCount: number
 }
 
 const clippedLayerBuildCache = new WeakMap<object, CachedVoronoiLayerBuild>()
 const unclippedLayerBuildCache = new WeakMap<object, CachedVoronoiLayerBuild>()
 const noExpandClippedCache = new WeakMap<object, CachedVoronoiLayerBuild>()
 const noExpandUnclippedCache = new WeakMap<object, CachedVoronoiLayerBuild>()
+const voronoiBuildPerfSnapshot: VoronoiBuildPerfSnapshot = {
+  buildTimeUs: 0,
+  sourceChunkCount: 0,
+  includedChunkCount: 0,
+  siteCount: 0,
+  renderCellCount: 0,
+  clippedPolygonCount: 0,
+}
+
+export function getVoronoiBuildPerfSnapshot(): Readonly<VoronoiBuildPerfSnapshot> {
+  return voronoiBuildPerfSnapshot
+}
 
 export function getVoronoiLayerBuild(
   layer: TerrainResolvedLayerView,
@@ -84,13 +113,14 @@ function buildVoronoiLayer(
   clipContour: boolean,
   expandNeighbors: boolean
 ): VoronoiLayerBuild {
+  const buildStartMs = performance.now()
   const chunkSize = layer.chunkSize | 0
   if (chunkSize <= 0 || layer.chunks.length === 0) {
     return EMPTY_VORONOI_LAYER_BUILD
   }
 
-  const chunkMap = new Map<string, (typeof layer.chunks)[number]>()
-  const includedChunkKeys = new Set<string>()
+  const chunkMap: ChunkLookup<TerrainChunkView> = new Map()
+  const includedChunkRows: ChunkLookup<boolean> = new Map()
   const includedChunkCoords: number[] = []
   let minChunkX = layer.chunks[0].chunkX | 0
   let minChunkY = layer.chunks[0].chunkY | 0
@@ -101,7 +131,7 @@ function buildVoronoiLayer(
     const chunk = layer.chunks[chunkIndex]
     const chunkX = chunk.chunkX | 0
     const chunkY = chunk.chunkY | 0
-    chunkMap.set(getChunkKey(chunkX, chunkY), chunk)
+    setChunkLookupValue(chunkMap, chunkX, chunkY, chunk)
     if (chunkX < minChunkX) minChunkX = chunkX
     if (chunkY < minChunkY) minChunkY = chunkY
     if (chunkX > maxChunkX) maxChunkX = chunkX
@@ -111,20 +141,21 @@ function buildVoronoiLayer(
         for (let offsetX = -1; offsetX <= 1; offsetX++) {
           const includedChunkX = chunkX + offsetX
           const includedChunkY = chunkY + offsetY
-          const includedChunkKey = getChunkKey(includedChunkX, includedChunkY)
-          if (includedChunkKeys.has(includedChunkKey)) {
-            continue
-          }
-          includedChunkKeys.add(includedChunkKey)
-          includedChunkCoords.push(includedChunkX, includedChunkY)
+          appendIncludedChunk(
+            includedChunkRows,
+            includedChunkCoords,
+            includedChunkX,
+            includedChunkY
+          )
         }
       }
     } else {
-      const chunkKey = getChunkKey(chunkX, chunkY)
-      if (!includedChunkKeys.has(chunkKey)) {
-        includedChunkKeys.add(chunkKey)
-        includedChunkCoords.push(chunkX, chunkY)
-      }
+      appendIncludedChunk(
+        includedChunkRows,
+        includedChunkCoords,
+        chunkX,
+        chunkY
+      )
     }
   }
 
@@ -143,8 +174,7 @@ function buildVoronoiLayer(
   ) {
     const chunkX = includedChunkCoords[includedIndex]
     const chunkY = includedChunkCoords[includedIndex + 1]
-    const chunkKey = getChunkKey(chunkX, chunkY)
-    const sourceChunk = chunkMap.get(chunkKey) ?? null
+    const sourceChunk = getChunkLookupValue(chunkMap, chunkX, chunkY) ?? null
     const sourceCells = sourceChunk
       ? getTerrainChunkMaterialCodes(sourceChunk)
       : null
@@ -218,6 +248,11 @@ function buildVoronoiLayer(
       ? computeFlatPolygonBoundsValues(contourClipPoints)
       : null
   const cells: VoronoiRenderCell[] = []
+  let buildMinX = Infinity
+  let buildMinY = Infinity
+  let buildMaxX = -Infinity
+  let buildMaxY = -Infinity
+  let clippedPolygonCount = 0
 
   // Bulk-extract cell polygons using Voronoi internals to avoid
   // per-cell object allocation from cellPolygon/Polygon class.
@@ -242,30 +277,41 @@ function buildVoronoiLayer(
     ) {
       flatLen -= 2
     }
-    const flattenedPoints =
-      flatLen === clippedCell.length
-        ? clippedCell
-        : clippedCell.slice(0, flatLen)
+    if (flatLen !== clippedCell.length) {
+      clippedCell.length = flatLen
+    }
+    const flattenedPoints = clippedCell
+    const unclippedBounds = computeFlatPolygonBoundsValues(flattenedPoints)
+    if (!unclippedBounds) {
+      continue
+    }
 
     if (!shouldClipContour || !contourClipBounds || !contourClipPoints) {
-      const cell = createVoronoiRenderCell(
+      appendVoronoiRenderCell(
+        cells,
         layer,
         siteCellX[i],
         siteCellY[i],
         materialCode,
         flattenedPoints,
+        unclippedBounds,
         cellSizeUnits
       )
-      if (cell) {
-        cells.push(cell)
+      if (unclippedBounds.minX < buildMinX) {
+        buildMinX = unclippedBounds.minX
+      }
+      if (unclippedBounds.minY < buildMinY) {
+        buildMinY = unclippedBounds.minY
+      }
+      if (unclippedBounds.maxX > buildMaxX) {
+        buildMaxX = unclippedBounds.maxX
+      }
+      if (unclippedBounds.maxY > buildMaxY) {
+        buildMaxY = unclippedBounds.maxY
       }
       continue
     }
 
-    const unclippedBounds = computeFlatPolygonBoundsValues(flattenedPoints)
-    if (!unclippedBounds) {
-      continue
-    }
     if (!doFlatPolygonBoundsIntersect(unclippedBounds, contourClipBounds)) {
       continue
     }
@@ -273,17 +319,28 @@ function buildVoronoiLayer(
       isFlatPolygonBoundsInside(unclippedBounds, contourClipBounds) &&
       isFlatPolygonInsideFlatPolygon(flattenedPoints, contourClipPoints)
     ) {
-      cells.push(
-        createVoronoiRenderCellFromBounds(
-          layer,
-          siteCellX[i],
-          siteCellY[i],
-          materialCode,
-          flattenedPoints,
-          unclippedBounds,
-          cellSizeUnits
-        )
+      appendVoronoiRenderCell(
+        cells,
+        layer,
+        siteCellX[i],
+        siteCellY[i],
+        materialCode,
+        flattenedPoints,
+        unclippedBounds,
+        cellSizeUnits
       )
+      if (unclippedBounds.minX < buildMinX) {
+        buildMinX = unclippedBounds.minX
+      }
+      if (unclippedBounds.minY < buildMinY) {
+        buildMinY = unclippedBounds.minY
+      }
+      if (unclippedBounds.maxX > buildMaxX) {
+        buildMaxX = unclippedBounds.maxX
+      }
+      if (unclippedBounds.maxY > buildMaxY) {
+        buildMaxY = unclippedBounds.maxY
+      }
       continue
     }
 
@@ -295,21 +352,43 @@ function buildVoronoiLayer(
       polygonIndex < clippedPolygons.length;
       polygonIndex++
     ) {
-      const cell = createVoronoiRenderCell(
+      const clippedPolygon = clippedPolygons[polygonIndex]
+      const clippedBounds = computeFlatPolygonBoundsValues(clippedPolygon)
+      if (!clippedBounds) {
+        continue
+      }
+      appendVoronoiRenderCell(
+        cells,
         layer,
         siteCellX[i],
         siteCellY[i],
         materialCode,
-        clippedPolygons[polygonIndex],
+        clippedPolygon,
+        clippedBounds,
         cellSizeUnits
       )
-      if (cell) {
-        cells.push(cell)
+      clippedPolygonCount++
+      if (clippedBounds.minX < buildMinX) {
+        buildMinX = clippedBounds.minX
+      }
+      if (clippedBounds.minY < buildMinY) {
+        buildMinY = clippedBounds.minY
+      }
+      if (clippedBounds.maxX > buildMaxX) {
+        buildMaxX = clippedBounds.maxX
+      }
+      if (clippedBounds.maxY > buildMaxY) {
+        buildMaxY = clippedBounds.maxY
       }
     }
   }
-  return {
+  const build: VoronoiLayerBuild = {
     cells,
+    minX: Number.isFinite(buildMinX) ? buildMinX : 0,
+    minY: Number.isFinite(buildMinY) ? buildMinY : 0,
+    maxX: Number.isFinite(buildMaxX) ? buildMaxX : 0,
+    maxY: Number.isFinite(buildMaxY) ? buildMaxY : 0,
+    siteCount,
     pickCellAt: (x: number, y: number): VoronoiPickedCell | null => {
       const index = delaunay.find(x, y)
       if (index < 0 || index >= siteCount) {
@@ -321,28 +400,37 @@ function buildVoronoiLayer(
       }
     },
   }
+  voronoiBuildPerfSnapshot.buildTimeUs = Math.round(
+    (performance.now() - buildStartMs) * 1000
+  )
+  voronoiBuildPerfSnapshot.sourceChunkCount = layer.chunks.length
+  voronoiBuildPerfSnapshot.includedChunkCount = includedChunkCount
+  voronoiBuildPerfSnapshot.siteCount = siteCount
+  voronoiBuildPerfSnapshot.renderCellCount = cells.length
+  voronoiBuildPerfSnapshot.clippedPolygonCount = clippedPolygonCount
+  return build
 }
 
-function createVoronoiRenderCell(
+function appendVoronoiRenderCell(
+  cells: VoronoiRenderCell[],
   layer: TerrainResolvedLayerView,
   cellX: number,
   cellY: number,
   materialCode: number,
   points: number[],
+  bounds: FlatPolygonBoundsValues,
   cellSizeUnits: number
-): VoronoiRenderCell | null {
-  const bounds = computeFlatPolygonBoundsValues(points)
-  if (!bounds) {
-    return null
-  }
-  return createVoronoiRenderCellFromBounds(
-    layer,
-    cellX,
-    cellY,
-    materialCode,
-    points,
-    bounds,
-    cellSizeUnits
+): void {
+  cells.push(
+    createVoronoiRenderCellFromBounds(
+      layer,
+      cellX,
+      cellY,
+      materialCode,
+      points,
+      bounds,
+      cellSizeUnits
+    )
   )
 }
 
@@ -367,6 +455,41 @@ function createVoronoiRenderCellFromBounds(
     maxCellX: Math.ceil(bounds.maxX / cellSizeUnits),
     maxCellY: Math.ceil(bounds.maxY / cellSizeUnits),
   }
+}
+
+function setChunkLookupValue<T>(
+  lookup: ChunkLookup<T>,
+  chunkX: number,
+  chunkY: number,
+  value: T
+): void {
+  let row = lookup.get(chunkX)
+  if (!row) {
+    row = new Map<number, T>()
+    lookup.set(chunkX, row)
+  }
+  row.set(chunkY, value)
+}
+
+function getChunkLookupValue<T>(
+  lookup: ChunkLookup<T>,
+  chunkX: number,
+  chunkY: number
+): T | undefined {
+  return lookup.get(chunkX)?.get(chunkY)
+}
+
+function appendIncludedChunk(
+  includedChunkRows: ChunkLookup<boolean>,
+  includedChunkCoords: number[],
+  chunkX: number,
+  chunkY: number
+): void {
+  if (getChunkLookupValue(includedChunkRows, chunkX, chunkY) === true) {
+    return
+  }
+  setChunkLookupValue(includedChunkRows, chunkX, chunkY, true)
+  includedChunkCoords.push(chunkX, chunkY)
 }
 
 function computeFlatPolygonBoundsValues(
@@ -558,10 +681,6 @@ function computeLayerSignature(
   return hash
 }
 
-function getChunkKey(chunkX: number, chunkY: number): string {
-  return `${chunkX}:${chunkY}`
-}
-
 function mixHash(value: number): number {
   let v = value | 0
   v = Math.imul(v ^ (v >>> 16), 0x45d9f3b)
@@ -571,5 +690,10 @@ function mixHash(value: number): number {
 
 const EMPTY_VORONOI_LAYER_BUILD: VoronoiLayerBuild = {
   cells: [],
+  minX: 0,
+  minY: 0,
+  maxX: 0,
+  maxY: 0,
+  siteCount: 0,
   pickCellAt: () => null,
 }
