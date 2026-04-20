@@ -4,6 +4,8 @@ import {
   DEFAULT_WEAPON_ATTACK_SWING_MS,
   DEFAULT_WEAPON_ATTACK_WINDUP_MS,
   DEFAULT_WEAPON_FINAL_WINDUP_MS,
+  THRUST_WEAPON_ATTACK_WINDUP_MS,
+  THRUST_WEAPON_FINAL_WINDUP_MS,
 } from '../constants'
 import type {
   NormalAttackMovesetId,
@@ -134,7 +136,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_thrust_open: {
     id: 'sword_thrust_open',
     kind: 'thrust',
-    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    windupMs: THRUST_WEAPON_ATTACK_WINDUP_MS,
     swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
     pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
     recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
@@ -153,7 +155,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_thrust_combo_1: {
     id: 'sword_thrust_combo_1',
     kind: 'thrust',
-    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    windupMs: THRUST_WEAPON_ATTACK_WINDUP_MS,
     swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
     pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
     recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
@@ -172,7 +174,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_thrust_combo_2: {
     id: 'sword_thrust_combo_2',
     kind: 'thrust',
-    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    windupMs: THRUST_WEAPON_ATTACK_WINDUP_MS,
     swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
     pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
     recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
@@ -191,7 +193,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_thrust_combo_3: {
     id: 'sword_thrust_combo_3',
     kind: 'thrust',
-    windupMs: DEFAULT_WEAPON_ATTACK_WINDUP_MS,
+    windupMs: THRUST_WEAPON_ATTACK_WINDUP_MS,
     swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
     pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
     recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
@@ -210,7 +212,7 @@ export const ATTACK_MOVES: Record<string, AttackMoveData> = {
   sword_thrust_finisher: {
     id: 'sword_thrust_finisher',
     kind: 'thrust',
-    windupMs: DEFAULT_WEAPON_FINAL_WINDUP_MS,
+    windupMs: THRUST_WEAPON_FINAL_WINDUP_MS,
     swingMs: DEFAULT_WEAPON_ATTACK_SWING_MS,
     pauseMs: DEFAULT_WEAPON_ATTACK_PAUSE_MS,
     recoverMs: DEFAULT_WEAPON_ATTACK_RECOVER_MS,
