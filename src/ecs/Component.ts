@@ -148,6 +148,7 @@ export class MovementComponent extends Component {
   knockbackEndTime = 0
   knockbackDuration = 0
   knockbackElapsedTime = 0
+  knockbackMoveLockEndTime = 0
   footstepIntervalMs = FOOTSTEP_INTERVAL_MS
   footstepTimerMs = 0
   wasGrounded = false
@@ -199,6 +200,7 @@ export class MovementComponent extends Component {
     this.knockbackEndTime = 0
     this.knockbackDuration = 0
     this.knockbackElapsedTime = 0
+    this.knockbackMoveLockEndTime = 0
     this.footstepIntervalMs = FOOTSTEP_INTERVAL_MS
     this.footstepTimerMs = 0
     this.wasGrounded = false

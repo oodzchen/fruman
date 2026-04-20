@@ -585,6 +585,12 @@ export class MovementSystem extends System {
     // 硬直状态时不处理移动输入，保留物理惯性
     if (entity.isStunned()) return
 
+    // 纯位移锁：仅阻止速度覆盖，不触发硬直
+    if (entity.movement.knockbackMoveLockEndTime > 0) {
+      if (this.currentTimeMs < entity.movement.knockbackMoveLockEndTime) return
+      entity.movement.knockbackMoveLockEndTime = 0
+    }
+
     const { b2Body_SetLinearVelocity } = this.box2d
 
     let direction = entity.input.moveDirection

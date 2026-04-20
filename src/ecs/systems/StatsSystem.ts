@@ -770,7 +770,6 @@ export class StatsSystem extends System {
       if (isFrontalHit) {
         isBlockingSuccessfully = true
         finalHealthDamage = 0
-        finalToughnessDamage = 0
         this.playSoundAt(
           SOUND_IDS.SWORD_BLOCK,
           entity.transform.x,
@@ -897,8 +896,8 @@ export class StatsSystem extends System {
       }
 
       if (
-        (toughnessBroken || wasStaggered || extremeKnockdown) &&
-        !isBlockingSuccessfully
+        toughnessBroken ||
+        (!isBlockingSuccessfully && (wasStaggered || extremeKnockdown))
       ) {
         const hitStunOverrideMs = wasStaggered
           ? STAGGER_HIT_STUN_DURATION_MS
@@ -989,11 +988,16 @@ export class StatsSystem extends System {
       }
 
       if (finalKnockback > 0) {
-        this.applyForcedHitStun(
-          entity,
-          'light',
-          this.getLinearKnockbackHitStunDurationMs(finalKnockback)
-        )
+        const knockbackStunMs = this.getLinearKnockbackHitStunDurationMs(finalKnockback)
+        if (isBlockingSuccessfully && !toughnessBroken) {
+          // 格挡未破韧：只锁定速度覆盖，不触发硬直
+          if (entity.movement) {
+            entity.movement.knockbackMoveLockEndTime =
+              this.currentTimeMs + knockbackStunMs
+          }
+        } else {
+          this.applyForcedHitStun(entity, 'light', knockbackStunMs)
+        }
       }
 
       if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {
