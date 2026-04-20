@@ -329,17 +329,25 @@ export class ClientRenderer {
       if ((flags & FLAGS.CHECKPOINT) !== 0) {
         const isActive =
           (incoming[offset + OFFSETS.COLOR] | 0) === ACTIVE_CHECKPOINT_COLOR_INT
-        if (isActive && this.activeCheckpointLightCount < MAX_ACTIVE_CHECKPOINT_LIGHTS) {
+        if (
+          isActive &&
+          this.activeCheckpointLightCount < MAX_ACTIVE_CHECKPOINT_LIGHTS
+        ) {
           const idx = this.activeCheckpointLightCount
           this.activeCheckpointLightX[idx] = incoming[offset + OFFSETS.X]
           this.activeCheckpointLightY[idx] = incoming[offset + OFFSETS.Y]
-          this.activeCheckpointLightRadius[idx] = incoming[offset + OFFSETS.RADIUS]
+          this.activeCheckpointLightRadius[idx] =
+            incoming[offset + OFFSETS.RADIUS]
           this.activeCheckpointLightCount = idx + 1
-        } else if (!isActive && this.inactiveCheckpointLightCount < MAX_ACTIVE_CHECKPOINT_LIGHTS) {
+        } else if (
+          !isActive &&
+          this.inactiveCheckpointLightCount < MAX_ACTIVE_CHECKPOINT_LIGHTS
+        ) {
           const idx = this.inactiveCheckpointLightCount
           this.inactiveCheckpointLightX[idx] = incoming[offset + OFFSETS.X]
           this.inactiveCheckpointLightY[idx] = incoming[offset + OFFSETS.Y]
-          this.inactiveCheckpointLightRadius[idx] = incoming[offset + OFFSETS.RADIUS]
+          this.inactiveCheckpointLightRadius[idx] =
+            incoming[offset + OFFSETS.RADIUS]
           this.inactiveCheckpointLightCount = idx + 1
         }
       }

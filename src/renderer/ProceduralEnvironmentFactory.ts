@@ -2,11 +2,16 @@ import type { MapEnvironmentObjectType } from '../editorMapTypes'
 import { createDefaultTerrainChunkSiteJitter } from '../terrain/TerrainDataUtils'
 import type { TerrainResolvedLayerView } from '../terrain/TerrainDataUtils'
 import { getTerrainMaterialCodeById } from '../terrain/TerrainMaterialRegistry'
+import type { VoronoiLayerBuildOptions } from '../terrain/VoronoiBuilder'
 import {
   createNaturalMaterialStyle,
   createTrapezoidContourPoints,
   drawVoronoiLayer,
 } from './CheckpointTreeTextureFactory'
+
+const STANDALONE_VORONOI_OPTS: VoronoiLayerBuildOptions = {
+  expandNeighbors: false,
+}
 
 const WOOD_CODE = getTerrainMaterialCodeById('wood')
 const LEAVES_CODE = getTerrainMaterialCodeById('leaves')
@@ -189,7 +194,7 @@ export function createEnvironmentTreeTextureSource(
 
   const originX = Math.round((canvas.width - contentWidth) / 2 - localMinX)
   const originY = padding - localMinY
-  const cellSize = Math.max(8, Math.round(baseRadius / 4))
+  const cellSize = Math.max(16, Math.round(baseRadius / 2))
   offsetContourPoints(leafContour, originX, originY)
   offsetContourPoints(trunkContour, originX, originY)
 
@@ -215,14 +220,16 @@ export function createEnvironmentTreeTextureSource(
     trunkLayer,
     cellSize,
     createNaturalMaterialStyle(WOOD_CODE),
-    WOOD_CODE
+    WOOD_CODE,
+    STANDALONE_VORONOI_OPTS
   )
   drawVoronoiLayer(
     ctx,
     leafLayer,
     cellSize,
     createNaturalMaterialStyle(LEAVES_CODE),
-    LEAVES_CODE
+    LEAVES_CODE,
+    STANDALONE_VORONOI_OPTS
   )
 
   return { canvas, originX, originY: originY + trunkBottomY }
@@ -263,7 +270,7 @@ export function createEnvironmentHillTextureSource(
 
   const centerX = canvas.width >> 1
   const bottomY = canvas.height - padding
-  const cellSize = Math.max(8, Math.round(halfWidth / 8))
+  const cellSize = Math.max(16, Math.round(halfWidth / 4))
 
   const outerContour = createHillContourPoints(
     centerX,
@@ -302,14 +309,16 @@ export function createEnvironmentHillTextureSource(
     grassLayer,
     cellSize,
     createNaturalMaterialStyle(GRASS_CODE),
-    GRASS_CODE
+    GRASS_CODE,
+    STANDALONE_VORONOI_OPTS
   )
   drawVoronoiLayer(
     ctx,
     stoneLayer,
     cellSize,
     createNaturalMaterialStyle(STONE_CODE),
-    STONE_CODE
+    STONE_CODE,
+    STANDALONE_VORONOI_OPTS
   )
 
   return { canvas, originX: centerX, originY: bottomY }
@@ -373,7 +382,7 @@ export function createEnvironmentHouseTextureSource(
     oy - wallHeight,
   ]
 
-  const cellSize = Math.max(8, Math.round(wallHalfWidth >> 2))
+  const cellSize = Math.max(16, Math.round(wallHalfWidth >> 1))
 
   const wallLayer = buildLayer(
     canvas,
@@ -397,14 +406,16 @@ export function createEnvironmentHouseTextureSource(
     wallLayer,
     cellSize,
     createNaturalMaterialStyle(WOOD_CODE),
-    WOOD_CODE
+    WOOD_CODE,
+    STANDALONE_VORONOI_OPTS
   )
   drawVoronoiLayer(
     ctx,
     roofLayer,
     cellSize,
     createNaturalMaterialStyle(THATCH_CODE),
-    THATCH_CODE
+    THATCH_CODE,
+    STANDALONE_VORONOI_OPTS
   )
 
   const doorW = Math.max(4, Math.round((wallHalfWidth * 35) / 100))

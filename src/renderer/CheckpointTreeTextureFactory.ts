@@ -5,6 +5,7 @@ import {
   getTerrainMaterialByCode,
   getTerrainMaterialCodeById,
 } from '../terrain/TerrainMaterialRegistry'
+import type { VoronoiLayerBuildOptions } from '../terrain/VoronoiBuilder'
 import { getVoronoiLayerBuild } from '../terrain/VoronoiBuilder'
 
 const CHECKPOINT_TREE_RANDOM_SEED = 17041
@@ -103,7 +104,8 @@ export function createCheckpointTreeTextureSource(
 
   const originX = Math.round((canvas.width - contentWidth) / 2 - localMinX)
   const originY = padding - localMinY
-  const cellSize = Math.max(8, Math.round(radiusPx / 4))
+  // 加大单元格尺寸（原 /4 改为 /2），减少 Voronoi 点数，加速生成
+  const cellSize = Math.max(16, Math.round(radiusPx / 2))
   const chunkSize = Math.max(
     1,
     Math.ceil(Math.max(canvas.width, canvas.height) / cellSize)
@@ -147,8 +149,23 @@ export function createCheckpointTreeTextureSource(
     2
   )
 
-  drawVoronoiLayer(ctx, trunkLayer, cellSize, trunkStyle, WOOD_MATERIAL_CODE)
-  drawVoronoiLayer(ctx, leafLayer, cellSize, leafStyle, LEAVES_MATERIAL_CODE)
+  const standaloneOpts: VoronoiLayerBuildOptions = { expandNeighbors: false }
+  drawVoronoiLayer(
+    ctx,
+    trunkLayer,
+    cellSize,
+    trunkStyle,
+    WOOD_MATERIAL_CODE,
+    standaloneOpts
+  )
+  drawVoronoiLayer(
+    ctx,
+    leafLayer,
+    cellSize,
+    leafStyle,
+    LEAVES_MATERIAL_CODE,
+    standaloneOpts
+  )
 
   if (options.glow) {
     drawCheckpointOuterGlow(
@@ -209,9 +226,10 @@ export function drawVoronoiLayer(
   layer: TerrainResolvedLayerView,
   cellSize: number,
   style: TintedMaterialStyle,
-  materialCode: number
+  materialCode: number,
+  options?: VoronoiLayerBuildOptions
 ): void {
-  const build = getVoronoiLayerBuild(layer, cellSize)
+  const build = getVoronoiLayerBuild(layer, cellSize, options)
   for (let cellIndex = 0; cellIndex < build.cells.length; cellIndex++) {
     const cell = build.cells[cellIndex]
     if (cell.materialCode !== materialCode || cell.points.length < 6) {

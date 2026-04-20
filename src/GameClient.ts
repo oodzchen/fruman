@@ -712,6 +712,7 @@ export class GameClient {
     this.staticRenderLayers = collectStaticRenderLayers(map)
     this.renderer.setCharacterBodyMap(map)
     this.lightingController.setMap(map)
+    this.worldRenderer.preloadCheckpointTextures()
     this.syncStaticScene(map)
 
     if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
@@ -807,6 +808,7 @@ export class GameClient {
       this.renderer.resetPlayerHudState()
       this.renderer.setCharacterBodyMap(msg.map)
       this.lightingController.setMap(msg.map)
+      this.worldRenderer.preloadCheckpointTextures()
       this.syncStaticScene(msg.map)
       if (
         msg.map.camera &&
@@ -1770,6 +1772,11 @@ export class GameClient {
     ]
     if (this.workerPerfSnapshot) {
       lines.push(this.buildWorkerPerfOverlayLine(this.workerPerfSnapshot))
+    }
+    for (const line of this.worldRenderer.buildPerfDebugLines(
+      this.formatUsAsMs.bind(this)
+    )) {
+      lines.push(line)
     }
     return lines.join('\n')
   }

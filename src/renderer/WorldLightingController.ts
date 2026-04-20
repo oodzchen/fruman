@@ -409,11 +409,15 @@ export class WorldLightingController {
       const checkpointRadius = renderer.getActiveCheckpointLightRadius(i)
       const lightRadius =
         checkpointRadius > 0
-          ? Math.max(CHECKPOINT_ACTIVE_LIGHT_RADIUS_METERS, checkpointRadius * 2 + 1)
+          ? Math.max(
+              CHECKPOINT_ACTIVE_LIGHT_RADIUS_METERS,
+              checkpointRadius * 2 + 1
+            )
           : CHECKPOINT_ACTIVE_LIGHT_RADIUS_METERS
       this.insertWorldLight(
         renderer.getActiveCheckpointLightX(i),
-        renderer.getActiveCheckpointLightY(i) - CHECKPOINT_LIGHT_OFFSET_Y_METERS,
+        renderer.getActiveCheckpointLightY(i) -
+          CHECKPOINT_LIGHT_OFFSET_Y_METERS,
         lightRadius,
         LIGHT_COLOR_CHECKPOINT,
         (CHECKPOINT_ACTIVE_LIGHT_INTENSITY_255 * lightVisibility255) >> 8,
@@ -443,7 +447,10 @@ export class WorldLightingController {
   ): void {
     const count = renderer.getInactiveCheckpointLightCount()
     for (let i = 0; i < count; i++) {
-      const visibility255 = Math.max(DAYTIME_LIGHT_FLOOR_255, lightVisibility255)
+      const visibility255 = Math.max(
+        DAYTIME_LIGHT_FLOOR_255,
+        lightVisibility255
+      )
       const intensity255 =
         (CHECKPOINT_INACTIVE_LIGHT_INTENSITY_255 * visibility255) >> 8
       if (intensity255 <= 4) {
@@ -451,7 +458,8 @@ export class WorldLightingController {
       }
       this.insertWorldLight(
         renderer.getInactiveCheckpointLightX(i),
-        renderer.getInactiveCheckpointLightY(i) - CHECKPOINT_INACTIVE_GLOW_OFFSET_Y_METERS,
+        renderer.getInactiveCheckpointLightY(i) -
+          CHECKPOINT_INACTIVE_GLOW_OFFSET_Y_METERS,
         CHECKPOINT_INACTIVE_LIGHT_RADIUS_METERS,
         LIGHT_COLOR_CHECKPOINT,
         intensity255,

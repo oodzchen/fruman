@@ -8,8 +8,13 @@ import {
   getCharacterBodyProfileWidth,
 } from '../characterBodyProfile'
 import {
+  CHECKPOINT_TREE_TOP_COLOR_ACTIVE,
+  CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+  CHECKPOINT_TREE_TRUNK_COLOR_ACTIVE,
+  CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
   DEATH_CROSS_DURATION_MS,
   DEBUG_DRAW_PLAYER_COLLISION_SHAPE,
+  DEFAULT_CHECKPOINT_RENDER_RADIUS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_WIDTH,
@@ -90,7 +95,7 @@ const COLLISION_DEBUG_COLOR = '#ff3b30'
 const COLLISION_DEBUG_LINE_WIDTH = 2
 const ENTITY_GROUND_SORT_SCALE = 16
 const STANDALONE_WEAPON_SORT_OFFSET = -1
-const PIXI_WORLD_PERF_SECTION_COUNT = 11
+const PIXI_WORLD_PERF_SECTION_COUNT = 12
 const PIXI_WORLD_PERF_PARALLAX = 0
 const PIXI_WORLD_PERF_PLAYER_SCAN = 1
 const PIXI_WORLD_PERF_ENTITY_LOOP = 2
@@ -102,6 +107,7 @@ const PIXI_WORLD_PERF_ULTIMATE = 7
 const PIXI_WORLD_PERF_PARTICLES = 8
 const PIXI_WORLD_PERF_PARRY = 9
 const PIXI_WORLD_PERF_SPINE = 10
+const PIXI_WORLD_PERF_CHECKPOINT_TEX = 11
 
 interface LayerBucket {
   container: Container
@@ -322,6 +328,7 @@ export class PixiWorldRenderer {
     CheckpointTextureEntry
   >()
   private readonly checkpointPulseTextureCache = new Map<string, Texture>()
+  private checkpointTexGenUs = 0
   private readonly damageTextPool: DamageTextView[] = []
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
@@ -476,12 +483,13 @@ export class PixiWorldRenderer {
   buildPerfDebugLines(formatUs: (timeUs: number) => string): string[] {
     return [
       `pixi player ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PLAYER_SCAN])}  ent ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ENTITY_LOOP])}  hide ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_HIDE_STALE])}  spine ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_SPINE])}`,
-      `pixi ptx ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PARTICLES])}  parry ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PARRY])}  rope ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ROPE])}  ult ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ULTIMATE])}`,
+      `pixi ptx ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PARTICLES])}  parry ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_PARRY])}  rope ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ROPE])}  ult ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_ULTIMATE])}  ckptex ${formatUs(this.perfSectionAvgUs[PIXI_WORLD_PERF_CHECKPOINT_TEX])}`,
     ]
   }
 
   render(renderer: ClientRenderer, deltaMs: number): void {
     this.frameId += 1
+    this.checkpointTexGenUs = 0
     let sectionStartMs = performance.now()
     this.updateBucketParallax()
     this.perfSectionLastUs[PIXI_WORLD_PERF_PARALLAX] = Math.round(
@@ -672,6 +680,9 @@ export class PixiWorldRenderer {
       spineUs = Math.round((performance.now() - spineStartMs) * 1000)
     }
     this.perfSectionLastUs[PIXI_WORLD_PERF_SPINE] = spineUs
+    this.perfSectionLastUs[PIXI_WORLD_PERF_CHECKPOINT_TEX] =
+      this.checkpointTexGenUs
+    this.checkpointTexGenUs = 0
   }
 
   private ensureEntityView(id: number): EntityView {
@@ -1119,6 +1130,22 @@ export class PixiWorldRenderer {
     hideSprite(view.weaponSprite)
   }
 
+  preloadCheckpointTextures(): void {
+    const radiusPx = DEFAULT_CHECKPOINT_RENDER_RADIUS * this.pixelsPerMeter
+    this.getCheckpointTexture(
+      radiusPx,
+      CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+      CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+      false
+    )
+    this.getCheckpointTexture(
+      radiusPx,
+      CHECKPOINT_TREE_TOP_COLOR_ACTIVE,
+      CHECKPOINT_TREE_TRUNK_COLOR_ACTIVE,
+      true
+    )
+  }
+
   private getCheckpointTexture(
     radius: number,
     leafColor: string,
@@ -1127,8 +1154,8 @@ export class PixiWorldRenderer {
   ): CheckpointTextureEntry {
     const key = [
       Math.max(1, Math.round(radius)),
-      leafColor,
-      trunkColor,
+      leafColor.toLowerCase(),
+      trunkColor.toLowerCase(),
       glow ? 1 : 0,
     ].join('|')
     const cached = this.checkpointTextureCache.get(key)
@@ -1136,6 +1163,7 @@ export class PixiWorldRenderer {
       return cached
     }
 
+    const t0 = performance.now()
     const source = createCheckpointTreeTextureSource({
       radiusPx: radius,
       leafColor,
@@ -1147,6 +1175,12 @@ export class PixiWorldRenderer {
       anchorX: source.originX / source.canvas.width,
       anchorY: source.originY / source.canvas.height,
     }
+    const elapsedMs = performance.now() - t0
+    this.checkpointTexGenUs += Math.round(elapsedMs * 1000)
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[ckptex] 生成存档树纹理 ${glow ? 'active' : 'inactive'} r=${Math.round(radius)}px 耗时 ${elapsedMs.toFixed(1)}ms — 应在地图加载时预生成，渲染循环中出现此日志说明预热未生效`
+    )
     this.checkpointTextureCache.set(key, entry)
     return entry
   }
@@ -2155,15 +2189,20 @@ export class PixiWorldRenderer {
         )
         const outerStartRadius =
           startRadius > ringWidth ? startRadius : ringWidth
-        const ringOuterRadiusPx =
-          (outerStartRadius + expandDistance * lifeRatio) * this.pixelsPerMeter
+        // 纹理用最大尺寸（lifeRatio=1）预生成一次，每帧通过 scale 动画化，避免每帧创建新纹理
+        const maxOuterRadiusPx =
+          (outerStartRadius + expandDistance) * this.pixelsPerMeter
         const ringWidthPx = Math.max(3, ringWidth * this.pixelsPerMeter)
         const softEdgePx = Math.max(2, softEdge * this.pixelsPerMeter)
         const texture = this.getCheckpointPulseTexture(
-          ringOuterRadiusPx,
+          maxOuterRadiusPx,
           ringWidthPx,
           softEdgePx
         )
+        const currentOuterRadiusPx =
+          (outerStartRadius + expandDistance * lifeRatio) * this.pixelsPerMeter
+        const pulseScale =
+          maxOuterRadiusPx > 0 ? currentOuterRadiusPx / maxOuterRadiusPx : 0
         sprite.visible = true
         sprite.texture = texture
         sprite.position.set(
@@ -2172,7 +2211,7 @@ export class PixiWorldRenderer {
         )
         sprite.tint = 0xffffff
         sprite.alpha = alpha
-        sprite.scale.set(1)
+        sprite.scale.set(pulseScale)
         sprite.blendMode = 'add'
         continue
       }

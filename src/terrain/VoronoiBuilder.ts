@@ -25,8 +25,10 @@ interface CachedVoronoiLayerBuild {
   signature: number
 }
 
-interface VoronoiLayerBuildOptions {
+export interface VoronoiLayerBuildOptions {
   clipContour?: boolean
+  /** 为 false 时跳过邻居 chunk 扩展，独立精灵（非地形拼接）专用，可大幅减少 Delaunay 输入点数 */
+  expandNeighbors?: boolean
 }
 
 interface FlatPolygonBoundsValues {
@@ -43,6 +45,8 @@ export interface VoronoiLayerBuild {
 
 const clippedLayerBuildCache = new WeakMap<object, CachedVoronoiLayerBuild>()
 const unclippedLayerBuildCache = new WeakMap<object, CachedVoronoiLayerBuild>()
+const noExpandClippedCache = new WeakMap<object, CachedVoronoiLayerBuild>()
+const noExpandUnclippedCache = new WeakMap<object, CachedVoronoiLayerBuild>()
 
 export function getVoronoiLayerBuild(
   layer: TerrainResolvedLayerView,
@@ -50,14 +54,26 @@ export function getVoronoiLayerBuild(
   options: VoronoiLayerBuildOptions = {}
 ): VoronoiLayerBuild {
   const clipContour = options.clipContour !== false
+  const expandNeighbors = options.expandNeighbors !== false
   const cacheKey = layer.sourceLayer ?? layer
   const signature = computeLayerSignature(layer, clipContour)
-  const cache = clipContour ? clippedLayerBuildCache : unclippedLayerBuildCache
+  const cache = expandNeighbors
+    ? clipContour
+      ? clippedLayerBuildCache
+      : unclippedLayerBuildCache
+    : clipContour
+      ? noExpandClippedCache
+      : noExpandUnclippedCache
   const cached = cache.get(cacheKey)
   if (cached && cached.signature === signature) {
     return cached.build
   }
-  const build = buildVoronoiLayer(layer, cellSizeUnits, clipContour)
+  const build = buildVoronoiLayer(
+    layer,
+    cellSizeUnits,
+    clipContour,
+    expandNeighbors
+  )
   cache.set(cacheKey, { build, signature })
   return build
 }
@@ -65,7 +81,8 @@ export function getVoronoiLayerBuild(
 function buildVoronoiLayer(
   layer: TerrainResolvedLayerView,
   cellSizeUnits: number,
-  clipContour: boolean
+  clipContour: boolean,
+  expandNeighbors: boolean
 ): VoronoiLayerBuild {
   const chunkSize = layer.chunkSize | 0
   if (chunkSize <= 0 || layer.chunks.length === 0) {
@@ -89,16 +106,24 @@ function buildVoronoiLayer(
     if (chunkY < minChunkY) minChunkY = chunkY
     if (chunkX > maxChunkX) maxChunkX = chunkX
     if (chunkY > maxChunkY) maxChunkY = chunkY
-    for (let offsetY = -1; offsetY <= 1; offsetY++) {
-      for (let offsetX = -1; offsetX <= 1; offsetX++) {
-        const includedChunkX = chunkX + offsetX
-        const includedChunkY = chunkY + offsetY
-        const includedChunkKey = getChunkKey(includedChunkX, includedChunkY)
-        if (includedChunkKeys.has(includedChunkKey)) {
-          continue
+    if (expandNeighbors) {
+      for (let offsetY = -1; offsetY <= 1; offsetY++) {
+        for (let offsetX = -1; offsetX <= 1; offsetX++) {
+          const includedChunkX = chunkX + offsetX
+          const includedChunkY = chunkY + offsetY
+          const includedChunkKey = getChunkKey(includedChunkX, includedChunkY)
+          if (includedChunkKeys.has(includedChunkKey)) {
+            continue
+          }
+          includedChunkKeys.add(includedChunkKey)
+          includedChunkCoords.push(includedChunkX, includedChunkY)
         }
-        includedChunkKeys.add(includedChunkKey)
-        includedChunkCoords.push(includedChunkX, includedChunkY)
+      }
+    } else {
+      const chunkKey = getChunkKey(chunkX, chunkY)
+      if (!includedChunkKeys.has(chunkKey)) {
+        includedChunkKeys.add(chunkKey)
+        includedChunkCoords.push(chunkX, chunkY)
       }
     }
   }
