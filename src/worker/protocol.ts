@@ -263,6 +263,10 @@ export type WorkerCheckpointActivatedMessage = {
   type: 'checkpoint_activated'
 }
 
+export type WorkerCheckpointSleepMessage = {
+  type: 'checkpoint_sleep'
+}
+
 export type WorkerPlayerDeadMessage = {
   type: 'player_dead'
 }
@@ -288,5 +292,6 @@ export type WorkerToMainMessage =
   | WorkerPerfSnapshotMessage
   | WorkerSaveResponseMessage
   | WorkerCheckpointActivatedMessage
+  | WorkerCheckpointSleepMessage
   | WorkerPlayerDeadMessage
   | WorkerPlayerLevelUpMessage

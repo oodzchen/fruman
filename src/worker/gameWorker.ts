@@ -223,6 +223,7 @@ let expOrbSystem: ExpOrbSystem
 let spineSegmentManager: SpineSegmentManager
 
 const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
+const checkpointSleepMessage = { type: 'checkpoint_sleep' } as const
 const playerDeadMessage = { type: 'player_dead' } as const
 const DEBUG_FORCE_PLAYER_LEVEL = 0
 const spineCollisionDataByNpcType = new Map<NpcType, WorkerSpineCollisionData>()
@@ -911,6 +912,9 @@ function initializeSystems() {
     }
     ctx.postMessage(checkpointActivatedMessage)
   })
+  checkpointSystem.setCheckpointSleepHandler(() => {
+    ctx.postMessage(checkpointSleepMessage)
+  })
   checkpointSystem.setCheckpointEnteredHandler((entity, _alreadyActive) => {
     if (!entity.transform) {
       return
@@ -976,6 +980,7 @@ function initializeSystems() {
   weaponSystem.setSoundSystem(soundSystem)
   arrowSystem.setSoundSystem(soundSystem)
   interactionSystem.setWeaponSystem(weaponSystem)
+  interactionSystem.setCheckpointSystem(checkpointSystem)
   sunPickupSystem = new SunPickupSystem()
   sunPickupSystem.setEffectsEmitter(effectsEmitter)
   expOrbSystem = new ExpOrbSystem()

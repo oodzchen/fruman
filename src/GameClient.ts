@@ -1,7 +1,8 @@
 import {
   Application,
+  BlurFilter,
   Container,
-  type Graphics,
+  Graphics,
   Matrix,
   Sprite,
   Text,
@@ -73,6 +74,8 @@ interface EnvironmentTextureEntry {
   anchorY: number
 }
 
+type SleepTransitionPhase = 'idle' | 'closing' | 'closed' | 'opening'
+
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
   private static readonly PREVIEW_CAPTURE_MIN_RENDER_FRAMES = 6
@@ -89,6 +92,12 @@ export class GameClient {
   private static readonly PERF_LOG_WORKER_WARN_US = 12000
   private static readonly PERF_LOG_SYSTEM_WARN_US = 4000
   private static readonly PERF_LOG_STATIC_BUILD_WARN_US = 3000
+  private static readonly SLEEP_CLOSE_DURATION_MS = 640
+  private static readonly SLEEP_BLACKOUT_DURATION_MS = 1000
+  private static readonly SLEEP_OPEN_DURATION_MS = 320
+  private static readonly SLEEP_MAX_BLUR_STRENGTH = 12
+  private static readonly SLEEP_OVERLAY_BLUR_STRENGTH = 24
+  private static readonly SLEEP_OVERLAY_OVERSCAN_PX = 96
   private worker: Worker
   private app: Application
   private appCanvas: HTMLCanvasElement
@@ -98,8 +107,15 @@ export class GameClient {
   private cloudSprite: TilingSprite | null = null
   private readonly dayNightCycle = new DayNightCycle()
   private fpsTextEl: Text | null = null
+  private sceneContainer: Container
   private worldContainer: Container
   private hudContainer: Container
+  private sleepOverlayContainer: Container
+  private sleepOverlayGraphics: Graphics
+  private sleepBlurFilter: BlurFilter
+  private sleepSceneFilters: BlurFilter[]
+  private sleepOverlayBlurFilter: BlurFilter
+  private sleepOverlayFilters: BlurFilter[]
   private worldRenderContext: PixiRenderContext2D
   private hudRenderContext: PixiRenderContext2D
   private staticTerrainGraphics: Container[] = []
@@ -269,6 +285,9 @@ export class GameClient {
   private startMenuStableElapsedMs = 0
   private lastStartMenuCameraX = 0
   private lastStartMenuCameraY = 0
+  private sleepTransitionPhase: SleepTransitionPhase = 'idle'
+  private sleepTransitionElapsedMs = 0
+  private sleepTransitionMidpointHandled = false
 
   static async create(
     menuOverlay: HTMLDivElement,
@@ -402,6 +421,11 @@ export class GameClient {
 
     // PixiJS scene hierarchy
     onInitProgress?.('init_textures')
+    this.sceneContainer = new Container()
+    this.sceneContainer.sortableChildren = true
+    this.sceneContainer.filterArea = app.screen
+    app.stage.addChild(this.sceneContainer)
+
     // 天空背景：纯色矩形，通过 tint 实现昼夜颜色渐变
     this.backgroundSprite = new TilingSprite({
       texture: Texture.WHITE,
@@ -410,7 +434,7 @@ export class GameClient {
     })
     const initColors = this.dayNightCycle.getColors()
     this.backgroundSprite.tint = initColors.sky
-    app.stage.addChild(this.backgroundSprite)
+    this.sceneContainer.addChild(this.backgroundSprite)
     // 云层：白色云朵纹理，通过 tint 实现颜色渐变
     const cloudTexture = PatternCreator.createCloudTexture()
     if (cloudTexture) {
@@ -420,16 +444,43 @@ export class GameClient {
         height,
       })
       this.cloudSprite.tint = initColors.cloud
-      app.stage.addChild(this.cloudSprite)
+      this.sceneContainer.addChild(this.cloudSprite)
     }
 
     this.worldContainer = new Container()
     this.worldContainer.sortableChildren = true
-    app.stage.addChild(this.worldContainer)
+    this.sceneContainer.addChild(this.worldContainer)
 
     this.hudContainer = new Container()
     this.hudContainer.sortableChildren = true
-    app.stage.addChild(this.hudContainer)
+    this.sceneContainer.addChild(this.hudContainer)
+
+    this.sleepOverlayContainer = new Container()
+    this.sleepOverlayContainer.sortableChildren = true
+    this.sleepOverlayContainer.visible = false
+    this.sleepOverlayContainer.filterArea = app.screen
+    app.stage.addChild(this.sleepOverlayContainer)
+
+    this.sleepOverlayGraphics = new Graphics()
+    this.sleepOverlayGraphics.visible = false
+    this.sleepOverlayContainer.addChild(this.sleepOverlayGraphics)
+
+    this.sleepBlurFilter = new BlurFilter({
+      strength: 0,
+      quality: 2,
+      kernelSize: 5,
+    })
+    this.sleepBlurFilter.repeatEdgePixels = true
+    this.sleepSceneFilters = [this.sleepBlurFilter]
+    this.sleepOverlayBlurFilter = new BlurFilter({
+      strength: GameClient.SLEEP_OVERLAY_BLUR_STRENGTH,
+      quality: 2,
+      kernelSize: 5,
+    })
+    this.sleepOverlayBlurFilter.repeatEdgePixels = true
+    this.sleepOverlayFilters = [this.sleepOverlayBlurFilter]
+    this.sleepOverlayContainer.filters = this.sleepOverlayFilters
+
     this.worldRenderContext = new PixiRenderContext2D(
       this.worldContainer,
       width,
@@ -546,6 +597,8 @@ export class GameClient {
 
     // Resize: sync Pixi render surfaces and notify worker
     app.renderer.on('resize', (newWidth: number, newHeight: number) => {
+      this.sceneContainer.filterArea = this.app.screen
+      this.sleepOverlayContainer.filterArea = this.app.screen
       if (this.backgroundSprite) {
         this.backgroundSprite.width = newWidth
         this.backgroundSprite.height = newHeight
@@ -582,6 +635,8 @@ export class GameClient {
       // Force Pixi to resize immediately to match new container size
       // This prevents blank areas by ensuring all render targets sync synchronously
       this.app.renderer.resize(preset.width, preset.height)
+      this.sceneContainer.filterArea = this.app.screen
+      this.sleepOverlayContainer.filterArea = this.app.screen
 
       // Manually trigger background and context sync if resize event hasn't fired yet
       if (this.backgroundSprite) {
@@ -740,6 +795,8 @@ export class GameClient {
       this.handleSaveResponse(msg)
     } else if (msg.type === 'checkpoint_activated') {
       void this.handleCheckpointAutosave()
+    } else if (msg.type === 'checkpoint_sleep') {
+      this.handleCheckpointSleep()
     } else if (msg.type === 'player_dead') {
       void this.handlePlayerDead()
     } else if (msg.type === 'player_level_up') {
@@ -787,6 +844,7 @@ export class GameClient {
     const updatedSaveData: SaveData = {
       ...this.currentSaveData,
       playTimeMs: msg.playTimeMs,
+      timeCycleElapsedMs: this.dayNightCycle.getElapsed(),
       worldStateReady: true,
       activeCheckpoint: msg.activeCheckpoint,
       player: msg.player,
@@ -823,6 +881,26 @@ export class GameClient {
     }
     this.pendingCheckpointAutosave = true
     this.pendingCheckpointCaptureAfterState = true
+  }
+
+  private handleCheckpointSleep(): void {
+    if (this.sleepTransitionPhase !== 'idle') {
+      return
+    }
+    if (
+      this.menuManager.isVisible() ||
+      this.levelUpManager.isOpen() ||
+      this.dialogManager.isDialogOpen()
+    ) {
+      return
+    }
+    this.resetInputState()
+    this.setInputEnabled(false)
+    this.stop()
+    this.sleepTransitionPhase = 'closing'
+    this.sleepTransitionElapsedMs = 0
+    this.sleepTransitionMidpointHandled = false
+    this.updateSleepOverlay()
   }
 
   private async handleAutoReload(): Promise<void> {
@@ -1211,6 +1289,197 @@ export class GameClient {
     this.sendInput()
   }
 
+  private applyDayNightColors() {
+    const colors = this.dayNightCycle.getColors()
+    if (this.backgroundSprite) {
+      this.backgroundSprite.tint = colors.sky
+    }
+    if (this.cloudSprite) {
+      this.cloudSprite.tint = colors.cloud
+    }
+  }
+
+  private applySaveTimeCycle(saveData: SaveData | null) {
+    this.dayNightCycle.setElapsed(saveData?.timeCycleElapsedMs)
+    this.applyDayNightColors()
+  }
+
+  private syncCurrentSaveTimeCycle() {
+    if (!this.currentSaveData) {
+      return
+    }
+    this.currentSaveData.timeCycleElapsedMs = this.dayNightCycle.getElapsed()
+  }
+
+  private updateSleepBlur(progress256: number) {
+    if (progress256 <= 0) {
+      this.sceneContainer.filters = null
+      this.sleepBlurFilter.strength = 0
+      return
+    }
+
+    this.sleepBlurFilter.strength =
+      (GameClient.SLEEP_MAX_BLUR_STRENGTH * progress256) / 256
+    this.sceneContainer.filters = this.sleepSceneFilters
+  }
+
+  private updateSleepTransition(deltaMs: number) {
+    if (this.sleepTransitionPhase === 'idle') {
+      this.sleepOverlayContainer.visible = false
+      this.sleepOverlayGraphics.visible = false
+      this.updateSleepBlur(0)
+      return
+    }
+
+    this.sleepTransitionElapsedMs += deltaMs
+    let blurProgress256 = 256
+
+    if (this.sleepTransitionPhase === 'closing') {
+      blurProgress256 = Math.min(
+        256,
+        Math.floor(
+          (this.sleepTransitionElapsedMs << 8) /
+            GameClient.SLEEP_CLOSE_DURATION_MS
+        )
+      )
+      if (
+        !this.sleepTransitionMidpointHandled &&
+        this.sleepTransitionElapsedMs >= GameClient.SLEEP_CLOSE_DURATION_MS
+      ) {
+        this.sleepTransitionMidpointHandled = true
+        this.dayNightCycle.advanceToNextPhase()
+        this.syncCurrentSaveTimeCycle()
+        this.applyDayNightColors()
+        this.sleepTransitionPhase = 'closed'
+        this.sleepTransitionElapsedMs = 0
+      }
+    } else if (this.sleepTransitionPhase === 'closed') {
+      blurProgress256 = 256
+      if (
+        this.sleepTransitionElapsedMs >= GameClient.SLEEP_BLACKOUT_DURATION_MS
+      ) {
+        this.sleepTransitionPhase = 'opening'
+        this.sleepTransitionElapsedMs = 0
+      }
+    } else if (this.sleepTransitionPhase === 'opening') {
+      const remainingMs = Math.max(
+        0,
+        GameClient.SLEEP_OPEN_DURATION_MS - this.sleepTransitionElapsedMs
+      )
+      blurProgress256 = Math.min(
+        256,
+        Math.floor((remainingMs << 8) / GameClient.SLEEP_OPEN_DURATION_MS)
+      )
+      if (this.sleepTransitionElapsedMs >= GameClient.SLEEP_OPEN_DURATION_MS) {
+        this.sleepTransitionPhase = 'idle'
+        this.sleepTransitionElapsedMs = 0
+        this.sleepTransitionMidpointHandled = false
+        this.sleepOverlayContainer.visible = false
+        this.sleepOverlayGraphics.visible = false
+        this.updateSleepBlur(0)
+        this.start()
+        this.setInputEnabled(true)
+        this.requestGameFocus()
+        void this.handleCheckpointAutosave()
+        return
+      }
+    }
+
+    this.updateSleepBlur(blurProgress256)
+    this.updateSleepOverlay()
+  }
+
+  private updateSleepOverlay() {
+    const graphics = this.sleepOverlayGraphics
+    if (this.sleepTransitionPhase === 'idle') {
+      this.sleepOverlayContainer.visible = false
+      graphics.visible = false
+      graphics.clear()
+      this.updateSleepBlur(0)
+      return
+    }
+
+    const width = this.app.renderer.width | 0
+    const height = this.app.renderer.height | 0
+    const halfHeight = height >> 1
+    const maxCurveDepth = Math.max(2, halfHeight >> 2)
+    let coverHeight = 0
+
+    if (this.sleepTransitionPhase === 'closing') {
+      coverHeight = Math.min(
+        halfHeight,
+        Math.floor(
+          (halfHeight * this.sleepTransitionElapsedMs) /
+            GameClient.SLEEP_CLOSE_DURATION_MS
+        )
+      )
+    } else if (this.sleepTransitionPhase === 'closed') {
+      coverHeight = halfHeight
+    } else {
+      const remainingMs = Math.max(
+        0,
+        GameClient.SLEEP_OPEN_DURATION_MS - this.sleepTransitionElapsedMs
+      )
+      coverHeight = Math.min(
+        halfHeight,
+        Math.floor(
+          (halfHeight * remainingMs) / GameClient.SLEEP_OPEN_DURATION_MS
+        )
+      )
+    }
+
+    if (coverHeight <= 0) {
+      this.sleepOverlayContainer.visible = false
+      graphics.visible = false
+      graphics.clear()
+      return
+    }
+
+    const closeProgress256 = Math.min(
+      256,
+      Math.floor((coverHeight << 8) / halfHeight)
+    )
+    const curveDepth = Math.max(
+      0,
+      Math.floor((maxCurveDepth * (256 - closeProgress256)) / 256)
+    )
+    const overlapPx =
+      closeProgress256 >= 224 ? 2 : closeProgress256 >= 160 ? 1 : 0
+    const topEdgeY = coverHeight
+    const bottomEdgeY = height - coverHeight
+    const centerX = width >> 1
+    const centerTopY = Math.max(0, topEdgeY - curveDepth)
+    const centerBottomY = Math.min(height, bottomEdgeY + curveDepth)
+    const topCloseY = Math.min(height, topEdgeY + overlapPx)
+    const bottomCloseY = Math.max(0, bottomEdgeY - overlapPx)
+
+    this.sleepOverlayContainer.visible = true
+    graphics.visible = true
+    graphics.clear()
+
+    const overscan = GameClient.SLEEP_OVERLAY_OVERSCAN_PX
+    const leftX = -overscan
+    const rightX = width + overscan
+    const topFillY = -overscan
+    const bottomFillY = height + overscan
+
+    graphics
+      .moveTo(leftX, topFillY)
+      .lineTo(rightX, topFillY)
+      .lineTo(rightX, topCloseY)
+      .quadraticCurveTo(centerX, centerTopY, leftX, topCloseY)
+      .lineTo(leftX, topFillY)
+      .fill(0x000000)
+
+    graphics
+      .moveTo(leftX, bottomFillY)
+      .lineTo(rightX, bottomFillY)
+      .lineTo(rightX, bottomCloseY)
+      .quadraticCurveTo(centerX, centerBottomY, leftX, bottomCloseY)
+      .lineTo(leftX, bottomFillY)
+      .fill(0x000000)
+  }
+
   private isPointInCanvas(clientX: number, clientY: number) {
     const rect = this.appCanvas.getBoundingClientRect()
     const left = Math.floor(rect.left)
@@ -1238,11 +1507,12 @@ export class GameClient {
       shouldRefreshPerfText = true
     }
 
-    // 更新昼夜颜色
-    this.dayNightCycle.update(deltaMs)
-    const dnColors = this.dayNightCycle.getColors()
-    if (this.backgroundSprite) this.backgroundSprite.tint = dnColors.sky
-    if (this.cloudSprite) this.cloudSprite.tint = dnColors.cloud
+    if (this.sleepTransitionPhase === 'idle') {
+      this.dayNightCycle.update(deltaMs)
+      this.syncCurrentSaveTimeCycle()
+      this.applyDayNightColors()
+    }
+    this.updateSleepTransition(deltaMs | 0)
 
     let updateTimeUs = 0
     if (!this.editorPreview) {
@@ -1978,6 +2248,11 @@ export class GameClient {
 
     this.currentSaveId = meta.id
     this.currentSaveData = saveData
+    this.applySaveTimeCycle(saveData)
+    this.sleepTransitionPhase = 'idle'
+    this.sleepTransitionElapsedMs = 0
+    this.sleepTransitionMidpointHandled = false
+    this.updateSleepOverlay()
 
     this.setEditorPreview(false)
     if (this.previewActive) {
@@ -2013,6 +2288,11 @@ export class GameClient {
 
     this.currentSaveId = saveId
     this.currentSaveData = saveData
+    this.applySaveTimeCycle(saveData)
+    this.sleepTransitionPhase = 'idle'
+    this.sleepTransitionElapsedMs = 0
+    this.sleepTransitionMidpointHandled = false
+    this.updateSleepOverlay()
 
     this.setEditorPreview(false)
     if (this.previewActive) {

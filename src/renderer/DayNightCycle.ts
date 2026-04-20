@@ -2,7 +2,9 @@ const DEBUG_CYCLE = false
 export const DAY_CYCLE_MS = DEBUG_CYCLE ? 60_000 : 3_600_000
 
 // 每段时长（6段均匀分布）
-const SEG_MS = DAY_CYCLE_MS / 6
+export const DAY_CYCLE_SEGMENT_MS = DAY_CYCLE_MS / 6
+const SEG_MS = DAY_CYCLE_SEGMENT_MS
+const PHASE_MASK_OFFSET_MS = 3 * SEG_MS
 
 interface DayPhase {
   readonly skyColor: number
@@ -33,10 +35,35 @@ function lerpColor(a: number, b: number, t256: number): number {
 }
 
 export class DayNightCycle {
-  private elapsed = 3 * SEG_MS
+  private elapsed = PHASE_MASK_OFFSET_MS
+
+  private normalizeElapsed(elapsedMs: number): number {
+    const normalized = Math.round(elapsedMs) % DAY_CYCLE_MS
+    if (normalized < 0) {
+      return normalized + DAY_CYCLE_MS
+    }
+    return normalized
+  }
 
   update(deltaMs: number): void {
-    this.elapsed = (this.elapsed + (deltaMs | 0)) % DAY_CYCLE_MS
+    this.elapsed = this.normalizeElapsed(this.elapsed + (deltaMs | 0))
+  }
+
+  getElapsed(): number {
+    return this.elapsed
+  }
+
+  setElapsed(elapsedMs: number | undefined): void {
+    if (typeof elapsedMs !== 'number' || !Number.isFinite(elapsedMs)) {
+      this.elapsed = PHASE_MASK_OFFSET_MS
+      return
+    }
+    this.elapsed = this.normalizeElapsed(elapsedMs)
+  }
+
+  advanceToNextPhase(): void {
+    const seg = (this.elapsed / SEG_MS) | 0
+    this.elapsed = ((seg + 1) % PHASES.length) * SEG_MS
   }
 
   getColors(): { sky: number; cloud: number } {

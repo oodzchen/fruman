@@ -119,6 +119,7 @@ export interface SaveData {
   mapId: string
   mapData: EditorMapData
   playTimeMs: number
+  timeCycleElapsedMs?: number
   worldStateReady: boolean
   activeCheckpoint?: SaveCheckpointState | null
   player: SavePlayerState

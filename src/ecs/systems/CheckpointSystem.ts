@@ -13,6 +13,7 @@ export type CheckpointEnteredHandler = (
   entity: Entity,
   alreadyActive: boolean
 ) => void
+export type CheckpointSleepHandler = (entity: Entity) => void
 export type PlayerDeadHandler = () => void
 
 export class CheckpointSystem extends System {
@@ -26,8 +27,10 @@ export class CheckpointSystem extends System {
   private hasActiveCheckpoint = false
   private onCheckpointActivated: CheckpointActivatedHandler | null = null
   private onCheckpointEntered: CheckpointEnteredHandler | null = null
+  private onCheckpointSleep: CheckpointSleepHandler | null = null
   private onPlayerDead: PlayerDeadHandler | null = null
   private deathNotified = false
+  private currentPlayerCheckpoint: Entity | null = null
 
   constructor() {
     super()
@@ -39,6 +42,7 @@ export class CheckpointSystem extends System {
   setPlayer(player: Entity | null): void {
     this.player = player
     this.deathNotified = false
+    this.currentPlayerCheckpoint = null
   }
 
   setDefaultSpawn(x: number, y: number): void {
@@ -55,6 +59,10 @@ export class CheckpointSystem extends System {
 
   setCheckpointEnteredHandler(handler: CheckpointEnteredHandler | null): void {
     this.onCheckpointEntered = handler
+  }
+
+  setCheckpointSleepHandler(handler: CheckpointSleepHandler | null): void {
+    this.onCheckpointSleep = handler
   }
 
   setPlayerDeadHandler(handler: PlayerDeadHandler | null): void {
@@ -97,6 +105,22 @@ export class CheckpointSystem extends System {
     }
     out.x = this.activeCheckpointX
     out.y = this.activeCheckpointY
+    return true
+  }
+
+  tryRequestSleep(entity: Entity): boolean {
+    if (entity !== this.player) {
+      return false
+    }
+    if (!entity.stats || entity.stats.isDead) {
+      return false
+    }
+    if (!this.currentPlayerCheckpoint) {
+      return false
+    }
+    if (this.onCheckpointSleep) {
+      this.onCheckpointSleep(this.currentPlayerCheckpoint)
+    }
     return true
   }
 
@@ -173,6 +197,8 @@ export class CheckpointSystem extends System {
       }
     }
 
+    this.currentPlayerCheckpoint = bestEntity
+
     if (enteredEntity && this.onCheckpointEntered) {
       this.onCheckpointEntered(
         enteredEntity,
@@ -190,6 +216,7 @@ export class CheckpointSystem extends System {
   }
 
   private clearPlayerInsideState(entities: Entity[]): void {
+    this.currentPlayerCheckpoint = null
     for (let i = 0; i < entities.length; i += 1) {
       const checkpoint = entities[i].checkpoint
       if (checkpoint) {

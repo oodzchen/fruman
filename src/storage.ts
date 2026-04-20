@@ -1108,6 +1108,11 @@ function normalizeSaveData(saveData: SaveData): SaveData {
   return {
     ...saveData,
     mapData: normalizedMapData,
+    timeCycleElapsedMs:
+      typeof saveData.timeCycleElapsedMs === 'number' &&
+      Number.isFinite(saveData.timeCycleElapsedMs)
+        ? Math.max(0, Math.round(saveData.timeCycleElapsedMs))
+        : undefined,
     player: {
       ...saveData.player,
       level: clampPlayerLevel(saveData.player.level),

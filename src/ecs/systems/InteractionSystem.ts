@@ -2,23 +2,30 @@ import { FOLLOW_INTERACTION_RANGE } from '../../constants'
 import type { Entity } from '../Entity'
 import { System } from '../System'
 import { showEntityHud } from '../hudVisibility'
+import type { CheckpointSystem } from './CheckpointSystem'
 import type { WeaponSystem } from './WeaponSystem'
 
 /**
  * 交互系统 - 统一处理所有基于上下文的互动逻辑
  *
  * 互动键（E键）会根据当前环境执行不同的操作：
- * 1. 优先级1：绑定/解绑追随同伴
- * 2. 优先级2：附近有武器 → 拾取/替换武器
- * 3. 优先级3：附近有门 → 开门（未来）
- * 4. 优先级4：附近有NPC → 对话（未来）
- * 5. 默认行为：切换HUD显示
+ * 1. 优先级1：存档点睡觉
+ * 2. 优先级2：绑定/解绑追随同伴
+ * 3. 优先级3：附近有武器 → 拾取/替换武器
+ * 4. 优先级4：附近有门 → 开门（未来）
+ * 5. 优先级5：附近有NPC → 对话（未来）
+ * 6. 默认行为：切换HUD显示
  */
 export class InteractionSystem extends System {
   private weaponSystem: WeaponSystem | null = null
+  private checkpointSystem: CheckpointSystem | null = null
 
   setWeaponSystem(weaponSystem: WeaponSystem): void {
     this.weaponSystem = weaponSystem
+  }
+
+  setCheckpointSystem(checkpointSystem: CheckpointSystem): void {
+    this.checkpointSystem = checkpointSystem
   }
 
   update(entities: Entity[], _deltaTime: number): void {
@@ -30,8 +37,16 @@ export class InteractionSystem extends System {
       const hasInteractAction = inputBuffer.hasActiveAction('interact')
       let interactionConsumed = false
 
+      if (
+        hasInteractAction &&
+        this.checkpointSystem &&
+        this.checkpointSystem.tryRequestSleep(entity)
+      ) {
+        interactionConsumed = true
+      }
+
       // 按互动键时，结伴/解绑优先于地面武器交互
-      if (hasInteractAction && !entity.npcAI) {
+      if (!interactionConsumed && hasInteractAction && !entity.npcAI) {
         if (this.tryToggleFollowBind(entity, entities)) {
           interactionConsumed = true
         }
