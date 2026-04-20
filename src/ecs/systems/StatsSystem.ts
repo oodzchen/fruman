@@ -84,6 +84,10 @@ const STAGGER_KNOCKBACK_NUMERATOR = 6
 const STAGGER_KNOCKBACK_DENOMINATOR = 5
 const TOUGHNESS_BREAK_KNOCKBACK_NUMERATOR = 4
 const TOUGHNESS_BREAK_KNOCKBACK_DENOMINATOR = 5
+const PARRY_KNOCKBACK_NUMERATOR = 1
+const PARRY_KNOCKBACK_DENOMINATOR = 5
+const LINEAR_KNOCKBACK_HIT_STUN_MS_NUMERATOR = 50
+const LINEAR_KNOCKBACK_HIT_STUN_MS_DENOMINATOR = 1
 const ULTIMATE_COOLDOWN_HIT_REWARD_MS = 1000
 const ULTIMATE_COOLDOWN_KILL_REWARD_MS = 2000
 
@@ -471,6 +475,50 @@ export class StatsSystem extends System {
     )
   }
 
+  applyParryKnockback(defender: Entity, attacker: Entity): void {
+    if (!defender.transform) return
+
+    const attackerWeapon = attacker.weapon
+    if (!attackerWeapon) return
+
+    const baseKnockback = IMPACT_LEVEL_KNOCKBACK[attackerWeapon.impactLevel]
+    const finalKnockback = this.scaleKnockback(
+      baseKnockback,
+      PARRY_KNOCKBACK_NUMERATOR,
+      PARRY_KNOCKBACK_DENOMINATOR
+    )
+    if (!(finalKnockback > 0)) {
+      return
+    }
+
+    const hitSourceX = attackerWeapon.visual.x
+    const hitSourceY = attackerWeapon.visual.y
+    const dirX = defender.transform.x - hitSourceX
+    const dirY = defender.transform.y - hitSourceY
+    const distance = Math.hypot(dirX, dirY)
+    const normalizedDirX = distance > 0 ? dirX / distance : 1
+
+    this.applyForcedHitStun(
+      defender,
+      'light',
+      this.getLinearKnockbackHitStunDurationMs(finalKnockback)
+    )
+
+    if (!defender.physics || !this.box2d || !this.tempVec) {
+      return
+    }
+
+    const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = this.box2d
+    const mass = b2Body_GetMass(defender.physics.bodyId)
+    this.tempVec.x = normalizedDirX * finalKnockback * 2 * mass
+    this.tempVec.y = 0
+    b2Body_ApplyLinearImpulseToCenter(
+      defender.physics.bodyId,
+      this.tempVec,
+      true
+    )
+  }
+
   applyImpulse(entity: Entity, impulseX: number, impulseY: number): void {
     if (!entity.physics || !this.box2d || !this.tempVec) return
 
@@ -722,7 +770,6 @@ export class StatsSystem extends System {
       if (isFrontalHit) {
         isBlockingSuccessfully = true
         finalHealthDamage = 0
-        finalKnockback = 0
         finalToughnessDamage = 0
         this.playSoundAt(
           SOUND_IDS.SWORD_BLOCK,
@@ -941,24 +988,27 @@ export class StatsSystem extends System {
         }
       }
 
-      if (
-        finalKnockback > 0 &&
-        (toughnessBroken || wasStaggered) &&
-        entity.physics &&
-        this.box2d &&
-        this.tempVec
-      ) {
+      if (finalKnockback > 0) {
+        this.applyForcedHitStun(
+          entity,
+          'light',
+          this.getLinearKnockbackHitStunDurationMs(finalKnockback)
+        )
+      }
+
+      if (finalKnockback > 0 && entity.physics && this.box2d && this.tempVec) {
         const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = this.box2d
         const mass = b2Body_GetMass(entity.physics.bodyId)
+        const canLaunch = toughnessBroken || wasStaggered || extremeKnockdown
 
         const impulseX = normalizedDirX * finalKnockback * 2 * mass
         let impulseY = 0
-        if (impactLevel === 'extreme') {
+        if (canLaunch && impactLevel === 'extreme') {
           impulseY = -(
             (finalKnockback * EXTREME_LAUNCH_IMPULSE_NUMERATOR * mass) /
             EXTREME_LAUNCH_IMPULSE_DENOMINATOR
           )
-        } else if (impactLevel === 'large') {
+        } else if (canLaunch && impactLevel === 'large') {
           impulseY = -(
             (finalKnockback * LARGE_LAUNCH_IMPULSE_NUMERATOR * mass) /
             LARGE_LAUNCH_IMPULSE_DENOMINATOR
@@ -1051,6 +1101,30 @@ export class StatsSystem extends System {
     return (
       (baseKnockback * STAGGER_KNOCKBACK_NUMERATOR) /
       STAGGER_KNOCKBACK_DENOMINATOR
+    )
+  }
+
+  private scaleKnockback(
+    knockback: number,
+    numerator: number,
+    denominator: number
+  ): number {
+    if (!(knockback > 0) || !(numerator > 0) || !(denominator > 0)) {
+      return 0
+    }
+    return (knockback * numerator) / denominator
+  }
+
+  private getLinearKnockbackHitStunDurationMs(knockback: number): number {
+    if (!(knockback > 0)) {
+      return 0
+    }
+    return Math.max(
+      1,
+      Math.round(
+        (knockback * LINEAR_KNOCKBACK_HIT_STUN_MS_NUMERATOR) /
+          LINEAR_KNOCKBACK_HIT_STUN_MS_DENOMINATOR
+      )
     )
   }
 

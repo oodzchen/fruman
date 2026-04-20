@@ -904,6 +904,7 @@ export class WeaponSystem extends System {
     } else {
       attackerStaggered = this.statsSystem.applyParryDamage(defender, attacker)
     }
+    this.statsSystem.applyParryKnockback(defender, attacker)
 
     if (attackerStaggered) {
       // 触发攻击者武器回弹效果

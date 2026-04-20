@@ -6,16 +6,16 @@
 
 **技术栈**
 
-| 类别 | 技术 |
-|------|------|
-| 渲染引擎 | Pixi.js v8 (WebGL) |
-| 物理引擎 | Box2D3-WASM v5.1 |
-| 骨骼动画 | Spine Pixi v4.2 |
-| 粒子系统 | @pixi/particle-emitter |
-| 几何算法 | d3-delaunay, clipper2-wasm, poly-decomp-es |
-| 编辑器画布 | fabric.js v7 |
-| 构建工具 | Vite v8 + TypeScript 5 strict |
-| 代码质量 | ESLint v9 + Prettier |
+| 类别       | 技术                                       |
+| ---------- | ------------------------------------------ |
+| 渲染引擎   | Pixi.js v8 (WebGL)                         |
+| 物理引擎   | Box2D3-WASM v5.1                           |
+| 骨骼动画   | Spine Pixi v4.2                            |
+| 粒子系统   | @pixi/particle-emitter                     |
+| 几何算法   | d3-delaunay, clipper2-wasm, poly-decomp-es |
+| 编辑器画布 | fabric.js v7                               |
+| 构建工具   | Vite v8 + TypeScript 5 strict              |
+| 代码质量   | ESLint v9 + Prettier                       |
 
 ---
 
@@ -360,18 +360,18 @@ ECS World.update(deltaTime)
 
 ### 策略汇总
 
-| 优化手段 | 实现 | 效果 |
-|---------|------|------|
-| 空间分区 | SpatialHash (网格) | 范围查询 O(n²) → O(1) |
-| 对象池 | ArrowPools, EntityComponentPool, ParticleSystem | 避免 GC 暂停 |
-| 视锥剔除 | ClientRenderer AABB 检测 | 只渲染可见实体 |
-| AI 节流 | NpcAISystem 200ms 间隔 | 降低 AI 开销 ~10x |
-| 组件缓存 | Entity.transform / .physics / .stats | 避免 Map 查询 |
-| 零拷贝通信 | SharedArrayBuffer | 无序列化开销 |
-| 位掩码过滤 | ComponentRegistry bitmask | System 快速匹配实体 |
-| 贴图缓存 | 武器 Canvas Pattern 缓存 (x192) | 避免重复绘制 |
-| Spine 缓存 | SpineBodyManager 按需加载 | 减少资源重复加载 |
-| 整数运算 | 所有游戏数值避免浮点 | 精确、高效 |
+| 优化手段   | 实现                                            | 效果                  |
+| ---------- | ----------------------------------------------- | --------------------- |
+| 空间分区   | SpatialHash (网格)                              | 范围查询 O(n²) → O(1) |
+| 对象池     | ArrowPools, EntityComponentPool, ParticleSystem | 避免 GC 暂停          |
+| 视锥剔除   | ClientRenderer AABB 检测                        | 只渲染可见实体        |
+| AI 节流    | NpcAISystem 200ms 间隔                          | 降低 AI 开销 ~10x     |
+| 组件缓存   | Entity.transform / .physics / .stats            | 避免 Map 查询         |
+| 零拷贝通信 | SharedArrayBuffer                               | 无序列化开销          |
+| 位掩码过滤 | ComponentRegistry bitmask                       | System 快速匹配实体   |
+| 贴图缓存   | 武器 Canvas Pattern 缓存 (x192)                 | 避免重复绘制          |
+| Spine 缓存 | SpineBodyManager 按需加载                       | 减少资源重复加载      |
+| 整数运算   | 所有游戏数值避免浮点                            | 精确、高效            |
 
 ### 帧时间预算
 
