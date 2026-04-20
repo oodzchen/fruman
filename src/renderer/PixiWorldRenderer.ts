@@ -95,6 +95,8 @@ const COLLISION_DEBUG_COLOR = '#ff3b30'
 const COLLISION_DEBUG_LINE_WIDTH = 2
 const ENTITY_GROUND_SORT_SCALE = 16
 const STANDALONE_WEAPON_SORT_OFFSET = -1
+const CHECKPOINT_SORT_OFFSET = -10000
+const SUN_PICKUP_SORT_OFFSET = -5000
 const PIXI_WORLD_PERF_SECTION_COUNT = 12
 const PIXI_WORLD_PERF_PARALLAX = 0
 const PIXI_WORLD_PERF_PLAYER_SCAN = 1
@@ -305,7 +307,6 @@ const PARALLAX_MIN_BRIGHTNESS = 0.3
 
 export class PixiWorldRenderer {
   private readonly root: Container
-  private readonly emissiveEntityContainer: Container
   private readonly pixelsPerMeter: number
   private readonly buckets = new Map<number, LayerBucket>()
   private readonly entityViews = new Map<number, EntityView>()
@@ -365,10 +366,6 @@ export class PixiWorldRenderer {
   ) {
     this.root = root
     this.pixelsPerMeter = pixelsPerMeter
-
-    this.emissiveEntityContainer = new Container()
-    this.emissiveEntityContainer.sortableChildren = true
-    emissiveRoot.addChild(this.emissiveEntityContainer)
 
     this.overlayContainer = new Container()
     this.overlayContainer.zIndex = 900000
@@ -1003,6 +1000,7 @@ export class PixiWorldRenderer {
     offset: number,
     centerY: number
   ): number {
+    const flags = buf[offset + OFFSETS.FLAGS]
     const radiusPx = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
     const healthMax = buf[offset + OFFSETS.STATS_HEALTH_MAX]
     const weaponActive = buf[offset + OFFSETS.WEAPON_ACTIVE] === 1
@@ -1013,7 +1011,14 @@ export class PixiWorldRenderer {
           Math.max(0, buf[offset + OFFSETS.WEAPON_H] * 0.5)) *
         this.pixelsPerMeter
       : centerY + Math.max(0, radiusPx)
-    const sortOffset = isStandaloneWeapon ? STANDALONE_WEAPON_SORT_OFFSET : 0
+
+    let sortOffset = isStandaloneWeapon ? STANDALONE_WEAPON_SORT_OFFSET : 0
+    if (flags & FLAGS.CHECKPOINT) {
+      sortOffset += CHECKPOINT_SORT_OFFSET
+    } else if (flags & (FLAGS.SUN_PICKUP_SMALL | FLAGS.SUN_PICKUP_LARGE)) {
+      sortOffset += SUN_PICKUP_SORT_OFFSET
+    }
+
     return Math.round(groundY * ENTITY_GROUND_SORT_SCALE) + sortOffset
   }
 
@@ -1135,7 +1140,6 @@ export class PixiWorldRenderer {
       ? this.getSunTexture(true)
       : this.getSunTexture(false)
     view.specialSprite.alpha = 1
-    this.emissiveEntityContainer.addChild(view.root)
     hideSprite(view.bodySprite)
     hideSprite(view.weaponSprite)
   }
@@ -1170,9 +1174,6 @@ export class PixiWorldRenderer {
 
     view.specialSprite.visible = true
     view.specialSprite.alpha = alpha
-    if (active) {
-      this.emissiveEntityContainer.addChild(view.root)
-    }
     hideSprite(view.bodySprite)
     hideSprite(view.weaponSprite)
   }

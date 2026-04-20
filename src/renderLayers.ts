@@ -36,9 +36,7 @@ export function isRenderLayerMatch(
 export function getDefaultTerrainRenderLayer(
   materialId: TerrainMaterialId
 ): number {
-  return getTerrainMaterialTagById(materialId) === 'foliage'
-    ? RENDER_LAYER_FOREGROUND
-    : RENDER_LAYER_DEFAULT
+  return RENDER_LAYER_DEFAULT
 }
 
 export function getDefaultShapeRenderLayer(): number {
