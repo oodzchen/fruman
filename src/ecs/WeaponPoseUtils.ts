@@ -9,6 +9,8 @@ export const FRONT_SWING_TILT_RAD = Math.PI / 16
 const THRUST_START_RATIO = 35
 const THRUST_END_RATIO = 105
 const THRUST_GRIP_CLEARANCE = 0.06
+const SWORD_THRUST_RETRACT_RADIUS_RATIO = 30
+const SWORD_THRUST_RETRACT_WIDTH_RATIO = 18
 
 export function getRangedAimRotation(
   weaponType: WeaponVisualType,
@@ -167,6 +169,7 @@ export function getThrustTransforms(
   radius: number,
   facing: number,
   playerPos: { x: number; y: number },
+  weaponType: WeaponVisualType,
   weaponWidth: number,
   outStart: WeaponTransform,
   outEnd: WeaponTransform
@@ -185,6 +188,22 @@ export function getThrustTransforms(
   }
   const thrustY = playerPos.y
   const rotation = facing === 1 ? 0 : -Math.PI
+
+  if (weaponType === 'sword') {
+    const retractByRadius = (radius * SWORD_THRUST_RETRACT_RADIUS_RATIO) / 100
+    const retractByWidth =
+      (weaponWidth * SWORD_THRUST_RETRACT_WIDTH_RATIO) / 100
+    const retractDistance = Math.max(retractByRadius, retractByWidth)
+
+    outStart.x = playerPos.x - facing * retractDistance
+    outStart.y = thrustY
+    outStart.rotation = rotation
+
+    outEnd.x = playerPos.x + facing * endDistance
+    outEnd.y = thrustY
+    outEnd.rotation = rotation
+    return
+  }
 
   outStart.x = playerPos.x + facing * (startDistance - startGripOffset)
   outStart.y = thrustY
@@ -226,6 +245,7 @@ export function getSwingTransforms(
       radius,
       facing,
       playerPos,
+      weaponType,
       weaponWidth,
       outStart,
       outEnd

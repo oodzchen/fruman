@@ -1224,10 +1224,6 @@ export class PixiWorldRenderer {
     }
     const elapsedMs = performance.now() - t0
     this.checkpointTexGenUs += Math.round(elapsedMs * 1000)
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[ckptex] 生成存档树纹理 ${glow ? 'active' : 'inactive'} r=${Math.round(radius)}px 耗时 ${elapsedMs.toFixed(1)}ms — 应在地图加载时预生成，渲染循环中出现此日志说明预热未生效`
-    )
     this.checkpointTextureCache.set(key, entry)
     return entry
   }

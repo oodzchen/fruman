@@ -268,6 +268,7 @@ export class UltimateHandler {
       attackRadius,
       weapon.ultimateFacing,
       playerPos,
+      weapon.weaponType,
       weapon.width,
       this.tempTransform,
       weapon.swingEndTransform
@@ -968,6 +969,7 @@ export class UltimateHandler {
       attackRadius,
       facing,
       entity.transform,
+      weapon.weaponType,
       weapon.width,
       weapon.attackStartTransform,
       weapon.swingEndTransform
