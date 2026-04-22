@@ -1140,6 +1140,8 @@ export class NpcAIComponent extends Component {
   currentWaypointIndex = 0
   patrolResumeTimestamp = 0
   patrolState: 'moving' | 'waiting' = 'moving'
+  guardFacing: -1 | 1 = 1
+  guardAnchorInitialized = false
   patrolStuckTimer = 0
   npcType: NpcType = 'default'
   isRedTapeActive = false
@@ -1229,6 +1231,8 @@ export class NpcAIComponent extends Component {
     this.currentWaypointIndex = 0
     this.patrolResumeTimestamp = 0
     this.patrolState = 'moving'
+    this.guardFacing = 1
+    this.guardAnchorInitialized = false
     this.patrolStuckTimer = 0
     this.npcType = 'default'
     this.isRedTapeActive = false

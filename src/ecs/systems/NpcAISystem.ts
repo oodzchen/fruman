@@ -219,6 +219,25 @@ export class NpcAISystem extends System {
       }
 
       const ai = entity.npcAI
+      const shouldHoldGuardIdle =
+        ai.initialPatrolMode === 'guard' &&
+        entity.sensor?.detectedTargetId === null &&
+        entity.input.lockedTargetId === null &&
+        !entity.stats?.isInCombat &&
+        !ai.alertChaseActive &&
+        ai.forcedChaseDistanceRemaining <= 0
+
+      if (shouldHoldGuardIdle) {
+        this.handlePatrol(entity, ai, now)
+        entity.input.sprintRequested = false
+        entity.input.blockRequested = false
+        entity.input.lockedTargetId = null
+        ai.state = 'idle'
+        if (entity.weapon) {
+          entity.weapon.attackQueued = false
+        }
+        continue
+      }
 
       const dx = target.transform.x - entity.transform.x
       const dy = target.transform.y - entity.transform.y
@@ -1072,13 +1091,32 @@ export class NpcAISystem extends System {
       !ai.patrolWaypoints ||
       ai.patrolWaypoints.length === 0
     if (shouldStandGuard) {
+      const guardFacing = ai.guardFacing
+      entity.input.lastMoveDirection = guardFacing
+
+      if (!ai.guardAnchorInitialized) {
+        ai.guardAnchorInitialized = true
+        ai.patrolCenter.x = entity.transform.x
+        ai.patrolCenter.y = entity.transform.y
+        entity.input.moveDirection = 0
+        entity.input.facingOverride = guardFacing
+        ai.patrolState = 'moving'
+        ai.patrolStuckTimer = 0
+        ai.lastPosition.x = entity.transform.x
+        ai.lastPosition.y = entity.transform.y
+        ai.lastPositionUpdateTime = now
+        ai.state = 'approach'
+        ai.comboSwingsDone = 0
+        return
+      }
+
       const dx = ai.patrolCenter.x - entity.transform.x
       const dist = Math.abs(dx)
       const arrivalThreshold = 0.5
 
       if (dist <= arrivalThreshold) {
         entity.input.moveDirection = 0
-        entity.input.facingOverride = null
+        entity.input.facingOverride = guardFacing
         ai.patrolState = 'moving'
         ai.patrolStuckTimer = 0
         ai.lastPositionUpdateTime = 0

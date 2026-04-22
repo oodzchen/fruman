@@ -405,6 +405,7 @@ export function createNpc(
   ai.patrolCenter = { x, y }
   ai.lastPosition = { x, y }
   ai.lastFacing = facing as -1 | 1
+  ai.guardFacing = facing as -1 | 1
   ai.attackMoves =
     options?.attackMoves ??
     buildDefaultNpcAttackMoves(options?.mainWeapon?.weaponType)
