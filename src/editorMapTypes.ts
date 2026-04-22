@@ -33,6 +33,7 @@ export interface MapLightObject {
   x: number
   y: number
   radius: number
+  renderLayer?: number
   color?: string
   intensity?: number
   flicker?: MapLightFlickerMode

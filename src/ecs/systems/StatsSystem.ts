@@ -56,8 +56,13 @@ export type EffectsEmitter = {
   emitParrySpark: (x: number, y: number, directionRad: number) => void
   emitBlood: (x: number, y: number, color: number) => void
   emitDeath: (x: number, y: number, color: number, radius: number) => void
-  emitHeal: (x: number, y: number) => void
-  emitCheckpointPulse: (x: number, y: number, radius: number) => void
+  emitHeal: (x: number, y: number, renderLayer?: number) => void
+  emitCheckpointPulse: (
+    x: number,
+    y: number,
+    radius: number,
+    renderLayer?: number
+  ) => void
   emitHammerCritHit: (x: number, y: number) => void
   emitCameraShake: (
     x: number,
@@ -389,9 +394,9 @@ export class StatsSystem extends System {
     this.effectsEmitter.emitDeath(x, y, color, radius)
   }
 
-  emitHeal(x: number, y: number): void {
+  emitHeal(x: number, y: number, renderLayer: number = 0): void {
     if (!this.effectsEmitter) return
-    this.effectsEmitter.emitHeal(x, y)
+    this.effectsEmitter.emitHeal(x, y, renderLayer)
   }
 
   emitCameraShake(

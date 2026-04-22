@@ -129,6 +129,7 @@ export class ClientRenderer {
   private zoom: number = 1.0
   private playerWorldX = 0
   private playerWorldY = 0
+  private playerRenderLayer = 0
   private hasPlayerWorldPosition = false
 
   private tempOffset = { x: 0, y: 0 }
@@ -216,6 +217,9 @@ export class ClientRenderer {
   private readonly activeCheckpointLightRadius = new Float32Array(
     MAX_ACTIVE_CHECKPOINT_LIGHTS
   )
+  private readonly activeCheckpointLightLayer = new Int32Array(
+    MAX_ACTIVE_CHECKPOINT_LIGHTS
+  )
   private activeCheckpointLightCount = 0
   private readonly inactiveCheckpointLightX = new Float32Array(
     MAX_ACTIVE_CHECKPOINT_LIGHTS
@@ -226,12 +230,17 @@ export class ClientRenderer {
   private readonly inactiveCheckpointLightRadius = new Float32Array(
     MAX_ACTIVE_CHECKPOINT_LIGHTS
   )
+  private readonly inactiveCheckpointLightLayer = new Int32Array(
+    MAX_ACTIVE_CHECKPOINT_LIGHTS
+  )
   private inactiveCheckpointLightCount = 0
   private readonly sunPickupSmallX = new Float32Array(MAX_SUN_PICKUP_LIGHTS)
   private readonly sunPickupSmallY = new Float32Array(MAX_SUN_PICKUP_LIGHTS)
+  private readonly sunPickupSmallLayer = new Int32Array(MAX_SUN_PICKUP_LIGHTS)
   private sunPickupSmallCount = 0
   private readonly sunPickupLargeX = new Float32Array(MAX_SUN_PICKUP_LIGHTS)
   private readonly sunPickupLargeY = new Float32Array(MAX_SUN_PICKUP_LIGHTS)
+  private readonly sunPickupLargeLayer = new Int32Array(MAX_SUN_PICKUP_LIGHTS)
   private sunPickupLargeCount = 0
   private readonly transientLightX = new Float32Array(MAX_TRANSIENT_LIGHTS)
   private readonly transientLightY = new Float32Array(MAX_TRANSIENT_LIGHTS)
@@ -243,6 +252,7 @@ export class ClientRenderer {
   private readonly transientLightAge = new Float32Array(MAX_TRANSIENT_LIGHTS)
   private readonly transientLightLife = new Float32Array(MAX_TRANSIENT_LIGHTS)
   private readonly transientLightType = new Uint8Array(MAX_TRANSIENT_LIGHTS)
+  private readonly transientLightLayer = new Int32Array(MAX_TRANSIENT_LIGHTS)
   private transientLightCount = 0
 
   // HUD dirty detection
@@ -314,6 +324,7 @@ export class ClientRenderer {
     this.stateBuffer.set(incoming.subarray(0, copyLength), 0)
     this.entityCount = count
     this.hasPlayerWorldPosition = false
+    this.playerRenderLayer = 0
     this.activeCheckpointLightCount = 0
     this.inactiveCheckpointLightCount = 0
     this.sunPickupSmallCount = 0
@@ -321,9 +332,11 @@ export class ClientRenderer {
     for (let i = 0; i < count; i++) {
       const offset = i * ENTITY_STRIDE
       const flags = incoming[offset + OFFSETS.FLAGS] | 0
+      const renderLayer = incoming[offset + OFFSETS.RENDER_LAYER] | 0
       if ((flags & FLAGS.IS_PLAYER) !== 0 && !this.hasPlayerWorldPosition) {
         this.playerWorldX = incoming[offset + OFFSETS.X]
         this.playerWorldY = incoming[offset + OFFSETS.Y]
+        this.playerRenderLayer = renderLayer
         this.hasPlayerWorldPosition = true
       }
       if ((flags & FLAGS.CHECKPOINT) !== 0) {
@@ -338,6 +351,7 @@ export class ClientRenderer {
           this.activeCheckpointLightY[idx] = incoming[offset + OFFSETS.Y]
           this.activeCheckpointLightRadius[idx] =
             incoming[offset + OFFSETS.RADIUS]
+          this.activeCheckpointLightLayer[idx] = renderLayer
           this.activeCheckpointLightCount = idx + 1
         } else if (
           !isActive &&
@@ -348,6 +362,7 @@ export class ClientRenderer {
           this.inactiveCheckpointLightY[idx] = incoming[offset + OFFSETS.Y]
           this.inactiveCheckpointLightRadius[idx] =
             incoming[offset + OFFSETS.RADIUS]
+          this.inactiveCheckpointLightLayer[idx] = renderLayer
           this.inactiveCheckpointLightCount = idx + 1
         }
       }
@@ -358,6 +373,7 @@ export class ClientRenderer {
         const idx = this.sunPickupSmallCount
         this.sunPickupSmallX[idx] = incoming[offset + OFFSETS.X]
         this.sunPickupSmallY[idx] = incoming[offset + OFFSETS.Y]
+        this.sunPickupSmallLayer[idx] = renderLayer
         this.sunPickupSmallCount = idx + 1
       }
       if (
@@ -367,6 +383,7 @@ export class ClientRenderer {
         const idx = this.sunPickupLargeCount
         this.sunPickupLargeX[idx] = incoming[offset + OFFSETS.X]
         this.sunPickupLargeY[idx] = incoming[offset + OFFSETS.Y]
+        this.sunPickupLargeLayer[idx] = renderLayer
         this.sunPickupLargeCount = idx + 1
       }
     }
@@ -467,6 +484,7 @@ export class ClientRenderer {
       const y = view[base + EFFECT_OFFSETS.Y]
       const color = view[base + EFFECT_OFFSETS.COLOR] | 0
       const radius = view[base + EFFECT_OFFSETS.RADIUS]
+      const renderLayer = view[base + EFFECT_OFFSETS.RENDER_LAYER] | 0
       if (type === EFFECT_TYPES.SPARK) {
         this.particleSystem.spawnSpark(x, y, color)
       } else if (type === EFFECT_TYPES.PARRY_SPARK) {
@@ -484,7 +502,8 @@ export class ClientRenderer {
           color,
           0.5,
           1,
-          TRANSIENT_LIGHT_TYPE_HEAL
+          TRANSIENT_LIGHT_TYPE_HEAL,
+          renderLayer
         )
       } else if (type === EFFECT_TYPES.CHECKPOINT_PULSE) {
         this.particleSystem.spawnCheckpointPulse(x, y, color, radius)
@@ -495,7 +514,8 @@ export class ClientRenderer {
           color,
           0.55,
           1,
-          TRANSIENT_LIGHT_TYPE_CHECKPOINT
+          TRANSIENT_LIGHT_TYPE_CHECKPOINT,
+          renderLayer
         )
       } else if (type === EFFECT_TYPES.CRIT_BURST) {
         this.particleSystem.spawnCritBurst(x, y)
@@ -609,6 +629,10 @@ export class ClientRenderer {
     return this.playerWorldY
   }
 
+  getPlayerRenderLayer(): number {
+    return this.playerRenderLayer
+  }
+
   hasPlayerPosition(): boolean {
     return this.hasPlayerWorldPosition
   }
@@ -629,6 +653,10 @@ export class ClientRenderer {
     return this.activeCheckpointLightRadius[index]
   }
 
+  getActiveCheckpointLightLayer(index: number): number {
+    return this.activeCheckpointLightLayer[index]
+  }
+
   getInactiveCheckpointLightCount(): number {
     return this.inactiveCheckpointLightCount
   }
@@ -645,6 +673,10 @@ export class ClientRenderer {
     return this.inactiveCheckpointLightRadius[index]
   }
 
+  getInactiveCheckpointLightLayer(index: number): number {
+    return this.inactiveCheckpointLightLayer[index]
+  }
+
   getSunPickupSmallCount(): number {
     return this.sunPickupSmallCount
   }
@@ -657,6 +689,10 @@ export class ClientRenderer {
     return this.sunPickupSmallY[index]
   }
 
+  getSunPickupSmallLayer(index: number): number {
+    return this.sunPickupSmallLayer[index]
+  }
+
   getSunPickupLargeCount(): number {
     return this.sunPickupLargeCount
   }
@@ -667,6 +703,10 @@ export class ClientRenderer {
 
   getSunPickupLargeY(index: number): number {
     return this.sunPickupLargeY[index]
+  }
+
+  getSunPickupLargeLayer(index: number): number {
+    return this.sunPickupLargeLayer[index]
   }
 
   getTransientLightCount(): number {
@@ -703,6 +743,10 @@ export class ClientRenderer {
 
   getTransientLightLife(index: number): number {
     return this.transientLightLife[index]
+  }
+
+  getTransientLightLayer(index: number): number {
+    return this.transientLightLayer[index]
   }
 
   getParrySparkEventCount(): number {
@@ -749,7 +793,8 @@ export class ClientRenderer {
     color: number,
     lifeSec: number,
     intensity: number,
-    type: number
+    type: number,
+    renderLayer: number
   ): void {
     let index = this.transientLightCount
     if (index >= MAX_TRANSIENT_LIGHTS) {
@@ -776,6 +821,7 @@ export class ClientRenderer {
     this.transientLightAge[index] = 0
     this.transientLightLife[index] = lifeSec
     this.transientLightType[index] = type
+    this.transientLightLayer[index] = renderLayer | 0
   }
 
   private updateTransientLights(deltaTime: number): void {
@@ -798,6 +844,7 @@ export class ClientRenderer {
           this.transientLightAge[i] = this.transientLightAge[lastIndex]
           this.transientLightLife[i] = this.transientLightLife[lastIndex]
           this.transientLightType[i] = this.transientLightType[lastIndex]
+          this.transientLightLayer[i] = this.transientLightLayer[lastIndex]
         }
         this.transientLightCount = lastIndex
         continue

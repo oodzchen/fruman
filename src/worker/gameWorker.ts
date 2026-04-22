@@ -445,7 +445,8 @@ function queueEffect(
   x: number,
   y: number,
   color: number,
-  radius: number
+  radius: number,
+  renderLayer: number = 0
 ): void {
   if (effectsCount >= MAX_EFFECTS) {
     if (type !== EFFECT_TYPES.SOUND) return
@@ -455,6 +456,7 @@ function queueEffect(
     stateBuffer[base + EFFECT_OFFSETS.Y] = y
     stateBuffer[base + EFFECT_OFFSETS.COLOR] = color
     stateBuffer[base + EFFECT_OFFSETS.RADIUS] = radius
+    stateBuffer[base + EFFECT_OFFSETS.RENDER_LAYER] = renderLayer
     return
   }
   const base = EFFECTS_BASE_OFFSET + effectsCount * EFFECT_STRIDE
@@ -463,6 +465,7 @@ function queueEffect(
   stateBuffer[base + EFFECT_OFFSETS.Y] = y
   stateBuffer[base + EFFECT_OFFSETS.COLOR] = color
   stateBuffer[base + EFFECT_OFFSETS.RADIUS] = radius
+  stateBuffer[base + EFFECT_OFFSETS.RENDER_LAYER] = renderLayer
   effectsCount += 1
 }
 
@@ -486,16 +489,17 @@ const effectsEmitter: EffectsEmitter = {
   emitDeath: (x, y, color, radius) => {
     queueEffect(EFFECT_TYPES.DEATH, x, y, color, radius)
   },
-  emitHeal: (x, y) => {
-    queueEffect(EFFECT_TYPES.HEAL, x, y, SUN_COLOR_INT, 0)
+  emitHeal: (x, y, renderLayer = 0) => {
+    queueEffect(EFFECT_TYPES.HEAL, x, y, SUN_COLOR_INT, 0, renderLayer)
   },
-  emitCheckpointPulse: (x, y, radius) => {
+  emitCheckpointPulse: (x, y, radius, renderLayer = 0) => {
     queueEffect(
       EFFECT_TYPES.CHECKPOINT_PULSE,
       x,
       y,
       CHECKPOINT_PULSE_COLOR_INT,
-      radius
+      radius,
+      renderLayer
     )
   },
   emitHammerCritHit: (x, y) => {
@@ -927,7 +931,12 @@ function initializeSystems() {
     const pulseRadius =
       (renderRadius * CHECKPOINT_PULSE_RADIUS_NUMERATOR) /
       CHECKPOINT_PULSE_RADIUS_DENOMINATOR
-    effectsEmitter.emitCheckpointPulse(entity.transform.x, pulseY, pulseRadius)
+    effectsEmitter.emitCheckpointPulse(
+      entity.transform.x,
+      pulseY,
+      pulseRadius,
+      entity.render?.renderLayer ?? 0
+    )
     if (
       playerEntity?.stats &&
       playerEntity.transform &&
@@ -936,7 +945,8 @@ function initializeSystems() {
       playerEntity.stats.health = playerEntity.stats.maxHealth
       effectsEmitter.emitHeal(
         playerEntity.transform.x,
-        playerEntity.transform.y
+        playerEntity.transform.y,
+        playerEntity.render?.renderLayer ?? 0
       )
     }
     // 技能次数回满
@@ -3225,7 +3235,8 @@ function handleInput(
             if (playerEntity.transform) {
               statsSystem.emitHeal(
                 playerEntity.transform.x,
-                playerEntity.transform.y
+                playerEntity.transform.y,
+                playerEntity.render?.renderLayer ?? 0
               )
             }
           }

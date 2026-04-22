@@ -1,12 +1,13 @@
 import { ENTITY_STRIDE, MAX_ENTITIES } from './binaryProtocol'
 
-export const EFFECT_STRIDE = 5
+export const EFFECT_STRIDE = 6
 export const EFFECT_OFFSETS = {
   TYPE: 0,
   X: 1,
   Y: 2,
   COLOR: 3,
   RADIUS: 4,
+  RENDER_LAYER: 5,
 }
 
 export const EFFECT_TYPES = {

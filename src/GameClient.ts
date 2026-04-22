@@ -2,7 +2,6 @@ import {
   Application,
   BlurFilter,
   Container,
-  Filter,
   Graphics,
   Matrix,
   Sprite,
@@ -127,7 +126,6 @@ export class GameClient {
   private fpsTextEl: Text | null = null
   private sceneContainer: Container
   private lightingContainer: Container
-  private lightingFilters: Filter[] | null = null
   private lightingFilterApplied = false
   private worldContainer: Container
   private glowContainer: Container
@@ -491,11 +489,8 @@ export class GameClient {
       this.glowContainer,
       this.pixelsPerMeter
     )
-    this.lightingFilters = [this.lightingController.getFilter()]
     this.lightingFilterApplied = this.lightingController.isFilterActive()
-    this.lightingContainer.filters = this.lightingFilterApplied
-      ? this.lightingFilters
-      : null
+    this.lightingContainer.filters = null
 
     this.hudContainer = new Container()
     this.hudContainer.sortableChildren = true
@@ -1647,6 +1642,7 @@ export class GameClient {
         deltaMs,
         this.dayNightCycle.getLightingState(),
         this.renderer,
+        this.worldRenderer,
         camX,
         camY,
         zoom,
@@ -1658,14 +1654,7 @@ export class GameClient {
       this.lastLightingTimeUs = Math.round(
         (performance.now() - lightingStartMs) * 1000
       )
-      const shouldApplyLightingFilter = this.lightingController.isFilterActive()
-      if (shouldApplyLightingFilter !== this.lightingFilterApplied) {
-        this.lightingContainer.filters =
-          shouldApplyLightingFilter && this.lightingFilters
-            ? this.lightingFilters
-            : null
-        this.lightingFilterApplied = shouldApplyLightingFilter
-      }
+      this.lightingFilterApplied = this.lightingController.isFilterActive()
       const sceneRenderStartMs = performance.now()
       this.worldRenderer.render(this.renderer, this.inputEnabled ? deltaMs : 0)
       this.lastSceneRenderTimeUs = Math.round(

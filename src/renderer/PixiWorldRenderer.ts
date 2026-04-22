@@ -114,6 +114,7 @@ const PIXI_WORLD_PERF_CHECKPOINT_TEX = 11
 
 interface LayerBucket {
   container: Container
+  glowContainer: Container
   staticContainer: Container
   dynamicContainer: Container
   staticCacheDirty: boolean
@@ -327,6 +328,7 @@ export class PixiWorldRenderer {
   private readonly root: Container
   private readonly pixelsPerMeter: number
   private readonly buckets = new Map<number, LayerBucket>()
+  private readonly bucketLayers: number[] = []
   private readonly entityViews = new Map<number, EntityView>()
   private readonly overlayContainer: Container
   private readonly particleContainer: Container
@@ -843,6 +845,9 @@ export class PixiWorldRenderer {
     container.zIndex = layer * 10 + 5
     this.root.addChild(container)
 
+    const glowContainer = new Container()
+    container.addChild(glowContainer)
+
     const staticContainer = new Container()
     container.addChild(staticContainer)
 
@@ -857,12 +862,44 @@ export class PixiWorldRenderer {
 
     const bucket = {
       container,
+      glowContainer,
       staticContainer,
       dynamicContainer,
       staticCacheDirty: false,
     }
     this.buckets.set(layer, bucket)
+    this.insertBucketLayer(layer)
     return bucket
+  }
+
+  private insertBucketLayer(layer: number): void {
+    for (let i = 0; i < this.bucketLayers.length; i++) {
+      const current = this.bucketLayers[i]
+      if (current === layer) {
+        return
+      }
+      if (current > layer) {
+        this.bucketLayers.splice(i, 0, layer)
+        return
+      }
+    }
+    this.bucketLayers.push(layer)
+  }
+
+  getBucketLayerCount(): number {
+    return this.bucketLayers.length
+  }
+
+  getBucketLayerAt(index: number): number {
+    return this.bucketLayers[index] ?? 0
+  }
+
+  getLayerLightingContainer(layer: number): Container | null {
+    return this.buckets.get(layer)?.container ?? null
+  }
+
+  getLayerGlowContainer(layer: number): Container | null {
+    return this.buckets.get(layer)?.glowContainer ?? null
   }
 
   setParallaxCamera(
