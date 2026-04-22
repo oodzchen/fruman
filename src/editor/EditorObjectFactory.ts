@@ -60,7 +60,7 @@ interface EditorObjectFactoryOptions {
   ) => WeaponRenderDimensions
   renderWeapon: (
     ctx: CanvasRenderingContext2D,
-    type: 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook',
+    type: 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' | 'bomb',
     width: number,
     height: number,
     color: string,
@@ -69,7 +69,14 @@ interface EditorObjectFactoryOptions {
 }
 
 type FabricObjectOptions = Partial<fabric.FabricObjectProps>
-type WeaponRenderType = 'bow' | 'grape' | 'sword' | 'spear' | 'hammer' | 'hook'
+type WeaponRenderType =
+  | 'bow'
+  | 'grape'
+  | 'sword'
+  | 'spear'
+  | 'hammer'
+  | 'hook'
+  | 'bomb'
 
 type WeaponShape = fabric.Object & {
   weaponType: WeaponType
@@ -744,13 +751,15 @@ export class EditorObjectFactory {
         ? 'hook'
         : weaponType === 'grape'
           ? 'grape'
-          : isBow
-            ? 'bow'
-            : weaponType === 'hammer'
-              ? 'hammer'
-              : weaponType === 'spear'
-                ? 'spear'
-                : 'sword'
+          : weaponType === 'bomb'
+            ? 'bomb'
+            : isBow
+              ? 'bow'
+              : weaponType === 'hammer'
+                ? 'hammer'
+                : weaponType === 'spear'
+                  ? 'spear'
+                  : 'sword'
     const weaponShape = new WeaponRenderObject(this.renderWeapon, color, {
       originX: 'center',
       originY: 'center',
@@ -836,13 +845,15 @@ export class EditorObjectFactory {
             ? 'hook'
             : weaponType === 'grape'
               ? 'grape'
-              : isBow
-                ? 'bow'
-                : weaponType === 'hammer'
-                  ? 'hammer'
-                  : weaponType === 'spear'
-                    ? 'spear'
-                    : 'sword',
+              : weaponType === 'bomb'
+                ? 'bomb'
+                : isBow
+                  ? 'bow'
+                  : weaponType === 'hammer'
+                    ? 'hammer'
+                    : weaponType === 'spear'
+                      ? 'spear'
+                      : 'sword',
       }
     ) as fabric.Rect & WeaponShape
 

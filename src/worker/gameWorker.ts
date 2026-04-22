@@ -157,6 +157,7 @@ import type {
 } from '../types'
 import {
   getDefaultPlayerAmmoForWeaponType,
+  isAmmoLimitedWeaponType,
   isRangedWeaponType,
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
@@ -430,6 +431,8 @@ function getWeaponTypeId(weaponType: string | undefined): number {
       return WEAPON_TYPES.GRAPE
     case 'hook':
       return WEAPON_TYPES.HOOK
+    case 'bomb':
+      return WEAPON_TYPES.BOMB
     case 'arrow':
       return WEAPON_TYPES.ARROW
     case 'grapeShot':
@@ -504,6 +507,9 @@ const effectsEmitter: EffectsEmitter = {
   },
   emitHammerCritHit: (x, y) => {
     queueEffect(EFFECT_TYPES.CRIT_BURST, x, y, 0, 0)
+  },
+  emitBombExplosion: (x, y, radius, renderLayer = 0) => {
+    queueEffect(EFFECT_TYPES.BOMB_EXPLOSION, x, y, 0, radius, renderLayer)
   },
   emitCameraShake: (x, y, intensity, durationMs) => {
     queueEffect(EFFECT_TYPES.CAMERA_SHAKE, x, y, intensity, durationMs)
@@ -2569,7 +2575,7 @@ function applyWeaponSlotConfig(
   slot.attackDamage = resolvedStats.attackDamage
   slot.postureDamage = resolvedStats.postureDamage
   slot.toughnessDamage = resolvedStats.toughnessDamage
-  if (isRangedWeaponType(normalizedConfig.weaponType)) {
+  if (isAmmoLimitedWeaponType(normalizedConfig.weaponType)) {
     const ammo = config.bowAmmo ?? defaultBowAmmo
     slot.bowAmmoMax = ammo
     slot.bowAmmo = ammo
@@ -2818,7 +2824,7 @@ function createPlayerAndWeapon(
         resetWeaponPhysicsCircle(weaponEntity)
       }
 
-      if (isRangedWeaponType(weapon.weaponType)) {
+      if (isAmmoLimitedWeaponType(weapon.weaponType)) {
         const bowAmmo = weaponData.bowAmmo
         if (bowAmmo !== undefined && Number.isFinite(bowAmmo)) {
           const ammo = Math.max(0, bowAmmo)
@@ -4519,6 +4525,17 @@ function sendState() {
     // 独立武器实体（地面武器）：只要有weapon组件就显示
     // 角色实体：只有装备时才显示武器
     if (e.weapon && (!e.stats || e.weapon.isEquipped)) {
+      const isBombWeapon = e.weapon.weaponType === 'bomb'
+      const bombFuseRatio =
+        isBombWeapon && e.weapon.bombFuseDurationMs > 0
+          ? Math.max(
+              0,
+              Math.min(
+                1,
+                e.weapon.bombFuseRemainingMs / e.weapon.bombFuseDurationMs
+              )
+            )
+          : 0
       stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 1
       stateBuffer[offset + OFFSETS.WEAPON_X] = e.weapon.visual.x
       stateBuffer[offset + OFFSETS.WEAPON_Y] = e.weapon.visual.y
@@ -4526,10 +4543,16 @@ function sendState() {
       stateBuffer[offset + OFFSETS.WEAPON_W] = e.weapon.width
       stateBuffer[offset + OFFSETS.WEAPON_H] = e.weapon.height
       stateBuffer[offset + OFFSETS.WEAPON_R] = e.weapon.cornerRadius
-      stateBuffer[offset + OFFSETS.WEAPON_DRAW] = e.weapon.bowDrawRatio
-      stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] = e.weapon.bowIsDrawing
-        ? 1
-        : 0
+      stateBuffer[offset + OFFSETS.WEAPON_DRAW] = isBombWeapon
+        ? bombFuseRatio
+        : e.weapon.bowDrawRatio
+      stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] =
+        isBombWeapon &&
+        (e.weapon.bombState === 'lit' || e.weapon.bombState === 'throw_windup')
+          ? 1
+          : e.weapon.bowIsDrawing
+            ? 1
+            : 0
       stateBuffer[offset + OFFSETS.WEAPON_HAS_ARROW] =
         e.weapon.weaponType === 'bow' && e.weapon.bowAmmo > 0 ? 1 : 0
       stateBuffer[offset + OFFSETS.WEAPON_TYPE] = getWeaponTypeId(
@@ -4540,7 +4563,9 @@ function sendState() {
       stateBuffer[offset + OFFSETS.WEAPON_DRAW] = 0
       stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] = 0
       stateBuffer[offset + OFFSETS.WEAPON_HAS_ARROW] = 0
-      stateBuffer[offset + OFFSETS.WEAPON_TYPE] = WEAPON_TYPES.SWORD
+      stateBuffer[offset + OFFSETS.WEAPON_TYPE] = e.weapon
+        ? getWeaponTypeId(e.weapon.weaponType)
+        : WEAPON_TYPES.SWORD
     }
 
     if (e.weaponSlots) {

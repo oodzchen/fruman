@@ -441,6 +441,8 @@ export const DEFAULT_BOW_AMMO_PLAYER = 20
 export const DEFAULT_BOW_AMMO_ENEMY = 50
 export const DEFAULT_GRAPE_AMMO_PLAYER = 100
 export const DEFAULT_GRAPE_AMMO_ENEMY = 100
+export const DEFAULT_BOMB_AMMO_PLAYER = 3
+export const DEFAULT_BOMB_AMMO_ENEMY = 3
 
 // 武器模板配置
 // 武器基础数值规则：
@@ -503,6 +505,16 @@ export const WEAPON_DEFAULT_DATA = {
     sizeLevel: 1,
     sizeMaxLevel: 1,
     weight: 1,
+    attackDamage: 0,
+    postureDamage: 0,
+    toughnessDamage: 0,
+  },
+  bomb: {
+    width: 0.72,
+    height: 0.72,
+    sizeLevel: 1,
+    sizeMaxLevel: 1,
+    weight: 2,
     attackDamage: 0,
     postureDamage: 0,
     toughnessDamage: 0,

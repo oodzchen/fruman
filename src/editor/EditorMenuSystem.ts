@@ -770,13 +770,14 @@ export class EditorMenuSystem {
     label: string
   ): void {
     const weaponType = item.dataset.weapon as WeaponType | undefined
+    const category = item.dataset.category as WeaponCategory | undefined
     if (!weaponType) {
       item.classList.remove('editor-submenu-item-weapon')
       item.textContent = label
       return
     }
 
-    if (weaponType === 'hook') {
+    if (weaponType === 'hook' || category === 'item') {
       item.classList.remove('editor-submenu-item-weapon')
       item.textContent = label
       return
@@ -843,7 +844,7 @@ export class EditorMenuSystem {
 
   private getWeaponRenderType(
     weaponType: WeaponType
-  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' {
+  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' | 'bomb' {
     if (weaponType === 'hook') {
       return 'hook'
     }
@@ -852,6 +853,9 @@ export class EditorMenuSystem {
     }
     if (weaponType === 'grape') {
       return 'grape'
+    }
+    if (weaponType === 'bomb') {
+      return 'bomb'
     }
     if (weaponType === 'hammer') {
       return 'hammer'

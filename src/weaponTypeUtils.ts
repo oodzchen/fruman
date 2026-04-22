@@ -1,4 +1,6 @@
 import {
+  DEFAULT_BOMB_AMMO_ENEMY,
+  DEFAULT_BOMB_AMMO_PLAYER,
   DEFAULT_BOW_AMMO_ENEMY,
   DEFAULT_BOW_AMMO_PLAYER,
   DEFAULT_GRAPE_AMMO_ENEMY,
@@ -175,7 +177,8 @@ export function normalizeWeaponType(
     weaponType === 'hammer' ||
     weaponType === 'bow' ||
     weaponType === 'grape' ||
-    weaponType === 'hook'
+    weaponType === 'hook' ||
+    weaponType === 'bomb'
   ) {
     return weaponType
   }
@@ -186,6 +189,18 @@ export function isRangedWeaponType(
   weaponType: string | undefined
 ): weaponType is Extract<WeaponType, 'bow' | 'grape'> {
   return weaponType === 'bow' || weaponType === 'grape'
+}
+
+export function isAmmoLimitedWeaponType(
+  weaponType: string | undefined
+): weaponType is Extract<WeaponType, 'bow' | 'grape' | 'bomb'> {
+  return weaponType === 'bow' || weaponType === 'grape' || weaponType === 'bomb'
+}
+
+export function isConsumableWeaponType(
+  weaponType: string | undefined
+): weaponType is Extract<WeaponType, 'grape' | 'bomb'> {
+  return weaponType === 'grape' || weaponType === 'bomb'
 }
 
 export function isRangedAttackWeaponVisualType(
@@ -204,24 +219,28 @@ export function isRangedAttackWeaponVisualType(
 
 export function isSecondaryWeaponType(
   weaponType: string | undefined
-): weaponType is Extract<WeaponType, 'bow' | 'grape'> {
-  return isRangedWeaponType(weaponType)
+): weaponType is Extract<WeaponType, 'bow' | 'grape' | 'bomb'> {
+  return weaponType === 'bomb' || weaponType === 'bow' || weaponType === 'grape'
 }
 
 export function getDefaultPlayerAmmoForWeaponType(
   weaponType: string | undefined
 ): number {
-  return weaponType === 'grape'
-    ? DEFAULT_GRAPE_AMMO_PLAYER
-    : DEFAULT_BOW_AMMO_PLAYER
+  return weaponType === 'bomb'
+    ? DEFAULT_BOMB_AMMO_PLAYER
+    : weaponType === 'grape'
+      ? DEFAULT_GRAPE_AMMO_PLAYER
+      : DEFAULT_BOW_AMMO_PLAYER
 }
 
 export function getDefaultNpcAmmoForWeaponType(
   weaponType: string | undefined
 ): number {
-  return weaponType === 'grape'
-    ? DEFAULT_GRAPE_AMMO_ENEMY
-    : DEFAULT_BOW_AMMO_ENEMY
+  return weaponType === 'bomb'
+    ? DEFAULT_BOMB_AMMO_ENEMY
+    : weaponType === 'grape'
+      ? DEFAULT_GRAPE_AMMO_ENEMY
+      : DEFAULT_BOW_AMMO_ENEMY
 }
 
 export function getGrapeChargeRangeScale(drawRatio: number): number {
@@ -242,7 +261,9 @@ export function getWeaponGroundRotationRad(
 ): number {
   return weaponType === 'grape'
     ? -DEFAULT_WEAPON_GROUND_ROTATION_RAD
-    : DEFAULT_WEAPON_GROUND_ROTATION_RAD
+    : weaponType === 'bomb'
+      ? 0
+      : DEFAULT_WEAPON_GROUND_ROTATION_RAD
 }
 
 export function getWeaponStaggerDropRotationRad(

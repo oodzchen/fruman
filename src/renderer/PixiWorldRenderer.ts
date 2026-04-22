@@ -32,6 +32,7 @@ import {
 } from '../worker/binaryProtocol'
 import { ROPE_POINT_STRIDE } from '../worker/effectsProtocol'
 import { getBodySpriteSource, isBodyVisualAssetsReady } from './BodyRenderer'
+import { BombExplosionEmitterPool } from './BombExplosionEmitterPool'
 import { createCheckpointTreeTextureSource } from './CheckpointTreeTextureFactory'
 import { HUD_ICON_ALPHA, HUD_ICON_COLOR } from './HudWeaponSlotRenderer'
 import { ParrySparkEmitterPool } from './ParrySparkEmitterPool'
@@ -215,6 +216,9 @@ function getWeaponRenderType(weaponType: number): WeaponRenderType {
   if (weaponType === WEAPON_TYPES.GRAPE) {
     return 'grape'
   }
+  if (weaponType === WEAPON_TYPES.BOMB) {
+    return 'bomb'
+  }
   if (weaponType === WEAPON_TYPES.HOOK) {
     return 'hook'
   }
@@ -353,6 +357,7 @@ export class PixiWorldRenderer {
   private readonly damageTextPool: DamageTextView[] = []
   private readonly particleTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
+  private readonly bombExplosionEmitterPool: BombExplosionEmitterPool
   private readonly parrySparkEmitterPool: ParrySparkEmitterPool
   private readonly activeSpineViews = new Set<EntityView>()
   private readonly perfSectionLastUs = new Int32Array(
@@ -394,6 +399,9 @@ export class PixiWorldRenderer {
     this.particleContainer = new Container()
     this.particleContainer.zIndex = 850000
     emissiveRoot.addChild(this.particleContainer)
+    this.bombExplosionEmitterPool = new BombExplosionEmitterPool(
+      this.particleContainer
+    )
     this.parrySparkEmitterPool = new ParrySparkEmitterPool(
       this.particleContainer
     )
@@ -505,6 +513,7 @@ export class PixiWorldRenderer {
     this.handshakeTexture.destroy(true)
     this.wavingTexture.destroy(true)
     this.particleTexture.destroy(true)
+    this.bombExplosionEmitterPool.destroy()
     this.parrySparkEmitterPool.destroy()
   }
 
@@ -729,6 +738,7 @@ export class PixiWorldRenderer {
     )
 
     sectionStartMs = performance.now()
+    this.updateBombExplosionEffects(renderer, deltaMs)
     this.updateParrySparkEffects(renderer, deltaMs)
     this.perfSectionLastUs[PIXI_WORLD_PERF_PARRY] = Math.round(
       (performance.now() - sectionStartMs) * 1000
@@ -1677,7 +1687,9 @@ export class PixiWorldRenderer {
       bowHasArrow &&
       (bowDrawActive || (isInCombat && bowDraw <= 0))
     const quantizedBowDraw =
-      weaponType === WEAPON_TYPES.BOW ? getQuantizedBowDraw(bowDraw) : 0
+      weaponType === WEAPON_TYPES.BOW || weaponType === WEAPON_TYPES.BOMB
+        ? getQuantizedBowDraw(bowDraw)
+        : 0
 
     let weaponHash = 0x811c9dc5
     weaponHash = fnvMix(weaponHash, weaponType)
@@ -2367,6 +2379,25 @@ export class PixiWorldRenderer {
     }
   }
 
+  private updateBombExplosionEffects(
+    renderer: ClientRenderer,
+    deltaMs: number
+  ): void {
+    const explosionCount = renderer.getBombExplosionEventCount()
+    for (let i = 0; i < explosionCount; i++) {
+      this.bombExplosionEmitterPool.emit(
+        renderer.getBombExplosionEventX(i),
+        renderer.getBombExplosionEventY(i),
+        renderer.getBombExplosionEventRadius(i)
+      )
+    }
+    renderer.clearBombExplosionEvents()
+
+    if (deltaMs > 0) {
+      this.bombExplosionEmitterPool.update(deltaMs / 1000)
+    }
+  }
+
   private ensureParticleSprites(count: number): void {
     while (this.particleSprites.length < count) {
       const sprite = new Sprite(this.particleTexture)
@@ -2397,7 +2428,9 @@ export class PixiWorldRenderer {
     arrowVisible: boolean
   ): Texture {
     const quantizedBowDraw =
-      weaponType === WEAPON_TYPES.BOW ? getQuantizedBowDraw(bowDraw) : 0
+      weaponType === WEAPON_TYPES.BOW || weaponType === WEAPON_TYPES.BOMB
+        ? getQuantizedBowDraw(bowDraw)
+        : 0
     const key = [
       weaponType,
       width | 0,

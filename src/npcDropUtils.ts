@@ -8,6 +8,7 @@ export const NPC_DROP_ITEM_TYPES: NpcDropItemType[] = [
   'bow',
   'grape',
   'hook',
+  'bomb',
   'sunPickupSmall',
   'sunPickupLarge',
   'expOrb',

@@ -77,6 +77,10 @@ export class AudioManager {
         'audios/big-hammer-hit-rock.wav'
       ),
       this.loadSound(SOUND_IDS.GRAPE_FIRE, 'audios/uncork-the-bottle.wav'),
+      this.loadSound(
+        SOUND_IDS.BOMB_EXPLOSION,
+        'audios/Explosion Military Bomb 02.wav'
+      ),
     ])
   }
 

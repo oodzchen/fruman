@@ -902,6 +902,9 @@ export class EditorObjectManager {
     if (weaponMarker.weaponType === 'grape') {
       return localizer.t('editor_weapon_size_grape_1')
     }
+    if (weaponMarker.weaponType === 'bomb') {
+      return localizer.t('editor_weapon_size_bomb_1')
+    }
     if (weaponMarker.weaponType === 'hammer') {
       return localizer.t(
         sizeLevel >= 2

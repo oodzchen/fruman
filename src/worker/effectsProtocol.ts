@@ -20,6 +20,7 @@ export const EFFECT_TYPES = {
   CHECKPOINT_PULSE: 6,
   CRIT_BURST: 7,
   PARRY_SPARK: 8,
+  BOMB_EXPLOSION: 9,
 } as const
 
 export const SOUND_IDS = {
@@ -41,6 +42,7 @@ export const SOUND_IDS = {
   HEAVY_SWORD_HIT_GROUND: 15,
   BIG_HAMMER_HIT_ROCK: 16,
   GRAPE_FIRE: 17,
+  BOMB_EXPLOSION: 18,
 } as const
 
 export const MAX_EFFECTS = 256

@@ -663,6 +663,17 @@ export class WeaponComponent extends Component {
   bowAmmo = 0
   bowAmmoMax = 0
 
+  bombState: 'idle' | 'lit' | 'throw_windup' | 'thrown_wait' | 'projectile' =
+    'idle'
+  bombFuseRemainingMs = 0
+  bombFuseDurationMs = 0
+  bombOwnerEntityId = 0
+  bombThrownRotation = 0
+  bombThrowWindupElapsedMs = 0
+  bombThrowVelocityX = 0
+  bombThrowVelocityY = 0
+  bombThrowAimAngle = 0
+
   isDropping = false
   isDropped = false
   isRecovering = false
@@ -850,6 +861,15 @@ export class WeaponComponent extends Component {
     this.bowFreeAimReticleOffsetY = 0
     this.bowAmmo = 0
     this.bowAmmoMax = 0
+    this.bombState = 'idle'
+    this.bombFuseRemainingMs = 0
+    this.bombFuseDurationMs = 0
+    this.bombOwnerEntityId = 0
+    this.bombThrownRotation = 0
+    this.bombThrowWindupElapsedMs = 0
+    this.bombThrowVelocityX = 0
+    this.bombThrowVelocityY = 0
+    this.bombThrowAimAngle = 0
     this.isDropping = false
     this.isDropped = false
     this.isRecovering = false

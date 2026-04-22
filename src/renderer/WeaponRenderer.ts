@@ -9,6 +9,7 @@ export type WeaponRenderType =
   | 'arrow'
   | 'grapeShot'
   | 'hook'
+  | 'bomb'
 
 export function renderWeapon(
   ctx: RenderContext2D,
@@ -40,6 +41,8 @@ export function renderWeapon(
     renderGrape(ctx, width, height, color, isAttacking)
   } else if (weaponType === 'hook') {
     renderHook(ctx, width, height, color, isAttacking)
+  } else if (weaponType === 'bomb') {
+    renderBomb(ctx, width, height, color, drawRatio)
   } else if (weaponType === 'spear') {
     renderSpear(ctx, width, height, color, isAttacking)
   } else if (weaponType === 'hammer') {
@@ -362,5 +365,73 @@ function renderHook(
   ctx.beginPath()
   ctx.moveTo(-barHalf, -hookRadius - stemLen)
   ctx.lineTo(barHalf, -hookRadius - stemLen)
+  ctx.stroke()
+}
+
+function renderBomb(
+  ctx: RenderContext2D,
+  width: number,
+  height: number,
+  color: string,
+  fuseProgress: number
+): void {
+  const radius = Math.max(3, Math.min(width, height) * 0.34)
+  const lit = fuseProgress > 0
+  const fuseStartX = radius * 0.1
+  const fuseStartY = -radius * 0.92
+  const fuseControlX = radius * 0.95
+  const fuseControlY = -radius * 1.65
+  const fuseEndX = radius * 1.42
+  const fuseEndY = -radius * 1.2
+
+  ctx.fillStyle = color
+  ctx.strokeStyle = lit ? '#fff2c8' : color
+  ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+
+  ctx.beginPath()
+  ctx.arc(0, 0, radius, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+
+  ctx.beginPath()
+  ctx.moveTo(fuseStartX, fuseStartY)
+  ctx.quadraticCurveTo(fuseControlX, fuseControlY, fuseEndX, fuseEndY)
+  ctx.stroke()
+
+  if (!lit) {
+    return
+  }
+
+  const sparkOffset = Math.max(0, Math.min(1, fuseProgress))
+  const sparkX =
+    fuseStartX +
+    (fuseControlX - fuseStartX) * sparkOffset +
+    (fuseEndX - fuseControlX) * sparkOffset * sparkOffset
+  const sparkY =
+    fuseStartY +
+    (fuseControlY - fuseStartY) * sparkOffset +
+    (fuseEndY - fuseControlY) * sparkOffset * sparkOffset
+  const glowRadius = Math.max(2, radius * 0.32)
+  const coreRadius = Math.max(1.5, radius * 0.18)
+
+  ctx.fillStyle = 'rgba(255, 196, 72, 0.45)'
+  ctx.beginPath()
+  ctx.arc(sparkX, sparkY, glowRadius, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.fillStyle = '#fff5cc'
+  ctx.beginPath()
+  ctx.arc(sparkX, sparkY, coreRadius, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.strokeStyle = '#ff9f2e'
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.moveTo(sparkX - glowRadius, sparkY)
+  ctx.lineTo(sparkX + glowRadius, sparkY)
+  ctx.moveTo(sparkX, sparkY - glowRadius)
+  ctx.lineTo(sparkX, sparkY + glowRadius)
   ctx.stroke()
 }

@@ -64,6 +64,12 @@ export type EffectsEmitter = {
     renderLayer?: number
   ) => void
   emitHammerCritHit: (x: number, y: number) => void
+  emitBombExplosion: (
+    x: number,
+    y: number,
+    radius: number,
+    renderLayer?: number
+  ) => void
   emitCameraShake: (
     x: number,
     y: number,
@@ -387,6 +393,16 @@ export class StatsSystem extends System {
   emitHammerCritHit(x: number, y: number): void {
     if (!this.effectsEmitter) return
     this.effectsEmitter.emitHammerCritHit(x, y)
+  }
+
+  emitBombExplosion(
+    x: number,
+    y: number,
+    radius: number,
+    renderLayer: number = 0
+  ): void {
+    if (!this.effectsEmitter) return
+    this.effectsEmitter.emitBombExplosion(x, y, radius, renderLayer)
   }
 
   emitDeath(x: number, y: number, color: number, radius: number): void {

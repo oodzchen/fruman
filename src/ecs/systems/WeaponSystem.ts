@@ -73,9 +73,11 @@ import {
   getGrapeChargeRangeScale,
   getWeaponGroundRotationRad,
   getWeaponStaggerDropRotationRad,
+  isConsumableWeaponType,
   isRangedAttackWeaponVisualType,
   isRangedWeaponType,
   isSecondaryWeaponType,
+  resolveWeaponStatsForSize,
 } from '../../weaponTypeUtils'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
@@ -136,7 +138,7 @@ import { showEntityHud } from '../hudVisibility'
 import { SkillHandler } from './SkillHandler'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
-import { UltimateHandler } from './UltimateHandler'
+import { HAMMER_AOE_RADIUS, UltimateHandler } from './UltimateHandler'
 
 function getBodyHalfHeight(
   render: { radius?: number; bodyHeight?: number } | undefined,
@@ -165,12 +167,32 @@ const GIANT_SWORD_FINISHER_SHAKE_DURATION_MS = 190
 const DEFAULT_PROJECTILE_DENSITY = 0.1
 const DEFAULT_PROJECTILE_RESTITUTION = 0.4
 const DEFAULT_PROJECTILE_LIFETIME_MS = 2500
+const BOMB_FUSE_MS = 3000
+const BOMB_THROW_WINDUP_MS = 200
+const BOMB_THROW_FREE_SPEED = 18
+const BOMB_THROW_LOCKED_MIN_SPEED = 14
+const BOMB_THROW_LOCKED_MAX_SPEED = 28
+const BOMB_THROW_LOCKED_SPEED_PER_METER = 4
+const BOMB_THROW_GRAVITY_SCALE = GRAPE_GRAVITY_SCALE
+const BOMB_THROW_WINDUP_BACK_OFFSET = 0.2
+const BOMB_THROW_WINDUP_DOWN_OFFSET = 0.12
+const BOMB_THROW_WINDUP_ROTATION_RAD = Math.PI / 18
+const BOMB_PROJECTILE_LINEAR_DAMPING = 0.08
+const BOMB_PROJECTILE_RADIUS_SCALE_NUMERATOR = 3
+const BOMB_PROJECTILE_RADIUS_SCALE_DENOMINATOR = 10
+const BOMB_CAMERA_SHAKE_INTENSITY_PX = 18
+const BOMB_CAMERA_SHAKE_DURATION_MS = 280
 const DEATH_WEAPON_DROP_CHANCE_DENOMINATOR = 2
 const HAMMER_CRIT_WINDUP_MS = 600
 const HAMMER_CRIT_SWING_MS = 300
 const HAMMER_CRIT_RECOVER_MS = 350
 const STAGGER_DROP_SETTLE_MIN_TIME = 0.1
 const STAGGER_DROP_SETTLE_SPEED_SQ = 0.01
+
+const BOMB_ULTIMATE_STATS = resolveWeaponStatsForSize(
+  WEAPON_DEFAULT_DATA.hammer,
+  WEAPON_DEFAULT_DATA.hammer.sizeMaxLevel
+)
 
 export type ObstacleCollider = {
   bodyId: b2BodyId
@@ -336,6 +358,17 @@ export class WeaponSystem extends System {
       if (!entity.transform || !entity.weapon) continue
       if (entity.arrow) continue
       entity.weapon.isColliding = false
+
+      if (
+        !entity.stats &&
+        entity.weapon &&
+        entity.transform &&
+        entity.weapon.weaponType === 'bomb' &&
+        entity.weapon.bombState === 'projectile'
+      ) {
+        this.updateBombProjectile(entity, deltaMs)
+        continue
+      }
 
       // 更新掉落中的武器（独立武器实体且有物理组件）
       if (
@@ -541,6 +574,11 @@ export class WeaponSystem extends System {
     }
 
     this.tryEmitLandingCameraShake(entity, weapon)
+
+    if (weapon.weaponType === 'bomb') {
+      this.updateBombWeapon(entity, weapon, playerPos, inputFacing, deltaMs)
+      return
+    }
 
     if (isRangedWeaponType(weapon.weaponType) && entity.stats) {
       this.updateBowWeapon(entity, weapon, playerPos, inputFacing, deltaMs)
@@ -1874,6 +1912,7 @@ export class WeaponSystem extends System {
     const bodyDef = this.dropBodyDef
     bodyDef.type = b2BodyType.b2_dynamicBody
     bodyDef.position.Set(x, y)
+    bodyDef.gravityScale = 1
     bodyDef.linearDamping = 2.0 // 较高的阻尼，快速减速
     bodyDef.motionLocks.angularZ = true // 锁定旋转
     physics.bodyId = b2CreateBody(this.worldId, bodyDef)
@@ -2006,6 +2045,369 @@ export class WeaponSystem extends System {
       entity.weapon.visual.x = finalX
       entity.weapon.visual.y = finalY
     }
+  }
+
+  private updateBombWeapon(
+    entity: Entity,
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number },
+    facing: number,
+    deltaMs: number
+  ): void {
+    const lockedFacing =
+      weapon.bombState === 'throw_windup'
+        ? weapon.attackFacing !== 0
+          ? weapon.attackFacing
+          : facing
+        : facing
+    weapon.attackFacing = lockedFacing
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
+    weapon.attackPhase = 'idle'
+    weapon.attackElapsedMs = 0
+    weapon.attackQueued = false
+    weapon.comboCount = 0
+    weapon.swingDirection = 'toFront'
+    weapon.nextSwingDirection = 'toFront'
+
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const bodyHalfHeight = getBodyHalfHeight(entity.render, radius)
+    if (entity.stats?.isInCombat || weapon.bombState !== 'idle') {
+      getFrontTransform(
+        playerPos,
+        lockedFacing,
+        weapon.visual,
+        radius,
+        weapon.weaponType,
+        weapon.width
+      )
+      if (weapon.bombState === 'throw_windup') {
+        const windupRatio = Math.min(
+          1,
+          weapon.bombThrowWindupElapsedMs / BOMB_THROW_WINDUP_MS
+        )
+        weapon.visual.x -=
+          lockedFacing * BOMB_THROW_WINDUP_BACK_OFFSET * windupRatio
+        weapon.visual.y += BOMB_THROW_WINDUP_DOWN_OFFSET * windupRatio
+        weapon.visual.rotation +=
+          lockedFacing * BOMB_THROW_WINDUP_ROTATION_RAD * windupRatio
+      }
+    } else {
+      setWeaponBackTransform(
+        playerPos,
+        lockedFacing,
+        weapon.visual,
+        radius,
+        weapon.weaponType,
+        weapon.width,
+        bodyHalfHeight
+      )
+    }
+
+    if (weapon.bombState !== 'lit' && weapon.bombState !== 'throw_windup') {
+      this.clearAttackImpactState(weapon)
+      return
+    }
+
+    weapon.bombFuseRemainingMs = Math.max(
+      0,
+      weapon.bombFuseRemainingMs - deltaMs
+    )
+    if (weapon.bombFuseRemainingMs > 0) {
+      if (weapon.bombState === 'throw_windup') {
+        weapon.bombThrowWindupElapsedMs = Math.min(
+          BOMB_THROW_WINDUP_MS,
+          weapon.bombThrowWindupElapsedMs + deltaMs
+        )
+        if (weapon.bombThrowWindupElapsedMs >= BOMB_THROW_WINDUP_MS) {
+          if (this.createThrownBombEntity(entity, weapon)) {
+            this.resetBombState(weapon)
+            weapon.attackFacing = lockedFacing
+            this.removeDepletedConsumable(entity, weapon)
+          } else {
+            weapon.bombState = 'lit'
+            weapon.bombThrowWindupElapsedMs = 0
+          }
+        }
+      }
+      this.clearAttackImpactState(weapon)
+      return
+    }
+
+    this.explodeBombAt(
+      weapon.visual.x,
+      weapon.visual.y,
+      weapon.renderLayer,
+      entity,
+      true
+    )
+    this.resetBombState(weapon)
+    this.removeDepletedConsumable(entity, weapon)
+    this.clearAttackImpactState(weapon)
+  }
+
+  private updateBombProjectile(entity: Entity, deltaMs: number): void {
+    if (!entity.transform || !entity.weapon) {
+      return
+    }
+
+    if (entity.physics) {
+      entity.transform.x = entity.physics.posX
+      entity.transform.y = entity.physics.posY
+    }
+
+    const weapon = entity.weapon
+    weapon.position.x = entity.transform.x
+    weapon.position.y = entity.transform.y
+    weapon.visual.x = entity.transform.x
+    weapon.visual.y = entity.transform.y
+    weapon.visual.rotation = weapon.bombThrownRotation
+
+    weapon.bombFuseRemainingMs = Math.max(
+      0,
+      weapon.bombFuseRemainingMs - deltaMs
+    )
+    if (weapon.bombFuseRemainingMs > 0) {
+      return
+    }
+
+    const owner =
+      weapon.bombOwnerEntityId > 0 && this.entityLookup
+        ? this.entityLookup(weapon.bombOwnerEntityId)
+        : undefined
+    this.explodeBombAt(
+      entity.transform.x,
+      entity.transform.y,
+      weapon.renderLayer,
+      owner,
+      false
+    )
+    this.destroyBombProjectileEntity(entity)
+  }
+
+  private createThrownBombEntity(
+    owner: Entity,
+    weapon: WeaponComponent
+  ): boolean {
+    if (
+      !this.world ||
+      !this.box2d ||
+      !this.worldId ||
+      !this.dropBodyDef ||
+      !this.dropShapeDef ||
+      !this.dropCircle
+    ) {
+      return false
+    }
+
+    const entity = this.world.createEntity()
+    const startX = weapon.visual.x
+    const startY = weapon.visual.y
+
+    const transform = new TransformComponent()
+    transform.x = startX
+    transform.y = startY
+    entity.addComponent(transform)
+
+    const physics = new PhysicsComponent()
+    const { b2CreateBody, b2BodyType, b2CreateCircleShape } = this.box2d
+    const bodyDef = this.dropBodyDef
+    bodyDef.type = b2BodyType.b2_dynamicBody
+    bodyDef.position.Set(startX, startY)
+    bodyDef.gravityScale = BOMB_THROW_GRAVITY_SCALE
+    bodyDef.linearDamping = BOMB_PROJECTILE_LINEAR_DAMPING
+    bodyDef.motionLocks.angularZ = true
+    physics.bodyId = b2CreateBody(this.worldId, bodyDef)
+
+    const circle = this.dropCircle
+    circle.center.Set(0, 0)
+    circle.radius =
+      (Math.min(weapon.width, weapon.height) *
+        BOMB_PROJECTILE_RADIUS_SCALE_NUMERATOR) /
+      BOMB_PROJECTILE_RADIUS_SCALE_DENOMINATOR
+    const shapeDef = this.dropShapeDef
+    shapeDef.density = 0.8
+    shapeDef.material.friction = 0.3
+    shapeDef.material.restitution = 0.35
+    shapeDef.filter.categoryBits = getWeaponCollisionCategory(
+      weapon.renderLayer
+    )
+    shapeDef.filter.maskBits = getWeaponCollisionMask(weapon.renderLayer)
+    physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
+    entity.addComponent(physics)
+
+    const render = new RenderComponent()
+    render.radius = 0
+    render.visible = true
+    render.renderLayer = weapon.renderLayer
+    entity.addComponent(render)
+
+    const bombWeapon = new WeaponComponent()
+    bombWeapon.renderLayer = weapon.renderLayer
+    bombWeapon.width = weapon.width
+    bombWeapon.height = weapon.height
+    bombWeapon.baseWidth = weapon.baseWidth
+    bombWeapon.blockWidthStart = weapon.width
+    bombWeapon.blockWidthTarget = weapon.width
+    bombWeapon.cornerRadius = weapon.cornerRadius
+    bombWeapon.weight = weapon.weight
+    bombWeapon.weaponType = 'bomb'
+    bombWeapon.isEquipped = false
+    bombWeapon.attackPhase = 'idle'
+    bombWeapon.bombState = 'projectile'
+    bombWeapon.bombFuseDurationMs = weapon.bombFuseDurationMs
+    bombWeapon.bombFuseRemainingMs = weapon.bombFuseRemainingMs
+    bombWeapon.bombOwnerEntityId = owner.id
+    bombWeapon.bombThrownRotation = weapon.bombThrownRotation
+    bombWeapon.visual.x = startX
+    bombWeapon.visual.y = startY
+    bombWeapon.visual.rotation = bombWeapon.bombThrownRotation
+    bombWeapon.position.x = startX
+    bombWeapon.position.y = startY
+    bombWeapon.rotation = bombWeapon.bombThrownRotation
+    bombWeapon.pickupCooldownEndTime =
+      this.currentTimeMs + Math.max(0, weapon.bombFuseRemainingMs)
+    entity.addComponent(bombWeapon)
+
+    if (this.tempVec) {
+      this.tempVec.x = weapon.bombThrowVelocityX
+      this.tempVec.y = weapon.bombThrowVelocityY
+      this.box2d.b2Body_SetLinearVelocity(physics.bodyId, this.tempVec)
+      physics.velX = this.tempVec.x
+      physics.velY = this.tempVec.y
+    }
+
+    return true
+  }
+
+  private destroyBombProjectileEntity(entity: Entity): void {
+    if (!this.world) {
+      return
+    }
+    if (entity.physics && this.box2d) {
+      this.box2d.b2DestroyBody(entity.physics.bodyId)
+    }
+    this.world.destroyEntity(entity)
+  }
+
+  private explodeBombAt(
+    x: number,
+    y: number,
+    renderLayer: number,
+    owner: Entity | undefined,
+    includeOwner: boolean
+  ): void {
+    const damage = BOMB_ULTIMATE_STATS.attackDamage * 5
+    const posture = BOMB_ULTIMATE_STATS.postureDamage * 5
+    const toughness = BOMB_ULTIMATE_STATS.toughnessDamage * 5
+
+    this.statsSystem?.emitBombExplosion(x, y, HAMMER_AOE_RADIUS, renderLayer)
+    this.statsSystem?.emitCameraShake(
+      x,
+      y,
+      BOMB_CAMERA_SHAKE_INTENSITY_PX,
+      BOMB_CAMERA_SHAKE_DURATION_MS
+    )
+    this.statsSystem?.playSoundAt(SOUND_IDS.BOMB_EXPLOSION, x, y)
+    if (owner) {
+      this.emitSoundAt(x, y, owner, SOUND_DB_BIG_HAMMER_HIT_ROCK)
+    }
+
+    if (!this.statsSystem) {
+      return
+    }
+
+    const radiusSq = HAMMER_AOE_RADIUS * HAMMER_AOE_RADIUS
+    for (let i = 0; i < this.allEntities.length; i++) {
+      const target = this.allEntities[i]
+      if (!target?.transform || !target.stats || target.stats.isDead) {
+        continue
+      }
+      if (owner && target.id === owner.id) {
+        if (!includeOwner) {
+          continue
+        }
+      } else if (
+        owner?.faction &&
+        (!target.faction ||
+          !owner.faction.canAttackEntity(target.faction, target.id.toString()))
+      ) {
+        continue
+      }
+
+      const dx = target.transform.x - x
+      const dy = target.transform.y - y
+      if (dx * dx + dy * dy > radiusSq) {
+        continue
+      }
+
+      this.statsSystem.applyWeaponHit(
+        target,
+        {
+          attackDamage: damage,
+          postureDamage: posture,
+          toughnessDamage: toughness,
+          impactLevel: 'extreme',
+          weaponType: 'hammer',
+          sizeLevel: WEAPON_DEFAULT_DATA.hammer.sizeMaxLevel,
+        },
+        { x, y },
+        includeOwner && owner && target.id === owner.id ? undefined : owner
+      )
+    }
+  }
+
+  private resetBombState(weapon: WeaponComponent): void {
+    weapon.bombState = 'idle'
+    weapon.bombFuseRemainingMs = 0
+    weapon.bombFuseDurationMs = 0
+    weapon.bombOwnerEntityId = 0
+    weapon.bombThrownRotation = 0
+    weapon.bombThrowWindupElapsedMs = 0
+    weapon.bombThrowVelocityX = 0
+    weapon.bombThrowVelocityY = 0
+    weapon.bombThrowAimAngle = 0
+  }
+
+  private startBombThrowWindup(
+    entity: Entity,
+    weapon: WeaponComponent,
+    facing: number
+  ): void {
+    let throwAngle = Math.atan2(-1, facing >= 0 ? 1 : -1)
+    let throwSpeed = BOMB_THROW_FREE_SPEED
+
+    if (
+      entity.input &&
+      this.entityLookup &&
+      entity.input.lockedTargetId !== null
+    ) {
+      const target = this.entityLookup(entity.input.lockedTargetId)
+      if (target?.transform && target.stats && !target.stats.isDead) {
+        const dx = target.transform.x - weapon.visual.x
+        const dy = target.transform.y - weapon.visual.y
+        const distance = Math.hypot(dx, dy)
+        if (distance > 0.001) {
+          throwAngle = Math.atan2(dy, dx)
+          throwSpeed = Math.max(
+            BOMB_THROW_LOCKED_MIN_SPEED,
+            Math.min(
+              BOMB_THROW_LOCKED_MAX_SPEED,
+              distance * BOMB_THROW_LOCKED_SPEED_PER_METER
+            )
+          )
+        }
+      }
+    }
+
+    weapon.bombState = 'throw_windup'
+    weapon.bombThrowWindupElapsedMs = 0
+    weapon.bombThrowAimAngle = throwAngle
+    weapon.bombThrowVelocityX = Math.cos(throwAngle) * throwSpeed
+    weapon.bombThrowVelocityY = Math.sin(throwAngle) * throwSpeed
+    weapon.bombThrownRotation = throwAngle + Math.PI / 2
+    weapon.attackFacing = weapon.bombThrowVelocityX >= 0 ? 1 : -1
   }
 
   private updateBowWeapon(
@@ -2516,6 +2918,7 @@ export class WeaponSystem extends System {
     this.arrowPools.registerSpawn(arrowFaction)
     weapon.bowAmmo = Math.max(0, weapon.bowAmmo - 1)
     this.playRangedFireSound(entity, weapon)
+    this.removeDepletedConsumable(entity, weapon)
   }
 
   private getBowAimAngleForTarget(
@@ -2618,6 +3021,71 @@ export class WeaponSystem extends System {
     slotId: WeaponSlotId
   ): WeaponSlotData {
     return slotId === 'main' ? weaponSlots.main : weaponSlots.secondary
+  }
+
+  private clearWeaponSlot(slot: WeaponSlotData): void {
+    slot.hasWeapon = false
+    slot.movesetId = ''
+    slot.bowAmmo = 0
+    slot.bowAmmoMax = 0
+    slot.skillId = ''
+    slot.skillCharges = 0
+  }
+
+  private removeDepletedConsumable(
+    entity: Entity,
+    weapon: WeaponComponent
+  ): void {
+    if (!weapon.isEquipped) {
+      return
+    }
+    if (!isConsumableWeaponType(weapon.weaponType) || weapon.bowAmmo > 0) {
+      return
+    }
+    if (weapon.weaponType === 'bomb' && weapon.bombState !== 'idle') {
+      return
+    }
+
+    if (entity.weaponSlots) {
+      const weaponSlots = entity.weaponSlots
+      const activeSlotId = weaponSlots.activeSlot
+      const activeSlot = this.getSlotData(weaponSlots, activeSlotId)
+      this.clearWeaponSlot(activeSlot)
+
+      const fallbackSlotId: WeaponSlotId =
+        activeSlotId === 'main' ? 'secondary' : 'main'
+      const fallbackSlot = this.getSlotData(weaponSlots, fallbackSlotId)
+      if (fallbackSlot.hasWeapon) {
+        weaponSlots.activeSlot = fallbackSlotId
+        this.copySlotToWeapon(fallbackSlot, weapon)
+        this.applyNormalAttackMoveset(
+          entity,
+          this.getSlotMovesetId(fallbackSlot)
+        )
+        weapon.isEquipped = true
+        weapon.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+        weapon.visual.rotation = DEFAULT_WEAPON_VERTICAL_ROTATION_RAD
+        this.resetWeaponForSwap(entity)
+        this.showHud(entity)
+        this.triggerFreeAimIfMouseMode(entity)
+        return
+      }
+    }
+
+    weapon.isEquipped = false
+    weapon.movesetId = ''
+    weapon.skillId = ''
+    weapon.skillCharges = 0
+    if (entity.attackSlots) {
+      entity.attackSlots.normal.hasMoveset = false
+      entity.attackSlots.normal.movesetId = ''
+      entity.attackSlots.ultimate.hasMoveset = false
+      entity.attackSlots.ultimate.movesetId = ''
+      entity.attackSlots.skill.skillId = ''
+      entity.attackSlots.skill.chargesRemaining = 0
+      entity.attackSlots.skill.maxCharges = 0
+    }
+    this.showHud(entity)
   }
 
   private getDefaultMovesetIdForWeaponType(
@@ -2871,6 +3339,7 @@ export class WeaponSystem extends System {
     weapon.bowFreeAimLastMouseY = 0
     weapon.bowFreeAimReticleOffsetX = 0
     weapon.bowFreeAimReticleOffsetY = 0
+    this.resetBombState(weapon)
     weapon.isDropping = false
     weapon.isDropped = false
     weapon.isRecovering = false
@@ -2895,6 +3364,12 @@ export class WeaponSystem extends System {
   tryPickUpWeapon(entity: Entity): boolean {
     if (!entity.transform || !entity.weapon) return false
     if (entity.stats?.isDead) return false
+    if (
+      entity.weapon.weaponType === 'bomb' &&
+      entity.weapon.bombState !== 'idle'
+    ) {
+      return false
+    }
     const weaponSlots = entity.weaponSlots
     const entityLayer = entity.render?.renderLayer ?? 0
 
@@ -3267,6 +3742,12 @@ export class WeaponSystem extends System {
   switchWeaponSlot(entity: Entity, slotId: WeaponSlotId): void {
     if (!entity.weapon || !entity.weaponSlots) return
     if (entity.stats?.isDead) return
+    if (
+      entity.weapon.weaponType === 'bomb' &&
+      entity.weapon.bombState !== 'idle'
+    ) {
+      return
+    }
 
     const weaponSlots = entity.weaponSlots
     if (weaponSlots.activeSlot === slotId) return
@@ -3311,12 +3792,36 @@ export class WeaponSystem extends System {
     }
 
     const weapon = entity.weapon
+    const facing =
+      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    if (weapon.weaponType === 'bomb') {
+      if (weapon.bombState === 'idle') {
+        if (weapon.bowAmmo <= 0) {
+          return
+        }
+        weapon.bowAmmo = Math.max(0, weapon.bowAmmo - 1)
+        weapon.bombState = 'lit'
+        weapon.bombFuseDurationMs = BOMB_FUSE_MS
+        weapon.bombFuseRemainingMs = BOMB_FUSE_MS
+        weapon.bombThrowWindupElapsedMs = 0
+        weapon.bombThrowVelocityX = 0
+        weapon.bombThrowVelocityY = 0
+        weapon.bombThrowAimAngle = 0
+        weapon.bombThrownRotation = 0
+        weapon.attackFacing = facing
+        this.statsSystem?.enterCombat(entity)
+        this.removeDepletedConsumable(entity, weapon)
+      } else if (weapon.bombState === 'lit') {
+        this.startBombThrowWindup(entity, weapon, facing)
+        this.statsSystem?.enterCombat(entity)
+      }
+      return
+    }
+
     const now = this.currentTimeMs
     this.tempPlayerPos.x = entity.transform.x
     this.tempPlayerPos.y = entity.transform.y
     const playerPos = this.tempPlayerPos
-    const facing =
-      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
     let attackRadius = this.getAttackRadius(entity)
     weapon.attackRadius = attackRadius
     weapon.attackFacing = facing
@@ -3936,6 +4441,7 @@ export class WeaponSystem extends System {
     weapon.isRecovering = false
     weapon.hitEntityIds.clear()
     weapon.width = weapon.baseWidth
+    this.resetBombState(weapon)
     this.clearAttackImpactState(weapon)
 
     if (!entity.transform) return
@@ -3993,6 +4499,7 @@ export class WeaponSystem extends System {
     const bodyDef = this.dropBodyDef
     bodyDef.type = b2BodyType.b2_dynamicBody
     bodyDef.position.Set(x, y)
+    bodyDef.gravityScale = 1
     bodyDef.linearDamping = 2.0
     bodyDef.motionLocks.angularZ = true
     const bodyId = b2CreateBody(this.worldId, bodyDef)

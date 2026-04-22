@@ -49,7 +49,7 @@ import type { NpcType } from './types'
 import {
   computeWeaponScaleFactor,
   getDefaultPlayerAmmoForWeaponType,
-  isRangedWeaponType,
+  isAmmoLimitedWeaponType,
   normalizeWeaponType,
   resolveWeaponStatsForSize,
 } from './weaponTypeUtils'
@@ -186,7 +186,7 @@ function createInitialSaveWeaponSlotState(
     toughnessDamage: weaponConfig?.toughnessDamage,
   })
   const bowAmmo =
-    isRangedWeaponType(weaponType) &&
+    isAmmoLimitedWeaponType(weaponType) &&
     typeof weaponConfig?.bowAmmo === 'number' &&
     Number.isFinite(weaponConfig.bowAmmo) &&
     weaponConfig.bowAmmo >= 0
@@ -207,8 +207,8 @@ function createInitialSaveWeaponSlotState(
     attackDamage: resolvedStats.attackDamage,
     postureDamage: resolvedStats.postureDamage,
     toughnessDamage: resolvedStats.toughnessDamage,
-    bowAmmo: isRangedWeaponType(weaponType) ? bowAmmo : 0,
-    bowAmmoMax: isRangedWeaponType(weaponType) ? bowAmmo : 0,
+    bowAmmo: isAmmoLimitedWeaponType(weaponType) ? bowAmmo : 0,
+    bowAmmoMax: isAmmoLimitedWeaponType(weaponType) ? bowAmmo : 0,
   }
 }
 

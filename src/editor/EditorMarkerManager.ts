@@ -49,7 +49,7 @@ import type {
 import {
   getDefaultNpcAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
-  isRangedWeaponType,
+  isAmmoLimitedWeaponType,
   normalizeWeaponTypeAndSizeLevel,
   resolveWeaponStatsForSize,
 } from '../weaponTypeUtils'
@@ -303,7 +303,7 @@ export class EditorMarkerManager {
       attackDamage: resolvedStats.attackDamage,
       postureDamage: resolvedStats.postureDamage,
       toughnessDamage: resolvedStats.toughnessDamage,
-      bowAmmo: isRangedWeaponType(normalized.weaponType)
+      bowAmmo: isAmmoLimitedWeaponType(normalized.weaponType)
         ? (config.bowAmmo ?? ammoResolver(normalized.weaponType))
         : undefined,
     }
@@ -1157,7 +1157,7 @@ export class EditorMarkerManager {
     )
     const bowAmmo =
       spawn?.bowAmmo ??
-      (isRangedWeaponType(weaponType)
+      (isAmmoLimitedWeaponType(weaponType)
         ? getDefaultPlayerAmmoForWeaponType(weaponType)
         : undefined)
 
@@ -1587,6 +1587,9 @@ export class EditorMarkerManager {
     if (weaponType === 'grape') {
       return 'grape'
     }
+    if (weaponType === 'bomb') {
+      return 'bomb'
+    }
     if (weaponType === 'hammer') {
       return 'hammer'
     }
@@ -1632,7 +1635,7 @@ export class EditorMarkerManager {
               attackDamage: resolvedStats.attackDamage,
               postureDamage: resolvedStats.postureDamage,
               toughnessDamage: resolvedStats.toughnessDamage,
-              bowAmmo: isRangedWeaponType(weaponType)
+              bowAmmo: isAmmoLimitedWeaponType(weaponType)
                 ? getDefaultNpcAmmoForWeaponType(weaponType)
                 : undefined,
             }
@@ -1694,7 +1697,7 @@ export class EditorMarkerManager {
               attackDamage: resolvedStats.attackDamage,
               postureDamage: resolvedStats.postureDamage,
               toughnessDamage: resolvedStats.toughnessDamage,
-              bowAmmo: isRangedWeaponType(weaponType)
+              bowAmmo: isAmmoLimitedWeaponType(weaponType)
                 ? getDefaultPlayerAmmoForWeaponType(weaponType)
                 : undefined,
             }

@@ -63,7 +63,7 @@ import {
   getDefaultNpcAmmoForWeaponType,
   getDefaultPlayerAmmoForWeaponType,
   getWeaponGroundRotationRad,
-  isRangedWeaponType,
+  isAmmoLimitedWeaponType,
   normalizeWeaponType,
   normalizeWeaponTypeAndSizeLevel,
   resolveWeaponStatsForSize,
@@ -551,7 +551,7 @@ export function createNpc(
 
           npc.weaponSlots.main.toughnessDamage = resolvedStats.toughnessDamage
 
-          if (isRangedWeaponType(normalizedConfig.weaponType)) {
+          if (isAmmoLimitedWeaponType(normalizedConfig.weaponType)) {
             npc.weaponSlots.main.bowAmmoMax = config.bowAmmo ?? 0
 
             npc.weaponSlots.main.bowAmmo = config.bowAmmo ?? 0
@@ -669,7 +669,7 @@ export function createNpc(
           npc.weaponSlots.secondary.toughnessDamage =
             resolvedStats.toughnessDamage
 
-          if (isRangedWeaponType(normalizedConfig.weaponType)) {
+          if (isAmmoLimitedWeaponType(normalizedConfig.weaponType)) {
             npc.weaponSlots.secondary.bowAmmoMax = config.bowAmmo ?? 0
 
             npc.weaponSlots.secondary.bowAmmo = config.bowAmmo ?? 0
@@ -873,7 +873,7 @@ export function createWeapon(
   weapon.attackDamage = weaponStats.attackDamage
   weapon.postureDamage = weaponStats.postureDamage
   weapon.toughnessDamage = weaponStats.toughnessDamage
-  if (isRangedWeaponType(weaponType)) {
+  if (isAmmoLimitedWeaponType(weaponType)) {
     weapon.bowAmmoMax = getDefaultPlayerAmmoForWeaponType(weaponType)
     weapon.bowAmmo = getDefaultPlayerAmmoForWeaponType(weaponType)
   }

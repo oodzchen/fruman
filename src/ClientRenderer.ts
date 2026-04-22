@@ -87,6 +87,7 @@ import type {
 
 const MAX_PARTICLES = 600
 const MAX_PARRY_SPARK_EVENTS = 16
+const MAX_BOMB_EXPLOSION_EVENTS = 16
 const DEBUG_DRAW_TRAJECTORY = false
 const DEBUG_DRAW_GRAPPLE_JOINTS = false
 const RETICLE_EDGE_PX = 8
@@ -115,6 +116,8 @@ const MAX_SUN_PICKUP_LIGHTS = 16
 const MAX_TRANSIENT_LIGHTS = 16
 const TRANSIENT_LIGHT_TYPE_HEAL = 1
 const TRANSIENT_LIGHT_TYPE_CHECKPOINT = 2
+const TRANSIENT_LIGHT_TYPE_BOMB = 3
+const BOMB_EXPLOSION_LIGHT_COLOR = 0xffb347
 const ACTIVE_CHECKPOINT_COLOR_INT = Number.parseInt(
   CHECKPOINT_TREE_TOP_COLOR_ACTIVE.slice(1),
   16
@@ -170,6 +173,12 @@ export class ClientRenderer {
     MAX_PARRY_SPARK_EVENTS
   )
   private parrySparkCount = 0
+  private readonly bombExplosionX = new Float32Array(MAX_BOMB_EXPLOSION_EVENTS)
+  private readonly bombExplosionY = new Float32Array(MAX_BOMB_EXPLOSION_EVENTS)
+  private readonly bombExplosionRadius = new Float32Array(
+    MAX_BOMB_EXPLOSION_EVENTS
+  )
+  private bombExplosionCount = 0
   private effectsBuffer: ArrayBuffer | SharedArrayBuffer | null = null
   private effectsView: Float32Array | null = null
   private audioManager: AudioManager | null = null
@@ -519,6 +528,18 @@ export class ClientRenderer {
         )
       } else if (type === EFFECT_TYPES.CRIT_BURST) {
         this.particleSystem.spawnCritBurst(x, y)
+      } else if (type === EFFECT_TYPES.BOMB_EXPLOSION) {
+        this.queueBombExplosion(x, y, radius)
+        this.pushTransientLight(
+          x,
+          y,
+          radius * 1.4,
+          BOMB_EXPLOSION_LIGHT_COLOR,
+          0.9,
+          0.32,
+          TRANSIENT_LIGHT_TYPE_BOMB,
+          renderLayer
+        )
       } else if (type === EFFECT_TYPES.CAMERA_SHAKE) {
         const attenuatedIntensity =
           color *
@@ -769,6 +790,26 @@ export class ClientRenderer {
     this.parrySparkCount = 0
   }
 
+  getBombExplosionEventCount(): number {
+    return this.bombExplosionCount
+  }
+
+  getBombExplosionEventX(index: number): number {
+    return this.bombExplosionX[index]
+  }
+
+  getBombExplosionEventY(index: number): number {
+    return this.bombExplosionY[index]
+  }
+
+  getBombExplosionEventRadius(index: number): number {
+    return this.bombExplosionRadius[index]
+  }
+
+  clearBombExplosionEvents(): void {
+    this.bombExplosionCount = 0
+  }
+
   getCharacterBodyProfile(index: number) {
     return getCharacterBodyProfileFromMap(this.characterBodyMap, index)
   }
@@ -783,6 +824,19 @@ export class ClientRenderer {
     this.parrySparkDirection[index] = direction
     if (this.parrySparkCount < MAX_PARRY_SPARK_EVENTS) {
       this.parrySparkCount += 1
+    }
+  }
+
+  private queueBombExplosion(x: number, y: number, radius: number): void {
+    const index =
+      this.bombExplosionCount < MAX_BOMB_EXPLOSION_EVENTS
+        ? this.bombExplosionCount
+        : MAX_BOMB_EXPLOSION_EVENTS - 1
+    this.bombExplosionX[index] = x * this.pixelsPerMeter
+    this.bombExplosionY[index] = y * this.pixelsPerMeter
+    this.bombExplosionRadius[index] = radius * this.pixelsPerMeter
+    if (this.bombExplosionCount < MAX_BOMB_EXPLOSION_EVENTS) {
+      this.bombExplosionCount += 1
     }
   }
 
@@ -2352,7 +2406,7 @@ export class ClientRenderer {
       mainSize,
       mainMax,
       mainAmmoValue,
-      this.isRangedWeaponTypeId(mainType) ? this.getAmmoText(mainAmmoValue) : ''
+      this.usesAmmoWeaponTypeId(mainType) ? this.getAmmoText(mainAmmoValue) : ''
     )
     drawHudWeaponSlot(
       this.ctx,
@@ -2367,7 +2421,7 @@ export class ClientRenderer {
       secondarySize,
       secondaryMax,
       secondaryAmmoValue,
-      this.isRangedWeaponTypeId(secondaryType)
+      this.usesAmmoWeaponTypeId(secondaryType)
         ? this.getAmmoText(secondaryAmmoValue)
         : ''
     )
@@ -2451,8 +2505,12 @@ export class ClientRenderer {
     return text
   }
 
-  private isRangedWeaponTypeId(weaponType: number): boolean {
-    return weaponType === WEAPON_TYPES.BOW || weaponType === WEAPON_TYPES.GRAPE
+  private usesAmmoWeaponTypeId(weaponType: number): boolean {
+    return (
+      weaponType === WEAPON_TYPES.BOW ||
+      weaponType === WEAPON_TYPES.GRAPE ||
+      weaponType === WEAPON_TYPES.BOMB
+    )
   }
 
   private getRangedMinForceRatio(weaponType: number): number {
@@ -2488,12 +2546,15 @@ export class ClientRenderer {
 
   private getWeaponRenderTypeFromId(
     weaponType: number
-  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' {
+  ): 'sword' | 'spear' | 'hammer' | 'bow' | 'grape' | 'hook' | 'bomb' {
     if (weaponType === WEAPON_TYPES.BOW) {
       return 'bow'
     }
     if (weaponType === WEAPON_TYPES.GRAPE) {
       return 'grape'
+    }
+    if (weaponType === WEAPON_TYPES.BOMB) {
+      return 'bomb'
     }
     if (weaponType === WEAPON_TYPES.SPEAR) {
       return 'spear'
@@ -2611,6 +2672,16 @@ export class ClientRenderer {
         wHeight,
         bodyColor,
         isAttacking
+      )
+    } else if (weaponType === WEAPON_TYPES.BOMB) {
+      renderWeaponShape(
+        this.ctx,
+        'bomb',
+        wWidth,
+        wHeight,
+        bodyColor,
+        isAttacking,
+        bowDraw
       )
     } else if (weaponType === WEAPON_TYPES.SPEAR) {
       renderWeaponShape(
