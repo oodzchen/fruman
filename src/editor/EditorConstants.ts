@@ -50,8 +50,8 @@ export const GROUND_FILL_COLOR = 'rgba(107, 74, 43, 0.85)'
 export const OBSTACLE_FILL_COLOR = 'rgba(112, 64, 14, 0.85)'
 
 export const CAMERA_FRAME_STROKE = 'rgba(220, 220, 220, 0.75)'
-export const CAMERA_FRAME_FILL = 'rgba(200, 200, 200, 0.06)'
-export const CAMERA_FRAME_FILL_UNFOCUSED = 'rgba(0, 0, 0, 0)'
+export const CAMERA_FRAME_FILL = ''
+export const CAMERA_FRAME_FILL_UNFOCUSED = ''
 export const CAMERA_ICON_STROKE = 'rgba(230, 230, 230, 0.9)'
 export const CAMERA_ICON_FILL = 'rgba(230, 230, 230, 0.18)'
 
@@ -163,6 +163,7 @@ export const CAMERA_FRAME_OPTIONS: RectOptions = {
   stroke: CAMERA_FRAME_STROKE,
   strokeWidth: 2,
   strokeDashArray: [6, 6],
+  perPixelTargetFind: true,
   originX: 'center',
   originY: 'center',
   selectable: true,

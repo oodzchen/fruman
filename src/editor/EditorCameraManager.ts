@@ -168,6 +168,10 @@ export class EditorCameraManager {
       if (view.frame.fill !== fill) {
         view.frame.set('fill', fill)
       }
+      const perPixelTargetFind = !shouldShow
+      if (view.frame.perPixelTargetFind !== perPixelTargetFind) {
+        view.frame.set('perPixelTargetFind', perPixelTargetFind)
+      }
       if (shouldShow) {
         this.syncCameraIcon(view)
         view.icon.canvas?.bringObjectToFront(view.icon)
