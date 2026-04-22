@@ -988,7 +988,8 @@ export class StatsSystem extends System {
       }
 
       if (finalKnockback > 0) {
-        const knockbackStunMs = this.getLinearKnockbackHitStunDurationMs(finalKnockback)
+        const knockbackStunMs =
+          this.getLinearKnockbackHitStunDurationMs(finalKnockback)
         if (isBlockingSuccessfully && !toughnessBroken) {
           // 格挡未破韧：只锁定速度覆盖，不触发硬直
           if (entity.movement) {

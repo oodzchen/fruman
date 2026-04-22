@@ -1,5 +1,6 @@
 import * as fabric from 'fabric'
 
+import type { DialogManager } from '../DialogManager'
 import { localizer } from '../Localizer'
 import {
   getCharacterBodyColor,
@@ -183,6 +184,7 @@ type WeaponPropertiesDialogOptions = {
 }
 
 export interface EditorPropertiesPanelContext {
+  dialogManager: DialogManager
   getFabricCanvas: () => fabric.Canvas | null
   weaponMarkerMap: Map<fabric.Object, WeaponMarkerData>
   npcMarkerMap: Map<fabric.Object, NpcMarkerData>
@@ -593,16 +595,11 @@ export class EditorPropertiesPanel {
       basicPanel.appendChild(factionRow.row)
 
       newFactionBtn.addEventListener('click', () => {
-        const name = prompt(localizer.t('editor_faction_new_prompt'))
-        if (!name || !name.trim()) return
-        const trimmed = name.trim()
-        this.context.addFaction(trimmed)
-        const opt = document.createElement('option')
-        opt.value = trimmed
-        opt.textContent = trimmed
-        factionSelectEl.appendChild(opt)
-        factionSelectEl.value = trimmed
-        rebuildFactionCheckboxes()
+        void this.handleCreateFaction(
+          factionSelectEl,
+          rebuildFactionCheckboxes,
+          localizer.t('editor_faction_new_prompt')
+        )
       })
 
       const createFactionSection = (labelKey: string): HTMLDivElement => {
@@ -2911,5 +2908,28 @@ export class EditorPropertiesPanel {
         }
       })
     })
+  }
+
+  private async handleCreateFaction(
+    factionSelectEl: HTMLSelectElement,
+    rebuildFactionCheckboxes: () => void,
+    promptMessage: string
+  ): Promise<void> {
+    const name = await this.context.dialogManager.prompt(promptMessage)
+    if (!name) {
+      return
+    }
+    const trimmed = name.trim()
+    if (trimmed.length === 0) {
+      return
+    }
+
+    this.context.addFaction(trimmed)
+    const opt = document.createElement('option')
+    opt.value = trimmed
+    opt.textContent = trimmed
+    factionSelectEl.appendChild(opt)
+    factionSelectEl.value = trimmed
+    rebuildFactionCheckboxes()
   }
 }

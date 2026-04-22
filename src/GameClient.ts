@@ -2322,8 +2322,13 @@ export class GameClient {
             if (confirmed) {
               window.close()
             }
-          } else if (confirm(localizer.t('confirm_exit_game'))) {
-            window.close()
+          } else {
+            const confirmed = await this.dialogManager.confirm(
+              localizer.t('confirm_exit_game')
+            )
+            if (confirmed) {
+              window.close()
+            }
           }
           break
         case MenuAction.Editor:

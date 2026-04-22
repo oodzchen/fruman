@@ -2,6 +2,7 @@ import { findDirectionalIndex } from './DirectionalNav'
 import { localizer } from './Localizer'
 
 export class DialogManager {
+  private static readonly DIALOG_Z_INDEX = 20000
   private container: HTMLDivElement
   private overlay: HTMLDivElement
   private contentBox: HTMLDivElement
@@ -37,7 +38,7 @@ export class DialogManager {
       position: absolute;
       inset: 0;
       display: none;
-      z-index: 100;
+      z-index: ${DialogManager.DIALOG_Z_INDEX};
       pointer-events: none;
     `
 

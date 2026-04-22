@@ -474,6 +474,7 @@ export class EditorManager {
     })
 
     this.propertiesPanel = new EditorPropertiesPanel({
+      dialogManager: this.dialogManager,
       getFabricCanvas: () => this.fabricCanvas,
       weaponMarkerMap: this.markerManager.getWeaponMarkerMap(),
       npcMarkerMap: this.markerManager.getNpcMarkerMap(),
