@@ -15,13 +15,16 @@ export type MapObjectKind = 'ground' | 'obstacle'
 
 export type WeaponCategory = 'main' | 'secondary' | 'item'
 
-export type MapEnvironmentObjectType = 'tree' | 'hill' | 'house'
+export type MapEnvironmentObjectType = 'tree' | 'hill' | 'house' | 'cloud'
 
 export interface MapEnvironmentObject {
   type: MapEnvironmentObjectType
   x: number
   y: number
   seed: number
+  rotationDeg?: number
+  scaleXPermille?: number
+  scaleYPermille?: number
 }
 
 export type MapLightFlickerMode = 'none' | 'candle' | 'torch'
@@ -54,6 +57,7 @@ export type EditorTreeObjectType =
   | 'envTree'
   | 'envHill'
   | 'envHouse'
+  | 'envCloud'
 
 export interface EditorTreeNode {
   type: EditorTreeObjectType

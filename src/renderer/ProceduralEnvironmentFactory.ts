@@ -24,6 +24,9 @@ const ENV_SEED_MIX = 0x9e3779b9 | 0
 const ENV_TREE_VORONOI_SEED = 38291
 const ENV_HILL_VORONOI_SEED = 52847
 const ENV_HOUSE_VORONOI_SEED = 71503
+const ENV_CLOUD_DETAIL_SEED = 91867
+
+type CloudPuff = readonly [number, number, number]
 
 type EnvironmentTreeCrownShape = 0 | 1 | 2
 
@@ -39,11 +42,32 @@ const ENV_TREE_TRIANGLE_SIDE_Y = [
 const ENV_TREE_TRIANGLE_SIDE_WIDTH = [
   0, 18, 32, 48, 66, 84, 96, 100, 70,
 ] as const
+const ENV_CLOUD_LARGE_PUFFS: readonly CloudPuff[] = [
+  [0, 0, 24],
+  [-22, 10, 18],
+  [24, 8, 21],
+  [-10, 22, 16],
+  [15, 24, 15],
+  [36, 18, 13],
+  [-34, 18, 12],
+] as const
+const ENV_CLOUD_MEDIUM_PUFFS: readonly CloudPuff[] = [
+  [0, 0, 19],
+  [-18, 9, 15],
+  [20, 7, 17],
+  [-7, 20, 14],
+  [13, 21, 13],
+  [28, 15, 11],
+] as const
 
 export interface EnvironmentTextureSource {
   canvas: HTMLCanvasElement
   originX: number
   originY: number
+  boundsX: number
+  boundsY: number
+  boundsWidth: number
+  boundsHeight: number
 }
 
 function lcgStep(seed: number): number {
@@ -189,6 +213,10 @@ export function createEnvironmentTreeTextureSource(
       canvas,
       originX: canvas.width >> 1,
       originY: canvas.height - padding,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
     }
   }
 
@@ -232,7 +260,16 @@ export function createEnvironmentTreeTextureSource(
     STANDALONE_VORONOI_OPTS
   )
 
-  return { canvas, originX, originY: originY + trunkBottomY }
+  const bounds = getCanvasOpaqueBounds(canvas)
+  return {
+    canvas,
+    originX,
+    originY: originY + trunkBottomY,
+    boundsX: bounds.x,
+    boundsY: bounds.y,
+    boundsWidth: bounds.width,
+    boundsHeight: bounds.height,
+  }
 }
 
 // ===== HILL =====
@@ -265,6 +302,10 @@ export function createEnvironmentHillTextureSource(
       canvas,
       originX: canvas.width >> 1,
       originY: canvas.height - padding,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
     }
   }
 
@@ -321,7 +362,16 @@ export function createEnvironmentHillTextureSource(
     STANDALONE_VORONOI_OPTS
   )
 
-  return { canvas, originX: centerX, originY: bottomY }
+  const bounds = getCanvasOpaqueBounds(canvas)
+  return {
+    canvas,
+    originX: centerX,
+    originY: bottomY,
+    boundsX: bounds.x,
+    boundsY: bounds.y,
+    boundsWidth: bounds.width,
+    boundsHeight: bounds.height,
+  }
 }
 
 // ===== HOUSE =====
@@ -357,6 +407,10 @@ export function createEnvironmentHouseTextureSource(
       canvas,
       originX: canvas.width >> 1,
       originY: canvas.height - padding,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
     }
   }
 
@@ -434,7 +488,122 @@ export function createEnvironmentHouseTextureSource(
     ctx.strokeRect(winX, winY, winSize, winSize)
   }
 
-  return { canvas, originX: ox, originY: oy }
+  const bounds = getCanvasOpaqueBounds(canvas)
+  return {
+    canvas,
+    originX: ox,
+    originY: oy,
+    boundsX: bounds.x,
+    boundsY: bounds.y,
+    boundsWidth: bounds.width,
+    boundsHeight: bounds.height,
+  }
+}
+
+// ===== CLOUD =====
+
+export function createEnvironmentCloudTextureSource(
+  seed: number,
+  ppm: number
+): EnvironmentTextureSource {
+  let s = lcgStep(seed ^ ENV_SEED_MIX)
+  const basePuffs =
+    (s & 1) === 0 ? ENV_CLOUD_LARGE_PUFFS : ENV_CLOUD_MEDIUM_PUFFS
+  s = lcgStep(s)
+  const scaleXNum = lcgRange(s, 92, 126)
+  s = lcgStep(s)
+  const scaleYNum = lcgRange(s, 90, 118)
+  s = lcgStep(s)
+  const radiusNum = lcgRange(s, 92, 122)
+  const puffValues = new Array<number>(basePuffs.length * 3)
+  let minX = 0
+  let maxX = 0
+  let minY = 0
+  let maxY = 0
+
+  for (let i = 0; i < basePuffs.length; i++) {
+    const puff = basePuffs[i]
+    s = lcgStep(s ^ Math.imul(i + 1, ENV_CLOUD_DETAIL_SEED))
+    const jitterX = roundDiv(ppm * lcgRange(s, -10, 10), 100)
+    s = lcgStep(s)
+    const jitterY = roundDiv(ppm * lcgRange(s, -8, 8), 100)
+    s = lcgStep(s)
+    const puffScaleNum = lcgRange(s, 92, 112)
+
+    const dx = roundDiv(ppm * puff[0] * scaleXNum, 5000) + jitterX
+    const dy = roundDiv(ppm * puff[1] * scaleYNum, 5000) + jitterY
+    const radius = Math.max(
+      8,
+      roundDiv(ppm * puff[2] * radiusNum * puffScaleNum, 500000)
+    )
+    const baseIndex = i * 3
+    puffValues[baseIndex] = dx
+    puffValues[baseIndex + 1] = dy
+    puffValues[baseIndex + 2] = radius
+
+    const puffMinX = dx - radius
+    const puffMaxX = dx + radius
+    const puffMinY = dy - radius
+    const puffMaxY = dy + radius
+    if (i === 0 || puffMinX < minX) {
+      minX = puffMinX
+    }
+    if (i === 0 || puffMaxX > maxX) {
+      maxX = puffMaxX
+    }
+    if (i === 0 || puffMinY < minY) {
+      minY = puffMinY
+    }
+    if (i === 0 || puffMaxY > maxY) {
+      maxY = puffMaxY
+    }
+  }
+
+  const padding = Math.max(10, roundDiv(ppm * 18, 10))
+  const canvasW = maxX - minX + padding * 2
+  const canvasH = maxY - minY + padding * 2
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, canvasW)
+  canvas.height = Math.max(1, canvasH)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return {
+      canvas,
+      originX: canvas.width >> 1,
+      originY: canvas.height >> 1,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
+    }
+  }
+
+  const originX = padding - minX
+  const originY = padding - minY
+  ctx.fillStyle = '#ffffff'
+  for (let i = 0; i < puffValues.length; i += 3) {
+    ctx.beginPath()
+    ctx.arc(
+      originX + puffValues[i],
+      originY + puffValues[i + 1],
+      puffValues[i + 2],
+      0,
+      Math.PI * 2
+    )
+    ctx.fill()
+  }
+
+  const bounds = getCanvasOpaqueBounds(canvas)
+  return {
+    canvas,
+    originX,
+    originY,
+    boundsX: bounds.x,
+    boundsY: bounds.y,
+    boundsWidth: bounds.width,
+    boundsHeight: bounds.height,
+  }
 }
 
 // ===== DISPATCH =====
@@ -468,6 +637,8 @@ export function createEnvironmentTextureSource(
     source = createEnvironmentTreeTextureSource(seed, ppm)
   } else if (type === 'hill') {
     source = createEnvironmentHillTextureSource(seed, ppm)
+  } else if (type === 'cloud') {
+    source = createEnvironmentCloudTextureSource(seed, ppm)
   } else {
     source = createEnvironmentHouseTextureSource(seed, ppm)
   }
@@ -655,6 +826,53 @@ function getContourBounds(points: readonly number[]): {
   }
 
   return { minX, minY, maxX, maxY }
+}
+
+function getCanvasOpaqueBounds(canvas: HTMLCanvasElement): {
+  x: number
+  y: number
+  width: number
+  height: number
+} {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) {
+    return { x: 0, y: 0, width: canvas.width, height: canvas.height }
+  }
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const pixels = image.data
+  let minX = canvas.width
+  let minY = canvas.height
+  let maxX = -1
+  let maxY = -1
+  for (let y = 0; y < canvas.height; y++) {
+    const rowOffset = y * canvas.width * 4
+    for (let x = 0; x < canvas.width; x++) {
+      if (pixels[rowOffset + x * 4 + 3] === 0) {
+        continue
+      }
+      if (x < minX) {
+        minX = x
+      }
+      if (x > maxX) {
+        maxX = x
+      }
+      if (y < minY) {
+        minY = y
+      }
+      if (y > maxY) {
+        maxY = y
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) {
+    return { x: 0, y: 0, width: canvas.width, height: canvas.height }
+  }
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  }
 }
 
 function offsetContourPoints(

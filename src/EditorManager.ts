@@ -95,6 +95,8 @@ import type {
   WeaponCategory,
 } from './editorMapTypes'
 import {
+  RENDER_LAYER_SKY,
+  formatRenderLayerLabel,
   getDefaultShapeRenderLayer,
   normalizeRenderLayer,
 } from './renderLayers'
@@ -495,6 +497,7 @@ export class EditorManager {
         this.markerManager.updatePlayerMarkerVisual(m, r, bh, c, f),
       updateWeaponMarkerVisual: (m, s) =>
         this.markerManager.updateWeaponMarkerVisual(m, s),
+      getAvailableRenderLayers: () => this.getAvailableRenderLayers(),
       getCommonRenderLayer: (target) => this.getEditorObjectRenderLayer(target),
       setCommonRenderLayer: (target, renderLayer) =>
         this.setEditorObjectRenderLayer(target, renderLayer),
@@ -594,6 +597,7 @@ export class EditorManager {
         this.resetDragState()
       },
       onObjectSelected: (id, mode) => this.handleObjectTreeSelection(id, mode),
+      onBlankAreaSelected: () => this.clearEditorSelection(),
       onObjectContextMenu: (id, clientX, clientY) =>
         this.handleObjectTreeContextMenu(id, clientX, clientY),
       onCollapsedPathsChanged: (paths) =>
@@ -804,6 +808,7 @@ export class EditorManager {
         this.terrainBrushController.handlePointerMove(opt),
       handleTerrainPointerUp: () =>
         this.terrainBrushController.handlePointerUp(),
+      clearSelection: () => this.clearEditorSelection(),
       restoreCanvasCursor: () =>
         this.terrainBrushController.restoreCanvasCursor(),
       handleCanvasSelection: (objects) =>
@@ -1323,21 +1328,14 @@ export class EditorManager {
   private refreshDepthFilterOptions(): void {
     const el = this.editorDepthFilterEl
     if (!el) return
-    const all = this.objectManager.getEditorObjects()
-    const layerSet = new Set<number>()
-    for (let i = 0; i < all.length; i++) {
-      const data = all[i]
-      if (data.type === ObjectType.Empty) continue
-      layerSet.add(this.getEditorObjectRenderLayer(data.object))
-    }
-    const layers = Array.from(layerSet).sort((a, b) => a - b)
+    const layers = this.getAvailableRenderLayers()
     const currentVal = el.value
     // 重建选项列表
     el.innerHTML = '<option value="all">全部</option>'
     for (let i = 0; i < layers.length; i++) {
       const opt = document.createElement('option')
       opt.value = String(layers[i])
-      opt.textContent = `层级 ${layers[i]}`
+      opt.textContent = formatRenderLayerLabel(layers[i])
       el.appendChild(opt)
     }
     // 恢复当前选中值（若仍有效）
@@ -1348,6 +1346,17 @@ export class EditorManager {
       this.sceneDepthFilter = 'all'
       this.applyDepthFilter()
     }
+  }
+
+  private getAvailableRenderLayers(): number[] {
+    const all = this.objectManager.getEditorObjects()
+    const layerSet = new Set<number>([RENDER_LAYER_SKY])
+    for (let i = 0; i < all.length; i++) {
+      const data = all[i]
+      if (data.type === ObjectType.Empty) continue
+      layerSet.add(this.getEditorObjectRenderLayer(data.object))
+    }
+    return Array.from(layerSet).sort((a, b) => a - b)
   }
 
   private registerEditorObjectWithDepth(
@@ -1418,6 +1427,7 @@ export class EditorManager {
     }
     // 切回“全部”时也要重排，避免保留单层模式下的临时前置顺序。
     this.reorderCanvasObjects()
+    this.renderObjectTree()
   }
 
   private handleObjectTreeContextMenu(
@@ -1500,8 +1510,24 @@ export class EditorManager {
       nextSelection = this.collectRangeSelection(anchorId, id)
     }
 
+    if (nextSelection.length === 0) {
+      this.clearEditorSelection()
+      return
+    }
     this.objectManager.setSelectedIds(nextSelection)
     this.applyCanvasSelectionFromIds(nextSelection)
+  }
+
+  private clearEditorSelection() {
+    this.objectTreeAnchorId = -1
+    const canvas = this.fabricCanvas
+    if (canvas) {
+      canvas.discardActiveObject()
+      this.objectManager.handleCanvasSelection([])
+      canvas.requestRenderAll()
+      return
+    }
+    this.objectManager.handleCanvasSelection([])
   }
 
   private collectRangeSelection(anchorId: number, targetId: number) {
@@ -2243,6 +2269,7 @@ export class EditorManager {
     const hookAnchorObjects: EditorObjectData[] = []
     const sunPickupObjects: EditorObjectData[] = []
     const expOrbObjects: EditorObjectData[] = []
+    const environmentObjects: EditorObjectData[] = []
     let playerObject: EditorObjectData | null = null
     let cameraObject: EditorObjectData | null = null
 
@@ -2265,6 +2292,13 @@ export class EditorManager {
         sunPickupObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.ExpOrb) {
         expOrbObjects.push(dataItem)
+      } else if (
+        dataItem.type === ObjectType.EnvTree ||
+        dataItem.type === ObjectType.EnvHill ||
+        dataItem.type === ObjectType.EnvHouse ||
+        dataItem.type === ObjectType.EnvCloud
+      ) {
+        environmentObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Player) {
         playerObject = dataItem
       } else if (dataItem.type === ObjectType.Camera) {
@@ -2328,6 +2362,17 @@ export class EditorManager {
         resolvedData =
           index >= 0 && index < expOrbObjects.length
             ? expOrbObjects[index]
+            : null
+      } else if (
+        node.type === 'envTree' ||
+        node.type === 'envHill' ||
+        node.type === 'envHouse' ||
+        node.type === 'envCloud'
+      ) {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < environmentObjects.length
+            ? environmentObjects[index]
             : null
       } else if (node.type === 'player') {
         resolvedData = playerObject
@@ -2460,7 +2505,11 @@ export class EditorManager {
     this.pendingTerrainContourFillTarget = null
     this.contextMenu.hide()
     const targetInfo = this.fabricCanvas.findTarget(event)
-    const target = targetInfo.target ?? null
+    const target =
+      targetInfo.target ??
+      targetInfo.currentContainer ??
+      targetInfo.container ??
+      null
     const selectedIds = this.objectManager.getSelectedEditorObjectIds()
     if (selectedIds.length > 1 && target) {
       const isActiveSelection = target instanceof fabric.ActiveSelection
@@ -2995,6 +3044,7 @@ export class EditorManager {
       actions.push('group')
     }
     actions.push('copy')
+    actions.push('commonProperties')
     actions.push('delete')
     this.contextMenu.show(actions, menuTarget, -1, clientX, clientY)
   }
@@ -3064,7 +3114,12 @@ export class EditorManager {
       return true
     }
     if (selectedIds.length > 1) {
-      if (action === 'copy' || action === 'delete' || action === 'group') {
+      if (
+        action === 'copy' ||
+        action === 'delete' ||
+        action === 'group' ||
+        action === 'commonProperties'
+      ) {
         return hasLockedSelection
       }
     }
@@ -3290,6 +3345,16 @@ export class EditorManager {
         const targets = this.getObjectsByIds(selectedIds)
         this.clipboardManager.copyBatch(targets)
         this.contextMenu.hide()
+        return
+      }
+      if (action === 'commonProperties') {
+        const targets = this.getObjectsByIds(selectedIds)
+        const changed =
+          await this.propertiesPanel.showCommonPropertiesDialog(targets)
+        this.contextMenu.hide()
+        if (changed) {
+          this.captureHistorySnapshot()
+        }
         return
       }
       if (action === 'delete') {
@@ -3608,6 +3673,7 @@ export class EditorManager {
       fireMiddleClick: true,
     })
     this.fabricCanvas.uniformScaling = false
+    this.fabricCanvas.selectionKey = ['ctrlKey', 'metaKey']
     this.fabricCanvas.uniScaleKey = 'shiftKey'
     this.terrainManager.attachToCanvas()
     this.terrainBrushController.restoreCanvasCursor()

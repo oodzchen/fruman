@@ -23,6 +23,7 @@ import {
 } from '../constants'
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
 import { getPublicAssetUrl } from '../publicAssetUrl'
+import { RENDER_LAYER_SKY } from '../renderLayers'
 import {
   ENTITY_STRIDE,
   FLAGS,
@@ -304,6 +305,23 @@ const PARALLAX_FACTOR_PER_LAYER = 0.005
 // 每层级亮度衰减量，|layer|=100 时亮度约 40%
 const PARALLAX_BRIGHTNESS_PER_LAYER = 0.006
 const PARALLAX_MIN_BRIGHTNESS = 0.3
+
+function getParallaxScaleForLayer(layer: number): number {
+  if (layer === RENDER_LAYER_SKY) {
+    return 1
+  }
+  return Math.max(0.1, 1 + layer * PARALLAX_FACTOR_PER_LAYER)
+}
+
+function getParallaxBrightnessForLayer(layer: number): number {
+  if (layer === RENDER_LAYER_SKY) {
+    return 1
+  }
+  return Math.max(
+    PARALLAX_MIN_BRIGHTNESS,
+    1 - Math.abs(layer) * PARALLAX_BRIGHTNESS_PER_LAYER
+  )
+}
 
 export class PixiWorldRenderer {
   private readonly root: Container
@@ -833,10 +851,7 @@ export class PixiWorldRenderer {
     container.addChild(dynamicContainer)
 
     // 计算亮度 tint：layer=0 最亮，越远越暗
-    const brightness = Math.max(
-      PARALLAX_MIN_BRIGHTNESS,
-      1 - Math.abs(layer) * PARALLAX_BRIGHTNESS_PER_LAYER
-    )
+    const brightness = getParallaxBrightnessForLayer(layer)
     const v = Math.round(brightness * 255)
     container.tint = (v << 16) | (v << 8) | v
 
@@ -876,7 +891,7 @@ export class PixiWorldRenderer {
     const originY = parallaxBottomY + parallaxCamY / parallaxZoom
     for (const [layer, bucket] of this.buckets) {
       if (layer === 0) continue
-      const factor = Math.max(0.1, 1 + layer * PARALLAX_FACTOR_PER_LAYER)
+      const factor = getParallaxScaleForLayer(layer)
       bucket.container.scale.set(factor)
       bucket.container.position.set(
         (1 - factor) * originX,

@@ -1,6 +1,10 @@
 import { localizer } from '../Localizer'
 import { WEAPON_DEFAULT_DATA } from '../constants'
-import type { MapNpcTemplate, WeaponCategory } from '../editorMapTypes'
+import type {
+  MapEnvironmentObjectType,
+  MapNpcTemplate,
+  WeaponCategory,
+} from '../editorMapTypes'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import type { TerrainBrushId, TerrainMaterialId } from '../terrain/TerrainTypes'
 import type { NpcType, WeaponType } from '../types'
@@ -39,7 +43,7 @@ export interface EditorMenuSystemContext {
   onCreateCustomNpcTemplate: () => void | Promise<void>
   onSunPickupSelected: (isLarge: boolean) => void
   onExpOrbSelected: () => void
-  onEnvironmentObjectSelected: (envType: 'tree' | 'hill' | 'house') => void
+  onEnvironmentObjectSelected: (envType: MapEnvironmentObjectType) => void
   onPanelMenuAdd: () => void
   onPanelMenuPaste: () => void
 }
@@ -506,11 +510,7 @@ export class EditorMenuSystem {
           this.handleMenuBack()
           return
         }
-        const envType = item.dataset.env as
-          | 'tree'
-          | 'hill'
-          | 'house'
-          | undefined
+        const envType = item.dataset.env as MapEnvironmentObjectType | undefined
         if (envType) {
           this.ctx.onEnvironmentObjectSelected(envType)
           this.hideObjectTypeMenu()

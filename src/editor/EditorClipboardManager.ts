@@ -1,11 +1,18 @@
 import * as fabric from 'fabric'
 
 import type {
+  MapEnvironmentObjectType,
   MapNpcDropItem,
   MapNpcWeapon,
   MapPlayerProperties,
 } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
+import {
+  DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+  normalizeEnvironmentRotationDeg,
+  normalizeEnvironmentScalePermille,
+  writeEnvironmentTransformedOffset,
+} from '../environmentTransformUtils'
 import { normalizeNpcDropList } from '../npcDropUtils'
 import type {
   MapTerrainChunk,
@@ -49,6 +56,7 @@ import type {
   CameraFrame,
   CheckpointMarker,
   EditorEmptyObject,
+  EnvironmentMarker,
   ExpOrbMarker,
   HookAnchorMarker,
   NpcMarker,
@@ -71,6 +79,7 @@ type ClipboardKind =
   | 'hookAnchor'
   | 'sunPickup'
   | 'expOrb'
+  | 'environment'
 
 interface EditorClipboardManagerContext {
   getCanvas: () => fabric.Canvas | null
@@ -103,6 +112,7 @@ type ClipboardTreeNode =
   | ClipboardHookAnchorTreeNode
   | ClipboardSunPickupTreeNode
   | ClipboardExpOrbTreeNode
+  | ClipboardEnvironmentTreeNode
 
 interface ClipboardTreeNodeBase {
   kind:
@@ -115,6 +125,7 @@ interface ClipboardTreeNodeBase {
     | 'hookAnchor'
     | 'sunPickup'
     | 'expOrb'
+    | 'environment'
   parentIndex: number
   offsetX: number
   offsetY: number
@@ -205,6 +216,17 @@ interface ClipboardSunPickupTreeNode extends ClipboardTreeNodeBase {
 
 interface ClipboardExpOrbTreeNode extends ClipboardTreeNodeBase {
   kind: 'expOrb'
+}
+
+interface ClipboardEnvironmentTreeNode extends ClipboardTreeNodeBase {
+  kind: 'environment'
+  envType: MapEnvironmentObjectType
+  envSeed: number
+  anchorDX: number
+  anchorDY: number
+  rotationDeg: number
+  scaleXPermille: number
+  scaleYPermille: number
 }
 
 type RectResetData = Extract<ShapeResetData, { kind: 'rect' }>
@@ -386,6 +408,14 @@ export class EditorClipboardManager {
   private sunPickupIsLarge = false
   private sunPickupSpawn = { x: 0, y: 0 }
   private expOrbSpawn = { x: 0, y: 0 }
+  private environmentType: MapEnvironmentObjectType = 'tree'
+  private environmentSeed = 1
+  private environmentAnchorDX = 0
+  private environmentAnchorDY = 0
+  private environmentRotationDeg = 0
+  private environmentScaleXPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+  private environmentScaleYPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+  private environmentAnchorOffset = { x: 0, y: 0 }
 
   private cameraZoom = 1
   private cameraOffset = { x: 0, y: 0, zoom: 1 }
@@ -515,6 +545,9 @@ export class EditorClipboardManager {
     if (this.ctx.markerManager.isExpOrbMarker(target)) {
       return this.copyExpOrbMarker(target)
     }
+    if (this.ctx.markerManager.isEnvironmentMarker(target)) {
+      return this.copyEnvironmentMarker(target)
+    }
     if (this.ctx.terrainManager.isTerrainProxy(target)) {
       return this.copyTerrain(target)
     }
@@ -579,6 +612,9 @@ export class EditorClipboardManager {
       case 'expOrb':
         result = this.pasteExpOrb(appliedOffset)
         break
+      case 'environment':
+        result = this.pasteEnvironment(appliedOffset)
+        break
       default:
         result = null
         break
@@ -624,6 +660,9 @@ export class EditorClipboardManager {
       return true
     }
     if (this.ctx.markerManager.isExpOrbMarker(target)) {
+      return true
+    }
+    if (this.ctx.markerManager.isEnvironmentMarker(target)) {
       return true
     }
     return type === ObjectType.Ground || type === ObjectType.Obstacle
@@ -907,6 +946,26 @@ export class EditorClipboardManager {
       }
     }
 
+    if (this.ctx.markerManager.isEnvironmentMarker(target)) {
+      return {
+        kind: 'environment',
+        parentIndex,
+        offsetX,
+        offsetY,
+        envType: target.envType,
+        envSeed: target.envSeed,
+        anchorDX: target.anchorDX,
+        anchorDY: target.anchorDY,
+        rotationDeg: normalizeEnvironmentRotationDeg(target.angle ?? 0),
+        scaleXPermille: normalizeEnvironmentScalePermille(
+          Math.round((target.scaleX ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+        ),
+        scaleYPermille: normalizeEnvironmentScalePermille(
+          Math.round((target.scaleY ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+        ),
+      }
+    }
+
     if (
       (type === ObjectType.Ground || type === ObjectType.Obstacle) &&
       (target instanceof fabric.Rect ||
@@ -1177,6 +1236,9 @@ export class EditorClipboardManager {
     }
     if (node.kind === 'sunPickup') {
       return this.createSunPickupObject(node.isLarge, targetLeft, targetTop)
+    }
+    if (node.kind === 'environment') {
+      return this.createEnvironmentObject(node, targetLeft, targetTop)
     }
     return this.createExpOrbObject(targetLeft, targetTop)
   }
@@ -1456,6 +1518,38 @@ export class EditorClipboardManager {
     this.expOrbSpawn.y = targetTop * invPixelsPerMeter
     const previousActive = canvas.getActiveObject()
     this.ctx.markerManager.spawnExpOrbMarker(this.expOrbSpawn)
+    const nextActive = canvas.getActiveObject()
+    return nextActive && nextActive !== previousActive ? nextActive : null
+  }
+
+  private createEnvironmentObject(
+    node: ClipboardEnvironmentTreeNode,
+    targetLeft: number,
+    targetTop: number
+  ): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    writeEnvironmentTransformedOffset(
+      node.anchorDX,
+      node.anchorDY,
+      node.rotationDeg,
+      node.scaleXPermille,
+      node.scaleYPermille,
+      this.environmentAnchorOffset
+    )
+    const previousActive = canvas.getActiveObject()
+    this.ctx.markerManager.spawnEnvironmentMarker(node.envType, {
+      type: node.envType,
+      x: (targetLeft + this.environmentAnchorOffset.x) * invPixelsPerMeter,
+      y: (targetTop + this.environmentAnchorOffset.y) * invPixelsPerMeter,
+      seed: node.envSeed,
+      rotationDeg: node.rotationDeg,
+      scaleXPermille: node.scaleXPermille,
+      scaleYPermille: node.scaleYPermille,
+    })
     const nextActive = canvas.getActiveObject()
     return nextActive && nextActive !== previousActive ? nextActive : null
   }
@@ -2129,6 +2223,27 @@ export class EditorClipboardManager {
     return true
   }
 
+  private copyEnvironmentMarker(target: EnvironmentMarker): boolean {
+    const center = target.getCenterPoint()
+    this.kind = 'environment'
+    this.sourceLeft = center.x
+    this.sourceTop = center.y
+    this.environmentType = target.envType
+    this.environmentSeed = target.envSeed
+    this.environmentAnchorDX = target.anchorDX
+    this.environmentAnchorDY = target.anchorDY
+    this.environmentRotationDeg = normalizeEnvironmentRotationDeg(
+      target.angle ?? 0
+    )
+    this.environmentScaleXPermille = normalizeEnvironmentScalePermille(
+      Math.round((target.scaleX ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+    )
+    this.environmentScaleYPermille = normalizeEnvironmentScalePermille(
+      Math.round((target.scaleY ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+    )
+    return true
+  }
+
   private pasteExpOrb(offset: number): fabric.Object | null {
     const canvas = this.ctx.getCanvas()
     if (!canvas) {
@@ -2138,6 +2253,36 @@ export class EditorClipboardManager {
     this.expOrbSpawn.x = (this.pasteBaseLeft + offset) * invPixelsPerMeter
     this.expOrbSpawn.y = (this.pasteBaseTop + offset) * invPixelsPerMeter
     this.ctx.markerManager.spawnExpOrbMarker(this.expOrbSpawn)
+    return canvas.getActiveObject() ?? null
+  }
+
+  private pasteEnvironment(offset: number): fabric.Object | null {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) {
+      return null
+    }
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    writeEnvironmentTransformedOffset(
+      this.environmentAnchorDX,
+      this.environmentAnchorDY,
+      this.environmentRotationDeg,
+      this.environmentScaleXPermille,
+      this.environmentScaleYPermille,
+      this.environmentAnchorOffset
+    )
+    this.ctx.markerManager.spawnEnvironmentMarker(this.environmentType, {
+      type: this.environmentType,
+      x:
+        (this.pasteBaseLeft + offset + this.environmentAnchorOffset.x) *
+        invPixelsPerMeter,
+      y:
+        (this.pasteBaseTop + offset + this.environmentAnchorOffset.y) *
+        invPixelsPerMeter,
+      seed: this.environmentSeed,
+      rotationDeg: this.environmentRotationDeg,
+      scaleXPermille: this.environmentScaleXPermille,
+      scaleYPermille: this.environmentScaleYPermille,
+    })
     return canvas.getActiveObject() ?? null
   }
 

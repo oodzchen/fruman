@@ -25,6 +25,14 @@ import {
 } from './constants'
 import type { EditorMapData, MapEnvironmentObject } from './editorMapTypes'
 import {
+  DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+  type EnvironmentTransformOffset,
+  getEnvironmentRotationDeg,
+  getEnvironmentScaleXPermille,
+  getEnvironmentScaleYPermille,
+  writeEnvironmentTransformedOffset,
+} from './environmentTransformUtils'
+import {
   buildMapObjectLayerLookup,
   collectStaticRenderLayers,
 } from './mapObjectLayers'
@@ -32,7 +40,6 @@ import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
 import { getDefaultTerrainRenderLayer } from './renderLayers'
 import { DayNightCycle } from './renderer/DayNightCycle'
-import { PatternCreator } from './renderer/PatternCreator'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import {
   buildEnvironmentTextureCacheKey,
@@ -79,8 +86,10 @@ interface PixiApplicationInitResult {
 interface EnvironmentTextureEntry {
   key: string
   texture: Texture
-  anchorX: number
-  anchorY: number
+  centerAnchorX: number
+  centerAnchorY: number
+  anchorOffsetX: number
+  anchorOffsetY: number
 }
 
 type SleepTransitionPhase = 'idle' | 'closing' | 'closed' | 'opening'
@@ -114,7 +123,6 @@ export class GameClient {
 
   // PixiJS scene elements
   private backgroundSprite: TilingSprite | null = null
-  private cloudSprite: TilingSprite | null = null
   private readonly dayNightCycle = new DayNightCycle()
   private fpsTextEl: Text | null = null
   private sceneContainer: Container
@@ -155,6 +163,11 @@ export class GameClient {
   >()
   private readonly activeEnvironmentTextureKeys = new Set<string>()
   private readonly pendingEnvironmentTextureKeys = new Set<string>()
+  private readonly reusableEnvironmentAnchorOffset: EnvironmentTransformOffset =
+    {
+      x: 0,
+      y: 0,
+    }
   private readonly reusableDOMMatrix = new DOMMatrix()
   private readonly reusablePixiMatrix = new Matrix()
   private worldRenderer: PixiWorldRenderer
@@ -460,17 +473,6 @@ export class GameClient {
     const initLightingState = this.dayNightCycle.getLightingState()
     this.backgroundSprite.tint = initLightingState.sky
     this.sceneContainer.addChild(this.backgroundSprite)
-    // 云层：白色云朵纹理，通过 tint 实现颜色渐变
-    const cloudTexture = PatternCreator.createCloudTexture()
-    if (cloudTexture) {
-      this.cloudSprite = new TilingSprite({
-        texture: cloudTexture,
-        width,
-        height,
-      })
-      this.cloudSprite.tint = initLightingState.cloud
-      this.sceneContainer.addChild(this.cloudSprite)
-    }
 
     this.lightingContainer = new Container()
     this.lightingContainer.sortableChildren = true
@@ -649,10 +651,6 @@ export class GameClient {
         this.backgroundSprite.width = newWidth
         this.backgroundSprite.height = newHeight
       }
-      if (this.cloudSprite) {
-        this.cloudSprite.width = newWidth
-        this.cloudSprite.height = newHeight
-      }
       this.worldRenderContext.resize(newWidth, newHeight)
       this.hudRenderContext.resize(newWidth, newHeight)
       if (this.fpsTextEl) {
@@ -689,10 +687,6 @@ export class GameClient {
       if (this.backgroundSprite) {
         this.backgroundSprite.width = preset.width
         this.backgroundSprite.height = preset.height
-      }
-      if (this.cloudSprite) {
-        this.cloudSprite.width = preset.width
-        this.cloudSprite.height = preset.height
       }
       this.worldRenderContext.resize(preset.width, preset.height)
       this.hudRenderContext.resize(preset.width, preset.height)
@@ -1344,9 +1338,6 @@ export class GameClient {
     const colors = this.dayNightCycle.getColors()
     if (this.backgroundSprite) {
       this.backgroundSprite.tint = colors.sky
-    }
-    if (this.cloudSprite) {
-      this.cloudSprite.tint = colors.cloud
     }
   }
 
@@ -2810,10 +2801,26 @@ export class GameClient {
         ppm
       )
       this.pendingEnvironmentTextureKeys.add(textureEntry.key)
+      const rotationDeg = getEnvironmentRotationDeg(obj)
+      const scaleXPermille = getEnvironmentScaleXPermille(obj)
+      const scaleYPermille = getEnvironmentScaleYPermille(obj)
+      writeEnvironmentTransformedOffset(
+        textureEntry.anchorOffsetX,
+        textureEntry.anchorOffsetY,
+        rotationDeg,
+        scaleXPermille,
+        scaleYPermille,
+        this.reusableEnvironmentAnchorOffset
+      )
       const sprite = new Sprite(textureEntry.texture)
-      sprite.anchor.set(textureEntry.anchorX, textureEntry.anchorY)
-      sprite.x = obj.x * ppm
-      sprite.y = obj.y * ppm
+      sprite.anchor.set(textureEntry.centerAnchorX, textureEntry.centerAnchorY)
+      sprite.x = obj.x * ppm - this.reusableEnvironmentAnchorOffset.x
+      sprite.y = obj.y * ppm - this.reusableEnvironmentAnchorOffset.y
+      sprite.angle = rotationDeg
+      sprite.scale.set(
+        scaleXPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+        scaleYPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+      )
       this.worldRenderer.addStaticMesh(sprite, envLayers?.[index] ?? 0)
       this.staticEnvironmentSprites.push(sprite)
       this.pendingStaticEnvironmentIndex = index + 1
@@ -2859,11 +2866,15 @@ export class GameClient {
 
     this.perfEnvironmentCacheMisses++
     const source = createEnvironmentTextureSource(type, seed, ppm)
+    const centerOriginX = source.canvas.width >> 1
+    const centerOriginY = source.canvas.height >> 1
     const entry: EnvironmentTextureEntry = {
       key,
       texture: Texture.from(source.canvas),
-      anchorX: source.originX / source.canvas.width,
-      anchorY: source.originY / source.canvas.height,
+      centerAnchorX: centerOriginX / source.canvas.width,
+      centerAnchorY: centerOriginY / source.canvas.height,
+      anchorOffsetX: source.originX - centerOriginX,
+      anchorOffsetY: source.originY - centerOriginY,
     }
     this.environmentTextureCache.set(key, entry)
     return entry
@@ -2913,7 +2924,26 @@ export class GameClient {
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(obj.seed | 0, 0xc2b2ae35)
       )
-      const typeCode = obj.type === 'tree' ? 1 : obj.type === 'hill' ? 2 : 3
+      const rotationCode = getEnvironmentRotationDeg(obj)
+      const scaleXCode = getEnvironmentScaleXPermille(obj)
+      const scaleYCode = getEnvironmentScaleYPermille(obj)
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(rotationCode, 0x27d4eb2d)
+      )
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(scaleXCode, 0x165667b1)
+      )
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(scaleYCode, 0x1b873593)
+      )
+      const typeCode =
+        obj.type === 'tree'
+          ? 1
+          : obj.type === 'hill'
+            ? 2
+            : obj.type === 'house'
+              ? 3
+              : 4
       hash = this.mixTerrainSignatureValue(hash ^ Math.imul(typeCode, 0x19660d))
     }
     return hash

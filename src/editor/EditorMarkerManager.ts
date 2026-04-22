@@ -27,6 +27,14 @@ import type {
   MapPlayerProperties,
   WeaponCategory,
 } from '../editorMapTypes'
+import {
+  DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+  type EnvironmentTransformOffset,
+  getEnvironmentRotationDeg,
+  getEnvironmentScaleXPermille,
+  getEnvironmentScaleYPermille,
+  writeEnvironmentTransformedOffset,
+} from '../environmentTransformUtils'
 import { resolveNpcBodyProfile } from '../npcBodyProfileUtils'
 import { buildDefaultNpcDropList, normalizeNpcDropList } from '../npcDropUtils'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
@@ -126,6 +134,10 @@ export class EditorMarkerManager {
   private pendingBodyTextureImages = new WeakSet<HTMLImageElement>()
   private tempNpcPos = { x: 0, y: 0 }
   private tempWeaponTransform = { x: 0, y: 0, rotation: 0 }
+  private readonly tempEnvironmentAnchorOffset: EnvironmentTransformOffset = {
+    x: 0,
+    y: 0,
+  }
 
   constructor(
     ctx: EditorMarkerManagerContext,
@@ -1339,8 +1351,22 @@ export class EditorMarkerManager {
       envType,
       envSeed
     ) as EnvironmentMarker
-    marker.left = centerX - marker.anchorDX
-    marker.top = centerY - marker.anchorDY
+    const rotationDeg = getEnvironmentRotationDeg(spawn ?? {})
+    const scaleXPermille = getEnvironmentScaleXPermille(spawn ?? {})
+    const scaleYPermille = getEnvironmentScaleYPermille(spawn ?? {})
+    marker.angle = rotationDeg
+    marker.scaleX = scaleXPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    marker.scaleY = scaleYPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    writeEnvironmentTransformedOffset(
+      marker.anchorDX,
+      marker.anchorDY,
+      rotationDeg,
+      scaleXPermille,
+      scaleYPermille,
+      this.tempEnvironmentAnchorOffset
+    )
+    marker.left = centerX - this.tempEnvironmentAnchorOffset.x
+    marker.top = centerY - this.tempEnvironmentAnchorOffset.y
     marker.setCoords()
     canvas.add(marker)
     this.ctx.registerEditorObject(objectType, marker)

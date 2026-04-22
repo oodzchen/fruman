@@ -34,6 +34,7 @@ export enum ObjectType {
   EnvTree = 'envTree',
   EnvHill = 'envHill',
   EnvHouse = 'envHouse',
+  EnvCloud = 'envCloud',
 }
 
 export type GroundShapeType = 'rect' | 'triangle' | 'circle' | 'polygon'

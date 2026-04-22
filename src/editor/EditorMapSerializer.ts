@@ -13,6 +13,13 @@ import type {
   MapNpcTemplate,
   MapSunPickup,
 } from '../editorMapTypes'
+import {
+  DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+  type EnvironmentTransformOffset,
+  normalizeEnvironmentRotationDeg,
+  normalizeEnvironmentScalePermille,
+  writeEnvironmentTransformedOffset,
+} from '../environmentTransformUtils'
 import { normalizeNpcDropList } from '../npcDropUtils'
 import {
   getDefaultShapeRenderLayer,
@@ -95,6 +102,10 @@ export interface EditorMapSerializeOptions {
 
 export class EditorMapSerializer {
   private ctx: EditorMapSerializerContext
+  private readonly tempEnvironmentAnchorOffset: EnvironmentTransformOffset = {
+    x: 0,
+    y: 0,
+  }
 
   constructor(ctx: EditorMapSerializerContext) {
     this.ctx = ctx
@@ -458,10 +469,42 @@ export class EditorMapSerializer {
     for (let i = 0; i < markers.length; i++) {
       const { marker, envType, envSeed } = markers[i]
       const center = marker.getCenterPoint()
-      const anchorX = (center.x + marker.anchorDX) * invPixelsPerMeter
-      const anchorY = (center.y + marker.anchorDY) * invPixelsPerMeter
+      const rotationDeg = normalizeEnvironmentRotationDeg(marker.angle ?? 0)
+      const scaleXPermille = normalizeEnvironmentScalePermille(
+        Math.round((marker.scaleX ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+      )
+      const scaleYPermille = normalizeEnvironmentScalePermille(
+        Math.round((marker.scaleY ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+      )
+      writeEnvironmentTransformedOffset(
+        marker.anchorDX,
+        marker.anchorDY,
+        rotationDeg,
+        scaleXPermille,
+        scaleYPermille,
+        this.tempEnvironmentAnchorOffset
+      )
+      const anchorX =
+        (center.x + this.tempEnvironmentAnchorOffset.x) * invPixelsPerMeter
+      const anchorY =
+        (center.y + this.tempEnvironmentAnchorOffset.y) * invPixelsPerMeter
       if (indexMap) indexMap.set(marker, result.length)
-      result.push({ type: envType, x: anchorX, y: anchorY, seed: envSeed })
+      const envObject: MapEnvironmentObject = {
+        type: envType,
+        x: anchorX,
+        y: anchorY,
+        seed: envSeed,
+      }
+      if (rotationDeg !== 0) {
+        envObject.rotationDeg = rotationDeg
+      }
+      if (scaleXPermille !== DEFAULT_ENVIRONMENT_SCALE_PERMILLE) {
+        envObject.scaleXPermille = scaleXPermille
+      }
+      if (scaleYPermille !== DEFAULT_ENVIRONMENT_SCALE_PERMILLE) {
+        envObject.scaleYPermille = scaleYPermille
+      }
+      result.push(envObject)
     }
     return result
   }
@@ -542,7 +585,8 @@ export class EditorMapSerializer {
       } else if (
         dataItem.type === 'envTree' ||
         dataItem.type === 'envHill' ||
-        dataItem.type === 'envHouse'
+        dataItem.type === 'envHouse' ||
+        dataItem.type === 'envCloud'
       ) {
         const index = data.environmentIndexMap.get(dataItem.object)
         if (index === undefined) {

@@ -22,6 +22,7 @@ interface EditorCanvasEventHandlerContext {
   handleTerrainPointerDown: (opt: fabric.TPointerEventInfo) => boolean
   handleTerrainPointerMove: (opt: fabric.TPointerEventInfo) => boolean
   handleTerrainPointerUp: () => boolean
+  clearSelection: () => void
   restoreCanvasCursor: () => void
   handleCanvasSelection: (objects: fabric.Object[]) => void
   onObjectMoving: (target: fabric.Object | null) => void
@@ -59,17 +60,32 @@ export class EditorCanvasEventHandler {
     canvas.on('selection:cleared', this.handleSelectionCleared)
   }
 
+  private getActiveSelectionObjects(): fabric.Object[] {
+    const canvas = this.ctx.fabricCanvas()
+    if (!canvas) {
+      return []
+    }
+    return canvas.getActiveObjects()
+  }
+
   private handleContextMenu = (event: Event) => {
     const mouseEvent = event as MouseEvent
+    const canvas = this.ctx.fabricCanvas()
     if (
       !this.ctx.isVisible() ||
-      this.ctx.getCurrentView() !== EditorView.Editor
+      this.ctx.getCurrentView() !== EditorView.Editor ||
+      !canvas
     ) {
       return
     }
     event.preventDefault()
     event.stopPropagation()
-    if (this.ctx.editorCanvas.contains(event.target as Node)) {
+    const targetNode = event.target as Node | null
+    if (
+      targetNode &&
+      (canvas.wrapperEl.contains(targetNode) ||
+        this.ctx.editorCanvas.contains(targetNode))
+    ) {
       this.ctx.handleEditablePolygonContextMenuEvent(mouseEvent)
     }
   }
@@ -115,6 +131,9 @@ export class EditorCanvasEventHandler {
     }
     if (evt.button === 0) {
       this.ctx.hidePolygonMenu()
+      if (!opt.target) {
+        this.ctx.clearSelection()
+      }
       if (this.ctx.handleTerrainPointerDown(opt)) {
         evt.preventDefault()
         evt.stopPropagation()
@@ -203,17 +222,15 @@ export class EditorCanvasEventHandler {
   }
 
   private handleSelectionCreated = (
-    opt: Partial<fabric.TEvent> & { selected?: fabric.Object[] }
+    _opt: Partial<fabric.TEvent> & { selected?: fabric.Object[] }
   ) => {
-    const selectedObjects = opt.selected
-    this.ctx.handleCanvasSelection(selectedObjects ?? [])
+    this.ctx.handleCanvasSelection(this.getActiveSelectionObjects())
   }
 
   private handleSelectionUpdated = (
-    opt: Partial<fabric.TEvent> & { selected?: fabric.Object[] }
+    _opt: Partial<fabric.TEvent> & { selected?: fabric.Object[] }
   ) => {
-    const selectedObjects = opt.selected
-    this.ctx.handleCanvasSelection(selectedObjects ?? [])
+    this.ctx.handleCanvasSelection(this.getActiveSelectionObjects())
   }
 
   private handleSelectionCleared = () => {

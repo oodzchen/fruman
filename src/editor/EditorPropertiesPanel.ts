@@ -37,6 +37,7 @@ import {
   normalizeNpcDropItemType,
   normalizeNpcDropList,
 } from '../npcDropUtils'
+import { formatRenderLayerLabel } from '../renderLayers'
 import {
   HUD_SLOT_SIZE,
   HUD_SLOT_SPACING,
@@ -222,6 +223,7 @@ export interface EditorPropertiesPanelContext {
     facing: number
   ) => void
   updateWeaponMarkerVisual: (marker: WeaponMarker, sizeLevel: number) => void
+  getAvailableRenderLayers: () => number[]
   getCommonRenderLayer: (target: fabric.Object) => number
   setCommonRenderLayer: (
     target: fabric.Object,
@@ -2758,8 +2760,14 @@ export class EditorPropertiesPanel {
   }
 
   public async showCommonPropertiesDialog(
-    target: fabric.Object
+    targetOrTargets: fabric.Object | readonly fabric.Object[]
   ): Promise<boolean> {
+    const targets = Array.isArray(targetOrTargets)
+      ? targetOrTargets
+      : [targetOrTargets]
+    if (targets.length === 0) {
+      return false
+    }
     const dialog = EditorUIHelper.createPropertiesDialog(
       localizer.t('editor_common_properties_title')
     )
@@ -2771,18 +2779,82 @@ export class EditorPropertiesPanel {
     const renderLayerRow = EditorUIHelper.createFormRow(
       localizer.t('editor_common_properties_render_layer')
     )
+    let sharedRenderLayer: number | null = this.context.getCommonRenderLayer(
+      targets[0]
+    )
+    for (let i = 1; i < targets.length; i++) {
+      const layer = this.context.getCommonRenderLayer(targets[i])
+      if (layer !== sharedRenderLayer) {
+        sharedRenderLayer = null
+        break
+      }
+    }
     const renderLayerInput = EditorUIHelper.createNumberInput({
-      value: this.context.getCommonRenderLayer(target),
+      value: sharedRenderLayer === null ? '' : sharedRenderLayer,
       step: '1',
     })
+    if (sharedRenderLayer === null) {
+      renderLayerInput.placeholder = localizer.t(
+        'editor_common_properties_mixed_placeholder'
+      )
+    }
     renderLayerRow.row.appendChild(renderLayerInput)
     leftPanel.appendChild(renderLayerRow.row)
+
+    const availableRenderLayers = this.context.getAvailableRenderLayers()
+    const renderLayerSelectRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_common_properties_render_layer_existing')
+    )
+    const renderLayerSelect = EditorUIHelper.createSelect({
+      options: [
+        {
+          value: '',
+          label: localizer.t(
+            'editor_common_properties_render_layer_existing_placeholder'
+          ),
+        },
+        ...availableRenderLayers.map((layer) => ({
+          value: String(layer),
+          label: formatRenderLayerLabel(layer),
+        })),
+      ],
+      selected:
+        sharedRenderLayer !== null &&
+        availableRenderLayers.includes(sharedRenderLayer)
+          ? String(sharedRenderLayer)
+          : '',
+    })
+    renderLayerSelect.style.flex = '1 1 auto'
+    renderLayerSelect.style.width = '200px'
+    renderLayerSelect.addEventListener('change', () => {
+      const nextValue = renderLayerSelect.value
+      if (nextValue.length > 0) {
+        renderLayerInput.value = nextValue
+      }
+    })
+    renderLayerInput.addEventListener('input', () => {
+      const currentValue = renderLayerInput.value.trim()
+      renderLayerSelect.value = availableRenderLayers.some(
+        (layer) => String(layer) === currentValue
+      )
+        ? currentValue
+        : ''
+    })
+    renderLayerSelectRow.row.appendChild(renderLayerSelect)
+    leftPanel.appendChild(renderLayerSelectRow.row)
 
     const hint = document.createElement('div')
     hint.textContent = localizer.t('editor_common_properties_render_layer_hint')
     hint.style.cssText =
       'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
     rightPanel.appendChild(hint)
+    if (targets.length > 1) {
+      const batchHint = document.createElement('div')
+      batchHint.textContent = localizer.t('editor_common_properties_batch_hint')
+      batchHint.style.cssText =
+        'margin-top:8px;font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+      rightPanel.appendChild(batchHint)
+    }
 
     const buttonRow = EditorUIHelper.createButtonRow()
     const confirmBtn = EditorUIHelper.createButton(
@@ -2809,16 +2881,20 @@ export class EditorPropertiesPanel {
       }
 
       confirmBtn.addEventListener('click', () => {
-        const renderLayer = Number.parseInt(renderLayerInput.value, 10)
-        if (!Number.isFinite(renderLayer)) {
-          finish(false)
-          return
+        const renderLayerText = renderLayerInput.value.trim()
+        let changed = false
+        if (renderLayerText.length > 0) {
+          const renderLayer = Number.parseInt(renderLayerText, 10)
+          if (!Number.isFinite(renderLayer)) {
+            finish(false)
+            return
+          }
+          for (let i = 0; i < targets.length; i++) {
+            changed =
+              this.context.setCommonRenderLayer(targets[i], renderLayer) ||
+              changed
+          }
         }
-        const renderLayerChanged = this.context.setCommonRenderLayer(
-          target,
-          renderLayer
-        )
-        const changed = renderLayerChanged
         if (changed) {
           this.context.requestRender()
         }

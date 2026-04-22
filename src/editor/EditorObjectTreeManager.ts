@@ -20,6 +20,7 @@ export interface EditorObjectTreeManagerContext {
   onDropToRoot: (dragId: number) => void
   onDragEnd: () => void
   onObjectSelected: (id: number, mode: 'replace' | 'toggle' | 'range') => void
+  onBlankAreaSelected: () => void
   onObjectContextMenu: (id: number, clientX: number, clientY: number) => void
   onCollapsedPathsChanged: (paths: readonly string[]) => void
   selectedEditorObjectIds: number[]
@@ -50,6 +51,10 @@ export class EditorObjectTreeManager {
       const target = event.target as HTMLElement | null
       const node = target?.closest<HTMLButtonElement>('.editor-object-node')
       if (!node?.dataset.objectId) {
+        if (target?.closest('.editor-object-toggle')) {
+          return
+        }
+        this.context.onBlankAreaSelected()
         return
       }
       const objectId = Number.parseInt(node.dataset.objectId, 10)

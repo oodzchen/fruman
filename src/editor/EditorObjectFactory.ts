@@ -207,24 +207,32 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
   declare anchorDY: EnvironmentMarker['anchorDY']
 
   private readonly textureCanvas: HTMLCanvasElement
+  private readonly drawOffsetX: number
+  private readonly drawOffsetY: number
 
   constructor(
     textureCanvas: HTMLCanvasElement,
     originX: number,
     originY: number,
+    boundsX: number,
+    boundsY: number,
+    boundsWidth: number,
+    boundsHeight: number,
     options?: FabricObjectOptions
   ) {
     super(options)
     this.textureCanvas = textureCanvas
-    this.width = textureCanvas.width
-    this.height = textureCanvas.height
-    this.anchorDX = originX - (textureCanvas.width >> 1)
-    this.anchorDY = originY - (textureCanvas.height >> 1)
+    this.width = boundsWidth
+    this.height = boundsHeight
+    this.drawOffsetX = -(boundsWidth / 2) - boundsX
+    this.drawOffsetY = -(boundsHeight / 2) - boundsY
+    this.anchorDX = originX - (boundsX + boundsWidth / 2)
+    this.anchorDY = originY - (boundsY + boundsHeight / 2)
     this.editorShape = 'environment-marker'
   }
 
   override _render(ctx: CanvasRenderingContext2D): void {
-    ctx.drawImage(this.textureCanvas, -(this.width >> 1), -(this.height >> 1))
+    ctx.drawImage(this.textureCanvas, this.drawOffsetX, this.drawOffsetY)
   }
 }
 
@@ -875,14 +883,19 @@ export class EditorObjectFactory {
       source.canvas,
       source.originX,
       source.originY,
+      source.boundsX,
+      source.boundsY,
+      source.boundsWidth,
+      source.boundsHeight,
       {
         originX: 'center',
         originY: 'center',
         selectable: true,
-        hasControls: false,
-        lockRotation: true,
-        lockScalingX: true,
-        lockScalingY: true,
+        hasControls: true,
+        lockRotation: false,
+        lockScalingX: false,
+        lockScalingY: false,
+        lockScalingFlip: true,
         objectCaching: false,
       }
     ) as EnvironmentMarker

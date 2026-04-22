@@ -3,6 +3,7 @@ import type { TerrainMaterialId } from './terrain/TerrainTypes'
 
 export const RENDER_LAYER_DEFAULT = 0
 export const RENDER_LAYER_FOREGROUND = 1
+export const RENDER_LAYER_SKY = -9999
 
 // 场景深度分组：layer < 0 为远景，layer >= 100 为近景，其余为中景
 export const SCENE_DEPTH_FOREGROUND_MIN = 100
@@ -41,4 +42,8 @@ export function getDefaultTerrainRenderLayer(
 
 export function getDefaultShapeRenderLayer(): number {
   return RENDER_LAYER_DEFAULT
+}
+
+export function formatRenderLayerLabel(layer: number): string {
+  return layer === RENDER_LAYER_SKY ? '天空 (层级-9999)' : `层级 ${layer | 0}`
 }
