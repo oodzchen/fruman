@@ -415,6 +415,42 @@ function renderBomb(
     (fuseEndY - fuseControlY) * sparkOffset * sparkOffset
   const glowRadius = Math.max(2, radius * 0.32)
   const coreRadius = Math.max(1.5, radius * 0.18)
+  const flashThreshold = 0.92
+  const igniteFlash =
+    fuseProgress > flashThreshold
+      ? Math.min(1, (fuseProgress - flashThreshold) / (1 - flashThreshold))
+      : 0
+
+  if (igniteFlash > 0) {
+    const flashGlowRadius = Math.max(glowRadius, radius * (0.65 + igniteFlash))
+    const flashCoreRadius = Math.max(
+      coreRadius,
+      radius * (0.26 + igniteFlash * 0.14)
+    )
+
+    ctx.fillStyle = `rgba(255, 214, 96, ${0.42 * igniteFlash})`
+    ctx.beginPath()
+    ctx.arc(sparkX, sparkY, flashGlowRadius, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.fillStyle = `rgba(255, 247, 204, ${0.82 * igniteFlash})`
+    ctx.beginPath()
+    ctx.arc(sparkX, sparkY, flashCoreRadius, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.strokeStyle = `rgba(255, 238, 168, ${0.9 * igniteFlash})`
+    ctx.lineWidth = Math.max(1, radius * 0.08)
+    ctx.beginPath()
+    ctx.moveTo(sparkX - flashGlowRadius, sparkY)
+    ctx.lineTo(sparkX + flashGlowRadius, sparkY)
+    ctx.moveTo(sparkX, sparkY - flashGlowRadius)
+    ctx.lineTo(sparkX, sparkY + flashGlowRadius)
+    ctx.moveTo(sparkX - flashGlowRadius * 0.7, sparkY - flashGlowRadius * 0.7)
+    ctx.lineTo(sparkX + flashGlowRadius * 0.7, sparkY + flashGlowRadius * 0.7)
+    ctx.moveTo(sparkX - flashGlowRadius * 0.7, sparkY + flashGlowRadius * 0.7)
+    ctx.lineTo(sparkX + flashGlowRadius * 0.7, sparkY - flashGlowRadius * 0.7)
+    ctx.stroke()
+  }
 
   ctx.fillStyle = 'rgba(255, 196, 72, 0.45)'
   ctx.beginPath()

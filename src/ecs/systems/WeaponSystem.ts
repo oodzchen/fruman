@@ -3890,6 +3890,11 @@ export class WeaponSystem extends System {
         weapon.bombThrowAimAngle = 0
         weapon.bombThrownRotation = 0
         weapon.attackFacing = facing
+        this.statsSystem?.playSoundAt(
+          SOUND_IDS.BOMB_IGNITE,
+          weapon.visual.x,
+          weapon.visual.y
+        )
         this.statsSystem?.enterCombat(entity)
         this.removeDepletedConsumable(entity, weapon)
       } else if (weapon.bombState === 'lit') {

@@ -81,6 +81,7 @@ export class AudioManager {
         SOUND_IDS.BOMB_EXPLOSION,
         'audios/Explosion Military Bomb 02.wav'
       ),
+      this.loadSound(SOUND_IDS.BOMB_IGNITE, 'audios/ignite.wav'),
     ])
   }
 
