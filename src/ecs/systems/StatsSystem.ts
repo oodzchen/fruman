@@ -554,13 +554,13 @@ export class StatsSystem extends System {
 
     if (entity.transform) {
       this.playSoundAt(
-        SOUND_IDS.BODY_HIT,
+        SOUND_IDS.STAGGER_BREAK,
         entity.transform.x,
         entity.transform.y,
-        0.3
+        1.0
       )
     } else {
-      this.playSound(SOUND_IDS.BODY_HIT, 0.3)
+      this.playSound(SOUND_IDS.STAGGER_BREAK, 1.0)
     }
     this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
 

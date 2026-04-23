@@ -17,6 +17,7 @@ export function getSoundFalloffDistance(soundId: number): number {
   switch (soundId) {
     case SOUND_IDS.BODY_HIT:
     case SOUND_IDS.BODY_HIT_SHARP:
+    case SOUND_IDS.STAGGER_BREAK:
       return BODY_HIT_SOUND_FALLOFF_DISTANCE
     case SOUND_IDS.SWORD_BLOCK:
       return BLOCK_SOUND_FALLOFF_DISTANCE
