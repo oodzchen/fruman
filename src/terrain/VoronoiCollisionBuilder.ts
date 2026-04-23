@@ -7,12 +7,7 @@ import {
   getTerrainMaterialTagByCode,
   getTerrainMaterialTagById,
 } from './TerrainMaterialRegistry'
-import {
-  computeFlatPolygonBounds,
-  intersectMultiPolygonWithFlatPolygon,
-  multiPolygonToFlatPolygons,
-  unionFlatPolygons,
-} from './TerrainPolygonUtils'
+import { computeFlatPolygonBounds } from './TerrainPolygonUtils'
 import type { TerrainDataLike } from './TerrainTypes'
 import { getVoronoiLayerBuild } from './VoronoiBuilder'
 import type { VoronoiCollisionPolygon } from './VoronoiTypes'
@@ -35,66 +30,8 @@ export class VoronoiCollisionBuilder {
       const hasContourClip =
         !!layer.contourClipPoints && layer.contourClipPoints.length >= 6
       const build = getVoronoiLayerBuild(layer, terrain.cellSize, {
-        clipContour: !hasContourClip,
+        clipContour: hasContourClip,
       })
-      if (hasContourClip && layer.contourClipPoints && build.cells.length > 0) {
-        const materialTag = layer.materialId
-          ? getTerrainMaterialTagById(layer.materialId)
-          : getTerrainMaterialTagByCode(build.cells[0].materialCode)
-        if (materialTag && materialTag !== 'foliage') {
-          const points = layer.contourClipPoints.slice()
-          const bounds = computeFlatPolygonBounds(points)
-          if (bounds) {
-            polygons.push({
-              materialTag,
-              renderLayer,
-              materialCode: build.cells[0].materialCode,
-              centerX: (bounds.minX + bounds.maxX) * 0.5,
-              centerY: (bounds.minY + bounds.maxY) * 0.5,
-              halfWidth: (bounds.maxX - bounds.minX) * 0.5,
-              halfHeight: (bounds.maxY - bounds.minY) * 0.5,
-              points,
-              preferExactDecomp: true,
-            })
-            continue
-          }
-        }
-      }
-      const mergedPolygons =
-        hasContourClip && layer.contourClipPoints
-          ? buildMergedCollisionPolygons(build.cells, layer.contourClipPoints)
-          : []
-      if (mergedPolygons.length > 0) {
-        const materialTag = layer.materialId
-          ? getTerrainMaterialTagById(layer.materialId)
-          : getTerrainMaterialTagByCode(build.cells[0]?.materialCode ?? 0)
-        if (!materialTag || materialTag === 'foliage') {
-          continue
-        }
-        for (
-          let polygonIndex = 0;
-          polygonIndex < mergedPolygons.length;
-          polygonIndex++
-        ) {
-          const points = mergedPolygons[polygonIndex]
-          const bounds = computeFlatPolygonBounds(points)
-          if (!bounds) {
-            continue
-          }
-          polygons.push({
-            materialTag,
-            renderLayer,
-            materialCode: build.cells[0]?.materialCode ?? 0,
-            centerX: (bounds.minX + bounds.maxX) * 0.5,
-            centerY: (bounds.minY + bounds.maxY) * 0.5,
-            halfWidth: (bounds.maxX - bounds.minX) * 0.5,
-            halfHeight: (bounds.maxY - bounds.minY) * 0.5,
-            points,
-            preferExactDecomp: true,
-          })
-        }
-        continue
-      }
       for (let cellIndex = 0; cellIndex < build.cells.length; cellIndex++) {
         const cell = build.cells[cellIndex]
         const materialTag = layer.materialId
@@ -121,23 +58,4 @@ export class VoronoiCollisionBuilder {
     }
     return polygons
   }
-}
-
-function buildMergedCollisionPolygons(
-  cells: ReadonlyArray<{ points: number[] }>,
-  contourClipPoints: readonly number[]
-): number[][] {
-  if (cells.length === 0) {
-    return []
-  }
-  const subjectPolygons = new Array<readonly number[]>(cells.length)
-  for (let i = 0; i < cells.length; i++) {
-    subjectPolygons[i] = cells[i].points
-  }
-  const united = unionFlatPolygons(subjectPolygons)
-  const clipped = intersectMultiPolygonWithFlatPolygon(
-    united,
-    contourClipPoints
-  )
-  return multiPolygonToFlatPolygons(clipped)
 }

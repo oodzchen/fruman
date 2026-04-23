@@ -99,6 +99,7 @@ const ENTITY_GROUND_SORT_SCALE = 16
 const STANDALONE_WEAPON_SORT_OFFSET = -1
 const CHECKPOINT_SORT_OFFSET = -10000
 const SUN_PICKUP_SORT_OFFSET = -5000
+const TERRAIN_DEBRIS_SORT_OFFSET = -2
 const PIXI_WORLD_PERF_SECTION_COUNT = 12
 const PIXI_WORLD_PERF_PARALLAX = 0
 const PIXI_WORLD_PERF_PLAYER_SCAN = 1
@@ -1079,6 +1080,8 @@ export class PixiWorldRenderer {
       sortOffset += CHECKPOINT_SORT_OFFSET
     } else if (flags & (FLAGS.SUN_PICKUP_SMALL | FLAGS.SUN_PICKUP_LARGE)) {
       sortOffset += SUN_PICKUP_SORT_OFFSET
+    } else if (flags & FLAGS.TERRAIN_DEBRIS) {
+      sortOffset += TERRAIN_DEBRIS_SORT_OFFSET
     }
 
     return Math.round(groundY * ENTITY_GROUND_SORT_SCALE) + sortOffset
@@ -1105,6 +1108,10 @@ export class PixiWorldRenderer {
     hideSprite(view.followBondSprite)
     hideSprite(view.followUnbondSprite)
 
+    if (flags & FLAGS.TERRAIN_DEBRIS) {
+      this.updateTerrainDebris(view, renderer, buf, offset, alpha)
+      return
+    }
     if (flags & FLAGS.EXP_ORB) {
       this.updateExpOrb(view)
       return
@@ -1186,6 +1193,90 @@ export class PixiWorldRenderer {
       playerX,
       playerY
     )
+  }
+
+  private updateTerrainDebris(
+    view: EntityView,
+    renderer: ClientRenderer,
+    buf: Float32Array,
+    offset: number,
+    alpha: number
+  ): void {
+    const width = Math.max(
+      2,
+      Math.round(buf[offset + OFFSETS.WEAPON_W] * this.pixelsPerMeter)
+    )
+    const height = Math.max(
+      2,
+      Math.round(buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter)
+    )
+    const variant = buf[offset + OFFSETS.WEAPON_TYPE] | 0
+    const fillColor = renderer.getColorHex(buf[offset + OFFSETS.COLOR] | 0)
+    const strokeColor = renderer.getColorHex(
+      buf[offset + OFFSETS.BORDER_COLOR] | 0
+    )
+    const strokeWidth = Math.max(1, Math.round(Math.min(width, height) * 0.12))
+    const key = [
+      width,
+      height,
+      variant,
+      fillColor,
+      strokeColor,
+      strokeWidth,
+    ].join('|')
+
+    if (view.specialKey !== key) {
+      const halfW = width * 0.5
+      const halfH = height * 0.5
+      view.specialGraphics.clear()
+      if ((variant & 3) === 0) {
+        view.specialGraphics
+          .moveTo(-halfW, -halfH * 0.55)
+          .lineTo(-halfW * 0.2, -halfH)
+          .lineTo(halfW, -halfH * 0.35)
+          .lineTo(halfW * 0.45, halfH)
+          .lineTo(-halfW, halfH * 0.45)
+          .closePath()
+      } else if ((variant & 3) === 1) {
+        view.specialGraphics
+          .moveTo(-halfW, -halfH * 0.3)
+          .lineTo(-halfW * 0.15, -halfH)
+          .lineTo(halfW, -halfH * 0.15)
+          .lineTo(halfW * 0.2, halfH)
+          .lineTo(-halfW * 0.85, halfH * 0.25)
+          .closePath()
+      } else if ((variant & 3) === 2) {
+        view.specialGraphics
+          .moveTo(-halfW, -halfH)
+          .lineTo(halfW * 0.4, -halfH * 0.65)
+          .lineTo(halfW, halfH * 0.1)
+          .lineTo(halfW * 0.15, halfH)
+          .lineTo(-halfW, halfH * 0.25)
+          .closePath()
+      } else {
+        view.specialGraphics
+          .moveTo(-halfW * 0.75, -halfH)
+          .lineTo(halfW, -halfH * 0.55)
+          .lineTo(halfW * 0.55, halfH * 0.15)
+          .lineTo(-halfW * 0.15, halfH)
+          .lineTo(-halfW, halfH * 0.1)
+          .closePath()
+      }
+      view.specialGraphics.fill({ color: fillColor })
+      view.specialGraphics.stroke({
+        color: strokeColor,
+        width: strokeWidth,
+        join: 'round',
+      })
+      view.specialKey = key
+    }
+
+    view.specialGraphics.visible = true
+    view.specialGraphics.rotation = buf[offset + OFFSETS.WEAPON_ROT]
+    view.specialGraphics.alpha = alpha * buf[offset + OFFSETS.WEAPON_DRAW]
+    hideSprite(view.bodySprite)
+    hideSprite(view.weaponSprite)
+    this.clearSpineBody(view)
   }
 
   private updateExpOrb(view: EntityView): void {

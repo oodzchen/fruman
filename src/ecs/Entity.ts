@@ -19,6 +19,7 @@ import {
   SolarEnergyComponent,
   StatsComponent,
   SunPickupComponent,
+  TerrainDebrisComponent,
   TransformComponent,
   WeaponComponent,
   WeaponSlotsComponent,
@@ -51,6 +52,7 @@ export class Entity {
   solarEnergy?: SolarEnergyComponent
   sunPickup?: SunPickupComponent
   expOrb?: ExpOrbComponent
+  terrainDebris?: TerrainDebrisComponent
   level?: LevelComponent
   follow?: FollowComponent
 
@@ -137,6 +139,7 @@ export class Entity {
     this.solarEnergy = undefined
     this.sunPickup = undefined
     this.expOrb = undefined
+    this.terrainDebris = undefined
     this.level = undefined
     this.follow = undefined
   }
@@ -202,6 +205,9 @@ export class Entity {
         break
       case 'ExpOrb':
         this.expOrb = component as ExpOrbComponent
+        break
+      case 'TerrainDebris':
+        this.terrainDebris = component as TerrainDebrisComponent
         break
       case 'Level':
         this.level = component as LevelComponent
@@ -273,6 +279,9 @@ export class Entity {
         break
       case 'ExpOrb':
         this.expOrb = undefined
+        break
+      case 'TerrainDebris':
+        this.terrainDebris = undefined
         break
       case 'Level':
         this.level = undefined

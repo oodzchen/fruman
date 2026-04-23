@@ -114,6 +114,7 @@ export const FLAGS = {
   IS_FOLLOWING: 131072, // 跟随绑定动画进行中
   EXP_ORB: 262144,
   FOLLOW_BOUND: 524288, // 已绑定为同伴
+  TERRAIN_DEBRIS: 1048576,
 }
 
 export const WEAPON_TYPES = {

@@ -1360,6 +1360,26 @@ export class ExpOrbComponent extends Component {
   }
 }
 
+export class TerrainDebrisComponent extends Component {
+  width = 0
+  height = 0
+  variant = 0
+  lifeMs = 0
+  elapsedMs = 0
+
+  reset(): void {
+    this.width = 0
+    this.height = 0
+    this.variant = 0
+    this.lifeMs = 0
+    this.elapsedMs = 0
+  }
+
+  getName(): string {
+    return 'TerrainDebris'
+  }
+}
+
 export class LevelComponent extends Component {
   level = 1
   exp = 0

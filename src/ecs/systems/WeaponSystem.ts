@@ -138,7 +138,11 @@ import { showEntityHud } from '../hudVisibility'
 import { SkillHandler } from './SkillHandler'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
-import { HAMMER_AOE_RADIUS, UltimateHandler } from './UltimateHandler'
+import {
+  HAMMER_AOE_RADIUS,
+  type TerrainImpactCallback,
+  UltimateHandler,
+} from './UltimateHandler'
 
 function getBodyHalfHeight(
   render: { radius?: number; bodyHeight?: number } | undefined,
@@ -182,6 +186,7 @@ const BOMB_PROJECTILE_RADIUS_SCALE_NUMERATOR = 3
 const BOMB_PROJECTILE_RADIUS_SCALE_DENOMINATOR = 10
 const BOMB_CAMERA_SHAKE_INTENSITY_PX = 18
 const BOMB_CAMERA_SHAKE_DURATION_MS = 280
+const BOMB_TERRAIN_IMPACT_POWER = 22
 const DEATH_WEAPON_DROP_CHANCE_DENOMINATOR = 2
 const HAMMER_CRIT_WINDUP_MS = 600
 const HAMMER_CRIT_SWING_MS = 300
@@ -284,6 +289,7 @@ export class WeaponSystem extends System {
   private currentTimeMs = 0
   private readonly ultimateHandler = new UltimateHandler()
   private readonly skillHandler = new SkillHandler()
+  private terrainImpactCallback?: TerrainImpactCallback
 
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -335,6 +341,13 @@ export class WeaponSystem extends System {
     spineSegmentManager: SpineSegmentManager | null
   ): void {
     this.spineSegmentManager = spineSegmentManager
+  }
+
+  setTerrainImpactCallback(
+    terrainImpactCallback: TerrainImpactCallback | undefined
+  ): void {
+    this.terrainImpactCallback = terrainImpactCallback
+    this.ultimateHandler.setTerrainImpactCallback(terrainImpactCallback)
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -2011,8 +2024,6 @@ export class WeaponSystem extends System {
       return
     }
 
-    const { b2DestroyBody } = this.box2d
-
     // 同步物理位置到 transform
     const bodyX = entity.physics.posX
     const bodyY = entity.physics.posY
@@ -2030,20 +2041,12 @@ export class WeaponSystem extends System {
     // 增加最小掉落时间保护（0.1秒），防止生成第一帧因速度未更新而直接判定落地（悬空）
     const speed = Math.hypot(entity.physics.velX, entity.physics.velY)
     if (speed < 0.1 && entity.weapon.dropElapsedTime > 0.1) {
-      // 速度很小，认为已经落地
-      // 保留物理体最后的位置作为武器的最终位置
-      const finalX = bodyX
-      const finalY = bodyY
-
-      // 销毁物理体
-      b2DestroyBody(entity.physics.bodyId)
-      entity.removeComponent('Physics')
-
-      // 使用物理体最后的实际位置，而不是重新计算
-      entity.weapon.position.x = finalX
-      entity.weapon.position.y = finalY
-      entity.weapon.visual.x = finalX
-      entity.weapon.visual.y = finalY
+      // 落稳后保留物理体，确保地形被破坏时道具仍会受重力和碰撞影响。
+      if (this.tempVec) {
+        this.tempVec.x = 0
+        this.tempVec.y = 0
+        this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+      }
     }
   }
 
@@ -2356,6 +2359,14 @@ export class WeaponSystem extends System {
         includeOwner && owner && target.id === owner.id ? undefined : owner
       )
     }
+
+    this.terrainImpactCallback?.({
+      worldX: x,
+      worldY: y,
+      radius: HAMMER_AOE_RADIUS,
+      impactPower: BOMB_TERRAIN_IMPACT_POWER,
+      renderLayer,
+    })
   }
 
   private resetBombState(weapon: WeaponComponent): void {

@@ -141,8 +141,18 @@ import type {
 import { ensureDefaultMap } from '../storage'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { hasTerrainContent } from '../terrain/TerrainDataUtils'
+import { getTerrainMaterialByCode } from '../terrain/TerrainMaterialRegistry'
 import { initializeTerrainPolygonUtils } from '../terrain/TerrainPolygonUtils'
-import type { TerrainMaterialTag } from '../terrain/TerrainTypes'
+import {
+  type TerrainImpactResult,
+  applyTerrainImpactToRuntimeState,
+  createTerrainRuntimeState,
+} from '../terrain/TerrainRuntimeState'
+import type { RuntimeTerrainState } from '../terrain/TerrainRuntimeState'
+import type {
+  MapTerrainData,
+  TerrainMaterialTag,
+} from '../terrain/TerrainTypes'
 import { VoronoiCollisionBuilder } from '../terrain/VoronoiCollisionBuilder'
 import type {
   MainModule,
@@ -295,6 +305,9 @@ let activeMapData: EditorMapData | null = null
 let activeMapLayerLookup: MapObjectLayerLookup = buildMapObjectLayerLookup(null)
 let defaultMapData: EditorMapData | null = null
 let isMapPreview = false
+let runtimeTerrainState: RuntimeTerrainState | null = null
+let runtimeTerrainBuildRevision = 1
+let terrainBodyIds: b2BodyId[] = []
 let standableSurfaces: ObstacleCollider[] = []
 let obstacles: {
   bodyId: b2BodyId
@@ -330,6 +343,23 @@ let playTimeMs = 0
 const BOX2D_MAX_POLYGON_VERTICES = 8
 const DECOMP_POINT_EPSILON = 0.0001
 const DECOMP_TRIANGLE_AREA_EPSILON = 0.000001
+const MAX_TERRAIN_DEBRIS_PER_IMPACT = 10
+const MAX_TERRAIN_DEBRIS_ACTIVE = 96
+const TERRAIN_DEBRIS_LIFETIME_MS = 1100
+const TERRAIN_DEBRIS_FADE_START_MS = 700
+const TERRAIN_DEBRIS_MIN_SIZE1000 = 140
+const TERRAIN_DEBRIS_SIZE_RANGE1000 = 160
+const TERRAIN_DEBRIS_BASE_SPEED1000 = 3400
+const TERRAIN_DEBRIS_SPEED_RANGE1000 = 2200
+const TERRAIN_DEBRIS_UPWARD_SPEED1000 = 3600
+const TERRAIN_DEBRIS_UPWARD_RANGE1000 = 1600
+const TERRAIN_DEBRIS_ANGULAR_BASE1000 = 5000
+const TERRAIN_DEBRIS_ANGULAR_RANGE1000 = 4500
+const TERRAIN_DEBRIS_OUTER_OFFSET_MIN1000 = 260
+const TERRAIN_DEBRIS_OUTER_OFFSET_MAX1000 = 900
+const TERRAIN_DEBRIS_OUTER_SPEED_BONUS1000 = 2600
+const TERRAIN_DEBRIS_OUTER_UPWARD_BONUS1000 = 1400
+const TERRAIN_DEBRIS_SPAWN_LIFT1000 = 120
 
 const STATE_BUFFER_BYTES = STATE_BUFFER_FLOATS * Float32Array.BYTES_PER_ELEMENT
 const supportsSharedArrayBuffer =
@@ -907,6 +937,7 @@ function registerComponents() {
   componentRegistry.registerComponent('SolarEnergy')
   componentRegistry.registerComponent('SunPickup')
   componentRegistry.registerComponent('ExpOrb')
+  componentRegistry.registerComponent('TerrainDebris')
   componentRegistry.registerComponent('Level')
   componentRegistry.registerComponent('Follow')
 }
@@ -1111,6 +1142,7 @@ function initializeSystems() {
   weaponSystem.setStandableSurfaces(standableSurfaces)
   weaponSystem.setWorld(world, worldId, groundTopY)
   weaponSystem.setArrowPools(arrowPools)
+  weaponSystem.setTerrainImpactCallback(handleTerrainImpact)
   weaponSystem.setViewportSize(
     canvasWidth / pixelsPerMeter,
     canvasHeight / pixelsPerMeter
@@ -1496,8 +1528,10 @@ function applyPlayerUpgrade(stat: PlayerUpgradeStat): void {
 
 function createEnvironment(): void {
   groundShapeIds.length = 0
+  terrainBodyIds.length = 0
   standableSurfaces = []
   obstacles = []
+  runtimeTerrainState = null
   if (activeMapData) {
     createEnvironmentFromMap(activeMapData)
     createCheckpointsFromMap(activeMapData)
@@ -1517,7 +1551,407 @@ function createEnvironment(): void {
 function createEnvironmentFromMap(map: EditorMapData): void {
   const terrain = map.terrain
   if (terrain && hasTerrainContent(terrain)) {
+    syncRuntimeTerrainState(terrain)
     createTerrainFromMap(terrain)
+  }
+}
+
+function syncRuntimeTerrainState(terrain: MapTerrainData | undefined): void {
+  runtimeTerrainState = createTerrainRuntimeState(terrain, pixelsPerMeter)
+  runtimeTerrainBuildRevision = getMaxTerrainBuildRevision(terrain)
+}
+
+function getMaxTerrainBuildRevision(
+  terrain: MapTerrainData | undefined
+): number {
+  if (!terrain) {
+    return 1
+  }
+  let maxRevision = 1
+  const layers = terrain.layers
+  if (layers) {
+    for (let i = 0; i < layers.length; i++) {
+      const buildRevision = layers[i].buildRevision
+      if (
+        typeof buildRevision === 'number' &&
+        Number.isFinite(buildRevision) &&
+        buildRevision > maxRevision
+      ) {
+        maxRevision = buildRevision | 0
+      }
+    }
+  }
+  const contours = terrain.contours
+  if (contours) {
+    for (let i = 0; i < contours.length; i++) {
+      const buildRevision = contours[i].buildRevision
+      if (
+        typeof buildRevision === 'number' &&
+        Number.isFinite(buildRevision) &&
+        buildRevision > maxRevision
+      ) {
+        maxRevision = buildRevision | 0
+      }
+    }
+  }
+  return maxRevision
+}
+
+function nextRuntimeTerrainBuildRevision(): number {
+  runtimeTerrainBuildRevision += 1
+  return runtimeTerrainBuildRevision
+}
+
+function countActiveTerrainDebris(): number {
+  if (!world) {
+    return 0
+  }
+  const entities = world.getEntities()
+  let count = 0
+  for (let i = 0; i < entities.length; i++) {
+    if (
+      entities[i].terrainDebris &&
+      (entities[i].terrainDebris?.lifeMs ?? 0) > 0
+    ) {
+      count += 1
+    }
+  }
+  return count
+}
+
+function hashTerrainDebrisSeed(a: number, b: number, c: number): number {
+  let hash =
+    Math.imul(a | 0, 73856093) ^
+    Math.imul(b | 0, 19349663) ^
+    Math.imul(c | 0, 83492791)
+  hash ^= hash >>> 16
+  hash = Math.imul(hash, 0x7feb352d)
+  hash ^= hash >>> 15
+  hash = Math.imul(hash, 0x846ca68b)
+  hash ^= hash >>> 16
+  return hash >>> 0
+}
+
+function spawnTerrainDebrisFromImpact(
+  result: TerrainImpactResult,
+  request: {
+    worldX: number
+    worldY: number
+    radius: number
+    impactPower: number
+    renderLayer: number
+  }
+): void {
+  if (!world || !box2d) {
+    return
+  }
+  const destroyedCells1000 = result.destroyedCells1000
+  const destroyedCount = Math.floor(destroyedCells1000.length / 3)
+  if (destroyedCount <= 0) {
+    return
+  }
+
+  const activeCount = countActiveTerrainDebris()
+  const remainingBudget = MAX_TERRAIN_DEBRIS_ACTIVE - activeCount
+  if (remainingBudget <= 0) {
+    return
+  }
+
+  const spawnCount = Math.min(
+    MAX_TERRAIN_DEBRIS_PER_IMPACT,
+    remainingBudget,
+    destroyedCount
+  )
+  if (spawnCount <= 0) {
+    return
+  }
+
+  const step1000 = Math.max(
+    1000,
+    Math.floor((destroyedCount * 1000) / spawnCount)
+  )
+  const impactX1000 = Math.round(request.worldX * 1000)
+  const impactY1000 = Math.round(request.worldY * 1000)
+  const radius1000 = Math.max(1, Math.round(request.radius * 1000))
+  const terrainRadius1000 = Math.max(1, Math.floor((radius1000 * 3) / 4))
+
+  for (let i = 0; i < spawnCount; i++) {
+    const sampleIndex = Math.min(
+      destroyedCount - 1,
+      Math.floor(((i * 2 + 1) * step1000) / 2000)
+    )
+    const sampleOffset = sampleIndex * 3
+    spawnTerrainDebrisEntity(
+      destroyedCells1000[sampleOffset] | 0,
+      destroyedCells1000[sampleOffset + 1] | 0,
+      destroyedCells1000[sampleOffset + 2] | 0,
+      impactX1000,
+      impactY1000,
+      terrainRadius1000,
+      request.renderLayer,
+      i
+    )
+  }
+}
+
+function spawnTerrainDebrisEntity(
+  worldX1000: number,
+  worldY1000: number,
+  materialCode: number,
+  impactX1000: number,
+  impactY1000: number,
+  terrainRadius1000: number,
+  renderLayer: number,
+  sampleIndex: number
+): void {
+  if (!world || !box2d) {
+    return
+  }
+  const material = getTerrainMaterialByCode(materialCode)
+  if (!material) {
+    return
+  }
+
+  const seed = hashTerrainDebrisSeed(worldX1000, worldY1000, sampleIndex)
+  const width1000 =
+    TERRAIN_DEBRIS_MIN_SIZE1000 + (seed % (TERRAIN_DEBRIS_SIZE_RANGE1000 + 1))
+  const height1000 =
+    TERRAIN_DEBRIS_MIN_SIZE1000 +
+    ((seed >>> 8) % (TERRAIN_DEBRIS_SIZE_RANGE1000 + 1))
+  const rotationMilliRad = (seed >>> 16) % 6283 | 0
+  const rotationRad = rotationMilliRad / 1000
+  const dx1000 = worldX1000 - impactX1000
+  const dy1000 = worldY1000 - impactY1000
+  const distanceBase1000 = Math.abs(dx1000) + Math.abs(dy1000)
+  const dirX1000 =
+    distanceBase1000 > 0
+      ? Math.floor((dx1000 * 1000) / distanceBase1000)
+      : (seed & 1) === 0
+        ? 1000
+        : -1000
+  const dirY1000 =
+    distanceBase1000 > 0
+      ? Math.floor((dy1000 * 1000) / distanceBase1000)
+      : -1000
+  const outerLaunch = (sampleIndex & 1) === 0
+  const sideX1000 = -dirY1000
+  const sideY1000 = dirX1000
+  const sideSpeed1000 = (((seed >>> 3) % 1601) - 800) | 0
+  const outwardSpeed1000 =
+    TERRAIN_DEBRIS_BASE_SPEED1000 +
+    ((seed >>> 11) % (TERRAIN_DEBRIS_SPEED_RANGE1000 + 1))
+  const upwardSpeed1000 =
+    TERRAIN_DEBRIS_UPWARD_SPEED1000 +
+    ((seed >>> 21) % (TERRAIN_DEBRIS_UPWARD_RANGE1000 + 1))
+  const outerOffset1000 = outerLaunch
+    ? Math.min(
+        TERRAIN_DEBRIS_OUTER_OFFSET_MAX1000,
+        Math.max(
+          TERRAIN_DEBRIS_OUTER_OFFSET_MIN1000,
+          Math.floor(terrainRadius1000 / 3)
+        )
+      )
+    : 0
+  const outerSpeedBonus1000 = outerLaunch
+    ? TERRAIN_DEBRIS_OUTER_SPEED_BONUS1000
+    : 0
+  const upwardBonus1000 = outerLaunch
+    ? TERRAIN_DEBRIS_OUTER_UPWARD_BONUS1000
+    : 0
+  const spawnX1000 =
+    worldX1000 +
+    Math.floor((dirX1000 * outerOffset1000) / 1000) +
+    Math.floor((sideX1000 * sideSpeed1000) / 4000)
+  const spawnY1000 =
+    worldY1000 -
+    TERRAIN_DEBRIS_SPAWN_LIFT1000 -
+    Math.floor((Math.max(0, dirY1000) * outerOffset1000) / 2000)
+  const velocityX1000 =
+    Math.floor((dirX1000 * (outwardSpeed1000 + outerSpeedBonus1000)) / 1000) +
+    Math.floor((sideX1000 * sideSpeed1000) / 1000)
+  const velocityY1000 =
+    -(upwardSpeed1000 + upwardBonus1000) +
+    Math.floor((dirY1000 * outwardSpeed1000) / 1600) +
+    Math.floor((sideY1000 * sideSpeed1000) / 2000)
+  const angularVelocity1000 =
+    ((seed >>> 1) & 1) === 0
+      ? TERRAIN_DEBRIS_ANGULAR_BASE1000 +
+        ((seed >>> 5) % (TERRAIN_DEBRIS_ANGULAR_RANGE1000 + 1))
+      : -(
+          TERRAIN_DEBRIS_ANGULAR_BASE1000 +
+          ((seed >>> 5) % (TERRAIN_DEBRIS_ANGULAR_RANGE1000 + 1))
+        )
+  const worldX = spawnX1000 / 1000
+  const worldY = spawnY1000 / 1000
+
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2MakeBox,
+    b2CreatePolygonShape,
+    b2Body_SetAngularVelocity,
+  } = box2d
+
+  const entity = world.createEntity()
+  const transform = arrowPools.acquireTransform()
+  transform.x = worldX
+  transform.y = worldY
+  transform.rotation = rotationRad
+  entity.addComponent(transform)
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(worldX, worldY)
+  bodyDef.rotation.SetAngle(rotationRad)
+  bodyDef.linearDamping = 1.25
+  bodyDef.angularDamping = 2.2
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.65
+  shapeDef.material.friction = 0.55
+  shapeDef.material.restitution = 0.08
+  shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
+
+  const box = b2MakeBox(width1000 / 2000, height1000 / 2000)
+  b2CreatePolygonShape(bodyId, shapeDef, box)
+  setBodyLinearVelocity(bodyId, velocityX1000 / 1000, velocityY1000 / 1000)
+  b2Body_SetAngularVelocity(bodyId, angularVelocity1000 / 1000)
+  bodyDef.delete()
+  shapeDef.delete()
+  box.delete()
+
+  const physics = arrowPools.acquirePhysics()
+  physics.bodyId = bodyId
+  entity.addComponent(physics)
+
+  const render = arrowPools.acquireRender()
+  render.visible = true
+  render.renderLayer = renderLayer
+  render.radius = Math.max(width1000, height1000) / 2000
+  render.color = material.fillPalette[seed % material.fillPalette.length]
+  render.borderColor = material.strokeColor
+  entity.addComponent(render)
+
+  const debris = arrowPools.acquireTerrainDebris()
+  debris.width = width1000 / 1000
+  debris.height = height1000 / 1000
+  debris.variant = (seed >>> 27) & 3
+  debris.lifeMs = TERRAIN_DEBRIS_LIFETIME_MS
+  debris.elapsedMs = 0
+  entity.addComponent(debris)
+}
+
+function updateTerrainDebrisEntities(entities: Entity[]): void {
+  if (!box2d || !world) {
+    return
+  }
+  const { b2Body_GetRotation, b2Rot_GetAngle, b2DestroyBody } = box2d
+
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    const debris = entity.terrainDebris
+    const physics = entity.physics
+    const transform = entity.transform
+    if (!debris || !physics || !transform) {
+      continue
+    }
+    if (debris.lifeMs <= 0) {
+      continue
+    }
+
+    debris.elapsedMs += FIXED_STEP_MS
+    const rotation = b2Body_GetRotation(physics.bodyId)
+    transform.rotation = b2Rot_GetAngle(rotation)
+    rotation.delete()
+
+    if (debris.elapsedMs < debris.lifeMs) {
+      continue
+    }
+
+    debris.lifeMs = 0
+    if (entity.render) {
+      entity.render.visible = false
+    }
+    spatialHash.removeEntity(entity)
+    b2DestroyBody(physics.bodyId)
+    arrowPools.releasePhysics(physics)
+    entity.removeComponent('Physics')
+    world.destroyEntity(entity)
+  }
+}
+
+function handleTerrainImpact(request: {
+  worldX: number
+  worldY: number
+  radius: number
+  impactPower: number
+  renderLayer: number
+}): void {
+  const terrain = activeMapData?.terrain
+  if (!terrain || !hasTerrainContent(terrain) || !runtimeTerrainState) {
+    return
+  }
+  const changed = applyTerrainImpactToRuntimeState(
+    runtimeTerrainState,
+    request,
+    nextRuntimeTerrainBuildRevision
+  )
+  if (!changed) {
+    return
+  }
+  rebuildTerrainCollisionFromActiveMap()
+  spawnTerrainDebrisFromImpact(changed, request)
+  if (activeMapData) {
+    ctx.postMessage({
+      type: 'map_data',
+      map: activeMapData,
+    })
+  }
+}
+
+function rebuildTerrainCollisionFromActiveMap(): void {
+  if (!activeMapData?.terrain) {
+    return
+  }
+  const { b2DestroyBody } = box2d
+  for (let i = 0; i < terrainBodyIds.length; i++) {
+    b2DestroyBody(terrainBodyIds[i])
+  }
+  terrainBodyIds.length = 0
+  groundShapeIds.length = 0
+  standableSurfaces = []
+  obstacles = []
+  createTerrainFromMap(activeMapData.terrain)
+  weaponSystem.setObstacles(obstacles)
+  weaponSystem.setStandableSurfaces(standableSurfaces)
+  wakeGroundItemBodiesAfterTerrainChange()
+}
+
+function wakeGroundItemBodiesAfterTerrainChange(): void {
+  if (!world || !box2d || !tempZeroVec) {
+    return
+  }
+  const { b2Body_SetLinearVelocity } = box2d
+  const entities = world.getEntities()
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (!entity.physics || !entity.weapon || entity.stats) {
+      continue
+    }
+    if (entity.weapon.bombState === 'projectile') {
+      continue
+    }
+    const nextVelX = entity.physics.velX
+    const nextVelY = entity.physics.velY > 0.05 ? entity.physics.velY : 0.05
+    entity.physics.velX = nextVelX
+    entity.physics.velY = nextVelY
+    tempZeroVec.x = nextVelX
+    tempZeroVec.y = nextVelY
+    b2Body_SetLinearVelocity(entity.physics.bodyId, tempZeroVec)
   }
 }
 
@@ -1539,7 +1973,7 @@ function createTerrainFromMap(
         center: { x: polygon.centerX, y: polygon.centerY },
         points: polygon.points.slice(),
       }
-      registerPolygonShape(
+      const bodyId = registerPolygonShape(
         polygonShape,
         renderLayer,
         materialTag,
@@ -1547,6 +1981,9 @@ function createTerrainFromMap(
         materialTag === 'obstacle',
         polygon.preferExactDecomp === true
       )
+      if (bodyId) {
+        terrainBodyIds.push(bodyId)
+      }
       standableSurfaces.push({
         bodyId: 0 as unknown as b2BodyId,
         centerX: polygon.centerX,
@@ -1592,8 +2029,15 @@ function createTerrainFromMap(
       materialTag,
       materialTag === 'obstacle' ? obstacleFriction : groundFriction
     )
+    terrainBodyIds.push(bodyResult.bodyId)
     if (materialTag === 'obstacle') {
-      registerObstacleFromRect(rectShape, bodyResult, renderLayer, materialTag)
+      const capBodyId = registerObstacleFromRect(
+        rectShape,
+        bodyResult,
+        renderLayer,
+        materialTag
+      )
+      terrainBodyIds.push(capBodyId)
     }
     standableSurfaces.push({
       bodyId: 0 as unknown as b2BodyId,
@@ -1979,7 +2423,7 @@ function registerObstacleFromRect(
   result: { bodyId: b2BodyId; shapeId: b2ShapeId },
   renderLayer: number,
   materialTag: TerrainMaterialTag = 'obstacle'
-): void {
+): b2BodyId {
   const halfWidth = shape.halfWidth
   const halfHeight = shape.halfHeight
   const centerX = shape.center.x
@@ -2016,6 +2460,7 @@ function registerObstacleFromRect(
     materialTag,
     worldVertices,
   })
+  return cap.capBodyId
 }
 
 function registerPolygonShape(
@@ -2025,9 +2470,9 @@ function registerPolygonShape(
   friction: number,
   shouldRegisterObstacle: boolean,
   preferExactDecomp = false
-): void {
+): b2BodyId | null {
   if (shape.points.length < 6) {
-    return
+    return null
   }
   const { b2DefaultBodyDef, b2CreateBody, b2DefaultShapeDef } = box2d
 
@@ -2062,7 +2507,7 @@ function registerPolygonShape(
     bodyDef.delete()
     shapeDef.delete()
     resetDecompScratchPolygon()
-    return
+    return null
   }
 
   const convexPolygons = decomposeStaticTerrainPolygon(
@@ -2131,7 +2576,7 @@ function registerPolygonShape(
     bodyDef.delete()
     shapeDef.delete()
     resetDecompScratchPolygon()
-    return
+    return bodyId
   }
 
   for (let i = 0; i < convexPolygons.length; i++) {
@@ -2195,6 +2640,7 @@ function registerPolygonShape(
   bodyDef.delete()
   shapeDef.delete()
   resetDecompScratchPolygon()
+  return bodyId
 }
 
 function decomposeStaticTerrainPolygon(
@@ -3460,6 +3906,8 @@ function fixedUpdate() {
     (performance.now() - pickupUpdateStartMs) * 1000
   )
 
+  updateTerrainDebrisEntities(entities)
+
   const cleanupStartMs = performance.now()
   cleanupDestroyedEntities()
   workerPerfCleanupTotalUs += Math.round(
@@ -4349,7 +4797,17 @@ function sendState() {
     if (!e.transform) continue
 
     const isStandaloneWeapon = e.weapon && !e.weapon.isEquipped && !e.stats
-    if (!isStandaloneWeapon && !e.render && !e.sunPickup && !e.expOrb) continue
+    const terrainDebris = e.terrainDebris
+    const isTerrainDebris = terrainDebris !== undefined
+    if (
+      !isStandaloneWeapon &&
+      !isTerrainDebris &&
+      !e.render &&
+      !e.sunPickup &&
+      !e.expOrb
+    ) {
+      continue
+    }
 
     const offset = count * ENTITY_STRIDE
 
@@ -4404,6 +4862,9 @@ function sendState() {
     }
     if (e.expOrb) {
       flags |= FLAGS.EXP_ORB
+    }
+    if (isTerrainDebris) {
+      flags |= FLAGS.TERRAIN_DEBRIS
     }
     if (e.follow !== undefined && e.follow.followTargetId !== null) {
       flags |= FLAGS.FOLLOW_BOUND
@@ -4560,12 +5021,40 @@ function sendState() {
       )
     } else {
       stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_X] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_Y] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_ROT] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_W] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_H] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_R] = 0
       stateBuffer[offset + OFFSETS.WEAPON_DRAW] = 0
       stateBuffer[offset + OFFSETS.WEAPON_DRAW_ACTIVE] = 0
       stateBuffer[offset + OFFSETS.WEAPON_HAS_ARROW] = 0
       stateBuffer[offset + OFFSETS.WEAPON_TYPE] = e.weapon
         ? getWeaponTypeId(e.weapon.weaponType)
         : WEAPON_TYPES.SWORD
+    }
+
+    if (isTerrainDebris) {
+      const debris = terrainDebris
+      if (!debris) {
+        continue
+      }
+      const fadeDurationMs = Math.max(
+        1,
+        debris.lifeMs - TERRAIN_DEBRIS_FADE_START_MS
+      )
+      const remainingFadeMs = Math.max(0, debris.lifeMs - debris.elapsedMs)
+      const debrisAlpha1000 =
+        debris.elapsedMs <= TERRAIN_DEBRIS_FADE_START_MS
+          ? 1000
+          : Math.floor((remainingFadeMs * 1000) / fadeDurationMs)
+      stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 0
+      stateBuffer[offset + OFFSETS.WEAPON_ROT] = e.transform.rotation
+      stateBuffer[offset + OFFSETS.WEAPON_W] = debris.width
+      stateBuffer[offset + OFFSETS.WEAPON_H] = debris.height
+      stateBuffer[offset + OFFSETS.WEAPON_DRAW] = debrisAlpha1000 / 1000
+      stateBuffer[offset + OFFSETS.WEAPON_TYPE] = debris.variant
     }
 
     if (e.weaponSlots) {
