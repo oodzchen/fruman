@@ -57,6 +57,8 @@ import {
   WEAPON_IMPACT_LEVEL,
 } from '../../constants'
 import {
+  getEnemyCollisionCategory,
+  getPlayerCollisionCategory,
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
 } from '../../physicsLayers'
@@ -182,6 +184,9 @@ const BOMB_THROW_WINDUP_BACK_OFFSET = 0.2
 const BOMB_THROW_WINDUP_DOWN_OFFSET = 0.12
 const BOMB_THROW_WINDUP_ROTATION_RAD = Math.PI / 18
 const BOMB_PROJECTILE_LINEAR_DAMPING = 0.08
+const BOMB_PROJECTILE_DENSITY = 2
+const BOMB_PROJECTILE_FRICTION = 0.85
+const BOMB_PROJECTILE_RESTITUTION = 0.08
 const BOMB_PROJECTILE_RADIUS_SCALE_NUMERATOR = 3
 const BOMB_PROJECTILE_RADIUS_SCALE_DENOMINATOR = 10
 const BOMB_CAMERA_SHAKE_INTENSITY_PX = 18
@@ -2230,13 +2235,17 @@ export class WeaponSystem extends System {
         BOMB_PROJECTILE_RADIUS_SCALE_NUMERATOR) /
       BOMB_PROJECTILE_RADIUS_SCALE_DENOMINATOR
     const shapeDef = this.dropShapeDef
-    shapeDef.density = 0.8
-    shapeDef.material.friction = 0.3
-    shapeDef.material.restitution = 0.35
-    shapeDef.filter.categoryBits = getWeaponCollisionCategory(
+    shapeDef.density = BOMB_PROJECTILE_DENSITY
+    shapeDef.material.friction = BOMB_PROJECTILE_FRICTION
+    shapeDef.material.restitution = BOMB_PROJECTILE_RESTITUTION
+    shapeDef.filter.categoryBits = this.getBombProjectileCollisionCategory(
+      owner,
       weapon.renderLayer
     )
-    shapeDef.filter.maskBits = getWeaponCollisionMask(weapon.renderLayer)
+    shapeDef.filter.maskBits = this.getBombProjectileCollisionMask(
+      owner,
+      weapon.renderLayer
+    )
     physics.shapeId = b2CreateCircleShape(physics.bodyId, shapeDef, circle)
     entity.addComponent(physics)
 
@@ -2282,6 +2291,26 @@ export class WeaponSystem extends System {
     }
 
     return true
+  }
+
+  private getBombProjectileCollisionCategory(
+    owner: Entity,
+    renderLayer: number
+  ): number {
+    return owner.faction?.factionId === Faction.Player
+      ? getEnemyCollisionCategory(renderLayer)
+      : getPlayerCollisionCategory(renderLayer)
+  }
+
+  private getBombProjectileCollisionMask(
+    owner: Entity,
+    renderLayer: number
+  ): number {
+    const targetCategory =
+      owner.faction?.factionId === Faction.Player
+        ? getEnemyCollisionCategory(renderLayer)
+        : getPlayerCollisionCategory(renderLayer)
+    return getWeaponCollisionMask(renderLayer) | targetCategory
   }
 
   private destroyBombProjectileEntity(entity: Entity): void {
@@ -2400,14 +2429,37 @@ export class WeaponSystem extends System {
         const dy = target.transform.y - weapon.visual.y
         const distance = Math.hypot(dx, dy)
         if (distance > 0.001) {
-          throwAngle = Math.atan2(dy, dx)
-          throwSpeed = Math.max(
+          let lockedSpeed = Math.max(
             BOMB_THROW_LOCKED_MIN_SPEED,
             Math.min(
               BOMB_THROW_LOCKED_MAX_SPEED,
               distance * BOMB_THROW_LOCKED_SPEED_PER_METER
             )
           )
+          let lockedAngle = this.getBallisticAimAngle(
+            weapon.visual.x,
+            weapon.visual.y,
+            target.transform.x,
+            target.transform.y,
+            lockedSpeed,
+            DEFAULT_GRAVITY * BOMB_THROW_GRAVITY_SCALE
+          )
+          if (
+            lockedAngle === null &&
+            lockedSpeed < BOMB_THROW_LOCKED_MAX_SPEED
+          ) {
+            lockedSpeed = BOMB_THROW_LOCKED_MAX_SPEED
+            lockedAngle = this.getBallisticAimAngle(
+              weapon.visual.x,
+              weapon.visual.y,
+              target.transform.x,
+              target.transform.y,
+              lockedSpeed,
+              DEFAULT_GRAVITY * BOMB_THROW_GRAVITY_SCALE
+            )
+          }
+          throwAngle = lockedAngle ?? Math.atan2(dy, dx)
+          throwSpeed = lockedSpeed
         }
       }
     }
@@ -3000,6 +3052,25 @@ export class WeaponSystem extends System {
     targetY: number,
     speed: number
   ): number {
+    const aimAngle = this.getBallisticAimAngle(
+      originX,
+      originY,
+      targetX,
+      targetY,
+      speed,
+      DEFAULT_GRAVITY * this.getRangedGravityScale(weapon)
+    )
+    return aimAngle ?? Math.atan2(targetY - originY, targetX - originX)
+  }
+
+  private getBallisticAimAngle(
+    originX: number,
+    originY: number,
+    targetX: number,
+    targetY: number,
+    speed: number,
+    gravity: number
+  ): number | null {
     const dx = targetX - originX
     const dyUp = originY - targetY
     const dxAbs = Math.abs(dx)
@@ -3007,15 +3078,14 @@ export class WeaponSystem extends System {
       return dyUp >= 0 ? -Math.PI / 2 : Math.PI / 2
     }
 
-    const g = DEFAULT_GRAVITY * this.getRangedGravityScale(weapon)
     const v2 = speed * speed
-    const disc = v2 * v2 - g * (g * dxAbs * dxAbs + 2 * dyUp * v2)
+    const disc = v2 * v2 - gravity * (gravity * dxAbs * dxAbs + 2 * dyUp * v2)
     if (disc < 0) {
-      return -Math.atan2(dyUp, dx)
+      return null
     }
 
     const sqrtDisc = Math.sqrt(disc)
-    const tan = (v2 - sqrtDisc) / (g * dxAbs)
+    const tan = (v2 - sqrtDisc) / (gravity * dxAbs)
     let angle = Math.atan(tan)
     if (dx < 0) {
       angle = Math.PI - angle
