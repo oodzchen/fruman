@@ -1909,6 +1909,7 @@ function handleTerrainImpact(request: {
     ctx.postMessage({
       type: 'map_data',
       map: activeMapData,
+      runtimeTerrainUpdate: true,
     })
   }
 }
@@ -4061,17 +4062,15 @@ function resetCameraTrackingState(): void {
   verticalForceCenterAfterEmergency = false
 }
 
-function activateUltimateCamera(): void {
+function updateUltimateCameraTarget(): boolean {
   if (!playerEntity?.transform || !playerEntity.weapon) {
-    ultimateCameraActive = false
-    return
+    return false
   }
 
   const weapon = playerEntity.weapon
   const phase = weapon.ultimatePhase
   if (phase === null) {
-    ultimateCameraActive = false
-    return
+    return false
   }
 
   const radius = playerEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
@@ -4099,6 +4098,14 @@ function activateUltimateCamera(): void {
     focusY -
     canvasHeightInMeters *
       ((ULTIMATE_CAMERA_SCREEN_RATIO_Y - 1) / ultimateCameraTargetZoom + 1)
+  return true
+}
+
+function activateUltimateCamera(): void {
+  if (!updateUltimateCameraTarget()) {
+    ultimateCameraActive = false
+    return
+  }
   ultimateCameraActive = true
   resetCameraTrackingState()
 }
@@ -4115,6 +4122,12 @@ function syncUltimateCameraState(): void {
 
   if (!ultimateCameraActive) {
     activateUltimateCamera()
+    return
+  }
+
+  if (!updateUltimateCameraTarget()) {
+    ultimateCameraActive = false
+    resetCameraTrackingState()
   }
 }
 
@@ -4123,36 +4136,41 @@ function updateCamera() {
   const playerX = playerEntity.transform.x
 
   if (ultimateCameraActive) {
-    const diffX = ultimateCameraTargetX - camera.x
-    if (Math.abs(diffX) > 0.001) {
-      camera.x += diffX * 0.15
+    if (!updateUltimateCameraTarget()) {
+      ultimateCameraActive = false
+      resetCameraTrackingState()
     } else {
-      camera.x = ultimateCameraTargetX
-    }
+      const diffX = ultimateCameraTargetX - camera.x
+      if (Math.abs(diffX) > 0.001) {
+        camera.x += diffX * 0.15
+      } else {
+        camera.x = ultimateCameraTargetX
+      }
 
-    const diffY = ultimateCameraTargetY - camera.y
-    if (Math.abs(diffY) > 0.001) {
-      camera.y += diffY * 0.12
-    } else {
-      camera.y = ultimateCameraTargetY
-    }
+      const diffY = ultimateCameraTargetY - camera.y
+      if (Math.abs(diffY) > 0.001) {
+        camera.y += diffY * 0.12
+      } else {
+        camera.y = ultimateCameraTargetY
+      }
 
-    if (DEBUG_DRAW_CAMERA) {
-      const radius = playerEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
-      const playerFeetY = playerEntity.transform.y + radius
-      const playerScreenY =
-        canvasHeight +
-        ((playerFeetY - camera.y) * pixelsPerMeter - canvasHeight) * zoom
-      debugCameraData.topLimitRatio = 1 - ULTIMATE_CAMERA_SCREEN_RATIO_Y
-      debugCameraData.bottomLimitRatio = ULTIMATE_CAMERA_SCREEN_RATIO_Y
-      debugCameraData.playerScreenY = playerScreenY
-      debugCameraData.playerFeetY = playerFeetY
-      debugCameraData.cameraY = camera.y
-      debugCameraData.zoom = zoom
-      debugCameraData.isOutsideVerticalZone = false
-    }
+      if (DEBUG_DRAW_CAMERA) {
+        const radius = playerEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+        const playerFeetY = playerEntity.transform.y + radius
+        const playerScreenY =
+          canvasHeight +
+          ((playerFeetY - camera.y) * pixelsPerMeter - canvasHeight) * zoom
+        debugCameraData.topLimitRatio = 1 - ULTIMATE_CAMERA_SCREEN_RATIO_Y
+        debugCameraData.bottomLimitRatio = ULTIMATE_CAMERA_SCREEN_RATIO_Y
+        debugCameraData.playerScreenY = playerScreenY
+        debugCameraData.playerFeetY = playerFeetY
+        debugCameraData.cameraY = camera.y
+        debugCameraData.zoom = zoom
+        debugCameraData.isOutsideVerticalZone = false
+      }
 
-    return
+      return
+    }
   }
 
   // --- Horizontal Logic ---

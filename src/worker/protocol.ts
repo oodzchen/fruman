@@ -218,6 +218,7 @@ export type WorkerDebugMessage = {
 export type WorkerMapDataMessage = {
   type: 'map_data'
   map: EditorMapData
+  runtimeTerrainUpdate?: boolean
 }
 
 export type WorkerPerfLogMessage = {

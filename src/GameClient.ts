@@ -141,10 +141,13 @@ export class GameClient {
   private hudRenderContext: PixiRenderContext2D
   private staticTerrainGraphics: Container[] = []
   private staticEnvironmentSprites: Sprite[] = []
+  private pendingStaticTerrainGraphics: Container[] = []
+  private pendingStaticTerrainGraphicLayers: number[] = []
   private staticTerrainSignature = 0
   private staticEnvironmentSignature = 0
   private staticTerrainReady = false
   private staticEnvironmentReady = false
+  private staticSceneTextureCacheDisabled = false
   private pendingStaticTerrainSignature = 0
   private pendingStaticTerrainLayers: TerrainResolvedLayerView[] | null = null
   private pendingStaticTerrainLayerIndex = 0
@@ -816,14 +819,24 @@ export class GameClient {
         )
       }
     } else if (msg.type === 'map_data') {
+      const isRuntimeTerrainUpdate = msg.runtimeTerrainUpdate === true
       this.currentMapData = msg.map
+      if (isRuntimeTerrainUpdate) {
+        this.staticSceneTextureCacheDisabled = true
+        this.worldRenderer.invalidateStaticMeshCaches()
+      } else {
+        this.staticSceneTextureCacheDisabled = false
+      }
       this.staticRenderLayers = collectStaticRenderLayers(msg.map)
-      this.renderer.resetPlayerHudState()
-      this.renderer.setCharacterBodyMap(msg.map)
-      this.lightingController.setMap(msg.map)
-      this.worldRenderer.preloadCheckpointTextures()
+      if (!isRuntimeTerrainUpdate) {
+        this.renderer.resetPlayerHudState()
+        this.renderer.setCharacterBodyMap(msg.map)
+        this.lightingController.setMap(msg.map)
+        this.worldRenderer.preloadCheckpointTextures()
+      }
       this.syncStaticScene(msg.map)
       if (
+        !isRuntimeTerrainUpdate &&
         msg.map.camera &&
         msg.map.camera.zoom > 0 &&
         Number.isFinite(msg.map.camera.zoom)
@@ -2531,13 +2544,13 @@ export class GameClient {
       !this.staticTerrainReady ||
       this.staticTerrainSignature !== nextTerrainSignature
     ) {
-      this.worldRenderer.invalidateStaticMeshCaches()
-      this.destroyStaticGraphics(this.staticTerrainGraphics)
-      this.staticTerrainGraphics.length = 0
       this.clearPendingStaticTerrainBuild()
       if (terrain && hasTerrainContent(terrain)) {
         this.preparePendingStaticTerrainBuild(terrain, nextTerrainSignature)
       } else {
+        this.worldRenderer.invalidateStaticMeshCaches()
+        this.destroyStaticGraphics(this.staticTerrainGraphics)
+        this.staticTerrainGraphics.length = 0
         this.staticTerrainSignature = nextTerrainSignature
         this.staticTerrainReady = true
       }
@@ -2598,6 +2611,10 @@ export class GameClient {
 
   private finalizeStaticSceneCaches(): void {
     if (!this.staticTerrainReady || !this.staticEnvironmentReady) {
+      return
+    }
+    if (this.staticSceneTextureCacheDisabled) {
+      this.worldRenderer.invalidateStaticMeshCaches()
       return
     }
     this.worldRenderer.refreshStaticMeshCaches()
@@ -2666,6 +2683,8 @@ export class GameClient {
     terrain: TerrainDataLike,
     nextTerrainSignature: number
   ): void {
+    this.pendingStaticTerrainGraphics.length = 0
+    this.pendingStaticTerrainGraphicLayers.length = 0
     const layers = getTerrainLayerViews(terrain)
     if (layers.length <= 0) {
       this.staticTerrainSignature = nextTerrainSignature
@@ -2693,6 +2712,9 @@ export class GameClient {
   }
 
   private clearPendingStaticTerrainBuild(): void {
+    this.destroyStaticGraphics(this.pendingStaticTerrainGraphics)
+    this.pendingStaticTerrainGraphics.length = 0
+    this.pendingStaticTerrainGraphicLayers.length = 0
     this.pendingStaticTerrainSignature = 0
     this.pendingStaticTerrainLayers = null
     this.pendingStaticTerrainLayerIndex = 0
@@ -2752,8 +2774,8 @@ export class GameClient {
 
       if (sprite) {
         sprite.zIndex = resolvedLayer * 10
-        this.worldRenderer.addStaticMesh(sprite, resolvedLayer)
-        this.staticTerrainGraphics.push(sprite)
+        this.pendingStaticTerrainGraphics.push(sprite)
+        this.pendingStaticTerrainGraphicLayers.push(resolvedLayer)
       }
       this.pendingStaticTerrainTaskIndex++
       this.recordTerrainBuildTime(terrainBuildStartMs)
@@ -2765,10 +2787,27 @@ export class GameClient {
       }
     }
 
-    this.staticTerrainSignature = this.pendingStaticTerrainSignature
-    this.staticTerrainReady = true
+    this.commitPendingStaticTerrainGraphics()
     this.clearPendingStaticTerrainBuild()
     this.finalizeStaticSceneCaches()
+  }
+
+  private commitPendingStaticTerrainGraphics(): void {
+    this.worldRenderer.invalidateStaticMeshCaches()
+    this.destroyStaticGraphics(this.staticTerrainGraphics)
+    this.staticTerrainGraphics.length = 0
+
+    for (let i = 0; i < this.pendingStaticTerrainGraphics.length; i++) {
+      const graphics = this.pendingStaticTerrainGraphics[i]
+      const layer = this.pendingStaticTerrainGraphicLayers[i] ?? 0
+      this.worldRenderer.addStaticMesh(graphics, layer)
+      this.staticTerrainGraphics.push(graphics)
+    }
+
+    this.pendingStaticTerrainGraphics.length = 0
+    this.pendingStaticTerrainGraphicLayers.length = 0
+    this.staticTerrainSignature = this.pendingStaticTerrainSignature
+    this.staticTerrainReady = true
   }
 
   private pumpStaticEnvironmentBuild(deadlineMs: number): void {
