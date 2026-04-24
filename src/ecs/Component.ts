@@ -27,6 +27,7 @@ import {
   FOLLOW_MIN_DISTANCE,
   FOLLOW_PREFERRED_DISTANCE,
   FOOTSTEP_INTERVAL_MS,
+  NPC_INITIAL_SOUND_DEAF_MS,
 } from '../constants'
 import type { MapCharacterBodyProfile, MapNpcDropItem } from '../editorMapTypes'
 import type {
@@ -1147,6 +1148,7 @@ export class NpcAIComponent extends Component {
   guardFacing: -1 | 1 = 1
   guardAnchorInitialized = false
   patrolStuckTimer = 0
+  soundAlertCooldownMs = NPC_INITIAL_SOUND_DEAF_MS
   npcType: NpcType = 'default'
   isRedTapeActive = false
   redTapeEnabled = false
@@ -1238,6 +1240,7 @@ export class NpcAIComponent extends Component {
     this.guardFacing = 1
     this.guardAnchorInitialized = false
     this.patrolStuckTimer = 0
+    this.soundAlertCooldownMs = NPC_INITIAL_SOUND_DEAF_MS
     this.npcType = 'default'
     this.isRedTapeActive = false
     this.redTapeEnabled = false

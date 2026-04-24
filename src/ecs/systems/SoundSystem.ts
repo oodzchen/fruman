@@ -211,6 +211,7 @@ export class SoundSystem extends System {
       if (!entity.npcAI || !entity.transform) continue
       if (entity.id === wave.sourceEntityId) continue
       if (entity.stats?.isDead || entity.stats?.isVanished) continue
+      if (entity.npcAI.soundAlertCooldownMs > 0) continue
 
       // 只对敌对阵营的声音产生警戒反应
       if (source?.faction && entity.faction) {

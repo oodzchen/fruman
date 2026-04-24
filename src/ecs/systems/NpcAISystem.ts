@@ -219,6 +219,9 @@ export class NpcAISystem extends System {
       }
 
       const ai = entity.npcAI
+      if (ai.soundAlertCooldownMs > 0) {
+        ai.soundAlertCooldownMs = Math.max(0, ai.soundAlertCooldownMs - deltaMs)
+      }
       const shouldHoldGuardIdle =
         ai.initialPatrolMode === 'guard' &&
         entity.sensor?.detectedTargetId === null &&
