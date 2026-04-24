@@ -5517,6 +5517,10 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
     case 'resize':
       canvasWidth = msg.canvasWidth
       canvasHeight = msg.canvasHeight
+      weaponSystem?.setViewportSize(
+        canvasWidth / pixelsPerMeter,
+        canvasHeight / pixelsPerMeter
+      )
       break
   }
 }

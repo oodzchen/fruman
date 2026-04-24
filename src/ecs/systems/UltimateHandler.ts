@@ -6,6 +6,10 @@ import {
   SOUND_DB_BIG_HAMMER_HIT_ROCK,
   SOUND_RANGE_MULTIPLIER_MASSIVE,
 } from '../../constants'
+import {
+  isGroundCollisionCategory,
+  isObstacleCollisionCategory,
+} from '../../physicsLayers'
 import type { MainModule } from '../../types'
 import type { WeaponVisualType } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -77,6 +81,7 @@ export class UltimateHandler {
   private box2d?: MainModule
   private tempVec?: InstanceType<MainModule['b2Vec2']>
   private terrainImpactCallback?: TerrainImpactCallback
+  private viewportHeight = 9
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempVisualPos = { x: 0, y: 0 }
@@ -127,6 +132,11 @@ export class UltimateHandler {
 
   setTerrainImpactCallback(callback: TerrainImpactCallback | undefined): void {
     this.terrainImpactCallback = callback
+  }
+
+  setViewportSize(_viewportWidth: number, viewportHeight: number): void {
+    this.viewportHeight =
+      viewportHeight > 0 ? viewportHeight : this.viewportHeight
   }
 
   handleUltimatePhases(
@@ -555,10 +565,27 @@ export class UltimateHandler {
         if (t >= 1) {
           weapon.ultimatePhase = 'hammer_fall'
           weapon.ultimateElapsedMs = 0
+          weapon.ultimateHammerPhysicalFallStarted = false
+          weapon.ultimateHammerPhysicalFallStartY = 0
         }
         break
       }
       case 'hammer_fall': {
+        if (weapon.ultimateHammerPhysicalFallStarted) {
+          const fallDistance =
+            (entity.transform?.y ?? playerPos.y) -
+            weapon.ultimateHammerPhysicalFallStartY
+          weapon.ultimateHammerJumpOffsetY = 0
+          weapon.ultimateHammerVisualDX = 0
+          getTransformAtAngle(playerPos, frontAngle, radius, weapon.visual)
+          if (this.isEntityGroundedNow(entity)) {
+            this.triggerHammerUltimateImpact(entity, weapon, frontAngle, radius)
+          } else if (fallDistance > this.viewportHeight) {
+            this.cancelHammerUltimateSlam(entity, weapon, playerPos, radius)
+          }
+          break
+        }
+
         const t = clamp01(weapon.ultimateElapsedMs / HAMMER_FALL_MS)
         const fallEase = t * t
         weapon.ultimateHammerJumpOffsetY =
@@ -571,55 +598,15 @@ export class UltimateHandler {
         visualPos.y = playerPos.y - weapon.ultimateHammerJumpOffsetY
         getTransformAtAngle(visualPos, frontAngle, radius, weapon.visual)
         if (t >= 1) {
-          weapon.ultimateHammerJumpOffsetY = 0
-          this.teleportEntityToLanding(entity, weapon)
+          this.startHammerUltimatePhysicalFall(entity, weapon, playerPos)
           this.tempPlayerPos.x = entity.transform?.x ?? playerPos.x
           this.tempPlayerPos.y = entity.transform?.y ?? playerPos.y
-          weapon.ultimateHammerVisualDX = 0
-          weapon.ultimateHammerApexX = 0
           getTransformAtAngle(
             this.tempPlayerPos,
             frontAngle,
             radius,
             weapon.visual
           )
-          const halfLen = weapon.width / 2
-          weapon.ultimateGiantX =
-            weapon.visual.x + Math.cos(frontAngle) * halfLen
-          weapon.ultimateGiantGroundY =
-            weapon.visual.y + Math.sin(frontAngle) * halfLen
-          this.statsSystem?.playSoundAt(
-            SOUND_IDS.HAMMER_ULTIMATE_LAND,
-            weapon.ultimateGiantX,
-            weapon.ultimateGiantGroundY
-          )
-          this.statsSystem?.emitSoundWaveAt(
-            weapon.ultimateGiantX,
-            weapon.ultimateGiantGroundY,
-            entity,
-            SOUND_DB_BIG_HAMMER_HIT_ROCK,
-            SOUND_RANGE_MULTIPLIER_MASSIVE
-          )
-          this.statsSystem?.emitCameraShake(
-            weapon.ultimateGiantX,
-            weapon.ultimateGiantGroundY,
-            HAMMER_ULTIMATE_SHAKE_INTENSITY_PX,
-            HAMMER_ULTIMATE_SHAKE_DURATION_MS
-          )
-          if (!weapon.ultimateDamageDealt) {
-            weapon.ultimateDamageDealt = true
-            this.applyHammerUltimateAOEDamage(entity)
-            this.terrainImpactCallback?.({
-              worldX: weapon.ultimateGiantX,
-              worldY: weapon.ultimateGiantGroundY,
-              radius: HAMMER_AOE_RADIUS,
-              impactPower: HAMMER_ULTIMATE_TERRAIN_IMPACT_POWER,
-              renderLayer: entity.render?.renderLayer ?? 0,
-            })
-          }
-          weapon.ultimatePhase = 'hammer_land'
-          weapon.ultimateElapsedMs = 0
-          weapon.ultimateHammerImpact100 = 0
         }
         break
       }
@@ -666,6 +653,8 @@ export class UltimateHandler {
           weapon.ultimateHammerImpact100 = 0
           weapon.ultimateHammerJumpOffsetY = 0
           weapon.ultimateHammerVisualDX = 0
+          weapon.ultimateHammerPhysicalFallStarted = false
+          weapon.ultimateHammerPhysicalFallStartY = 0
           this.releaseEntityFacing(entity)
           if (entity.stats) entity.stats.isInvincible = false
           if (entity.attackSlots)
@@ -679,6 +668,108 @@ export class UltimateHandler {
     }
   }
 
+  private startHammerUltimatePhysicalFall(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>,
+    playerPos: { x: number; y: number }
+  ): void {
+    weapon.ultimateHammerJumpOffsetY = 0
+    this.teleportEntityToLanding(entity, weapon)
+    weapon.ultimateHammerVisualDX = 0
+    weapon.ultimateHammerApexX = 0
+    weapon.ultimateHammerPhysicalFallStarted = true
+    weapon.ultimateHammerPhysicalFallStartY = entity.transform?.y ?? playerPos.y
+    if (entity.movement) {
+      entity.movement.isGrounded = false
+      entity.movement.wasGrounded = false
+      entity.movement.maxFallVelocity = 0
+      entity.movement.fallStartY = weapon.ultimateHammerPhysicalFallStartY
+    }
+  }
+
+  private triggerHammerUltimateImpact(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>,
+    frontAngle: number,
+    radius: number
+  ): void {
+    this.tempPlayerPos.x = entity.transform?.x ?? weapon.ultimateHammerLandX
+    this.tempPlayerPos.y =
+      entity.transform?.y ?? weapon.ultimateHammerPhysicalFallStartY
+    getTransformAtAngle(this.tempPlayerPos, frontAngle, radius, weapon.visual)
+    const halfLen = weapon.width / 2
+    weapon.ultimateGiantX = weapon.visual.x + Math.cos(frontAngle) * halfLen
+    weapon.ultimateGiantGroundY =
+      weapon.visual.y + Math.sin(frontAngle) * halfLen
+    this.statsSystem?.playSoundAt(
+      SOUND_IDS.HAMMER_ULTIMATE_LAND,
+      weapon.ultimateGiantX,
+      weapon.ultimateGiantGroundY
+    )
+    this.statsSystem?.emitSoundWaveAt(
+      weapon.ultimateGiantX,
+      weapon.ultimateGiantGroundY,
+      entity,
+      SOUND_DB_BIG_HAMMER_HIT_ROCK,
+      SOUND_RANGE_MULTIPLIER_MASSIVE
+    )
+    this.statsSystem?.emitCameraShake(
+      weapon.ultimateGiantX,
+      weapon.ultimateGiantGroundY,
+      HAMMER_ULTIMATE_SHAKE_INTENSITY_PX,
+      HAMMER_ULTIMATE_SHAKE_DURATION_MS
+    )
+    if (!weapon.ultimateDamageDealt) {
+      weapon.ultimateDamageDealt = true
+      this.applyHammerUltimateAOEDamage(entity)
+      this.terrainImpactCallback?.({
+        worldX: weapon.ultimateGiantX,
+        worldY: weapon.ultimateGiantGroundY,
+        radius: HAMMER_AOE_RADIUS,
+        impactPower: HAMMER_ULTIMATE_TERRAIN_IMPACT_POWER,
+        renderLayer: entity.render?.renderLayer ?? 0,
+      })
+    }
+    weapon.ultimatePhase = 'hammer_land'
+    weapon.ultimateElapsedMs = 0
+    weapon.ultimateHammerImpact100 = 0
+    weapon.ultimateHammerPhysicalFallStarted = false
+    weapon.ultimateHammerPhysicalFallStartY = 0
+  }
+
+  private cancelHammerUltimateSlam(
+    entity: Entity,
+    weapon: NonNullable<Entity['weapon']>,
+    playerPos: { x: number; y: number },
+    radius: number
+  ): void {
+    getFrontTransform(
+      playerPos,
+      weapon.ultimateFacing,
+      weapon.visual,
+      radius,
+      weapon.weaponType as WeaponVisualType,
+      weapon.width
+    )
+    weapon.ultimatePhase = null
+    weapon.ultimateElapsedMs = 0
+    weapon.isUnstoppable = false
+    weapon.attackPhase = 'idle'
+    weapon.ultimateHammerImpact100 = 0
+    weapon.ultimateHammerJumpOffsetY = 0
+    weapon.ultimateHammerVisualDX = 0
+    weapon.ultimateHammerApexX = 0
+    weapon.ultimateHammerPhysicalFallStarted = false
+    weapon.ultimateHammerPhysicalFallStartY = 0
+    weapon.ultimateGiantX = 0
+    weapon.ultimateGiantGroundY = 0
+    this.releaseEntityFacing(entity)
+    if (entity.stats) entity.stats.isInvincible = false
+    if (entity.attackSlots) {
+      entity.attackSlots.ultimate.cooldownRemainingMs = ULTIMATE_COOLDOWN_MS
+    }
+  }
+
   private teleportEntityToLanding(
     entity: Entity,
     weapon: NonNullable<Entity['weapon']>
@@ -689,6 +780,7 @@ export class UltimateHandler {
       b2Body_SetTransform,
       b2Body_GetRotation,
       b2Body_SetLinearVelocity,
+      b2Body_SetAwake,
     } = this.box2d
     this.tempVec.x = weapon.ultimateHammerLandX
     this.tempVec.y = entity.transform.y
@@ -700,7 +792,58 @@ export class UltimateHandler {
     this.tempVec.x = 0
     this.tempVec.y = 0
     b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+    b2Body_SetAwake(entity.physics.bodyId, true)
     entity.transform.x = weapon.ultimateHammerLandX
+  }
+
+  private isEntityGroundedNow(entity: Entity): boolean {
+    if (!entity.physics || !this.box2d) return false
+
+    const {
+      b2Body_GetContactData,
+      b2Body_GetContactCapacity,
+      b2Body_GetLinearVelocity,
+      b2Shape_GetFilter,
+    } = this.box2d
+
+    const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
+    const velY = vel.y
+    const velX = vel.x
+    vel.delete()
+
+    const slopeGroundVelocityMin = -2.5
+    const slopeMoveSpeedMin = 0.1
+    const isMovingAlongSurface = Math.abs(velX) >= slopeMoveSpeedMin
+    const isFallingOrStill =
+      velY >= -0.1 || (isMovingAlongSurface && velY >= slopeGroundVelocityMin)
+    if (!isFallingOrStill) return false
+
+    const capacity = b2Body_GetContactCapacity(entity.physics.bodyId)
+    const contactData = b2Body_GetContactData(entity.physics.bodyId, capacity)
+    const groundNormalMin = 0.2
+
+    for (let i = 0; i < contactData.length; i++) {
+      const contact = contactData[i]
+      const normal = contact.manifold.normal
+      const absX = Math.abs(normal.x)
+      const absY = Math.abs(normal.y)
+      const filterA = b2Shape_GetFilter(contact.shapeIdA)
+      const filterB = b2Shape_GetFilter(contact.shapeIdB)
+      const categoryA = filterA.categoryBits
+      const categoryB = filterB.categoryBits
+      const isGroundA = isGroundCollisionCategory(categoryA)
+      const isGroundB = isGroundCollisionCategory(categoryB)
+      const isObstacleA = isObstacleCollisionCategory(categoryA)
+      const isObstacleB = isObstacleCollisionCategory(categoryB)
+      const isEnvironmentContact =
+        isGroundA || isGroundB || isObstacleA || isObstacleB
+      const isSteepSurface = isEnvironmentContact && absX > absY
+      const grounded = !isSteepSurface && absY > groundNormalMin
+      contact.delete()
+      if (grounded) return true
+    }
+
+    return false
   }
 
   private applyHammerUltimateAOEDamage(attacker: Entity): void {
@@ -1076,6 +1219,8 @@ export class UltimateHandler {
     weapon.ultimateHammerJumpOffsetY = 0
     weapon.ultimateHammerVisualDX = 0
     weapon.ultimateHammerApexX = 0
+    weapon.ultimateHammerPhysicalFallStarted = false
+    weapon.ultimateHammerPhysicalFallStartY = 0
     weapon.ultimateHammerImpact100 = 0
     weapon.ultimateDamageDealt = false
     weapon.ultimateGiantX = 0

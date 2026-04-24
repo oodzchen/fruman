@@ -334,6 +334,7 @@ export class WeaponSystem extends System {
   setViewportSize(viewportWidth: number, viewportHeight: number): void {
     this.viewportWidth = viewportWidth
     this.viewportHeight = viewportHeight
+    this.ultimateHandler.setViewportSize(viewportWidth, viewportHeight)
   }
 
   setArrowPools(arrowPools: ArrowPools): void {
