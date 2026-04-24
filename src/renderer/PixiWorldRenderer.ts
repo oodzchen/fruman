@@ -95,6 +95,11 @@ const DAMAGE_TEXT_STROKE_COLOR = '#2c160f'
 const DAMAGE_TEXT_POOL_LIMIT = 96
 const COLLISION_DEBUG_COLOR = '#ff3b30'
 const COLLISION_DEBUG_LINE_WIDTH = 2
+const SOUND_DEBUG_LISTENER_COLOR = 0x8cb36b
+const SOUND_DEBUG_WAVE_COLOR = 0xff9f1a
+const SOUND_DEBUG_RANGE_COLOR = 0xffcc80
+const SOUND_DEBUG_LISTENER_ALPHA = 0.45
+const SOUND_DEBUG_RANGE_ALPHA_MULTIPLIER = 0.5
 const ENTITY_GROUND_SORT_SCALE = 16
 const STANDALONE_WEAPON_SORT_OFFSET = -1
 const CHECKPOINT_SORT_OFFSET = -10000
@@ -338,6 +343,7 @@ export class PixiWorldRenderer {
   private readonly overlayContainer: Container
   private readonly particleContainer: Container
   private readonly ropeGraphics: Graphics
+  private readonly soundDebugGraphics: Graphics
   private readonly hammerShockwaveGraphics: Graphics
   private readonly giantSwordSprite: Sprite
   private readonly spearTopSprite: Sprite
@@ -409,6 +415,10 @@ export class PixiWorldRenderer {
 
     this.ropeGraphics = new Graphics()
     this.overlayContainer.addChild(this.ropeGraphics)
+
+    this.soundDebugGraphics = new Graphics()
+    hideGraphics(this.soundDebugGraphics)
+    this.overlayContainer.addChild(this.soundDebugGraphics)
 
     this.hammerShockwaveGraphics = new Graphics()
     this.overlayContainer.addChild(this.hammerShockwaveGraphics)
@@ -725,6 +735,8 @@ export class PixiWorldRenderer {
     this.perfSectionLastUs[PIXI_WORLD_PERF_ROPE] = Math.round(
       (performance.now() - sectionStartMs) * 1000
     )
+
+    this.updateSoundDebug(renderer)
 
     sectionStartMs = performance.now()
     this.updateUltimateOverlays(renderer, playerOffset)
@@ -2204,6 +2216,60 @@ export class PixiWorldRenderer {
     }
 
     this.ropeGraphics.stroke({ color: GRAPPLE_LINE_COLOR, width: 2 })
+  }
+
+  private updateSoundDebug(renderer: ClientRenderer): void {
+    const waves = renderer.getSoundWaveDebugData()
+    const listeners = renderer.getSoundListenerDebugData()
+    if (waves.length === 0 && listeners.length === 0) {
+      if (this.soundDebugGraphics.visible) {
+        this.soundDebugGraphics.clear()
+        hideGraphics(this.soundDebugGraphics)
+      }
+      return
+    }
+
+    const ppm = this.pixelsPerMeter
+    const g = this.soundDebugGraphics
+    g.clear()
+    g.visible = true
+
+    for (let i = 0; i < listeners.length; i++) {
+      const listener = listeners[i]
+      const radius = listener.radius * ppm
+      if (radius <= 0) continue
+      g.circle(listener.x * ppm, listener.y * ppm, radius)
+      g.stroke({
+        color: SOUND_DEBUG_LISTENER_COLOR,
+        width: 1,
+        alpha: SOUND_DEBUG_LISTENER_ALPHA,
+      })
+    }
+
+    for (let i = 0; i < waves.length; i++) {
+      const wave = waves[i]
+      const radius = wave.radius * ppm
+      const maxRadius = wave.maxRadius * ppm
+      const intensity = Math.max(0.2, Math.min(1, wave.db))
+
+      if (radius > 0) {
+        g.circle(wave.x * ppm, wave.y * ppm, radius)
+        g.stroke({
+          color: SOUND_DEBUG_WAVE_COLOR,
+          width: 1,
+          alpha: intensity,
+        })
+      }
+
+      if (maxRadius > 0) {
+        g.circle(wave.x * ppm, wave.y * ppm, maxRadius)
+        g.stroke({
+          color: SOUND_DEBUG_RANGE_COLOR,
+          width: 1,
+          alpha: intensity * SOUND_DEBUG_RANGE_ALPHA_MULTIPLIER,
+        })
+      }
+    }
   }
 
   private updateUltimateOverlays(

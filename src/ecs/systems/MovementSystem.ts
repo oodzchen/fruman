@@ -12,9 +12,9 @@ import {
   FALL_DAMAGE_KINETIC_FATAL,
   FALL_DAMAGE_KINETIC_THRESHOLD,
   FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR,
-  LANDING_MIN_VELOCITY,
   PLAYER_WEIGHT_REFERENCE,
   SOUND_DB_LAND,
+  SOUND_RANGE_MULTIPLIER_SPRINT,
   SPRINT_HOLD_THRESHOLD_MS,
   getSprintSpeedFromMoveSpeed,
 } from '../../constants'
@@ -247,16 +247,14 @@ export class MovementSystem extends System {
 
     if (!wasGrounded && grounded) {
       if (this.soundSystem && entity.render) {
-        const impactSpeed = Math.abs(velY)
-        if (impactSpeed >= LANDING_MIN_VELOCITY) {
-          const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
-          this.soundSystem.emitSoundAt(
-            entity.transform?.x ?? 0,
-            (entity.transform?.y ?? 0) + radius,
-            radius,
-            SOUND_DB_LAND
-          )
-        }
+        const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
+        this.soundSystem.emitSoundAt(
+          entity.transform?.x ?? 0,
+          (entity.transform?.y ?? 0) + radius,
+          radius,
+          SOUND_DB_LAND,
+          SOUND_RANGE_MULTIPLIER_SPRINT
+        )
       }
 
       this.applyFallDamage(entity)

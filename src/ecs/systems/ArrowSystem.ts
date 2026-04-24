@@ -4,6 +4,7 @@ import {
   DEFAULT_PLAYER_RADIUS,
   PARRY_COUNTER_WINDOW_MS,
   SOUND_DB_PARRY,
+  SOUND_RANGE_MULTIPLIER_WEAPON,
 } from '../../constants'
 import type { MainModule } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
@@ -219,7 +220,13 @@ export class ArrowSystem extends System {
     this.statsSystem.playSoundAt(SOUND_IDS.SWORD_PARRY, hitX, hitY)
     if (this.soundSystem) {
       const radius = defender.render?.radius ?? DEFAULT_PLAYER_RADIUS
-      this.soundSystem.emitSoundAt(hitX, hitY, radius, SOUND_DB_PARRY)
+      this.soundSystem.emitSoundAt(
+        hitX,
+        hitY,
+        radius,
+        SOUND_DB_PARRY,
+        SOUND_RANGE_MULTIPLIER_WEAPON
+      )
     }
     this.statsSystem.applyParryRecovery(defender)
     if (defender.weapon) {

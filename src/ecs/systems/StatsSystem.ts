@@ -22,6 +22,7 @@ import {
   PARRY_SELF_POSTURE_RECOVERY,
   SOUND_DB_BODY_HIT,
   SOUND_DB_SWORD_BLOCK,
+  SOUND_RANGE_MULTIPLIER_WEAPON,
   STAGGER_DAMAGE_MULTIPLIER,
   STAGGER_DURATION_MS,
   STAGGER_HIT_STUN_DURATION_MS,
@@ -440,15 +441,32 @@ export class StatsSystem extends System {
     this.effectsEmitter.playSoundAt(soundId, x, y, playbackRate)
   }
 
-  private emitSoundFromEntity(entity: Entity, db: number): void {
+  emitSoundFromEntity(
+    entity: Entity,
+    db: number,
+    rangeMultiplier = SOUND_RANGE_MULTIPLIER_WEAPON
+  ): void {
     if (!this.soundSystem || !entity.transform) return
     const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
     this.soundSystem.emitSoundAt(
       entity.transform.x,
       entity.transform.y,
       radius,
-      db
+      db,
+      rangeMultiplier
     )
+  }
+
+  emitSoundWaveAt(
+    x: number,
+    y: number,
+    source: Entity,
+    db: number,
+    rangeMultiplier = SOUND_RANGE_MULTIPLIER_WEAPON
+  ): void {
+    if (!this.soundSystem) return
+    const radius = source.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    this.soundSystem.emitSoundAt(x, y, radius, db, rangeMultiplier)
   }
 
   applyForcedHitStun(

@@ -3,6 +3,8 @@ import {
   DEFAULT_WEAPON_PLAYER_CLEARANCE,
   DEFAULT_WEAPON_VERTICAL_ROTATION_RAD,
   DEFAULT_WEAPON_WIDTH,
+  SOUND_DB_BIG_HAMMER_HIT_ROCK,
+  SOUND_RANGE_MULTIPLIER_MASSIVE,
 } from '../../constants'
 import type { MainModule } from '../../types'
 import type { WeaponVisualType } from '../../types'
@@ -591,6 +593,13 @@ export class UltimateHandler {
             weapon.ultimateGiantX,
             weapon.ultimateGiantGroundY
           )
+          this.statsSystem?.emitSoundWaveAt(
+            weapon.ultimateGiantX,
+            weapon.ultimateGiantGroundY,
+            entity,
+            SOUND_DB_BIG_HAMMER_HIT_ROCK,
+            SOUND_RANGE_MULTIPLIER_MASSIVE
+          )
           this.statsSystem?.emitCameraShake(
             weapon.ultimateGiantX,
             weapon.ultimateGiantGroundY,
@@ -967,11 +976,6 @@ export class UltimateHandler {
     weapon.ultimateDamageDealt = false
     weapon.isUnstoppable = true
     weapon.attackFacing = facing
-    this.statsSystem?.playSoundAt(
-      SOUND_IDS.SWORD_ULTIMATE_SPIN,
-      entity.transform.x,
-      entity.transform.y
-    )
     if (entity.stats) entity.stats.isInvincible = true
   }
 

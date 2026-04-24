@@ -6,6 +6,8 @@ import {
   FOOTSTEP_SOUND_DB,
   FOOTSTEP_WAVE_DISTANCE_MULTIPLIER,
   FOOTSTEP_WAVE_SPEED,
+  SOUND_RANGE_MULTIPLIER_SPRINT,
+  SOUND_RANGE_MULTIPLIER_WALK,
 } from '../../constants'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -77,12 +79,8 @@ export class SoundSystem extends System {
     wave.radius = 0
     wave.prevRadius = 0
     wave.speed = FOOTSTEP_WAVE_SPEED
-    const loudnessScale = Math.max(0.1, db)
     wave.maxRadius =
-      sourceRadius *
-      FOOTSTEP_WAVE_DISTANCE_MULTIPLIER *
-      rangeMultiplier *
-      loudnessScale
+      sourceRadius * FOOTSTEP_WAVE_DISTANCE_MULTIPLIER * rangeMultiplier
     wave.baseDb = db
     wave.currentDb = db
     wave.sourceEntityId = 0
@@ -148,8 +146,11 @@ export class SoundSystem extends System {
     wave.radius = 0
     wave.prevRadius = 0
     wave.speed = FOOTSTEP_WAVE_SPEED
-    const loudnessScale = Math.max(0.1, FOOTSTEP_SOUND_DB)
-    wave.maxRadius = radius * FOOTSTEP_WAVE_DISTANCE_MULTIPLIER * loudnessScale
+    const rangeMultiplier = entity.input?.sprintRequested
+      ? SOUND_RANGE_MULTIPLIER_SPRINT
+      : SOUND_RANGE_MULTIPLIER_WALK
+    wave.maxRadius =
+      radius * FOOTSTEP_WAVE_DISTANCE_MULTIPLIER * rangeMultiplier
     wave.baseDb = FOOTSTEP_SOUND_DB
     wave.currentDb = FOOTSTEP_SOUND_DB
     wave.sourceEntityId = entity.id

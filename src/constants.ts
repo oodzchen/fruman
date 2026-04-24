@@ -54,10 +54,10 @@ export const GRAPPLE_ANCHOR_BORDER_COLOR = '#6d5a3f'
 // 调试开关
 export const DEBUG_ANIMATION_SLOWDOWN = 1
 export const DEBUG_DRAW_SENSORS = false
-export const DEBUG_DRAW_SOUND = false
+export const DEBUG_DRAW_SOUND = true
 export const DEBUG_DRAW_CAMERA = false
 export const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = false
-export const DEBUG_DRAW_TERRAIN_COLLISION_SHAPE = true
+export const DEBUG_DRAW_TERRAIN_COLLISION_SHAPE = false
 
 // 武器默认伤害与削架势
 export const DEFAULT_WEAPON_ATTACK_DAMAGE = 2
@@ -311,6 +311,10 @@ export const FOOTSTEP_WAVE_DISTANCE_MULTIPLIER = 4
 export const FOOTSTEP_SOUND_DB = 1
 export const FOOTSTEP_MIN_MOVE_SPEED = 0.1
 export const LANDING_MIN_VELOCITY = 1.2
+export const SOUND_RANGE_MULTIPLIER_WALK = 1
+export const SOUND_RANGE_MULTIPLIER_SPRINT = 2
+export const SOUND_RANGE_MULTIPLIER_WEAPON = SOUND_RANGE_MULTIPLIER_SPRINT * 3
+export const SOUND_RANGE_MULTIPLIER_MASSIVE = SOUND_RANGE_MULTIPLIER_SPRINT * 5
 
 // 跌落伤害参数
 // 实际计算使用动能：E = 0.5 * m * v^2（m为有效重量，v为最大下落速度）

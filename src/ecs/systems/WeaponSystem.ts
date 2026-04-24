@@ -52,6 +52,8 @@ import {
   SOUND_DB_PARRY,
   SOUND_DB_SWORD_HIT_OBSTACLE,
   SOUND_DB_SWORD_SWING,
+  SOUND_RANGE_MULTIPLIER_MASSIVE,
+  SOUND_RANGE_MULTIPLIER_WEAPON,
   WEAPON_DEFAULT_DATA,
   WEAPON_DROP_DURATION_MS,
   WEAPON_IMPACT_LEVEL,
@@ -2344,7 +2346,13 @@ export class WeaponSystem extends System {
     )
     this.statsSystem?.playSoundAt(SOUND_IDS.BOMB_EXPLOSION, x, y)
     if (owner) {
-      this.emitSoundAt(x, y, owner, SOUND_DB_BIG_HAMMER_HIT_ROCK)
+      this.emitSoundAt(
+        x,
+        y,
+        owner,
+        SOUND_DB_BIG_HAMMER_HIT_ROCK,
+        SOUND_RANGE_MULTIPLIER_MASSIVE
+      )
     }
 
     if (!this.statsSystem) {
@@ -3891,11 +3899,6 @@ export class WeaponSystem extends System {
         weapon.bombThrowAimAngle = 0
         weapon.bombThrownRotation = 0
         weapon.attackFacing = facing
-        this.statsSystem?.playSoundAt(
-          SOUND_IDS.BOMB_IGNITE,
-          weapon.visual.x,
-          weapon.visual.y
-        )
         this.statsSystem?.enterCombat(entity)
         this.removeDepletedConsumable(entity, weapon)
       } else if (weapon.bombState === 'lit') {
@@ -4045,7 +4048,7 @@ export class WeaponSystem extends System {
     y: number,
     source: Entity,
     db: number,
-    rangeMultiplier = 1
+    rangeMultiplier = SOUND_RANGE_MULTIPLIER_WEAPON
   ): void {
     if (!this.soundSystem) return
     const radius = source.render?.radius ?? DEFAULT_PLAYER_RADIUS

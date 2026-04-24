@@ -573,6 +573,14 @@ export class ClientRenderer {
     this.soundListenerDebugData = listeners
   }
 
+  getSoundWaveDebugData(): readonly SoundWaveDebugData[] {
+    return this.soundWaveDebugData
+  }
+
+  getSoundListenerDebugData(): readonly SoundListenerDebugData[] {
+    return this.soundListenerDebugData
+  }
+
   setSpineCollisionDebugData(spineCollisions: SpineCollisionDebugData[]): void {
     this.spineCollisionDebugData.clear()
     for (let i = 0; i < spineCollisions.length; i++) {
