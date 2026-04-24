@@ -38,6 +38,7 @@ import {
   TRIANGLE_POINT_DATA,
 } from './EditorConstants'
 import {
+  type TerrainContourBounds,
   extractFilledCellLoops,
   getContourBounds,
   getContourHitDistanceSq,
@@ -75,6 +76,8 @@ interface EditorTerrainLayer {
 interface EditorTerrainContour {
   id: number
   points: number[]
+  bounds: TerrainContourBounds | null
+  boundsDirty: boolean
   fillMaterialId: TerrainMaterialId | null
   renderLayer: number
   shapeKind: TerrainContourShapeKind | null
@@ -128,6 +131,128 @@ const TERRAIN_CONTOUR_RATIO_SCALE = 1024
 const TERRAIN_CONTOUR_STROKE_COLOR = 'rgba(245,208,96,0.92)'
 const TERRAIN_CONTOUR_IDLE_STROKE_COLOR = 'rgba(214,174,92,0.62)'
 const TERRAIN_CONTOUR_STROKE_WIDTH = 2
+const FULL_CIRCLE_RADIANS = Math.PI * 2
+const TERRAIN_CONTOUR_PERF_DEBUG_ENABLED =
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('perf')
+
+type FabricObjectOptions = Partial<fabric.FabricObjectProps>
+
+class TerrainContourRenderObject extends fabric.FabricObject {
+  static override type = 'terrainContourProxy'
+
+  declare editorShape: 'terrain-contour-proxy'
+  declare terrainContourId: number
+  declare terrainContourAnchorLeft: number
+  declare terrainContourAnchorTop: number
+  declare terrainContourWidth: number
+  declare terrainContourHeight: number
+
+  private contourPoints: readonly number[] = []
+  private contourShapeKind: TerrainContourShapeKind | null = null
+  private contourStrokeColor = TERRAIN_CONTOUR_IDLE_STROKE_COLOR
+  private contourShowGuides = false
+  private contourActivePointIndex = -1
+
+  constructor(options?: FabricObjectOptions) {
+    super(options)
+  }
+
+  updateContourVisual(
+    points: readonly number[],
+    shapeKind: TerrainContourShapeKind | null,
+    strokeColor: string,
+    showGuides: boolean,
+    activePointIndex: number
+  ): void {
+    this.contourPoints = points
+    this.contourShapeKind = shapeKind
+    this.contourStrokeColor = strokeColor
+    this.contourShowGuides = showGuides
+    this.contourActivePointIndex = activePointIndex
+    this.dirty = true
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    const points = this.contourPoints
+    if (points.length < 2) {
+      return
+    }
+    const width = this.width ?? 1
+    const height = this.height ?? 1
+    const originX = -Math.floor(width / 2)
+    const originY = -Math.floor(height / 2)
+    const anchorX = this.terrainContourAnchorLeft | 0
+    const anchorY = this.terrainContourAnchorTop | 0
+
+    ctx.save()
+    ctx.lineWidth = TERRAIN_CONTOUR_STROKE_WIDTH
+    ctx.strokeStyle = this.contourStrokeColor
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+
+    if (this.contourShapeKind === 'rect') {
+      ctx.beginPath()
+      ctx.rect(originX, originY, width, height)
+      ctx.fillStyle = 'rgba(255,255,255,0.001)'
+      ctx.fill()
+      ctx.stroke()
+    } else {
+      ctx.beginPath()
+      ctx.moveTo(originX + points[0] - anchorX, originY + points[1] - anchorY)
+      for (let i = 2; i < points.length; i += 2) {
+        ctx.lineTo(
+          originX + points[i] - anchorX,
+          originY + points[i + 1] - anchorY
+        )
+      }
+      if (points.length >= 6) {
+        ctx.closePath()
+        ctx.fillStyle = 'rgba(255,255,255,0.001)'
+        ctx.fill()
+      }
+      ctx.stroke()
+    }
+
+    if (this.contourShowGuides) {
+      this.renderPointGuides(ctx, points, originX, originY, anchorX, anchorY)
+    }
+    ctx.restore()
+  }
+
+  private renderPointGuides(
+    ctx: CanvasRenderingContext2D,
+    points: readonly number[],
+    originX: number,
+    originY: number,
+    anchorX: number,
+    anchorY: number
+  ): void {
+    ctx.lineWidth = 1
+    ctx.strokeStyle = 'rgba(32,24,16,0.92)'
+    for (let i = 0; i < points.length; i += 2) {
+      const pointIndex = i >> 1
+      const radius =
+        pointIndex === this.contourActivePointIndex
+          ? TERRAIN_CONTOUR_POINT_RADIUS + 2
+          : TERRAIN_CONTOUR_POINT_RADIUS
+      ctx.beginPath()
+      ctx.arc(
+        originX + points[i] - anchorX,
+        originY + points[i + 1] - anchorY,
+        radius,
+        0,
+        FULL_CIRCLE_RADIANS
+      )
+      ctx.fillStyle =
+        pointIndex === this.contourActivePointIndex
+          ? 'rgba(255,248,212,0.98)'
+          : 'rgba(245,208,96,0.95)'
+      ctx.fill()
+      ctx.stroke()
+    }
+  }
+}
 
 function buildContourTemplateRatios(
   offsets: ReadonlyArray<readonly [number, number]>
@@ -227,6 +352,9 @@ export class EditorTerrainLayerManager {
   private movingContourStartTop = 0
   private movingContourAppliedDeltaX = 0
   private movingContourAppliedDeltaY = 0
+  private contourPerfRefreshCount = 0
+  private contourPerfRefreshTotalUs = 0
+  private contourPerfRefreshMaxUs = 0
 
   private strokeBrushId: TerrainBrushId | null = null
   private strokeTargetLayer: EditorTerrainLayer | null = null
@@ -627,6 +755,7 @@ export class EditorTerrainLayerManager {
     for (let i = 0; i < points.length; i++) {
       contour.points[i] = points[i]
     }
+    this.markContourBoundsDirty(contour)
     contour.shapeKind = shape
     contour.straightEdge = true
     const serializedContour = this.getSerializedContour(contour)
@@ -1152,9 +1281,10 @@ export class EditorTerrainLayerManager {
     }
     this.contourPointerChanged = true
     this.contourDrawingContour.points.push(pointX, pointY)
+    this.expandContourBounds(this.contourDrawingContour, pointX, pointY)
     this.contourLastPointX = pointX
     this.contourLastPointY = pointY
-    this.refreshContourProxy(this.contourDrawingContour)
+    this.refreshContourProxy(this.contourDrawingContour, false, false)
     this.ctx.requestRender()
     return true
   }
@@ -1167,6 +1297,7 @@ export class EditorTerrainLayerManager {
     if (this.contourDragTarget) {
       changed = this.contourPointerChanged
       if (changed && this.contourDragOriginalPoints) {
+        this.bumpContourBuildRevision(this.contourDragTarget)
         this.applyContourFillDelta(
           this.contourDragTarget,
           this.contourDragOriginalPoints
@@ -1184,6 +1315,7 @@ export class EditorTerrainLayerManager {
     this.resetContourInteraction()
     this.refreshAllContourVisuals()
     this.ctx.requestRender()
+    this.flushContourRefreshPerf('pointer-up')
     return changed
   }
 
@@ -1324,6 +1456,7 @@ export class EditorTerrainLayerManager {
       Math.round(pointX),
       Math.round(pointY)
     )
+    this.markContourBoundsDirty(contour)
     this.bumpContourBuildRevision(contour)
     this.activeContourPointIndex = pointIndex + 1
     this.refreshContourProxy(contour)
@@ -1356,6 +1489,7 @@ export class EditorTerrainLayerManager {
     }
     const previousPoints = contour.points.slice()
     contour.points.splice(pointIndex * 2, 2)
+    this.markContourBoundsDirty(contour)
     this.bumpContourBuildRevision(contour)
     this.activeContourPointIndex = Math.min(
       this.activeContourPointIndex,
@@ -1479,6 +1613,7 @@ export class EditorTerrainLayerManager {
       contour.points[i] += deltaXUnits
       contour.points[i + 1] += deltaYUnits
     }
+    this.offsetContourBounds(contour, deltaXUnits, deltaYUnits)
     this.bumpContourBuildRevision(contour)
     if (contour.fillLayer) {
       this.applyLayerUnitDelta(contour.fillLayer, deltaXUnits, deltaYUnits)
@@ -1728,6 +1863,7 @@ export class EditorTerrainLayerManager {
       contour.points[i] += deltaX
       contour.points[i + 1] += deltaY
     }
+    this.offsetContourBounds(contour, deltaX, deltaY)
     this.bumpContourBuildRevision(contour)
     if (contour.fillLayer) {
       this.applyLayerUnitDelta(contour.fillLayer, deltaX, deltaY)
@@ -1783,6 +1919,11 @@ export class EditorTerrainLayerManager {
         contour.points[i] += this.movingContourAppliedDeltaX
         contour.points[i + 1] += this.movingContourAppliedDeltaY
       }
+      this.offsetContourBounds(
+        contour,
+        this.movingContourAppliedDeltaX,
+        this.movingContourAppliedDeltaY
+      )
       this.bumpContourBuildRevision(contour)
       if (contour.fillLayer) {
         this.applyLayerUnitDelta(
@@ -2198,7 +2339,7 @@ export class EditorTerrainLayerManager {
   private createContour(startX: number, startY: number): EditorTerrainContour {
     const contourId = this.nextContourId
     this.nextContourId += 1
-    const proxy = new fabric.Group([], {
+    const proxy = new TerrainContourRenderObject({
       left: startX,
       top: startY,
       originX: 'left',
@@ -2219,11 +2360,22 @@ export class EditorTerrainLayerManager {
     proxy.terrainContourAnchorTop = startY
     proxy.terrainContourWidth = 1
     proxy.terrainContourHeight = 1
+    proxy.width = 1
+    proxy.height = 1
     ;(proxy as EditorLayeredObject).renderLayer =
       getDefaultTerrainRenderLayer('dirt')
     const contour: EditorTerrainContour = {
       id: contourId,
       points: [startX, startY],
+      bounds: {
+        minX: startX,
+        minY: startY,
+        maxX: startX,
+        maxY: startY,
+        width: 1,
+        height: 1,
+      },
+      boundsDirty: false,
       fillMaterialId: null,
       renderLayer: getDefaultTerrainRenderLayer('dirt'),
       shapeKind: null,
@@ -2267,6 +2419,7 @@ export class EditorTerrainLayerManager {
     for (let i = 0; i < source.points.length; i++) {
       contour.points[i] = source.points[i] | 0
     }
+    this.markContourBoundsDirty(contour)
     contour.fillMaterialId = source.fillMaterialId ?? null
     contour.shapeKind = this.isSupportedShapeKind(source.shapeKind)
       ? source.shapeKind
@@ -2362,18 +2515,107 @@ export class EditorTerrainLayerManager {
     return null
   }
 
+  private getCachedContourBounds(
+    contour: EditorTerrainContour
+  ): TerrainContourBounds | null {
+    if (!contour.boundsDirty && contour.bounds) {
+      return contour.bounds
+    }
+    contour.bounds = getContourBounds(contour.points)
+    contour.boundsDirty = false
+    return contour.bounds
+  }
+
+  private markContourBoundsDirty(contour: EditorTerrainContour): void {
+    contour.boundsDirty = true
+  }
+
+  private expandContourBounds(
+    contour: EditorTerrainContour,
+    pointX: number,
+    pointY: number
+  ): void {
+    const bounds = contour.bounds
+    if (!bounds || contour.boundsDirty) {
+      contour.bounds = getContourBounds(contour.points)
+      contour.boundsDirty = false
+      return
+    }
+    if (pointX < bounds.minX) {
+      bounds.minX = pointX
+    } else if (pointX > bounds.maxX) {
+      bounds.maxX = pointX
+    }
+    if (pointY < bounds.minY) {
+      bounds.minY = pointY
+    } else if (pointY > bounds.maxY) {
+      bounds.maxY = pointY
+    }
+    bounds.width = Math.max(1, bounds.maxX - bounds.minX)
+    bounds.height = Math.max(1, bounds.maxY - bounds.minY)
+  }
+
+  private offsetContourBounds(
+    contour: EditorTerrainContour,
+    deltaX: number,
+    deltaY: number
+  ): void {
+    const bounds = contour.bounds
+    if (!bounds || contour.boundsDirty) {
+      return
+    }
+    bounds.minX += deltaX
+    bounds.maxX += deltaX
+    bounds.minY += deltaY
+    bounds.maxY += deltaY
+  }
+
+  private recordContourRefreshPerf(startMs: number): void {
+    const elapsedUs = Math.round((performance.now() - startMs) * 1000)
+    this.contourPerfRefreshCount += 1
+    this.contourPerfRefreshTotalUs += elapsedUs
+    if (elapsedUs > this.contourPerfRefreshMaxUs) {
+      this.contourPerfRefreshMaxUs = elapsedUs
+    }
+  }
+
+  private flushContourRefreshPerf(reason: string): void {
+    if (
+      !TERRAIN_CONTOUR_PERF_DEBUG_ENABLED ||
+      this.contourPerfRefreshCount <= 0
+    ) {
+      return
+    }
+    const avgUs = Math.round(
+      this.contourPerfRefreshTotalUs / this.contourPerfRefreshCount
+    )
+    // eslint-disable-next-line no-console
+    console.info(
+      `[terrain-contour-perf] ${reason} refresh=${this.contourPerfRefreshCount} avg=${avgUs}us max=${this.contourPerfRefreshMaxUs}us`
+    )
+    this.contourPerfRefreshCount = 0
+    this.contourPerfRefreshTotalUs = 0
+    this.contourPerfRefreshMaxUs = 0
+  }
+
   private refreshAllContourVisuals(): void {
     for (let i = 0; i < this.contours.length; i++) {
       this.refreshContourProxy(this.contours[i])
     }
   }
 
-  private refreshContourProxy(contour: EditorTerrainContour): void {
-    const bounds = getContourBounds(contour.points)
+  private refreshContourProxy(
+    contour: EditorTerrainContour,
+    updateCoords = true,
+    updateInteraction = true
+  ): void {
+    const perfStartMs = TERRAIN_CONTOUR_PERF_DEBUG_ENABLED
+      ? performance.now()
+      : 0
+    const bounds = this.getCachedContourBounds(contour)
     if (!bounds) {
       return
     }
-    const children: fabric.Object[] = []
     const showContourGuides =
       (this.contourEditMode && contour.id === this.activeContourId) ||
       (!this.contourEditMode &&
@@ -2382,105 +2624,33 @@ export class EditorTerrainLayerManager {
     const contourStroke = showContourGuides
       ? TERRAIN_CONTOUR_STROKE_COLOR
       : TERRAIN_CONTOUR_IDLE_STROKE_COLOR
-    const relativePoints = new Array<fabric.Point>(contour.points.length / 2)
-    for (let i = 0; i < contour.points.length; i += 2) {
-      relativePoints[i / 2] = new fabric.Point(
-        contour.points[i] - bounds.minX,
-        contour.points[i + 1] - bounds.minY
-      )
-    }
-    if (contour.shapeKind === 'rect') {
-      children.push(
-        new fabric.Rect({
-          left: 0,
-          top: 0,
-          width: bounds.width,
-          height: bounds.height,
-          originX: 'left',
-          originY: 'top',
-          fill: 'rgba(255,255,255,0.001)',
-          stroke: contourStroke,
-          strokeWidth: TERRAIN_CONTOUR_STROKE_WIDTH,
-          selectable: false,
-          evented: false,
-          objectCaching: false,
-        })
-      )
-    } else if (relativePoints.length >= 3) {
-      children.push(
-        new fabric.Polygon(relativePoints, {
-          left: 0,
-          top: 0,
-          originX: 'left',
-          originY: 'top',
-          fill: 'rgba(255,255,255,0.001)',
-          stroke: contourStroke,
-          strokeWidth: TERRAIN_CONTOUR_STROKE_WIDTH,
-          selectable: false,
-          evented: false,
-          objectCaching: false,
-        })
-      )
-    } else {
-      children.push(
-        new fabric.Polyline(relativePoints, {
-          left: 0,
-          top: 0,
-          originX: 'left',
-          originY: 'top',
-          fill: 'transparent',
-          stroke: contourStroke,
-          strokeWidth: TERRAIN_CONTOUR_STROKE_WIDTH,
-          selectable: false,
-          evented: false,
-          objectCaching: false,
-        })
-      )
-    }
-    if (showContourGuides) {
-      for (let i = 0; i < relativePoints.length; i++) {
-        const radius =
-          i === this.activeContourPointIndex
-            ? TERRAIN_CONTOUR_POINT_RADIUS + 2
-            : TERRAIN_CONTOUR_POINT_RADIUS
-        children.push(
-          new fabric.Circle({
-            left: relativePoints[i].x - radius,
-            top: relativePoints[i].y - radius,
-            radius,
-            originX: 'left',
-            originY: 'top',
-            fill:
-              i === this.activeContourPointIndex
-                ? 'rgba(255,248,212,0.98)'
-                : 'rgba(245,208,96,0.95)',
-            stroke: 'rgba(32,24,16,0.92)',
-            strokeWidth: 1,
-            selectable: false,
-            evented: false,
-            objectCaching: false,
-          })
-        )
-      }
-    }
     const proxy = contour.proxy
-    const existingObjects = proxy.getObjects().slice()
-    for (let i = 0; i < existingObjects.length; i++) {
-      proxy.remove(existingObjects[i])
-    }
-    for (let i = 0; i < children.length; i++) {
-      proxy.add(children[i])
-    }
     proxy.terrainContourId = contour.id
     proxy.terrainContourAnchorLeft = bounds.minX
     proxy.terrainContourAnchorTop = bounds.minY
     proxy.terrainContourWidth = bounds.width
     proxy.terrainContourHeight = bounds.height
+    proxy.width = bounds.width
+    proxy.height = bounds.height
     proxy.left = bounds.minX
     proxy.top = bounds.minY
     ;(proxy as EditorLayeredObject).renderLayer = contour.renderLayer
-    this.applyContourProxyInteraction(proxy, this.interactionEnabled)
-    proxy.setCoords()
+    ;(proxy as TerrainContourRenderObject).updateContourVisual(
+      contour.points,
+      contour.shapeKind,
+      contourStroke,
+      showContourGuides,
+      this.activeContourPointIndex
+    )
+    if (updateInteraction) {
+      this.applyContourProxyInteraction(proxy, this.interactionEnabled)
+    }
+    if (updateCoords) {
+      proxy.setCoords()
+    }
+    if (TERRAIN_CONTOUR_PERF_DEBUG_ENABLED) {
+      this.recordContourRefreshPerf(perfStartMs)
+    }
   }
 
   private applyContourProxyInteraction(
@@ -2527,8 +2697,8 @@ export class EditorTerrainLayerManager {
     }
     contour.points[pointIndex * 2] = pointX
     contour.points[pointIndex * 2 + 1] = pointY
-    this.bumpContourBuildRevision(contour)
-    this.refreshContourProxy(contour)
+    this.markContourBoundsDirty(contour)
+    this.refreshContourProxy(contour, false, false)
     this.ctx.requestRender()
   }
 
@@ -2541,7 +2711,7 @@ export class EditorTerrainLayerManager {
     if (!contour.shapeKind) {
       return
     }
-    const bounds = getContourBounds(contour.points)
+    const bounds = this.getCachedContourBounds(contour)
     if (!bounds) {
       return
     }
@@ -2561,7 +2731,7 @@ export class EditorTerrainLayerManager {
       pointY
     )
     this.applyShapeTemplateToContour(contour, templatePoints, nextBounds)
-    this.refreshContourProxy(contour)
+    this.refreshContourProxy(contour, false, false)
     this.ctx.requestRender()
   }
 
@@ -2655,6 +2825,7 @@ export class EditorTerrainLayerManager {
         bounds.minY +
         Math.round((height * templatePoint[1]) / TERRAIN_CONTOUR_RATIO_SCALE)
     }
+    this.markContourBoundsDirty(contour)
   }
 
   private ensureContourFillLayer(
@@ -2682,7 +2853,7 @@ export class EditorTerrainLayerManager {
     if (!contour.fillMaterialId) {
       return false
     }
-    const bounds = getContourBounds(contour.points)
+    const bounds = this.getCachedContourBounds(contour)
     if (!bounds) {
       return false
     }
@@ -2766,7 +2937,7 @@ export class EditorTerrainLayerManager {
       return false
     }
     const oldBounds = getContourBounds(previousPoints)
-    const newBounds = getContourBounds(contour.points)
+    const newBounds = this.getCachedContourBounds(contour)
     if (!oldBounds || !newBounds) {
       return false
     }
@@ -3153,6 +3324,7 @@ export class EditorTerrainLayerManager {
     for (let i = 0; i < nextPoints.length; i++) {
       contour.points[i] = nextPoints[i]
     }
+    this.markContourBoundsDirty(contour)
     contour.shapeKind = null
     contour.straightEdge = false
     const serializedContour = this.getSerializedContour(contour)
@@ -3811,6 +3983,7 @@ export class EditorTerrainLayerManager {
         contour.points[pointIndex] += deltaXUnits
         contour.points[pointIndex + 1] += deltaYUnits
       }
+      this.offsetContourBounds(contour, deltaXUnits, deltaYUnits)
       this.bumpContourBuildRevision(contour)
       if (contour.fillLayer) {
         this.applyLayerUnitDelta(contour.fillLayer, deltaXUnits, deltaYUnits)
@@ -3920,7 +4093,9 @@ export class EditorTerrainLayerManager {
   ): void {
     const target = serializedContour ?? this.getSerializedContour(contour)
     target.buildRevision = this.nextBuildRevision()
-    this.invalidateTerrainRenderCache()
+    if (contour.fillLayer) {
+      this.invalidateTerrainRenderCache()
+    }
   }
 
   setSceneDepthFilter(filter: number | 'all'): void {

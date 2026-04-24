@@ -143,7 +143,7 @@ export type TerrainRegionProxy = fabric.Group & {
   terrainAnchorTop: number
 }
 
-export type TerrainContourProxy = fabric.Group & {
+export type TerrainContourProxy = fabric.FabricObject & {
   editorShape: 'terrain-contour-proxy'
   terrainContourId: number
   terrainContourAnchorLeft: number
