@@ -2319,6 +2319,7 @@ export class WeaponSystem extends System {
     }
     if (entity.physics && this.box2d) {
       this.box2d.b2DestroyBody(entity.physics.bodyId)
+      entity.removeComponent('Physics')
     }
     this.world.destroyEntity(entity)
   }

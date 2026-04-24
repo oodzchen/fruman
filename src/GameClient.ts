@@ -21,6 +21,7 @@ import {
   CATERPILLAR_ATLAS_KEY,
   CATERPILLAR_SPINE_KEY,
   CATERPILLAR_SPINE_SCALE,
+  DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
 } from './constants'
 import type { EditorMapData, MapEnvironmentObject } from './editorMapTypes'
 import {
@@ -57,6 +58,7 @@ import { WorldLightingController } from './renderer/WorldLightingController'
 import type { SaveData } from './saveTypes'
 import { buildSpineCollisionKeyframes } from './spineCollisionKeyframes'
 import { getDefaultMap } from './storage'
+import { TerrainCollisionBuilder } from './terrain/TerrainCollisionBuilder'
 import {
   getTerrainLayerViews,
   hasTerrainContent,
@@ -65,6 +67,7 @@ import type { TerrainResolvedLayerView } from './terrain/TerrainDataUtils'
 import { TerrainRenderer } from './terrain/TerrainRenderer'
 import type { TerrainDataLike, TerrainLayerLike } from './terrain/TerrainTypes'
 import { getVoronoiBuildPerfSnapshot } from './terrain/VoronoiBuilder'
+import { VoronoiCollisionBuilder } from './terrain/VoronoiCollisionBuilder'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
@@ -92,6 +95,10 @@ interface EnvironmentTextureEntry {
 }
 
 type SleepTransitionPhase = 'idle' | 'closing' | 'closed' | 'opening'
+
+const TERRAIN_COLLISION_DEBUG_COLOR = 0x4f7cff
+const TERRAIN_COLLISION_DEBUG_LINE_WIDTH = 2
+const TERRAIN_COLLISION_DEBUG_ALPHA = 0.92
 
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
@@ -2751,12 +2758,14 @@ export class GameClient {
       const resolvedLayer = this.resolveStaticTerrainRenderLayer(layer)
       const terrainBuildStartMs = performance.now()
       let sprite: Sprite | null
+      let appendCollisionDebug = false
       if (layer.version >= 4) {
         sprite = TerrainRenderer.createPixiTerrainLayerGraphic(
           layer,
           layer.cellSize * this.pixelsPerMeter,
           { drawStroke: true }
         )
+        appendCollisionDebug = true
         this.pendingStaticTerrainLayerIndex++
       } else {
         sprite = TerrainRenderer.createPixiTerrainChunkGraphic(
@@ -2769,6 +2778,7 @@ export class GameClient {
         if (this.pendingStaticTerrainChunkIndex >= layer.chunks.length) {
           this.pendingStaticTerrainChunkIndex = 0
           this.pendingStaticTerrainLayerIndex++
+          appendCollisionDebug = true
         }
       }
 
@@ -2776,6 +2786,9 @@ export class GameClient {
         sprite.zIndex = resolvedLayer * 10
         this.pendingStaticTerrainGraphics.push(sprite)
         this.pendingStaticTerrainGraphicLayers.push(resolvedLayer)
+      }
+      if (DEBUG_DRAW_TERRAIN_COLLISION_SHAPE && appendCollisionDebug) {
+        this.appendPendingTerrainCollisionDebugGraphics(layer, resolvedLayer)
       }
       this.pendingStaticTerrainTaskIndex++
       this.recordTerrainBuildTime(terrainBuildStartMs)
@@ -2808,6 +2821,87 @@ export class GameClient {
     this.pendingStaticTerrainGraphicLayers.length = 0
     this.staticTerrainSignature = this.pendingStaticTerrainSignature
     this.staticTerrainReady = true
+  }
+
+  private appendPendingTerrainCollisionDebugGraphics(
+    layer: TerrainResolvedLayerView,
+    resolvedLayer: number
+  ): void {
+    const graphics = this.createTerrainCollisionDebugGraphics(layer)
+    if (!graphics) {
+      return
+    }
+    graphics.zIndex = resolvedLayer * 10 + 1
+    this.pendingStaticTerrainGraphics.push(graphics)
+    this.pendingStaticTerrainGraphicLayers.push(resolvedLayer)
+  }
+
+  private createTerrainCollisionDebugGraphics(
+    layer: TerrainResolvedLayerView
+  ): Graphics | null {
+    const graphics = new Graphics()
+    let hasPath = false
+    const cellSizePx = layer.cellSize * this.pixelsPerMeter
+
+    if (layer.version >= 4) {
+      const polygons = VoronoiCollisionBuilder.buildLayerPolygons(
+        layer,
+        cellSizePx
+      )
+      for (let i = 0; i < polygons.length; i++) {
+        hasPath =
+          this.appendTerrainCollisionDebugPolygon(
+            graphics,
+            polygons[i].points
+          ) || hasPath
+      }
+    } else {
+      const rects = TerrainCollisionBuilder.buildLayerRectangles(layer)
+      const offsetX = layer.offsetXUnits
+      const offsetY = layer.offsetYUnits
+      for (let i = 0; i < rects.length; i++) {
+        const rect = rects[i]
+        if (rect.materialTag === 'foliage') {
+          continue
+        }
+        const x = rect.cellX * cellSizePx + offsetX
+        const y = rect.cellY * cellSizePx + offsetY
+        graphics.rect(
+          x,
+          y,
+          rect.widthCells * cellSizePx,
+          rect.heightCells * cellSizePx
+        )
+        hasPath = true
+      }
+    }
+
+    if (!hasPath) {
+      graphics.destroy()
+      return null
+    }
+
+    graphics.stroke({
+      color: TERRAIN_COLLISION_DEBUG_COLOR,
+      width: TERRAIN_COLLISION_DEBUG_LINE_WIDTH,
+      alpha: TERRAIN_COLLISION_DEBUG_ALPHA,
+    })
+    return graphics
+  }
+
+  private appendTerrainCollisionDebugPolygon(
+    graphics: Graphics,
+    points: readonly number[]
+  ): boolean {
+    if (points.length < 6) {
+      return false
+    }
+    graphics.moveTo(points[0], points[1])
+    for (let i = 2; i < points.length; i += 2) {
+      graphics.lineTo(points[i], points[i + 1])
+    }
+    graphics.closePath()
+    return true
   }
 
   private pumpStaticEnvironmentBuild(deadlineMs: number): void {

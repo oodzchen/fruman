@@ -3888,19 +3888,13 @@ function fixedUpdate() {
   const pickupUpdateStartMs = performance.now()
   sunPickupSystem.update(sunPickupEntityBuffer, playerEntityView, TIME_STEP)
   for (const e of sunPickupSystem.getPendingRemove()) {
-    if (e.physics) {
-      box2d.b2DestroyBody(e.physics.bodyId)
-      e.removeComponent('Physics')
-    }
+    destroyEntityPhysicsBody(e)
     world.destroyEntity(e)
   }
 
   expOrbSystem.update(expOrbEntityBuffer, playerEntityView, TIME_STEP)
   for (const e of expOrbSystem.getPendingRemove()) {
-    if (e.physics) {
-      box2d.b2DestroyBody(e.physics.bodyId)
-      e.removeComponent('Physics')
-    }
+    destroyEntityPhysicsBody(e)
     world.destroyEntity(e)
   }
   workerPerfPickupUpdateTotalUs += Math.round(
@@ -4569,6 +4563,7 @@ function cleanupDestroyedEntities() {
       entity.weapon && entity.weapon.isEquipped && !entity.stats
     if (isPickedUpWeapon) {
       spatialHash.removeEntity(entity)
+      destroyEntityPhysicsBody(entity)
       world.destroyEntity(entity)
       continue
     }
@@ -4585,9 +4580,18 @@ function cleanupDestroyedEntities() {
         npcEntity = null
       }
       spatialHash.removeEntity(entity)
+      destroyEntityPhysicsBody(entity)
       world.destroyEntity(entity)
     }
   }
+}
+
+function destroyEntityPhysicsBody(entity: Entity): void {
+  if (!entity.physics) {
+    return
+  }
+  box2d.b2DestroyBody(entity.physics.bodyId)
+  entity.removeComponent('Physics')
 }
 
 function collectSensorDebugData(entities: Entity[]): SensorDebugData[] {
@@ -6473,11 +6477,7 @@ function restoreNpcsState(npcsState: SaveNpcState[]): void {
       if (entity.render) {
         entity.render.visible = false
       }
-      if (entity.physics) {
-        const { b2DestroyBody } = box2d
-        b2DestroyBody(entity.physics.bodyId)
-        entity.removeComponent('Physics')
-      }
+      destroyEntityPhysicsBody(entity)
     }
     usedEntities.add(entity)
   }
@@ -6545,11 +6545,7 @@ function restoreNpcsState(npcsState: SaveNpcState[]): void {
     if (entity.render) {
       entity.render.visible = false
     }
-    if (entity.physics) {
-      const { b2DestroyBody } = box2d
-      b2DestroyBody(entity.physics.bodyId)
-      entity.removeComponent('Physics')
-    }
+    destroyEntityPhysicsBody(entity)
   }
 }
 
@@ -6590,6 +6586,7 @@ function restoreGroundWeaponsState(
       applyGroundWeaponState(entity.weapon, savedState)
     } else {
       spatialHash.removeEntity(entity)
+      destroyEntityPhysicsBody(entity)
       world.destroyEntity(entity)
     }
     spawnIndex++
@@ -6631,6 +6628,7 @@ function restoreGroundSunPickupsState(
     const entity = entities[i]
     if (!entity.sunPickup || entity.sunPickup.mapSpawnIndex >= 0) continue
     spatialHash.removeEntity(entity)
+    destroyEntityPhysicsBody(entity)
     world.destroyEntity(entity)
   }
 

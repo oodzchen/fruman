@@ -4,6 +4,7 @@ import {
 } from '../renderLayers'
 import {
   type TerrainResolvedLayerView,
+  getTerrainChunkMaterialCodes,
   getTerrainLayerViews,
 } from './TerrainDataUtils'
 import {
@@ -29,49 +30,78 @@ export class TerrainCollisionBuilder {
     >()
 
     for (let layerIndex = 0; layerIndex < sourceLayers.length; layerIndex++) {
-      const layer: TerrainResolvedLayerView = sourceLayers[layerIndex]
-      const chunkSize = layer.chunkSize
-      const offsetCellX = layer.offsetCellX
-      const offsetCellY = layer.offsetCellY
-      const layerMaterialTag = layer.materialId
-        ? getTerrainMaterialTagById(layer.materialId)
-        : null
-      const layerRenderLayer = layer.materialId
-        ? normalizeRenderLayer(
-            layer.renderLayer,
-            getDefaultTerrainRenderLayer(layer.materialId)
-          )
-        : normalizeRenderLayer(layer.renderLayer, 0)
-
-      for (let chunkIndex = 0; chunkIndex < layer.chunks.length; chunkIndex++) {
-        const chunk = layer.chunks[chunkIndex]
-        const cells = chunk.cells
-        const baseCellX = offsetCellX + chunk.chunkX * chunkSize
-        const baseCellY = offsetCellY + chunk.chunkY * chunkSize
-        for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
-          const code = cells[cellIndex] | 0
-          if (!isSolidTerrainCode(code)) {
-            continue
-          }
-          const materialTag =
-            layerMaterialTag ?? getTerrainMaterialTagByCode(code)
-          if (!materialTag) {
-            continue
-          }
-          cellTags.set(
-            packTerrainCollisionCell(
-              baseCellX + (cellIndex % chunkSize),
-              baseCellY + Math.floor(cellIndex / chunkSize)
-            ),
-            {
-              materialTag,
-              renderLayer: layerRenderLayer,
-            }
-          )
-        }
-      }
+      this.appendLayerCollisionCells(cellTags, sourceLayers[layerIndex])
     }
 
+    return this.buildRectanglesFromCollisionCells(cellTags)
+  }
+
+  static buildLayerRectangles(
+    layer: TerrainResolvedLayerView
+  ): TerrainCollisionRect[] {
+    const cellTags = new Map<
+      number,
+      { materialTag: TerrainMaterialTag; renderLayer: number }
+    >()
+    this.appendLayerCollisionCells(cellTags, layer)
+    return this.buildRectanglesFromCollisionCells(cellTags)
+  }
+
+  private static appendLayerCollisionCells(
+    cellTags: Map<
+      number,
+      { materialTag: TerrainMaterialTag; renderLayer: number }
+    >,
+    layer: TerrainResolvedLayerView
+  ): void {
+    const chunkSize = layer.chunkSize
+    const offsetCellX = layer.offsetCellX
+    const offsetCellY = layer.offsetCellY
+    const layerMaterialTag = layer.materialId
+      ? getTerrainMaterialTagById(layer.materialId)
+      : null
+    const layerRenderLayer = layer.materialId
+      ? normalizeRenderLayer(
+          layer.renderLayer,
+          getDefaultTerrainRenderLayer(layer.materialId)
+        )
+      : normalizeRenderLayer(layer.renderLayer, 0)
+
+    for (let chunkIndex = 0; chunkIndex < layer.chunks.length; chunkIndex++) {
+      const chunk = layer.chunks[chunkIndex]
+      const cells = getTerrainChunkMaterialCodes(chunk)
+      const baseCellX = offsetCellX + chunk.chunkX * chunkSize
+      const baseCellY = offsetCellY + chunk.chunkY * chunkSize
+      for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+        const code = cells[cellIndex] | 0
+        if (!isSolidTerrainCode(code)) {
+          continue
+        }
+        const materialTag =
+          layerMaterialTag ?? getTerrainMaterialTagByCode(code)
+        if (!materialTag) {
+          continue
+        }
+        cellTags.set(
+          packTerrainCollisionCell(
+            baseCellX + (cellIndex % chunkSize),
+            baseCellY + Math.floor(cellIndex / chunkSize)
+          ),
+          {
+            materialTag,
+            renderLayer: layerRenderLayer,
+          }
+        )
+      }
+    }
+  }
+
+  private static buildRectanglesFromCollisionCells(
+    cellTags: ReadonlyMap<
+      number,
+      { materialTag: TerrainMaterialTag; renderLayer: number }
+    >
+  ): TerrainCollisionRect[] {
     if (cellTags.size === 0) {
       return []
     }

@@ -44,6 +44,7 @@ import {
   type MapTerrainData,
   TERRAIN_CELL_SIZE_METERS,
   TERRAIN_CHUNK_SIZE,
+  type TerrainContourLike,
 } from './terrain/TerrainTypes'
 import type { NpcType } from './types'
 import {
@@ -785,9 +786,214 @@ function normalizeMapPlayer(
   }
 }
 
+function normalizeTerrainContourMetadata(
+  terrain: MapTerrainData | undefined
+): MapTerrainData | undefined {
+  if (
+    !terrain ||
+    !terrain.contours ||
+    terrain.contours.length === 0 ||
+    !terrain.layers ||
+    terrain.layers.length === 0
+  ) {
+    return terrain
+  }
+
+  const referencedContourIds = new Set<number>()
+  for (let i = 0; i < terrain.layers.length; i++) {
+    const contourId = terrain.layers[i].contourId
+    if (typeof contourId === 'number' && Number.isFinite(contourId)) {
+      referencedContourIds.add(contourId | 0)
+    }
+  }
+  if (referencedContourIds.size === 0) {
+    return terrain
+  }
+
+  let normalizedContours: TerrainContourLike[] | null = null
+  for (let i = 0; i < terrain.contours.length; i++) {
+    const contour = terrain.contours[i]
+    if (
+      !referencedContourIds.has(contour.id | 0) ||
+      contour.straightEdge !== undefined ||
+      contour.shapeKind !== undefined
+    ) {
+      continue
+    }
+
+    const inferred = inferLegacyStraightEdgeContourMetadata(contour.points)
+    if (!inferred) {
+      continue
+    }
+
+    if (!normalizedContours) {
+      normalizedContours = terrain.contours.slice()
+    }
+    normalizedContours[i] = {
+      ...contour,
+      ...inferred,
+    }
+  }
+
+  if (!normalizedContours) {
+    return terrain
+  }
+
+  return {
+    ...terrain,
+    contours: normalizedContours,
+  }
+}
+
+function inferLegacyStraightEdgeContourMetadata(
+  points: readonly number[]
+): Pick<TerrainContourLike, 'shapeKind' | 'straightEdge'> | null {
+  const vertices = normalizeContourVertices(points)
+  const vertexCount = vertices.length >> 1
+  if (vertexCount < 3) {
+    return null
+  }
+  if (vertexCount === 3) {
+    return {
+      shapeKind: 'triangle',
+      straightEdge: true,
+    }
+  }
+  if (vertexCount === 4 && isLegacyRectangleContour(vertices)) {
+    return {
+      shapeKind: 'rect',
+      straightEdge: true,
+    }
+  }
+  if (isLegacyOrthogonalContour(vertices)) {
+    return {
+      shapeKind: 'polygon',
+      straightEdge: true,
+    }
+  }
+  return null
+}
+
+function normalizeContourVertices(points: readonly number[]): number[] {
+  if (points.length < 6 || (points.length & 1) !== 0) {
+    return []
+  }
+  let end = points.length
+  while (
+    end >= 4 &&
+    points[0] === points[end - 2] &&
+    points[1] === points[end - 1]
+  ) {
+    end -= 2
+  }
+  if (end < 6) {
+    return []
+  }
+  return Array.from(points.slice(0, end))
+}
+
+function isLegacyRectangleContour(points: readonly number[]): boolean {
+  if (points.length !== 8) {
+    return false
+  }
+
+  const ax = points[0]
+  const ay = points[1]
+  const bx = points[2]
+  const by = points[3]
+  const cx = points[4]
+  const cy = points[5]
+  const dx = points[6]
+  const dy = points[7]
+
+  const abx = bx - ax
+  const aby = by - ay
+  const bcx = cx - bx
+  const bcy = cy - by
+  const cdx = dx - cx
+  const cdy = dy - cy
+  const dax = ax - dx
+  const day = ay - dy
+
+  const abLenSq = abx * abx + aby * aby
+  const bcLenSq = bcx * bcx + bcy * bcy
+  const cdLenSq = cdx * cdx + cdy * cdy
+  const daLenSq = dax * dax + day * day
+  if (abLenSq === 0 || bcLenSq === 0 || cdLenSq === 0 || daLenSq === 0) {
+    return false
+  }
+
+  const diagonalCenterDeltaX = ax + cx - (bx + dx)
+  const diagonalCenterDeltaY = ay + cy - (by + dy)
+  if (
+    diagonalCenterDeltaX < -1 ||
+    diagonalCenterDeltaX > 1 ||
+    diagonalCenterDeltaY < -1 ||
+    diagonalCenterDeltaY > 1
+  ) {
+    return false
+  }
+
+  const parallelScale0 = Math.max(1, abLenSq + cdLenSq)
+  const parallelScale1 = Math.max(1, bcLenSq + daLenSq)
+  const perpendicularScale = Math.max(1, abLenSq + bcLenSq)
+  return (
+    isNearlyCollinear(cross2(abx, aby, cdx, cdy), parallelScale0) &&
+    isNearlyCollinear(cross2(bcx, bcy, dax, day), parallelScale1) &&
+    isNearlyPerpendicular(dot2(abx, aby, bcx, bcy), perpendicularScale)
+  )
+}
+
+function isLegacyOrthogonalContour(points: readonly number[]): boolean {
+  const vertexCount = points.length >> 1
+  if (vertexCount < 4) {
+    return false
+  }
+  let previousAxis = -1
+  for (let i = 0; i < points.length; i += 2) {
+    const nextIndex = (i + 2) % points.length
+    const dx = points[nextIndex] - points[i]
+    const dy = points[nextIndex + 1] - points[i + 1]
+    if ((dx === 0 && dy === 0) || (dx !== 0 && dy !== 0)) {
+      return false
+    }
+    const axis = dx === 0 ? 0 : 1
+    if (axis === previousAxis) {
+      return false
+    }
+    previousAxis = axis
+  }
+  return true
+}
+
+function cross2(ax: number, ay: number, bx: number, by: number): number {
+  return ax * by - ay * bx
+}
+
+function dot2(ax: number, ay: number, bx: number, by: number): number {
+  return ax * bx + ay * by
+}
+
+function isNearlyCollinear(value: number, scale: number): boolean {
+  const absValue = value < 0 ? -value : value
+  return absValue * 128 <= scale
+}
+
+function isNearlyPerpendicular(value: number, scale: number): boolean {
+  const absValue = value < 0 ? -value : value
+  return absValue * 128 <= scale
+}
+
 function normalizeEditorMapData(data: EditorMapData): EditorMapData {
   if (isMapDataFastNormalized(data)) {
-    return data
+    const normalizedTerrain = normalizeTerrainContourMetadata(data.terrain)
+    if (normalizedTerrain === data.terrain) {
+      return data
+    }
+    return {
+      ...data,
+      terrain: normalizedTerrain,
+    }
   }
   const sourceVersion = data.version
   const shapes = Array.isArray(data.shapes) ? data.shapes : []
@@ -832,7 +1038,7 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
     npcs: rawNpcs.map((npc) =>
       migrateLegacyNpcDrops(normalizeMapNpc(npc), sourceVersion)
     ),
-    terrain: terrainNormalization.terrain,
+    terrain: normalizeTerrainContourMetadata(terrainNormalization.terrain),
     npcTemplates: (data.npcTemplates ?? []).map((template) =>
       migrateLegacyNpcDrops(normalizeMapNpcTemplate(template), sourceVersion)
     ),
