@@ -1,3 +1,9 @@
+import {
+  DEFAULT_MAP_TIME_PHASE,
+  MAP_TIME_PHASE_IDS,
+  type MapTimePhaseId,
+} from '../editorMapTypes'
+
 const DEBUG_CYCLE = false
 export const DAY_CYCLE_MS = DEBUG_CYCLE ? 60_000 : 3_600_000
 
@@ -67,6 +73,22 @@ const PHASES: readonly DayPhase[] = [
     localLightVisibility255: 196,
   }, // 凌晨：冷蓝过渡，灯光仍然明显
 ]
+
+export function isMapTimePhaseId(value: string): value is MapTimePhaseId {
+  return (MAP_TIME_PHASE_IDS as readonly string[]).includes(value)
+}
+
+export function getMapTimePhaseElapsedMs(
+  phase: MapTimePhaseId | undefined
+): number {
+  const resolvedPhase = phase ?? DEFAULT_MAP_TIME_PHASE
+  for (let i = 0; i < MAP_TIME_PHASE_IDS.length; i++) {
+    if (MAP_TIME_PHASE_IDS[i] === resolvedPhase) {
+      return i * SEG_MS
+    }
+  }
+  return PHASE_MASK_OFFSET_MS
+}
 
 function lerpColor(a: number, b: number, t256: number): number {
   const ar = (a >> 16) & 0xff

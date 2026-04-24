@@ -39,7 +39,10 @@ import {
 import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
 import { getDefaultTerrainRenderLayer } from './renderLayers'
-import { DayNightCycle } from './renderer/DayNightCycle'
+import {
+  DayNightCycle,
+  getMapTimePhaseElapsedMs,
+} from './renderer/DayNightCycle'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import {
   buildEnvironmentTextureCacheKey,
@@ -732,6 +735,11 @@ export class GameClient {
     this.previewTrackedZoom = 1000
     this.setPreviewExitVisible(true)
     this.currentMapData = map
+    this.applyMapInitialTimeCycle(map)
+    this.sleepTransitionPhase = 'idle'
+    this.sleepTransitionElapsedMs = 0
+    this.sleepTransitionMidpointHandled = false
+    this.updateSleepOverlay()
     this.staticRenderLayers = collectStaticRenderLayers(map)
     this.renderer.setCharacterBodyMap(map)
     this.lightingController.setMap(map)
@@ -1357,12 +1365,24 @@ export class GameClient {
   }
 
   private applySaveTimeCycle(saveData: SaveData | null) {
-    this.dayNightCycle.setElapsed(saveData?.timeCycleElapsedMs)
+    const initialElapsedMs = saveData
+      ? getMapTimePhaseElapsedMs(saveData.mapData.settings?.initialTimePhase)
+      : undefined
+    this.dayNightCycle.setElapsed(
+      saveData?.timeCycleElapsedMs ?? initialElapsedMs
+    )
+    this.applyDayNightColors()
+  }
+
+  private applyMapInitialTimeCycle(map: EditorMapData) {
+    this.dayNightCycle.setElapsed(
+      getMapTimePhaseElapsedMs(map.settings?.initialTimePhase)
+    )
     this.applyDayNightColors()
   }
 
   private syncCurrentSaveTimeCycle() {
-    if (!this.currentSaveData) {
+    if (!this.currentSaveData || this.previewActive) {
       return
     }
     this.currentSaveData.timeCycleElapsedMs = this.dayNightCycle.getElapsed()
@@ -2115,6 +2135,7 @@ export class GameClient {
   clearMapPreview() {
     this.previewActive = false
     this.setPreviewExitVisible(false)
+    this.applySaveTimeCycle(this.currentSaveData)
     this.worker.postMessage({ type: 'control', action: 'clear_map_preview' })
   }
 
@@ -2262,6 +2283,7 @@ export class GameClient {
     }
     this.previewActive = false
     this.setPreviewExitVisible(false)
+    this.applySaveTimeCycle(this.currentSaveData)
     this.menuManager.hide()
     if (this.onExitPreviewCallback) {
       this.onExitPreviewCallback()

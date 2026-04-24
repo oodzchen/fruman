@@ -17,7 +17,9 @@ import type {
   MapNpcTemplate,
   MapNpcWeapon,
   MapPlayerProperties,
+  MapSettings,
 } from './editorMapTypes'
+import { DEFAULT_MAP_TIME_PHASE, MAP_TIME_PHASE_IDS } from './editorMapTypes'
 import { resolveNpcBodyProfile } from './npcBodyProfileUtils'
 import {
   DEFAULT_NPC_DROP_COUNT,
@@ -621,6 +623,7 @@ function buildDefaultMapData(
     canvasHeight,
     pixelsPerMeter,
     playerSpawn: { x: playerSpawnX, y: playerSpawnY },
+    settings: { initialTimePhase: DEFAULT_MAP_TIME_PHASE },
     camera: { x: 0, y: 0, zoom: DEFAULT_CAMERA_ZOOM },
     shapes: [],
     npcs: [],
@@ -984,14 +987,29 @@ function isNearlyPerpendicular(value: number, scale: number): boolean {
   return absValue * 128 <= scale
 }
 
+function normalizeMapSettings(settings: MapSettings | undefined): MapSettings {
+  const initialTimePhase = settings?.initialTimePhase
+  return {
+    initialTimePhase:
+      initialTimePhase && MAP_TIME_PHASE_IDS.includes(initialTimePhase)
+        ? initialTimePhase
+        : DEFAULT_MAP_TIME_PHASE,
+  }
+}
+
 function normalizeEditorMapData(data: EditorMapData): EditorMapData {
+  const settings = normalizeMapSettings(data.settings)
   if (isMapDataFastNormalized(data)) {
     const normalizedTerrain = normalizeTerrainContourMetadata(data.terrain)
-    if (normalizedTerrain === data.terrain) {
+    if (
+      normalizedTerrain === data.terrain &&
+      data.settings?.initialTimePhase === settings.initialTimePhase
+    ) {
       return data
     }
     return {
       ...data,
+      settings,
       terrain: normalizedTerrain,
     }
   }
@@ -1033,6 +1051,7 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
   return {
     ...data,
     version: 3,
+    settings,
     player: normalizeMapPlayer(data.player),
     shapes: [],
     npcs: rawNpcs.map((npc) =>

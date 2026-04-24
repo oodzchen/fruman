@@ -91,9 +91,11 @@ import type {
   EditorViewportState,
   MapNpcTemplate,
   MapNpcWeapon,
+  MapSettings,
   MapWeapon,
   WeaponCategory,
 } from './editorMapTypes'
+import { DEFAULT_MAP_TIME_PHASE } from './editorMapTypes'
 import {
   RENDER_LAYER_SKY,
   formatRenderLayerLabel,
@@ -157,6 +159,9 @@ export class EditorManager {
   private currentView: EditorView = EditorView.MapList
   private maps: EditorMap[] = []
   private currentMapMeta: EditorMapMeta | null = null
+  private mapSettings: MapSettings = {
+    initialTimePhase: DEFAULT_MAP_TIME_PHASE,
+  }
   private gameClient: GameClient | null = null
   private onBackToMenuCallback?: () => void
   private onPreviewCallback?: (meta: EditorMapMeta, data: EditorMapData) => void
@@ -437,6 +442,10 @@ export class EditorManager {
       getCameraViews: () => this.cameraManager.getCameraViews(),
       getPlayerMarkerData: () => this.markerManager.getPlayerMarkerData(),
       getEditorObjects: () => this.objectManager.getEditorObjects(),
+      getMapSettings: () => ({ ...this.mapSettings }),
+      setMapSettings: (settings) => {
+        this.mapSettings = this.normalizeMapSettings(settings)
+      },
       getFactions: () => this.factions,
       setFactions: (factions) => {
         this.factions = factions
@@ -757,6 +766,9 @@ export class EditorManager {
         if (pasted) {
           this.captureHistorySnapshot()
         }
+      },
+      onPanelMenuMapSettings: () => {
+        void this.showMapSettingsDialog()
       },
     })
 
@@ -1888,6 +1900,32 @@ export class EditorManager {
   private captureHistorySnapshot() {
     this.lastHistoryWasTree = false
     this.historyManager.capture()
+  }
+
+  private normalizeMapSettings(settings: MapSettings | undefined): MapSettings {
+    return {
+      initialTimePhase: settings?.initialTimePhase ?? DEFAULT_MAP_TIME_PHASE,
+    }
+  }
+
+  private isSameMapSettings(a: MapSettings, b: MapSettings): boolean {
+    return a.initialTimePhase === b.initialTimePhase
+  }
+
+  private async showMapSettingsDialog(): Promise<void> {
+    this.menuSystem.hidePanelMenu()
+    const nextSettings = await this.propertiesPanel.showMapSettingsDialog(
+      this.mapSettings
+    )
+    if (!nextSettings) {
+      return
+    }
+    const normalized = this.normalizeMapSettings(nextSettings)
+    if (this.isSameMapSettings(this.mapSettings, normalized)) {
+      return
+    }
+    this.mapSettings = normalized
+    this.captureHistorySnapshot()
   }
 
   private setCustomNpcTemplates(templates: MapNpcTemplate[]) {

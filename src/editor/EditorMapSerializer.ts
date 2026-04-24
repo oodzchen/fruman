@@ -11,8 +11,10 @@ import type {
   MapEnvironmentObject,
   MapExpOrb,
   MapNpcTemplate,
+  MapSettings,
   MapSunPickup,
 } from '../editorMapTypes'
+import { DEFAULT_MAP_TIME_PHASE } from '../editorMapTypes'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   type EnvironmentTransformOffset,
@@ -90,6 +92,8 @@ interface EditorMapSerializerContext {
   } | null
   getEditorObjects: () => EditorObjectLike[]
 
+  getMapSettings: () => MapSettings
+  setMapSettings: (settings: MapSettings | undefined) => void
   getFactions: () => string[]
   setFactions: (factions: string[]) => void
   getCustomNpcTemplates: () => MapNpcTemplate[]
@@ -124,6 +128,7 @@ export class EditorMapSerializer {
       canvasHeight: height,
       pixelsPerMeter: this.ctx.getPixelsPerMeter(),
       playerSpawn: { x: spawnX, y: spawnY },
+      settings: { initialTimePhase: DEFAULT_MAP_TIME_PHASE },
       camera: { x: 0, y: 0, zoom: DEFAULT_CAMERA_ZOOM },
       shapes: [],
       npcs: [],
@@ -176,6 +181,7 @@ export class EditorMapSerializer {
       canvasHeight: base.canvasHeight,
       pixelsPerMeter: base.pixelsPerMeter,
       playerSpawn,
+      settings: this.ctx.getMapSettings(),
       player,
       camera,
       shapes: [],
@@ -206,6 +212,7 @@ export class EditorMapSerializer {
     if (data.factions) {
       this.ctx.setFactions(data.factions)
     }
+    this.ctx.setMapSettings(data.settings)
     this.ctx.setCustomNpcTemplates(data.npcTemplates ?? [])
     this.ctx.beginObjectBatchMutation()
     try {

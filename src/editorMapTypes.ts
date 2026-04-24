@@ -17,6 +17,23 @@ export type WeaponCategory = 'main' | 'secondary' | 'item'
 
 export type MapEnvironmentObjectType = 'tree' | 'hill' | 'house' | 'cloud'
 
+export const MAP_TIME_PHASE_IDS = [
+  'morning',
+  'noon',
+  'dusk',
+  'night',
+  'lateNight',
+  'dawn',
+] as const
+
+export type MapTimePhaseId = (typeof MAP_TIME_PHASE_IDS)[number]
+
+export const DEFAULT_MAP_TIME_PHASE: MapTimePhaseId = 'night'
+
+export interface MapSettings {
+  initialTimePhase?: MapTimePhaseId
+}
+
 export interface MapEnvironmentObject {
   type: MapEnvironmentObjectType
   x: number
@@ -347,6 +364,7 @@ export interface EditorMapData {
   canvasHeight: number
   pixelsPerMeter: number
   playerSpawn: MapVector2
+  settings?: MapSettings
   player?: MapPlayerProperties
   camera: MapCamera
   shapes: MapPlacedShape[]

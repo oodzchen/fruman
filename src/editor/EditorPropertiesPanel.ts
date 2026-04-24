@@ -27,7 +27,9 @@ import type {
   MapNpcDropItem,
   MapNpcTemplate,
   MapNpcWeapon,
+  MapSettings,
 } from '../editorMapTypes'
+import { DEFAULT_MAP_TIME_PHASE, MAP_TIME_PHASE_IDS } from '../editorMapTypes'
 import {
   MAX_NPC_DROP_COUNT,
   NPC_DROP_ITEM_TYPES,
@@ -2989,6 +2991,77 @@ export class EditorPropertiesPanel {
       modal.addEventListener('click', (event) => {
         if (event.target === modal) {
           finish(false)
+        }
+      })
+    })
+  }
+
+  public async showMapSettingsDialog(
+    settings: MapSettings
+  ): Promise<MapSettings | null> {
+    const dialog = EditorUIHelper.createPropertiesDialog(
+      localizer.t('editor_map_settings_title')
+    )
+    const { leftPanel, rightPanel, footerPanel, previewCanvas, modal, close } =
+      dialog
+
+    previewCanvas.style.display = 'none'
+    const initialTimeRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_map_settings_initial_time')
+    )
+    const initialTimeSelect = EditorUIHelper.createSelect({
+      options: MAP_TIME_PHASE_IDS.map((phaseId) => ({
+        value: phaseId,
+        label: localizer.t(`editor_time_phase_${phaseId}`),
+      })),
+      selected: settings.initialTimePhase ?? DEFAULT_MAP_TIME_PHASE,
+    })
+    initialTimeSelect.style.flex = '1 1 auto'
+    initialTimeSelect.style.width = '200px'
+    initialTimeRow.row.appendChild(initialTimeSelect)
+    leftPanel.appendChild(initialTimeRow.row)
+
+    const hint = document.createElement('div')
+    hint.textContent = localizer.t('editor_map_settings_initial_time_hint')
+    hint.style.cssText =
+      'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+    rightPanel.appendChild(hint)
+
+    const buttonRow = EditorUIHelper.createButtonRow()
+    const confirmBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_confirm'),
+      { primary: true }
+    )
+    const cancelBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_cancel')
+    )
+    buttonRow.appendChild(confirmBtn)
+    buttonRow.appendChild(cancelBtn)
+    footerPanel.appendChild(buttonRow)
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return null
+    }
+    return await new Promise<MapSettings | null>((resolve) => {
+      dialog.show(viewport)
+
+      const finish = (nextSettings: MapSettings | null) => {
+        close()
+        resolve(nextSettings)
+      }
+
+      confirmBtn.addEventListener('click', () => {
+        finish({
+          initialTimePhase:
+            initialTimeSelect.value as MapSettings['initialTimePhase'],
+        })
+      })
+
+      cancelBtn.addEventListener('click', () => finish(null))
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+          finish(null)
         }
       })
     })

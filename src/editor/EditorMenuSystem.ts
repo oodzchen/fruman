@@ -46,6 +46,7 @@ export interface EditorMenuSystemContext {
   onEnvironmentObjectSelected: (envType: MapEnvironmentObjectType) => void
   onPanelMenuAdd: () => void
   onPanelMenuPaste: () => void
+  onPanelMenuMapSettings: () => void
 }
 
 export class EditorMenuSystem {
@@ -55,6 +56,7 @@ export class EditorMenuSystem {
   private panelMenu: HTMLDivElement
   private panelMenuAddBtn: HTMLButtonElement
   private panelMenuPasteBtn: HTMLButtonElement
+  private panelMenuMapSettingsBtn: HTMLButtonElement
   private terrainSubmenu: HTMLDivElement
   private terrainContourSubmenu: HTMLDivElement
   private terrainFillSubmenu: HTMLDivElement
@@ -107,6 +109,9 @@ export class EditorMenuSystem {
     const panelMenu = document.getElementById('editorPanelMenu')
     const panelMenuPaste = document.getElementById('editorPanelMenuPaste')
     const panelMenuAdd = document.getElementById('editorPanelMenuAdd')
+    const panelMenuMapSettings = document.getElementById(
+      'editorPanelMenuMapSettings'
+    )
     const terrainSubmenu = document.getElementById('editorTerrainSubmenu')
     const terrainFillSubmenu = document.getElementById(
       'editorTerrainFillSubmenu'
@@ -206,6 +211,7 @@ export class EditorMenuSystem {
       !(panelMenu instanceof HTMLDivElement) ||
       !(panelMenuPaste instanceof HTMLButtonElement) ||
       !(panelMenuAdd instanceof HTMLButtonElement) ||
+      !(panelMenuMapSettings instanceof HTMLButtonElement) ||
       !(terrainSubmenu instanceof HTMLDivElement) ||
       !(terrainFillSubmenu instanceof HTMLDivElement) ||
       !(terrainContourSubmenu instanceof HTMLDivElement) ||
@@ -238,6 +244,7 @@ export class EditorMenuSystem {
     this.panelMenu = panelMenu
     this.panelMenuPasteBtn = panelMenuPaste
     this.panelMenuAddBtn = panelMenuAdd
+    this.panelMenuMapSettingsBtn = panelMenuMapSettings
     this.terrainSubmenu = terrainSubmenu
     this.terrainContourSubmenu = terrainContourSubmenu
     this.terrainFillSubmenu = terrainFillSubmenu
@@ -541,6 +548,12 @@ export class EditorMenuSystem {
       this.ctx.onPanelMenuPaste()
     })
 
+    this.panelMenuMapSettingsBtn.addEventListener('pointerdown', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      this.ctx.onPanelMenuMapSettings()
+    })
+
     this.panelMenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
@@ -670,6 +683,9 @@ export class EditorMenuSystem {
   updateLocalization() {
     this.panelMenuAddBtn.textContent = localizer.t('editor_panel_add_object')
     this.panelMenuPasteBtn.textContent = localizer.t('editor_object_menu_paste')
+    this.panelMenuMapSettingsBtn.textContent = localizer.t(
+      'editor_map_settings'
+    )
 
     this.editorObjectItems.forEach((item) => {
       const type = item.dataset.type
