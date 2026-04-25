@@ -38,6 +38,7 @@ import {
 import { resolveNpcBodyProfile } from '../npcBodyProfileUtils'
 import { buildDefaultNpcDropList, normalizeNpcDropList } from '../npcDropUtils'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
+import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
 import type {
   NormalAttackMovesetId,
   NpcAttackMove,
@@ -187,16 +188,14 @@ export class EditorMarkerManager {
     const playerData = this.playerMarkerData
     if (
       playerData &&
-      (playerData.bodyProfile?.textureDataUrl === textureDataUrl ||
-        playerData.bodyProfile?.surfaceDataUrl === textureDataUrl)
+      getCharacterBodyTextureDataUrl(playerData.bodyProfile) === textureDataUrl
     ) {
       this.markPlayerMarkerDirty(playerData.marker)
     }
     for (let i = 0; i < this.npcMarkers.length; i++) {
       const marker = this.npcMarkers[i].marker
       if (
-        marker.bodyProfile?.textureDataUrl !== textureDataUrl &&
-        marker.bodyProfile?.surfaceDataUrl !== textureDataUrl
+        getCharacterBodyTextureDataUrl(marker.bodyProfile) !== textureDataUrl
       ) {
         continue
       }
@@ -207,7 +206,7 @@ export class EditorMarkerManager {
   private getBodyTextureImage(
     profile: MapCharacterBodyProfile | undefined
   ): HTMLImageElement | null {
-    const textureDataUrl = profile?.textureDataUrl ?? profile?.surfaceDataUrl
+    const textureDataUrl = getCharacterBodyTextureDataUrl(profile)
     if (!textureDataUrl || textureDataUrl.length === 0) {
       return null
     }

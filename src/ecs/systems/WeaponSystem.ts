@@ -124,6 +124,7 @@ import {
   checkOBBvsOBB,
   checkOBBvsPolygon,
 } from '../OBBCollision'
+import type { SkeletalSegmentManager } from '../SkeletalSegmentManager'
 import type { SpatialHash } from '../SpatialHash'
 import type { SpineSegmentManager } from '../SpineSegmentManager'
 import { System } from '../System'
@@ -298,6 +299,7 @@ export class WeaponSystem extends System {
   private viewportHeight = 9
   private arrowPools?: ArrowPools
   private spineSegmentManager: SpineSegmentManager | null = null
+  private skeletalSegmentManager: SkeletalSegmentManager | null = null
   private onBreakableObstacleHit: ((hit: BreakableObstacleHit) => void) | null =
     null
 
@@ -400,6 +402,12 @@ export class WeaponSystem extends System {
     spineSegmentManager: SpineSegmentManager | null
   ): void {
     this.spineSegmentManager = spineSegmentManager
+  }
+
+  setSkeletalSegmentManager(
+    skeletalSegmentManager: SkeletalSegmentManager | null
+  ): void {
+    this.skeletalSegmentManager = skeletalSegmentManager
   }
 
   setTerrainImpactCallback(
@@ -5724,8 +5732,10 @@ export class WeaponSystem extends System {
       weapon.attackRadius !== 0
         ? weapon.attackRadius
         : this.getAttackRadius(attacker)
-    const segmentedQueryRadius =
-      this.spineSegmentManager?.getMaxActiveCoverageRadius() ?? 0
+    const segmentedQueryRadius = Math.max(
+      this.spineSegmentManager?.getMaxActiveCoverageRadius() ?? 0,
+      this.skeletalSegmentManager?.getMaxActiveCoverageRadius() ?? 0
+    )
 
     const nearbyEntities = this.spatialHash
       ? this.spatialHash.query(
@@ -5751,8 +5761,10 @@ export class WeaponSystem extends System {
         continue
 
       const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
-      const segmentedCoverageRadius =
-        this.spineSegmentManager?.getEntityCoverageRadius(target) ?? 0
+      const segmentedCoverageRadius = Math.max(
+        this.spineSegmentManager?.getEntityCoverageRadius(target) ?? 0,
+        this.skeletalSegmentManager?.getEntityCoverageRadius(target) ?? 0
+      )
       const collisionRadius =
         segmentedCoverageRadius > 0 ? segmentedCoverageRadius : targetRadius
 
@@ -5765,14 +5777,22 @@ export class WeaponSystem extends System {
 
       const isSegmentHit =
         segmentedCoverageRadius > 0 &&
-        this.spineSegmentManager?.testWeaponHit(
+        (this.spineSegmentManager?.testWeaponHit(
           target.id,
           weaponX,
           weaponY,
           weaponWidth,
           weaponHeight,
           weaponRotation
-        ) === true
+        ) === true ||
+          this.skeletalSegmentManager?.testWeaponHit(
+            target.id,
+            weaponX,
+            weaponY,
+            weaponWidth,
+            weaponHeight,
+            weaponRotation
+          ) === true)
 
       const isCircleHit =
         segmentedCoverageRadius <= 0 &&

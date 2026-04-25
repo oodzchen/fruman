@@ -46,6 +46,10 @@ import {
   drawHudWeaponSlot,
 } from '../renderer/HudWeaponSlotRenderer'
 import { renderWeapon } from '../renderer/WeaponRenderer'
+import {
+  getCharacterBodyTextureDataUrl,
+  normalizeSkeletalBodyProfile,
+} from '../skeletalBodyProfile'
 import type {
   NormalAttackMovesetId,
   NpcAttackMove,
@@ -251,7 +255,7 @@ export class EditorPropertiesPanel {
     profile: MapCharacterBodyProfile | undefined,
     onReady?: () => void
   ): HTMLImageElement | null {
-    const textureDataUrl = profile?.textureDataUrl ?? profile?.surfaceDataUrl
+    const textureDataUrl = getCharacterBodyTextureDataUrl(profile)
     if (!textureDataUrl || textureDataUrl.length === 0) {
       return null
     }
@@ -1080,7 +1084,20 @@ export class EditorPropertiesPanel {
 
       // === 外观 Tab ===
       const defaultDiameter = options.data.radius * 2
-      let bodyProfile = options.data.bodyProfile
+      let bodyProfile = normalizeSkeletalBodyProfile(options.data.bodyProfile)
+      options.data.bodyProfile = bodyProfile
+      if (options.marker) {
+        options.marker.bodyProfile = bodyProfile
+      }
+      const assignBodyProfile = (
+        nextBodyProfile: MapCharacterBodyProfile | undefined
+      ) => {
+        bodyProfile = normalizeSkeletalBodyProfile(nextBodyProfile)
+        options.data.bodyProfile = bodyProfile
+        if (options.marker) {
+          options.marker.bodyProfile = bodyProfile
+        }
+      }
       const bodyWidthDefault =
         getCharacterBodyProfileWidth(bodyProfile) > 0
           ? getCharacterBodyProfileWidth(bodyProfile)
@@ -1147,7 +1164,7 @@ export class EditorPropertiesPanel {
         if (nextBodyProfile === undefined) {
           return
         }
-        bodyProfile = nextBodyProfile ?? undefined
+        assignBodyProfile(nextBodyProfile ?? undefined)
         if (bodyProfile) {
           const nextProfileWidth = getCharacterBodyProfileWidth(bodyProfile)
           const nextProfileHeight = getCharacterBodyProfileHeight(bodyProfile)
@@ -1164,15 +1181,30 @@ export class EditorPropertiesPanel {
             options.data.color
           )
         }
-        if (options.marker) {
-          options.marker.bodyProfile = bodyProfile
-        }
-        options.data.bodyProfile = bodyProfile
         updateCharacterVisualFromInputs()
         renderCharacterPreview()
       })
       bodyDrawRow.row.appendChild(bodyDrawBtn)
       appearancePanel.appendChild(bodyDrawRow.row)
+
+      const skeletalRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_body_drawer_skeletal_mode')
+      )
+      const skeletalCheckbox = document.createElement('input')
+      skeletalCheckbox.type = 'checkbox'
+      skeletalCheckbox.checked = bodyProfile?.skeletalMode === true
+      skeletalCheckbox.style.cssText = 'cursor:pointer;width:14px;height:14px;'
+      skeletalCheckbox.addEventListener('change', () => {
+        if (!bodyProfile) return
+        assignBodyProfile({
+          ...bodyProfile,
+          skeletalMode: skeletalCheckbox.checked,
+        })
+        updateCharacterVisualFromInputs()
+        renderCharacterPreview()
+      })
+      skeletalRow.row.appendChild(skeletalCheckbox)
+      appearancePanel.appendChild(skeletalRow.row)
 
       const mainBinding =
         options.weaponBindings.find((binding) => binding.slot === 'main') ??

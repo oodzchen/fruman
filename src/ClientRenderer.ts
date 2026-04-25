@@ -60,6 +60,7 @@ import {
   getSpinePreviewMatchedScale,
 } from './renderer/SpineBodyManager'
 import { renderWeapon as renderWeaponShape } from './renderer/WeaponRenderer'
+import { getCharacterBodyTextureDataUrl } from './skeletalBodyProfile'
 import { getGrapeChargeRangeScale } from './weaponTypeUtils'
 import {
   ENTITY_STRIDE,
@@ -1609,7 +1610,7 @@ export class ClientRenderer {
       bodyProfileIndex
     )
     const bodyTexture = this.getCharacterBodyTexture(
-      bodyProfile?.textureDataUrl ?? bodyProfile?.surfaceDataUrl
+      getCharacterBodyTextureDataUrl(bodyProfile)
     )
     const profileWidthPx =
       getCharacterBodyProfileWidth(bodyProfile) > 0
@@ -1667,8 +1668,7 @@ export class ClientRenderer {
         '#000000',
         String(bodyProfileIndex),
         [
-          bodyProfile?.textureDataUrl ?? '',
-          bodyProfile?.surfaceDataUrl ?? '',
+          getCharacterBodyTextureDataUrl(bodyProfile),
           bodyProfile?.layers?.length ?? 0,
         ].join('|')
       )

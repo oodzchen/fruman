@@ -1,6 +1,7 @@
 import { buildCharacterBodyCollisionPolygons } from '../characterBodyCollision'
 import { DEFAULT_BODY_LINEAR_DAMPING } from '../constants'
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
+import { normalizeSkeletalBodyProfile } from '../skeletalBodyProfile'
 import type { MainModule, b2ShapeId, b2WorldId } from '../types'
 
 export interface CharacterBodyPhysicsConfig {
@@ -55,6 +56,7 @@ export function createCharacterPhysicsBody(
   shapeDef.filter.maskBits = config.maskBits
 
   const shapeIds: b2ShapeId[] = []
+  const normalizedBodyProfile = normalizeSkeletalBodyProfile(config.bodyProfile)
   const collisionPolygons = config.segmented
     ? // Spine 分段角色先用轻量代理框完成刚体创建，
       // 随后会由 SpineSegmentManager 立刻替换为动画驱动的 runtime 多边形。
@@ -71,7 +73,7 @@ export function createCharacterPhysicsBody(
         ]
       : null
     : buildCharacterBodyCollisionPolygons(
-        config.bodyProfile,
+        normalizedBodyProfile,
         config.radius,
         config.bodyHeight
       )

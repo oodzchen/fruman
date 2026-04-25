@@ -35,6 +35,7 @@ import type {
   SavePlayerState,
   SaveWeaponSlotState,
 } from './saveTypes'
+import { normalizeSkeletalBodyProfile } from './skeletalBodyProfile'
 import {
   createDefaultTerrainChunkSiteJitter,
   getTerrainChunkMaterialCodes,
@@ -651,7 +652,7 @@ function normalizeBodyProfile(
   profile: MapCharacterBodyProfile | undefined
 ): MapCharacterBodyProfile | undefined {
   if (!profile || profile.points.length < 6) {
-    return profile
+    return normalizeSkeletalBodyProfile(profile)
   }
 
   let minX = profile.points[0]
@@ -675,7 +676,7 @@ function normalizeBodyProfile(
     typeof eyeY !== 'number' ||
     !Number.isFinite(eyeY)
   ) {
-    return profile
+    return normalizeSkeletalBodyProfile(profile)
   }
 
   const looksLikeLegacyAbsoluteEye =
@@ -688,7 +689,7 @@ function normalizeBodyProfile(
     minY < 0 &&
     maxY > 0
   if (!looksLikeLegacyAbsoluteEye) {
-    return profile
+    return normalizeSkeletalBodyProfile(profile)
   }
 
   const currentOverflow =
@@ -709,14 +710,14 @@ function normalizeBodyProfile(
         : 0)
 
   if (shiftedOverflow >= currentOverflow) {
-    return profile
+    return normalizeSkeletalBodyProfile(profile)
   }
 
-  return {
+  return normalizeSkeletalBodyProfile({
     ...profile,
     eyeX: shiftedEyeX,
     eyeY: shiftedEyeY,
-  }
+  })
 }
 
 function normalizeMapNpc(npc: MapNpc): MapNpc {

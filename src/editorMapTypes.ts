@@ -199,6 +199,45 @@ export interface MapCharacterBodyProfile {
   spineScale?: number
   spineMode?: 'replace' | 'overlay'
   spineSegmentedCollision?: boolean
+  skeletalMode?: boolean
+  boneSegments?: BoneSegment[]
+  skeletalSurfaceDataUrl?: string
+  skeletalSurfaceOffsetX?: number
+  skeletalSurfaceOffsetY?: number
+  skeletalSurfaceWidth?: number
+  skeletalSurfaceHeight?: number
+}
+
+export type BonePart =
+  | 'body'
+  | 'head'
+  | 'upperArmR'
+  | 'forearmR'
+  | 'handR'
+  | 'upperArmL'
+  | 'forearmL'
+  | 'handL'
+  | 'thighR'
+  | 'lowerLegR'
+  | 'footR'
+  | 'thighL'
+  | 'lowerLegL'
+  | 'footL'
+
+export interface BoneSegment {
+  part: BonePart
+  length: number
+  width: number
+  shapeDataUrl?: string
+  shapeOffsetX?: number
+  shapeOffsetY?: number
+  shapeWidth?: number
+  shapeHeight?: number
+  pivotX?: number
+  pivotY?: number
+  tipX?: number
+  tipY?: number
+  boundaryShapes?: MapCharacterBodyCollisionShape[]
 }
 
 export type MapCharacterBodyPresetId =

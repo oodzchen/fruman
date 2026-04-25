@@ -294,13 +294,20 @@ export function isValidCharacterBodyProfile(
 }
 
 /**
- * 判断 profile 是否需要被渲染侧识别（有自定义多边形或 spine 动画）。
- * 与 isValidCharacterBodyProfile 不同，此函数允许 points 为空（spine 专用 profile）。
+ * 判断 profile 是否需要被渲染侧识别（自定义多边形、spine 动画或骨骼体型）。
+ * 与 isValidCharacterBodyProfile 不同，此函数允许 points 为空。
  */
 export function hasRenderableBodyProfile(
   profile: MapCharacterBodyProfile | null | undefined
 ): profile is MapCharacterBodyProfile {
-  return !!profile && (profile.points.length >= 6 || !!profile.spineKey)
+  return (
+    !!profile &&
+    (profile.points.length >= 6 ||
+      !!profile.spineKey ||
+      (profile.skeletalMode === true &&
+        !!profile.boneSegments &&
+        profile.boneSegments.length > 0))
+  )
 }
 
 export function getCharacterBodyColor(

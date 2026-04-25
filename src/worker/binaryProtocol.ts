@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 90
+export const ENTITY_STRIDE = 91
 
 export const OFFSETS = {
   ID: 0,
@@ -91,6 +91,7 @@ export const OFFSETS = {
   SKILL_MAX_CHARGES: 87, // 技能最大使用次数
   STATS_DAMAGE_TEXT_VALUE: 88, // 当帧需显示的受击数值
   STATS_DAMAGE_TEXT_TOKEN: 89, // 受击事件序号，用于前端去重
+  SKELETAL_GAIT_PHASE: 90, // 骨骼身体步态相位，保持渲染和碰撞同步
 }
 
 export const FLAGS = {

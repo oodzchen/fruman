@@ -12,6 +12,7 @@ import type {
   MapCharacterBodyProfile,
   MapCharacterBodyVisualLayer,
 } from '../editorMapTypes'
+import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
 import type { RenderContext2D } from './RenderContext2D'
 
 type BodyPathContext =
@@ -349,12 +350,8 @@ function areBodyVisualAssetsReady(
   if (!bodyProfile) {
     return true
   }
-  if (bodyProfile.textureDataUrl) {
-    if (!isRenderableTextureSource(textureImage)) {
-      return false
-    }
-  } else if (
-    bodyProfile.surfaceDataUrl &&
+  if (
+    getCharacterBodyTextureDataUrl(bodyProfile).length > 0 &&
     !isRenderableTextureSource(textureImage)
   ) {
     return false
@@ -433,9 +430,44 @@ function getBodyContentBounds(
   }
 
   const canRenderTexture = isRenderableTextureSource(textureImage)
+  const hasSkeletalSurface =
+    !!bodyProfile?.skeletalMode &&
+    !!bodyProfile?.skeletalSurfaceDataUrl &&
+    canRenderTexture
   const hasLayeredTexture = !!bodyProfile?.textureDataUrl && canRenderTexture
   const hasLegacySurfaceTexture =
-    !hasLayeredTexture && !!bodyProfile?.surfaceDataUrl && canRenderTexture
+    !hasSkeletalSurface &&
+    !hasLayeredTexture &&
+    !!bodyProfile?.surfaceDataUrl &&
+    canRenderTexture
+  if (hasSkeletalSurface && bodyProfile) {
+    const surfaceWidthPx =
+      typeof bodyProfile.skeletalSurfaceWidth === 'number' &&
+      bodyProfile.skeletalSurfaceWidth > 0
+        ? bodyProfile.skeletalSurfaceWidth * bodyWidthPx
+        : bodyWidthPx
+    const surfaceHeightPx =
+      typeof bodyProfile.skeletalSurfaceHeight === 'number' &&
+      bodyProfile.skeletalSurfaceHeight > 0
+        ? bodyProfile.skeletalSurfaceHeight * bodyHeightResolvedPx
+        : bodyHeightResolvedPx
+    const surfaceOffsetXPx =
+      typeof bodyProfile.skeletalSurfaceOffsetX === 'number'
+        ? bodyProfile.skeletalSurfaceOffsetX * bodyWidthPx * facing
+        : 0
+    const surfaceOffsetYPx =
+      typeof bodyProfile.skeletalSurfaceOffsetY === 'number'
+        ? bodyProfile.skeletalSurfaceOffsetY * bodyHeightResolvedPx
+        : 0
+    const surfaceMinX = surfaceOffsetXPx - surfaceWidthPx * 0.5
+    const surfaceMaxX = surfaceOffsetXPx + surfaceWidthPx * 0.5
+    const surfaceMinY = surfaceOffsetYPx - surfaceHeightPx * 0.5
+    const surfaceMaxY = surfaceOffsetYPx + surfaceHeightPx * 0.5
+    if (surfaceMinX < bounds.minX) bounds.minX = surfaceMinX
+    if (surfaceMaxX > bounds.maxX) bounds.maxX = surfaceMaxX
+    if (surfaceMinY < bounds.minY) bounds.minY = surfaceMinY
+    if (surfaceMaxY > bounds.maxY) bounds.maxY = surfaceMaxY
+  }
   if (hasLegacySurfaceTexture) {
     const surfaceWidthPx =
       typeof bodyProfile?.surfaceWidth === 'number' &&
@@ -546,9 +578,17 @@ function drawBodyInternal(
   const surfaceScaleY = (bodyHalfHeightPx * 2) / profileReferenceHeight
   const mirrorBody = !!bodyProfile && bodyProfile.points.length >= 6
   const canRenderTexture = isRenderableTextureSource(textureImage)
-  const hasLayeredTexture = !!bodyProfile?.textureDataUrl && canRenderTexture
+  const hasSkeletalSurface =
+    !!bodyProfile?.skeletalMode &&
+    !!bodyProfile?.skeletalSurfaceDataUrl &&
+    canRenderTexture
+  const hasLayeredTexture =
+    !hasSkeletalSurface && !!bodyProfile?.textureDataUrl && canRenderTexture
   const hasLegacySurfaceTexture =
-    !hasLayeredTexture && !!bodyProfile?.surfaceDataUrl && canRenderTexture
+    !hasSkeletalSurface &&
+    !hasLayeredTexture &&
+    !!bodyProfile?.surfaceDataUrl &&
+    canRenderTexture
   const surfaceWidthPx =
     typeof bodyProfile?.surfaceWidth === 'number' &&
     bodyProfile.surfaceWidth > 0
@@ -573,6 +613,25 @@ function drawBodyInternal(
   ctx.save()
   if (mirrorBody && facingDirection < 0) {
     ctx.scale(-1, 1)
+  }
+
+  // Skeletal mode: render bone shape composite, skip static body shape
+  if (hasSkeletalSurface && bodyProfile) {
+    const skW = bodyProfile.skeletalSurfaceWidth
+      ? bodyProfile.skeletalSurfaceWidth * bodyWidthPx
+      : bodyWidthPx
+    const skH = bodyProfile.skeletalSurfaceHeight
+      ? bodyProfile.skeletalSurfaceHeight * bodyHeightResolvedPx
+      : bodyHeightResolvedPx
+    const skOX = bodyProfile.skeletalSurfaceOffsetX
+      ? bodyProfile.skeletalSurfaceOffsetX * bodyWidthPx
+      : 0
+    const skOY = bodyProfile.skeletalSurfaceOffsetY
+      ? bodyProfile.skeletalSurfaceOffsetY * bodyHeightResolvedPx
+      : 0
+    ctx.drawImage(textureImage, skOX - skW * 0.5, skOY - skH * 0.5, skW, skH)
+    ctx.restore()
+    return
   }
 
   if (!hasLegacySurfaceTexture) {

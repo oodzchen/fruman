@@ -1,4 +1,9 @@
-import { SetupPoseBoundsProvider, Spine } from '@esotericsoftware/spine-pixi-v8'
+import {
+  Physics,
+  SetupPoseBoundsProvider,
+  type SkeletonData,
+  Spine,
+} from '@esotericsoftware/spine-pixi-v8'
 import { Assets } from 'pixi.js'
 
 interface SpineRegistration {
@@ -12,7 +17,15 @@ interface SpineRegistration {
 }
 
 const entries = new Map<string, SpineRegistration>()
+const proceduralEntries = new Map<
+  string,
+  {
+    skeletonData: SkeletonData
+    pool: Spine[]
+  }
+>()
 const previewCanvases = new Map<string, HTMLCanvasElement>()
+const PROCEDURAL_SKELETON_SCALE_Y = -1
 
 export async function loadSpineAssets(
   skeletonKey: string,
@@ -72,14 +85,61 @@ export function acquireSpine(skeletonKey: string): Spine | null {
   return reg.pool.pop() ?? createSpineInstance(reg)
 }
 
+export function acquireProceduralSpine(
+  skeletonKey: string,
+  skeletonData: SkeletonData
+): Spine {
+  let reg = proceduralEntries.get(skeletonKey)
+  if (!reg) {
+    reg = {
+      skeletonData,
+      pool: [],
+    }
+    proceduralEntries.set(skeletonKey, reg)
+  }
+
+  const spine =
+    reg.pool.pop() ??
+    new Spine({
+      skeletonData: reg.skeletonData,
+      autoUpdate: false,
+      boundsProvider: new SetupPoseBoundsProvider(),
+    })
+  spine.autoUpdate = false
+  // spine-pixi sets Skeleton.yDown globally; procedural data is already Y-down.
+  spine.skeleton.scaleY = PROCEDURAL_SKELETON_SCALE_Y
+  spine.skeleton.updateWorldTransform(Physics.none)
+  return spine
+}
+
 export function releaseSpine(skeletonKey: string, spine: Spine): void {
   const reg = entries.get(skeletonKey)
-  if (!reg) return
+  if (reg) {
+    spine.visible = false
+    spine.alpha = 1
+    spine.position.set(0, 0)
+    spine.scale.set(1, 1)
+    if (spine.parent) {
+      spine.parent.removeChild(spine)
+    }
+    reg.pool.push(spine)
+    return
+  }
+
+  const proceduralReg = proceduralEntries.get(skeletonKey)
+  if (!proceduralReg) return
   spine.visible = false
+  spine.alpha = 1
+  spine.position.set(0, 0)
+  spine.scale.set(1, 1)
+  spine.state.clearTracks()
+  spine.skeleton.scaleY = PROCEDURAL_SKELETON_SCALE_Y
+  spine.skeleton.setToSetupPose()
+  spine.skeleton.updateWorldTransform(Physics.none)
   if (spine.parent) {
     spine.parent.removeChild(spine)
   }
-  reg.pool.push(spine)
+  proceduralReg.pool.push(spine)
 }
 
 export function storeSpinePreview(

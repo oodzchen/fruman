@@ -16,7 +16,6 @@ import {
   getCharacterEyeOffsetY,
   getNpcBodyProfileIndex,
   hasRenderableBodyProfile,
-  isValidCharacterBodyProfile,
 } from '../characterBodyProfile'
 import {
   CHARACTER_DEFAULT_DATA,
@@ -71,6 +70,7 @@ import {
 } from '../ecs/Component'
 import { componentRegistry } from '../ecs/ComponentRegistry'
 import type { Entity } from '../ecs/Entity'
+import { SkeletalSegmentManager } from '../ecs/SkeletalSegmentManager'
 import { SpatialHash } from '../ecs/SpatialHash'
 import { SpineSegmentManager } from '../ecs/SpineSegmentManager'
 import { World } from '../ecs/World'
@@ -246,6 +246,7 @@ let arrowPools: ArrowPools
 let sunPickupSystem: SunPickupSystem
 let expOrbSystem: ExpOrbSystem
 let spineSegmentManager: SpineSegmentManager
+let skeletalSegmentManager: SkeletalSegmentManager
 
 const checkpointActivatedMessage = { type: 'checkpoint_activated' } as const
 const checkpointSleepMessage = { type: 'checkpoint_sleep' } as const
@@ -1160,6 +1161,7 @@ function initializeSystems() {
   movementSystem = new MovementSystem(box2d)
   grappleSystem = new GrappleSystem(world, box2d, worldId)
   spineSegmentManager = new SpineSegmentManager(box2d, worldId)
+  skeletalSegmentManager = new SkeletalSegmentManager(box2d, worldId)
   weaponSystem = new WeaponSystem(box2d, statsSystem)
   arrowSystem = new ArrowSystem(box2d, statsSystem)
   arrowPools = new ArrowPools()
@@ -1260,11 +1262,13 @@ function initializeSystems() {
   npcAISystem.setEntityLookup(entityLookup)
   movementSystem.setEntityLookup(entityLookup)
   spineSegmentManager.setEntityLookup(entityLookup)
+  skeletalSegmentManager.setEntityLookup(entityLookup)
   targetingSystem.setEntityLookup(entityLookup)
   targetingSystem.setSpatialHash(spatialHash)
   weaponSystem.setEntityLookup(entityLookup)
   followSystem.setEntityLookup(entityLookup)
   weaponSystem.setSpineSegmentManager(spineSegmentManager)
+  weaponSystem.setSkeletalSegmentManager(skeletalSegmentManager)
 
   for (const collisionData of spineCollisionDataByNpcType.values()) {
     spineSegmentManager.setCollisionData(collisionData)
@@ -1280,6 +1284,7 @@ function initializeSystems() {
   world.addSystem(movementSystem)
   world.addSystem(grappleSystem)
   world.addSystem(spineSegmentManager)
+  world.addSystem(skeletalSegmentManager)
   world.addSystem(physicsSystem)
   world.addSystem(weaponSystem)
   world.addSystem(arrowSystem)
@@ -1302,6 +1307,7 @@ function initializeSystems() {
   arrowSystem.setArrowPools(arrowPools)
   physicsSystem.addAfterStepCallback(() => {
     spineSegmentManager.syncAfterPhysics()
+    skeletalSegmentManager.syncAfterPhysics()
   })
   syncWorkerPerfSystemBuffers()
 }
@@ -1344,6 +1350,9 @@ function createGameNpc(
   })
   if (segmentedCollision) {
     spineSegmentManager.createSegments(created, npcType)
+  }
+  if (created.render?.bodyProfile?.skeletalMode) {
+    skeletalSegmentManager.createSegments(created)
   }
   return created
 }
@@ -3512,7 +3521,7 @@ function createPlayerAndWeapon(
   )
   if (playerEntity.render) {
     playerEntity.render.bodyProfile = playerBodyProfile ?? null
-    playerEntity.render.bodyProfileIndex = isValidCharacterBodyProfile(
+    playerEntity.render.bodyProfileIndex = hasRenderableBodyProfile(
       playerBodyProfile
     )
       ? PLAYER_BODY_PROFILE_INDEX
@@ -3525,6 +3534,9 @@ function createPlayerAndWeapon(
       playerBodyProfile,
       ''
     )
+  }
+  if (playerEntity.render?.bodyProfile?.skeletalMode) {
+    skeletalSegmentManager.createSegments(playerEntity)
   }
 
   if (playerEntity.stats && playerProps) {
@@ -5083,6 +5095,7 @@ function cleanupDestroyedEntities() {
     }
     if (!isPlayer && (entity.stats?.isDead || entity.stats?.isVanished)) {
       spineSegmentManager.destroySegments(entity.id)
+      skeletalSegmentManager.destroySegments(entity.id)
     }
     if (entity.stats?.isVanished && !isPlayer) {
       if (npcEntity && npcEntity.id === entity.id) {
@@ -5434,6 +5447,10 @@ function sendState() {
     stateBuffer[offset + OFFSETS.MOVE_DIR] = e.input
       ? e.input.lastMoveDirection
       : 1
+    stateBuffer[offset + OFFSETS.SKELETAL_GAIT_PHASE] = e.render?.bodyProfile
+      ?.skeletalMode
+      ? skeletalSegmentManager.getEntityGaitPhase(e.id)
+      : 0
     stateBuffer[offset + OFFSETS.ROLL_ANGLE] = e.movement
       ? e.movement.rollAngle
       : 0
@@ -5814,7 +5831,8 @@ function sendState() {
   stateMessage.timeScale1000 = timeScale1000
   const hasSpineCollisionDebug =
     DEBUG_DRAW_PLAYER_COLLISION_SHAPE &&
-    spineSegmentManager.getMaxActiveCoverageRadius() > 0
+    (spineSegmentManager.getMaxActiveCoverageRadius() > 0 ||
+      skeletalSegmentManager.getMaxActiveCoverageRadius() > 0)
   const shouldSendDebug =
     DEBUG_DRAW_SENSORS ||
     DEBUG_DRAW_SOUND ||
@@ -5835,7 +5853,10 @@ function sendState() {
         : emptySoundListeners
       debugMessage.camera = DEBUG_DRAW_CAMERA ? debugCameraData : null
       debugMessage.spineCollisions = hasSpineCollisionDebug
-        ? spineSegmentManager.collectDebugCollisionData()
+        ? [
+            ...spineSegmentManager.collectDebugCollisionData(),
+            ...skeletalSegmentManager.collectDebugCollisionData(),
+          ]
         : emptySpineCollisions
       hadSpineCollisionDebugLastFrame = hasSpineCollisionDebug
       ctx.postMessage(debugMessage)
@@ -5858,7 +5879,10 @@ function sendState() {
       : emptySoundListeners
     debugMessage.camera = DEBUG_DRAW_CAMERA ? debugCameraData : null
     debugMessage.spineCollisions = hasSpineCollisionDebug
-      ? spineSegmentManager.collectDebugCollisionData()
+      ? [
+          ...spineSegmentManager.collectDebugCollisionData(),
+          ...skeletalSegmentManager.collectDebugCollisionData(),
+        ]
       : emptySpineCollisions
     hadSpineCollisionDebugLastFrame = hasSpineCollisionDebug
     ctx.postMessage(debugMessage)
@@ -5875,6 +5899,9 @@ function restart() {
   if (!world || !box2d) return
   if (spineSegmentManager) {
     spineSegmentManager.clear()
+  }
+  if (skeletalSegmentManager) {
+    skeletalSegmentManager.clear()
   }
   hadSpineCollisionDebugLastFrame = false
   world.clear()

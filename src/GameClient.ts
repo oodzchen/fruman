@@ -63,6 +63,7 @@ import {
 } from './renderer/SpineBodyManager'
 import { WorldLightingController } from './renderer/WorldLightingController'
 import type { SaveData } from './saveTypes'
+import { normalizeCharacterBodyMapProfiles } from './skeletalBodyProfile'
 import { buildSpineCollisionKeyframes } from './spineCollisionKeyframes'
 import { getDefaultMap } from './storage'
 import { TerrainCollisionBuilder } from './terrain/TerrainCollisionBuilder'
@@ -748,6 +749,7 @@ export class GameClient {
   }
 
   applyMapPreview(map: EditorMapData) {
+    const normalizedMap = normalizeCharacterBodyMapProfiles(map) ?? map
     this.setEditorPreview(false)
     this.previewActive = true
     this.previewAwaitStateRevision = this.workerStateRevision + 1
@@ -757,26 +759,30 @@ export class GameClient {
     this.previewTrackedCameraY = 0
     this.previewTrackedZoom = 1000
     this.setPreviewExitVisible(true)
-    this.currentMapData = map
-    this.applyMapInitialTimeCycle(map)
+    this.currentMapData = normalizedMap
+    this.applyMapInitialTimeCycle(normalizedMap)
     this.sleepTransitionPhase = 'idle'
     this.sleepTransitionElapsedMs = 0
     this.sleepTransitionMidpointHandled = false
     this.updateSleepOverlay()
-    this.staticRenderLayers = collectStaticRenderLayers(map)
-    this.renderer.setCharacterBodyMap(map)
-    this.lightingController.setMap(map)
+    this.staticRenderLayers = collectStaticRenderLayers(normalizedMap)
+    this.renderer.setCharacterBodyMap(normalizedMap)
+    this.lightingController.setMap(normalizedMap)
     this.worldRenderer.preloadCheckpointTextures()
-    this.syncStaticScene(map)
+    this.syncStaticScene(normalizedMap)
 
-    if (map.camera && map.camera.zoom > 0 && Number.isFinite(map.camera.zoom)) {
-      this.targetZoom = map.camera.zoom
-      this.renderZoom = map.camera.zoom
+    if (
+      normalizedMap.camera &&
+      normalizedMap.camera.zoom > 0 &&
+      Number.isFinite(normalizedMap.camera.zoom)
+    ) {
+      this.targetZoom = normalizedMap.camera.zoom
+      this.renderZoom = normalizedMap.camera.zoom
     }
 
     this.worker.postMessage({
       type: 'map_preview',
-      map,
+      map: normalizedMap,
     } as MainToWorkerMessage)
   }
 
@@ -863,29 +869,31 @@ export class GameClient {
       }
     } else if (msg.type === 'map_data') {
       const isRuntimeTerrainUpdate = msg.runtimeTerrainUpdate === true
-      this.currentMapData = msg.map
+      const normalizedMap =
+        normalizeCharacterBodyMapProfiles(msg.map) ?? msg.map
+      this.currentMapData = normalizedMap
       if (isRuntimeTerrainUpdate) {
         this.staticSceneTextureCacheDisabled = true
         this.worldRenderer.invalidateStaticMeshCaches()
       } else {
         this.staticSceneTextureCacheDisabled = false
       }
-      this.staticRenderLayers = collectStaticRenderLayers(msg.map)
+      this.staticRenderLayers = collectStaticRenderLayers(normalizedMap)
       if (!isRuntimeTerrainUpdate) {
         this.renderer.resetPlayerHudState()
-        this.renderer.setCharacterBodyMap(msg.map)
-        this.lightingController.setMap(msg.map)
+        this.renderer.setCharacterBodyMap(normalizedMap)
+        this.lightingController.setMap(normalizedMap)
         this.worldRenderer.preloadCheckpointTextures()
       }
-      this.syncStaticScene(msg.map)
+      this.syncStaticScene(normalizedMap)
       if (
         !isRuntimeTerrainUpdate &&
-        msg.map.camera &&
-        msg.map.camera.zoom > 0 &&
-        Number.isFinite(msg.map.camera.zoom)
+        normalizedMap.camera &&
+        normalizedMap.camera.zoom > 0 &&
+        Number.isFinite(normalizedMap.camera.zoom)
       ) {
-        this.targetZoom = msg.map.camera.zoom
-        this.renderZoom = msg.map.camera.zoom
+        this.targetZoom = normalizedMap.camera.zoom
+        this.renderZoom = normalizedMap.camera.zoom
       }
     } else if (msg.type === 'save_response') {
       this.handleSaveResponse(msg)

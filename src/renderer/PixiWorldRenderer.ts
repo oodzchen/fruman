@@ -24,6 +24,7 @@ import {
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
 import { getPublicAssetUrl } from '../publicAssetUrl'
 import { RENDER_LAYER_SKY } from '../renderLayers'
+import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
 import {
   ENTITY_STRIDE,
   FLAGS,
@@ -43,6 +44,18 @@ import {
   PARTICLE_TYPE_SPARK,
 } from './ParticleSystem'
 import {
+  type GaitState,
+  acquireGaitState,
+  releaseGaitState,
+  updateSkeletalPose,
+} from './SkeletalPoseDriver'
+import {
+  areSkeletalBoneShapeTexturesReady,
+  buildSkeletalSpineCacheKey,
+  getOrBuildSkeletalSpineDefinition,
+} from './SkeletalSpineBuilder'
+import {
+  acquireProceduralSpine,
   acquireSpine,
   getSpineBoundsAtScale,
   getSpinePreviewMatchedScale,
@@ -105,6 +118,7 @@ const SOUND_DEBUG_RANGE_COLOR = 0xffcc80
 const SOUND_DEBUG_LISTENER_ALPHA = 0.45
 const SOUND_DEBUG_RANGE_ALPHA_MULTIPLIER = 0.5
 const ENTITY_GROUND_SORT_SCALE = 16
+const SKELETAL_EDITOR_PPM = 128
 const STANDALONE_WEAPON_SORT_OFFSET = -1
 const CHECKPOINT_SORT_OFFSET = -10000
 const SUN_PICKUP_SORT_OFFSET = -5000
@@ -157,6 +171,8 @@ interface EntityView {
   spineKey: string
   spineAnimState: string
   weaponChildIndex: number
+  skeletalGait: GaitState | null
+  skeletalProfileKey: string
 }
 
 interface DamageTextView {
@@ -388,6 +404,7 @@ export class PixiWorldRenderer {
   private perfSampleCount = 0
   private perfVisibleEntityCount = 0
   private frameId = 0
+  private currentFrameDeltaMs = 0
   private pruneSkipCounter = 0
   private readonly reusableShakeOffset = { x: 0, y: 0 }
   // 视差相机参数（每帧由 GameClient 更新）
@@ -584,6 +601,7 @@ export class PixiWorldRenderer {
 
   render(renderer: ClientRenderer, deltaMs: number): void {
     this.frameId += 1
+    this.currentFrameDeltaMs = deltaMs
     this.checkpointTexGenUs = 0
     let sectionStartMs = performance.now()
     this.updateBucketParallax()
@@ -875,6 +893,8 @@ export class PixiWorldRenderer {
       spineKey: '',
       spineAnimState: '',
       weaponChildIndex: -1,
+      skeletalGait: null,
+      skeletalProfileKey: '',
     }
 
     this.entityViews.set(id, view)
@@ -1096,6 +1116,11 @@ export class PixiWorldRenderer {
       view.spineAnimState = ''
       this.activeSpineViews.delete(view)
     }
+    if (view.skeletalGait) {
+      releaseGaitState(view.skeletalGait)
+      view.skeletalGait = null
+      view.skeletalProfileKey = ''
+    }
     if (view.root.parent) {
       view.root.parent.removeChild(view.root)
     }
@@ -1188,25 +1213,43 @@ export class PixiWorldRenderer {
     if (!isStandaloneWeapon) {
       const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
       const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
-      const spineKey = bodyProfile?.spineKey ?? ''
-      this.updateSpineBody(
-        view,
-        renderer,
-        buf,
-        offset,
-        flags,
-        alpha,
-        bodyProfile,
-        spineKey
-      )
-      if (!spineKey || bodyProfile?.spineMode === 'overlay') {
-        this.updateBodySprite(view, renderer, buf, offset, flags, alpha)
+
+      if (bodyProfile?.skeletalMode) {
+        const renderedSkeletalBody = this.updateSkeletalBody(
+          view,
+          renderer,
+          buf,
+          offset,
+          alpha,
+          bodyProfile
+        )
+        if (!renderedSkeletalBody) {
+          this.updateBodySprite(view, renderer, buf, offset, flags, alpha)
+        }
+        if (DEBUG_DRAW_PLAYER_COLLISION_SHAPE) {
+          this.updateCollisionDebug(view, renderer, buf, offset, entityId)
+        }
       } else {
-        hideSprite(view.bodySprite)
-      }
-      if (DEBUG_DRAW_PLAYER_COLLISION_SHAPE) {
-        this.updateCollisionDebug(view, renderer, buf, offset, entityId)
-      }
+        const spineKey = bodyProfile?.spineKey ?? ''
+        this.updateSpineBody(
+          view,
+          renderer,
+          buf,
+          offset,
+          flags,
+          alpha,
+          bodyProfile,
+          spineKey
+        )
+        if (!spineKey || bodyProfile?.spineMode === 'overlay') {
+          this.updateBodySprite(view, renderer, buf, offset, flags, alpha)
+        } else {
+          hideSprite(view.bodySprite)
+        }
+        if (DEBUG_DRAW_PLAYER_COLLISION_SHAPE) {
+          this.updateCollisionDebug(view, renderer, buf, offset, entityId)
+        }
+      } // end else (non-skeletal branch)
     } else {
       hideSprite(view.bodySprite)
       this.clearSpineBody(view)
@@ -1498,6 +1541,86 @@ export class PixiWorldRenderer {
     this.activeSpineViews.delete(view)
   }
 
+  private updateSkeletalBody(
+    view: EntityView,
+    renderer: ClientRenderer,
+    buf: Float32Array,
+    offset: number,
+    alpha: number,
+    bodyProfile: MapCharacterBodyProfile
+  ): boolean {
+    hideSprite(view.bodySprite)
+
+    const radiusPx = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    if (!(radiusPx > 0)) {
+      this.clearSpineBody(view)
+      return false
+    }
+
+    if (!areSkeletalBoneShapeTexturesReady(bodyProfile.boneSegments)) {
+      this.clearSpineBody(view)
+      return false
+    }
+
+    const profileKey = `skeletal:${buildSkeletalSpineCacheKey(
+      bodyProfile.boneSegments,
+      radiusPx,
+      this.pixelsPerMeter
+    )}`
+    if (!view.skeletalGait) {
+      view.skeletalGait = acquireGaitState()
+    }
+    if (view.skeletalProfileKey !== profileKey) {
+      view.skeletalGait.phaseInt = 0
+      view.skeletalGait.footLX = 0
+      view.skeletalGait.footLY = 0
+      view.skeletalGait.footRX = 0
+      view.skeletalGait.footRY = 0
+      view.skeletalProfileKey = profileKey
+    }
+
+    const definition = getOrBuildSkeletalSpineDefinition(
+      bodyProfile.boneSegments,
+      radiusPx,
+      this.pixelsPerMeter
+    )
+    if (view.spineKey !== profileKey) {
+      this.clearSpineBody(view)
+      const spine = acquireProceduralSpine(profileKey, definition.skeletonData)
+      view.spineBody = spine
+      view.spineKey = profileKey
+      view.spineAnimState = 'skeletal_walk'
+      const bodyChildIndex = view.root.getChildIndex(view.bodySprite)
+      view.root.addChildAt(spine, bodyChildIndex)
+    }
+
+    const spine = view.spineBody
+    if (!spine) {
+      return false
+    }
+
+    const facing = renderer.getFacingForEntity(buf, offset)
+    const deltaMsInt = Math.max(0, Math.round(this.currentFrameDeltaMs)) | 0
+    const displayScale = this.pixelsPerMeter / SKELETAL_EDITOR_PPM
+
+    updateSkeletalPose(
+      spine.skeleton,
+      definition.boneIndex,
+      view.skeletalGait,
+      buf,
+      offset,
+      facing,
+      SKELETAL_EDITOR_PPM,
+      deltaMsInt
+    )
+    spine.position.set(0, 0)
+    spine.scale.set(facing < 0 ? -displayScale : displayScale, displayScale)
+    spine.alpha = alpha
+    spine.visible = true
+    spine.update(0)
+    return true
+  }
+
   private updateSpineBody(
     view: EntityView,
     renderer: ClientRenderer,
@@ -1576,7 +1699,7 @@ export class PixiWorldRenderer {
     const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
     const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
     const bodyTexture = renderer.getCharacterBodyTextureSource(
-      bodyProfile?.textureDataUrl ?? bodyProfile?.surfaceDataUrl
+      getCharacterBodyTextureDataUrl(bodyProfile)
     )
     const facing = renderer.getFacingForEntity(buf, offset)
     const hasFollowBound = !!(flags & FLAGS.FOLLOW_BOUND)
@@ -1600,8 +1723,7 @@ export class PixiWorldRenderer {
 
     if (view.bodyHash !== bodyHash) {
       const textureKey = [
-        bodyProfile?.textureDataUrl ?? '',
-        bodyProfile?.surfaceDataUrl ?? '',
+        getCharacterBodyTextureDataUrl(bodyProfile),
         bodyProfile?.layers?.length ?? 0,
         assetsReady ? 1 : 0,
       ].join('|')

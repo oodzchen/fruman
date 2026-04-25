@@ -48,6 +48,7 @@ import {
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
 } from '../../physicsLayers'
+import { normalizeSkeletalBodyProfile } from '../../skeletalBodyProfile'
 import type {
   MainModule,
   NormalAttackMovesetId,
@@ -135,6 +136,9 @@ export function createPlayer(
   segmentedProxyOffsetY = 0
 ): Entity {
   const entity = world.createEntity()
+  const normalizedBodyProfile = normalizeSkeletalBodyProfile(bodyProfile)
+  const effectiveSegmentedCollision =
+    segmentedCollision || normalizedBodyProfile?.skeletalMode === true
 
   const transform = new TransformComponent()
   transform.x = x
@@ -147,8 +151,8 @@ export function createPlayer(
     y,
     radius,
     bodyHeight,
-    bodyProfile,
-    segmented: segmentedCollision,
+    bodyProfile: normalizedBodyProfile,
+    segmented: effectiveSegmentedCollision,
     segmentedProxyHalfWidth,
     segmentedProxyHalfHeight,
     segmentedProxyOffsetY,
@@ -200,13 +204,13 @@ export function createPlayer(
   const render = new RenderComponent()
   render.radius = radius
   render.bodyHeight = bodyHeight
-  render.bodyProfile = bodyProfile ?? null
-  render.segmentedCollision = segmentedCollision
+  render.bodyProfile = normalizedBodyProfile ?? null
+  render.segmentedCollision = effectiveSegmentedCollision
   render.segmentedProxyHalfWidth = segmentedProxyHalfWidth
   render.segmentedProxyHalfHeight = segmentedProxyHalfHeight
   render.segmentedProxyOffsetY = segmentedProxyOffsetY
   render.renderLayer = renderLayer
-  render.bloodColor = getCharacterBloodColor(bodyProfile, '')
+  render.bloodColor = getCharacterBloodColor(normalizedBodyProfile, '')
   entity.addComponent(render)
 
   const faction = new FactionComponent()
@@ -360,9 +364,11 @@ export function createNpc(
   const renderLayer = options?.renderLayer ?? 0
   const resolvedBodyProfile: MapCharacterBodyProfile | undefined =
     resolveNpcBodyProfile(npcType, options?.bodyProfile)
+  const normalizedBodyProfile =
+    normalizeSkeletalBodyProfile(resolvedBodyProfile)
   const segmentedCollision =
     options?.segmentedCollision ??
-    resolvedBodyProfile?.spineSegmentedCollision === true
+    normalizedBodyProfile?.spineSegmentedCollision === true
 
   const npc = createPlayer(
     world,
@@ -373,7 +379,7 @@ export function createNpc(
     groundTopY,
     radius,
     bodyHeight,
-    resolvedBodyProfile,
+    normalizedBodyProfile,
     renderLayer,
     segmentedCollision,
     options?.segmentedProxyHalfWidth ?? 0,
@@ -464,9 +470,9 @@ export function createNpc(
   }
 
   if (npc.render) {
-    npc.render.color = getCharacterBodyColor(resolvedBodyProfile, color)
-    npc.render.bloodColor = getCharacterBloodColor(resolvedBodyProfile, '')
-    npc.render.bodyProfile = resolvedBodyProfile ?? null
+    npc.render.color = getCharacterBodyColor(normalizedBodyProfile, color)
+    npc.render.bloodColor = getCharacterBloodColor(normalizedBodyProfile, '')
+    npc.render.bodyProfile = normalizedBodyProfile ?? null
     npc.render.renderLayer = renderLayer
   }
 

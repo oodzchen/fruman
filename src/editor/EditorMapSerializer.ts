@@ -27,6 +27,7 @@ import {
   getDefaultShapeRenderLayer,
   normalizeRenderLayer,
 } from '../renderLayers'
+import { normalizeSkeletalBodyProfile } from '../skeletalBodyProfile'
 import type { NormalAttackMovesetId, WeaponType } from '../types'
 import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
 import { computeCameraOffsetFromCenter } from './EditorCoordinateUtils'
@@ -659,7 +660,7 @@ export class EditorMapSerializer {
     return {
       radius: data.radius,
       bodyHeight: data.bodyHeight || undefined,
-      bodyProfile: data.bodyProfile,
+      bodyProfile: normalizeSkeletalBodyProfile(data.bodyProfile),
       moveSpeed: data.moveSpeed,
       maxHealth: data.maxHealth,
       maxPosture: data.maxPosture,
@@ -701,7 +702,7 @@ export class EditorMapSerializer {
         npcType: data.npcType,
         radius: data.radius,
         bodyHeight: data.bodyHeight || undefined,
-        bodyProfile: data.bodyProfile,
+        bodyProfile: normalizeSkeletalBodyProfile(data.bodyProfile),
         moveSpeed: data.moveSpeed,
         attackDesire: data.attackDesire,
         parryProficiency: data.parryProficiency,
