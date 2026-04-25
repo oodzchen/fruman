@@ -7,6 +7,17 @@ export interface EnvironmentTransformOffset {
 
 export const DEFAULT_ENVIRONMENT_SCALE_PERMILLE = 1000
 
+function roundScaledValue(
+  value: number,
+  numerator: number,
+  denominator: number
+) {
+  if (denominator === 0) {
+    return 0
+  }
+  return Math.round((value * numerator) / denominator)
+}
+
 export function normalizeEnvironmentScalePermille(
   value: number | undefined
 ): number {
@@ -48,26 +59,52 @@ export function getEnvironmentRotationDeg(
   return normalizeEnvironmentRotationDeg(object.rotationDeg)
 }
 
+export function scaleEnvironmentValue(
+  value: number,
+  scalePermille: number
+): number {
+  return roundScaledValue(
+    value,
+    normalizeEnvironmentScalePermille(scalePermille),
+    DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+  )
+}
+
+export function getEnvironmentEffectiveScalePermille(
+  baseScalePermille: number | undefined,
+  transientScale: number | undefined
+): number {
+  const normalizedBaseScale = normalizeEnvironmentScalePermille(
+    baseScalePermille ?? DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+  )
+  if (typeof transientScale !== 'number' || !Number.isFinite(transientScale)) {
+    return normalizedBaseScale
+  }
+  return normalizeEnvironmentScalePermille(
+    roundScaledValue(
+      normalizedBaseScale,
+      Math.round(transientScale * DEFAULT_ENVIRONMENT_SCALE_PERMILLE),
+      DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    )
+  )
+}
+
 export function writeEnvironmentTransformedOffset(
   offsetX: number,
   offsetY: number,
   rotationDeg: number,
-  scaleXPermille: number,
-  scaleYPermille: number,
+  _scaleXPermille: number,
+  _scaleYPermille: number,
   out: EnvironmentTransformOffset
 ): void {
-  const scaledX =
-    (offsetX * scaleXPermille) / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
-  const scaledY =
-    (offsetY * scaleYPermille) / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
   if (rotationDeg === 0) {
-    out.x = scaledX
-    out.y = scaledY
+    out.x = offsetX
+    out.y = offsetY
     return
   }
   const rotationRad = (rotationDeg * Math.PI) / 180
   const cos = Math.cos(rotationRad)
   const sin = Math.sin(rotationRad)
-  out.x = scaledX * cos - scaledY * sin
-  out.y = scaledX * sin + scaledY * cos
+  out.x = offsetX * cos - offsetY * sin
+  out.y = offsetX * sin + offsetY * cos
 }

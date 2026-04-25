@@ -9,6 +9,7 @@ import type {
   MapNpcWeapon,
   WeaponCategory,
 } from '../editorMapTypes'
+import { DEFAULT_ENVIRONMENT_SCALE_PERMILLE } from '../environmentTransformUtils'
 import { renderBody } from '../renderer/BodyRenderer'
 import { createCheckpointTreeTextureSource } from '../renderer/CheckpointTreeTextureFactory'
 import { createEnvironmentTextureSource } from '../renderer/ProceduralEnvironmentFactory'
@@ -66,6 +67,16 @@ interface EditorObjectFactoryOptions {
     color: string,
     flip?: boolean
   ) => void
+}
+
+interface EnvironmentMarkerTextureConfig {
+  textureCanvas: HTMLCanvasElement
+  boundsX: number
+  boundsY: number
+  boundsWidth: number
+  boundsHeight: number
+  anchorDX: number
+  anchorDY: number
 }
 
 type FabricObjectOptions = Partial<fabric.FabricObjectProps>
@@ -212,30 +223,38 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
   declare envSeed: EnvironmentMarker['envSeed']
   declare anchorDX: EnvironmentMarker['anchorDX']
   declare anchorDY: EnvironmentMarker['anchorDY']
+  declare scaleXPermille: EnvironmentMarker['scaleXPermille']
+  declare scaleYPermille: EnvironmentMarker['scaleYPermille']
 
-  private readonly textureCanvas: HTMLCanvasElement
-  private readonly drawOffsetX: number
-  private readonly drawOffsetY: number
+  private textureCanvas: HTMLCanvasElement
+  private drawOffsetX: number
+  private drawOffsetY: number
 
   constructor(
-    textureCanvas: HTMLCanvasElement,
-    originX: number,
-    originY: number,
-    boundsX: number,
-    boundsY: number,
-    boundsWidth: number,
-    boundsHeight: number,
+    config: EnvironmentMarkerTextureConfig,
     options?: FabricObjectOptions
   ) {
     super(options)
-    this.textureCanvas = textureCanvas
-    this.width = boundsWidth
-    this.height = boundsHeight
-    this.drawOffsetX = -(boundsWidth / 2) - boundsX
-    this.drawOffsetY = -(boundsHeight / 2) - boundsY
-    this.anchorDX = originX - (boundsX + boundsWidth / 2)
-    this.anchorDY = originY - (boundsY + boundsHeight / 2)
     this.editorShape = 'environment-marker'
+    this.textureCanvas = config.textureCanvas
+    this.drawOffsetX = 0
+    this.drawOffsetY = 0
+    this.anchorDX = config.anchorDX
+    this.anchorDY = config.anchorDY
+    this.scaleXPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    this.scaleYPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    this.applyTextureConfig(config)
+  }
+
+  applyTextureConfig(config: EnvironmentMarkerTextureConfig): void {
+    this.textureCanvas = config.textureCanvas
+    this.width = config.boundsWidth
+    this.height = config.boundsHeight
+    this.drawOffsetX = -(config.boundsWidth / 2) - config.boundsX
+    this.drawOffsetY = -(config.boundsHeight / 2) - config.boundsY
+    this.anchorDX = config.anchorDX
+    this.anchorDY = config.anchorDY
+    this.dirty = true
   }
 
   override _render(ctx: CanvasRenderingContext2D): void {
@@ -885,33 +904,85 @@ export class EditorObjectFactory {
   }
 
   createEnvironmentMarker(envType: MapEnvironmentObjectType, envSeed: number) {
+    return this.createEnvironmentMarkerWithScale(
+      envType,
+      envSeed,
+      DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+      DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    )
+  }
+
+  createEnvironmentMarkerWithScale(
+    envType: MapEnvironmentObjectType,
+    envSeed: number,
+    scaleXPermille: number,
+    scaleYPermille: number
+  ) {
+    const textureConfig = this.buildEnvironmentMarkerTextureConfig(
+      envType,
+      envSeed,
+      scaleXPermille,
+      scaleYPermille
+    )
+    const marker = new EnvironmentMarkerRenderObject(textureConfig, {
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: true,
+      lockRotation: false,
+      lockScalingX: false,
+      lockScalingY: false,
+      lockScalingFlip: true,
+      objectCaching: false,
+    }) as EnvironmentMarker
+    marker.envType = envType
+    marker.envSeed = envSeed
+    marker.scaleXPermille = scaleXPermille
+    marker.scaleYPermille = scaleYPermille
+    marker.scaleX = 1
+    marker.scaleY = 1
+    return marker
+  }
+
+  refreshEnvironmentMarkerTexture(
+    marker: EnvironmentMarker,
+    scaleXPermille: number,
+    scaleYPermille: number
+  ): void {
+    const textureConfig = this.buildEnvironmentMarkerTextureConfig(
+      marker.envType,
+      marker.envSeed,
+      scaleXPermille,
+      scaleYPermille
+    )
+    ;(marker as EnvironmentMarkerRenderObject).applyTextureConfig(textureConfig)
+    marker.scaleXPermille = scaleXPermille
+    marker.scaleYPermille = scaleYPermille
+    marker.scaleX = 1
+    marker.scaleY = 1
+  }
+
+  private buildEnvironmentMarkerTextureConfig(
+    envType: MapEnvironmentObjectType,
+    envSeed: number,
+    scaleXPermille: number,
+    scaleYPermille: number
+  ): EnvironmentMarkerTextureConfig {
     const source = createEnvironmentTextureSource(
       envType,
       envSeed,
-      this.pixelsPerMeter
+      this.pixelsPerMeter,
+      scaleXPermille,
+      scaleYPermille
     )
-    const marker = new EnvironmentMarkerRenderObject(
-      source.canvas,
-      source.originX,
-      source.originY,
-      source.boundsX,
-      source.boundsY,
-      source.boundsWidth,
-      source.boundsHeight,
-      {
-        originX: 'center',
-        originY: 'center',
-        selectable: true,
-        hasControls: true,
-        lockRotation: false,
-        lockScalingX: false,
-        lockScalingY: false,
-        lockScalingFlip: true,
-        objectCaching: false,
-      }
-    ) as EnvironmentMarker
-    marker.envType = envType
-    marker.envSeed = envSeed
-    return marker
+    return {
+      textureCanvas: source.canvas,
+      boundsX: source.boundsX,
+      boundsY: source.boundsY,
+      boundsWidth: source.boundsWidth,
+      boundsHeight: source.boundsHeight,
+      anchorDX: source.originX - (source.boundsX + source.boundsWidth / 2),
+      anchorDY: source.originY - (source.boundsY + source.boundsHeight / 2),
+    }
   }
 }

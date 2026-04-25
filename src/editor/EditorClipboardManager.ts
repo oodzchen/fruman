@@ -9,8 +9,8 @@ import type {
 import type { WeaponCategory } from '../editorMapTypes'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+  getEnvironmentEffectiveScalePermille,
   normalizeEnvironmentRotationDeg,
-  normalizeEnvironmentScalePermille,
   writeEnvironmentTransformedOffset,
 } from '../environmentTransformUtils'
 import { normalizeNpcDropList } from '../npcDropUtils'
@@ -957,11 +957,13 @@ export class EditorClipboardManager {
         anchorDX: target.anchorDX,
         anchorDY: target.anchorDY,
         rotationDeg: normalizeEnvironmentRotationDeg(target.angle ?? 0),
-        scaleXPermille: normalizeEnvironmentScalePermille(
-          Math.round((target.scaleX ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+        scaleXPermille: getEnvironmentEffectiveScalePermille(
+          target.scaleXPermille,
+          target.scaleX
         ),
-        scaleYPermille: normalizeEnvironmentScalePermille(
-          Math.round((target.scaleY ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+        scaleYPermille: getEnvironmentEffectiveScalePermille(
+          target.scaleYPermille,
+          target.scaleY
         ),
       }
     }
@@ -2235,11 +2237,13 @@ export class EditorClipboardManager {
     this.environmentRotationDeg = normalizeEnvironmentRotationDeg(
       target.angle ?? 0
     )
-    this.environmentScaleXPermille = normalizeEnvironmentScalePermille(
-      Math.round((target.scaleX ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+    this.environmentScaleXPermille = getEnvironmentEffectiveScalePermille(
+      target.scaleXPermille,
+      target.scaleX
     )
-    this.environmentScaleYPermille = normalizeEnvironmentScalePermille(
-      Math.round((target.scaleY ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+    this.environmentScaleYPermille = getEnvironmentEffectiveScalePermille(
+      target.scaleYPermille,
+      target.scaleY
     )
     return true
   }

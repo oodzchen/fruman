@@ -25,7 +25,6 @@ import {
 } from './constants'
 import type { EditorMapData, MapEnvironmentObject } from './editorMapTypes'
 import {
-  DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   type EnvironmentTransformOffset,
   getEnvironmentRotationDeg,
   getEnvironmentScaleXPermille,
@@ -2960,15 +2959,17 @@ export class GameClient {
         continue
       }
       const envBuildStartMs = performance.now()
+      const scaleXPermille = getEnvironmentScaleXPermille(obj)
+      const scaleYPermille = getEnvironmentScaleYPermille(obj)
       const textureEntry = this.getEnvironmentTextureEntry(
         obj.type,
         obj.seed,
-        ppm
+        ppm,
+        scaleXPermille,
+        scaleYPermille
       )
       this.pendingEnvironmentTextureKeys.add(textureEntry.key)
       const rotationDeg = getEnvironmentRotationDeg(obj)
-      const scaleXPermille = getEnvironmentScaleXPermille(obj)
-      const scaleYPermille = getEnvironmentScaleYPermille(obj)
       writeEnvironmentTransformedOffset(
         textureEntry.anchorOffsetX,
         textureEntry.anchorOffsetY,
@@ -2982,10 +2983,7 @@ export class GameClient {
       sprite.x = obj.x * ppm - this.reusableEnvironmentAnchorOffset.x
       sprite.y = obj.y * ppm - this.reusableEnvironmentAnchorOffset.y
       sprite.angle = rotationDeg
-      sprite.scale.set(
-        scaleXPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
-        scaleYPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
-      )
+      sprite.scale.set(1, 1)
       this.worldRenderer.addStaticMesh(sprite, envLayers?.[index] ?? 0)
       this.staticEnvironmentSprites.push(sprite)
       this.recordEnvironmentBuildTime(envBuildStartMs)
@@ -3017,9 +3015,17 @@ export class GameClient {
   private getEnvironmentTextureEntry(
     type: MapEnvironmentObject['type'],
     seed: number,
-    ppm: number
+    ppm: number,
+    scaleXPermille: number,
+    scaleYPermille: number
   ): EnvironmentTextureEntry {
-    const key = buildEnvironmentTextureCacheKey(type, seed, ppm)
+    const key = buildEnvironmentTextureCacheKey(
+      type,
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
     const cached = this.environmentTextureCache.get(key)
     if (cached) {
       this.perfEnvironmentCacheHits++
@@ -3029,7 +3035,13 @@ export class GameClient {
     }
 
     this.perfEnvironmentCacheMisses++
-    const source = createEnvironmentTextureSource(type, seed, ppm)
+    const source = createEnvironmentTextureSource(
+      type,
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
     const centerOriginX = source.canvas.width >> 1
     const centerOriginY = source.canvas.height >> 1
     const entry: EnvironmentTextureEntry = {

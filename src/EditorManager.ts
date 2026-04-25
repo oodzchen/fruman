@@ -1881,6 +1881,7 @@ export class EditorManager {
     if (!this.visible || this.currentView !== EditorView.Editor) {
       return
     }
+    this.markerManager.refreshEnvironmentMarkerTexture(target)
     this.syncManagedObjectTarget(target)
     if (this.terrainManager.handleModifiedTarget(target)) {
       this.captureHistorySnapshot()

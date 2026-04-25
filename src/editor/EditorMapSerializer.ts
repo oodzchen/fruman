@@ -18,8 +18,8 @@ import { DEFAULT_MAP_TIME_PHASE } from '../editorMapTypes'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   type EnvironmentTransformOffset,
+  getEnvironmentEffectiveScalePermille,
   normalizeEnvironmentRotationDeg,
-  normalizeEnvironmentScalePermille,
   writeEnvironmentTransformedOffset,
 } from '../environmentTransformUtils'
 import { normalizeNpcDropList } from '../npcDropUtils'
@@ -477,11 +477,13 @@ export class EditorMapSerializer {
       const { marker, envType, envSeed } = markers[i]
       const center = marker.getCenterPoint()
       const rotationDeg = normalizeEnvironmentRotationDeg(marker.angle ?? 0)
-      const scaleXPermille = normalizeEnvironmentScalePermille(
-        Math.round((marker.scaleX ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+      const scaleXPermille = getEnvironmentEffectiveScalePermille(
+        marker.scaleXPermille,
+        marker.scaleX
       )
-      const scaleYPermille = normalizeEnvironmentScalePermille(
-        Math.round((marker.scaleY ?? 1) * DEFAULT_ENVIRONMENT_SCALE_PERMILLE)
+      const scaleYPermille = getEnvironmentEffectiveScalePermille(
+        marker.scaleYPermille,
+        marker.scaleY
       )
       writeEnvironmentTransformedOffset(
         marker.anchorDX,

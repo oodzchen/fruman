@@ -28,8 +28,8 @@ import type {
   WeaponCategory,
 } from '../editorMapTypes'
 import {
-  DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   type EnvironmentTransformOffset,
+  getEnvironmentEffectiveScalePermille,
   getEnvironmentRotationDeg,
   getEnvironmentScaleXPermille,
   getEnvironmentScaleYPermille,
@@ -490,6 +490,31 @@ export class EditorMarkerManager {
       !!object &&
       (object as EnvironmentMarker).editorShape === 'environment-marker'
     )
+  }
+
+  refreshEnvironmentMarkerTexture(marker: fabric.Object | null): boolean {
+    if (!this.isEnvironmentMarker(marker)) {
+      return false
+    }
+    const center = marker.getCenterPoint()
+    const scaleXPermille = getEnvironmentEffectiveScalePermille(
+      marker.scaleXPermille,
+      marker.scaleX
+    )
+    const scaleYPermille = getEnvironmentEffectiveScalePermille(
+      marker.scaleYPermille,
+      marker.scaleY
+    )
+    this.objectFactory.refreshEnvironmentMarkerTexture(
+      marker,
+      scaleXPermille,
+      scaleYPermille
+    )
+    marker.left = center.x
+    marker.top = center.y
+    marker.setCoords()
+    this.ctx.requestRender()
+    return true
   }
 
   removePlayerMarker(marker: fabric.Object) {
@@ -1347,16 +1372,16 @@ export class EditorMarkerManager {
     const objectType = ('env' +
       envType.charAt(0).toUpperCase() +
       envType.slice(1)) as ObjectType
-    const marker = this.objectFactory.createEnvironmentMarker(
-      envType,
-      envSeed
-    ) as EnvironmentMarker
     const rotationDeg = getEnvironmentRotationDeg(spawn ?? {})
     const scaleXPermille = getEnvironmentScaleXPermille(spawn ?? {})
     const scaleYPermille = getEnvironmentScaleYPermille(spawn ?? {})
+    const marker = this.objectFactory.createEnvironmentMarkerWithScale(
+      envType,
+      envSeed,
+      scaleXPermille,
+      scaleYPermille
+    ) as EnvironmentMarker
     marker.angle = rotationDeg
-    marker.scaleX = scaleXPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
-    marker.scaleY = scaleYPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
     writeEnvironmentTransformedOffset(
       marker.anchorDX,
       marker.anchorDY,

@@ -302,6 +302,8 @@ export type EnvironmentMarker = fabric.Object & {
   envSeed: number
   anchorDX: number
   anchorDY: number
+  scaleXPermille: number
+  scaleYPermille: number
 }
 
 export interface EnvironmentMarkerData {

@@ -134,7 +134,9 @@ function buildLayer(
 
 export function createEnvironmentTreeTextureSource(
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const crownShape = lcgRange(s, 0, 2) as EnvironmentTreeCrownShape
@@ -198,6 +200,20 @@ export function createEnvironmentTreeTextureSource(
     trunkBottomY,
     trunkTopHalfWidth,
     trunkBottomHalfWidth
+  )
+  scaleContourPoints(
+    leafContour,
+    0,
+    trunkBottomY,
+    scaleXPermille,
+    scaleYPermille
+  )
+  scaleContourPoints(
+    trunkContour,
+    0,
+    trunkBottomY,
+    scaleXPermille,
+    scaleYPermille
   )
   const leafBounds = getContourBounds(leafContour)
   const trunkBounds = getContourBounds(trunkContour)
@@ -282,7 +298,9 @@ export function createEnvironmentTreeTextureSource(
 
 export function createEnvironmentHillTextureSource(
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const halfWidthNum = lcgRange(s, 150, 300)
@@ -294,10 +312,32 @@ export function createEnvironmentHillTextureSource(
   const halfWidth = Math.round((ppm * halfWidthNum) / 100)
   const height = Math.round((ppm * heightNum) / 100)
   const peakOffsetX = Math.round((halfWidth * peakOffsetNum) / 100)
+  const outerContour = createHillContourPoints(
+    0,
+    0,
+    halfWidth,
+    height,
+    peakOffsetX
+  )
+  const innerContour = createHillContourPoints(
+    0,
+    0,
+    Math.round((halfWidth * 80) / 100),
+    Math.round((height * 85) / 100),
+    peakOffsetX
+  )
+  scaleContourPoints(outerContour, 0, 0, scaleXPermille, scaleYPermille)
+  scaleContourPoints(innerContour, 0, 0, scaleXPermille, scaleYPermille)
+  const outerBounds = getContourBounds(outerContour)
+  const innerBounds = getContourBounds(innerContour)
 
   const padding = 8
-  const canvasW = halfWidth * 2 + Math.abs(peakOffsetX) * 2 + padding * 2
-  const canvasH = height + padding * 2
+  const localMinX = Math.min(outerBounds.minX, innerBounds.minX)
+  const localMaxX = Math.max(outerBounds.maxX, innerBounds.maxX)
+  const localMinY = Math.min(outerBounds.minY, innerBounds.minY)
+  const localMaxY = Math.max(outerBounds.maxY, innerBounds.maxY)
+  const canvasW = localMaxX - localMinX + padding * 2
+  const canvasH = localMaxY - localMinY + padding * 2
 
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, canvasW)
@@ -315,24 +355,11 @@ export function createEnvironmentHillTextureSource(
     }
   }
 
-  const centerX = canvas.width >> 1
-  const bottomY = canvas.height - padding
   const cellSize = Math.max(16, Math.round(halfWidth / 4))
-
-  const outerContour = createHillContourPoints(
-    centerX,
-    bottomY,
-    halfWidth,
-    height,
-    peakOffsetX
-  )
-  const innerContour = createHillContourPoints(
-    centerX,
-    bottomY,
-    Math.round((halfWidth * 80) / 100),
-    Math.round((height * 85) / 100),
-    peakOffsetX
-  )
+  const centerX = padding - localMinX
+  const bottomY = padding - localMinY
+  offsetContourPoints(outerContour, centerX, bottomY)
+  offsetContourPoints(innerContour, centerX, bottomY)
 
   const grassLayer = buildLayer(
     canvas,
@@ -384,7 +411,9 @@ export function createEnvironmentHillTextureSource(
 
 export function createEnvironmentHouseTextureSource(
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const wallWidthNum = lcgRange(s, 100, 180)
@@ -395,10 +424,16 @@ export function createEnvironmentHouseTextureSource(
   s = lcgStep(s)
   const hasWindow = (s & 1) === 1
 
-  const wallHalfWidth = Math.round((ppm * wallWidthNum) / 100)
-  const wallHeight = Math.round((ppm * wallHeightNum) / 100)
-  const roofHeight = Math.round((wallHalfWidth * 2 * roofPitchNum) / 100)
-  const roofOverhang = Math.round((wallHalfWidth * 12) / 100)
+  const baseWallHalfWidth = Math.round((ppm * wallWidthNum) / 100)
+  const baseWallHeight = Math.round((ppm * wallHeightNum) / 100)
+  const baseRoofHeight = Math.round(
+    (baseWallHalfWidth * 2 * roofPitchNum) / 100
+  )
+  const baseRoofOverhang = Math.round((baseWallHalfWidth * 12) / 100)
+  const wallHalfWidth = scaleByPermille(baseWallHalfWidth, scaleXPermille)
+  const wallHeight = scaleByPermille(baseWallHeight, scaleYPermille)
+  const roofHeight = scaleByPermille(baseRoofHeight, scaleYPermille)
+  const roofOverhang = scaleByPermille(baseRoofOverhang, scaleXPermille)
 
   const padding = 12
   const canvasW = wallHalfWidth * 2 + roofOverhang * 2 + padding * 2
@@ -442,7 +477,7 @@ export function createEnvironmentHouseTextureSource(
     oy - wallHeight,
   ]
 
-  const cellSize = Math.max(16, Math.round(wallHalfWidth >> 1))
+  const cellSize = Math.max(16, Math.round(baseWallHalfWidth >> 1))
 
   const wallLayer = buildLayer(
     canvas,
@@ -484,14 +519,15 @@ export function createEnvironmentHouseTextureSource(
   ctx.fillRect(ox - (doorW >> 1), oy - doorH, doorW, doorH)
 
   if (hasWindow) {
-    const winSize = Math.max(4, Math.round((wallHalfWidth * 25) / 100))
-    const winX = ox + Math.round((wallHalfWidth * 52) / 100) - (winSize >> 1)
-    const winY = oy - Math.round((wallHeight * 62) / 100) - (winSize >> 1)
+    const winWidth = Math.max(4, Math.round((wallHalfWidth * 25) / 100))
+    const winHeight = Math.max(4, Math.round((wallHeight * 25) / 100))
+    const winX = ox + Math.round((wallHalfWidth * 52) / 100) - (winWidth >> 1)
+    const winY = oy - Math.round((wallHeight * 62) / 100) - (winHeight >> 1)
     ctx.fillStyle = '#c8a830'
-    ctx.fillRect(winX, winY, winSize, winSize)
+    ctx.fillRect(winX, winY, winWidth, winHeight)
     ctx.strokeStyle = '#5c3810'
     ctx.lineWidth = 1
-    ctx.strokeRect(winX, winY, winSize, winSize)
+    ctx.strokeRect(winX, winY, winWidth, winHeight)
   }
 
   const bounds = getCanvasOpaqueBounds(canvas)
@@ -510,14 +546,19 @@ export function createEnvironmentHouseTextureSource(
 
 export function createEnvironmentCrateTextureSource(
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): EnvironmentTextureSource {
   const layout = createEnvironmentCrateLayout(seed, ppm)
-  const crateWidth = layout.width
-  const crateHeight = layout.height
+  const crateWidth = scaleByPermille(layout.width, scaleXPermille)
+  const crateHeight = scaleByPermille(layout.height, scaleYPermille)
   const halfWidth = crateWidth >> 1
-  const frameInset = layout.frameInset
-  const plankGap = layout.plankGap
+  const frameInset = Math.max(
+    1,
+    scaleByPermille(layout.frameInset, Math.min(scaleXPermille, scaleYPermille))
+  )
+  const plankGap = Math.max(1, scaleByPermille(layout.plankGap, scaleXPermille))
   const padding = Math.max(8, roundDiv(ppm * 12, 10))
   const canvasW = crateWidth + padding * 2
   const canvasH = crateHeight + padding * 2
@@ -565,17 +606,28 @@ export function createEnvironmentCrateTextureSource(
 
   for (let i = 0; i < layout.planks.length; i++) {
     const plank = layout.planks[i]
-    const plankLeft = ox + plank.localCenterX - (plank.width >> 1)
-    const plankTop = oy + plank.localCenterY - (plank.height >> 1)
+    const plankWidth = Math.max(1, scaleByPermille(plank.width, scaleXPermille))
+    const plankHeight = Math.max(
+      1,
+      scaleByPermille(plank.height, scaleYPermille)
+    )
+    const plankLeft =
+      ox +
+      scaleByPermille(plank.localCenterX, scaleXPermille) -
+      (plankWidth >> 1)
+    const plankTop =
+      oy +
+      scaleByPermille(plank.localCenterY, scaleYPermille) -
+      (plankHeight >> 1)
     ctx.fillStyle = plank.role === 'frame' ? frameColor : plankColor
-    ctx.fillRect(plankLeft, plankTop, plank.width, plank.height)
+    ctx.fillRect(plankLeft, plankTop, plankWidth, plankHeight)
     ctx.strokeStyle = strokeColor
     ctx.lineWidth = 1
     ctx.strokeRect(
       plankLeft + 1,
       plankTop + 1,
-      Math.max(1, plank.width - 2),
-      Math.max(1, plank.height - 2)
+      Math.max(1, plankWidth - 2),
+      Math.max(1, plankHeight - 2)
     )
   }
 
@@ -654,7 +706,9 @@ export function createEnvironmentCrateTextureSource(
 
 export function createEnvironmentGrassTextureSource(
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const bladeCount = lcgRange(s, 1, 36)
@@ -663,8 +717,13 @@ export function createEnvironmentGrassTextureSource(
   s = lcgStep(s)
   const heightNum = lcgRange(s, 30, 88)
 
-  const clumpWidth = Math.max(14, roundDiv(ppm * widthNum, 100))
-  const maxHeight = Math.max(10, roundDiv(ppm * heightNum, 100))
+  const baseClumpWidth = Math.max(14, roundDiv(ppm * widthNum, 100))
+  const baseMaxHeight = Math.max(10, roundDiv(ppm * heightNum, 100))
+  const clumpWidth = Math.max(
+    14,
+    scaleByPermille(baseClumpWidth, scaleXPermille)
+  )
+  const maxHeight = Math.max(10, scaleByPermille(baseMaxHeight, scaleYPermille))
   const padding = Math.max(8, roundDiv(ppm * 12, 10))
   const canvasW = clumpWidth + padding * 2
   const canvasH = maxHeight + padding * 2
@@ -702,14 +761,14 @@ export function createEnvironmentGrassTextureSource(
     s = lcgStep(s)
     const colorIndex = lcgRange(s, 0, GRASS_MATERIAL.fillPalette.length - 1)
 
-    const baseX = ox + roundDiv(clumpWidth * baseOffsetPercent, 100)
+    const baseX = roundDiv(baseClumpWidth * baseOffsetPercent, 100)
     const bladeHeight = Math.max(
       6,
-      roundDiv(maxHeight * bladeHeightPercent, 100)
+      roundDiv(baseMaxHeight * bladeHeightPercent, 100)
     )
     const tipX = baseX + roundDiv(bladeHeight * leanPercent, 100)
     const baseHalfWidth = Math.max(1, roundDiv(ppm * baseWidthPercent, 100))
-    const shoulderY = oy - roundDiv(bladeHeight * 45, 100)
+    const shoulderY = -roundDiv(bladeHeight * 45, 100)
 
     bladeValues[writeIndex] = baseX
     bladeValues[writeIndex + 1] = bladeHeight
@@ -723,22 +782,30 @@ export function createEnvironmentGrassTextureSource(
   for (let pass = 0; pass < 2; pass++) {
     for (let i = 0; i < bladeValues.length; i += 6) {
       const bladeHeight = bladeValues[i + 1]
-      if (bladeHeight >= roundDiv(maxHeight * 78, 100) !== (pass === 1)) {
+      if (bladeHeight >= roundDiv(baseMaxHeight * 78, 100) !== (pass === 1)) {
         continue
       }
       const baseX = bladeValues[i]
       const tipX = bladeValues[i + 2]
       const baseHalfWidth = bladeValues[i + 3]
       const shoulderY = bladeValues[i + 4]
-      const tipY = oy - bladeHeight
-      const innerHalfWidth = Math.max(1, baseHalfWidth >> 1)
+      const tipY = -bladeHeight
+      const scaledBaseX = ox + scaleByPermille(baseX, scaleXPermille)
+      const scaledTipX = ox + scaleByPermille(tipX, scaleXPermille)
+      const scaledBaseHalfWidth = Math.max(
+        1,
+        scaleByPermille(baseHalfWidth, scaleXPermille)
+      )
+      const scaledInnerHalfWidth = Math.max(1, scaledBaseHalfWidth >> 1)
+      const scaledShoulderY = oy + scaleByPermille(shoulderY, scaleYPermille)
+      const scaledTipY = oy + scaleByPermille(tipY, scaleYPermille)
 
       ctx.beginPath()
-      ctx.moveTo(baseX - baseHalfWidth, oy)
-      ctx.lineTo(baseX - innerHalfWidth, shoulderY)
-      ctx.lineTo(tipX, tipY)
-      ctx.lineTo(baseX + innerHalfWidth, shoulderY)
-      ctx.lineTo(baseX + baseHalfWidth, oy)
+      ctx.moveTo(scaledBaseX - scaledBaseHalfWidth, oy)
+      ctx.lineTo(scaledBaseX - scaledInnerHalfWidth, scaledShoulderY)
+      ctx.lineTo(scaledTipX, scaledTipY)
+      ctx.lineTo(scaledBaseX + scaledInnerHalfWidth, scaledShoulderY)
+      ctx.lineTo(scaledBaseX + scaledBaseHalfWidth, oy)
       ctx.closePath()
       ctx.fillStyle = GRASS_MATERIAL.fillPalette[bladeValues[i + 5]]
       ctx.fill()
@@ -768,7 +835,9 @@ export function createEnvironmentGrassTextureSource(
 
 export function createEnvironmentCloudTextureSource(
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const basePuffs =
@@ -779,7 +848,7 @@ export function createEnvironmentCloudTextureSource(
   const scaleYNum = lcgRange(s, 90, 118)
   s = lcgStep(s)
   const radiusNum = lcgRange(s, 92, 122)
-  const puffValues = new Array<number>(basePuffs.length * 3)
+  const puffValues = new Array<number>(basePuffs.length * 4)
   let minX = 0
   let maxX = 0
   let minY = 0
@@ -800,15 +869,18 @@ export function createEnvironmentCloudTextureSource(
       8,
       roundDiv(ppm * puff[2] * radiusNum * puffScaleNum, 500000)
     )
-    const baseIndex = i * 3
-    puffValues[baseIndex] = dx
-    puffValues[baseIndex + 1] = dy
-    puffValues[baseIndex + 2] = radius
+    const radiusX = Math.max(8, scaleByPermille(radius, scaleXPermille))
+    const radiusY = Math.max(8, scaleByPermille(radius, scaleYPermille))
+    const baseIndex = i * 4
+    puffValues[baseIndex] = scaleByPermille(dx, scaleXPermille)
+    puffValues[baseIndex + 1] = scaleByPermille(dy, scaleYPermille)
+    puffValues[baseIndex + 2] = radiusX
+    puffValues[baseIndex + 3] = radiusY
 
-    const puffMinX = dx - radius
-    const puffMaxX = dx + radius
-    const puffMinY = dy - radius
-    const puffMaxY = dy + radius
+    const puffMinX = puffValues[baseIndex] - radiusX
+    const puffMaxX = puffValues[baseIndex] + radiusX
+    const puffMinY = puffValues[baseIndex + 1] - radiusY
+    const puffMaxY = puffValues[baseIndex + 1] + radiusY
     if (i === 0 || puffMinX < minX) {
       minX = puffMinX
     }
@@ -846,12 +918,14 @@ export function createEnvironmentCloudTextureSource(
   const originX = padding - minX
   const originY = padding - minY
   ctx.fillStyle = '#ffffff'
-  for (let i = 0; i < puffValues.length; i += 3) {
+  for (let i = 0; i < puffValues.length; i += 4) {
     ctx.beginPath()
-    ctx.arc(
+    ctx.ellipse(
       originX + puffValues[i],
       originY + puffValues[i + 1],
       puffValues[i + 2],
+      puffValues[i + 3],
+      0,
       0,
       Math.PI * 2
     )
@@ -878,17 +952,27 @@ const ENVIRONMENT_TEXTURE_SOURCE_CACHE_LIMIT = 96
 export function buildEnvironmentTextureCacheKey(
   type: MapEnvironmentObjectType,
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): string {
-  return `${type}_${seed}_${ppm}`
+  return `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}`
 }
 
 export function createEnvironmentTextureSource(
   type: MapEnvironmentObjectType,
   seed: number,
-  ppm: number
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
 ): EnvironmentTextureSource {
-  const key = buildEnvironmentTextureCacheKey(type, seed, ppm)
+  const key = buildEnvironmentTextureCacheKey(
+    type,
+    seed,
+    ppm,
+    scaleXPermille,
+    scaleYPermille
+  )
   const cached = textureCache.get(key)
   if (cached) {
     textureCache.delete(key)
@@ -898,19 +982,54 @@ export function createEnvironmentTextureSource(
 
   let source: EnvironmentTextureSource
   if (type === 'tree') {
-    source = createEnvironmentTreeTextureSource(seed, ppm)
+    source = createEnvironmentTreeTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   } else if (type === 'hill') {
-    source = createEnvironmentHillTextureSource(seed, ppm)
+    source = createEnvironmentHillTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   } else if (type === 'house') {
-    source = createEnvironmentHouseTextureSource(seed, ppm)
+    source = createEnvironmentHouseTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   } else if (type === 'crate') {
-    source = createEnvironmentCrateTextureSource(seed, ppm)
+    source = createEnvironmentCrateTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   } else if (type === 'grass') {
-    source = createEnvironmentGrassTextureSource(seed, ppm)
+    source = createEnvironmentGrassTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   } else if (type === 'cloud') {
-    source = createEnvironmentCloudTextureSource(seed, ppm)
+    source = createEnvironmentCloudTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   } else {
-    source = createEnvironmentHouseTextureSource(seed, ppm)
+    source = createEnvironmentHouseTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   }
 
   textureCache.set(key, source)
@@ -946,6 +1065,24 @@ function roundDiv(numerator: number, denominator: number): number {
     return -(((-numerator + (denominator >> 1)) / denominator) | 0)
   }
   return ((numerator + (denominator >> 1)) / denominator) | 0
+}
+
+function scaleByPermille(value: number, scalePermille: number): number {
+  return roundDiv(value * scalePermille, 1000)
+}
+
+function scaleContourPoints(
+  points: number[],
+  anchorX: number,
+  anchorY: number,
+  scaleXPermille: number,
+  scaleYPermille: number
+): void {
+  for (let i = 0; i < points.length; i += 2) {
+    points[i] = anchorX + scaleByPermille(points[i] - anchorX, scaleXPermille)
+    points[i + 1] =
+      anchorY + scaleByPermille(points[i + 1] - anchorY, scaleYPermille)
+  }
 }
 
 function createEnvironmentTreeLeafContourPoints(
