@@ -46,6 +46,7 @@ export const SOUND_IDS = {
   BOMB_IGNITE: 19,
   STAGGER_BREAK: 20,
   WOOD_BOX_BROKEN: 21,
+  PASS_THROUGH_GRASS: 22,
 } as const
 
 export const MAX_EFFECTS = 256

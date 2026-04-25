@@ -76,6 +76,32 @@ export interface EnvironmentTextureSource {
   boundsHeight: number
 }
 
+export const ENVIRONMENT_GRASS_BLADE_STRIDE = 10
+
+export const ENVIRONMENT_GRASS_BLADE_OFFSETS = {
+  BASE_X: 0,
+  TIP_X: 1,
+  BASE_HALF_WIDTH: 2,
+  INNER_HALF_WIDTH: 3,
+  SHOULDER_Y: 4,
+  TIP_Y: 5,
+  COLOR_INDEX: 6,
+  HEIGHT: 7,
+  PHASE: 8,
+  RESPONSE: 9,
+} as const
+
+export interface EnvironmentGrassLayout {
+  bladeCount: number
+  bladeValues: Int32Array
+  canvasWidth: number
+  canvasHeight: number
+  originX: number
+  originY: number
+  clumpWidth: number
+  maxHeight: number
+}
+
 function lcgStep(seed: number): number {
   return (Math.imul(seed, 1664525) + 1013904223) | 0
 }
@@ -704,12 +730,12 @@ export function createEnvironmentCrateTextureSource(
 
 // ===== GRASS =====
 
-export function createEnvironmentGrassTextureSource(
+export function createEnvironmentGrassLayout(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
   scaleYPermille: number = 1000
-): EnvironmentTextureSource {
+): EnvironmentGrassLayout {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const bladeCount = lcgRange(s, 1, 36)
   s = lcgStep(s)
@@ -725,30 +751,15 @@ export function createEnvironmentGrassTextureSource(
   )
   const maxHeight = Math.max(10, scaleByPermille(baseMaxHeight, scaleYPermille))
   const padding = Math.max(8, roundDiv(ppm * 12, 10))
-  const canvasW = clumpWidth + padding * 2
-  const canvasH = maxHeight + padding * 2
+  const canvasWidth = clumpWidth + padding * 2
+  const canvasHeight = maxHeight + padding * 2
+  const originX = canvasWidth >> 1
+  const originY = canvasHeight - padding
+  const bladeValues = new Int32Array(
+    bladeCount * ENVIRONMENT_GRASS_BLADE_STRIDE
+  )
 
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, canvasW)
-  canvas.height = Math.max(1, canvasH)
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    return {
-      canvas,
-      originX: canvas.width >> 1,
-      originY: canvas.height - padding,
-      boundsX: 0,
-      boundsY: 0,
-      boundsWidth: canvas.width,
-      boundsHeight: canvas.height,
-    }
-  }
-
-  const ox = canvas.width >> 1
-  const oy = canvas.height - padding
-  const bladeValues = new Int32Array(bladeCount * 6)
   let writeIndex = 0
-
   for (let i = 0; i < bladeCount; i++) {
     s = lcgStep(s ^ Math.imul(i + 1, 0x45d9f3b))
     const baseOffsetPercent = lcgRange(s, -48, 48)
@@ -760,70 +771,158 @@ export function createEnvironmentGrassTextureSource(
     const baseWidthPercent = lcgRange(s, 6, 16)
     s = lcgStep(s)
     const colorIndex = lcgRange(s, 0, GRASS_MATERIAL.fillPalette.length - 1)
+    s = lcgStep(s)
+    const phase = lcgRange(s, 0, 255)
+    s = lcgStep(s)
+    const response = lcgRange(s, 72, 136)
 
-    const baseX = roundDiv(baseClumpWidth * baseOffsetPercent, 100)
-    const bladeHeight = Math.max(
+    const baseXUnscaled = roundDiv(baseClumpWidth * baseOffsetPercent, 100)
+    const bladeHeightUnscaled = Math.max(
       6,
       roundDiv(baseMaxHeight * bladeHeightPercent, 100)
     )
-    const tipX = baseX + roundDiv(bladeHeight * leanPercent, 100)
-    const baseHalfWidth = Math.max(1, roundDiv(ppm * baseWidthPercent, 100))
+    const tipXUnscaled =
+      baseXUnscaled + roundDiv(bladeHeightUnscaled * leanPercent, 100)
+    const baseX = scaleByPermille(baseXUnscaled, scaleXPermille)
+    const bladeHeight = Math.max(
+      6,
+      scaleByPermille(bladeHeightUnscaled, scaleYPermille)
+    )
+    const tipX = scaleByPermille(tipXUnscaled, scaleXPermille)
+    const baseHalfWidth = Math.max(
+      1,
+      scaleByPermille(
+        Math.max(1, roundDiv(ppm * baseWidthPercent, 100)),
+        scaleXPermille
+      )
+    )
     const shoulderY = -roundDiv(bladeHeight * 45, 100)
 
-    bladeValues[writeIndex] = baseX
-    bladeValues[writeIndex + 1] = bladeHeight
-    bladeValues[writeIndex + 2] = tipX
-    bladeValues[writeIndex + 3] = baseHalfWidth
-    bladeValues[writeIndex + 4] = shoulderY
-    bladeValues[writeIndex + 5] = colorIndex
-    writeIndex += 6
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_X] = baseX
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_X] = tipX
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_HALF_WIDTH] =
+      baseHalfWidth
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.INNER_HALF_WIDTH] =
+      Math.max(1, baseHalfWidth >> 1)
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.SHOULDER_Y] =
+      shoulderY
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_Y] =
+      -bladeHeight
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.COLOR_INDEX] =
+      colorIndex
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.HEIGHT] =
+      bladeHeight
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.PHASE] = phase
+    bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.RESPONSE] =
+      response
+    writeIndex += ENVIRONMENT_GRASS_BLADE_STRIDE
   }
 
+  return {
+    bladeCount,
+    bladeValues,
+    canvasWidth,
+    canvasHeight,
+    originX,
+    originY,
+    clumpWidth,
+    maxHeight,
+  }
+}
+
+function drawEnvironmentGrassLayout(
+  ctx: CanvasRenderingContext2D,
+  layout: EnvironmentGrassLayout
+): void {
+  const bladeValues = layout.bladeValues
+  const tallBladeThreshold = roundDiv(layout.maxHeight * 78, 100)
+
   for (let pass = 0; pass < 2; pass++) {
-    for (let i = 0; i < bladeValues.length; i += 6) {
-      const bladeHeight = bladeValues[i + 1]
-      if (bladeHeight >= roundDiv(baseMaxHeight * 78, 100) !== (pass === 1)) {
+    for (
+      let i = 0;
+      i < bladeValues.length;
+      i += ENVIRONMENT_GRASS_BLADE_STRIDE
+    ) {
+      const bladeHeight =
+        bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.HEIGHT]
+      if (bladeHeight >= tallBladeThreshold !== (pass === 1)) {
         continue
       }
-      const baseX = bladeValues[i]
-      const tipX = bladeValues[i + 2]
-      const baseHalfWidth = bladeValues[i + 3]
-      const shoulderY = bladeValues[i + 4]
-      const tipY = -bladeHeight
-      const scaledBaseX = ox + scaleByPermille(baseX, scaleXPermille)
-      const scaledTipX = ox + scaleByPermille(tipX, scaleXPermille)
-      const scaledBaseHalfWidth = Math.max(
-        1,
-        scaleByPermille(baseHalfWidth, scaleXPermille)
-      )
-      const scaledInnerHalfWidth = Math.max(1, scaledBaseHalfWidth >> 1)
-      const scaledShoulderY = oy + scaleByPermille(shoulderY, scaleYPermille)
-      const scaledTipY = oy + scaleByPermille(tipY, scaleYPermille)
+
+      const baseX =
+        layout.originX + bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_X]
+      const tipX =
+        layout.originX + bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_X]
+      const baseHalfWidth =
+        bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_HALF_WIDTH]
+      const innerHalfWidth =
+        bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.INNER_HALF_WIDTH]
+      const shoulderY =
+        layout.originY +
+        bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.SHOULDER_Y]
+      const tipY =
+        layout.originY + bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_Y]
 
       ctx.beginPath()
-      ctx.moveTo(scaledBaseX - scaledBaseHalfWidth, oy)
-      ctx.lineTo(scaledBaseX - scaledInnerHalfWidth, scaledShoulderY)
-      ctx.lineTo(scaledTipX, scaledTipY)
-      ctx.lineTo(scaledBaseX + scaledInnerHalfWidth, scaledShoulderY)
-      ctx.lineTo(scaledBaseX + scaledBaseHalfWidth, oy)
+      ctx.moveTo(baseX - baseHalfWidth, layout.originY)
+      ctx.lineTo(baseX - innerHalfWidth, shoulderY)
+      ctx.lineTo(tipX, tipY)
+      ctx.lineTo(baseX + innerHalfWidth, shoulderY)
+      ctx.lineTo(baseX + baseHalfWidth, layout.originY)
       ctx.closePath()
-      ctx.fillStyle = GRASS_MATERIAL.fillPalette[bladeValues[i + 5]]
+      ctx.fillStyle =
+        GRASS_MATERIAL.fillPalette[
+          bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.COLOR_INDEX]
+        ]
       ctx.fill()
-      ctx.strokeStyle = GRASS_MATERIAL.strokeColor
-      ctx.lineWidth = 1
-      ctx.stroke()
     }
   }
 
   ctx.fillStyle =
     GRASS_MATERIAL.fillPalette[GRASS_MATERIAL.fillPalette.length - 1]
-  ctx.fillRect(ox - (clumpWidth >> 1), oy - 1, clumpWidth, 2)
+  ctx.fillRect(
+    layout.originX - (layout.clumpWidth >> 1),
+    layout.originY - 1,
+    layout.clumpWidth,
+    2
+  )
+}
+
+export function createEnvironmentGrassTextureSource(
+  seed: number,
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
+): EnvironmentTextureSource {
+  const layout = createEnvironmentGrassLayout(
+    seed,
+    ppm,
+    scaleXPermille,
+    scaleYPermille
+  )
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, layout.canvasWidth)
+  canvas.height = Math.max(1, layout.canvasHeight)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return {
+      canvas,
+      originX: layout.originX,
+      originY: layout.originY,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
+    }
+  }
+
+  drawEnvironmentGrassLayout(ctx, layout)
 
   const bounds = getCanvasOpaqueBounds(canvas)
   return {
     canvas,
-    originX: ox,
-    originY: oy,
+    originX: layout.originX,
+    originY: layout.originY,
     boundsX: bounds.x,
     boundsY: bounds.y,
     boundsWidth: bounds.width,

@@ -25,6 +25,10 @@ import {
 } from './constants'
 import type { EditorMapData, MapEnvironmentObject } from './editorMapTypes'
 import {
+  computeDistanceAttenuation,
+  getSoundFalloffDistance,
+} from './effectAttenuation'
+import {
   type EnvironmentTransformOffset,
   getEnvironmentRotationDeg,
   getEnvironmentScaleXPermille,
@@ -42,6 +46,7 @@ import {
   DayNightCycle,
   getMapTimePhaseElapsedMs,
 } from './renderer/DayNightCycle'
+import { InteractiveGrassDecoration } from './renderer/EnvironmentGrassRuntime'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import {
   buildEnvironmentTextureCacheKey,
@@ -70,6 +75,13 @@ import { TerrainRenderer } from './terrain/TerrainRenderer'
 import type { TerrainDataLike, TerrainLayerLike } from './terrain/TerrainTypes'
 import { getVoronoiBuildPerfSnapshot } from './terrain/VoronoiBuilder'
 import { VoronoiCollisionBuilder } from './terrain/VoronoiCollisionBuilder'
+import {
+  ENTITY_STRIDE,
+  FLAGS,
+  MAX_ENTITIES,
+  OFFSETS,
+} from './worker/binaryProtocol'
+import { SOUND_IDS } from './worker/effectsProtocol'
 import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
@@ -101,6 +113,9 @@ type SleepTransitionPhase = 'idle' | 'closing' | 'closed' | 'opening'
 const TERRAIN_COLLISION_DEBUG_COLOR = 0x4f7cff
 const TERRAIN_COLLISION_DEBUG_LINE_WIDTH = 2
 const TERRAIN_COLLISION_DEBUG_ALPHA = 0.92
+const PASS_THROUGH_GRASS_VOLUME = 0.72
+const GRASS_DYNAMIC_VIEW_PADDING_X_METERS = 4
+const GRASS_DYNAMIC_VIEW_PADDING_Y_METERS = 3
 
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
@@ -150,6 +165,7 @@ export class GameClient {
   private hudRenderContext: PixiRenderContext2D
   private staticTerrainGraphics: Container[] = []
   private staticEnvironmentSprites: Sprite[] = []
+  private interactiveGrassDecorations: InteractiveGrassDecoration[] = []
   private pendingStaticTerrainGraphics: Container[] = []
   private pendingStaticTerrainGraphicLayers: number[] = []
   private staticTerrainSignature = 0
@@ -337,6 +353,13 @@ export class GameClient {
   private sleepTransitionPhase: SleepTransitionPhase = 'idle'
   private sleepTransitionElapsedMs = 0
   private sleepTransitionMidpointHandled = false
+  private readonly grassInteractorX = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorY = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorLayer = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorDeltaX = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorDeltaY = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorPrevX = new Map<number, number>()
+  private readonly grassInteractorPrevY = new Map<number, number>()
 
   static async create(
     menuOverlay: HTMLDivElement,
@@ -1601,6 +1624,7 @@ export class GameClient {
     if (!this.editorPreview) {
       const updateStartMs = performance.now()
       this.renderer.update(scaledDeltaTime)
+      this.updateInteractiveGrass(Math.max(0, Math.round(deltaMs)))
       updateTimeUs = Math.round((performance.now() - updateStartMs) * 1000)
     }
     this.updateStartMenuFlow(deltaMs | 0)
@@ -2565,6 +2589,7 @@ export class GameClient {
       this.destroyStaticGraphics(this.staticTerrainGraphics)
       this.staticTerrainGraphics.length = 0
       this.destroyStaticEnvironmentSprites()
+      this.destroyInteractiveGrassDecorations()
       this.activeEnvironmentTextureKeys.clear()
       this.pruneEnvironmentTextureCaches(this.activeEnvironmentTextureKeys)
       this.clearPendingStaticTerrainBuild()
@@ -2603,6 +2628,7 @@ export class GameClient {
     ) {
       this.worldRenderer.invalidateStaticMeshCaches()
       this.destroyStaticEnvironmentSprites()
+      this.destroyInteractiveGrassDecorations()
       this.clearPendingStaticEnvironmentBuild()
 
       if (envObjects && envObjects.length > 0) {
@@ -2716,6 +2742,15 @@ export class GameClient {
       sprite.destroy()
     }
     this.staticEnvironmentSprites.length = 0
+  }
+
+  private destroyInteractiveGrassDecorations(): void {
+    for (let i = 0; i < this.interactiveGrassDecorations.length; i++) {
+      this.interactiveGrassDecorations[i].destroy()
+    }
+    this.interactiveGrassDecorations.length = 0
+    this.grassInteractorPrevX.clear()
+    this.grassInteractorPrevY.clear()
   }
 
   private preparePendingStaticTerrainBuild(
@@ -2978,13 +3013,44 @@ export class GameClient {
         scaleYPermille,
         this.reusableEnvironmentAnchorOffset
       )
+      const resolvedLayer = envLayers?.[index] ?? 0
+      const renderX = obj.x * ppm - this.reusableEnvironmentAnchorOffset.x
+      const renderY = obj.y * ppm - this.reusableEnvironmentAnchorOffset.y
+      if (obj.type === 'grass') {
+        const decoration = new InteractiveGrassDecoration({
+          texture: textureEntry.texture,
+          worldX: Math.round(obj.x * ppm),
+          worldY: Math.round(obj.y * ppm),
+          renderX,
+          renderY,
+          layer: resolvedLayer,
+          rotationDeg,
+          seed: obj.seed,
+          ppm,
+          scaleXPermille,
+          scaleYPermille,
+        })
+        this.worldRenderer.addEnvironmentDecoration(
+          decoration.root,
+          resolvedLayer
+        )
+        this.interactiveGrassDecorations.push(decoration)
+        this.recordEnvironmentBuildTime(envBuildStartMs)
+        if (
+          this.pendingStaticEnvironmentIndex < envObjects.length &&
+          performance.now() >= deadlineMs
+        ) {
+          return
+        }
+        continue
+      }
       const sprite = new Sprite(textureEntry.texture)
       sprite.anchor.set(textureEntry.centerAnchorX, textureEntry.centerAnchorY)
-      sprite.x = obj.x * ppm - this.reusableEnvironmentAnchorOffset.x
-      sprite.y = obj.y * ppm - this.reusableEnvironmentAnchorOffset.y
+      sprite.x = renderX
+      sprite.y = renderY
       sprite.angle = rotationDeg
       sprite.scale.set(1, 1)
-      this.worldRenderer.addStaticMesh(sprite, envLayers?.[index] ?? 0)
+      this.worldRenderer.addStaticMesh(sprite, resolvedLayer)
       this.staticEnvironmentSprites.push(sprite)
       this.recordEnvironmentBuildTime(envBuildStartMs)
       if (
@@ -3218,6 +3284,152 @@ export class GameClient {
     return (mixed ^ (mixed >>> 16)) >>> 0
   }
 
+  private updateInteractiveGrass(deltaMs: number): void {
+    const grassCount = this.interactiveGrassDecorations.length
+    if (grassCount <= 0) {
+      return
+    }
+
+    const hasPlayer = this.renderer.hasPlayerPosition()
+    const playerX = hasPlayer
+      ? Math.round(this.renderer.getPlayerWorldX() * this.pixelsPerMeter)
+      : 0
+    const playerY = hasPlayer
+      ? Math.round(this.renderer.getPlayerWorldY() * this.pixelsPerMeter)
+      : 0
+    const width = this.app.renderer.width
+    const height = this.app.renderer.height
+    const centerX = width * 0.5
+    const bottomY = height
+    const camX = this.camera.x * this.pixelsPerMeter
+    const camY = this.camera.y * this.pixelsPerMeter
+    const zoom = this.renderZoom > 0 ? this.renderZoom : 1
+    const paddingX = Math.max(
+      120,
+      this.pixelsPerMeter * GRASS_DYNAMIC_VIEW_PADDING_X_METERS
+    )
+    const paddingY = Math.max(
+      90,
+      this.pixelsPerMeter * GRASS_DYNAMIC_VIEW_PADDING_Y_METERS
+    )
+    const interactorCount = this.collectGrassInteractors()
+
+    for (let i = 0; i < grassCount; i++) {
+      const decoration = this.interactiveGrassDecorations[i]
+      const renderX = decoration.getRenderX()
+      const renderY = decoration.getRenderY()
+      const screenX = (renderX - camX - centerX) * zoom + centerX
+      const screenY = (renderY - camY - bottomY) * zoom + bottomY
+      const dynamicInView =
+        screenX >= -paddingX &&
+        screenX <= width + paddingX &&
+        screenY >= -paddingY &&
+        screenY <= height + paddingY
+      decoration.beginFrame()
+      if (dynamicInView) {
+        for (let actorIndex = 0; actorIndex < interactorCount; actorIndex++) {
+          const playSound = decoration.interact(
+            this.grassInteractorX[actorIndex],
+            this.grassInteractorY[actorIndex],
+            this.grassInteractorLayer[actorIndex],
+            this.grassInteractorDeltaX[actorIndex],
+            this.grassInteractorDeltaY[actorIndex]
+          )
+          if (playSound && hasPlayer) {
+            const attenuation = this.getGrassSoundAttenuation(
+              playerX,
+              playerY,
+              decoration.getWorldX(),
+              decoration.getWorldY()
+            )
+            if (attenuation > 0) {
+              this.audioManager.playSpatial(
+                SOUND_IDS.PASS_THROUGH_GRASS,
+                PASS_THROUGH_GRASS_VOLUME * attenuation,
+                1,
+                decoration.getAudioPan(playerX)
+              )
+            }
+          }
+        }
+      }
+      decoration.finishFrame(deltaMs, dynamicInView)
+    }
+  }
+
+  private collectGrassInteractors(): number {
+    const buf = this.renderer.getStateBuffer()
+    const entityCount = this.renderer.getEntityCount()
+    let interactorCount = 0
+
+    for (let i = 0; i < entityCount && interactorCount < MAX_ENTITIES; i++) {
+      const offset = i * ENTITY_STRIDE
+      if (!this.isGrassInteractorEntity(buf, offset)) {
+        continue
+      }
+      const entityId = buf[offset + OFFSETS.ID] | 0
+      const x = Math.round(buf[offset + OFFSETS.X] * this.pixelsPerMeter)
+      const y = Math.round(buf[offset + OFFSETS.Y] * this.pixelsPerMeter)
+      const previousX = this.grassInteractorPrevX.get(entityId)
+      const previousY = this.grassInteractorPrevY.get(entityId)
+      this.grassInteractorX[interactorCount] = x
+      this.grassInteractorY[interactorCount] = y
+      this.grassInteractorLayer[interactorCount] =
+        buf[offset + OFFSETS.RENDER_LAYER] | 0
+      this.grassInteractorDeltaX[interactorCount] =
+        previousX === undefined ? 0 : x - previousX
+      this.grassInteractorDeltaY[interactorCount] =
+        previousY === undefined ? 0 : y - previousY
+      this.grassInteractorPrevX.set(entityId, x)
+      this.grassInteractorPrevY.set(entityId, y)
+      interactorCount++
+    }
+
+    return interactorCount
+  }
+
+  private isGrassInteractorEntity(buf: Float32Array, offset: number): boolean {
+    const flags = buf[offset + OFFSETS.FLAGS] | 0
+    if ((flags & FLAGS.VISIBLE) === 0 || (flags & FLAGS.VANISHED) !== 0) {
+      return false
+    }
+    if (
+      (flags & FLAGS.EXP_ORB) !== 0 ||
+      (flags & FLAGS.SUN_PICKUP_SMALL) !== 0 ||
+      (flags & FLAGS.SUN_PICKUP_LARGE) !== 0 ||
+      (flags & FLAGS.GRAPPLE_ANCHOR) !== 0 ||
+      (flags & FLAGS.CHECKPOINT) !== 0 ||
+      (flags & FLAGS.TERRAIN_DEBRIS) !== 0
+    ) {
+      return false
+    }
+    if (
+      buf[offset + OFFSETS.WEAPON_ACTIVE] === 1 &&
+      buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0
+    ) {
+      return false
+    }
+    return buf[offset + OFFSETS.RADIUS] > 0
+  }
+
+  private getGrassSoundAttenuation(
+    listenerX: number,
+    listenerY: number,
+    sourceX: number,
+    sourceY: number
+  ): number {
+    const maxDistance =
+      getSoundFalloffDistance(SOUND_IDS.PASS_THROUGH_GRASS) *
+      this.pixelsPerMeter
+    return computeDistanceAttenuation(
+      listenerX,
+      listenerY,
+      sourceX,
+      sourceY,
+      maxDistance
+    )
+  }
+
   destroy(): void {
     if (this.destroyed) {
       return
@@ -3226,6 +3438,7 @@ export class GameClient {
 
     this.stop()
     this.worker.terminate()
+    this.destroyInteractiveGrassDecorations()
     this.worldRenderer.destroy()
     this.lightingController.destroy()
 

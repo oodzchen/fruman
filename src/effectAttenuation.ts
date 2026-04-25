@@ -25,6 +25,7 @@ export function getSoundFalloffDistance(soundId: number): number {
       return PARRY_SOUND_FALLOFF_DISTANCE
     case SOUND_IDS.SWORD_HIT_OBSTACLE:
     case SOUND_IDS.WOOD_BOX_BROKEN:
+    case SOUND_IDS.PASS_THROUGH_GRASS:
       return OBSTACLE_HIT_SOUND_FALLOFF_DISTANCE
     case SOUND_IDS.DEATH_SPLASH:
       return DEATH_SPLASH_SOUND_FALLOFF_DISTANCE

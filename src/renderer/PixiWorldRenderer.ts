@@ -123,6 +123,7 @@ interface LayerBucket {
   container: Container
   glowContainer: Container
   staticContainer: Container
+  environmentContainer: Container
   dynamicContainer: Container
   staticCacheDirty: boolean
 }
@@ -887,6 +888,10 @@ export class PixiWorldRenderer {
     const staticContainer = new Container()
     container.addChild(staticContainer)
 
+    const environmentContainer = new Container()
+    environmentContainer.sortableChildren = true
+    container.addChild(environmentContainer)
+
     const dynamicContainer = new Container()
     dynamicContainer.sortableChildren = true
     container.addChild(dynamicContainer)
@@ -900,6 +905,7 @@ export class PixiWorldRenderer {
       container,
       glowContainer,
       staticContainer,
+      environmentContainer,
       dynamicContainer,
       staticCacheDirty: false,
     }
@@ -980,6 +986,11 @@ export class PixiWorldRenderer {
     }
     bucket.staticContainer.addChild(mesh)
     bucket.staticCacheDirty = true
+  }
+
+  addEnvironmentDecoration(mesh: Container, layer: number): void {
+    const bucket = this.ensureBucket(layer)
+    bucket.environmentContainer.addChild(mesh)
   }
 
   invalidateStaticMeshCaches(): void {
