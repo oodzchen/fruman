@@ -95,15 +95,24 @@ import { type EffectsEmitter, StatsSystem } from '../ecs/systems/StatsSystem'
 import { SunPickupSystem } from '../ecs/systems/SunPickupSystem'
 import { TargetingSystem } from '../ecs/systems/TargetingSystem'
 import {
+  type BreakableObstacleHit,
   type ObstacleCollider,
   WeaponSystem,
 } from '../ecs/systems/WeaponSystem'
 import type {
   EditorMapData,
+  MapEnvironmentObject,
   MapNpc,
   MapNpcWeapon,
   MapPlacedShape,
 } from '../editorMapTypes'
+import { createEnvironmentCrateLayout } from '../environmentCrateUtils'
+import {
+  DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+  getEnvironmentRotationDeg,
+  getEnvironmentScaleXPermille,
+  getEnvironmentScaleYPermille,
+} from '../environmentTransformUtils'
 import {
   type MapObjectLayerLookup,
   buildMapObjectLayerLookup,
@@ -141,7 +150,10 @@ import type {
 import { ensureDefaultMap } from '../storage'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { hasTerrainContent } from '../terrain/TerrainDataUtils'
-import { getTerrainMaterialByCode } from '../terrain/TerrainMaterialRegistry'
+import {
+  getTerrainMaterialByCode,
+  getTerrainMaterialById,
+} from '../terrain/TerrainMaterialRegistry'
 import { initializeTerrainPolygonUtils } from '../terrain/TerrainPolygonUtils'
 import {
   type TerrainImpactResult,
@@ -188,6 +200,7 @@ import {
   MAX_EFFECTS,
   MAX_ROPE_POINTS,
   ROPE_POINTS_BASE_OFFSET,
+  SOUND_IDS,
   STATE_BUFFER_FLOATS,
 } from './effectsProtocol'
 import type {
@@ -318,12 +331,52 @@ let obstacles: {
   centerY: number
   width: number
   height: number
+  rotationRad?: number
   renderLayer: number
   materialTag: TerrainMaterialTag
+  breakableId?: number
   radius?: number
   vertices?: { x: number; y: number }[]
   worldVertices?: { x: number; y: number }[]
 }[] = []
+
+interface BreakableCratePlankRuntime {
+  crateId: number
+  bodyId: b2BodyId
+  shapeId: b2ShapeId
+  centerX: number
+  centerY: number
+  halfWidth: number
+  halfHeight: number
+  rotationRad: number
+  debrisVariant: number
+}
+
+interface BreakableCrateRuntime {
+  id: number
+  envIndex: number
+  seed: number
+  renderLayer: number
+  destroyed: boolean
+  planks: BreakableCratePlankRuntime[]
+}
+
+interface BreakableCrateBreakRequest {
+  crateId: number
+  impactX: number
+  impactY: number
+}
+
+const WOOD_MATERIAL = getTerrainMaterialById('wood')
+let nextBreakableCrateId = 1
+const breakableCrates = new Map<number, BreakableCrateRuntime>()
+const breakableCratePlanksByShapeId = new Map<
+  b2ShapeId,
+  BreakableCratePlankRuntime
+>()
+const brokenEnvironmentIndices = new Set<number>()
+const pendingBreakableCrateBreaks: BreakableCrateBreakRequest[] = []
+const pendingBreakableCrateBreakIds = new Set<number>()
 
 let isPaused = false
 let ultimateFlashRemainingMs = 0
@@ -434,6 +487,78 @@ function getSunPickupRenderLayer(index: number, isLarge: boolean): number {
 
 function getExpOrbRenderLayer(index: number): number {
   return getIndexedLayer(activeMapLayerLookup.expOrbLayers, index)
+}
+
+function buildRuntimeEnvironmentObjects(
+  envObjects: readonly MapEnvironmentObject[] | undefined
+): MapEnvironmentObject[] | undefined {
+  if (!envObjects || envObjects.length === 0) {
+    return envObjects ? [] : undefined
+  }
+  if (brokenEnvironmentIndices.size === 0) {
+    return envObjects.slice()
+  }
+  const nextObjects = new Array<MapEnvironmentObject>(envObjects.length)
+  for (let i = 0; i < envObjects.length; i++) {
+    const obj = envObjects[i]
+    if (brokenEnvironmentIndices.has(i)) {
+      nextObjects[i] = { ...obj, hidden: true }
+    } else {
+      nextObjects[i] = obj
+    }
+  }
+  return nextObjects
+}
+
+function buildRuntimeMapData(
+  map: EditorMapData | null | undefined
+): EditorMapData | null {
+  if (!map) {
+    return null
+  }
+  if (brokenEnvironmentIndices.size === 0) {
+    return map
+  }
+  return {
+    ...map,
+    environmentObjects: buildRuntimeEnvironmentObjects(map.environmentObjects),
+  }
+}
+
+function queueBreakableCrateBreak(
+  crateId: number,
+  impactX: number,
+  impactY: number
+): void {
+  const crate = breakableCrates.get(crateId)
+  if (!crate || crate.destroyed || pendingBreakableCrateBreakIds.has(crateId)) {
+    return
+  }
+  pendingBreakableCrateBreakIds.add(crateId)
+  pendingBreakableCrateBreaks.push({ crateId, impactX, impactY })
+}
+
+function handleBreakableObstacleHit(hit: BreakableObstacleHit): void {
+  const crateId = hit.obstacle.breakableId
+  if (crateId === undefined) {
+    return
+  }
+  queueBreakableCrateBreak(crateId, hit.impactX, hit.impactY)
+}
+
+function handleBreakableSprintContact(
+  entity: Entity,
+  shapeId: b2ShapeId
+): void {
+  const plank = breakableCratePlanksByShapeId.get(shapeId)
+  if (!plank || !entity.transform) {
+    return
+  }
+  queueBreakableCrateBreak(
+    plank.crateId,
+    entity.transform.x,
+    entity.transform.y
+  )
 }
 
 // Helper for color parsing (simple cache)
@@ -1029,9 +1154,12 @@ function initializeSystems() {
   npcAISystem.setWeaponSystem(weaponSystem)
   movementSystem.setSoundSystem(soundSystem)
   movementSystem.setStatsSystem(statsSystem)
+  movementSystem.setBreakableContactHandler(handleBreakableSprintContact)
   grappleSystem.setStatsSystem(statsSystem)
   weaponSystem.setSoundSystem(soundSystem)
+  weaponSystem.setBreakableObstacleHitHandler(handleBreakableObstacleHit)
   arrowSystem.setSoundSystem(soundSystem)
+  arrowSystem.setBreakableObstacleHitHandler(handleBreakableObstacleHit)
   interactionSystem.setWeaponSystem(weaponSystem)
   interactionSystem.setCheckpointSystem(checkpointSystem)
   sunPickupSystem = new SunPickupSystem()
@@ -1145,6 +1273,7 @@ function initializeSystems() {
 
   world.setComponentPool(arrowPools)
   weaponSystem.setObstacles(obstacles)
+  arrowSystem.setObstacles(obstacles)
   weaponSystem.setStandableSurfaces(standableSurfaces)
   weaponSystem.setWorld(world, worldId, groundTopY)
   weaponSystem.setArrowPools(arrowPools)
@@ -1423,6 +1552,7 @@ function createObstacles() {
   // Update weapon system obstacles
   if (weaponSystem) {
     weaponSystem.setObstacles(obstacles)
+    arrowSystem.setObstacles(obstacles)
   }
 }
 
@@ -1537,6 +1667,12 @@ function createEnvironment(): void {
   terrainBodyIds.length = 0
   standableSurfaces = []
   obstacles = []
+  breakableCrates.clear()
+  breakableCratePlanksByShapeId.clear()
+  brokenEnvironmentIndices.clear()
+  pendingBreakableCrateBreaks.length = 0
+  pendingBreakableCrateBreakIds.clear()
+  nextBreakableCrateId = 1
   runtimeTerrainState = null
   if (activeMapData) {
     createEnvironmentFromMap(activeMapData)
@@ -1550,6 +1686,7 @@ function createEnvironment(): void {
   }
   if (weaponSystem) {
     weaponSystem.setObstacles(obstacles)
+    arrowSystem.setObstacles(obstacles)
     weaponSystem.setStandableSurfaces(standableSurfaces)
   }
 }
@@ -1559,6 +1696,105 @@ function createEnvironmentFromMap(map: EditorMapData): void {
   if (terrain && hasTerrainContent(terrain)) {
     syncRuntimeTerrainState(terrain)
     createTerrainFromMap(terrain)
+  }
+  createBreakableCratesFromMap(map)
+}
+
+function createBreakableCratesFromMap(map: EditorMapData): void {
+  const envObjects = map.environmentObjects
+  if (!envObjects || envObjects.length === 0) {
+    return
+  }
+  const invPixelsPerMeter = pixelsPerMeter > 0 ? 1 / pixelsPerMeter : 0
+  for (let i = 0; i < envObjects.length; i++) {
+    const env = envObjects[i]
+    if (env.type !== 'crate' || env.hidden === true || invPixelsPerMeter <= 0) {
+      continue
+    }
+    const renderLayer = getIndexedLayer(
+      activeMapLayerLookup.environmentObjectLayers,
+      i
+    )
+    const layout = createEnvironmentCrateLayout(env.seed, pixelsPerMeter)
+    const rotationDeg = getEnvironmentRotationDeg(env)
+    const scaleXPermille = getEnvironmentScaleXPermille(env)
+    const scaleYPermille = getEnvironmentScaleYPermille(env)
+    const scaleX = scaleXPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    const scaleY = scaleYPermille / DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    const rotationRad = (rotationDeg * Math.PI) / 180
+    const cos = Math.cos(rotationRad)
+    const sin = Math.sin(rotationRad)
+
+    const crate: BreakableCrateRuntime = {
+      id: nextBreakableCrateId++,
+      envIndex: i,
+      seed: env.seed,
+      renderLayer,
+      destroyed: false,
+      planks: [],
+    }
+
+    for (let plankIndex = 0; plankIndex < layout.planks.length; plankIndex++) {
+      const plank = layout.planks[plankIndex]
+      const localCenterX = plank.localCenterX * scaleX * invPixelsPerMeter
+      const localCenterY = plank.localCenterY * scaleY * invPixelsPerMeter
+      const centerX = env.x + localCenterX * cos - localCenterY * sin
+      const centerY = env.y + localCenterX * sin + localCenterY * cos
+      const halfWidth = Math.max(
+        0.02,
+        plank.width * scaleX * invPixelsPerMeter * 0.5
+      )
+      const halfHeight = Math.max(
+        0.02,
+        plank.height * scaleY * invPixelsPerMeter * 0.5
+      )
+      const bodyResult = createStaticRectBody(
+        centerX,
+        centerY,
+        halfWidth,
+        halfHeight,
+        rotationRad,
+        renderLayer,
+        'obstacle',
+        obstacleFriction
+      )
+      const plankRuntime: BreakableCratePlankRuntime = {
+        crateId: crate.id,
+        bodyId: bodyResult.bodyId,
+        shapeId: bodyResult.shapeId,
+        centerX,
+        centerY,
+        halfWidth,
+        halfHeight,
+        rotationRad,
+        debrisVariant: plank.debrisVariant,
+      }
+      crate.planks.push(plankRuntime)
+      breakableCratePlanksByShapeId.set(bodyResult.shapeId, plankRuntime)
+      obstacles.push({
+        bodyId: bodyResult.bodyId,
+        mainShapeId: bodyResult.shapeId,
+        capBodyId: bodyResult.bodyId,
+        capShapeId: bodyResult.shapeId,
+        centerX,
+        centerY,
+        width: halfWidth,
+        height: halfHeight,
+        rotationRad,
+        renderLayer,
+        materialTag: 'obstacle',
+        breakableId: crate.id,
+        worldVertices: computeRectWorldVertices(
+          centerX,
+          centerY,
+          halfWidth,
+          halfHeight,
+          rotationRad
+        ),
+      })
+    }
+
+    breakableCrates.set(crate.id, crate)
   }
 }
 
@@ -1890,6 +2126,190 @@ function updateTerrainDebrisEntities(entities: Entity[]): void {
   }
 }
 
+function flushPendingBreakableCrateBreaks(): void {
+  if (pendingBreakableCrateBreaks.length === 0) {
+    return
+  }
+  let didChangeEnvironment = false
+  while (pendingBreakableCrateBreaks.length > 0) {
+    const request = pendingBreakableCrateBreaks.pop()
+    if (!request) {
+      continue
+    }
+    pendingBreakableCrateBreakIds.delete(request.crateId)
+    if (breakBreakableCrate(request)) {
+      didChangeEnvironment = true
+    }
+  }
+  if (!didChangeEnvironment || !activeMapData) {
+    return
+  }
+  const runtimeMapData = buildRuntimeMapData(activeMapData)
+  if (!runtimeMapData) {
+    return
+  }
+  ctx.postMessage({
+    type: 'map_data',
+    map: runtimeMapData,
+    runtimeTerrainUpdate: true,
+  })
+}
+
+function breakBreakableCrate(request: BreakableCrateBreakRequest): boolean {
+  if (!box2d) {
+    return false
+  }
+  const crate = breakableCrates.get(request.crateId)
+  if (!crate || crate.destroyed) {
+    return false
+  }
+  crate.destroyed = true
+  breakableCrates.delete(crate.id)
+  brokenEnvironmentIndices.add(crate.envIndex)
+  effectsEmitter.playSoundAt(
+    SOUND_IDS.WOOD_BOX_BROKEN,
+    request.impactX,
+    request.impactY
+  )
+
+  for (let i = 0; i < crate.planks.length; i++) {
+    const plank = crate.planks[i]
+    breakableCratePlanksByShapeId.delete(plank.shapeId)
+    spawnCratePlankDebrisEntity(
+      plank,
+      request.impactX,
+      request.impactY,
+      crate.renderLayer,
+      crate.seed,
+      i
+    )
+    box2d.b2DestroyBody(plank.bodyId)
+  }
+
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    if (obstacles[i].breakableId === crate.id) {
+      obstacles.splice(i, 1)
+    }
+  }
+  weaponSystem.setObstacles(obstacles)
+  arrowSystem.setObstacles(obstacles)
+  return true
+}
+
+function spawnCratePlankDebrisEntity(
+  plank: BreakableCratePlankRuntime,
+  impactX: number,
+  impactY: number,
+  renderLayer: number,
+  seedBase: number,
+  plankIndex: number
+): void {
+  if (!world || !box2d) {
+    return
+  }
+  const activeCount = countActiveTerrainDebris()
+  if (activeCount >= MAX_TERRAIN_DEBRIS_ACTIVE) {
+    return
+  }
+
+  const seed = hashTerrainDebrisSeed(
+    Math.round(plank.centerX * 1000),
+    Math.round(plank.centerY * 1000),
+    (seedBase + plankIndex * 17) | 0
+  )
+  const dx1000 = Math.round((plank.centerX - impactX) * 1000)
+  const dy1000 = Math.round((plank.centerY - impactY) * 1000)
+  const distanceBase1000 = Math.abs(dx1000) + Math.abs(dy1000)
+  const dirX1000 =
+    distanceBase1000 > 0
+      ? Math.floor((dx1000 * 1000) / distanceBase1000)
+      : (seed & 1) === 0
+        ? 1000
+        : -1000
+  const dirY1000 =
+    distanceBase1000 > 0
+      ? Math.floor((dy1000 * 1000) / distanceBase1000)
+      : -1000
+  const sideX1000 = -dirY1000
+  const sideY1000 = dirX1000
+  const sideSpeed1000 = (((seed >>> 5) % 1401) - 700) | 0
+  const outwardSpeed1000 = 2800 + ((seed >>> 11) % 2201)
+  const upwardSpeed1000 = 2600 + ((seed >>> 19) % 1601)
+  const spawnY = plank.centerY - 0.05
+  const velocityX =
+    (dirX1000 * outwardSpeed1000 + sideX1000 * sideSpeed1000) / 1000000
+  const velocityY =
+    (-(upwardSpeed1000 * 1000) +
+      dirY1000 * outwardSpeed1000 +
+      Math.floor((sideY1000 * sideSpeed1000) / 2)) /
+    1000000
+  const angularVelocity =
+    ((seed >>> 2) & 1) === 0
+      ? 4 + ((seed >>> 7) % 5)
+      : -(4 + ((seed >>> 7) % 5))
+
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2MakeBox,
+    b2CreatePolygonShape,
+    b2Body_SetAngularVelocity,
+  } = box2d
+
+  const entity = world.createEntity()
+  const transform = arrowPools.acquireTransform()
+  transform.x = plank.centerX
+  transform.y = spawnY
+  transform.rotation = plank.rotationRad
+  entity.addComponent(transform)
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(plank.centerX, spawnY)
+  bodyDef.rotation.SetAngle(plank.rotationRad)
+  bodyDef.linearDamping = 1.2
+  bodyDef.angularDamping = 2
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.7
+  shapeDef.material.friction = 0.5
+  shapeDef.material.restitution = 0.06
+  shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
+
+  const box = b2MakeBox(plank.halfWidth, plank.halfHeight)
+  b2CreatePolygonShape(bodyId, shapeDef, box)
+  setBodyLinearVelocity(bodyId, velocityX, velocityY)
+  b2Body_SetAngularVelocity(bodyId, angularVelocity)
+  bodyDef.delete()
+  shapeDef.delete()
+  box.delete()
+
+  const physics = arrowPools.acquirePhysics()
+  physics.bodyId = bodyId
+  entity.addComponent(physics)
+
+  const render = arrowPools.acquireRender()
+  render.visible = true
+  render.renderLayer = renderLayer
+  render.radius = Math.max(plank.halfWidth, plank.halfHeight)
+  render.color =
+    WOOD_MATERIAL.fillPalette[(seed >>> 3) % WOOD_MATERIAL.fillPalette.length]
+  render.borderColor = WOOD_MATERIAL.strokeColor
+  entity.addComponent(render)
+
+  const debris = arrowPools.acquireTerrainDebris()
+  debris.width = plank.halfWidth * 2
+  debris.height = plank.halfHeight * 2
+  debris.variant = plank.debrisVariant
+  debris.lifeMs = TERRAIN_DEBRIS_LIFETIME_MS
+  debris.elapsedMs = 0
+  entity.addComponent(debris)
+}
+
 function handleTerrainImpact(request: {
   worldX: number
   worldY: number
@@ -1912,9 +2332,13 @@ function handleTerrainImpact(request: {
   rebuildTerrainCollisionFromActiveMap()
   spawnTerrainDebrisFromImpact(changed, request)
   if (activeMapData) {
+    const runtimeMapData = buildRuntimeMapData(activeMapData)
+    if (!runtimeMapData) {
+      return
+    }
     ctx.postMessage({
       type: 'map_data',
-      map: activeMapData,
+      map: runtimeMapData,
       runtimeTerrainUpdate: true,
     })
   }
@@ -1934,6 +2358,7 @@ function rebuildTerrainCollisionFromActiveMap(): void {
   obstacles = []
   createTerrainFromMap(activeMapData.terrain)
   weaponSystem.setObstacles(obstacles)
+  arrowSystem.setObstacles(obstacles)
   weaponSystem.setStandableSurfaces(standableSurfaces)
   wakeGroundItemBodiesAfterTerrainChange()
 }
@@ -3909,6 +4334,7 @@ function fixedUpdate() {
   )
 
   updateTerrainDebrisEntities(entities)
+  flushPendingBreakableCrateBreaks()
 
   const cleanupStartMs = performance.now()
   cleanupDestroyedEntities()

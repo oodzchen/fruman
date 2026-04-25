@@ -83,6 +83,7 @@ export class AudioManager {
       ),
       this.loadSound(SOUND_IDS.BOMB_IGNITE, 'audios/ignite.wav'),
       this.loadSound(SOUND_IDS.STAGGER_BREAK, 'audios/glass_broken.ogg'),
+      this.loadSound(SOUND_IDS.WOOD_BOX_BROKEN, 'audios/wood_box_broken.ogg'),
     ])
   }
 

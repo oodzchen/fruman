@@ -82,6 +82,8 @@ export function buildMapObjectLayerLookup(
       type === 'envTree' ||
       type === 'envHill' ||
       type === 'envHouse' ||
+      type === 'envCrate' ||
+      type === 'envGrass' ||
       type === 'envCloud'
     ) {
       lookup.environmentObjectLayers[index] = layer

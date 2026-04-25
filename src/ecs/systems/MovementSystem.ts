@@ -24,7 +24,7 @@ import {
   isObstacleCollisionCategory,
 } from '../../physicsLayers'
 import { getPlayerAgilityScalePercent } from '../../playerUpgrade'
-import type { MainModule } from '../../types'
+import type { MainModule, b2ShapeId } from '../../types'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -46,6 +46,9 @@ export class MovementSystem extends System {
   private currentDeltaTime = 0
   private currentTimeMs = 0
   private readonly slopeNormalScale = 1024
+  private onBreakableContact:
+    | ((entity: Entity, shapeId: b2ShapeId) => void)
+    | null = null
 
   constructor(box2d: MainModule) {
     super()
@@ -77,6 +80,12 @@ export class MovementSystem extends System {
 
   setStatsSystem(statsSystem: StatsSystem): void {
     this.statsSystem = statsSystem
+  }
+
+  setBreakableContactHandler(
+    handler: ((entity: Entity, shapeId: b2ShapeId) => void) | null
+  ): void {
+    this.onBreakableContact = handler
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -139,6 +148,11 @@ export class MovementSystem extends System {
     const isMovingAlongSurface = Math.abs(velX) >= slopeMoveSpeedMin
     const isFallingOrStill =
       velY >= -0.1 || (isMovingAlongSurface && velY >= slopeGroundVelocityMin)
+    const sprintImpactSpeedSq = velX * velX + velY * velY
+    const canBreakSprintContact =
+      entity.faction?.factionId === Faction.Player &&
+      entity.movement.isSprinting &&
+      sprintImpactSpeedSq >= 6.25
     vel.delete()
     const capacity = b2Body_GetContactCapacity(entity.physics.bodyId)
     const contactData = b2Body_GetContactData(entity.physics.bodyId, capacity)
@@ -188,6 +202,9 @@ export class MovementSystem extends System {
           const obstacleShapeId = isObstacleA
             ? contact.shapeIdA
             : contact.shapeIdB
+          if (canBreakSprintContact && this.onBreakableContact) {
+            this.onBreakableContact(entity, obstacleShapeId)
+          }
           const surfaceFriction = b2Shape_GetFriction(obstacleShapeId)
           if (surfaceFriction > obstacleSurfaceFriction) {
             obstacleSurfaceFriction = surfaceFriction

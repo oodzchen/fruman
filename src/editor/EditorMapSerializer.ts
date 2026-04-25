@@ -593,6 +593,8 @@ export class EditorMapSerializer {
         dataItem.type === 'envTree' ||
         dataItem.type === 'envHill' ||
         dataItem.type === 'envHouse' ||
+        dataItem.type === 'envCrate' ||
+        dataItem.type === 'envGrass' ||
         dataItem.type === 'envCloud'
       ) {
         const index = data.environmentIndexMap.get(dataItem.object)

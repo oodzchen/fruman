@@ -345,6 +345,9 @@ export class WorldLightingController {
   private appendEnvironmentLight(
     environmentObject: MapEnvironmentObject
   ): void {
+    if (environmentObject.hidden === true) {
+      return
+    }
     if (environmentObject.type !== 'house') {
       return
     }

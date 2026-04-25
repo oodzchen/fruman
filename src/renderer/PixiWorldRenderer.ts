@@ -1254,7 +1254,27 @@ export class PixiWorldRenderer {
       const halfW = width * 0.5
       const halfH = height * 0.5
       view.specialGraphics.clear()
-      if ((variant & 3) === 0) {
+      if (variant >= 4) {
+        const inset = Math.max(1, Math.round(Math.min(width, height) * 0.18))
+        view.specialGraphics.rect(-halfW, -halfH, width, height)
+        view.specialGraphics.fill({ color: fillColor })
+        view.specialGraphics.stroke({
+          color: strokeColor,
+          width: strokeWidth,
+          join: 'round',
+        })
+        if (variant === 4) {
+          view.specialGraphics
+            .moveTo(-halfW + inset, 0)
+            .lineTo(halfW - inset, 0)
+            .stroke({ color: strokeColor, width: 1, join: 'round' })
+        } else {
+          view.specialGraphics
+            .moveTo(0, -halfH + inset)
+            .lineTo(0, halfH - inset)
+            .stroke({ color: strokeColor, width: 1, join: 'round' })
+        }
+      } else if ((variant & 3) === 0) {
         view.specialGraphics
           .moveTo(-halfW, -halfH * 0.55)
           .lineTo(-halfW * 0.2, -halfH)
@@ -1287,12 +1307,14 @@ export class PixiWorldRenderer {
           .lineTo(-halfW, halfH * 0.1)
           .closePath()
       }
-      view.specialGraphics.fill({ color: fillColor })
-      view.specialGraphics.stroke({
-        color: strokeColor,
-        width: strokeWidth,
-        join: 'round',
-      })
+      if (variant < 4) {
+        view.specialGraphics.fill({ color: fillColor })
+        view.specialGraphics.stroke({
+          color: strokeColor,
+          width: strokeWidth,
+          join: 'round',
+        })
+      }
       view.specialKey = key
     }
 

@@ -1,7 +1,11 @@
 import type { MapEnvironmentObjectType } from '../editorMapTypes'
+import { createEnvironmentCrateLayout } from '../environmentCrateUtils'
 import { createDefaultTerrainChunkSiteJitter } from '../terrain/TerrainDataUtils'
 import type { TerrainResolvedLayerView } from '../terrain/TerrainDataUtils'
-import { getTerrainMaterialCodeById } from '../terrain/TerrainMaterialRegistry'
+import {
+  getTerrainMaterialById,
+  getTerrainMaterialCodeById,
+} from '../terrain/TerrainMaterialRegistry'
 import type { VoronoiLayerBuildOptions } from '../terrain/VoronoiBuilder'
 import {
   createNaturalMaterialStyle,
@@ -13,6 +17,8 @@ const STANDALONE_VORONOI_OPTS: VoronoiLayerBuildOptions = {
   expandNeighbors: false,
 }
 
+const WOOD_MATERIAL = getTerrainMaterialById('wood')
+const GRASS_MATERIAL = getTerrainMaterialById('grass')
 const WOOD_CODE = getTerrainMaterialCodeById('wood')
 const LEAVES_CODE = getTerrainMaterialCodeById('leaves')
 const STONE_CODE = getTerrainMaterialCodeById('stone')
@@ -500,6 +506,264 @@ export function createEnvironmentHouseTextureSource(
   }
 }
 
+// ===== CRATE =====
+
+export function createEnvironmentCrateTextureSource(
+  seed: number,
+  ppm: number
+): EnvironmentTextureSource {
+  const layout = createEnvironmentCrateLayout(seed, ppm)
+  const crateWidth = layout.width
+  const crateHeight = layout.height
+  const halfWidth = crateWidth >> 1
+  const frameInset = layout.frameInset
+  const plankGap = layout.plankGap
+  const padding = Math.max(8, roundDiv(ppm * 12, 10))
+  const canvasW = crateWidth + padding * 2
+  const canvasH = crateHeight + padding * 2
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, canvasW)
+  canvas.height = Math.max(1, canvasH)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return {
+      canvas,
+      originX: canvas.width >> 1,
+      originY: canvas.height - padding,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
+    }
+  }
+
+  const ox = canvas.width >> 1
+  const oy = canvas.height - padding
+  const topY = oy - crateHeight
+  const leftX = ox - halfWidth
+  const rightX = leftX + crateWidth
+  const bodyColor = WOOD_MATERIAL.fillPalette[1]
+  const frameColor = WOOD_MATERIAL.fillPalette[2]
+  const plankColor = WOOD_MATERIAL.fillPalette[0]
+  const strokeColor = WOOD_MATERIAL.strokeColor
+  const innerLeftX = leftX + frameInset
+  const innerTopY = topY + frameInset
+  const innerWidth = Math.max(4, crateWidth - frameInset * 2)
+  const innerHeight = Math.max(4, crateHeight - frameInset * 2)
+
+  ctx.fillStyle = bodyColor
+  ctx.fillRect(leftX, topY, crateWidth, crateHeight)
+
+  ctx.fillStyle = plankColor
+  ctx.fillRect(innerLeftX, innerTopY, innerWidth, innerHeight)
+
+  const seamX = innerLeftX + (innerWidth >> 1)
+  const seamWidth = Math.max(1, plankGap >> 2)
+  ctx.fillStyle = bodyColor
+  ctx.fillRect(seamX - (seamWidth >> 1), innerTopY, seamWidth, innerHeight)
+
+  for (let i = 0; i < layout.planks.length; i++) {
+    const plank = layout.planks[i]
+    const plankLeft = ox + plank.localCenterX - (plank.width >> 1)
+    const plankTop = oy + plank.localCenterY - (plank.height >> 1)
+    ctx.fillStyle = plank.role === 'frame' ? frameColor : plankColor
+    ctx.fillRect(plankLeft, plankTop, plank.width, plank.height)
+    ctx.strokeStyle = strokeColor
+    ctx.lineWidth = 1
+    ctx.strokeRect(
+      plankLeft + 1,
+      plankTop + 1,
+      Math.max(1, plank.width - 2),
+      Math.max(1, plank.height - 2)
+    )
+  }
+
+  ctx.strokeStyle = strokeColor
+  ctx.lineWidth = 2
+  ctx.strokeRect(
+    leftX + 1,
+    topY + 1,
+    Math.max(1, crateWidth - 2),
+    Math.max(1, crateHeight - 2)
+  )
+
+  ctx.strokeStyle = strokeColor
+  ctx.lineWidth = 1
+  ctx.strokeRect(innerLeftX, innerTopY, innerWidth, innerHeight)
+
+  ctx.beginPath()
+  ctx.moveTo(seamX, innerTopY)
+  ctx.lineTo(seamX, innerTopY + innerHeight)
+  ctx.stroke()
+
+  ctx.beginPath()
+  ctx.moveTo(innerLeftX, innerTopY)
+  ctx.lineTo(seamX, innerTopY + innerHeight)
+  ctx.moveTo(innerLeftX, innerTopY + innerHeight)
+  ctx.lineTo(seamX, innerTopY)
+  ctx.moveTo(seamX, innerTopY)
+  ctx.lineTo(innerLeftX + innerWidth, innerTopY + innerHeight)
+  ctx.moveTo(seamX, innerTopY + innerHeight)
+  ctx.lineTo(innerLeftX + innerWidth, innerTopY)
+  ctx.stroke()
+
+  ctx.strokeStyle = bodyColor
+  ctx.beginPath()
+  ctx.moveTo(leftX + 2, topY + 2)
+  ctx.lineTo(rightX - 2, topY + 2)
+  ctx.moveTo(leftX + 2, topY + 3)
+  ctx.lineTo(leftX + 2, oy - 2)
+  ctx.stroke()
+
+  const nailSize = Math.max(1, roundDiv(frameInset, 2))
+  ctx.fillStyle = strokeColor
+  ctx.fillRect(innerLeftX + nailSize, innerTopY + nailSize, nailSize, nailSize)
+  ctx.fillRect(
+    innerLeftX + innerWidth - nailSize * 2,
+    innerTopY + nailSize,
+    nailSize,
+    nailSize
+  )
+  ctx.fillRect(
+    innerLeftX + nailSize,
+    innerTopY + innerHeight - nailSize * 2,
+    nailSize,
+    nailSize
+  )
+  ctx.fillRect(
+    innerLeftX + innerWidth - nailSize * 2,
+    innerTopY + innerHeight - nailSize * 2,
+    nailSize,
+    nailSize
+  )
+
+  const bounds = getCanvasOpaqueBounds(canvas)
+  return {
+    canvas,
+    originX: ox,
+    originY: oy,
+    boundsX: bounds.x,
+    boundsY: bounds.y,
+    boundsWidth: bounds.width,
+    boundsHeight: bounds.height,
+  }
+}
+
+// ===== GRASS =====
+
+export function createEnvironmentGrassTextureSource(
+  seed: number,
+  ppm: number
+): EnvironmentTextureSource {
+  let s = lcgStep(seed ^ ENV_SEED_MIX)
+  const bladeCount = lcgRange(s, 1, 36)
+  s = lcgStep(s)
+  const widthNum = 30 + bladeCount * 5 + lcgRange(s, 0, 36)
+  s = lcgStep(s)
+  const heightNum = lcgRange(s, 30, 88)
+
+  const clumpWidth = Math.max(14, roundDiv(ppm * widthNum, 100))
+  const maxHeight = Math.max(10, roundDiv(ppm * heightNum, 100))
+  const padding = Math.max(8, roundDiv(ppm * 12, 10))
+  const canvasW = clumpWidth + padding * 2
+  const canvasH = maxHeight + padding * 2
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, canvasW)
+  canvas.height = Math.max(1, canvasH)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return {
+      canvas,
+      originX: canvas.width >> 1,
+      originY: canvas.height - padding,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
+    }
+  }
+
+  const ox = canvas.width >> 1
+  const oy = canvas.height - padding
+  const bladeValues = new Int32Array(bladeCount * 6)
+  let writeIndex = 0
+
+  for (let i = 0; i < bladeCount; i++) {
+    s = lcgStep(s ^ Math.imul(i + 1, 0x45d9f3b))
+    const baseOffsetPercent = lcgRange(s, -48, 48)
+    s = lcgStep(s)
+    const bladeHeightPercent = lcgRange(s, 55, 112)
+    s = lcgStep(s)
+    const leanPercent = lcgRange(s, -36, 36)
+    s = lcgStep(s)
+    const baseWidthPercent = lcgRange(s, 6, 16)
+    s = lcgStep(s)
+    const colorIndex = lcgRange(s, 0, GRASS_MATERIAL.fillPalette.length - 1)
+
+    const baseX = ox + roundDiv(clumpWidth * baseOffsetPercent, 100)
+    const bladeHeight = Math.max(
+      6,
+      roundDiv(maxHeight * bladeHeightPercent, 100)
+    )
+    const tipX = baseX + roundDiv(bladeHeight * leanPercent, 100)
+    const baseHalfWidth = Math.max(1, roundDiv(ppm * baseWidthPercent, 100))
+    const shoulderY = oy - roundDiv(bladeHeight * 45, 100)
+
+    bladeValues[writeIndex] = baseX
+    bladeValues[writeIndex + 1] = bladeHeight
+    bladeValues[writeIndex + 2] = tipX
+    bladeValues[writeIndex + 3] = baseHalfWidth
+    bladeValues[writeIndex + 4] = shoulderY
+    bladeValues[writeIndex + 5] = colorIndex
+    writeIndex += 6
+  }
+
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < bladeValues.length; i += 6) {
+      const bladeHeight = bladeValues[i + 1]
+      if (bladeHeight >= roundDiv(maxHeight * 78, 100) !== (pass === 1)) {
+        continue
+      }
+      const baseX = bladeValues[i]
+      const tipX = bladeValues[i + 2]
+      const baseHalfWidth = bladeValues[i + 3]
+      const shoulderY = bladeValues[i + 4]
+      const tipY = oy - bladeHeight
+      const innerHalfWidth = Math.max(1, baseHalfWidth >> 1)
+
+      ctx.beginPath()
+      ctx.moveTo(baseX - baseHalfWidth, oy)
+      ctx.lineTo(baseX - innerHalfWidth, shoulderY)
+      ctx.lineTo(tipX, tipY)
+      ctx.lineTo(baseX + innerHalfWidth, shoulderY)
+      ctx.lineTo(baseX + baseHalfWidth, oy)
+      ctx.closePath()
+      ctx.fillStyle = GRASS_MATERIAL.fillPalette[bladeValues[i + 5]]
+      ctx.fill()
+      ctx.strokeStyle = GRASS_MATERIAL.strokeColor
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
+  }
+
+  ctx.fillStyle =
+    GRASS_MATERIAL.fillPalette[GRASS_MATERIAL.fillPalette.length - 1]
+  ctx.fillRect(ox - (clumpWidth >> 1), oy - 1, clumpWidth, 2)
+
+  const bounds = getCanvasOpaqueBounds(canvas)
+  return {
+    canvas,
+    originX: ox,
+    originY: oy,
+    boundsX: bounds.x,
+    boundsY: bounds.y,
+    boundsWidth: bounds.width,
+    boundsHeight: bounds.height,
+  }
+}
+
 // ===== CLOUD =====
 
 export function createEnvironmentCloudTextureSource(
@@ -637,6 +901,12 @@ export function createEnvironmentTextureSource(
     source = createEnvironmentTreeTextureSource(seed, ppm)
   } else if (type === 'hill') {
     source = createEnvironmentHillTextureSource(seed, ppm)
+  } else if (type === 'house') {
+    source = createEnvironmentHouseTextureSource(seed, ppm)
+  } else if (type === 'crate') {
+    source = createEnvironmentCrateTextureSource(seed, ppm)
+  } else if (type === 'grass') {
+    source = createEnvironmentGrassTextureSource(seed, ppm)
   } else if (type === 'cloud') {
     source = createEnvironmentCloudTextureSource(seed, ppm)
   } else {

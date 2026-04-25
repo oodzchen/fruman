@@ -13,8 +13,9 @@ import {
 import type { MainModule } from '../../types'
 import type { WeaponVisualType } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
+import type { ImpactLevel } from '../AttackMoveData'
 import { ULTIMATE_COOLDOWN_MS } from '../Component'
-import type { WeaponTransform } from '../Component'
+import type { WeaponComponent, WeaponTransform } from '../Component'
 import type { Entity } from '../Entity'
 import { checkOBBvsCircle } from '../OBBCollision'
 import {
@@ -74,6 +75,32 @@ export interface TerrainImpactRequest {
 
 export type TerrainImpactCallback = (request: TerrainImpactRequest) => void
 
+export interface BreakableObstacleOBBHitRequest {
+  attacker: Entity
+  weapon: WeaponComponent
+  centerX: number
+  centerY: number
+  width: number
+  height: number
+  rotation: number
+  renderLayer: number
+  impactLevel: ImpactLevel
+  impactX: number
+  impactY: number
+}
+
+export interface BreakableObstacleCircleHitRequest {
+  attacker: Entity
+  weapon: WeaponComponent
+  centerX: number
+  centerY: number
+  radius: number
+  renderLayer: number
+  impactLevel: ImpactLevel
+  impactX: number
+  impactY: number
+}
+
 export class UltimateHandler {
   private statsSystem?: StatsSystem
   private allEntities: Entity[] = []
@@ -81,6 +108,12 @@ export class UltimateHandler {
   private box2d?: MainModule
   private tempVec?: InstanceType<MainModule['b2Vec2']>
   private terrainImpactCallback?: TerrainImpactCallback
+  private onBreakableObstacleOBBHit:
+    | ((request: BreakableObstacleOBBHitRequest) => void)
+    | null = null
+  private onBreakableObstacleCircleHit:
+    | ((request: BreakableObstacleCircleHitRequest) => void)
+    | null = null
   private viewportHeight = 9
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
@@ -132,6 +165,14 @@ export class UltimateHandler {
 
   setTerrainImpactCallback(callback: TerrainImpactCallback | undefined): void {
     this.terrainImpactCallback = callback
+  }
+
+  setBreakableObstacleHitHandlers(
+    onOBBHit: ((request: BreakableObstacleOBBHitRequest) => void) | null,
+    onCircleHit: ((request: BreakableObstacleCircleHitRequest) => void) | null
+  ): void {
+    this.onBreakableObstacleOBBHit = onOBBHit
+    this.onBreakableObstacleCircleHit = onCircleHit
   }
 
   setViewportSize(_viewportWidth: number, viewportHeight: number): void {
@@ -442,6 +483,19 @@ export class UltimateHandler {
         attacker
       )
     }
+    this.onBreakableObstacleOBBHit?.({
+      attacker,
+      weapon,
+      centerX: giantX,
+      centerY: groundY,
+      width: ULTIMATE_GIANT_HALF_WIDTH * 2,
+      height: Math.max(64, this.viewportHeight * 8),
+      rotation: 0,
+      renderLayer: weapon.renderLayer,
+      impactLevel: 'extreme',
+      impactX: giantX,
+      impactY: groundY,
+    })
   }
 
   private handleHammerUltimatePhases(
@@ -879,6 +933,17 @@ export class UltimateHandler {
         attacker
       )
     }
+    this.onBreakableObstacleCircleHit?.({
+      attacker,
+      weapon,
+      centerX: cx,
+      centerY: cy,
+      radius: HAMMER_AOE_RADIUS,
+      renderLayer: weapon.renderLayer,
+      impactLevel: 'extreme',
+      impactX: cx,
+      impactY: cy,
+    })
   }
 
   private updateSpearUltimateVisuals(
@@ -957,6 +1022,15 @@ export class UltimateHandler {
     )
     const topSweepWidth = topTravel * 2 + ghostWidth
     const bottomSweepWidth = bottomTravel * 2 + ghostWidth
+    const handCenterX =
+      (weapon.attackStartTransform.x + weapon.swingEndTransform.x) * 0.5
+    const handCenterY =
+      (weapon.attackStartTransform.y + weapon.swingEndTransform.y) * 0.5
+    const handSweepWidth =
+      Math.hypot(
+        weapon.swingEndTransform.x - weapon.attackStartTransform.x,
+        weapon.swingEndTransform.y - weapon.attackStartTransform.y
+      ) + weapon.width
 
     for (let i = 0; i < this.allEntities.length; i++) {
       const target = this.allEntities[i]
@@ -991,12 +1065,9 @@ export class UltimateHandler {
         targetRadius
       )
       const hitHand = checkOBBvsCircle(
-        (weapon.attackStartTransform.x + weapon.swingEndTransform.x) * 0.5,
-        (weapon.attackStartTransform.y + weapon.swingEndTransform.y) * 0.5,
-        Math.hypot(
-          weapon.swingEndTransform.x - weapon.attackStartTransform.x,
-          weapon.swingEndTransform.y - weapon.attackStartTransform.y
-        ) + weapon.width,
+        handCenterX,
+        handCenterY,
+        handSweepWidth,
         weapon.height,
         weapon.swingEndTransform.rotation,
         target.transform.x,
@@ -1018,6 +1089,45 @@ export class UltimateHandler {
         attacker
       )
     }
+    this.onBreakableObstacleOBBHit?.({
+      attacker,
+      weapon,
+      centerX: weapon.ultimateSpearCrossX,
+      centerY: weapon.ultimateSpearCrossY,
+      width: topSweepWidth,
+      height: ghostHeight,
+      rotation: topRot,
+      renderLayer: weapon.renderLayer,
+      impactLevel: 'extreme',
+      impactX: weapon.ultimateSpearCrossX,
+      impactY: weapon.ultimateSpearCrossY,
+    })
+    this.onBreakableObstacleOBBHit?.({
+      attacker,
+      weapon,
+      centerX: weapon.ultimateSpearCrossX,
+      centerY: weapon.ultimateSpearCrossY,
+      width: bottomSweepWidth,
+      height: ghostHeight,
+      rotation: bottomRot,
+      renderLayer: weapon.renderLayer,
+      impactLevel: 'extreme',
+      impactX: weapon.ultimateSpearCrossX,
+      impactY: weapon.ultimateSpearCrossY,
+    })
+    this.onBreakableObstacleOBBHit?.({
+      attacker,
+      weapon,
+      centerX: handCenterX,
+      centerY: handCenterY,
+      width: handSweepWidth,
+      height: weapon.height,
+      rotation: weapon.swingEndTransform.rotation,
+      renderLayer: weapon.renderLayer,
+      impactLevel: 'extreme',
+      impactX: weapon.ultimateSpearCrossX,
+      impactY: weapon.ultimateSpearCrossY,
+    })
   }
 
   private setupSpearUltimateVisuals(

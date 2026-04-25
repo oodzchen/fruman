@@ -2334,6 +2334,8 @@ export class EditorManager {
         dataItem.type === ObjectType.EnvTree ||
         dataItem.type === ObjectType.EnvHill ||
         dataItem.type === ObjectType.EnvHouse ||
+        dataItem.type === ObjectType.EnvCrate ||
+        dataItem.type === ObjectType.EnvGrass ||
         dataItem.type === ObjectType.EnvCloud
       ) {
         environmentObjects.push(dataItem)
@@ -2405,6 +2407,8 @@ export class EditorManager {
         node.type === 'envTree' ||
         node.type === 'envHill' ||
         node.type === 'envHouse' ||
+        node.type === 'envCrate' ||
+        node.type === 'envGrass' ||
         node.type === 'envCloud'
       ) {
         const index = node.index ?? -1

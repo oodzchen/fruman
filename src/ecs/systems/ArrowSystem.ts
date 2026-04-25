@@ -11,11 +11,17 @@ import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import {
+  checkOBBvsAABB,
+  checkOBBvsCircle,
+  checkOBBvsPolygon,
+} from '../OBBCollision'
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { World } from '../World'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
+import type { BreakableObstacleHit, ObstacleCollider } from './WeaponSystem'
 
 const PARRY_WINDOW_FRAMES =
   (DEFAULT_PARRY_WINDOW_MS * DEFAULT_FRAME_RATE) / 1000
@@ -26,6 +32,9 @@ export class ArrowSystem extends System {
   private spatialHash: SpatialHash | null = null
   private statsSystem?: StatsSystem
   private soundSystem: SoundSystem | null = null
+  private obstacles: ObstacleCollider[] = []
+  private onBreakableObstacleHit: ((hit: BreakableObstacleHit) => void) | null =
+    null
   private world?: World
   private arrowPools?: ArrowPools
   private tempHitSource = { x: 0, y: 0 }
@@ -57,6 +66,16 @@ export class ArrowSystem extends System {
 
   setSoundSystem(soundSystem: SoundSystem): void {
     this.soundSystem = soundSystem
+  }
+
+  setObstacles(obstacles: ObstacleCollider[]): void {
+    this.obstacles = obstacles
+  }
+
+  setBreakableObstacleHitHandler(
+    handler: ((hit: BreakableObstacleHit) => void) | null
+  ): void {
+    this.onBreakableObstacleHit = handler
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -146,6 +165,14 @@ export class ArrowSystem extends System {
         arrow.projectileType === 'grapeShot'
           ? entity.transform.y
           : entity.transform.y + dirY * entity.weapon.width
+      if (this.checkBreakableObstacleCollision(entity, headX, headY)) {
+        if (arrow.projectileType === 'grapeShot') {
+          this.shatterProjectile(entity, headX, headY)
+        } else {
+          this.destroyArrowEntity(entity)
+        }
+        continue
+      }
       const queryRadius = arrow.hitRadius + DEFAULT_PLAYER_RADIUS
       const nearby = this.spatialHash.query(headX, headY, queryRadius)
       const nearbyCount = this.spatialHash.getQueryResultLength()
@@ -203,6 +230,83 @@ export class ArrowSystem extends System {
     const weapon = target.weapon
     if (!weapon || !weapon.isParrying) return false
     return weapon.parryElapsedTime >= PARRY_ACTIVE_START_FRAME
+  }
+
+  private checkBreakableObstacleCollision(
+    entity: Entity,
+    impactX: number,
+    impactY: number
+  ): boolean {
+    const weapon = entity.weapon
+    if (!weapon || this.obstacles.length === 0) {
+      return false
+    }
+    const weaponX = weapon.visual.x
+    const weaponY = weapon.visual.y
+    const weaponWidth = weapon.width
+    const weaponHeight = weapon.height
+    const weaponRotation = weapon.visual.rotation
+
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const obstacle = this.obstacles[i]
+      if (
+        obstacle.breakableId === undefined ||
+        obstacle.renderLayer !== weapon.renderLayer
+      ) {
+        continue
+      }
+      const worldVertices = obstacle.worldVertices
+      let hit = false
+      if (worldVertices) {
+        hit = checkOBBvsPolygon(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation,
+          worldVertices
+        )
+      } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
+        hit = checkOBBvsCircle(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation,
+          obstacle.centerX,
+          obstacle.centerY,
+          obstacle.radius
+        )
+      } else {
+        hit = checkOBBvsAABB(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation,
+          obstacle.centerX,
+          obstacle.centerY,
+          obstacle.width,
+          obstacle.height
+        )
+      }
+      if (!hit) {
+        continue
+      }
+      this.onBreakableObstacleHit?.({
+        obstacle,
+        impactLevel: weapon.impactLevel,
+        impactX,
+        impactY,
+        weapon,
+        attacker:
+          entity.arrow?.ownerId != null
+            ? this.world?.getEntityById(entity.arrow.ownerId)
+            : undefined,
+      })
+      return true
+    }
+    return false
   }
 
   private handleArrowParry(

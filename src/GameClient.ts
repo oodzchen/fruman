@@ -2949,6 +2949,16 @@ export class GameClient {
     while (this.pendingStaticEnvironmentIndex < envObjects.length) {
       const index = this.pendingStaticEnvironmentIndex
       const obj = envObjects[index]
+      this.pendingStaticEnvironmentIndex = index + 1
+      if (obj.hidden === true) {
+        if (
+          this.pendingStaticEnvironmentIndex < envObjects.length &&
+          performance.now() >= deadlineMs
+        ) {
+          return
+        }
+        continue
+      }
       const envBuildStartMs = performance.now()
       const textureEntry = this.getEnvironmentTextureEntry(
         obj.type,
@@ -2978,7 +2988,6 @@ export class GameClient {
       )
       this.worldRenderer.addStaticMesh(sprite, envLayers?.[index] ?? 0)
       this.staticEnvironmentSprites.push(sprite)
-      this.pendingStaticEnvironmentIndex = index + 1
       this.recordEnvironmentBuildTime(envBuildStartMs)
       if (
         this.pendingStaticEnvironmentIndex < envObjects.length &&
@@ -3070,6 +3079,10 @@ export class GameClient {
     let hash = this.mixTerrainSignatureValue(envObjects.length)
     for (let i = 0; i < envObjects.length; i++) {
       const obj = envObjects[i]
+      const hiddenCode = obj.hidden === true ? 1 : 0
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(hiddenCode, 0x7f4a7c15)
+      )
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(obj.x | 0, 0x9e3779b1)
       )
@@ -3098,7 +3111,11 @@ export class GameClient {
             ? 2
             : obj.type === 'house'
               ? 3
-              : 4
+              : obj.type === 'crate'
+                ? 4
+                : obj.type === 'grass'
+                  ? 5
+                  : 6
       hash = this.mixTerrainSignatureValue(hash ^ Math.imul(typeCode, 0x19660d))
     }
     return hash

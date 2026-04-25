@@ -151,6 +151,8 @@ import { SkillHandler } from './SkillHandler'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
 import {
+  type BreakableObstacleCircleHitRequest,
+  type BreakableObstacleOBBHitRequest,
   HAMMER_AOE_RADIUS,
   type TerrainImpactCallback,
   UltimateHandler,
@@ -233,11 +235,22 @@ export type ObstacleCollider = {
   centerY: number
   width: number
   height: number
+  rotationRad?: number
   renderLayer: number
   materialTag: TerrainMaterialTag
+  breakableId?: number
   vertices?: { x: number; y: number }[]
   worldVertices?: { x: number; y: number }[]
   radius?: number
+}
+
+export interface BreakableObstacleHit {
+  attacker?: Entity
+  weapon?: WeaponComponent
+  obstacle: ObstacleCollider
+  impactLevel: ImpactLevel
+  impactX: number
+  impactY: number
 }
 
 type WeaponDropData = {
@@ -284,6 +297,8 @@ export class WeaponSystem extends System {
   private viewportHeight = 9
   private arrowPools?: ArrowPools
   private spineSegmentManager: SpineSegmentManager | null = null
+  private onBreakableObstacleHit: ((hit: BreakableObstacleHit) => void) | null =
+    null
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempRelativeTransform: WeaponRelativeTransform = {
@@ -326,6 +341,14 @@ export class WeaponSystem extends System {
     super()
     this.box2d = box2d
     this.statsSystem = statsSystem
+    this.ultimateHandler.setBreakableObstacleHitHandlers(
+      (request) => {
+        this.handleBreakableObstacleOBBHit(request)
+      },
+      (request) => {
+        this.handleBreakableObstacleCircleHit(request)
+      }
+    )
     if (statsSystem) {
       this.ultimateHandler.setStatsSystem(statsSystem)
     }
@@ -1893,7 +1916,7 @@ export class WeaponSystem extends System {
     )
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
-    if (this.checkObstacleCollision(weapon)) {
+    if (this.checkObstacleCollision(entity, weapon)) {
       weapon.attackCollisionSource = 'obstacle'
       weapon.isColliding = true
       this.statsSystem?.playSoundAt(
@@ -2446,7 +2469,8 @@ export class WeaponSystem extends System {
       weapon.visual.y,
       weapon.renderLayer,
       entity,
-      true
+      true,
+      weapon
     )
     this.resetBombState(weapon)
     this.removeDepletedConsumable(entity, weapon)
@@ -2487,7 +2511,8 @@ export class WeaponSystem extends System {
       entity.transform.y,
       weapon.renderLayer,
       owner,
-      false
+      false,
+      weapon
     )
     this.destroyBombProjectileEntity(entity)
   }
@@ -2627,7 +2652,8 @@ export class WeaponSystem extends System {
     y: number,
     renderLayer: number,
     owner: Entity | undefined,
-    includeOwner: boolean
+    includeOwner: boolean,
+    sourceWeapon?: WeaponComponent
   ): void {
     const damage = BOMB_ULTIMATE_STATS.attackDamage * 5
     const posture = BOMB_ULTIMATE_STATS.postureDamage * 5
@@ -2693,6 +2719,18 @@ export class WeaponSystem extends System {
         includeOwner && owner && target.id === owner.id ? undefined : owner
       )
     }
+
+    this.hitBreakableObstaclesInCircle(
+      x,
+      y,
+      HAMMER_AOE_RADIUS,
+      renderLayer,
+      'extreme',
+      x,
+      y,
+      owner,
+      sourceWeapon
+    )
 
     this.terrainImpactCallback?.({
       worldX: x,
@@ -5137,6 +5175,168 @@ export class WeaponSystem extends System {
     this.standableSurfaces = surfaces
   }
 
+  setBreakableObstacleHitHandler(
+    handler: ((hit: BreakableObstacleHit) => void) | null
+  ): void {
+    this.onBreakableObstacleHit = handler
+  }
+
+  private emitBreakableObstacleHit(
+    obstacle: ObstacleCollider,
+    impactLevel: ImpactLevel,
+    impactX: number,
+    impactY: number,
+    attacker?: Entity,
+    weapon?: WeaponComponent
+  ): void {
+    if (obstacle.breakableId === undefined) {
+      return
+    }
+    this.onBreakableObstacleHit?.({
+      attacker,
+      weapon,
+      obstacle,
+      impactLevel,
+      impactX,
+      impactY,
+    })
+  }
+
+  private handleBreakableObstacleOBBHit(
+    request: BreakableObstacleOBBHitRequest
+  ): void {
+    if (this.obstacles.length === 0) {
+      return
+    }
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const obstacle = this.obstacles[i]
+      if (
+        obstacle.breakableId === undefined ||
+        obstacle.renderLayer !== request.renderLayer
+      ) {
+        continue
+      }
+      const centerX = obstacle.centerX
+      const centerY = obstacle.centerY
+      const worldVertices = obstacle.worldVertices
+      let hit = false
+      if (worldVertices) {
+        hit = checkOBBvsPolygon(
+          request.centerX,
+          request.centerY,
+          request.width,
+          request.height,
+          request.rotation,
+          worldVertices
+        )
+      } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
+        hit = checkOBBvsCircle(
+          request.centerX,
+          request.centerY,
+          request.width,
+          request.height,
+          request.rotation,
+          centerX,
+          centerY,
+          obstacle.radius
+        )
+      } else {
+        hit = checkOBBvsAABB(
+          request.centerX,
+          request.centerY,
+          request.width,
+          request.height,
+          request.rotation,
+          centerX,
+          centerY,
+          obstacle.width,
+          obstacle.height
+        )
+      }
+      if (!hit) {
+        continue
+      }
+      this.emitBreakableObstacleHit(
+        obstacle,
+        request.impactLevel,
+        request.impactX,
+        request.impactY,
+        request.attacker,
+        request.weapon
+      )
+    }
+  }
+
+  private handleBreakableObstacleCircleHit(
+    request: BreakableObstacleCircleHitRequest
+  ): void {
+    this.hitBreakableObstaclesInCircle(
+      request.centerX,
+      request.centerY,
+      request.radius,
+      request.renderLayer,
+      request.impactLevel,
+      request.impactX,
+      request.impactY,
+      request.attacker,
+      request.weapon
+    )
+  }
+
+  private hitBreakableObstaclesInCircle(
+    centerX: number,
+    centerY: number,
+    radius: number,
+    renderLayer: number,
+    impactLevel: ImpactLevel,
+    impactX: number,
+    impactY: number,
+    attacker?: Entity,
+    weapon?: WeaponComponent
+  ): void {
+    if (this.obstacles.length === 0 || radius <= 0) {
+      return
+    }
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const obstacle = this.obstacles[i]
+      if (
+        obstacle.breakableId === undefined ||
+        obstacle.renderLayer !== renderLayer
+      ) {
+        continue
+      }
+      let hit = false
+      if (obstacle.radius !== undefined && obstacle.radius > 0) {
+        const dx = obstacle.centerX - centerX
+        const dy = obstacle.centerY - centerY
+        const range = obstacle.radius + radius
+        hit = dx * dx + dy * dy <= range * range
+      } else {
+        hit = checkOBBvsCircle(
+          obstacle.centerX,
+          obstacle.centerY,
+          obstacle.width * 2,
+          obstacle.height * 2,
+          obstacle.rotationRad ?? 0,
+          centerX,
+          centerY,
+          radius
+        )
+      }
+      if (!hit) {
+        continue
+      }
+      this.emitBreakableObstacleHit(
+        obstacle,
+        impactLevel,
+        impactX,
+        impactY,
+        attacker,
+        weapon
+      )
+    }
+  }
+
   private retractWeaponOnDirectionChange(
     entity: Entity,
     weapon: Entity['weapon'],
@@ -5349,7 +5549,10 @@ export class WeaponSystem extends System {
     velocity.delete()
   }
 
-  private checkObstacleCollision(weapon?: Entity['weapon']): boolean {
+  private checkObstacleCollision(
+    attacker: Entity,
+    weapon?: Entity['weapon']
+  ): boolean {
     if (!weapon) return false
     if (this.obstacles.length === 0) return false
     const wx = weapon.visual.x
@@ -5371,6 +5574,14 @@ export class WeaponSystem extends System {
         if (
           checkOBBvsPolygon(wx, wy, wWidth, wHeight, wRotation, worldVertices)
         ) {
+          this.emitBreakableObstacleHit(
+            obstacle,
+            weapon.impactLevel,
+            wx,
+            wy,
+            attacker,
+            weapon
+          )
           return true
         }
       } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
@@ -5387,6 +5598,14 @@ export class WeaponSystem extends System {
             obstacle.radius
           )
         ) {
+          this.emitBreakableObstacleHit(
+            obstacle,
+            weapon.impactLevel,
+            wx,
+            wy,
+            attacker,
+            weapon
+          )
           return true
         }
       } else {
@@ -5407,6 +5626,14 @@ export class WeaponSystem extends System {
             halfH
           )
         ) {
+          this.emitBreakableObstacleHit(
+            obstacle,
+            weapon.impactLevel,
+            wx,
+            wy,
+            attacker,
+            weapon
+          )
           return true
         }
       }

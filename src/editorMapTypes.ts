@@ -15,7 +15,13 @@ export type MapObjectKind = 'ground' | 'obstacle'
 
 export type WeaponCategory = 'main' | 'secondary' | 'item'
 
-export type MapEnvironmentObjectType = 'tree' | 'hill' | 'house' | 'cloud'
+export type MapEnvironmentObjectType =
+  | 'tree'
+  | 'hill'
+  | 'house'
+  | 'crate'
+  | 'grass'
+  | 'cloud'
 
 export const MAP_TIME_PHASE_IDS = [
   'morning',
@@ -39,6 +45,7 @@ export interface MapEnvironmentObject {
   x: number
   y: number
   seed: number
+  hidden?: boolean
   rotationDeg?: number
   scaleXPermille?: number
   scaleYPermille?: number
@@ -75,6 +82,8 @@ export type EditorTreeObjectType =
   | 'envTree'
   | 'envHill'
   | 'envHouse'
+  | 'envCrate'
+  | 'envGrass'
   | 'envCloud'
 
 export interface EditorTreeNode {
