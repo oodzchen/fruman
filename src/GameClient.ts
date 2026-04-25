@@ -266,6 +266,7 @@ export class GameClient {
   private mouseButtonsArray: number[] = []
   private targetZoom = 1.0
   private renderZoom = 1.0
+  private worldTimeScale1000 = 1000
   private mouseX = 0
   private mouseY = 0
   private mouseCaptured = false
@@ -791,6 +792,11 @@ export class GameClient {
       this.camera.x = msg.camera.x
       this.camera.y = msg.camera.y
       this.renderZoom = msg.zoom
+      this.worldTimeScale1000 =
+        msg.timeScale1000 > 0 && Number.isFinite(msg.timeScale1000)
+          ? Math.round(msg.timeScale1000)
+          : 1000
+      this.renderer.setTimeScale1000(this.worldTimeScale1000)
       this.renderer.setCamera(this.camera.x, this.camera.y, this.renderZoom)
       if (!this.editorPreview) {
         const effectsStartMs = performance.now()
@@ -1572,6 +1578,7 @@ export class GameClient {
     const frameStartMs = performance.now()
     const deltaMs = Math.min(this.app.ticker.deltaMS, 100)
     const deltaTime = deltaMs / 1000
+    const scaledDeltaTime = (deltaTime * this.worldTimeScale1000) / 1000
     this.lastDeltaTime = deltaTime
 
     this.frameCount++
@@ -1594,7 +1601,7 @@ export class GameClient {
     let updateTimeUs = 0
     if (!this.editorPreview) {
       const updateStartMs = performance.now()
-      this.renderer.update(deltaTime)
+      this.renderer.update(scaledDeltaTime)
       updateTimeUs = Math.round((performance.now() - updateStartMs) * 1000)
     }
     this.updateStartMenuFlow(deltaMs | 0)
@@ -1629,6 +1636,7 @@ export class GameClient {
 
   private render(deltaMs: number) {
     const renderStartMs = performance.now()
+    const worldDeltaMs = (deltaMs * this.worldTimeScale1000) / 1000
     const width = this.app.renderer.width
     const height = this.app.renderer.height
     const hudDirty =
@@ -1696,7 +1704,10 @@ export class GameClient {
       )
       this.lightingFilterApplied = this.lightingController.isFilterActive()
       const sceneRenderStartMs = performance.now()
-      this.worldRenderer.render(this.renderer, this.inputEnabled ? deltaMs : 0)
+      this.worldRenderer.render(
+        this.renderer,
+        this.inputEnabled ? worldDeltaMs : 0
+      )
       this.lastSceneRenderTimeUs = Math.round(
         (performance.now() - sceneRenderStartMs) * 1000
       )

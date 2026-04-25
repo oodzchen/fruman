@@ -441,6 +441,48 @@ export class StatsSystem extends System {
     this.effectsEmitter.playSoundAt(soundId, x, y, playbackRate)
   }
 
+  emitHitFeedback(
+    entity: Entity,
+    hitSource?: { x: number; y: number },
+    hitSoundPlaybackRate = 1,
+    lethalHit = false
+  ): void {
+    if (!entity.stats || !entity.transform) {
+      return
+    }
+
+    const dirX = hitSource ? entity.transform.x - hitSource.x : 1
+    const dirY = hitSource ? entity.transform.y - hitSource.y : 0
+    const distance = Math.hypot(dirX, dirY)
+    const normalizedDirX = distance > 0 ? dirX / distance : 1
+    const impactRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    const impactScale = distance > 0 ? impactRadius / distance : 0
+    const impactX = hitSource
+      ? entity.transform.x - dirX * impactScale
+      : entity.transform.x
+    const impactY = hitSource
+      ? entity.transform.y - dirY * impactScale
+      : entity.transform.y
+
+    entity.stats.hitShakeElapsedMs = 0
+    entity.stats.hitShakeDurationMs = DEFAULT_HIT_SHAKE_DURATION_MS
+    entity.stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
+    entity.stats.hitShakeDirectionX = normalizedDirX
+    if (this.bloodEffectsEnabled && entity.render && this.effectsEmitter) {
+      const colorInt = this.parseColor(
+        entity.render.bloodColor || entity.render.color
+      )
+      this.effectsEmitter.emitBlood(impactX, impactY, colorInt)
+    }
+    this.playSoundAt(
+      lethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT,
+      impactX,
+      impactY,
+      hitSoundPlaybackRate
+    )
+    this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
+  }
+
   emitSoundFromEntity(
     entity: Entity,
     db: number,
@@ -651,6 +693,8 @@ export class StatsSystem extends System {
       impactLevel?: ImpactLevel
       weaponType?: WeaponVisualType
       sizeLevel?: number
+      hitSoundPlaybackRate?: number
+      suppressImpactEffects?: boolean
     },
     hitSource?: { x: number; y: number },
     attacker?: Entity
@@ -668,6 +712,11 @@ export class StatsSystem extends System {
       weapon?.toughnessDamage ?? DEFAULT_WEAPON_TOUGHNESS_DAMAGE
     )
     const impactLevel: ImpactLevel = weapon?.impactLevel ?? 'small'
+    const hitSoundPlaybackRate =
+      weapon?.hitSoundPlaybackRate && weapon.hitSoundPlaybackRate > 0
+        ? weapon.hitSoundPlaybackRate
+        : 1
+    const suppressImpactEffects = weapon?.suppressImpactEffects === true
     if (attacker?.level) {
       attackDamage =
         (attackDamage * (100 + getPlayerAttackBonusPercent(attacker.level))) /
@@ -682,6 +731,8 @@ export class StatsSystem extends System {
       hitSource,
       weapon?.weaponType,
       weapon?.sizeLevel,
+      hitSoundPlaybackRate,
+      suppressImpactEffects,
       attacker
     )
   }
@@ -695,6 +746,8 @@ export class StatsSystem extends System {
     hitSource?: { x: number; y: number },
     weaponType?: WeaponVisualType,
     weaponSizeLevel?: number,
+    hitSoundPlaybackRate = 1,
+    suppressImpactEffects = false,
     attacker?: Entity
   ): void {
     if (!entity.stats) return
@@ -839,6 +892,9 @@ export class StatsSystem extends System {
       finalToughnessDamage = 0
       finalKnockback = 0
     }
+    if (suppressImpactEffects) {
+      finalKnockback = 0
+    }
 
     this.enqueueDamageText(entity, finalHealthDamage)
 
@@ -863,7 +919,10 @@ export class StatsSystem extends System {
         entity.movement.knockbackDuration
     )
     const shouldTriggerHitEffects =
-      finalHealthDamage > 0 && !toughnessBroken && !isInHitStun
+      !suppressImpactEffects &&
+      finalHealthDamage > 0 &&
+      !toughnessBroken &&
+      !isInHitStun
 
     this.rewardUltimateCooldown(
       attacker,
@@ -907,6 +966,10 @@ export class StatsSystem extends System {
         entity.stats.hitShakeElapsedMs = 0
         entity.stats.hitShakeDurationMs = 0
       }
+      if (suppressImpactEffects) {
+        entity.stats.hitShakeElapsedMs = 0
+        entity.stats.hitShakeDurationMs = 0
+      }
 
       if (shouldTriggerHitEffects) {
         entity.stats.hitShakeElapsedMs = 0
@@ -922,21 +985,24 @@ export class StatsSystem extends System {
         this.playSoundAt(
           isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT,
           impactX,
-          impactY
+          impactY,
+          hitSoundPlaybackRate
         )
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
-      } else if (toughnessBroken) {
+      } else if (toughnessBroken && !suppressImpactEffects) {
         this.playSoundAt(
           isLethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT,
           impactX,
-          impactY
+          impactY,
+          hitSoundPlaybackRate
         )
         this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
       }
 
       if (
-        toughnessBroken ||
-        (!isBlockingSuccessfully && (wasStaggered || extremeKnockdown))
+        !suppressImpactEffects &&
+        (toughnessBroken ||
+          (!isBlockingSuccessfully && (wasStaggered || extremeKnockdown)))
       ) {
         const hitStunOverrideMs = wasStaggered
           ? STAGGER_HIT_STUN_DURATION_MS

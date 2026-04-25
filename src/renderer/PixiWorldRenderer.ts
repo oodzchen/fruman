@@ -625,6 +625,9 @@ export class PixiWorldRenderer {
     let lockTargetCenterX = 0
     let lockTargetCenterY = 0
     let hasLockTarget = false
+    let assassinationTargetCenterX = 0
+    let assassinationTargetCenterY = 0
+    let hasAssassinationTarget = false
 
     sectionStartMs = performance.now()
     for (let i = 0; i < entityCount; i++) {
@@ -665,6 +668,11 @@ export class PixiWorldRenderer {
         lockTargetCenterX = centerX
         lockTargetCenterY = centerY
         hasLockTarget = true
+      }
+      if (!playerFreeAimActive && (flags & FLAGS.ASSASSINATION_TARGET) !== 0) {
+        assassinationTargetCenterX = centerX
+        assassinationTargetCenterY = centerY
+        hasAssassinationTarget = true
       }
 
       this.updateSpecialIcons(
@@ -707,7 +715,12 @@ export class PixiWorldRenderer {
     this.perfSectionLastUs[PIXI_WORLD_PERF_PRUNE] = pruneUs
 
     sectionStartMs = performance.now()
-    this.updateLockReticle(hasLockTarget, lockTargetCenterX, lockTargetCenterY)
+    this.updateLockReticle(
+      hasAssassinationTarget || hasLockTarget,
+      hasAssassinationTarget ? assassinationTargetCenterX : lockTargetCenterX,
+      hasAssassinationTarget ? assassinationTargetCenterY : lockTargetCenterY,
+      hasAssassinationTarget
+    )
     this.updateFreeAimReticle(
       renderer,
       playerFreeAimActive,
@@ -2121,7 +2134,8 @@ export class PixiWorldRenderer {
   private updateLockReticle(
     visible: boolean,
     centerX: number,
-    centerY: number
+    centerY: number,
+    isAssassinationTarget: boolean
   ): void {
     if (!visible) {
       hideSprite(this.lockedReticleSprite)
@@ -2130,6 +2144,8 @@ export class PixiWorldRenderer {
 
     this.lockedReticleSprite.visible = true
     this.lockedReticleSprite.alpha = 1
+    this.lockedReticleSprite.tint = isAssassinationTarget ? 0xd33232 : 0xffffff
+    this.lockedReticleSprite.scale.set(isAssassinationTarget ? 2 : 1)
     this.lockedReticleSprite.position.set(centerX, centerY)
   }
 

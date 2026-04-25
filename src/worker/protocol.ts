@@ -153,6 +153,7 @@ export type WorkerStateMessage = {
   ropePointCount: number
   camera: { x: number; y: number }
   zoom: number
+  timeScale1000: number
 }
 
 export type SensorDebugData = {

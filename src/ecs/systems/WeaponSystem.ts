@@ -1,4 +1,10 @@
 import {
+  getCharacterBodyHalfHeight,
+  getCharacterBodyHalfWidth,
+  getCharacterEyeOffsetX,
+  getCharacterEyeOffsetY,
+} from '../../characterBodyProfile'
+import {
   BOW_FREE_AIM_MAX_OFFSET,
   BOW_FREE_AIM_TURN_SPEED,
   BOW_GRAVITY_SCALE,
@@ -12,6 +18,7 @@ import {
   DEFAULT_FRAME_RATE,
   DEFAULT_GRAVITY,
   DEFAULT_PARRY_WINDOW_MS,
+  DEFAULT_PLAYER_FOV_RAD,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_PAUSE_MS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
@@ -60,6 +67,7 @@ import {
 } from '../../constants'
 import {
   getEnemyCollisionCategory,
+  getEnvironmentCollisionMask,
   getPlayerCollisionCategory,
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
@@ -200,6 +208,19 @@ const HAMMER_CRIT_SWING_MS = 300
 const HAMMER_CRIT_RECOVER_MS = 350
 const STAGGER_DROP_SETTLE_MIN_TIME = 0.1
 const STAGGER_DROP_SETTLE_SPEED_SQ = 0.01
+const ASSASSINATION_FIXED_RANGE =
+  DEFAULT_PLAYER_RADIUS +
+  WEAPON_DEFAULT_DATA.sword.width / 2 +
+  DEFAULT_WEAPON_PLAYER_CLEARANCE
+const ASSASSINATION_WINDUP_MS = 240
+const ASSASSINATION_STRIKE_MS = 260
+const ASSASSINATION_RECOVER_MS = 240
+const ASSASSINATION_TOTAL_DURATION_MS =
+  ASSASSINATION_WINDUP_MS + ASSASSINATION_STRIKE_MS + ASSASSINATION_RECOVER_MS
+const ASSASSINATION_THRUST_ANGLE_RAD = Math.PI / 6
+const ASSASSINATION_SOUND_PLAYBACK_RATE = 1
+const ASSASSINATION_CAMERA_SHAKE_INTENSITY_PX = 9
+const ASSASSINATION_CAMERA_SHAKE_DURATION_MS = 160
 
 const BOMB_ULTIMATE_STATS = resolveWeaponStatsForSize(
   WEAPON_DEFAULT_DATA.hammer,
@@ -247,6 +268,9 @@ export class WeaponSystem extends System {
   private spatialHash: SpatialHash | null = null
   private entityLookup?: (id: number) => Entity | undefined
   private tempVec?: InstanceType<MainModule['b2Vec2']>
+  private rayStart?: InstanceType<MainModule['b2Vec2']>
+  private rayTranslation?: InstanceType<MainModule['b2Vec2']>
+  private rayFilter?: ReturnType<MainModule['b2DefaultQueryFilter']>
   private arrowBodyDef?: ReturnType<MainModule['b2DefaultBodyDef']>
   private arrowShapeDef?: ReturnType<MainModule['b2DefaultShapeDef']>
   private arrowCircle?: InstanceType<MainModule['b2Circle']>
@@ -307,6 +331,9 @@ export class WeaponSystem extends System {
     }
     if (box2d) {
       this.tempVec = new box2d.b2Vec2(0, 0)
+      this.rayStart = new box2d.b2Vec2(0, 0)
+      this.rayTranslation = new box2d.b2Vec2(0, 0)
+      this.rayFilter = box2d.b2DefaultQueryFilter()
       this.ultimateHandler.setBox2d(box2d)
       this.arrowBodyDef = box2d.b2DefaultBodyDef()
       this.arrowShapeDef = box2d.b2DefaultShapeDef()
@@ -538,7 +565,13 @@ export class WeaponSystem extends System {
       return
     }
 
+    if (weapon.assassinationPhase !== null) {
+      this.handleAssassinationPhases(entity, weapon, deltaMs)
+      return
+    }
+
     if (!weapon.isEquipped) {
+      this.clearAssassinationAvailability(entity)
       weapon.visual.x = weapon.position.x
       weapon.visual.y = weapon.position.y
       weapon.visual.rotation = weapon.rotation
@@ -547,12 +580,14 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.isDropping) {
+      this.clearAssassinationAvailability(entity)
       this.updateStaggerDroppingWeapon(weapon, playerPos)
       this.clearAttackImpactState(weapon)
       return
     }
 
     if (entity.stats?.isStaggered) {
+      this.clearAssassinationAvailability(entity)
       if (weapon.isDropped) {
         this.syncStaggerDroppedWeapon(weapon, playerPos)
       }
@@ -565,6 +600,7 @@ export class WeaponSystem extends System {
     }
 
     if (weapon.isRecovering) {
+      this.clearAssassinationAvailability(entity)
       weapon.dropElapsedTime += this.currentDeltaTime
       const elapsedMs = weapon.dropElapsedTime * 1000
       const progress = Math.min(1, elapsedMs / WEAPON_DROP_DURATION_MS)
@@ -597,14 +633,18 @@ export class WeaponSystem extends System {
     this.tryEmitLandingCameraShake(entity, weapon)
 
     if (weapon.weaponType === 'bomb') {
+      this.clearAssassinationAvailability(entity)
       this.updateBombWeapon(entity, weapon, playerPos, inputFacing, deltaMs)
       return
     }
 
     if (isRangedWeaponType(weapon.weaponType) && entity.stats) {
+      this.clearAssassinationAvailability(entity)
       this.updateBowWeapon(entity, weapon, playerPos, inputFacing, deltaMs)
       return
     }
+
+    this.updateAssassinationAvailability(entity)
 
     const now = this.currentTimeMs
     const attackRadius = weapon.attackRadius || this.getAttackRadius(entity)
@@ -680,6 +720,261 @@ export class WeaponSystem extends System {
     if (weapon.attackPhase === 'recover') {
       this.handleRecoverPhase(entity, playerPos, now)
     }
+  }
+
+  private updateAssassinationAvailability(entity: Entity): void {
+    if (
+      !entity.input ||
+      !entity.transform ||
+      !entity.weapon ||
+      !entity.stats ||
+      entity.stats.isDead
+    ) {
+      this.clearAssassinationAvailability(entity)
+      return
+    }
+    if (entity.faction?.factionId !== Faction.Player) {
+      this.clearAssassinationAvailability(entity)
+      return
+    }
+    if (!entity.weapon.isEquipped) {
+      this.clearAssassinationAvailability(entity)
+      return
+    }
+    if (!this.canUseAssassinationWeapon(entity)) {
+      this.clearAssassinationAvailability(entity)
+      return
+    }
+    if (entity.weapon.attackPhase !== 'idle') {
+      this.clearAssassinationAvailability(entity)
+      return
+    }
+
+    const assassinationRange = ASSASSINATION_FIXED_RANGE
+    const assassinationRangeSq = assassinationRange * assassinationRange
+    let bestTargetId: number | null = null
+    let bestDistanceSq = assassinationRangeSq
+    const attackerLayer = entity.render?.renderLayer ?? 0
+    const candidates = this.spatialHash
+      ? this.spatialHash.query(
+          entity.transform.x,
+          entity.transform.y,
+          assassinationRange + 1
+        )
+      : this.allEntities
+    const candidateCount = this.spatialHash
+      ? this.spatialHash.getQueryResultLength()
+      : candidates.length
+
+    for (let i = 0; i < candidateCount; i++) {
+      const target = candidates[i]
+      if (!this.canAssassinateTarget(entity, target, attackerLayer)) {
+        continue
+      }
+      const distanceSq = this.getAssassinationDistanceSq(entity, target)
+      if (distanceSq > bestDistanceSq) {
+        continue
+      }
+      bestDistanceSq = distanceSq
+      bestTargetId = target.id
+    }
+
+    entity.input.assassinationTargetId = bestTargetId
+  }
+
+  private clearAssassinationAvailability(entity: Entity): void {
+    if (entity.input && entity.weapon?.assassinationPhase === null) {
+      entity.input.assassinationTargetId = null
+    }
+  }
+
+  private canUseAssassinationWeapon(entity: Entity): boolean {
+    const weaponType = entity.weapon?.weaponType
+    return (
+      weaponType === 'sword' ||
+      weaponType === 'spear' ||
+      weaponType === 'hammer'
+    )
+  }
+
+  private canAssassinateTarget(
+    attacker: Entity,
+    target: Entity | undefined,
+    attackerLayer: number
+  ): boolean {
+    if (!target || target.id === attacker.id) {
+      return false
+    }
+    if (!target.transform || !target.stats || target.stats.isDead) {
+      return false
+    }
+    if (!attacker.faction || !target.faction) {
+      return false
+    }
+    if ((target.render?.renderLayer ?? 0) !== attackerLayer) {
+      return false
+    }
+    if (
+      !attacker.faction.canAttackEntity(target.faction, target.id.toString())
+    ) {
+      return false
+    }
+    if (target.stats.isVanished || target.stats.isInCombat) {
+      return false
+    }
+    if (target.npcAI?.alertChaseActive) {
+      return false
+    }
+    if (
+      target.input?.lockedTargetId != null ||
+      target.sensor?.detectedTargetId != null
+    ) {
+      return false
+    }
+    if (this.canEntitySeeTarget(target, attacker)) {
+      return false
+    }
+    return true
+  }
+
+  private getAssassinationDistanceSq(attacker: Entity, target: Entity): number {
+    if (!attacker.transform || !target.transform) {
+      return Number.POSITIVE_INFINITY
+    }
+
+    const targetRender = target.render
+    const targetRadius = targetRender?.radius ?? DEFAULT_PLAYER_RADIUS
+    const targetHalfWidth =
+      targetRender?.segmentedCollision &&
+      targetRender.segmentedProxyHalfWidth > 0
+        ? targetRender.segmentedProxyHalfWidth
+        : getCharacterBodyHalfWidth(targetRender?.bodyProfile, targetRadius)
+    const targetHalfHeight =
+      targetRender?.segmentedCollision &&
+      targetRender.segmentedProxyHalfHeight > 0
+        ? targetRender.segmentedProxyHalfHeight
+        : getCharacterBodyHalfHeight(
+            targetRender?.bodyProfile,
+            targetRadius,
+            targetRender?.bodyHeight ?? 0
+          )
+    const targetCenterY =
+      target.transform.y +
+      (targetRender?.segmentedCollision
+        ? targetRender.segmentedProxyOffsetY
+        : 0)
+    const deltaX = Math.abs(attacker.transform.x - target.transform.x)
+    const deltaY = Math.abs(attacker.transform.y - targetCenterY)
+    const edgeGapX = Math.max(0, deltaX - targetHalfWidth)
+    const edgeGapY = Math.max(0, deltaY - targetHalfHeight)
+    return edgeGapX * edgeGapX + edgeGapY * edgeGapY
+  }
+
+  private canEntitySeeTarget(observer: Entity, target: Entity): boolean {
+    if (!observer.transform || !target.transform) {
+      return false
+    }
+
+    const dx = target.transform.x - observer.transform.x
+    const dy = target.transform.y - observer.transform.y
+    const facing = this.getEntityFacingForVision(observer)
+    const facingAngle = facing > 0 ? 0 : Math.PI
+    const halfFov =
+      observer.sensor?.fov && observer.sensor.fov > 0
+        ? observer.sensor.fov / 2
+        : DEFAULT_PLAYER_FOV_RAD / 2
+    const targetAngle = Math.atan2(dy, dx)
+    const angleDelta = Math.abs(this.normalizeAngle(targetAngle - facingAngle))
+    if (angleDelta > halfFov) {
+      return false
+    }
+    return this.hasLineOfSight(observer, target)
+  }
+
+  private getEntityFacingForVision(entity: Entity): number {
+    if (
+      entity.input?.lastMoveDirection === -1 ||
+      entity.input?.lastMoveDirection === 1
+    ) {
+      return entity.input.lastMoveDirection
+    }
+    if (
+      entity.weapon?.attackFacing === -1 ||
+      entity.weapon?.attackFacing === 1
+    ) {
+      return entity.weapon.attackFacing
+    }
+    return 1
+  }
+
+  private normalizeAngle(angle: number): number {
+    if (angle > Math.PI) {
+      return angle - Math.PI * 2
+    }
+    if (angle < -Math.PI) {
+      return angle + Math.PI * 2
+    }
+    return angle
+  }
+
+  private hasLineOfSight(observer: Entity, target: Entity): boolean {
+    if (
+      !this.box2d ||
+      !this.rayStart ||
+      !this.rayTranslation ||
+      !this.rayFilter ||
+      !this.worldId ||
+      !observer.transform ||
+      !target.transform
+    ) {
+      return true
+    }
+
+    const facing = this.getEntityFacingForVision(observer)
+    const radius = observer.render?.radius || DEFAULT_PLAYER_RADIUS
+    const eyeOffsetX = getCharacterEyeOffsetX(
+      observer.render?.bodyProfile,
+      radius,
+      facing
+    )
+    const eyeOffsetY = getCharacterEyeOffsetY(
+      observer.render?.bodyProfile,
+      radius,
+      observer.render?.bodyHeight ?? 0
+    )
+    const startX = observer.transform.x + eyeOffsetX
+    const startY = observer.transform.y + eyeOffsetY
+
+    this.rayStart.Set(startX, startY)
+    this.rayTranslation.Set(
+      target.transform.x - startX,
+      target.transform.y - startY
+    )
+    this.rayFilter.categoryBits = 0xffffffff
+    this.rayFilter.maskBits = getEnvironmentCollisionMask(
+      observer.render?.renderLayer ?? 0
+    )
+
+    const output = this.box2d.b2World_CastRayClosest(
+      this.worldId,
+      this.rayStart,
+      this.rayTranslation,
+      this.rayFilter
+    )
+    return !output.hit
+  }
+
+  private getEntityById(id: number): Entity | undefined {
+    if (this.entityLookup) {
+      return this.entityLookup(id)
+    }
+    for (let i = 0; i < this.allEntities.length; i++) {
+      const entity = this.allEntities[i]
+      if (entity.id === id) {
+        return entity
+      }
+    }
+    return undefined
   }
 
   private startBlock(
@@ -3389,6 +3684,8 @@ export class WeaponSystem extends System {
     const weapon = entity.weapon
     if (!weapon) return
 
+    this.resetAssassinationState(entity, true)
+
     weapon.attackPhase = 'idle'
     weapon.attackElapsedMs = 0
     weapon.lastAttackTimestamp = 0
@@ -3883,8 +4180,21 @@ export class WeaponSystem extends System {
     }
 
     const weapon = entity.weapon
+    const assassinationTarget = this.getAssassinationTarget(entity)
     const facing =
-      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+      assassinationTarget && assassinationTarget.transform
+        ? assassinationTarget.transform.x >= entity.transform.x
+          ? 1
+          : -1
+        : entity.input.lastMoveDirection !== 0
+          ? entity.input.lastMoveDirection
+          : 1
+    if (
+      assassinationTarget &&
+      this.startAssassination(entity, assassinationTarget)
+    ) {
+      return
+    }
     if (weapon.weaponType === 'bomb') {
       if (weapon.bombState === 'idle') {
         if (weapon.bowAmmo <= 0) {
@@ -4032,6 +4342,354 @@ export class WeaponSystem extends System {
     if (!weapon.attackQueued) {
       weapon.attackQueued = true
       weapon.lastAttackTimestamp = now
+    }
+  }
+
+  private getAssassinationTarget(entity: Entity): Entity | null {
+    const targetId = entity.input?.assassinationTargetId
+    if (targetId === null || targetId === undefined) {
+      return null
+    }
+    const target = this.getEntityById(targetId)
+    if (!target) {
+      return null
+    }
+    const attackerLayer = entity.render?.renderLayer ?? 0
+    if (!this.canAssassinateTarget(entity, target, attackerLayer)) {
+      return null
+    }
+    const range = ASSASSINATION_FIXED_RANGE
+    return this.getAssassinationDistanceSq(entity, target) <= range * range
+      ? target
+      : null
+  }
+
+  private startAssassination(attacker: Entity, target: Entity): boolean {
+    if (!attacker.transform || !attacker.input || !attacker.weapon) {
+      return false
+    }
+
+    const weapon = attacker.weapon
+    if (
+      weapon.assassinationPhase !== null ||
+      !this.canUseAssassinationWeapon(attacker)
+    ) {
+      return false
+    }
+
+    const facing = target.transform!.x >= attacker.transform.x ? 1 : -1
+    weapon.assassinationPhase = 'windup'
+    weapon.assassinationElapsedMs = 0
+    weapon.assassinationTargetId = target.id
+    weapon.assassinationStyle =
+      weapon.weaponType === 'hammer' ? 'strike' : 'thrust'
+    weapon.assassinationImpactApplied = false
+    weapon.assassinationKillApplied = false
+    weapon.hitSoundPlaybackRate = 1
+    weapon.attackPhase = 'idle'
+    weapon.attackElapsedMs = 0
+    weapon.attackQueued = false
+    weapon.comboCount = 0
+    weapon.hitEntityIds.clear()
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
+    weapon.parryCounterActive = false
+    weapon.attackFacing = facing
+    attacker.input.assassinationTargetId = target.id
+    attacker.input.facingOverride = facing
+    this.populateAssassinationTransforms(attacker, weapon, target, facing)
+    copyTransform(weapon.visual, weapon.assassinationStartTransform)
+    if (target.weapon) {
+      this.resetAttackStateForInterrupt(target.weapon)
+      target.weapon.attackPhase = 'idle'
+      target.weapon.isBlocking = false
+      target.weapon.isParrying = false
+      target.weapon.parryElapsedTime = 0
+      target.weapon.parryHitWeaponIds.clear()
+      target.weapon.width = target.weapon.baseWidth
+    }
+    this.statsSystem?.applyForcedHitStun(
+      target,
+      'light',
+      ASSASSINATION_TOTAL_DURATION_MS
+    )
+    this.freezeEntityMotion(attacker)
+    this.freezeEntityMotion(target)
+    return true
+  }
+
+  private handleAssassinationPhases(
+    attacker: Entity,
+    weapon: WeaponComponent,
+    deltaMs: number
+  ): void {
+    if (!attacker.transform || !attacker.input) {
+      this.resetAssassinationState(attacker, true)
+      return
+    }
+
+    const target = this.getEntityById(weapon.assassinationTargetId)
+    if (!target?.transform || !target.stats || target.stats.isVanished) {
+      this.resetAssassinationState(attacker, true)
+      return
+    }
+
+    const facing = target.transform.x >= attacker.transform.x ? 1 : -1
+    weapon.attackFacing = facing
+    attacker.input.facingOverride = facing
+    attacker.input.assassinationTargetId = target.id
+    this.populateAssassinationTransforms(attacker, weapon, target, facing)
+    this.freezeEntityMotion(attacker)
+    this.freezeEntityMotion(target)
+    weapon.assassinationElapsedMs += deltaMs
+
+    if (weapon.assassinationPhase === 'windup') {
+      const t = clamp01(weapon.assassinationElapsedMs / ASSASSINATION_WINDUP_MS)
+      lerpTransform(
+        weapon.assassinationStartTransform,
+        weapon.assassinationHitTransform,
+        t,
+        weapon.visual
+      )
+      if (t >= 1) {
+        weapon.assassinationPhase = 'strike'
+        weapon.assassinationElapsedMs = 0
+        if (weapon.assassinationStyle === 'thrust') {
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.SWORD_SWING_NORMAL,
+            weapon.visual.x,
+            weapon.visual.y,
+            ASSASSINATION_SOUND_PLAYBACK_RATE
+          )
+        } else {
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.SWORD_SWING_FINAL,
+            weapon.visual.x,
+            weapon.visual.y,
+            ASSASSINATION_SOUND_PLAYBACK_RATE
+          )
+        }
+      }
+      return
+    }
+
+    if (weapon.assassinationPhase === 'strike') {
+      const t = clamp01(weapon.assassinationElapsedMs / ASSASSINATION_STRIKE_MS)
+      lerpTransform(
+        weapon.assassinationHitTransform,
+        weapon.assassinationRecoverTransform,
+        t,
+        weapon.visual
+      )
+      const impactReached =
+        weapon.assassinationStyle === 'strike' ? t >= 0.35 : t >= 0.85
+      if (!weapon.assassinationImpactApplied && impactReached) {
+        weapon.assassinationImpactApplied = true
+        this.statsSystem?.emitHitFeedback(
+          target,
+          weapon.assassinationHitTransform,
+          ASSASSINATION_SOUND_PLAYBACK_RATE,
+          true
+        )
+      }
+      if (t >= 1) {
+        weapon.assassinationPhase = 'recover'
+        weapon.assassinationElapsedMs = 0
+      }
+      return
+    }
+
+    const radius = attacker.render?.radius || DEFAULT_PLAYER_RADIUS
+    getFrontTransform(
+      attacker.transform,
+      facing,
+      this.tempTransform,
+      radius,
+      weapon.weaponType,
+      weapon.width
+    )
+    const t = clamp01(weapon.assassinationElapsedMs / ASSASSINATION_RECOVER_MS)
+    lerpTransform(
+      weapon.assassinationRecoverTransform,
+      this.tempTransform,
+      t,
+      weapon.visual
+    )
+    if (t >= 1) {
+      if (!weapon.assassinationKillApplied) {
+        this.applyAssassinationKill(attacker, target, weapon)
+      }
+      this.resetAssassinationState(attacker, true)
+    }
+  }
+
+  private populateAssassinationTransforms(
+    attacker: Entity,
+    weapon: WeaponComponent,
+    target: Entity,
+    facing: number
+  ): void {
+    const attackerRadius = attacker.render?.radius || DEFAULT_PLAYER_RADIUS
+    const targetRadius = target.render?.radius || DEFAULT_PLAYER_RADIUS
+    const attackerTransform = attacker.transform!
+    const attackerX = attackerTransform.x
+    const attackerY = attackerTransform.y
+    const targetX = target.transform!.x
+    const targetY = target.transform!.y
+    const thrustRotation =
+      facing > 0
+        ? -ASSASSINATION_THRUST_ANGLE_RAD
+        : Math.PI + ASSASSINATION_THRUST_ANGLE_RAD
+    const strikeRotation = facing > 0 ? 0 : Math.PI
+
+    if (weapon.assassinationStyle === 'thrust') {
+      getThrustTransforms(
+        attackerRadius + weapon.width / 2 + DEFAULT_WEAPON_PLAYER_CLEARANCE,
+        facing,
+        attackerTransform,
+        weapon.weaponType,
+        weapon.width,
+        weapon.assassinationStartTransform,
+        weapon.assassinationHitTransform
+      )
+      const thrustTravelDistance = Math.abs(
+        weapon.assassinationHitTransform.x -
+          weapon.assassinationStartTransform.x
+      )
+      const thrustDirX = Math.cos(thrustRotation)
+      const thrustDirY = Math.sin(thrustRotation)
+      const hitBackOffset = Math.max(0.06, weapon.width * 0.08)
+      const hitX = targetX - thrustDirX * hitBackOffset
+      const hitY = targetY - targetRadius * 0.18 - thrustDirY * hitBackOffset
+      const windupDistance = Math.max(
+        thrustTravelDistance,
+        attackerRadius + targetRadius + weapon.width * 0.35
+      )
+      const recoverDistance = Math.max(
+        weapon.width * 0.32,
+        (windupDistance * 38) / 100
+      )
+      weapon.assassinationStartTransform.x = hitX - thrustDirX * windupDistance
+      weapon.assassinationStartTransform.y = hitY - thrustDirY * windupDistance
+      weapon.assassinationStartTransform.rotation = thrustRotation
+      weapon.assassinationHitTransform.x = hitX
+      weapon.assassinationHitTransform.y = hitY
+      weapon.assassinationHitTransform.rotation = thrustRotation
+      weapon.assassinationRecoverTransform.x =
+        hitX - thrustDirX * recoverDistance
+      weapon.assassinationRecoverTransform.y =
+        hitY - thrustDirY * recoverDistance
+      weapon.assassinationRecoverTransform.rotation = thrustRotation
+      return
+    }
+
+    weapon.assassinationStartTransform.x =
+      attackerX - facing * (attackerRadius + weapon.width * 0.7)
+    weapon.assassinationStartTransform.y = attackerY - attackerRadius * 0.12
+    weapon.assassinationStartTransform.rotation = strikeRotation
+    weapon.assassinationHitTransform.x = targetX
+    weapon.assassinationHitTransform.y = targetY
+    weapon.assassinationHitTransform.rotation = strikeRotation
+    weapon.assassinationRecoverTransform.x =
+      targetX + facing * (targetRadius + weapon.width * 0.2)
+    weapon.assassinationRecoverTransform.y = targetY
+    weapon.assassinationRecoverTransform.rotation = strikeRotation
+  }
+
+  private freezeEntityMotion(entity: Entity): void {
+    entity.input?.inputBuffer.clearAction('attack')
+    if (entity.input) {
+      entity.input.moveDirection = 0
+      entity.input.jumpRequested = false
+      entity.input.sprintRequested = false
+      entity.input.blockRequested = false
+    }
+    if (entity.physics && this.box2d && this.tempVec) {
+      this.tempVec.x = 0
+      this.tempVec.y = 0
+      this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+    }
+  }
+
+  private applyAssassinationKill(
+    attacker: Entity,
+    target: Entity,
+    weapon: WeaponComponent
+  ): void {
+    if (!target.stats || target.stats.isDead) {
+      weapon.assassinationKillApplied = true
+      return
+    }
+
+    weapon.assassinationKillApplied = true
+    const savedAttackDamage = weapon.attackDamage
+    const savedPostureDamage = weapon.postureDamage
+    const savedToughnessDamage = weapon.toughnessDamage
+    const savedImpactLevel = weapon.impactLevel
+    const savedPlaybackRate = weapon.hitSoundPlaybackRate
+
+    weapon.attackDamage = Math.max(
+      savedAttackDamage,
+      target.stats.maxHealth * 10
+    )
+    weapon.postureDamage = 0
+    weapon.toughnessDamage = 0
+    weapon.impactLevel = 'small'
+    weapon.hitSoundPlaybackRate = ASSASSINATION_SOUND_PLAYBACK_RATE
+    this.tempHitSource.x = weapon.visual.x
+    this.tempHitSource.y = weapon.visual.y
+    this.statsSystem?.applyWeaponHit(
+      target,
+      {
+        attackDamage: weapon.attackDamage,
+        postureDamage: weapon.postureDamage,
+        toughnessDamage: weapon.toughnessDamage,
+        impactLevel: weapon.impactLevel,
+        weaponType: weapon.weaponType,
+        sizeLevel: weapon.sizeLevel,
+        hitSoundPlaybackRate: weapon.hitSoundPlaybackRate,
+        suppressImpactEffects: true,
+      },
+      this.tempHitSource,
+      attacker
+    )
+    weapon.attackDamage = savedAttackDamage
+    weapon.postureDamage = savedPostureDamage
+    weapon.toughnessDamage = savedToughnessDamage
+    weapon.impactLevel = savedImpactLevel
+    weapon.hitSoundPlaybackRate = savedPlaybackRate
+    this.statsSystem?.emitCameraShake(
+      target.transform!.x,
+      target.transform!.y,
+      ASSASSINATION_CAMERA_SHAKE_INTENSITY_PX,
+      ASSASSINATION_CAMERA_SHAKE_DURATION_MS
+    )
+  }
+
+  private resetAssassinationState(
+    entity: Entity,
+    clearTargetId: boolean
+  ): void {
+    const weapon = entity.weapon
+    if (!weapon) {
+      if (clearTargetId && entity.input) {
+        entity.input.assassinationTargetId = null
+      }
+      return
+    }
+    weapon.assassinationPhase = null
+    weapon.assassinationElapsedMs = 0
+    weapon.assassinationTargetId = 0
+    weapon.assassinationStyle = 'thrust'
+    weapon.assassinationImpactApplied = false
+    weapon.assassinationKillApplied = false
+    weapon.hitSoundPlaybackRate = 1
+    if (entity.input) {
+      entity.input.facingOverride = null
+      if (clearTargetId) {
+        entity.input.assassinationTargetId = null
+      }
     }
   }
 
@@ -4499,6 +5157,7 @@ export class WeaponSystem extends System {
     weapon.swingDirection = 'toFront'
     weapon.nextSwingDirection = 'toFront'
     weapon.hitEntityIds.clear()
+    this.resetAssassinationState(entity, true)
     this.clearAttackImpactState(weapon)
 
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
@@ -4516,6 +5175,7 @@ export class WeaponSystem extends System {
     if (!entity.weapon) return
 
     const weapon = entity.weapon
+    this.resetAssassinationState(entity, true)
     this.destroyStaggerDropBody(weapon)
     weapon.attackQueued = false
     if (this.statsSystem) {

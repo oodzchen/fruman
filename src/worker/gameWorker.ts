@@ -607,6 +607,7 @@ let ultimateCameraActive = false
 let ultimateCameraTargetX = 0
 let ultimateCameraTargetY = 0
 let ultimateCameraTargetZoom = DEFAULT_CAMERA_ZOOM
+let timeScale1000 = 1000
 
 const TRANSITION_DURATION = 3
 const VERTICAL_TRANSITION_DURATION = 6
@@ -625,6 +626,10 @@ const ULTIMATE_CAMERA_SWORD_ZOOM = 0.5
 const ULTIMATE_CAMERA_SPEAR_ZOOM = 0.48
 const ULTIMATE_CAMERA_HAMMER_ZOOM = 0.42
 const HAMMER_ULTIMATE_CAMERA_FOCUS_OFFSET_Y = 4
+const ASSASSINATION_CAMERA_ZOOM = 1.45
+const ASSASSINATION_CAMERA_FOCUS_OFFSET_Y = 1
+const DEFAULT_TIME_SCALE_1000 = 1000
+const ASSASSINATION_TIME_SCALE_1000 = 250
 
 // Reusable message object for sendState
 const stateMessage: WorkerStateMessage = {
@@ -635,6 +640,7 @@ const stateMessage: WorkerStateMessage = {
   ropePointCount: 0,
   camera: { x: 0, y: 0 },
   zoom: DEFAULT_CAMERA_ZOOM,
+  timeScale1000: DEFAULT_TIME_SCALE_1000,
 }
 
 const debugMessage: WorkerDebugMessage = {
@@ -3793,6 +3799,7 @@ function fixedUpdate() {
   // Accumulate time using delta time
   currentTime += TIME_STEP
   playTimeMs += FIXED_STEP_MS
+  syncTimeScaleState()
   if (ultimateFlashRemainingMs > 0) {
     ultimateFlashRemainingMs = Math.max(
       0,
@@ -3933,7 +3940,7 @@ function update() {
   // Spiral of death protection: Cap frame time
   if (frameTime > 0.25) frameTime = 0.25
 
-  accumulator += frameTime
+  accumulator += (frameTime * timeScale1000) / DEFAULT_TIME_SCALE_1000
 
   let fixedSteps = 0
   while (accumulator >= TIME_STEP) {
@@ -4056,12 +4063,68 @@ function resetCameraTrackingState(): void {
   verticalForceCenterAfterEmergency = false
 }
 
+function setTimeScale1000(nextScale1000: number): void {
+  if (!Number.isFinite(nextScale1000)) {
+    timeScale1000 = DEFAULT_TIME_SCALE_1000
+    return
+  }
+  if (nextScale1000 < 1) {
+    timeScale1000 = 1
+    return
+  }
+  if (nextScale1000 > 4000) {
+    timeScale1000 = 4000
+    return
+  }
+  timeScale1000 = Math.round(nextScale1000)
+}
+
+function syncTimeScaleState(): void {
+  const weapon = playerEntity?.weapon
+  if (
+    weapon?.assassinationPhase !== null &&
+    (weapon?.assassinationTargetId ?? 0) > 0
+  ) {
+    setTimeScale1000(ASSASSINATION_TIME_SCALE_1000)
+    return
+  }
+  setTimeScale1000(DEFAULT_TIME_SCALE_1000)
+}
+
 function updateUltimateCameraTarget(): boolean {
   if (!playerEntity?.transform || !playerEntity.weapon) {
     return false
   }
 
   const weapon = playerEntity.weapon
+  const assassinationTargetId = weapon.assassinationTargetId
+  if (weapon.assassinationPhase !== null && assassinationTargetId > 0) {
+    const target = world.getEntityById(assassinationTargetId)
+    if (!target?.transform) {
+      return false
+    }
+    const radius = playerEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const focusX = (playerEntity.transform.x + target.transform.x) * 0.5
+    const focusY =
+      (playerEntity.transform.y +
+        radius +
+        (target.transform.y + targetRadius)) *
+        0.5 -
+      ASSASSINATION_CAMERA_FOCUS_OFFSET_Y
+    const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+    ultimateCameraTargetZoom = Math.max(
+      requestedZoom,
+      ASSASSINATION_CAMERA_ZOOM
+    )
+    ultimateCameraTargetX = focusX - canvasWidth / (pixelsPerMeter * 2)
+    ultimateCameraTargetY =
+      focusY -
+      canvasHeightInMeters *
+        ((ULTIMATE_CAMERA_SCREEN_RATIO_Y - 1) / ultimateCameraTargetZoom + 1)
+    return true
+  }
+
   const phase = weapon.ultimatePhase
   if (phase === null) {
     return false
@@ -4105,8 +4168,12 @@ function activateUltimateCamera(): void {
 }
 
 function syncUltimateCameraState(): void {
-  const phase = playerEntity?.weapon?.ultimatePhase
-  if (phase === null || phase === undefined) {
+  const weapon = playerEntity?.weapon
+  const phase = weapon?.ultimatePhase
+  const hasAssassinationCamera =
+    weapon?.assassinationPhase !== null &&
+    (weapon?.assassinationTargetId ?? 0) > 0
+  if ((phase === null || phase === undefined) && !hasAssassinationCamera) {
     if (ultimateCameraActive) {
       ultimateCameraActive = false
       resetCameraTrackingState()
@@ -4891,6 +4958,14 @@ function sendState() {
     if (e.follow !== undefined && e.follow.followTargetId !== null) {
       flags |= FLAGS.FOLLOW_BOUND
     }
+    const assassinationTargetId =
+      playerEntity?.weapon?.assassinationPhase != null &&
+      playerEntity?.weapon?.assassinationTargetId
+        ? playerEntity.weapon.assassinationTargetId
+        : (playerEntity?.input?.assassinationTargetId ?? null)
+    if (assassinationTargetId === e.id) {
+      flags |= FLAGS.ASSASSINATION_TARGET
+    }
     if (e.follow !== undefined && e.follow.bondFlashTimer > 0) {
       flags |= FLAGS.IS_FOLLOWING
       stateBuffer[offset + OFFSETS.FOLLOW_FLASH_PROGRESS] =
@@ -5294,6 +5369,7 @@ function sendState() {
   stateMessage.camera.x = camera.x
   stateMessage.camera.y = camera.y
   stateMessage.zoom = zoom
+  stateMessage.timeScale1000 = timeScale1000
   const hasSpineCollisionDebug =
     DEBUG_DRAW_PLAYER_COLLISION_SHAPE &&
     spineSegmentManager.getMaxActiveCoverageRadius() > 0

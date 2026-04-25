@@ -198,6 +198,7 @@ export class ClientRenderer {
   private cameraShakePhaseMs = 0
   private cameraShakeOffsetX = 0
   private cameraShakeOffsetY = 0
+  private timeScale1000 = 1000
   // 血条宽度动画（升级时最大血量增加，血条等比例变长）
   private healthBarDisplayWidth = 0
   private healthBarAnimStartWidth = 0
@@ -473,6 +474,14 @@ export class ClientRenderer {
     this.updateTransientLights(deltaTime)
   }
 
+  setTimeScale1000(timeScale1000: number): void {
+    if (!Number.isFinite(timeScale1000) || timeScale1000 <= 0) {
+      this.timeScale1000 = 1000
+      return
+    }
+    this.timeScale1000 = Math.round(timeScale1000)
+  }
+
   getLastRenderDeltaMs(): number {
     return Math.max(0, Math.round(this.lastRenderDeltaSec * 1000))
   }
@@ -547,7 +556,7 @@ export class ClientRenderer {
         this.applyCameraShake(attenuatedIntensity, radius)
       } else if (type === EFFECT_TYPES.SOUND) {
         const soundId = color
-        const playbackRate = radius || 1.0
+        const playbackRate = ((radius || 1.0) * this.timeScale1000) / 1000
         const volume =
           Number.isFinite(x) && Number.isFinite(y)
             ? this.getEventAttenuation(x, y, getSoundFalloffDistance(soundId))
@@ -1362,9 +1371,19 @@ export class ClientRenderer {
       this.drawFollowUnbondIcon(cx, baseY + riseOffset, alpha)
     }
 
-    // Draw LockOn Reticle
-    if (!playerFreeAimActive && playerLockedTargetId !== -1) {
-      // Find target
+    let assassinationTargetOffset = -1
+    for (let i = 0; i < this.entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      const flags = buf[offset + OFFSETS.FLAGS]
+      if (flags & FLAGS.ASSASSINATION_TARGET) {
+        assassinationTargetOffset = offset
+        break
+      }
+    }
+
+    if (!playerFreeAimActive && assassinationTargetOffset !== -1) {
+      this.drawAssassinationReticle(buf, assassinationTargetOffset)
+    } else if (!playerFreeAimActive && playerLockedTargetId !== -1) {
       for (let i = 0; i < this.entityCount; i++) {
         const offset = i * ENTITY_STRIDE
         if (buf[offset + OFFSETS.ID] === playerLockedTargetId) {
@@ -1431,7 +1450,16 @@ export class ClientRenderer {
     const shakeOffset = this.getHitShakeOffset(buf, offset)
     const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
     const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
-    this.drawReticleAt(centerX, centerY)
+    this.drawReticleAt(centerX, centerY, '#FFFFFF', 1)
+  }
+
+  private drawAssassinationReticle(buf: Float32Array, offset: number): void {
+    const x = buf[offset + OFFSETS.X]
+    const y = buf[offset + OFFSETS.Y]
+    const shakeOffset = this.getHitShakeOffset(buf, offset)
+    const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
+    const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
+    this.drawReticleAt(centerX, centerY, '#D33232', 2)
   }
 
   private drawFreeAimReticle(
@@ -1452,15 +1480,20 @@ export class ClientRenderer {
     )
     const centerX = clampedPos.x * this.pixelsPerMeter
     const centerY = clampedPos.y * this.pixelsPerMeter
-    this.drawReticleAt(centerX, centerY)
+    this.drawReticleAt(centerX, centerY, '#FFFFFF', 1)
   }
 
-  private drawReticleAt(centerX: number, centerY: number): void {
+  private drawReticleAt(
+    centerX: number,
+    centerY: number,
+    color: string,
+    scale: number
+  ): void {
     this.ctx.save()
     this.ctx.translate(centerX, centerY)
-    this.ctx.strokeStyle = '#FFFFFF'
+    this.ctx.strokeStyle = color
     this.ctx.lineWidth = 1
-    const size = 7.5
+    const size = 7.5 * scale
 
     this.ctx.beginPath()
     this.ctx.moveTo(-size, 0)
@@ -1469,9 +1502,9 @@ export class ClientRenderer {
     this.ctx.lineTo(0, size)
     this.ctx.stroke()
 
-    this.ctx.fillStyle = '#FFFFFF'
+    this.ctx.fillStyle = color
     this.ctx.beginPath()
-    this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2)
+    this.ctx.arc(0, 0, 2.5 * scale, 0, Math.PI * 2)
     this.ctx.fill()
     this.ctx.restore()
   }

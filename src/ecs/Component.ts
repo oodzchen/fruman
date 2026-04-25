@@ -228,6 +228,7 @@ export class InputComponent extends Component {
   skillRequested = false
   blockRequested = false
   lockedTargetId: number | null = null
+  assassinationTargetId: number | null = null
   lockToggleRequested = false
   lockSwitchIntent = 0
   lockLostTimer = 0
@@ -259,6 +260,7 @@ export class InputComponent extends Component {
     this.skillRequested = false
     this.blockRequested = false
     this.lockedTargetId = null
+    this.assassinationTargetId = null
     this.lockToggleRequested = false
     this.lockSwitchIntent = 0
     this.lockLostTimer = 0
@@ -746,6 +748,16 @@ export class WeaponComponent extends Component {
     | null = null
   skillElapsedMs = 0
   skillFacing = 1
+  assassinationPhase: 'windup' | 'strike' | 'recover' | null = null
+  assassinationElapsedMs = 0
+  assassinationTargetId = 0
+  assassinationStyle: 'thrust' | 'strike' = 'thrust'
+  assassinationImpactApplied = false
+  assassinationKillApplied = false
+  assassinationStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  assassinationHitTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  assassinationRecoverTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  hitSoundPlaybackRate = 1
 
   reset(): void {
     this.width = 0
@@ -925,6 +937,22 @@ export class WeaponComponent extends Component {
     this.skillPhase = null
     this.skillElapsedMs = 0
     this.skillFacing = 1
+    this.assassinationPhase = null
+    this.assassinationElapsedMs = 0
+    this.assassinationTargetId = 0
+    this.assassinationStyle = 'thrust'
+    this.assassinationImpactApplied = false
+    this.assassinationKillApplied = false
+    this.assassinationStartTransform.x = 0
+    this.assassinationStartTransform.y = 0
+    this.assassinationStartTransform.rotation = 0
+    this.assassinationHitTransform.x = 0
+    this.assassinationHitTransform.y = 0
+    this.assassinationHitTransform.rotation = 0
+    this.assassinationRecoverTransform.x = 0
+    this.assassinationRecoverTransform.y = 0
+    this.assassinationRecoverTransform.rotation = 0
+    this.hitSoundPlaybackRate = 1
   }
 
   getName(): string {
