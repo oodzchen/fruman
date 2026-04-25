@@ -47,6 +47,8 @@ import {
 } from '../renderer/HudWeaponSlotRenderer'
 import { renderWeapon } from '../renderer/WeaponRenderer'
 import {
+  buildSkeletalSurfaceSnapshot,
+  createDefaultSkeletalBoneSegments,
   getCharacterBodyTextureDataUrl,
   normalizeSkeletalBodyProfile,
 } from '../skeletalBodyProfile'
@@ -199,6 +201,7 @@ export interface EditorPropertiesPanelContext {
   editorObjectMap: Map<fabric.Object, EditorObjectData>
   objectFactory: EditorObjectFactory
   requestRender: () => void
+  refreshMapThumbnail?: () => void
   getMapSnapshot: () => EditorMapData
   getFactions: () => string[]
   addFaction: (id: string) => void
@@ -1098,6 +1101,57 @@ export class EditorPropertiesPanel {
           options.marker.bodyProfile = bodyProfile
         }
       }
+      const createFallbackBodyProfile = (): MapCharacterBodyProfile => {
+        const bodyWidthVal = Number.parseFloat(bodyWidthInput.value)
+        const bodyHeightVal = Number.parseFloat(bodyHeightInput.value)
+        const width =
+          Number.isFinite(bodyWidthVal) && bodyWidthVal > 0
+            ? bodyWidthVal
+            : defaultDiameter
+        const height =
+          Number.isFinite(bodyHeightVal) && bodyHeightVal > 0
+            ? bodyHeightVal
+            : width
+        return {
+          points: [],
+          width,
+          height,
+          color: getCharacterBodyColor(bodyProfile, options.data.color),
+        }
+      }
+      const buildBodyProfileWithSkeletalSurface = async (
+        profile: MapCharacterBodyProfile | undefined
+      ): Promise<MapCharacterBodyProfile | undefined> => {
+        if (!profile?.skeletalMode || !profile.boneSegments?.length) {
+          return profile
+        }
+        const skeletalSurface = await buildSkeletalSurfaceSnapshot(
+          profile.boneSegments,
+          getCharacterBodyColor(profile, options.data.color)
+        )
+        if (!skeletalSurface) {
+          return profile
+        }
+        const nextProfile = {
+          ...profile,
+          skeletalSurfaceDataUrl: skeletalSurface.dataUrl,
+          skeletalSurfaceOffsetX: skeletalSurface.offsetX,
+          skeletalSurfaceOffsetY: skeletalSurface.offsetY,
+          skeletalSurfaceWidth: skeletalSurface.width,
+          skeletalSurfaceHeight: skeletalSurface.height,
+        }
+        return nextProfile
+      }
+      const createSkeletalModeProfile = (
+        profile: MapCharacterBodyProfile
+      ): MapCharacterBodyProfile => ({
+        ...profile,
+        skeletalMode: true,
+        boneSegments:
+          profile.boneSegments && profile.boneSegments.length > 0
+            ? profile.boneSegments
+            : createDefaultSkeletalBoneSegments(),
+      })
       const bodyWidthDefault =
         getCharacterBodyProfileWidth(bodyProfile) > 0
           ? getCharacterBodyProfileWidth(bodyProfile)
@@ -1194,14 +1248,24 @@ export class EditorPropertiesPanel {
       skeletalCheckbox.type = 'checkbox'
       skeletalCheckbox.checked = bodyProfile?.skeletalMode === true
       skeletalCheckbox.style.cssText = 'cursor:pointer;width:14px;height:14px;'
-      skeletalCheckbox.addEventListener('change', () => {
-        if (!bodyProfile) return
-        assignBodyProfile({
-          ...bodyProfile,
-          skeletalMode: skeletalCheckbox.checked,
-        })
+      skeletalCheckbox.addEventListener('change', async () => {
+        const baseProfile = bodyProfile ?? createFallbackBodyProfile()
+        const toggledProfile = skeletalCheckbox.checked
+          ? createSkeletalModeProfile(baseProfile)
+          : {
+              ...baseProfile,
+              skeletalMode: false,
+            }
+        assignBodyProfile(toggledProfile)
         updateCharacterVisualFromInputs()
         renderCharacterPreview()
+        this.context.refreshMapThumbnail?.()
+        const nextProfile =
+          await buildBodyProfileWithSkeletalSurface(toggledProfile)
+        assignBodyProfile(nextProfile)
+        updateCharacterVisualFromInputs()
+        renderCharacterPreview()
+        this.context.refreshMapThumbnail?.()
       })
       skeletalRow.row.appendChild(skeletalCheckbox)
       appearancePanel.appendChild(skeletalRow.row)
@@ -1811,6 +1875,23 @@ export class EditorPropertiesPanel {
         updateCharacterVisualFromInputs()
         renderCharacterPreview()
       })
+
+      if (bodyProfile?.skeletalMode && !bodyProfile.skeletalSurfaceDataUrl) {
+        const initialSkeletalProfile = createSkeletalModeProfile(bodyProfile)
+        assignBodyProfile(initialSkeletalProfile)
+        updateCharacterVisualFromInputs()
+        void buildBodyProfileWithSkeletalSurface(initialSkeletalProfile).then(
+          (nextProfile) => {
+            if (!nextProfile) {
+              return
+            }
+            assignBodyProfile(nextProfile)
+            updateCharacterVisualFromInputs()
+            renderCharacterPreview()
+            this.context.refreshMapThumbnail?.()
+          }
+        )
+      }
 
       renderCharacterPreview()
 

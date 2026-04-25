@@ -49,7 +49,11 @@ import type {
   MapCharacterBodyProfile,
   MapCharacterBodyVisualLayer,
 } from '../editorMapTypes'
-import { deriveSkeletalBodyGeometry } from '../skeletalBodyProfile'
+import {
+  buildDefaultSkeletalBoneBoundary,
+  buildSkeletalSurfaceSnapshot,
+  deriveSkeletalBodyGeometry,
+} from '../skeletalBodyProfile'
 import { type EditorColorInputElement, EditorUIHelper } from './EditorUIHelper'
 
 type BodyDrawMode =
@@ -81,6 +85,7 @@ interface EditorBodyLayer {
   boneTipX?: number
   boneTipY?: number
   boneBoundaryShapes?: EditorCollisionShape[]
+  boneShapeCustomized?: boolean
 }
 
 interface EditorCanvasBounds {
@@ -767,6 +772,9 @@ export class EditorCharacterBodyDrawer {
           mode = 'select'
         }
         ensureAllBoneLayers()
+        for (let i = 0; i < layers.length; i++) {
+          syncAutoBoneLayerShape(layers[i])
+        }
       }
       activeSidebarTab = tab
       const layersActive = tab === 'layers'
@@ -2216,41 +2224,104 @@ export class EditorCharacterBodyDrawer {
 
     const createDefaultBoneBoundary = (
       part: BonePart
-    ): EditorCollisionShape => {
+    ): EditorCollisionShape | null => {
       const layer = layers.find((l) => l.bonePart === part)
       const def = BONE_DEFAULT_POSITIONS[part]
-      const px = layer?.bonePivotX ?? def.pivotX
-      const py = layer?.bonePivotY ?? def.pivotY
-      const tx = layer?.boneTipX ?? def.tipX
-      const ty = layer?.boneTipY ?? def.tipY
-      const cx = (px + tx) >> 1
-      const cy = (py + ty) >> 1
-      const dx = tx - px
-      const dy = ty - py
-      const halfHeight = Math.max(
-        MIN_COLLISION_HALF_EXTENT,
-        Math.round(Math.sqrt(dx * dx + dy * dy) / 2)
-      )
-      const halfWidth = Math.max(
-        MIN_COLLISION_HALF_EXTENT,
-        Math.round((0.06 * LEGACY_PROFILE_REFERENCE_SIZE) / 2)
-      )
-      // After ctx.rotate(θ), local Y = (-sinθ, cosθ). To align with (dx,dy):
-      // -sinθ = dx/len, cosθ = dy/len  →  θ = atan2(-dx, dy)
-      const rotationDeg = normalizeRotationDeg(
-        dx === 0 && dy === 0
-          ? 0
-          : Math.round(Math.atan2(-dx, dy) * (180 / Math.PI))
-      )
+      const shape = buildDefaultSkeletalBoneBoundary({
+        part,
+        length: 0,
+        width: 0.06,
+        pivotX: layer?.bonePivotX ?? def.pivotX,
+        pivotY: layer?.bonePivotY ?? def.pivotY,
+        tipX: layer?.boneTipX ?? def.tipX,
+        tipY: layer?.boneTipY ?? def.tipY,
+      })
+      if (!shape) {
+        return null
+      }
+      if (shape.kind === 'circle') {
+        return {
+          id: nextCollisionShapeId++,
+          kind: 'circle',
+          centerX: Math.round(shape.center.x),
+          centerY: Math.round(shape.center.y),
+          radius: Math.max(MIN_COLLISION_RADIUS, Math.round(shape.radius)),
+        }
+      }
+      if (shape.kind === 'ellipse') {
+        return {
+          id: nextCollisionShapeId++,
+          kind: 'ellipse',
+          centerX: Math.round(shape.center.x),
+          centerY: Math.round(shape.center.y),
+          radiusX: Math.max(MIN_COLLISION_RADIUS, Math.round(shape.radiusX)),
+          radiusY: Math.max(MIN_COLLISION_RADIUS, Math.round(shape.radiusY)),
+          rotationDeg: Math.round(shape.rotationDeg ?? 0),
+        }
+      }
       return {
         id: nextCollisionShapeId++,
         kind: 'capsule',
-        centerX: cx,
-        centerY: cy,
-        halfWidth,
-        halfHeight,
-        rotationDeg,
+        centerX: Math.round(shape.center.x),
+        centerY: Math.round(shape.center.y),
+        halfWidth: Math.max(
+          MIN_COLLISION_HALF_EXTENT,
+          Math.round(shape.halfWidth)
+        ),
+        halfHeight: Math.max(
+          MIN_COLLISION_HALF_EXTENT,
+          Math.round(shape.halfHeight)
+        ),
+        rotationDeg: Math.round(shape.rotationDeg ?? 0),
       }
+    }
+
+    const ensureBoneBoundaryShapes = (
+      layer: EditorBodyLayer
+    ): EditorCollisionShape[] => {
+      if (layer.boneBoundaryShapes && layer.boneBoundaryShapes.length > 0) {
+        return layer.boneBoundaryShapes
+      }
+      const part = layer.bonePart
+      if (!part) {
+        layer.boneBoundaryShapes = []
+        return layer.boneBoundaryShapes
+      }
+      const shape = createDefaultBoneBoundary(part)
+      layer.boneBoundaryShapes = shape ? [shape] : []
+      return layer.boneBoundaryShapes
+    }
+
+    const fillBoneLayerFromBoundaryShapes = (
+      layer: EditorBodyLayer,
+      shapes: readonly EditorCollisionShape[]
+    ) => {
+      if (!ensureLayerSurface(layer) || !layer.ctx) {
+        return
+      }
+      layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      if (shapes.length > 0) {
+        layer.ctx.save()
+        layer.ctx.fillStyle = colorInput.value
+        for (let i = 0; i < shapes.length; i++) {
+          traceEditorCollisionShape(layer.ctx, shapes[i])
+          layer.ctx.fill()
+        }
+        layer.ctx.restore()
+      }
+      layer.bounds = this.readAlphaBounds(layer.ctx, DRAW_WORLD_SIZE)
+      layer.boundsDirty = false
+    }
+
+    const syncAutoBoneLayerShape = (layer: EditorBodyLayer) => {
+      if (layer.kind !== 'bone' || layer.boneShapeCustomized) {
+        return
+      }
+      const bounds = resolveLayerBounds(layer)
+      if (bounds) {
+        return
+      }
+      fillBoneLayerFromBoundaryShapes(layer, ensureBoneBoundaryShapes(layer))
     }
 
     const enterBoneBoundaryMode = (part: BonePart) => {
@@ -2264,17 +2335,19 @@ export class EditorCharacterBodyDrawer {
         boneBoundaryBackup = copyCollisionShapesSnapshot()
       }
       const layer = getOrCreateBoneLayer(part)
-      if (!layer.boneBoundaryShapes || layer.boneBoundaryShapes.length === 0) {
-        layer.boneBoundaryShapes = [createDefaultBoneBoundary(part)]
-      }
-      restoreCollisionShapesSnapshot(layer.boneBoundaryShapes)
+      restoreCollisionShapesSnapshot(ensureBoneBoundaryShapes(layer))
       selectedBoundaryPart = part
     }
 
     const leaveBoneBoundaryMode = () => {
       if (selectedBoundaryPart === null) return
       const layer = layers.find((l) => l.bonePart === selectedBoundaryPart)
-      if (layer) layer.boneBoundaryShapes = copyCollisionShapesSnapshot()
+      if (layer) {
+        layer.boneBoundaryShapes = copyCollisionShapesSnapshot()
+        if (!layer.boneShapeCustomized) {
+          fillBoneLayerFromBoundaryShapes(layer, layer.boneBoundaryShapes)
+        }
+      }
       restoreCollisionShapesSnapshot(boneBoundaryBackup ?? [])
       boneBoundaryBackup = null
       selectedBoundaryPart = null
@@ -2402,6 +2475,7 @@ export class EditorCharacterBodyDrawer {
           })
         }
         if (seg.shapeDataUrl && layer.canvas && layer.ctx) {
+          layer.boneShapeCustomized = true
           const img = new Image()
           img.onload = () => {
             if (!layer.canvas || !layer.ctx) return
@@ -2415,6 +2489,9 @@ export class EditorCharacterBodyDrawer {
             layer.boundsDirty = true
           }
           img.src = seg.shapeDataUrl
+        } else {
+          layer.boneShapeCustomized = false
+          syncAutoBoneLayerShape(layer)
         }
       }
     }
@@ -2458,7 +2535,8 @@ export class EditorCharacterBodyDrawer {
             selectedShapePart = part
             selectedBonePart = null
             selectedLayerId = getBoneLayerId(part)
-            getOrCreateBoneLayer(part)
+            const layer = getOrCreateBoneLayer(part)
+            syncAutoBoneLayerShape(layer)
             mode = 'shape'
             bonePropPanel.style.display = 'none'
           } else {
@@ -4358,6 +4436,9 @@ export class EditorCharacterBodyDrawer {
         layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
         layer.bounds = null
         layer.boundsDirty = false
+        if (layer.kind === 'bone') {
+          layer.boneShapeCustomized = true
+        }
       }
     }
 
@@ -6195,6 +6276,9 @@ export class EditorCharacterBodyDrawer {
             'destination-out'
           )
         } else if (selectedPaintLayer?.ctx) {
+          if (selectedPaintLayer.kind === 'bone') {
+            selectedPaintLayer.boneShapeCustomized = true
+          }
           strokePath(
             selectedPaintLayer.ctx,
             fromX,
@@ -6249,6 +6333,9 @@ export class EditorCharacterBodyDrawer {
           )
           shapeState.boundsDirty = false
         } else if (selectedPaintLayer?.ctx) {
+          if (selectedPaintLayer.kind === 'bone') {
+            selectedPaintLayer.boneShapeCustomized = true
+          }
           strokePath(
             selectedPaintLayer.ctx,
             fromX,
@@ -6476,6 +6563,11 @@ export class EditorCharacterBodyDrawer {
         if (profile.boneSegments && profile.boneSegments.length > 0) {
           ensureAllBoneLayers()
           loadBoneSegments(profile.boneSegments)
+        } else if (skeletalModeEnabled) {
+          ensureAllBoneLayers()
+          for (let i = 0; i < layers.length; i++) {
+            syncAutoBoneLayerShape(layers[i])
+          }
         }
         selectedContourIndex = 0
       } else {
@@ -6610,6 +6702,12 @@ export class EditorCharacterBodyDrawer {
       const scale = newLenPx / currentLen
       layer.boneTipX = Math.round(pivotX + dx * scale)
       layer.boneTipY = Math.round(pivotY + dy * scale)
+      if (
+        !layer.boneShapeCustomized &&
+        (!layer.boneBoundaryShapes || layer.boneBoundaryShapes.length === 0)
+      ) {
+        fillBoneLayerFromBoundaryShapes(layer, ensureBoneBoundaryShapes(layer))
+      }
       renderComposite()
     })
 
@@ -7672,13 +7770,54 @@ export class EditorCharacterBodyDrawer {
 
     const promise = new Promise<MapCharacterBodyProfile | null | undefined>(
       (resolve) => {
-        confirmBtn.addEventListener('click', () => {
+        confirmBtn.addEventListener('click', async () => {
           const canBuildFromSkeleton = skeletalModeEnabled && hasAnyBoneData()
           if (!contourClosed && !canBuildFromSkeleton) {
             updateAlert()
             return
           }
           const segs = getBoneSegments()
+          const staticProfile = contourClosed
+            ? (() => {
+                const contourBounds = getContourBounds()
+                const serializedCollisionShapes = contourBounds
+                  ? serializeCollisionShapes(
+                      contourBounds.centerX,
+                      contourBounds.centerY
+                    )
+                  : []
+                return this.buildProfile(
+                  maskCtx,
+                  shapeCtx,
+                  textureCtx,
+                  browCtx,
+                  layers,
+                  getLayerOrderSnapshot(),
+                  colorInput.value,
+                  eyeX,
+                  eyeY,
+                  eyeScaleX,
+                  eyeScaleY,
+                  eyeRotationDeg,
+                  eyeStyle,
+                  browStyle,
+                  editorFacing,
+                  browOffsetX,
+                  browOffsetY,
+                  browScaleX,
+                  browScaleY,
+                  browRotationDeg,
+                  bloodColorInput.value,
+                  currentPresetId,
+                  coreImageShape !== null,
+                  serializedCollisionShapes,
+                  exportBaseWidth,
+                  exportBaseHeight,
+                  exportReferenceWidth,
+                  exportReferenceHeight
+                )
+              })()
+            : null
           let builtProfile: MapCharacterBodyProfile | null = null
           if (canBuildFromSkeleton) {
             builtProfile = this.buildSkeletalProfile(
@@ -7687,46 +7826,11 @@ export class EditorCharacterBodyDrawer {
               bloodColorInput.value,
               exportBaseWidth,
               exportBaseHeight,
-              currentPresetId
+              currentPresetId,
+              staticProfile
             )
           } else {
-            const contourBounds = getContourBounds()
-            const serializedCollisionShapes = contourBounds
-              ? serializeCollisionShapes(
-                  contourBounds.centerX,
-                  contourBounds.centerY
-                )
-              : []
-            builtProfile = this.buildProfile(
-              maskCtx,
-              shapeCtx,
-              textureCtx,
-              browCtx,
-              layers,
-              getLayerOrderSnapshot(),
-              colorInput.value,
-              eyeX,
-              eyeY,
-              eyeScaleX,
-              eyeScaleY,
-              eyeRotationDeg,
-              eyeStyle,
-              browStyle,
-              editorFacing,
-              browOffsetX,
-              browOffsetY,
-              browScaleX,
-              browScaleY,
-              browRotationDeg,
-              bloodColorInput.value,
-              currentPresetId,
-              coreImageShape !== null,
-              serializedCollisionShapes,
-              exportBaseWidth,
-              exportBaseHeight,
-              exportReferenceWidth,
-              exportReferenceHeight
-            )
+            builtProfile = staticProfile
             if (builtProfile && hasAnyBoneData()) {
               builtProfile.boneSegments = segs
             }
@@ -7734,60 +7838,16 @@ export class EditorCharacterBodyDrawer {
           if (builtProfile && canBuildFromSkeleton) {
             builtProfile.skeletalMode = true
             builtProfile.boneSegments = segs
-            // Generate a static composite of bone shapes for preview/thumbnail
-            const skelComp = (() => {
-              const tc = document.createElement('canvas')
-              tc.width = DRAW_WORLD_SIZE
-              tc.height = DRAW_WORLD_SIZE
-              const tctx = tc.getContext('2d')
-              if (!tctx) return null
-              for (const p of BONE_PARTS_ORDERED) {
-                const bl = layers.find((l) => l.bonePart === p)
-                if (bl?.canvas) tctx.drawImage(bl.canvas, 0, 0)
-              }
-              const b = this.readAlphaBounds(tctx, DRAW_WORLD_SIZE)
-              if (!b) return null
-              const du = this.cropCanvasDataUrl(
-                tc,
-                b.minX,
-                b.minY,
-                b.maxX + 1,
-                b.maxY + 1
-              )
-              if (!du) return null
-              return {
-                dataUrl: du,
-                cx: b.minX + (b.maxX + 1 - b.minX) * 0.5,
-                cy: b.minY + (b.maxY + 1 - b.minY) * 0.5,
-                w: b.maxX + 1 - b.minX,
-                h: b.maxY + 1 - b.minY,
-              }
-            })()
-            if (skelComp) {
-              const geometry = deriveSkeletalBodyGeometry(segs)
-              const referenceWidth = Math.max(
-                1,
-                geometry?.bounds.width ?? skelComp.w
-              )
-              const referenceHeight = Math.max(
-                1,
-                geometry?.bounds.height ?? skelComp.h
-              )
-              const referenceCenterX = geometry?.centerX ?? skelComp.cx
-              const referenceCenterY = geometry?.centerY ?? skelComp.cy
-              builtProfile.skeletalSurfaceDataUrl = skelComp.dataUrl
-              builtProfile.skeletalSurfaceOffsetX =
-                Math.round(
-                  ((skelComp.cx - referenceCenterX) / referenceWidth) * 1000
-                ) / 1000
-              builtProfile.skeletalSurfaceOffsetY =
-                Math.round(
-                  ((skelComp.cy - referenceCenterY) / referenceHeight) * 1000
-                ) / 1000
-              builtProfile.skeletalSurfaceWidth =
-                Math.round((skelComp.w / referenceWidth) * 1000) / 1000
-              builtProfile.skeletalSurfaceHeight =
-                Math.round((skelComp.h / referenceHeight) * 1000) / 1000
+            const skeletalSurface = await buildSkeletalSurfaceSnapshot(
+              segs,
+              colorInput.value
+            )
+            if (skeletalSurface) {
+              builtProfile.skeletalSurfaceDataUrl = skeletalSurface.dataUrl
+              builtProfile.skeletalSurfaceOffsetX = skeletalSurface.offsetX
+              builtProfile.skeletalSurfaceOffsetY = skeletalSurface.offsetY
+              builtProfile.skeletalSurfaceWidth = skeletalSurface.width
+              builtProfile.skeletalSurfaceHeight = skeletalSurface.height
             }
           }
           resolve(finish(builtProfile))
@@ -7889,34 +7949,32 @@ export class EditorCharacterBodyDrawer {
     bloodColor: string,
     exportBaseWidth: number,
     exportBaseHeight: number,
-    presetId: EditorCharacterBodyPresetId
+    presetId: EditorCharacterBodyPresetId,
+    staticProfile: MapCharacterBodyProfile | null
   ): MapCharacterBodyProfile | null {
     const geometry = deriveSkeletalBodyGeometry(boneSegments)
     if (!geometry) {
       return null
     }
+    const preservedStaticProfile = staticProfile ?? {
+      points: [],
+    }
     return {
-      points: geometry.points,
-      collisionShapes:
-        geometry.collisionShapes && geometry.collisionShapes.length > 0
-          ? geometry.collisionShapes
-          : undefined,
-      presetId: presetId !== CUSTOM_BODY_PRESET_ID ? presetId : undefined,
-      width: Math.max(0.01, Math.round(exportBaseWidth * 1000) / 1000),
-      height: Math.max(0.01, Math.round(exportBaseHeight * 1000) / 1000),
+      ...preservedStaticProfile,
+      presetId:
+        presetId !== CUSTOM_BODY_PRESET_ID
+          ? presetId
+          : preservedStaticProfile.presetId,
+      width:
+        preservedStaticProfile.width ??
+        Math.max(0.01, Math.round(exportBaseWidth * 1000) / 1000),
+      height:
+        preservedStaticProfile.height ??
+        Math.max(0.01, Math.round(exportBaseHeight * 1000) / 1000),
       color,
       bloodColor,
       skeletalMode: true,
       boneSegments: boneSegments.slice(),
-      surfaceDataUrl: undefined,
-      textureDataUrl: undefined,
-      layers: undefined,
-      layerOrder: undefined,
-      surfaceOffsetX: undefined,
-      surfaceOffsetY: undefined,
-      surfaceWidth: undefined,
-      surfaceHeight: undefined,
-      embeddedEye: undefined,
     }
   }
 

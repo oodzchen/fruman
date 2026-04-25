@@ -11,11 +11,7 @@ import {
   decomposeCharacterBodyLocalPoints,
 } from '../characterBodyCollision'
 import { DEFAULT_BODY_FRICTION } from '../constants'
-import type {
-  BonePart,
-  BoneSegment,
-  MapCharacterBodyCollisionShape,
-} from '../editorMapTypes'
+import type { BonePart, BoneSegment } from '../editorMapTypes'
 import {
   type GaitState,
   acquireGaitState,
@@ -24,6 +20,7 @@ import {
 } from '../renderer/SkeletalPoseDriver'
 import {
   type SkeletalBoneLocalTransform,
+  buildDefaultSkeletalBoneBoundary,
   deriveSkeletalBodyGeometry,
   normalizeSkeletalBodyProfile,
   resolveSkeletalBoneLocalTransform,
@@ -36,8 +33,6 @@ import { checkOBBvsFlatPolygon } from './OBBCollision'
 import { System } from './System'
 
 const EDITOR_PPM = 128
-const DEFAULT_SKELETAL_BONE_WIDTH = 0.06
-
 const DEFAULT_SEGMENTS: BoneSegment[] = [
   {
     part: 'body',
@@ -209,10 +204,6 @@ interface SkeletalSegmentRuntime {
   coverageRadius: number
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
 function getFacing(entity: Entity, fallback: -1 | 1): -1 | 1 {
   const direction = entity.input?.lastMoveDirection ?? 0
   if (direction < 0) {
@@ -237,41 +228,6 @@ function mergeWithDefaults(segments: BoneSegment[] | undefined): BoneSegment[] {
   return result
 }
 
-function buildDefaultBoundaryShape(
-  segment: BoneSegment
-): MapCharacterBodyCollisionShape | null {
-  if (
-    !isFiniteNumber(segment.pivotX) ||
-    !isFiniteNumber(segment.pivotY) ||
-    !isFiniteNumber(segment.tipX) ||
-    !isFiniteNumber(segment.tipY)
-  ) {
-    return null
-  }
-  const dx = segment.tipX - segment.pivotX
-  const dy = segment.tipY - segment.pivotY
-  const centerX = (segment.pivotX + segment.tipX) * 0.5
-  const centerY = (segment.pivotY + segment.tipY) * 0.5
-  const halfHeight = Math.max(1, Math.sqrt(dx * dx + dy * dy) * 0.5)
-  const widthPx =
-    (isFiniteNumber(segment.width) && segment.width > 0
-      ? segment.width
-      : DEFAULT_SKELETAL_BONE_WIDTH) * EDITOR_PPM
-  const halfWidth = Math.max(1, widthPx * 0.5)
-  const rotationDeg =
-    dx === 0 && dy === 0 ? 0 : (Math.atan2(-dx, dy) * 180) / Math.PI
-  return {
-    kind: 'capsule',
-    center: {
-      x: centerX,
-      y: centerY,
-    },
-    halfWidth,
-    halfHeight,
-    rotationDeg,
-  }
-}
-
 function buildSegmentLocalPolygons(segment: BoneSegment): number[][] {
   const localTransform: SkeletalBoneLocalTransform = {
     pivotX: 0,
@@ -287,7 +243,7 @@ function buildSegmentLocalPolygons(segment: BoneSegment): number[][] {
     segment.boundaryShapes && segment.boundaryShapes.length > 0
       ? segment.boundaryShapes
       : (() => {
-          const fallbackShape = buildDefaultBoundaryShape(segment)
+          const fallbackShape = buildDefaultSkeletalBoneBoundary(segment)
           return fallbackShape ? [fallbackShape] : []
         })()
   if (sourceShapes.length === 0) {

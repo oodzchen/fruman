@@ -9,10 +9,15 @@ import {
   getCharacterEyeGeometryFromProfile,
 } from '../characterBodyProfile'
 import type {
+  MapCharacterBodyCollisionShape,
   MapCharacterBodyProfile,
   MapCharacterBodyVisualLayer,
 } from '../editorMapTypes'
-import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
+import {
+  buildDefaultSkeletalBoneBoundary,
+  deriveSkeletalBodyGeometry,
+  getCharacterBodyTextureDataUrl,
+} from '../skeletalBodyProfile'
 import type { RenderContext2D } from './RenderContext2D'
 
 type BodyPathContext =
@@ -177,6 +182,153 @@ function getBodyLayerImage(dataUrl: string): HTMLImageElement | null {
   image.src = dataUrl
   bodyLayerImageCache.set(dataUrl, image)
   return image
+}
+
+function shouldRenderDynamicSkeletalBody(
+  bodyProfile: MapCharacterBodyProfile | null
+): bodyProfile is MapCharacterBodyProfile {
+  return (
+    !!bodyProfile &&
+    bodyProfile.skeletalMode === true &&
+    !!bodyProfile.boneSegments &&
+    bodyProfile.boneSegments.length > 0 &&
+    !bodyProfile.skeletalSurfaceDataUrl
+  )
+}
+
+function traceCapsulePath(
+  ctx: BodyPathContext,
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number,
+  rotationDeg = 0
+): void {
+  const radius = Math.min(halfWidth, halfHeight)
+  const left = -halfWidth
+  const top = -halfHeight
+  const width = halfWidth * 2
+  const height = halfHeight * 2
+  ctx.save()
+  ctx.translate(centerX, centerY)
+  if (rotationDeg !== 0) {
+    ctx.rotate((rotationDeg * Math.PI) / 180)
+  }
+  ctx.beginPath()
+  ctx.moveTo(left + radius, top)
+  ctx.lineTo(left + width - radius, top)
+  ctx.arc(left + width - radius, top + radius, radius, -Math.PI / 2, 0)
+  ctx.lineTo(left + width, top + height - radius)
+  ctx.arc(left + width - radius, top + height - radius, radius, 0, Math.PI / 2)
+  ctx.lineTo(left + radius, top + height)
+  ctx.arc(left + radius, top + height - radius, radius, Math.PI / 2, Math.PI)
+  ctx.lineTo(left, top + radius)
+  ctx.arc(left + radius, top + radius, radius, Math.PI, Math.PI * 1.5)
+  ctx.closePath()
+  ctx.restore()
+}
+
+function traceCollisionShapePath(
+  ctx: BodyPathContext,
+  shape: MapCharacterBodyCollisionShape
+): void {
+  if (shape.kind === 'circle') {
+    ctx.beginPath()
+    ctx.arc(shape.center.x, shape.center.y, shape.radius, 0, Math.PI * 2)
+    return
+  }
+  if (shape.kind === 'ellipse') {
+    ctx.beginPath()
+    ctx.ellipse(
+      shape.center.x,
+      shape.center.y,
+      shape.radiusX,
+      shape.radiusY,
+      ((shape.rotationDeg ?? 0) * Math.PI) / 180,
+      0,
+      Math.PI * 2
+    )
+    return
+  }
+  traceCapsulePath(
+    ctx,
+    shape.center.x,
+    shape.center.y,
+    shape.halfWidth,
+    shape.halfHeight,
+    shape.rotationDeg ?? 0
+  )
+}
+
+function drawDynamicSkeletalBody(
+  ctx: BodyPathContext,
+  bodyProfile: MapCharacterBodyProfile,
+  bodyColor: string,
+  bodyWidthPx: number,
+  bodyHeightPx: number
+): boolean {
+  const boneSegments = bodyProfile.boneSegments
+  if (!boneSegments || boneSegments.length === 0) {
+    return false
+  }
+  const geometry = deriveSkeletalBodyGeometry(boneSegments)
+  if (!geometry) {
+    return false
+  }
+  const referenceWidth = Math.max(1, geometry.bounds.width)
+  const referenceHeight = Math.max(1, geometry.bounds.height)
+  const scaleX = bodyWidthPx / referenceWidth
+  const scaleY = bodyHeightPx / referenceHeight
+  ctx.save()
+  ctx.scale(scaleX, scaleY)
+  for (let i = 0; i < boneSegments.length; i++) {
+    const segment = boneSegments[i]
+    if (
+      segment.shapeDataUrl &&
+      typeof segment.shapeOffsetX === 'number' &&
+      typeof segment.shapeOffsetY === 'number' &&
+      typeof segment.shapeWidth === 'number' &&
+      segment.shapeWidth > 0 &&
+      typeof segment.shapeHeight === 'number' &&
+      segment.shapeHeight > 0
+    ) {
+      const image = getBodyLayerImage(segment.shapeDataUrl)
+      if (isRenderableTextureSource(image)) {
+        ctx.drawImage(
+          image,
+          segment.shapeOffsetX - geometry.centerX,
+          segment.shapeOffsetY - geometry.centerY,
+          segment.shapeWidth,
+          segment.shapeHeight
+        )
+        continue
+      }
+    }
+    const sourceShapes =
+      segment.boundaryShapes && segment.boundaryShapes.length > 0
+        ? segment.boundaryShapes
+        : (() => {
+            const fallbackShape = buildDefaultSkeletalBoneBoundary(segment)
+            return fallbackShape ? [fallbackShape] : []
+          })()
+    if (sourceShapes.length === 0) {
+      continue
+    }
+    ctx.fillStyle = bodyColor
+    for (let j = 0; j < sourceShapes.length; j++) {
+      const sourceShape = sourceShapes[j]
+      traceCollisionShapePath(ctx, {
+        ...sourceShape,
+        center: {
+          x: sourceShape.center.x - geometry.centerX,
+          y: sourceShape.center.y - geometry.centerY,
+        },
+      })
+      ctx.fill()
+    }
+  }
+  ctx.restore()
+  return true
 }
 
 function shouldRenderProceduralEye(
@@ -357,16 +509,33 @@ function areBodyVisualAssetsReady(
     return false
   }
   if (!bodyProfile.layers || bodyProfile.layers.length === 0) {
-    return true
-  }
-  for (let i = 0; i < bodyProfile.layers.length; i++) {
-    const layer = bodyProfile.layers[i]
-    if (layer.kind !== 'brow' && layer.kind !== 'paint') {
-      continue
+    if (!shouldRenderDynamicSkeletalBody(bodyProfile)) {
+      return true
     }
-    const image = getBodyLayerImage(layer.dataUrl)
-    if (!isRenderableTextureSource(image)) {
-      return false
+  } else {
+    for (let i = 0; i < bodyProfile.layers.length; i++) {
+      const layer = bodyProfile.layers[i]
+      if (layer.kind !== 'brow' && layer.kind !== 'paint') {
+        continue
+      }
+      const image = getBodyLayerImage(layer.dataUrl)
+      if (!isRenderableTextureSource(image)) {
+        return false
+      }
+    }
+  }
+
+  if (shouldRenderDynamicSkeletalBody(bodyProfile)) {
+    const boneSegments = bodyProfile.boneSegments ?? []
+    for (let i = 0; i < boneSegments.length; i++) {
+      const dataUrl = boneSegments[i].shapeDataUrl
+      if (!dataUrl) {
+        continue
+      }
+      const image = getBodyLayerImage(dataUrl)
+      if (!isRenderableTextureSource(image)) {
+        return false
+      }
     }
   }
   return true
@@ -430,6 +599,7 @@ function getBodyContentBounds(
   }
 
   const canRenderTexture = isRenderableTextureSource(textureImage)
+  const hasDynamicSkeletalSurface = shouldRenderDynamicSkeletalBody(bodyProfile)
   const hasSkeletalSurface =
     !!bodyProfile?.skeletalMode &&
     !!bodyProfile?.skeletalSurfaceDataUrl &&
@@ -440,6 +610,14 @@ function getBodyContentBounds(
     !hasLayeredTexture &&
     !!bodyProfile?.surfaceDataUrl &&
     canRenderTexture
+  if (hasDynamicSkeletalSurface) {
+    const halfWidthPx = bodyWidthPx * 0.5
+    const halfHeightPx = bodyHeightResolvedPx * 0.5
+    if (-halfWidthPx < bounds.minX) bounds.minX = -halfWidthPx
+    if (halfWidthPx > bounds.maxX) bounds.maxX = halfWidthPx
+    if (-halfHeightPx < bounds.minY) bounds.minY = -halfHeightPx
+    if (halfHeightPx > bounds.maxY) bounds.maxY = halfHeightPx
+  }
   if (hasSkeletalSurface && bodyProfile) {
     const surfaceWidthPx =
       typeof bodyProfile.skeletalSurfaceWidth === 'number' &&
@@ -578,6 +756,7 @@ function drawBodyInternal(
   const surfaceScaleY = (bodyHalfHeightPx * 2) / profileReferenceHeight
   const mirrorBody = !!bodyProfile && bodyProfile.points.length >= 6
   const canRenderTexture = isRenderableTextureSource(textureImage)
+  const hasDynamicSkeletalSurface = shouldRenderDynamicSkeletalBody(bodyProfile)
   const hasSkeletalSurface =
     !!bodyProfile?.skeletalMode &&
     !!bodyProfile?.skeletalSurfaceDataUrl &&
@@ -613,6 +792,21 @@ function drawBodyInternal(
   ctx.save()
   if (mirrorBody && facingDirection < 0) {
     ctx.scale(-1, 1)
+  }
+
+  if (
+    hasDynamicSkeletalSurface &&
+    bodyProfile &&
+    drawDynamicSkeletalBody(
+      ctx,
+      bodyProfile,
+      bodyColor,
+      bodyWidthPx,
+      bodyHeightResolvedPx
+    )
+  ) {
+    ctx.restore()
+    return
   }
 
   // Skeletal mode: render bone shape composite, skip static body shape

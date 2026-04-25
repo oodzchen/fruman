@@ -495,6 +495,9 @@ export class EditorManager {
       editorObjectMap: this.objectManager.getEditorObjectMap(),
       objectFactory: this.objectFactory,
       requestRender: () => this.fabricCanvas?.requestRenderAll(),
+      refreshMapThumbnail: () => {
+        void this.refreshCurrentMapThumbnail()
+      },
       getMapSnapshot: () => this.getMapSnapshot(),
       applyMapSnapshot: (data) => this.applyMapSnapshot(data),
       onHistoryCapture: () => this.captureHistorySnapshot(),
@@ -2254,6 +2257,24 @@ export class EditorManager {
       console.error('[editor] save error', error)
       return false
     }
+  }
+
+  private async refreshCurrentMapThumbnail(): Promise<void> {
+    const meta = this.currentMapMeta
+    if (!meta) {
+      return
+    }
+    const data = this.mapSerializer.serializeCurrentMapData({
+      shareTerrainData: true,
+    })
+    const thumbnail = await this.thumbnailCapture.captureMap(data, {
+      preferPreview: false,
+    })
+    if (!thumbnail || this.currentMapMeta?.id !== meta.id) {
+      return
+    }
+    meta.thumbnail = thumbnail
+    this.mapListManager.refreshMapMetas()
   }
 
   private async persistCurrentMapDataSilently(): Promise<boolean> {
