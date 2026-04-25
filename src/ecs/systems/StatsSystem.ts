@@ -77,12 +77,17 @@ export type EffectsEmitter = {
     intensity: number,
     durationMs: number
   ) => void
-  playSound: (soundId: number, playbackRate?: number) => void
+  playSound: (
+    soundId: number,
+    playbackRate?: number,
+    ignoreGlobalTimeScale?: boolean
+  ) => void
   playSoundAt: (
     soundId: number,
     x: number,
     y: number,
-    playbackRate?: number
+    playbackRate?: number,
+    ignoreGlobalTimeScale?: boolean
   ) => void
 }
 
@@ -164,10 +169,11 @@ export class StatsSystem extends System {
               this.playSoundAt(
                 SOUND_IDS.DEATH_SPLASH,
                 entity.transform.x,
-                entity.transform.y
+                entity.transform.y,
+                1.0
               )
             } else {
-              this.playSound(SOUND_IDS.DEATH_SPLASH)
+              this.playSound(SOUND_IDS.DEATH_SPLASH, 1.0)
             }
             if (entity.npcAI && entity.transform) {
               this.onNpcVanish?.(
@@ -426,26 +432,38 @@ export class StatsSystem extends System {
     this.effectsEmitter.emitCameraShake(x, y, intensity, durationMs)
   }
 
-  playSound(soundId: number, playbackRate?: number): void {
+  playSound(
+    soundId: number,
+    playbackRate?: number,
+    ignoreGlobalTimeScale = false
+  ): void {
     if (!this.effectsEmitter) return
-    this.effectsEmitter.playSound(soundId, playbackRate)
+    this.effectsEmitter.playSound(soundId, playbackRate, ignoreGlobalTimeScale)
   }
 
   playSoundAt(
     soundId: number,
     x: number,
     y: number,
-    playbackRate?: number
+    playbackRate?: number,
+    ignoreGlobalTimeScale = false
   ): void {
     if (!this.effectsEmitter) return
-    this.effectsEmitter.playSoundAt(soundId, x, y, playbackRate)
+    this.effectsEmitter.playSoundAt(
+      soundId,
+      x,
+      y,
+      playbackRate,
+      ignoreGlobalTimeScale
+    )
   }
 
   emitHitFeedback(
     entity: Entity,
     hitSource?: { x: number; y: number },
     hitSoundPlaybackRate = 1,
-    lethalHit = false
+    lethalHit = false,
+    ignoreGlobalTimeScale = false
   ): void {
     if (!entity.stats || !entity.transform) {
       return
@@ -478,7 +496,8 @@ export class StatsSystem extends System {
       lethalHit ? SOUND_IDS.BODY_HIT_SHARP : SOUND_IDS.BODY_HIT,
       impactX,
       impactY,
-      hitSoundPlaybackRate
+      hitSoundPlaybackRate,
+      ignoreGlobalTimeScale
     )
     this.emitSoundFromEntity(entity, SOUND_DB_BODY_HIT)
   }
@@ -1160,6 +1179,12 @@ export class StatsSystem extends System {
       if (entity.npcAI) {
         this.onNpcDeath?.(entity)
       }
+      if (entity.stats.assassinationLocked && entity.movement) {
+        entity.movement.rollAngle =
+          entity.stats.assassinationLockedFacing * (Math.PI / 2)
+      }
+      entity.stats.assassinationLocked = false
+      entity.stats.assassinationLockedFacing = 1
       entity.stats.isDead = true
       entity.stats.isVanished = false
       entity.stats.deathElapsedSec = 0
@@ -1261,6 +1286,8 @@ export class StatsSystem extends System {
     entity.stats.deathElapsedSec = 0
     entity.stats.deathElapsedMs = 0
     entity.stats.deathEffectTriggered = false
+    entity.stats.assassinationLocked = false
+    entity.stats.assassinationLockedFacing = 1
     if (entity.render) {
       entity.render.visible = true
     }

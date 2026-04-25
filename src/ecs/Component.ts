@@ -428,6 +428,8 @@ export class StatsComponent extends Component {
   staggerDuration = 1000
   staggerAnimationPhase: 'none' | 'rotateBack' | 'prone' = 'none'
   staggerAnimationElapsed = 0
+  assassinationLocked = false
+  assassinationLockedFacing: -1 | 1 = 1
   persistentId = ''
   healingMs = 0
   pendingDamageTextValue = 0
@@ -467,6 +469,8 @@ export class StatsComponent extends Component {
     this.staggerDuration = 1000
     this.staggerAnimationPhase = 'none'
     this.staggerAnimationElapsed = 0
+    this.assassinationLocked = false
+    this.assassinationLockedFacing = 1
     this.persistentId = ''
     this.healingMs = 0
     this.pendingDamageTextValue = 0

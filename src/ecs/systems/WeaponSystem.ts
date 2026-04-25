@@ -220,7 +220,8 @@ const ASSASSINATION_RECOVER_MS = 240
 const ASSASSINATION_TOTAL_DURATION_MS =
   ASSASSINATION_WINDUP_MS + ASSASSINATION_STRIKE_MS + ASSASSINATION_RECOVER_MS
 const ASSASSINATION_THRUST_ANGLE_RAD = Math.PI / 6
-const ASSASSINATION_SOUND_PLAYBACK_RATE = 1
+const ASSASSINATION_SOUND_PLAYBACK_RATE = 250 / 1000
+const ASSASSINATION_DEATH_SOUND_PLAYBACK_RATE = 1
 const ASSASSINATION_CAMERA_SHAKE_INTENSITY_PX = 9
 const ASSASSINATION_CAMERA_SHAKE_DURATION_MS = 160
 
@@ -4447,6 +4448,7 @@ export class WeaponSystem extends System {
       target.weapon.parryHitWeaponIds.clear()
       target.weapon.width = target.weapon.baseWidth
     }
+    this.lockAssassinationVictim(target)
     this.statsSystem?.applyForcedHitStun(
       target,
       'light',
@@ -4479,6 +4481,7 @@ export class WeaponSystem extends System {
     attacker.input.assassinationTargetId = target.id
     this.populateAssassinationTransforms(attacker, weapon, target, facing)
     this.freezeEntityMotion(attacker)
+    this.lockAssassinationVictim(target)
     this.freezeEntityMotion(target)
     weapon.assassinationElapsedMs += deltaMs
 
@@ -4493,21 +4496,6 @@ export class WeaponSystem extends System {
       if (t >= 1) {
         weapon.assassinationPhase = 'strike'
         weapon.assassinationElapsedMs = 0
-        if (weapon.assassinationStyle === 'thrust') {
-          this.statsSystem?.playSoundAt(
-            SOUND_IDS.SWORD_SWING_NORMAL,
-            weapon.visual.x,
-            weapon.visual.y,
-            ASSASSINATION_SOUND_PLAYBACK_RATE
-          )
-        } else {
-          this.statsSystem?.playSoundAt(
-            SOUND_IDS.SWORD_SWING_FINAL,
-            weapon.visual.x,
-            weapon.visual.y,
-            ASSASSINATION_SOUND_PLAYBACK_RATE
-          )
-        }
       }
       return
     }
@@ -4527,7 +4515,8 @@ export class WeaponSystem extends System {
         this.statsSystem?.emitHitFeedback(
           target,
           weapon.assassinationHitTransform,
-          ASSASSINATION_SOUND_PLAYBACK_RATE,
+          ASSASSINATION_DEATH_SOUND_PLAYBACK_RATE,
+          true,
           true
         )
       }
@@ -4650,6 +4639,62 @@ export class WeaponSystem extends System {
     }
   }
 
+  private lockAssassinationVictim(entity: Entity): void {
+    if (!entity.stats) {
+      return
+    }
+
+    if (!entity.stats.assassinationLocked) {
+      entity.stats.assassinationLockedFacing =
+        entity.input?.lastMoveDirection === -1 ? -1 : 1
+    }
+    entity.stats.assassinationLocked = true
+
+    const lockedFacing = entity.stats.assassinationLockedFacing
+    if (entity.input) {
+      entity.input.inputBuffer.clearAll()
+      entity.input.moveDirection = 0
+      entity.input.jumpRequested = false
+      entity.input.sprintRequested = false
+      entity.input.attackRequested = false
+      entity.input.ultimateRequested = false
+      entity.input.skillRequested = false
+      entity.input.blockRequested = false
+      entity.input.lockedTargetId = null
+      entity.input.lockLostTimer = 0
+      entity.input.facingOverride = lockedFacing
+      entity.input.lastMoveDirection = lockedFacing
+    }
+
+    if (!entity.weapon) {
+      return
+    }
+
+    entity.weapon.attackPhase = 'idle'
+    entity.weapon.attackElapsedMs = 0
+    entity.weapon.attackQueued = false
+    entity.weapon.isColliding = false
+    entity.weapon.isBlocking = false
+    entity.weapon.isParrying = false
+    entity.weapon.parryElapsedTime = 0
+    entity.weapon.comboCount = 0
+    entity.weapon.width = entity.weapon.baseWidth
+    entity.weapon.hitEntityIds.clear()
+    entity.weapon.parryHitWeaponIds.clear()
+  }
+
+  private unlockAssassinationVictim(entity: Entity): void {
+    if (!entity.stats?.assassinationLocked) {
+      return
+    }
+
+    entity.stats.assassinationLocked = false
+    entity.stats.assassinationLockedFacing = 1
+    if (entity.input) {
+      entity.input.facingOverride = null
+    }
+  }
+
   private applyAssassinationKill(
     attacker: Entity,
     target: Entity,
@@ -4715,6 +4760,13 @@ export class WeaponSystem extends System {
         entity.input.assassinationTargetId = null
       }
       return
+    }
+    const target =
+      weapon.assassinationTargetId > 0
+        ? this.getEntityById(weapon.assassinationTargetId)
+        : null
+    if (target) {
+      this.unlockAssassinationVictim(target)
     }
     weapon.assassinationPhase = null
     weapon.assassinationElapsedMs = 0

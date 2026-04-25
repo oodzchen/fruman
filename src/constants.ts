@@ -111,6 +111,10 @@ export const DEFAULT_DEATH_FLASH_DURATION = 0.3
 export const DEFAULT_DEATH_FLATTEN_DURATION = 0.7
 export const DEATH_PRE_SPLATTER_PAUSE_MS = 0
 export const DEATH_CROSS_DURATION_MS = 500
+// 与普通受击音效原始时长对齐
+export const ASSASSINATION_SLOW_MOTION_DURATION_MS = 206
+// 普通受击结束后追加一小段慢放停顿，给刺杀镜头回稳留缓冲
+export const ASSASSINATION_SLOW_MOTION_POST_PAUSE_MS = 120
 
 // 武器重量（可理解为 kg，角色装备后会叠加）
 export const DEFAULT_WEAPON_WEIGHT = 2

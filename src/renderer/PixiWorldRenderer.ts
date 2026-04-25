@@ -56,6 +56,10 @@ const GRAPPLE_LINE_COLOR = '#d9c896'
 const SUN_COLOR = '#ffd700'
 const EXP_COLOR = '#3d7fff'
 const RETICLE_COLOR = '#ffffff'
+const ASSASSINATION_RETICLE_TINT = 0xe04646
+const ASSASSINATION_RETICLE_OUTLINE_TINT = 0xffffff
+const ASSASSINATION_RETICLE_SCALE = 2
+const ASSASSINATION_RETICLE_OUTLINE_SCALE = 2.24
 const RETICLE_SIZE = 7.5
 const SMALL_SUN_PICKUP_SIZE_NUMERATOR = 35
 const LARGE_SUN_PICKUP_SIZE_NUMERATOR = 70
@@ -349,6 +353,7 @@ export class PixiWorldRenderer {
   private readonly giantSwordSprite: Sprite
   private readonly spearTopSprite: Sprite
   private readonly spearBottomSprite: Sprite
+  private readonly lockedReticleOutlineSprite: Sprite
   private readonly lockedReticleSprite: Sprite
   private readonly freeAimReticleSprite: Sprite
   private readonly handshakeTexture: Texture
@@ -427,6 +432,11 @@ export class PixiWorldRenderer {
     this.handshakeTexture = createImageTexture('images/handshake_yellow.png')
     this.wavingTexture = createImageTexture('images/waving_hand.png')
     this.particleTexture = this.createCircleTexture(24, '#ffffff')
+
+    this.lockedReticleOutlineSprite = new Sprite(this.getReticleTexture())
+    this.lockedReticleOutlineSprite.anchor.set(0.5)
+    hideSprite(this.lockedReticleOutlineSprite)
+    this.overlayContainer.addChild(this.lockedReticleOutlineSprite)
 
     this.lockedReticleSprite = new Sprite(this.getReticleTexture())
     this.lockedReticleSprite.anchor.set(0.5)
@@ -2171,14 +2181,27 @@ export class PixiWorldRenderer {
     isAssassinationTarget: boolean
   ): void {
     if (!visible) {
+      hideSprite(this.lockedReticleOutlineSprite)
       hideSprite(this.lockedReticleSprite)
       return
     }
 
+    const showOutline = isAssassinationTarget
+    this.lockedReticleOutlineSprite.visible = showOutline
+    this.lockedReticleOutlineSprite.alpha = 1
+    this.lockedReticleOutlineSprite.tint = ASSASSINATION_RETICLE_OUTLINE_TINT
+    this.lockedReticleOutlineSprite.scale.set(
+      showOutline ? ASSASSINATION_RETICLE_OUTLINE_SCALE : 1
+    )
+    this.lockedReticleOutlineSprite.position.set(centerX, centerY)
     this.lockedReticleSprite.visible = true
     this.lockedReticleSprite.alpha = 1
-    this.lockedReticleSprite.tint = isAssassinationTarget ? 0xd33232 : 0xffffff
-    this.lockedReticleSprite.scale.set(isAssassinationTarget ? 2 : 1)
+    this.lockedReticleSprite.tint = isAssassinationTarget
+      ? ASSASSINATION_RETICLE_TINT
+      : 0xffffff
+    this.lockedReticleSprite.scale.set(
+      isAssassinationTarget ? ASSASSINATION_RETICLE_SCALE : 1
+    )
     this.lockedReticleSprite.position.set(centerX, centerY)
   }
 

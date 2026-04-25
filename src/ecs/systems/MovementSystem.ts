@@ -100,6 +100,19 @@ export class MovementSystem extends System {
         continue
       }
 
+      if (entity.stats?.assassinationLocked) {
+        const lockedFacing = entity.stats.assassinationLockedFacing
+        entity.input.moveDirection = 0
+        entity.input.jumpRequested = false
+        entity.input.sprintRequested = false
+        entity.input.attackRequested = false
+        entity.input.blockRequested = false
+        entity.input.skillRequested = false
+        entity.input.ultimateRequested = false
+        entity.input.facingOverride = lockedFacing
+        entity.input.lastMoveDirection = lockedFacing
+      }
+
       // 更新硬直时间（必须在isStunned检查之前）
       if (entity.movement.knockbackDuration > 0) {
         entity.movement.knockbackElapsedTime += deltaTime
@@ -313,6 +326,11 @@ export class MovementSystem extends System {
 
     const knockbackDuration = entity.movement.knockbackDuration
     if (knockbackDuration <= 0) {
+      if (entity.stats.assassinationLocked) {
+        entity.movement.rollAngle =
+          entity.stats.assassinationLockedFacing * (Math.PI / 2)
+        return
+      }
       if (entity.movement.rollAngle !== 0) {
         entity.movement.rollAngle = 0
       }
@@ -321,8 +339,9 @@ export class MovementSystem extends System {
 
     const elapsedMs = entity.movement.knockbackElapsedTime * 1000
     const progress = Math.min(1, Math.max(0, elapsedMs / knockbackDuration))
-    const facing =
-      entity.input?.lastMoveDirection !== 0
+    const facing = entity.stats.assassinationLocked
+      ? entity.stats.assassinationLockedFacing
+      : entity.input?.lastMoveDirection !== 0
         ? (entity.input?.lastMoveDirection ?? 1)
         : 1
     const backAngle = -facing * (Math.PI / 6)

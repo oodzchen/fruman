@@ -49,6 +49,10 @@ export const SOUND_IDS = {
   PASS_THROUGH_GRASS: 22,
 } as const
 
+export const SOUND_EFFECT_FLAGS = {
+  IGNORE_TIME_SCALE: 1,
+} as const
+
 export const MAX_EFFECTS = 256
 export const EFFECTS_BASE_OFFSET = MAX_ENTITIES * ENTITY_STRIDE
 export const EFFECT_BUFFER_FLOATS = MAX_EFFECTS * EFFECT_STRIDE

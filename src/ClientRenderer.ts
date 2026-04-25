@@ -76,6 +76,7 @@ import {
   MAX_ROPE_POINTS,
   ROPE_POINTS_BASE_OFFSET,
   ROPE_POINT_STRIDE,
+  SOUND_EFFECT_FLAGS,
 } from './worker/effectsProtocol'
 import type {
   SensorDebugData,
@@ -118,6 +119,8 @@ const TRANSIENT_LIGHT_TYPE_HEAL = 1
 const TRANSIENT_LIGHT_TYPE_CHECKPOINT = 2
 const TRANSIENT_LIGHT_TYPE_BOMB = 3
 const BOMB_EXPLOSION_LIGHT_COLOR = 0xffb347
+const ASSASSINATION_RETICLE_COLOR = '#E04646'
+const ASSASSINATION_RETICLE_OUTLINE_COLOR = '#FFFFFF'
 const ACTIVE_CHECKPOINT_COLOR_INT = Number.parseInt(
   CHECKPOINT_TREE_TOP_COLOR_ACTIVE.slice(1),
   16
@@ -556,7 +559,12 @@ export class ClientRenderer {
         this.applyCameraShake(attenuatedIntensity, radius)
       } else if (type === EFFECT_TYPES.SOUND) {
         const soundId = color
-        const playbackRate = ((radius || 1.0) * this.timeScale1000) / 1000
+        const basePlaybackRate = radius || 1.0
+        const ignoreGlobalTimeScale =
+          (renderLayer & SOUND_EFFECT_FLAGS.IGNORE_TIME_SCALE) !== 0
+        const playbackRate = ignoreGlobalTimeScale
+          ? basePlaybackRate
+          : (basePlaybackRate * this.timeScale1000) / 1000
         const volume =
           Number.isFinite(x) && Number.isFinite(y)
             ? this.getEventAttenuation(x, y, getSoundFalloffDistance(soundId))
@@ -1459,7 +1467,13 @@ export class ClientRenderer {
     const shakeOffset = this.getHitShakeOffset(buf, offset)
     const centerX = (x + shakeOffset.x) * this.pixelsPerMeter
     const centerY = (y + shakeOffset.y) * this.pixelsPerMeter
-    this.drawReticleAt(centerX, centerY, '#D33232', 2)
+    this.drawReticleAt(
+      centerX,
+      centerY,
+      ASSASSINATION_RETICLE_COLOR,
+      2,
+      ASSASSINATION_RETICLE_OUTLINE_COLOR
+    )
   }
 
   private drawFreeAimReticle(
@@ -1487,13 +1501,31 @@ export class ClientRenderer {
     centerX: number,
     centerY: number,
     color: string,
-    scale: number
+    scale: number,
+    outlineColor?: string
   ): void {
     this.ctx.save()
     this.ctx.translate(centerX, centerY)
+    const size = 7.5 * scale
+
+    if (outlineColor) {
+      this.ctx.strokeStyle = outlineColor
+      this.ctx.lineWidth = 3
+      this.ctx.beginPath()
+      this.ctx.moveTo(-size, 0)
+      this.ctx.lineTo(size, 0)
+      this.ctx.moveTo(0, -size)
+      this.ctx.lineTo(0, size)
+      this.ctx.stroke()
+
+      this.ctx.fillStyle = outlineColor
+      this.ctx.beginPath()
+      this.ctx.arc(0, 0, 4 * scale, 0, Math.PI * 2)
+      this.ctx.fill()
+    }
+
     this.ctx.strokeStyle = color
     this.ctx.lineWidth = 1
-    const size = 7.5 * scale
 
     this.ctx.beginPath()
     this.ctx.moveTo(-size, 0)

@@ -200,6 +200,7 @@ import {
   MAX_EFFECTS,
   MAX_ROPE_POINTS,
   ROPE_POINTS_BASE_OFFSET,
+  SOUND_EFFECT_FLAGS,
   SOUND_IDS,
   STATE_BUFFER_FLOATS,
 } from './effectsProtocol'
@@ -669,17 +670,31 @@ const effectsEmitter: EffectsEmitter = {
   emitCameraShake: (x, y, intensity, durationMs) => {
     queueEffect(EFFECT_TYPES.CAMERA_SHAKE, x, y, intensity, durationMs)
   },
-  playSound: (soundId, playbackRate = 1.0) => {
+  playSound: (soundId, playbackRate = 1.0, ignoreGlobalTimeScale = false) => {
     queueEffect(
       EFFECT_TYPES.SOUND,
       Number.NaN,
       Number.NaN,
       soundId,
-      playbackRate
+      playbackRate,
+      ignoreGlobalTimeScale ? SOUND_EFFECT_FLAGS.IGNORE_TIME_SCALE : 0
     )
   },
-  playSoundAt: (soundId, x, y, playbackRate = 1.0) => {
-    queueEffect(EFFECT_TYPES.SOUND, x, y, soundId, playbackRate)
+  playSoundAt: (
+    soundId,
+    x,
+    y,
+    playbackRate = 1.0,
+    ignoreGlobalTimeScale = false
+  ) => {
+    queueEffect(
+      EFFECT_TYPES.SOUND,
+      x,
+      y,
+      soundId,
+      playbackRate,
+      ignoreGlobalTimeScale ? SOUND_EFFECT_FLAGS.IGNORE_TIME_SCALE : 0
+    )
   },
 }
 
@@ -4508,8 +4523,9 @@ function setTimeScale1000(nextScale1000: number): void {
 function syncTimeScaleState(): void {
   const weapon = playerEntity?.weapon
   if (
-    weapon?.assassinationPhase !== null &&
-    (weapon?.assassinationTargetId ?? 0) > 0
+    weapon &&
+    weapon.assassinationPhase !== null &&
+    weapon.assassinationTargetId > 0
   ) {
     setTimeScale1000(ASSASSINATION_TIME_SCALE_1000)
     return

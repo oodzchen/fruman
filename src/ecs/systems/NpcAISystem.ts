@@ -212,6 +212,25 @@ export class NpcAISystem extends System {
         continue
       }
 
+      if (entity.stats?.assassinationLocked) {
+        const lockedFacing = entity.stats.assassinationLockedFacing
+        entity.input.moveDirection = 0
+        entity.input.jumpRequested = false
+        entity.input.sprintRequested = false
+        entity.input.attackRequested = false
+        entity.input.blockRequested = false
+        entity.input.skillRequested = false
+        entity.input.ultimateRequested = false
+        entity.input.lockedTargetId = null
+        entity.input.lockLostTimer = 0
+        entity.input.facingOverride = lockedFacing
+        entity.input.lastMoveDirection = lockedFacing
+        if (entity.weapon) {
+          entity.weapon.attackQueued = false
+        }
+        continue
+      }
+
       // 如果处于击退硬直中，暂停AI控制，让物理引擎接管运动
       if (entity.movement && entity.movement.knockbackEndTime > now) {
         entity.input.blockRequested = false
