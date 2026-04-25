@@ -103,7 +103,10 @@ import {
   normalizeRenderLayer,
 } from './renderLayers'
 import { renderBody } from './renderer/BodyRenderer'
-import { PatternCreator } from './renderer/PatternCreator'
+import {
+  DayNightCycle,
+  getMapTimePhaseElapsedMs,
+} from './renderer/DayNightCycle'
 import { renderWeapon } from './renderer/WeaponRenderer'
 import {
   createEditorMap,
@@ -176,8 +179,7 @@ export class EditorManager {
   private activeObjectType: ObjectType | null = null
   private handleResize: () => void
   private panelCollapsed = false
-  private backgroundPattern: fabric.Pattern | null = null
-  private backgroundImage: HTMLImageElement | null = null
+  private readonly editorDayNightCycle = new DayNightCycle()
   private isPanning = false
   private lastClientX = 0
   private lastClientY = 0
@@ -444,7 +446,7 @@ export class EditorManager {
       getEditorObjects: () => this.objectManager.getEditorObjects(),
       getMapSettings: () => ({ ...this.mapSettings }),
       setMapSettings: (settings) => {
-        this.mapSettings = this.normalizeMapSettings(settings)
+        this.setMapSettings(settings, false)
       },
       getFactions: () => this.factions,
       setFactions: (factions) => {
@@ -1909,6 +1911,14 @@ export class EditorManager {
     }
   }
 
+  private setMapSettings(
+    settings: MapSettings | undefined,
+    requestRender: boolean
+  ): void {
+    this.mapSettings = this.normalizeMapSettings(settings)
+    this.applyEditorBackgroundColor(requestRender)
+  }
+
   private isSameMapSettings(a: MapSettings, b: MapSettings): boolean {
     return a.initialTimePhase === b.initialTimePhase
   }
@@ -1925,7 +1935,7 @@ export class EditorManager {
     if (this.isSameMapSettings(this.mapSettings, normalized)) {
       return
     }
-    this.mapSettings = normalized
+    this.setMapSettings(normalized, true)
     this.captureHistorySnapshot()
   }
 
@@ -3724,47 +3734,32 @@ export class EditorManager {
     this.canvasEventHandler.attachEventListeners()
 
     this.resizeEditorCanvas()
-    this.applyBackgroundPattern()
+    this.applyEditorBackgroundColor(true)
   }
 
   // ========================================
   // CANVAS MANAGEMENT
   // ========================================
 
-  private applyBackgroundPattern() {
+  private applyEditorBackgroundColor(requestRender: boolean): void {
     if (!this.fabricCanvas) {
       return
     }
 
-    if (!this.backgroundPattern && !this.backgroundImage) {
-      this.backgroundImage = PatternCreator.createBackgroundImage()
-    }
-
-    if (this.backgroundPattern) {
-      this.fabricCanvas.backgroundColor = this.backgroundPattern
+    const skyColor = this.resolveEditorBackgroundSkyColor()
+    this.fabricCanvas.backgroundColor = `#${skyColor
+      .toString(16)
+      .padStart(6, '0')}`
+    if (requestRender) {
       this.fabricCanvas.requestRenderAll()
-      return
     }
+  }
 
-    if (this.backgroundImage) {
-      const applyPattern = () => {
-        if (!this.fabricCanvas || !this.backgroundImage) {
-          return
-        }
-        this.backgroundPattern = new fabric.Pattern({
-          source: this.backgroundImage,
-          repeat: 'repeat',
-        })
-        this.fabricCanvas.backgroundColor = this.backgroundPattern
-        this.fabricCanvas.requestRenderAll()
-      }
-
-      if (this.backgroundImage.complete) {
-        applyPattern()
-      } else {
-        this.backgroundImage.onload = applyPattern
-      }
-    }
+  private resolveEditorBackgroundSkyColor(): number {
+    this.editorDayNightCycle.setElapsed(
+      getMapTimePhaseElapsedMs(this.mapSettings.initialTimePhase)
+    )
+    return this.editorDayNightCycle.getLightingState().sky
   }
 
   // ========================================
