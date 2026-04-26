@@ -1,10 +1,12 @@
 import { localizer } from '../../Localizer'
+import { createBoneLayer } from './EditorBodyDrawerBones'
 import {
   applyCanvasSnapshot,
   captureCanvasSnapshot,
   cloneBounds,
   createLayerCanvas,
 } from './EditorBodyDrawerCanvas'
+import { cloneCollisionShape } from './EditorBodyDrawerCollision'
 import { readAlphaBounds } from './EditorBodyDrawerGeometry'
 import type {
   EditorBodyLayer,
@@ -248,6 +250,10 @@ export class EditorBodyLayerStore {
       let layer: EditorBodyLayer | null = null
       if (snapshot.kind === 'brow' && snapshot.id === BROW_LAYER_ID) {
         layer = this.getLayerById(BROW_LAYER_ID)
+      } else if (snapshot.kind === 'bone' && snapshot.bonePart) {
+        layer = createBoneLayer(snapshot.bonePart)
+        layer.id = snapshot.id
+        this.layers.push(layer)
       } else {
         layer = this.appendPaintLayer(snapshot.name)
         layer.id = snapshot.id
@@ -261,6 +267,16 @@ export class EditorBodyLayerStore {
       layer.name = snapshot.name
       layer.bounds = applyCanvasSnapshot(layer.ctx, snapshot.image)
       layer.boundsDirty = false
+      if (snapshot.kind === 'bone') {
+        layer.bonePart = snapshot.bonePart
+        layer.bonePivotX = snapshot.bonePivotX
+        layer.bonePivotY = snapshot.bonePivotY
+        layer.boneTipX = snapshot.boneTipX
+        layer.boneTipY = snapshot.boneTipY
+        layer.boneShapeCustomized = snapshot.boneShapeCustomized
+        layer.boneBoundaryShapes =
+          snapshot.boneBoundaryShapes?.map(cloneCollisionShape)
+      }
     }
     if (order && order.length > 0) {
       this.applyLayerOrder(order)
@@ -307,6 +323,13 @@ export class EditorBodyLayerStore {
       name: layer.name,
       kind: layer.kind,
       image: captured.snapshot,
+      bonePart: layer.bonePart,
+      bonePivotX: layer.bonePivotX,
+      bonePivotY: layer.bonePivotY,
+      boneTipX: layer.boneTipX,
+      boneTipY: layer.boneTipY,
+      boneBoundaryShapes: layer.boneBoundaryShapes?.map(cloneCollisionShape),
+      boneShapeCustomized: layer.boneShapeCustomized,
     }
   }
 }

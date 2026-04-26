@@ -66,8 +66,8 @@ export interface EditorBodyDrawerLayout {
   fillBtn: HTMLButtonElement
   eraseBtn: HTMLButtonElement
   textureBtn: HTMLButtonElement
-  resetShapeBtn: HTMLButtonElement
-  clearTextureBtn: HTMLButtonElement
+  resetStaticBtn: HTMLButtonElement
+  resetSkeletalBtn: HTMLButtonElement
   brushSlider: HTMLInputElement
   brushValueText: HTMLSpanElement
   colorInput: EditorColorInputElement
@@ -449,15 +449,15 @@ export function createEditorBodyDrawerLayout(
     'div',
     'display:flex;flex-direction:column;gap:8px;'
   )
-  const resetShapeBtn = EditorUIHelper.createButton(
+  const resetStaticBtn = EditorUIHelper.createButton(
     localizer.t('editor_body_drawer_reset_shape')
   )
-  const clearTextureBtn = EditorUIHelper.createButton(
-    localizer.t('editor_body_drawer_clear_texture')
+  const resetSkeletalBtn = EditorUIHelper.createButton(
+    localizer.t('editor_body_drawer_reset_skeletal')
   )
-  styleCompactButton(resetShapeBtn)
-  styleCompactButton(clearTextureBtn)
-  appendChildren(actionRow, resetShapeBtn, clearTextureBtn)
+  styleCompactButton(resetStaticBtn)
+  styleCompactButton(resetSkeletalBtn)
+  appendChildren(actionRow, resetStaticBtn, resetSkeletalBtn)
   sidebar.appendChild(actionRow)
 
   const footer = EditorUIHelper.createButtonRow({
@@ -542,8 +542,8 @@ export function createEditorBodyDrawerLayout(
     fillBtn,
     eraseBtn,
     textureBtn,
-    resetShapeBtn,
-    clearTextureBtn,
+    resetStaticBtn,
+    resetSkeletalBtn,
     brushSlider,
     brushValueText,
     colorInput,

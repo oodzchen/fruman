@@ -69,6 +69,7 @@ import {
   isSecondaryWeaponType,
   resolveWeaponStatsForSize,
 } from '../weaponTypeUtils'
+import { PLAYER_BODY_COLOR } from './EditorConstants'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import {
   computeWeaponRenderDimensions,
@@ -101,6 +102,7 @@ type CharacterWeaponBinding = {
 type CharacterDialogOptions = {
   title: string
   marker?: NpcMarker | PlayerMarker
+  resetBodyColor?: string
   data: {
     radius: number
     bodyHeight: number
@@ -1210,6 +1212,9 @@ export class EditorPropertiesPanel {
           initialColor: getCharacterBodyColor(bodyProfile, options.data.color),
           defaultBodyWidth: currentWidth,
           defaultBodyHeight: currentHeight,
+          resetBodyColor: options.resetBodyColor ?? options.data.color,
+          resetBodyWidth: defaultDiameter,
+          resetBodyHeight: defaultDiameter,
           initialFacing:
             Number.isFinite(currentFacingValue) && currentFacingValue < 0
               ? -1
@@ -2152,6 +2157,7 @@ export class EditorPropertiesPanel {
     await this.showCharacterPropertiesDialog({
       title: `[${npcTypeLocal}] ${objectName}`,
       marker,
+      resetBodyColor: CHARACTER_DEFAULT_DATA.default.color,
       data,
       attackMovesetOwner: 'npc',
       showMoveSpeed: true,
@@ -2360,6 +2366,7 @@ export class EditorPropertiesPanel {
     try {
       await this.showCharacterPropertiesDialog({
         title: `[${localizer.t('editor_npc_template_group')}] ${template.name}`,
+        resetBodyColor: defaultData.color,
         data: {
           radius: template.radius ?? defaultData.radius,
           bodyHeight: template.bodyHeight ?? 0,
@@ -2537,6 +2544,7 @@ export class EditorPropertiesPanel {
     await this.showCharacterPropertiesDialog({
       title: `[${localizer.t('editor_object_player')}] ${objectName}`,
       marker,
+      resetBodyColor: PLAYER_BODY_COLOR,
       data,
       attackMovesetOwner: 'player',
       showMoveSpeed: true,

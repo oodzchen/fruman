@@ -70,6 +70,13 @@ export interface EditorBodyLayerSnapshot {
   name: string
   kind: 'brow' | 'paint' | 'bone'
   image: EditorCanvasSnapshot
+  bonePart?: BonePart
+  bonePivotX?: number
+  bonePivotY?: number
+  boneTipX?: number
+  boneTipY?: number
+  boneBoundaryShapes?: EditorCollisionShape[]
+  boneShapeCustomized?: boolean
 }
 
 export interface EditorSelectionScaleSession {
@@ -157,6 +164,9 @@ export interface EditorCharacterBodyDrawerOptions {
   initialColor?: string
   defaultBodyWidth?: number
   defaultBodyHeight?: number
+  resetBodyColor?: string
+  resetBodyWidth?: number
+  resetBodyHeight?: number
   initialFacing?: number
 }
 
@@ -297,6 +307,12 @@ export interface EditorCharacterBodyDrawerHistorySnapshot {
   selectedCollisionShapeId: number
   collisionToolKind: EditorCollisionShapeKind
   collisionShapesCustomized: boolean
+  skeletalModeEnabled: boolean
+  activeSidebarTab: 'layers' | 'bones'
+  selectedBonePart: BonePart | null
+  selectedShapePart: BonePart | null
+  selectedBoundaryPart: BonePart | null
+  boneBoundaryBackup: EditorCollisionShape[] | null
 }
 
 export interface EditorCharacterBodyDrawerHistoryContext {

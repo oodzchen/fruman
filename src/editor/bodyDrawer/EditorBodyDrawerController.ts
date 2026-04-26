@@ -182,6 +182,7 @@ import {
   CONTOUR_SELECT_DISTANCE_SQ,
   CORE_LAYER_ID,
   CUSTOM_BODY_PRESET_ID,
+  DEFAULT_BODY_BLOOD_COLOR,
   DEFAULT_BRUSH_SIZE,
   DEFAULT_EDITOR_EYE_RADIUS,
   DISPLAY_SIZE,
@@ -274,8 +275,8 @@ export class EditorBodyDrawerController {
       fillBtn,
       eraseBtn,
       textureBtn,
-      resetShapeBtn,
-      clearTextureBtn,
+      resetStaticBtn,
+      resetSkeletalBtn,
       brushSlider,
       brushValueText,
       colorInput,
@@ -382,6 +383,7 @@ export class EditorBodyDrawerController {
     let selectedBoundaryPart: BonePart | null = null
     let boneBoundaryBackup: EditorCollisionShape[] | null = null
     let skeletalModeEnabled = false
+    let loadedBoneSegments = false
     const collapsedBonePartsSet = new Set<BonePart>()
     let draggingLayerId = -1
     let dragPreviewLayerId = -1
@@ -422,6 +424,23 @@ export class EditorBodyDrawerController {
     )
     const layers = layerStore.layers
     const collisionShapes: EditorCollisionShape[] = []
+    const resetBodyColor =
+      typeof options.resetBodyColor === 'string' &&
+      options.resetBodyColor.length > 0
+        ? options.resetBodyColor
+        : (options.initialColor ?? '#d6a86c')
+    const resetBodyWidth =
+      options.resetBodyWidth && options.resetBodyWidth > 0
+        ? options.resetBodyWidth
+        : options.defaultBodyWidth && options.defaultBodyWidth > 0
+          ? options.defaultBodyWidth
+          : 1
+    const resetBodyHeight =
+      options.resetBodyHeight && options.resetBodyHeight > 0
+        ? options.resetBodyHeight
+        : options.defaultBodyHeight && options.defaultBodyHeight > 0
+          ? options.defaultBodyHeight
+          : resetBodyWidth
     const sidebarTabElements = {
       tabBtnLayers,
       tabBtnBones,
@@ -479,6 +498,9 @@ export class EditorBodyDrawerController {
     const invalidateCollisionPreview = () => {
       collisionPreviewDirty = true
     }
+
+    const getDefaultBoneFillColor = (): string =>
+      loadedBoneSegments ? colorInput.value : resetBodyColor
 
     const clearCollisionShapes = () => {
       collisionShapes.length = 0
@@ -598,6 +620,20 @@ export class EditorBodyDrawerController {
 
     const buildDefaultLayers = () => {
       layerStore.buildDefaultLayers()
+      ensureSelectedLayer()
+    }
+
+    const rebuildStaticLayersPreservingBones = () => {
+      const boneLayers: EditorBodyLayer[] = []
+      for (let i = 0; i < layers.length; i++) {
+        if (layers[i].kind === 'bone') {
+          boneLayers.push(layers[i])
+        }
+      }
+      layerStore.buildDefaultLayers()
+      for (let i = 0; i < boneLayers.length; i++) {
+        layers.push(boneLayers[i])
+      }
       ensureSelectedLayer()
     }
 
@@ -783,7 +819,8 @@ export class EditorBodyDrawerController {
 
     const fillBoneLayerFromBoundaryShapes = (
       layer: EditorBodyLayer,
-      shapes: readonly EditorCollisionShape[]
+      shapes: readonly EditorCollisionShape[],
+      fillColor = getDefaultBoneFillColor()
     ) => {
       if (!ensureLayerSurface(layer) || !layer.ctx) {
         return
@@ -791,7 +828,7 @@ export class EditorBodyDrawerController {
       layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
       if (shapes.length > 0) {
         layer.ctx.save()
-        layer.ctx.fillStyle = colorInput.value
+        layer.ctx.fillStyle = fillColor
         for (let i = 0; i < shapes.length; i++) {
           traceEditorCollisionShape(layer.ctx, shapes[i])
           layer.ctx.fill()
@@ -918,6 +955,7 @@ export class EditorBodyDrawerController {
       )
 
     const loadBoneSegments = (segments: BoneSegment[]) => {
+      loadedBoneSegments = segments.length > 0
       for (const seg of segments) {
         const layer = getOrCreateBoneLayer(seg.part)
         if (seg.pivotX !== undefined) layer.bonePivotX = seg.pivotX
@@ -983,6 +1021,28 @@ export class EditorBodyDrawerController {
           syncAutoBoneLayerShape(layer)
         }
       }
+    }
+
+    const resetBoneLayerToDefault = (layer: EditorBodyLayer) => {
+      const part = layer.bonePart
+      if (!part || !layer.ctx) {
+        return
+      }
+      const def = BONE_DEFAULT_POSITIONS[part]
+      layer.bonePivotX = def.pivotX
+      layer.bonePivotY = def.pivotY
+      layer.boneTipX = def.tipX
+      layer.boneTipY = def.tipY
+      layer.boneShapeCustomized = false
+      layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      layer.bounds = null
+      layer.boundsDirty = false
+      layer.boneBoundaryShapes = []
+      fillBoneLayerFromBoundaryShapes(
+        layer,
+        ensureBoneBoundaryShapes(layer),
+        resetBodyColor
+      )
     }
 
     const renderBoneList = () => {
@@ -1235,6 +1295,14 @@ export class EditorBodyDrawerController {
           selectedCollisionShapeId,
           collisionToolKind,
           collisionShapesCustomized,
+          skeletalModeEnabled,
+          activeSidebarTab,
+          selectedBonePart,
+          selectedShapePart,
+          selectedBoundaryPart,
+          boneBoundaryBackup: boneBoundaryBackup
+            ? copyCollisionShapeList(boneBoundaryBackup)
+            : null,
         }
       }
 
@@ -1277,9 +1345,27 @@ export class EditorBodyDrawerController {
       selectedCollisionShapeId = snapshot.selectedCollisionShapeId
       collisionToolKind = snapshot.collisionToolKind
       collisionShapesCustomized = snapshot.collisionShapesCustomized
+      skeletalModeEnabled = snapshot.skeletalModeEnabled
+      activeSidebarTab = snapshot.activeSidebarTab
+      selectedBonePart = snapshot.selectedBonePart
+      selectedShapePart = snapshot.selectedShapePart
+      selectedBoundaryPart = snapshot.selectedBoundaryPart
+      boneBoundaryBackup = snapshot.boneBoundaryBackup
+        ? copyCollisionShapeList(snapshot.boneBoundaryBackup)
+        : null
       restoreCollisionShapesSnapshot(snapshot.collisionShapes)
+      bonePropPanel.style.display = selectedBonePart ? 'flex' : 'none'
+      if (selectedBonePart) {
+        const seg = getBoneSegments().find(
+          (item) => item.part === selectedBonePart
+        )
+        boneLengthRow.inp.value = String(seg?.length ?? 0.15)
+        boneWidthRow.inp.value = String(seg?.width ?? 0.06)
+      }
       nextCollisionShapeId = snapshot.nextCollisionShapeId
       ensureSelectedLayer()
+      setSidebarTabState(sidebarTabElements, activeSidebarTab)
+      renderBoneList()
       renderLayerList()
       renderComposite()
       updateAlert()
@@ -1788,14 +1874,8 @@ export class EditorBodyDrawerController {
       setButtonDisabled(fillBtn, !canFillCore)
       setButtonDisabled(eraseBtn, !canFreePaint)
       setButtonDisabled(textureBtn, !canTextureCore)
-      setButtonDisabled(
-        clearTextureBtn,
-        !contourClosed ||
-          (selectedKind !== 'core' &&
-            selectedKind !== 'brow' &&
-            selectedKind !== 'paint')
-      )
-      setButtonDisabled(resetShapeBtn, false)
+      setButtonDisabled(resetStaticBtn, false)
+      setButtonDisabled(resetSkeletalBtn, false)
       setButtonDisabled(addLayerBtn, false)
     }
 
@@ -1852,34 +1932,6 @@ export class EditorBodyDrawerController {
       maskState.boundsDirty = false
       shapeState.bounds = null
       shapeState.boundsDirty = false
-    }
-
-    const clearVisualLayer = (layer: EditorBodyLayer | null) => {
-      if (!layer) {
-        return
-      }
-      if (layer.kind === 'core') {
-        textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
-        textureState.bounds = null
-        textureState.boundsDirty = false
-        return
-      }
-      if (layer.kind === 'brow') {
-        browStyle = 'none'
-        browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
-        browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
-        browScaleX = DEFAULT_CHARACTER_BROW_SCALE
-        browScaleY = DEFAULT_CHARACTER_BROW_SCALE
-        browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
-      }
-      if (layer.ctx) {
-        layer.ctx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
-        layer.bounds = null
-        layer.boundsDirty = false
-        if (layer.kind === 'bone') {
-          layer.boneShapeCustomized = true
-        }
-      }
     }
 
     const readLayerAlphaAt = (
@@ -2768,6 +2820,10 @@ export class EditorBodyDrawerController {
       )
     }
 
+    const buildResetContourPoints = (): number[] => {
+      return buildDefaultContourPointList(resetBodyWidth, resetBodyHeight)
+    }
+
     const setPresetSelection = (presetId: EditorCharacterBodyPresetId) => {
       currentPresetId = presetId
       presetSelect.value = presetId
@@ -3216,6 +3272,7 @@ export class EditorBodyDrawerController {
     }
 
     const loadInitialProfile = async () => {
+      loadedBoneSegments = false
       clearBodyShape()
       coreImageShape = null
       coreImageShapeMirrorX = false
@@ -3426,6 +3483,101 @@ export class EditorBodyDrawerController {
       updateCursorVisual()
     }
 
+    const restoreDefaultStaticProfile = () => {
+      if (selectedBoundaryPart !== null) {
+        leaveBoneBoundaryMode()
+      }
+      setPresetSelection(CUSTOM_BODY_PRESET_ID)
+      clearBodyShape()
+      coreImageShape = null
+      coreImageShapeMirrorX = false
+      contourPoints = buildResetContourPoints()
+      contourClosed = true
+      selectedContourIndex = 0
+      contourDragPointIndex = -1
+      pendingContourClose = false
+      hoverVisible = false
+      colorInput.value = resetBodyColor
+      bloodColorInput.value = DEFAULT_BODY_BLOOD_COLOR
+      bloodColorAssigned = false
+      eyeX = DEFAULT_CHARACTER_EYE_X * editorFacing
+      eyeY = DEFAULT_CHARACTER_EYE_Y
+      eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
+      eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
+      eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
+      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+      browStyle = DEFAULT_CHARACTER_BROW_STYLE
+      browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
+      browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
+      browScaleX = DEFAULT_CHARACTER_BROW_SCALE
+      browScaleY = DEFAULT_CHARACTER_BROW_SCALE
+      browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
+      textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      textureState.bounds = null
+      textureState.boundsDirty = false
+      browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
+      clearCollisionShapes()
+      collisionShapesCustomized = false
+      rebuildStaticLayersPreservingBones()
+      if (getSelectedLayer()?.kind !== 'bone') {
+        selectedLayerId = CORE_LAYER_ID
+      }
+      exportBaseWidth = resetBodyWidth
+      exportBaseHeight = resetBodyHeight
+      exportReferenceWidth = LEGACY_PROFILE_REFERENCE_SIZE
+      exportReferenceHeight = LEGACY_PROFILE_REFERENCE_SIZE
+      drawContourFill()
+      setExportReferenceFromBounds(getContourBounds())
+      if (activeSidebarTab === 'bones') {
+        if (selectedShapePart !== null && getSelectedLayer()?.kind === 'bone') {
+          mode = 'shape'
+        } else if (selectedBonePart !== null) {
+          mode = 'select'
+        } else {
+          mode = 'shape'
+        }
+      } else {
+        selectedLayerId = CORE_LAYER_ID
+        mode = 'shape'
+      }
+      renderBoneList()
+      renderLayerList()
+      renderComposite()
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      updateCursorVisual()
+    }
+
+    const restoreDefaultSkeletalProfile = () => {
+      if (selectedBoundaryPart !== null) {
+        leaveBoneBoundaryMode()
+      }
+      loadedBoneSegments = false
+      ensureAllBoneLayers()
+      for (let i = 0; i < layers.length; i++) {
+        if (layers[i].kind === 'bone') {
+          resetBoneLayerToDefault(layers[i])
+        }
+      }
+      selectedBonePart = null
+      selectedShapePart = null
+      bonePropPanel.style.display = 'none'
+      if (getSelectedLayer()?.kind === 'bone') {
+        selectedLayerId = CORE_LAYER_ID
+      }
+      if (activeSidebarTab === 'bones') {
+        mode = contourClosed ? 'select' : 'contour'
+      }
+      renderBoneList()
+      renderLayerList()
+      renderComposite()
+      updateAlert()
+      updateConfirmState()
+      updateModeButtons()
+      updateCursorVisual()
+    }
+
     contourBtn.addEventListener('click', () => {
       hideContourMenu()
       hideLayerMenu()
@@ -3573,63 +3725,22 @@ export class EditorBodyDrawerController {
       renderComposite()
       historyManager.capture()
     })
-    resetShapeBtn.addEventListener('click', () => {
+    resetStaticBtn.addEventListener('click', () => {
       flushSettingHistory()
       hideContourMenu()
       hideLayerMenu()
       hideCollisionToolMenu()
       hideCollisionShapeMenu()
-      setPresetSelection(CUSTOM_BODY_PRESET_ID)
-      clearBodyShape()
-      coreImageShape = null
-      coreImageShapeMirrorX = false
-      contourPoints = []
-      contourClosed = false
-      selectedContourIndex = -1
-      contourDragPointIndex = -1
-      pendingContourClose = false
-      hoverVisible = false
-      mode = 'contour'
-      eyeX = DEFAULT_CHARACTER_EYE_X * editorFacing
-      eyeY = DEFAULT_CHARACTER_EYE_Y
-      eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
-      eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
-      eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
-      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
-      browStyle = DEFAULT_CHARACTER_BROW_STYLE
-      browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
-      browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
-      browScaleX = DEFAULT_CHARACTER_BROW_SCALE
-      browScaleY = DEFAULT_CHARACTER_BROW_SCALE
-      browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
-      textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
-      textureState.bounds = null
-      textureState.boundsDirty = false
-      browCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
-      clearCollisionShapes()
-      collisionShapesCustomized = false
-      buildDefaultLayers()
-      selectedLayerId = CORE_LAYER_ID
-      renderLayerList()
-      renderComposite()
-      updateAlert()
-      updateConfirmState()
-      updateModeButtons()
-      updateCursorVisual()
+      restoreDefaultStaticProfile()
       historyManager.capture()
     })
-    clearTextureBtn.addEventListener('click', () => {
-      if (!contourClosed) {
-        return
-      }
+    resetSkeletalBtn.addEventListener('click', () => {
+      flushSettingHistory()
       hideContourMenu()
       hideLayerMenu()
       hideCollisionToolMenu()
       hideCollisionShapeMenu()
-      flushSettingHistory()
-      invalidatePresetSelection()
-      clearVisualLayer(getSelectedLayer())
-      renderComposite()
+      restoreDefaultSkeletalProfile()
       historyManager.capture()
     })
     presetSelect.addEventListener('change', async () => {
