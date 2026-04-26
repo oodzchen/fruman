@@ -2265,6 +2265,26 @@ export class GameClient {
     this.updateParam('ropeDensity', value)
   }
 
+  setBreakableCrateDensity(value: number): void {
+    this.updateParam('breakableCrateDensity', value)
+  }
+
+  setBreakableCrateFriction(value: number): void {
+    this.updateParam('breakableCrateFriction', value)
+  }
+
+  setBreakableCrateLinearDamping(value: number): void {
+    this.updateParam('breakableCrateLinearDamping', value)
+  }
+
+  setBreakableCrateAngularDamping(value: number): void {
+    this.updateParam('breakableCrateAngularDamping', value)
+  }
+
+  setBreakableCrateRestitution(value: number): void {
+    this.updateParam('breakableCrateRestitution', value)
+  }
+
   setRopeLinearDamping(value: number): void {
     this.updateParam('ropeLinearDamping', value)
   }

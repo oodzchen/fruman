@@ -49,6 +49,7 @@ import {
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
+import type { ImpactLevel } from '../ecs/AttackMoveData'
 import {
   getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
@@ -65,6 +66,7 @@ import {
   PhysicsComponent,
   RenderComponent,
   SunPickupComponent,
+  TerrainDebrisComponent,
   TransformComponent,
   ULTIMATE_COOLDOWN_MS,
 } from '../ecs/Component'
@@ -348,8 +350,12 @@ let obstacles: {
 
 interface BreakableCratePlankRuntime {
   crateId: number
+  entity: Entity | null
   bodyId: b2BodyId
   shapeId: b2ShapeId
+  obstacleIndex: number
+  localCenterX: number
+  localCenterY: number
   centerX: number
   centerY: number
   halfWidth: number
@@ -364,6 +370,10 @@ interface BreakableCrateRuntime {
   seed: number
   renderLayer: number
   destroyed: boolean
+  bodyId: b2BodyId
+  centerX: number
+  centerY: number
+  rotationRad: number
   planks: BreakableCratePlankRuntime[]
 }
 
@@ -371,6 +381,7 @@ interface BreakableCrateBreakRequest {
   crateId: number
   impactX: number
   impactY: number
+  impactLevel: ImpactLevel
 }
 
 const WOOD_MATERIAL = getTerrainMaterialById('wood')
@@ -406,6 +417,24 @@ const MAX_TERRAIN_DEBRIS_PER_IMPACT = 10
 const MAX_TERRAIN_DEBRIS_ACTIVE = 96
 const TERRAIN_DEBRIS_LIFETIME_MS = 1100
 const TERRAIN_DEBRIS_FADE_START_MS = 700
+const CRATE_RETAINED_DEBRIS_MIN_COUNT = 2
+const CRATE_RETAINED_DEBRIS_MAX_COUNT = 3
+const CRATE_RETAINED_DEBRIS_LIFETIME_MS = 180000
+const CRATE_RETAINED_DEBRIS_FADE_DURATION_MS = 1200
+const CRATE_RETAINED_DEBRIS_LINEAR_DAMPING = 0.06
+const CRATE_RETAINED_DEBRIS_ANGULAR_DAMPING = 0.14
+const CRATE_RETAINED_DEBRIS_ANGULAR_BASE1000 = 2600
+const CRATE_RETAINED_DEBRIS_ANGULAR_RANGE1000 = 2600
+const DEFAULT_BREAKABLE_CRATE_LINEAR_DAMPING = 0.6
+const DEFAULT_BREAKABLE_CRATE_ANGULAR_DAMPING = 1.8
+const DEFAULT_BREAKABLE_CRATE_DENSITY = 3.6
+const DEFAULT_BREAKABLE_CRATE_FRICTION = 25.6
+const DEFAULT_BREAKABLE_CRATE_RESTITUTION = 0.02
+let breakableCrateLinearDamping = DEFAULT_BREAKABLE_CRATE_LINEAR_DAMPING
+let breakableCrateAngularDamping = DEFAULT_BREAKABLE_CRATE_ANGULAR_DAMPING
+let breakableCrateDensity = DEFAULT_BREAKABLE_CRATE_DENSITY
+let breakableCrateFriction = DEFAULT_BREAKABLE_CRATE_FRICTION
+let breakableCrateRestitution = DEFAULT_BREAKABLE_CRATE_RESTITUTION
 const TERRAIN_DEBRIS_MIN_SIZE1000 = 140
 const TERRAIN_DEBRIS_SIZE_RANGE1000 = 160
 const TERRAIN_DEBRIS_BASE_SPEED1000 = 3400
@@ -501,13 +530,10 @@ function buildRuntimeEnvironmentObjects(
   if (!envObjects || envObjects.length === 0) {
     return envObjects ? [] : undefined
   }
-  if (brokenEnvironmentIndices.size === 0) {
-    return envObjects.slice()
-  }
   const nextObjects = new Array<MapEnvironmentObject>(envObjects.length)
   for (let i = 0; i < envObjects.length; i++) {
     const obj = envObjects[i]
-    if (brokenEnvironmentIndices.has(i)) {
+    if (obj.type === 'crate' || brokenEnvironmentIndices.has(i)) {
       nextObjects[i] = { ...obj, hidden: true }
     } else {
       nextObjects[i] = obj
@@ -522,9 +548,6 @@ function buildRuntimeMapData(
   if (!map) {
     return null
   }
-  if (brokenEnvironmentIndices.size === 0) {
-    return map
-  }
   return {
     ...map,
     environmentObjects: buildRuntimeEnvironmentObjects(map.environmentObjects),
@@ -534,14 +557,15 @@ function buildRuntimeMapData(
 function queueBreakableCrateBreak(
   crateId: number,
   impactX: number,
-  impactY: number
+  impactY: number,
+  impactLevel: ImpactLevel
 ): void {
   const crate = breakableCrates.get(crateId)
   if (!crate || crate.destroyed || pendingBreakableCrateBreakIds.has(crateId)) {
     return
   }
   pendingBreakableCrateBreakIds.add(crateId)
-  pendingBreakableCrateBreaks.push({ crateId, impactX, impactY })
+  pendingBreakableCrateBreaks.push({ crateId, impactX, impactY, impactLevel })
 }
 
 function handleBreakableObstacleHit(hit: BreakableObstacleHit): void {
@@ -549,7 +573,7 @@ function handleBreakableObstacleHit(hit: BreakableObstacleHit): void {
   if (crateId === undefined) {
     return
   }
-  queueBreakableCrateBreak(crateId, hit.impactX, hit.impactY)
+  queueBreakableCrateBreak(crateId, hit.impactX, hit.impactY, hit.impactLevel)
 }
 
 function handleBreakableSprintContact(
@@ -563,7 +587,8 @@ function handleBreakableSprintContact(
   queueBreakableCrateBreak(
     plank.crateId,
     entity.transform.x,
-    entity.transform.y
+    entity.transform.y,
+    'medium'
   )
 }
 
@@ -873,11 +898,6 @@ async function init(width: number, height: number, ppm: number) {
   activeMapData = defaultMapData
   isMapPreview = false
 
-  ctx.postMessage({
-    type: 'map_data',
-    map: activeMapData,
-  })
-
   initStateBuffers()
 
   box2d = await Box2DFactory()
@@ -899,6 +919,15 @@ async function init(width: number, height: number, ppm: number) {
   const groundY = canvasHeight / pixelsPerMeter - groundHeight
   groundTopY = groundY - groundHeight
   createEnvironment()
+  if (activeMapData) {
+    const runtimeMapData = buildRuntimeMapData(activeMapData)
+    if (runtimeMapData) {
+      ctx.postMessage({
+        type: 'map_data',
+        map: runtimeMapData,
+      })
+    }
+  }
 
   initializeSystems()
   syncWorkerPerfSystemBuffers()
@@ -1728,6 +1757,209 @@ function createEnvironmentFromMap(map: EditorMapData): void {
   createBreakableCratesFromMap(map)
 }
 
+function createBreakableCratePlankEntity(
+  plank: BreakableCratePlankRuntime,
+  renderLayer: number,
+  seedBase: number,
+  plankIndex: number
+): Entity | null {
+  if (!world) {
+    return null
+  }
+  const seed = hashTerrainDebrisSeed(
+    Math.round(plank.centerX * 1000),
+    Math.round(plank.centerY * 1000),
+    (seedBase + plankIndex * 11) | 0
+  )
+  const entity = world.createEntity()
+  const transform = new TransformComponent()
+  transform.x = plank.centerX
+  transform.y = plank.centerY
+  transform.rotation = plank.rotationRad
+  entity.addComponent(transform)
+
+  const render = new RenderComponent()
+  render.visible = true
+  render.renderLayer = renderLayer
+  render.radius = Math.max(plank.halfWidth, plank.halfHeight)
+  render.color =
+    WOOD_MATERIAL.fillPalette[(seed >>> 3) % WOOD_MATERIAL.fillPalette.length]
+  render.borderColor = WOOD_MATERIAL.strokeColor
+  entity.addComponent(render)
+
+  const debris = new TerrainDebrisComponent()
+  debris.width = plank.halfWidth * 2
+  debris.height = plank.halfHeight * 2
+  debris.variant = plank.debrisVariant
+  debris.lifeMs = 0
+  debris.elapsedMs = 0
+  debris.fadeStartMs = 0
+  debris.receivesWeaponImpulse = false
+  entity.addComponent(debris)
+  return entity
+}
+
+function createBreakableCrateRuntimeBody(
+  centerX: number,
+  centerY: number,
+  rotationRad: number,
+  renderLayer: number,
+  planks: readonly BreakableCratePlankRuntime[]
+): b2BodyId {
+  const {
+    b2BodyType,
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2DefaultShapeDef,
+    b2CreatePolygonShape,
+    b2MakeOffsetBox,
+    b2Vec2,
+    b2Rot,
+  } = box2d
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(centerX, centerY)
+  bodyDef.rotation.SetAngle(rotationRad)
+  bodyDef.linearDamping = breakableCrateLinearDamping
+  bodyDef.angularDamping = breakableCrateAngularDamping
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = breakableCrateDensity
+  shapeDef.material.friction = breakableCrateFriction
+  shapeDef.material.restitution = breakableCrateRestitution
+  shapeDef.filter.categoryBits =
+    getObstacleCollisionCategory(renderLayer) |
+    getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits =
+    getObstacleCollisionMask(renderLayer) | getWeaponCollisionMask(renderLayer)
+
+  const localCenter = new b2Vec2(0, 0)
+  const localRotation = new b2Rot()
+  localRotation.SetAngle(0)
+  for (let i = 0; i < planks.length; i++) {
+    const plank = planks[i]
+    localCenter.Set(plank.localCenterX, plank.localCenterY)
+    const box = b2MakeOffsetBox(
+      plank.halfWidth,
+      plank.halfHeight,
+      localCenter,
+      localRotation
+    )
+    plank.shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
+    breakableCratePlanksByShapeId.set(plank.shapeId, plank)
+    box.delete()
+  }
+
+  localCenter.delete()
+  localRotation.delete()
+  shapeDef.delete()
+  bodyDef.delete()
+  return bodyId
+}
+
+function applyBreakableCratePreBreakParams(): void {
+  if (!box2d || breakableCrates.size === 0) {
+    return
+  }
+  const {
+    b2Body_SetLinearDamping,
+    b2Body_SetAngularDamping,
+    b2Shape_SetDensity,
+    b2Shape_SetFriction,
+    b2Shape_SetRestitution,
+  } = box2d
+  for (const crate of breakableCrates.values()) {
+    if (crate.destroyed) {
+      continue
+    }
+    b2Body_SetLinearDamping(crate.bodyId, breakableCrateLinearDamping)
+    b2Body_SetAngularDamping(crate.bodyId, breakableCrateAngularDamping)
+    for (let i = 0; i < crate.planks.length; i++) {
+      const plank = crate.planks[i]
+      b2Shape_SetDensity(
+        plank.shapeId,
+        breakableCrateDensity,
+        i === crate.planks.length - 1
+      )
+      b2Shape_SetFriction(plank.shapeId, breakableCrateFriction)
+      b2Shape_SetRestitution(plank.shapeId, breakableCrateRestitution)
+    }
+  }
+}
+
+function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
+  if (!box2d || crate.destroyed) {
+    return
+  }
+  const position = box2d.b2Body_GetPosition(crate.bodyId)
+  const rotation = box2d.b2Body_GetRotation(crate.bodyId)
+  const angle = box2d.b2Rot_GetAngle(rotation)
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  crate.centerX = position.x
+  crate.centerY = position.y
+  crate.rotationRad = angle
+
+  for (let i = 0; i < crate.planks.length; i++) {
+    const plank = crate.planks[i]
+    const worldX =
+      crate.centerX + plank.localCenterX * cos - plank.localCenterY * sin
+    const worldY =
+      crate.centerY + plank.localCenterX * sin + plank.localCenterY * cos
+    plank.centerX = worldX
+    plank.centerY = worldY
+    plank.rotationRad = angle
+
+    const obstacle = obstacles[plank.obstacleIndex]
+    if (obstacle) {
+      obstacle.centerX = worldX
+      obstacle.centerY = worldY
+      obstacle.rotationRad = angle
+      obstacle.worldVertices = computeRectWorldVertices(
+        worldX,
+        worldY,
+        plank.halfWidth,
+        plank.halfHeight,
+        angle
+      )
+    }
+
+    const entity = plank.entity
+    if (entity?.transform) {
+      entity.transform.x = worldX
+      entity.transform.y = worldY
+      entity.transform.rotation = angle
+    }
+  }
+
+  position.delete()
+  rotation.delete()
+}
+
+function syncBreakableCrateRuntimes(): void {
+  if (!box2d || breakableCrates.size === 0) {
+    return
+  }
+  for (const crate of breakableCrates.values()) {
+    syncBreakableCrateRuntime(crate)
+  }
+}
+
+function refreshBreakableCrateObstacleIndices(): void {
+  for (let i = 0; i < obstacles.length; i++) {
+    const obstacle = obstacles[i]
+    if (obstacle.breakableId === undefined) {
+      continue
+    }
+    const plank = breakableCratePlanksByShapeId.get(obstacle.mainShapeId)
+    if (!plank) {
+      continue
+    }
+    plank.obstacleIndex = i
+  }
+}
+
 function createBreakableCratesFromMap(map: EditorMapData): void {
   const envObjects = map.environmentObjects
   if (!envObjects || envObjects.length === 0) {
@@ -1753,15 +1985,8 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
     const cos = Math.cos(rotationRad)
     const sin = Math.sin(rotationRad)
 
-    const crate: BreakableCrateRuntime = {
-      id: nextBreakableCrateId++,
-      envIndex: i,
-      seed: env.seed,
-      renderLayer,
-      destroyed: false,
-      planks: [],
-    }
-
+    const crateId = nextBreakableCrateId++
+    const plankRuntimes: BreakableCratePlankRuntime[] = []
     for (let plankIndex = 0; plankIndex < layout.planks.length; plankIndex++) {
       const plank = layout.planks[plankIndex]
       const localCenterX = plank.localCenterX * scaleX * invPixelsPerMeter
@@ -1776,20 +2001,14 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
         0.02,
         plank.height * scaleY * invPixelsPerMeter * 0.5
       )
-      const bodyResult = createStaticRectBody(
-        centerX,
-        centerY,
-        halfWidth,
-        halfHeight,
-        rotationRad,
-        renderLayer,
-        'obstacle',
-        obstacleFriction
-      )
       const plankRuntime: BreakableCratePlankRuntime = {
-        crateId: crate.id,
-        bodyId: bodyResult.bodyId,
-        shapeId: bodyResult.shapeId,
+        crateId,
+        entity: null,
+        bodyId: 0 as unknown as b2BodyId,
+        shapeId: 0 as unknown as b2ShapeId,
+        obstacleIndex: -1,
+        localCenterX,
+        localCenterY,
         centerX,
         centerY,
         halfWidth,
@@ -1797,31 +2016,62 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
         rotationRad,
         debrisVariant: plank.debrisVariant,
       }
-      crate.planks.push(plankRuntime)
-      breakableCratePlanksByShapeId.set(bodyResult.shapeId, plankRuntime)
+      plankRuntimes.push(plankRuntime)
+    }
+
+    const crate: BreakableCrateRuntime = {
+      id: crateId,
+      envIndex: i,
+      seed: env.seed,
+      renderLayer,
+      destroyed: false,
+      bodyId: 0 as unknown as b2BodyId,
+      centerX: env.x,
+      centerY: env.y,
+      rotationRad,
+      planks: plankRuntimes,
+    }
+    crate.bodyId = createBreakableCrateRuntimeBody(
+      env.x,
+      env.y,
+      rotationRad,
+      renderLayer,
+      crate.planks
+    )
+
+    for (let plankIndex = 0; plankIndex < crate.planks.length; plankIndex++) {
+      const plankRuntime = crate.planks[plankIndex]
+      plankRuntime.bodyId = crate.bodyId
+      plankRuntime.entity = createBreakableCratePlankEntity(
+        plankRuntime,
+        renderLayer,
+        crate.seed,
+        plankIndex
+      )
+      plankRuntime.obstacleIndex = obstacles.length
       obstacles.push({
-        bodyId: bodyResult.bodyId,
-        mainShapeId: bodyResult.shapeId,
-        capBodyId: bodyResult.bodyId,
-        capShapeId: bodyResult.shapeId,
-        centerX,
-        centerY,
-        width: halfWidth,
-        height: halfHeight,
-        rotationRad,
+        bodyId: crate.bodyId,
+        mainShapeId: plankRuntime.shapeId,
+        capBodyId: crate.bodyId,
+        capShapeId: plankRuntime.shapeId,
+        centerX: plankRuntime.centerX,
+        centerY: plankRuntime.centerY,
+        width: plankRuntime.halfWidth,
+        height: plankRuntime.halfHeight,
+        rotationRad: plankRuntime.rotationRad,
         renderLayer,
         materialTag: 'obstacle',
         breakableId: crate.id,
         worldVertices: computeRectWorldVertices(
-          centerX,
-          centerY,
-          halfWidth,
-          halfHeight,
-          rotationRad
+          plankRuntime.centerX,
+          plankRuntime.centerY,
+          plankRuntime.halfWidth,
+          plankRuntime.halfHeight,
+          plankRuntime.rotationRad
         ),
       })
     }
-
+    syncBreakableCrateRuntime(crate)
     breakableCrates.set(crate.id, crate)
   }
 }
@@ -1900,6 +2150,198 @@ function hashTerrainDebrisSeed(a: number, b: number, c: number): number {
   hash = Math.imul(hash, 0x846ca68b)
   hash ^= hash >>> 16
   return hash >>> 0
+}
+
+function countSelectedCratePlanks(mask: number): number {
+  let count = 0
+  let bits = mask >>> 0
+  while (bits !== 0) {
+    count += bits & 1
+    bits >>>= 1
+  }
+  return count
+}
+
+function selectRetainedCratePlankMask(
+  crate: BreakableCrateRuntime,
+  impactX: number,
+  impactY: number,
+  impactLevel: ImpactLevel,
+  maxSelectableCount: number
+): number {
+  const plankCount = crate.planks.length
+  if (plankCount <= 0 || maxSelectableCount <= 0) {
+    return 0
+  }
+  const impactX1000 = Math.round(impactX * 1000)
+  const impactY1000 = Math.round(impactY * 1000)
+  const seed = hashTerrainDebrisSeed(crate.seed, impactX1000, impactY1000)
+  const desiredCount = Math.min(
+    plankCount,
+    maxSelectableCount,
+    impactLevel === 'extreme'
+      ? CRATE_RETAINED_DEBRIS_MAX_COUNT
+      : CRATE_RETAINED_DEBRIS_MIN_COUNT +
+          (((seed >>> 30) & 1) % (CRATE_RETAINED_DEBRIS_MAX_COUNT - 1))
+  )
+  if (desiredCount <= 0) {
+    return 0
+  }
+
+  let firstIndex = -1
+  let secondIndex = -1
+  let thirdIndex = -1
+  let firstScore = -1
+  let secondScore = -1
+  let thirdScore = -1
+
+  for (let i = 0; i < plankCount; i++) {
+    const plank = crate.planks[i]
+    const sizeKey =
+      (Math.round(plank.halfWidth * 1000) << 12) ^
+      Math.round(plank.halfHeight * 1000) ^
+      (plank.debrisVariant << 24)
+    const score =
+      hashTerrainDebrisSeed(
+        seed ^ Math.imul(i + 1, 131),
+        sizeKey,
+        crate.seed
+      ) >>> 0
+
+    if (score > firstScore) {
+      thirdScore = secondScore
+      thirdIndex = secondIndex
+      secondScore = firstScore
+      secondIndex = firstIndex
+      firstScore = score
+      firstIndex = i
+      continue
+    }
+    if (score > secondScore) {
+      thirdScore = secondScore
+      thirdIndex = secondIndex
+      secondScore = score
+      secondIndex = i
+      continue
+    }
+    if (score > thirdScore) {
+      thirdScore = score
+      thirdIndex = i
+    }
+  }
+
+  let mask = 0
+  if (firstIndex >= 0) {
+    mask |= 1 << firstIndex
+  }
+  if (desiredCount >= 2 && secondIndex >= 0) {
+    mask |= 1 << secondIndex
+  }
+  if (desiredCount >= 3 && thirdIndex >= 0) {
+    mask |= 1 << thirdIndex
+  }
+  return mask
+}
+
+function getCrateDebrisVisualOutwardSpeed1000(
+  impactLevel: ImpactLevel,
+  seed: number
+): number {
+  if (impactLevel === 'extreme') {
+    return 4600 + ((seed >>> 11) % 2601)
+  }
+  if (impactLevel === 'large') {
+    return 1800 + ((seed >>> 11) % 1601)
+  }
+  return 700 + ((seed >>> 11) % 701)
+}
+
+function getCrateDebrisVisualUpwardSpeed1000(
+  impactLevel: ImpactLevel,
+  seed: number
+): number {
+  if (impactLevel === 'extreme') {
+    return 4200 + ((seed >>> 19) % 2601)
+  }
+  if (impactLevel === 'large') {
+    return 1800 + ((seed >>> 19) % 1401)
+  }
+  return 900 + ((seed >>> 19) % 701)
+}
+
+function getCrateDebrisVisualSideSpeed1000(
+  impactLevel: ImpactLevel,
+  seed: number
+): number {
+  if (impactLevel === 'extreme') {
+    return (((seed >>> 5) % 4201) - 2100) | 0
+  }
+  if (impactLevel === 'large') {
+    return (((seed >>> 5) % 2201) - 1100) | 0
+  }
+  return (((seed >>> 5) % 801) - 400) | 0
+}
+
+function getCrateDebrisRetainedOutwardSpeed1000(
+  impactLevel: ImpactLevel,
+  seed: number
+): number {
+  if (impactLevel === 'extreme') {
+    return 4200 + ((seed >>> 12) % 2601)
+  }
+  if (impactLevel === 'large') {
+    return 2200 + ((seed >>> 12) % 1801)
+  }
+  return 450 + ((seed >>> 12) % 551)
+}
+
+function getCrateDebrisRetainedUpwardSpeed1000(
+  impactLevel: ImpactLevel,
+  seed: number
+): number {
+  if (impactLevel === 'extreme') {
+    return 5200 + ((seed >>> 20) % 2801)
+  }
+  if (impactLevel === 'large') {
+    return 2800 + ((seed >>> 20) % 1801)
+  }
+  return 500 + ((seed >>> 20) % 701)
+}
+
+function getCrateDebrisRetainedSideSpeed1000(
+  impactLevel: ImpactLevel,
+  seed: number
+): number {
+  if (impactLevel === 'extreme') {
+    return (((seed >>> 6) % 4801) - 2400) | 0
+  }
+  if (impactLevel === 'large') {
+    return (((seed >>> 6) % 2601) - 1300) | 0
+  }
+  return (((seed >>> 6) % 901) - 450) | 0
+}
+
+function getCrateDebrisRetainedAngularVelocity1000(
+  impactLevel: ImpactLevel,
+  seed: number
+): number {
+  if (impactLevel === 'extreme') {
+    return ((seed >>> 2) & 1) === 0
+      ? 5200 + ((seed >>> 8) % 3201)
+      : -(5200 + ((seed >>> 8) % 3201))
+  }
+  if (impactLevel === 'large') {
+    return ((seed >>> 2) & 1) === 0
+      ? 3200 + ((seed >>> 8) % 2201)
+      : -(3200 + ((seed >>> 8) % 2201))
+  }
+  return ((seed >>> 2) & 1) === 0
+    ? CRATE_RETAINED_DEBRIS_ANGULAR_BASE1000 +
+        ((seed >>> 8) % (CRATE_RETAINED_DEBRIS_ANGULAR_RANGE1000 + 1))
+    : -(
+        CRATE_RETAINED_DEBRIS_ANGULAR_BASE1000 +
+        ((seed >>> 8) % (CRATE_RETAINED_DEBRIS_ANGULAR_RANGE1000 + 1))
+      )
 }
 
 function spawnTerrainDebrisFromImpact(
@@ -2112,6 +2554,8 @@ function spawnTerrainDebrisEntity(
   debris.variant = (seed >>> 27) & 3
   debris.lifeMs = TERRAIN_DEBRIS_LIFETIME_MS
   debris.elapsedMs = 0
+  debris.fadeStartMs = TERRAIN_DEBRIS_FADE_START_MS
+  debris.receivesWeaponImpulse = false
   entity.addComponent(debris)
 }
 
@@ -2158,29 +2602,14 @@ function flushPendingBreakableCrateBreaks(): void {
   if (pendingBreakableCrateBreaks.length === 0) {
     return
   }
-  let didChangeEnvironment = false
   while (pendingBreakableCrateBreaks.length > 0) {
     const request = pendingBreakableCrateBreaks.pop()
     if (!request) {
       continue
     }
     pendingBreakableCrateBreakIds.delete(request.crateId)
-    if (breakBreakableCrate(request)) {
-      didChangeEnvironment = true
-    }
+    breakBreakableCrate(request)
   }
-  if (!didChangeEnvironment || !activeMapData) {
-    return
-  }
-  const runtimeMapData = buildRuntimeMapData(activeMapData)
-  if (!runtimeMapData) {
-    return
-  }
-  ctx.postMessage({
-    type: 'map_data',
-    map: runtimeMapData,
-    runtimeTerrainUpdate: true,
-  })
 }
 
 function breakBreakableCrate(request: BreakableCrateBreakRequest): boolean {
@@ -2199,26 +2628,65 @@ function breakBreakableCrate(request: BreakableCrateBreakRequest): boolean {
     request.impactX,
     request.impactY
   )
+  let remainingDebrisBudget =
+    MAX_TERRAIN_DEBRIS_ACTIVE - countActiveTerrainDebris()
+  if (remainingDebrisBudget < 0) {
+    remainingDebrisBudget = 0
+  }
+  const retainedPlankMask = selectRetainedCratePlankMask(
+    crate,
+    request.impactX,
+    request.impactY,
+    request.impactLevel,
+    remainingDebrisBudget
+  )
+  remainingDebrisBudget -= countSelectedCratePlanks(retainedPlankMask)
 
   for (let i = 0; i < crate.planks.length; i++) {
     const plank = crate.planks[i]
+    if (plank.entity) {
+      world?.destroyEntity(plank.entity)
+      plank.entity = null
+    }
     breakableCratePlanksByShapeId.delete(plank.shapeId)
-    spawnCratePlankDebrisEntity(
-      plank,
-      request.impactX,
-      request.impactY,
-      crate.renderLayer,
-      crate.seed,
-      i
-    )
-    box2d.b2DestroyBody(plank.bodyId)
+    const shouldRetain = ((retainedPlankMask >>> i) & 1) !== 0
+    if (shouldRetain) {
+      if (
+        !retainCratePlankDebrisEntity(
+          plank,
+          request.impactX,
+          request.impactY,
+          request.impactLevel,
+          crate.renderLayer,
+          crate.seed,
+          i
+        )
+      ) {
+        continue
+      }
+      continue
+    }
+    if (remainingDebrisBudget > 0) {
+      spawnCratePlankDebrisEntity(
+        plank,
+        request.impactX,
+        request.impactY,
+        request.impactLevel,
+        crate.renderLayer,
+        crate.seed,
+        i
+      )
+      remainingDebrisBudget -= 1
+    }
   }
+  box2d.b2DestroyBody(crate.bodyId)
 
   for (let i = obstacles.length - 1; i >= 0; i--) {
     if (obstacles[i].breakableId === crate.id) {
       obstacles.splice(i, 1)
     }
   }
+  refreshBreakableCrateObstacleIndices()
   weaponSystem.setObstacles(obstacles)
   arrowSystem.setObstacles(obstacles)
   return true
@@ -2228,6 +2696,7 @@ function spawnCratePlankDebrisEntity(
   plank: BreakableCratePlankRuntime,
   impactX: number,
   impactY: number,
+  impactLevel: ImpactLevel,
   renderLayer: number,
   seedBase: number,
   plankIndex: number
@@ -2235,11 +2704,6 @@ function spawnCratePlankDebrisEntity(
   if (!world || !box2d) {
     return
   }
-  const activeCount = countActiveTerrainDebris()
-  if (activeCount >= MAX_TERRAIN_DEBRIS_ACTIVE) {
-    return
-  }
-
   const seed = hashTerrainDebrisSeed(
     Math.round(plank.centerX * 1000),
     Math.round(plank.centerY * 1000),
@@ -2260,9 +2724,12 @@ function spawnCratePlankDebrisEntity(
       : -1000
   const sideX1000 = -dirY1000
   const sideY1000 = dirX1000
-  const sideSpeed1000 = (((seed >>> 5) % 1401) - 700) | 0
-  const outwardSpeed1000 = 2800 + ((seed >>> 11) % 2201)
-  const upwardSpeed1000 = 2600 + ((seed >>> 19) % 1601)
+  const sideSpeed1000 = getCrateDebrisVisualSideSpeed1000(impactLevel, seed)
+  const outwardSpeed1000 = getCrateDebrisVisualOutwardSpeed1000(
+    impactLevel,
+    seed
+  )
+  const upwardSpeed1000 = getCrateDebrisVisualUpwardSpeed1000(impactLevel, seed)
   const spawnY = plank.centerY - 0.05
   const velocityX =
     (dirX1000 * outwardSpeed1000 + sideX1000 * sideSpeed1000) / 1000000
@@ -2297,14 +2764,14 @@ function spawnCratePlankDebrisEntity(
   bodyDef.type = b2BodyType.b2_dynamicBody
   bodyDef.position.Set(plank.centerX, spawnY)
   bodyDef.rotation.SetAngle(plank.rotationRad)
-  bodyDef.linearDamping = 1.2
-  bodyDef.angularDamping = 2
+  bodyDef.linearDamping = 0.09
+  bodyDef.angularDamping = 0.21
   const bodyId = b2CreateBody(worldId, bodyDef)
 
   const shapeDef = b2DefaultShapeDef()
-  shapeDef.density = 0.7
-  shapeDef.material.friction = 0.5
-  shapeDef.material.restitution = 0.06
+  shapeDef.density = 0.16
+  shapeDef.material.friction = 0.09
+  shapeDef.material.restitution = 0.14
   shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
   shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
 
@@ -2335,7 +2802,140 @@ function spawnCratePlankDebrisEntity(
   debris.variant = plank.debrisVariant
   debris.lifeMs = TERRAIN_DEBRIS_LIFETIME_MS
   debris.elapsedMs = 0
+  debris.fadeStartMs = TERRAIN_DEBRIS_FADE_START_MS
+  debris.receivesWeaponImpulse = false
   entity.addComponent(debris)
+}
+
+function retainCratePlankDebrisEntity(
+  plank: BreakableCratePlankRuntime,
+  impactX: number,
+  impactY: number,
+  impactLevel: ImpactLevel,
+  renderLayer: number,
+  seedBase: number,
+  plankIndex: number
+): boolean {
+  if (!world || !box2d) {
+    return false
+  }
+
+  const seed = hashTerrainDebrisSeed(
+    Math.round(plank.centerX * 1000),
+    Math.round(plank.centerY * 1000),
+    (seedBase + plankIndex * 29) | 0
+  )
+  const dx1000 = Math.round((plank.centerX - impactX) * 1000)
+  const dy1000 = Math.round((plank.centerY - impactY) * 1000)
+  const distanceBase1000 = Math.abs(dx1000) + Math.abs(dy1000)
+  const dirX1000 =
+    distanceBase1000 > 0
+      ? Math.floor((dx1000 * 1000) / distanceBase1000)
+      : (seed & 1) === 0
+        ? 1000
+        : -1000
+  const dirY1000 =
+    distanceBase1000 > 0
+      ? Math.floor((dy1000 * 1000) / distanceBase1000)
+      : -1000
+  const sideX1000 = -dirY1000
+  const sideY1000 = dirX1000
+  const sideSpeed1000 = getCrateDebrisRetainedSideSpeed1000(impactLevel, seed)
+  const outwardSpeed1000 = getCrateDebrisRetainedOutwardSpeed1000(
+    impactLevel,
+    seed
+  )
+  const upwardSpeed1000 = getCrateDebrisRetainedUpwardSpeed1000(
+    impactLevel,
+    seed
+  )
+  const angularVelocity1000 = getCrateDebrisRetainedAngularVelocity1000(
+    impactLevel,
+    seed
+  )
+  const collisionCategoryBits =
+    getObstacleCollisionCategory(renderLayer) |
+    getWeaponCollisionCategory(renderLayer)
+  const collisionMaskBits =
+    getObstacleCollisionMask(renderLayer) | getWeaponCollisionMask(renderLayer)
+  const fadeStartMs = Math.max(
+    0,
+    CRATE_RETAINED_DEBRIS_LIFETIME_MS - CRATE_RETAINED_DEBRIS_FADE_DURATION_MS
+  )
+  const woodPalette = WOOD_MATERIAL.fillPalette
+
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2MakeBox,
+    b2CreatePolygonShape,
+    b2Body_SetAngularVelocity,
+    b2Body_SetAwake,
+  } = box2d
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(plank.centerX, plank.centerY)
+  bodyDef.rotation.SetAngle(plank.rotationRad)
+  bodyDef.linearDamping = CRATE_RETAINED_DEBRIS_LINEAR_DAMPING
+  bodyDef.angularDamping = CRATE_RETAINED_DEBRIS_ANGULAR_DAMPING
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.11
+  shapeDef.material.friction = 0.05
+  shapeDef.material.restitution = 0.16
+  shapeDef.filter.categoryBits = collisionCategoryBits
+  shapeDef.filter.maskBits = collisionMaskBits
+  const box = b2MakeBox(plank.halfWidth, plank.halfHeight)
+  const shapeId = b2CreatePolygonShape(bodyId, shapeDef, box)
+
+  setBodyLinearVelocity(
+    bodyId,
+    (dirX1000 * outwardSpeed1000 + sideX1000 * sideSpeed1000) / 1000000,
+    (-(upwardSpeed1000 * 1000) +
+      dirY1000 * outwardSpeed1000 +
+      Math.floor((sideY1000 * sideSpeed1000) / 2)) /
+      1000000
+  )
+  b2Body_SetAngularVelocity(bodyId, angularVelocity1000 / 1000)
+  b2Body_SetAwake(bodyId, true)
+  bodyDef.delete()
+  shapeDef.delete()
+  box.delete()
+
+  const entity = world.createEntity()
+  const transform = arrowPools.acquireTransform()
+  transform.x = plank.centerX
+  transform.y = plank.centerY
+  transform.rotation = plank.rotationRad
+  entity.addComponent(transform)
+
+  const physics = arrowPools.acquirePhysics()
+  physics.bodyId = bodyId
+  physics.shapeId = shapeId
+  entity.addComponent(physics)
+
+  const render = arrowPools.acquireRender()
+  render.visible = true
+  render.renderLayer = renderLayer
+  render.radius = Math.max(plank.halfWidth, plank.halfHeight)
+  render.color = woodPalette[(seed >>> 3) % woodPalette.length]
+  render.borderColor = WOOD_MATERIAL.strokeColor
+  entity.addComponent(render)
+
+  const debris = arrowPools.acquireTerrainDebris()
+  debris.width = plank.halfWidth * 2
+  debris.height = plank.halfHeight * 2
+  debris.variant = plank.debrisVariant
+  debris.lifeMs = CRATE_RETAINED_DEBRIS_LIFETIME_MS
+  debris.elapsedMs = 0
+  debris.fadeStartMs = fadeStartMs
+  debris.receivesWeaponImpulse = true
+  entity.addComponent(debris)
+  return true
 }
 
 function handleTerrainImpact(request: {
@@ -4325,6 +4925,7 @@ function fixedUpdate() {
     playerEntity.input.inputBuffer.clearAll()
   }
 
+  syncBreakableCrateRuntimes()
   const worldUpdateStartMs = performance.now()
   world.update(TIME_STEP)
   const worldUpdateUs = Math.round(
@@ -4364,6 +4965,7 @@ function fixedUpdate() {
     (performance.now() - pickupUpdateStartMs) * 1000
   )
 
+  syncBreakableCrateRuntimes()
   updateTerrainDebrisEntities(entities)
   flushPendingBreakableCrateBreaks()
 
@@ -5616,13 +6218,14 @@ function sendState() {
       if (!debris) {
         continue
       }
-      const fadeDurationMs = Math.max(
-        1,
-        debris.lifeMs - TERRAIN_DEBRIS_FADE_START_MS
+      const fadeStartMs = Math.min(
+        debris.lifeMs,
+        Math.max(0, debris.fadeStartMs)
       )
+      const fadeDurationMs = Math.max(1, debris.lifeMs - fadeStartMs)
       const remainingFadeMs = Math.max(0, debris.lifeMs - debris.elapsedMs)
       const debrisAlpha1000 =
-        debris.elapsedMs <= TERRAIN_DEBRIS_FADE_START_MS
+        debris.elapsedMs <= fadeStartMs
           ? 1000
           : Math.floor((remainingFadeMs * 1000) / fadeDurationMs)
       stateBuffer[offset + OFFSETS.WEAPON_ACTIVE] = 0
@@ -5943,6 +6546,15 @@ function restart() {
 
   refreshActiveMapCollisionLayers()
   createEnvironment()
+  if (activeMapData) {
+    const runtimeMapData = buildRuntimeMapData(activeMapData)
+    if (runtimeMapData) {
+      ctx.postMessage({
+        type: 'map_data',
+        map: runtimeMapData,
+      })
+    }
+  }
   initializeSystems()
   npcEntity = null
   createPlayerAndWeapon(groundTopY, activeMapData)
@@ -6050,13 +6662,16 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       if (msg.action === 'clear_map_preview') {
         activeMapData = defaultMapData
         isMapPreview = false
-        if (activeMapData) {
-          ctx.postMessage({
-            type: 'map_data',
-            map: activeMapData,
-          })
-        }
         restart()
+        if (activeMapData) {
+          const runtimeMapData = buildRuntimeMapData(activeMapData)
+          if (runtimeMapData) {
+            ctx.postMessage({
+              type: 'map_data',
+              map: runtimeMapData,
+            })
+          }
+        }
       }
       if (msg.action === 'reload_default_map') {
         void reloadDefaultMap()
@@ -6178,6 +6793,31 @@ function updateParam(id?: string, value?: number) {
 
   if (id === 'ropeDensity') {
     grappleSystem.setRopeDensity(value)
+  }
+
+  if (id === 'breakableCrateDensity') {
+    breakableCrateDensity = Math.max(0, value)
+    applyBreakableCratePreBreakParams()
+  }
+
+  if (id === 'breakableCrateFriction') {
+    breakableCrateFriction = Math.max(0, value)
+    applyBreakableCratePreBreakParams()
+  }
+
+  if (id === 'breakableCrateLinearDamping') {
+    breakableCrateLinearDamping = Math.max(0, value)
+    applyBreakableCratePreBreakParams()
+  }
+
+  if (id === 'breakableCrateAngularDamping') {
+    breakableCrateAngularDamping = Math.max(0, value)
+    applyBreakableCratePreBreakParams()
+  }
+
+  if (id === 'breakableCrateRestitution') {
+    breakableCrateRestitution = Math.max(0, value)
+    applyBreakableCratePreBreakParams()
   }
 
   if (id === 'ropeLinearDamping') {
@@ -6861,10 +7501,13 @@ function loadFromSave(saveData: SaveData): void {
   requestedZoom = saveData.camera.zoom
   targetZoom = saveData.camera.zoom
 
-  ctx.postMessage({
-    type: 'map_data',
-    map: activeMapData,
-  })
+  const runtimeMapData = buildRuntimeMapData(activeMapData)
+  if (runtimeMapData) {
+    ctx.postMessage({
+      type: 'map_data',
+      map: runtimeMapData,
+    })
+  }
   if (playerEntity?.level?.pendingUpgradePoints) {
     emitPlayerLevelUpPrompt(undefined, playerEntity.level.level)
   }

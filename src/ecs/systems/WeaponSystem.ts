@@ -225,6 +225,18 @@ const ASSASSINATION_SOUND_PLAYBACK_RATE = 250 / 1000
 const ASSASSINATION_DEATH_SOUND_PLAYBACK_RATE = 1
 const ASSASSINATION_CAMERA_SHAKE_INTENSITY_PX = 9
 const ASSASSINATION_CAMERA_SHAKE_DURATION_MS = 160
+const TERRAIN_DEBRIS_HIT_IMPULSE_SMALL1000 = 3500
+const TERRAIN_DEBRIS_HIT_IMPULSE_MEDIUM1000 = 6500
+const TERRAIN_DEBRIS_HIT_IMPULSE_LARGE1000 = 10000
+const TERRAIN_DEBRIS_HIT_IMPULSE_EXTREME1000 = 15000
+const TERRAIN_DEBRIS_HIT_LIFT_SMALL1000 = 1500
+const TERRAIN_DEBRIS_HIT_LIFT_MEDIUM1000 = 3500
+const TERRAIN_DEBRIS_HIT_LIFT_LARGE1000 = 5500
+const TERRAIN_DEBRIS_HIT_LIFT_EXTREME1000 = 8500
+const TERRAIN_DEBRIS_HIT_ANGULAR_SMALL1000 = 500
+const TERRAIN_DEBRIS_HIT_ANGULAR_MEDIUM1000 = 1200
+const TERRAIN_DEBRIS_HIT_ANGULAR_LARGE1000 = 2200
+const TERRAIN_DEBRIS_HIT_ANGULAR_EXTREME1000 = 3600
 
 const BOMB_ULTIMATE_STATS = resolveWeaponStatsForSize(
   WEAPON_DEFAULT_DATA.hammer,
@@ -2739,6 +2751,16 @@ export class WeaponSystem extends System {
       x,
       y,
       owner,
+      sourceWeapon
+    )
+    this.hitTerrainDebrisInCircle(
+      x,
+      y,
+      HAMMER_AOE_RADIUS,
+      renderLayer,
+      'extreme',
+      x,
+      y,
       sourceWeapon
     )
 
@@ -5266,66 +5288,77 @@ export class WeaponSystem extends System {
   private handleBreakableObstacleOBBHit(
     request: BreakableObstacleOBBHitRequest
   ): void {
-    if (this.obstacles.length === 0) {
-      return
+    if (this.obstacles.length > 0) {
+      for (let i = 0; i < this.obstacles.length; i++) {
+        const obstacle = this.obstacles[i]
+        if (
+          obstacle.breakableId === undefined ||
+          obstacle.renderLayer !== request.renderLayer
+        ) {
+          continue
+        }
+        const centerX = obstacle.centerX
+        const centerY = obstacle.centerY
+        const worldVertices = obstacle.worldVertices
+        let hit = false
+        if (worldVertices) {
+          hit = checkOBBvsPolygon(
+            request.centerX,
+            request.centerY,
+            request.width,
+            request.height,
+            request.rotation,
+            worldVertices
+          )
+        } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
+          hit = checkOBBvsCircle(
+            request.centerX,
+            request.centerY,
+            request.width,
+            request.height,
+            request.rotation,
+            centerX,
+            centerY,
+            obstacle.radius
+          )
+        } else {
+          hit = checkOBBvsAABB(
+            request.centerX,
+            request.centerY,
+            request.width,
+            request.height,
+            request.rotation,
+            centerX,
+            centerY,
+            obstacle.width,
+            obstacle.height
+          )
+        }
+        if (!hit) {
+          continue
+        }
+        this.emitBreakableObstacleHit(
+          obstacle,
+          request.impactLevel,
+          request.impactX,
+          request.impactY,
+          request.attacker,
+          request.weapon
+        )
+      }
     }
-    for (let i = 0; i < this.obstacles.length; i++) {
-      const obstacle = this.obstacles[i]
-      if (
-        obstacle.breakableId === undefined ||
-        obstacle.renderLayer !== request.renderLayer
-      ) {
-        continue
-      }
-      const centerX = obstacle.centerX
-      const centerY = obstacle.centerY
-      const worldVertices = obstacle.worldVertices
-      let hit = false
-      if (worldVertices) {
-        hit = checkOBBvsPolygon(
-          request.centerX,
-          request.centerY,
-          request.width,
-          request.height,
-          request.rotation,
-          worldVertices
-        )
-      } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
-        hit = checkOBBvsCircle(
-          request.centerX,
-          request.centerY,
-          request.width,
-          request.height,
-          request.rotation,
-          centerX,
-          centerY,
-          obstacle.radius
-        )
-      } else {
-        hit = checkOBBvsAABB(
-          request.centerX,
-          request.centerY,
-          request.width,
-          request.height,
-          request.rotation,
-          centerX,
-          centerY,
-          obstacle.width,
-          obstacle.height
-        )
-      }
-      if (!hit) {
-        continue
-      }
-      this.emitBreakableObstacleHit(
-        obstacle,
-        request.impactLevel,
-        request.impactX,
-        request.impactY,
-        request.attacker,
-        request.weapon
-      )
-    }
+    this.hitTerrainDebrisInOBB(
+      request.centerX,
+      request.centerY,
+      request.width,
+      request.height,
+      request.rotation,
+      request.renderLayer,
+      request.impactLevel,
+      request.impactX,
+      request.impactY,
+      request.weapon
+    )
   }
 
   private handleBreakableObstacleCircleHit(
@@ -5340,6 +5373,16 @@ export class WeaponSystem extends System {
       request.impactX,
       request.impactY,
       request.attacker,
+      request.weapon
+    )
+    this.hitTerrainDebrisInCircle(
+      request.centerX,
+      request.centerY,
+      request.radius,
+      request.renderLayer,
+      request.impactLevel,
+      request.impactX,
+      request.impactY,
       request.weapon
     )
   }
@@ -5635,6 +5678,18 @@ export class WeaponSystem extends System {
         if (
           checkOBBvsPolygon(wx, wy, wWidth, wHeight, wRotation, worldVertices)
         ) {
+          this.hitTerrainDebrisInOBB(
+            wx,
+            wy,
+            wWidth,
+            wHeight,
+            wRotation,
+            weapon.renderLayer,
+            weapon.impactLevel,
+            wx,
+            wy,
+            weapon
+          )
           this.emitBreakableObstacleHit(
             obstacle,
             weapon.impactLevel,
@@ -5661,6 +5716,18 @@ export class WeaponSystem extends System {
             obstacle.radius
           )
         ) {
+          this.hitTerrainDebrisInOBB(
+            wx,
+            wy,
+            wWidth,
+            wHeight,
+            wRotation,
+            weapon.renderLayer,
+            weapon.impactLevel,
+            wx,
+            wy,
+            weapon
+          )
           this.emitBreakableObstacleHit(
             obstacle,
             weapon.impactLevel,
@@ -5691,6 +5758,18 @@ export class WeaponSystem extends System {
             halfH
           )
         ) {
+          this.hitTerrainDebrisInOBB(
+            wx,
+            wy,
+            wWidth,
+            wHeight,
+            wRotation,
+            weapon.renderLayer,
+            weapon.impactLevel,
+            wx,
+            wy,
+            weapon
+          )
           this.emitBreakableObstacleHit(
             obstacle,
             weapon.impactLevel,
@@ -5722,11 +5801,303 @@ export class WeaponSystem extends System {
     )
   }
 
-  private checkEntityHits(attacker: Entity, weapon: Entity['weapon']): void {
-    if (!this.statsSystem) return
-    if (!attacker.transform || !attacker.faction) return
-    if (!weapon || !weapon.hitEntityIds) return
-    if (!weapon.isEquipped) return
+  private getTerrainDebrisHitImpulse1000(impactLevel: ImpactLevel): number {
+    if (impactLevel === 'small') {
+      return TERRAIN_DEBRIS_HIT_IMPULSE_SMALL1000
+    }
+    if (impactLevel === 'medium') {
+      return TERRAIN_DEBRIS_HIT_IMPULSE_MEDIUM1000
+    }
+    if (impactLevel === 'large') {
+      return TERRAIN_DEBRIS_HIT_IMPULSE_LARGE1000
+    }
+    return TERRAIN_DEBRIS_HIT_IMPULSE_EXTREME1000
+  }
+
+  private getTerrainDebrisHitLift1000(impactLevel: ImpactLevel): number {
+    if (impactLevel === 'small') {
+      return TERRAIN_DEBRIS_HIT_LIFT_SMALL1000
+    }
+    if (impactLevel === 'medium') {
+      return TERRAIN_DEBRIS_HIT_LIFT_MEDIUM1000
+    }
+    if (impactLevel === 'large') {
+      return TERRAIN_DEBRIS_HIT_LIFT_LARGE1000
+    }
+    return TERRAIN_DEBRIS_HIT_LIFT_EXTREME1000
+  }
+
+  private getTerrainDebrisHitAngularImpulse1000(
+    impactLevel: ImpactLevel
+  ): number {
+    if (impactLevel === 'small') {
+      return TERRAIN_DEBRIS_HIT_ANGULAR_SMALL1000
+    }
+    if (impactLevel === 'medium') {
+      return TERRAIN_DEBRIS_HIT_ANGULAR_MEDIUM1000
+    }
+    if (impactLevel === 'large') {
+      return TERRAIN_DEBRIS_HIT_ANGULAR_LARGE1000
+    }
+    return TERRAIN_DEBRIS_HIT_ANGULAR_EXTREME1000
+  }
+
+  private applyTerrainDebrisImpulse(
+    target: Entity,
+    sourceX: number,
+    sourceY: number,
+    impactLevel: ImpactLevel,
+    fallbackDirX1000: number,
+    fallbackDirY1000: number
+  ): boolean {
+    const debris = target.terrainDebris
+    if (
+      !debris ||
+      !debris.receivesWeaponImpulse ||
+      debris.lifeMs <= 0 ||
+      !target.transform ||
+      !target.physics ||
+      !this.box2d ||
+      !this.tempVec
+    ) {
+      return false
+    }
+
+    let dirX1000 = 0
+    let dirY1000 = 0
+    const dx1000 = Math.round((target.transform.x - sourceX) * 1000)
+    const dy1000 = Math.round((target.transform.y - sourceY) * 1000)
+    const distanceBase1000 = Math.abs(dx1000) + Math.abs(dy1000)
+    if (distanceBase1000 > 0) {
+      dirX1000 = Math.floor((dx1000 * 1000) / distanceBase1000)
+      dirY1000 = Math.floor((dy1000 * 1000) / distanceBase1000)
+    } else {
+      dirX1000 = fallbackDirX1000
+      dirY1000 = fallbackDirY1000
+    }
+    if (dirX1000 === 0 && dirY1000 === 0) {
+      dirX1000 = 1000
+    }
+
+    const impulse1000 = this.getTerrainDebrisHitImpulse1000(impactLevel)
+    const lift1000 = this.getTerrainDebrisHitLift1000(impactLevel)
+    const angularImpulse1000 =
+      this.getTerrainDebrisHitAngularImpulse1000(impactLevel)
+    const {
+      b2Body_ApplyLinearImpulseToCenter,
+      b2Body_ApplyAngularImpulse,
+      b2Body_GetMass,
+    } = this.box2d
+    const mass = b2Body_GetMass(target.physics.bodyId)
+    this.tempVec.x = (dirX1000 * impulse1000 * mass) / 1000000
+    this.tempVec.y =
+      ((dirY1000 * impulse1000 - lift1000 * 1000) * mass) / 1000000
+    b2Body_ApplyLinearImpulseToCenter(target.physics.bodyId, this.tempVec, true)
+    const angularSign =
+      dx1000 === 0 ? (dirX1000 >= 0 ? 1 : -1) : dx1000 > 0 ? 1 : -1
+    b2Body_ApplyAngularImpulse(
+      target.physics.bodyId,
+      (angularImpulse1000 * angularSign * mass) / 1000,
+      true
+    )
+    return true
+  }
+
+  private hitTerrainDebrisInCircle(
+    centerX: number,
+    centerY: number,
+    radius: number,
+    renderLayer: number,
+    impactLevel: ImpactLevel,
+    impactX = centerX,
+    impactY = centerY,
+    weapon?: WeaponComponent
+  ): void {
+    if (radius <= 0) {
+      return
+    }
+    const radiusSq = radius * radius
+    for (let i = 0; i < this.allEntities.length; i++) {
+      const target = this.allEntities[i]
+      if (
+        !target?.transform ||
+        (target.render?.renderLayer ?? 0) !== renderLayer ||
+        !target.terrainDebris?.receivesWeaponImpulse
+      ) {
+        continue
+      }
+      const dx = target.transform.x - centerX
+      const dy = target.transform.y - centerY
+      if (dx * dx + dy * dy > radiusSq) {
+        continue
+      }
+      if (weapon?.hitEntityIds.has(target.id)) {
+        continue
+      }
+      this.applyTerrainDebrisImpulse(
+        target,
+        impactX,
+        impactY,
+        impactLevel,
+        dx >= 0 ? 1000 : -1000,
+        dy >= 0 ? 1000 : -1000
+      )
+      weapon?.hitEntityIds.add(target.id)
+    }
+  }
+
+  private hitTerrainDebrisInOBB(
+    centerX: number,
+    centerY: number,
+    width: number,
+    height: number,
+    rotation: number,
+    renderLayer: number,
+    impactLevel: ImpactLevel,
+    impactX = centerX,
+    impactY = centerY,
+    weapon?: WeaponComponent
+  ): void {
+    if (width <= 0 || height <= 0) {
+      return
+    }
+    for (let i = 0; i < this.allEntities.length; i++) {
+      const target = this.allEntities[i]
+      if (
+        !target?.transform ||
+        (target.render?.renderLayer ?? 0) !== renderLayer ||
+        !target.terrainDebris?.receivesWeaponImpulse
+      ) {
+        continue
+      }
+      if (weapon?.hitEntityIds.has(target.id)) {
+        continue
+      }
+      const debrisWidth = target.terrainDebris.width
+      const debrisHeight = target.terrainDebris.height
+      if (debrisWidth <= 0 || debrisHeight <= 0) {
+        continue
+      }
+      const debrisRadius =
+        target.render?.radius ?? Math.max(debrisWidth, debrisHeight) / 2
+      const hit =
+        checkOBBvsOBB(
+          centerX,
+          centerY,
+          width,
+          height,
+          rotation,
+          target.transform.x,
+          target.transform.y,
+          debrisWidth,
+          debrisHeight,
+          target.transform.rotation
+        ) ||
+        checkOBBvsCircle(
+          centerX,
+          centerY,
+          width,
+          height,
+          rotation,
+          target.transform.x,
+          target.transform.y,
+          debrisRadius
+        )
+      if (!hit) {
+        continue
+      }
+      const fallbackDirX1000 = Math.round(Math.cos(rotation) * 1000)
+      const fallbackDirY1000 = Math.round(Math.sin(rotation) * 1000)
+      this.applyTerrainDebrisImpulse(
+        target,
+        impactX,
+        impactY,
+        impactLevel,
+        fallbackDirX1000 !== 0 ? fallbackDirX1000 : 1000,
+        fallbackDirY1000
+      )
+      weapon?.hitEntityIds.add(target.id)
+    }
+  }
+
+  private tryHitTerrainDebris(
+    target: Entity,
+    weapon: WeaponComponent,
+    weaponX: number,
+    weaponY: number,
+    weaponWidth: number,
+    weaponHeight: number,
+    weaponRotation: number,
+    attackRadius: number
+  ): boolean {
+    const debris = target.terrainDebris
+    if (!debris || !target.transform) {
+      return false
+    }
+    if (weapon.hitEntityIds.has(target.id)) {
+      return false
+    }
+
+    const debrisWidth = debris.width
+    const debrisHeight = debris.height
+    if (debrisWidth <= 0 || debrisHeight <= 0) {
+      return false
+    }
+
+    const debrisRadius =
+      target.render?.radius ?? Math.max(debrisWidth, debrisHeight) / 2
+    const dx = weaponX - target.transform.x
+    const dy = weaponY - target.transform.y
+    const hitRange = attackRadius + debrisRadius
+    if (dx * dx + dy * dy > hitRange * hitRange) {
+      return false
+    }
+    const overlap =
+      checkOBBvsOBB(
+        weaponX,
+        weaponY,
+        weaponWidth,
+        weaponHeight,
+        weaponRotation,
+        target.transform.x,
+        target.transform.y,
+        debrisWidth,
+        debrisHeight,
+        target.transform.rotation
+      ) ||
+      checkOBBvsCircle(
+        weaponX,
+        weaponY,
+        weaponWidth,
+        weaponHeight,
+        weaponRotation,
+        target.transform.x,
+        target.transform.y,
+        debrisRadius
+      )
+    if (!overlap) {
+      return false
+    }
+
+    const fallbackX1000 = Math.round(Math.cos(weaponRotation) * 1000)
+    const fallbackY1000 = Math.round(Math.sin(weaponRotation) * 1000)
+    this.applyTerrainDebrisImpulse(
+      target,
+      weaponX,
+      weaponY,
+      weapon.impactLevel,
+      fallbackX1000 !== 0 ? fallbackX1000 : (weapon.attackFacing || 1) * 1000,
+      fallbackY1000
+    )
+    weapon.isColliding = true
+    weapon.hitEntityIds.add(target.id)
+    return true
+  }
+
+  private checkEntityHits(attacker: Entity, weapon: Entity['weapon']): number {
+    if (!attacker.transform) return 0
+    if (!weapon || !weapon.hitEntityIds) return 0
+    if (!weapon.isEquipped) return 0
 
     const weaponX = weapon.visual.x
     const weaponY = weapon.visual.y
@@ -5755,15 +6126,34 @@ export class WeaponSystem extends System {
       ? this.spatialHash.getQueryResultLength()
       : nearbyEntities.length
     const attackerLayer = attacker.render?.renderLayer ?? weapon.renderLayer
+    const attackerFaction = attacker.faction
+    const statsSystem = this.statsSystem
+    let entityHitCount = 0
 
     for (let i = 0; i < nearbyCount; i++) {
       const target = nearbyEntities[i]
       if (!target || target.id === attacker.id) continue
-      if (!target.transform || !target.stats || target.stats.isDead) continue
       if ((target.render?.renderLayer ?? 0) !== attackerLayer) continue
       if (
+        target.terrainDebris?.receivesWeaponImpulse &&
+        this.tryHitTerrainDebris(
+          target,
+          weapon,
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weaponRotation,
+          attackRadius
+        )
+      ) {
+        continue
+      }
+      if (!statsSystem || !attackerFaction) continue
+      if (!target.transform || !target.stats || target.stats.isDead) continue
+      if (
         !target.faction ||
-        !attacker.faction.canAttackEntity(target.faction, target.id.toString())
+        !attackerFaction.canAttackEntity(target.faction, target.id.toString())
       )
         continue
 
@@ -5817,16 +6207,13 @@ export class WeaponSystem extends System {
       if (isSegmentHit || isCircleHit) {
         this.tempHitSource.x = weaponX
         this.tempHitSource.y = weaponY
-        this.statsSystem.applyWeaponHit(
-          target,
-          weapon,
-          this.tempHitSource,
-          attacker
-        )
+        statsSystem.applyWeaponHit(target, weapon, this.tempHitSource, attacker)
+        entityHitCount += 1
         weapon.isColliding = true
         weapon.hitEntityIds.add(target.id)
       }
     }
+    return entityHitCount
   }
 
   private startRebound(
@@ -5973,9 +6360,8 @@ export class WeaponSystem extends System {
       weapon.width =
         minWidth + (baseWidth - minWidth) * (1 - Math.sin(t * Math.PI))
 
-      const prevHitCount = weapon.hitEntityIds.size
-      this.checkEntityHits(entity, weapon)
-      if (weapon.hitEntityIds.size > prevHitCount) {
+      const entityHitCount = this.checkEntityHits(entity, weapon)
+      if (entityHitCount > 0) {
         // 发射点在锤头前缘（朝向一侧半幅宽处）
         const headEdgeX = weapon.visual.x + facing * (baseWidth / 2)
         this.statsSystem?.emitHammerCritHit(headEdgeX, weapon.visual.y)

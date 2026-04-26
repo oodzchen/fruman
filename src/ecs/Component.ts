@@ -1405,6 +1405,8 @@ export class TerrainDebrisComponent extends Component {
   variant = 0
   lifeMs = 0
   elapsedMs = 0
+  fadeStartMs = 0
+  receivesWeaponImpulse = false
 
   reset(): void {
     this.width = 0
@@ -1412,6 +1414,8 @@ export class TerrainDebrisComponent extends Component {
     this.variant = 0
     this.lifeMs = 0
     this.elapsedMs = 0
+    this.fadeStartMs = 0
+    this.receivesWeaponImpulse = false
   }
 
   getName(): string {

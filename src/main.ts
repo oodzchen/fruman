@@ -36,6 +36,12 @@ interface ParamConfig {
   defaultValue: number
 }
 
+const DEFAULT_BREAKABLE_CRATE_DENSITY = 3.6
+const DEFAULT_BREAKABLE_CRATE_FRICTION = 25.6
+const DEFAULT_BREAKABLE_CRATE_LINEAR_DAMPING = 0.6
+const DEFAULT_BREAKABLE_CRATE_ANGULAR_DAMPING = 1.8
+const DEFAULT_BREAKABLE_CRATE_RESTITUTION = 0.02
+
 const PARAM_CONFIGS: ParamConfig[] = [
   {
     id: 'jumpForce',
@@ -108,6 +114,36 @@ const PARAM_CONFIGS: ParamConfig[] = [
     numberId: 'obstacleFrictionNum',
     label: 'param_obstacle_friction',
     defaultValue: DEFAULT_OBSTACLE_FRICTION,
+  },
+  {
+    id: 'breakableCrateDensity',
+    numberId: 'breakableCrateDensityNum',
+    label: 'param_breakable_crate_density',
+    defaultValue: DEFAULT_BREAKABLE_CRATE_DENSITY,
+  },
+  {
+    id: 'breakableCrateFriction',
+    numberId: 'breakableCrateFrictionNum',
+    label: 'param_breakable_crate_friction',
+    defaultValue: DEFAULT_BREAKABLE_CRATE_FRICTION,
+  },
+  {
+    id: 'breakableCrateLinearDamping',
+    numberId: 'breakableCrateLinearDampingNum',
+    label: 'param_breakable_crate_linear_damping',
+    defaultValue: DEFAULT_BREAKABLE_CRATE_LINEAR_DAMPING,
+  },
+  {
+    id: 'breakableCrateAngularDamping',
+    numberId: 'breakableCrateAngularDampingNum',
+    label: 'param_breakable_crate_angular_damping',
+    defaultValue: DEFAULT_BREAKABLE_CRATE_ANGULAR_DAMPING,
+  },
+  {
+    id: 'breakableCrateRestitution',
+    numberId: 'breakableCrateRestitutionNum',
+    label: 'param_breakable_crate_restitution',
+    defaultValue: DEFAULT_BREAKABLE_CRATE_RESTITUTION,
   },
   {
     id: 'cameraZoom',
@@ -341,6 +377,12 @@ async function initialize() {
     bodyLinearDamping: (v) => game.getPlayer().setBodyLinearDamping(v),
     groundFriction: (v) => game.setGroundFriction(v),
     obstacleFriction: (v) => game.setObstacleFriction(v),
+    breakableCrateDensity: (v) => game.setBreakableCrateDensity(v),
+    breakableCrateFriction: (v) => game.setBreakableCrateFriction(v),
+    breakableCrateLinearDamping: (v) => game.setBreakableCrateLinearDamping(v),
+    breakableCrateAngularDamping: (v) =>
+      game.setBreakableCrateAngularDamping(v),
+    breakableCrateRestitution: (v) => game.setBreakableCrateRestitution(v),
     cameraZoom: (v) => game.setZoom(v),
     ropeDensity: (v) => game.setRopeDensity(v),
     ropeLinearDamping: (v) => game.setRopeLinearDamping(v),

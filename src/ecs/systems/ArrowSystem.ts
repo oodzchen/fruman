@@ -9,11 +9,13 @@ import {
 import type { MainModule } from '../../types'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
 import type { ArrowPools } from '../ArrowPools'
+import type { ImpactLevel } from '../AttackMoveData'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import {
   checkOBBvsAABB,
   checkOBBvsCircle,
+  checkOBBvsOBB,
   checkOBBvsPolygon,
 } from '../OBBCollision'
 import type { SpatialHash } from '../SpatialHash'
@@ -26,6 +28,18 @@ import type { BreakableObstacleHit, ObstacleCollider } from './WeaponSystem'
 const PARRY_WINDOW_FRAMES =
   (DEFAULT_PARRY_WINDOW_MS * DEFAULT_FRAME_RATE) / 1000
 const PARRY_ACTIVE_START_FRAME = PARRY_WINDOW_FRAMES * 0.5
+const TERRAIN_DEBRIS_ARROW_IMPULSE_SMALL1000 = 3000
+const TERRAIN_DEBRIS_ARROW_IMPULSE_MEDIUM1000 = 5500
+const TERRAIN_DEBRIS_ARROW_IMPULSE_LARGE1000 = 8500
+const TERRAIN_DEBRIS_ARROW_IMPULSE_EXTREME1000 = 13000
+const TERRAIN_DEBRIS_ARROW_LIFT_SMALL1000 = 900
+const TERRAIN_DEBRIS_ARROW_LIFT_MEDIUM1000 = 1500
+const TERRAIN_DEBRIS_ARROW_LIFT_LARGE1000 = 2300
+const TERRAIN_DEBRIS_ARROW_LIFT_EXTREME1000 = 3400
+const TERRAIN_DEBRIS_ARROW_ANGULAR_SMALL1000 = 220
+const TERRAIN_DEBRIS_ARROW_ANGULAR_MEDIUM1000 = 360
+const TERRAIN_DEBRIS_ARROW_ANGULAR_LARGE1000 = 520
+const TERRAIN_DEBRIS_ARROW_ANGULAR_EXTREME1000 = 760
 
 export class ArrowSystem extends System {
   private box2d: MainModule
@@ -165,6 +179,14 @@ export class ArrowSystem extends System {
         arrow.projectileType === 'grapeShot'
           ? entity.transform.y
           : entity.transform.y + dirY * entity.weapon.width
+      if (this.checkTerrainDebrisCollision(entity, headX, dirX, dirY)) {
+        if (arrow.projectileType === 'grapeShot') {
+          this.shatterProjectile(entity, headX, headY)
+        } else {
+          this.destroyArrowEntity(entity)
+        }
+        continue
+      }
       if (this.checkBreakableObstacleCollision(entity, headX, headY)) {
         if (arrow.projectileType === 'grapeShot') {
           this.shatterProjectile(entity, headX, headY)
@@ -230,6 +252,165 @@ export class ArrowSystem extends System {
     const weapon = target.weapon
     if (!weapon || !weapon.isParrying) return false
     return weapon.parryElapsedTime >= PARRY_ACTIVE_START_FRAME
+  }
+
+  private getTerrainDebrisImpulse1000(impactLevel: ImpactLevel): number {
+    if (impactLevel === 'small') {
+      return TERRAIN_DEBRIS_ARROW_IMPULSE_SMALL1000
+    }
+    if (impactLevel === 'medium') {
+      return TERRAIN_DEBRIS_ARROW_IMPULSE_MEDIUM1000
+    }
+    if (impactLevel === 'large') {
+      return TERRAIN_DEBRIS_ARROW_IMPULSE_LARGE1000
+    }
+    return TERRAIN_DEBRIS_ARROW_IMPULSE_EXTREME1000
+  }
+
+  private getTerrainDebrisLift1000(impactLevel: ImpactLevel): number {
+    if (impactLevel === 'small') {
+      return TERRAIN_DEBRIS_ARROW_LIFT_SMALL1000
+    }
+    if (impactLevel === 'medium') {
+      return TERRAIN_DEBRIS_ARROW_LIFT_MEDIUM1000
+    }
+    if (impactLevel === 'large') {
+      return TERRAIN_DEBRIS_ARROW_LIFT_LARGE1000
+    }
+    return TERRAIN_DEBRIS_ARROW_LIFT_EXTREME1000
+  }
+
+  private getTerrainDebrisAngularImpulse1000(impactLevel: ImpactLevel): number {
+    if (impactLevel === 'small') {
+      return TERRAIN_DEBRIS_ARROW_ANGULAR_SMALL1000
+    }
+    if (impactLevel === 'medium') {
+      return TERRAIN_DEBRIS_ARROW_ANGULAR_MEDIUM1000
+    }
+    if (impactLevel === 'large') {
+      return TERRAIN_DEBRIS_ARROW_ANGULAR_LARGE1000
+    }
+    return TERRAIN_DEBRIS_ARROW_ANGULAR_EXTREME1000
+  }
+
+  private applyTerrainDebrisImpulse(
+    target: Entity,
+    impactLevel: ImpactLevel,
+    impactX: number,
+    dirX1000: number,
+    dirY1000: number
+  ): boolean {
+    if (!target.transform || !target.physics || !this.tempVec) {
+      return false
+    }
+    const { b2Body_ApplyAngularImpulse, b2Body_ApplyLinearImpulseToCenter } =
+      this.box2d
+    const mass = this.box2d.b2Body_GetMass(target.physics.bodyId)
+    const impulse1000 = this.getTerrainDebrisImpulse1000(impactLevel)
+    const lift1000 = this.getTerrainDebrisLift1000(impactLevel)
+    const angularImpulse1000 =
+      this.getTerrainDebrisAngularImpulse1000(impactLevel)
+
+    this.tempVec.x = (dirX1000 * impulse1000 * mass) / 1000000
+    this.tempVec.y =
+      ((dirY1000 * impulse1000 - lift1000 * 1000) * mass) / 1000000
+    b2Body_ApplyLinearImpulseToCenter(target.physics.bodyId, this.tempVec, true)
+
+    const dx = target.transform.x - impactX
+    const angularSign = dx === 0 ? (dirX1000 >= 0 ? 1 : -1) : dx > 0 ? 1 : -1
+    b2Body_ApplyAngularImpulse(
+      target.physics.bodyId,
+      (angularImpulse1000 * angularSign * mass) / 1000,
+      true
+    )
+    return true
+  }
+
+  private checkTerrainDebrisCollision(
+    entity: Entity,
+    impactX: number,
+    dirX: number,
+    dirY: number
+  ): boolean {
+    const weapon = entity.weapon
+    const world = this.world
+    if (!weapon || !world) {
+      return false
+    }
+    const weaponX = weapon.visual.x
+    const weaponY = weapon.visual.y
+    const weaponWidth = weapon.width
+    const weaponHeight = weapon.height
+    if (weaponWidth <= 0 || weaponHeight <= 0) {
+      return false
+    }
+
+    const entities = world.getEntities()
+    const dirX1000 = Math.round(dirX * 1000)
+    const dirY1000 = Math.round(dirY * 1000)
+    const fallbackDirX1000 = dirX1000 !== 0 ? dirX1000 : 1000
+
+    for (let i = 0; i < entities.length; i++) {
+      const target = entities[i]
+      const debris = target?.terrainDebris
+      if (
+        !target?.transform ||
+        !target.physics ||
+        !debris?.receivesWeaponImpulse ||
+        (target.render?.renderLayer ?? 0) !== weapon.renderLayer
+      ) {
+        continue
+      }
+      const debrisWidth = debris.width
+      const debrisHeight = debris.height
+      if (debrisWidth <= 0 || debrisHeight <= 0) {
+        continue
+      }
+      const dx = target.transform.x - weaponX
+      const dy = target.transform.y - weaponY
+      const reachX = weaponWidth + debrisWidth
+      const reachY = weaponHeight + debrisHeight
+      if (Math.abs(dx) > reachX || Math.abs(dy) > reachY) {
+        continue
+      }
+      const debrisRadius =
+        target.render?.radius ?? Math.max(debrisWidth, debrisHeight) / 2
+      const hit =
+        checkOBBvsOBB(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weapon.visual.rotation,
+          target.transform.x,
+          target.transform.y,
+          debrisWidth,
+          debrisHeight,
+          target.transform.rotation
+        ) ||
+        checkOBBvsCircle(
+          weaponX,
+          weaponY,
+          weaponWidth,
+          weaponHeight,
+          weapon.visual.rotation,
+          target.transform.x,
+          target.transform.y,
+          debrisRadius
+        )
+      if (!hit) {
+        continue
+      }
+      this.applyTerrainDebrisImpulse(
+        target,
+        weapon.impactLevel,
+        impactX,
+        fallbackDirX1000,
+        dirY1000
+      )
+      return true
+    }
+    return false
   }
 
   private checkBreakableObstacleCollision(
