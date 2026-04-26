@@ -12,7 +12,10 @@ import type {
 import { DEFAULT_ENVIRONMENT_SCALE_PERMILLE } from '../environmentTransformUtils'
 import { renderBody } from '../renderer/BodyRenderer'
 import { createCheckpointTreeTextureSource } from '../renderer/CheckpointTreeTextureFactory'
-import { createEnvironmentTextureSource } from '../renderer/ProceduralEnvironmentFactory'
+import {
+  createCustomEnvironmentTextureSource,
+  createEnvironmentTextureSource,
+} from '../renderer/ProceduralEnvironmentFactory'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import type { NpcType, WeaponType } from '../types'
 import {
@@ -221,6 +224,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
   declare editorShape: EnvironmentMarker['editorShape']
   declare envType: EnvironmentMarker['envType']
   declare envSeed: EnvironmentMarker['envSeed']
+  declare envAssetId: EnvironmentMarker['envAssetId']
   declare anchorDX: EnvironmentMarker['anchorDX']
   declare anchorDY: EnvironmentMarker['anchorDY']
   declare scaleXPermille: EnvironmentMarker['scaleXPermille']
@@ -236,6 +240,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
   ) {
     super(options)
     this.editorShape = 'environment-marker'
+    this.envAssetId = ''
     this.textureCanvas = config.textureCanvas
     this.drawOffsetX = 0
     this.drawOffsetY = 0
@@ -903,12 +908,17 @@ export class EditorObjectFactory {
     return { weaponMarker, weaponData, weaponType, category, slot }
   }
 
-  createEnvironmentMarker(envType: MapEnvironmentObjectType, envSeed: number) {
+  createEnvironmentMarker(
+    envType: MapEnvironmentObjectType,
+    envSeed: number,
+    envAssetId = ''
+  ) {
     return this.createEnvironmentMarkerWithScale(
       envType,
       envSeed,
       DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
-      DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+      DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
+      envAssetId
     )
   }
 
@@ -916,13 +926,15 @@ export class EditorObjectFactory {
     envType: MapEnvironmentObjectType,
     envSeed: number,
     scaleXPermille: number,
-    scaleYPermille: number
+    scaleYPermille: number,
+    envAssetId = ''
   ) {
     const textureConfig = this.buildEnvironmentMarkerTextureConfig(
       envType,
       envSeed,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      envAssetId
     )
     const marker = new EnvironmentMarkerRenderObject(textureConfig, {
       originX: 'center',
@@ -937,6 +949,7 @@ export class EditorObjectFactory {
     }) as EnvironmentMarker
     marker.envType = envType
     marker.envSeed = envSeed
+    marker.envAssetId = envAssetId
     marker.scaleXPermille = scaleXPermille
     marker.scaleYPermille = scaleYPermille
     marker.scaleX = 1
@@ -953,7 +966,8 @@ export class EditorObjectFactory {
       marker.envType,
       marker.envSeed,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      marker.envAssetId
     )
     ;(marker as EnvironmentMarkerRenderObject).applyTextureConfig(textureConfig)
     marker.scaleXPermille = scaleXPermille
@@ -966,15 +980,24 @@ export class EditorObjectFactory {
     envType: MapEnvironmentObjectType,
     envSeed: number,
     scaleXPermille: number,
-    scaleYPermille: number
+    scaleYPermille: number,
+    envAssetId = ''
   ): EnvironmentMarkerTextureConfig {
-    const source = createEnvironmentTextureSource(
-      envType,
-      envSeed,
-      this.pixelsPerMeter,
-      scaleXPermille,
-      scaleYPermille
-    )
+    const source =
+      envType === 'custom'
+        ? createCustomEnvironmentTextureSource(
+            envAssetId,
+            this.pixelsPerMeter,
+            scaleXPermille,
+            scaleYPermille
+          )
+        : createEnvironmentTextureSource(
+            envType,
+            envSeed,
+            this.pixelsPerMeter,
+            scaleXPermille,
+            scaleYPermille
+          )
     return {
       textureCanvas: source.canvas,
       boundsX: source.boundsX,

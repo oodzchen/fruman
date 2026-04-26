@@ -2,7 +2,12 @@ import * as fabric from 'fabric'
 
 import { localizer } from '../Localizer'
 import { ObjectType } from './types'
-import type { EditorEmptyObject, EditorObjectData, WeaponMarker } from './types'
+import type {
+  EditorEmptyObject,
+  EditorLayeredObject,
+  EditorObjectData,
+  WeaponMarker,
+} from './types'
 
 const EDITOR_LOCKED_SELECTION_BORDER_COLOR = 'rgba(190, 66, 66, 0.92)'
 const EDITOR_LOCKED_SELECTION_CORNER_COLOR = 'rgba(220, 92, 92, 0.95)'
@@ -16,6 +21,7 @@ export interface EditorObjectManagerContext {
   isPriorityBringToFrontObject: (object: fabric.Object) => boolean
   renderObjectTree: () => void
   getObjectRenderLayer: (object: fabric.Object) => number
+  getSupplementalStackingObjects: () => readonly fabric.Object[]
 }
 
 export class EditorObjectManager {
@@ -193,17 +199,26 @@ export class EditorObjectManager {
     }
     // 按 renderLayer 升序排列：layer 小的先渲染（在下方）
     const topLevel: fabric.Object[] = []
+    const objectOrder = new Map<fabric.Object, number>()
     for (let i = 0; i < this.editorObjects.length; i++) {
       const obj = this.editorObjects[i].object
+      objectOrder.set(obj, i * 2)
       if (obj.canvas === canvas && !this.isTrackedGroupedObject(obj)) {
         topLevel.push(obj)
       }
     }
-    topLevel.sort(
-      (a, b) =>
-        this.ctx.getObjectRenderLayer(a) - this.ctx.getObjectRenderLayer(b)
-    )
+    const supplementalObjects = this.ctx.getSupplementalStackingObjects()
+    for (let i = 0; i < supplementalObjects.length; i++) {
+      const obj = supplementalObjects[i]
+      if (obj.canvas !== canvas) {
+        continue
+      }
+      objectOrder.set(obj, i * 2 - 1)
+      topLevel.push(obj)
+    }
+    topLevel.sort((a, b) => this.compareStackingObjects(a, b, objectOrder))
     for (let i = 0; i < topLevel.length; i++) {
+      this.sortGroupChildrenByRenderLayer(topLevel[i], objectOrder)
       canvas.moveObjectTo(topLevel[i], i)
     }
     if (
@@ -213,13 +228,63 @@ export class EditorObjectManager {
       const focusedData = this.editorObjectMap.get(this.focusedEditorObject)
       if (
         focusedData &&
-        (focusedData.type !== ObjectType.Terrain ||
-          this.ctx.isPriorityBringToFrontObject(this.focusedEditorObject))
+        this.ctx.isPriorityBringToFrontObject(this.focusedEditorObject)
       ) {
         this.bringFocusedObjectToFront(this.focusedEditorObject)
       }
     }
     canvas.requestRenderAll()
+  }
+
+  private compareStackingObjects(
+    a: fabric.Object,
+    b: fabric.Object,
+    objectOrder: ReadonlyMap<fabric.Object, number>
+  ): number {
+    const layerDelta =
+      this.getObjectStackingRenderLayer(a) -
+      this.getObjectStackingRenderLayer(b)
+    if (layerDelta !== 0) {
+      return layerDelta
+    }
+    return (objectOrder.get(a) ?? 0) - (objectOrder.get(b) ?? 0)
+  }
+
+  private getObjectStackingRenderLayer(object: fabric.Object): number {
+    if (!this.isGroupContainerObject(object)) {
+      return this.ctx.getObjectRenderLayer(object)
+    }
+    const explicitLayer = (object as EditorLayeredObject).renderLayer
+    if (typeof explicitLayer === 'number' && Number.isFinite(explicitLayer)) {
+      return this.ctx.getObjectRenderLayer(object)
+    }
+    const children = object.getObjects()
+    if (children.length === 0) {
+      return this.ctx.getObjectRenderLayer(object)
+    }
+    let minLayer = this.ctx.getObjectRenderLayer(children[0])
+    for (let i = 1; i < children.length; i++) {
+      minLayer = Math.min(minLayer, this.ctx.getObjectRenderLayer(children[i]))
+    }
+    return minLayer
+  }
+
+  private sortGroupChildrenByRenderLayer(
+    object: fabric.Object,
+    objectOrder: ReadonlyMap<fabric.Object, number>
+  ): void {
+    if (!this.isGroupContainerObject(object)) {
+      return
+    }
+    const children = object.getObjects().slice()
+    if (children.length <= 1) {
+      return
+    }
+    children.sort((a, b) => this.compareStackingObjects(a, b, objectOrder))
+    for (let i = 0; i < children.length; i++) {
+      object.moveObjectTo(children[i], i)
+    }
+    object.dirty = true
   }
 
   private markVisualsDirty() {

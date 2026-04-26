@@ -89,6 +89,7 @@ import type {
   EditorMapData,
   EditorMapMeta,
   EditorViewportState,
+  MapEnvironmentAsset,
   MapNpcTemplate,
   MapNpcWeapon,
   MapSettings,
@@ -96,6 +97,12 @@ import type {
   WeaponCategory,
 } from './editorMapTypes'
 import { DEFAULT_MAP_TIME_PHASE } from './editorMapTypes'
+import {
+  createEnvironmentAssetFromImageFile,
+  deleteEnvironmentAsset,
+  ensureRuntimeEnvironmentAsset,
+  updateEnvironmentAsset,
+} from './environmentAssetRegistry'
 import {
   RENDER_LAYER_SKY,
   formatRenderLayerLabel,
@@ -110,6 +117,7 @@ import {
 import { renderWeapon } from './renderer/WeaponRenderer'
 import {
   createEditorMap,
+  listEditorEnvironmentAssets,
   listEditorMaps,
   loadEditorMapData,
   loadEditorSetting,
@@ -130,6 +138,7 @@ interface EditorTreeHistoryEntry {
 }
 
 const EDITOR_TREE_COLLAPSED_PATHS_PREFIX = 'editor-tree-collapsed:'
+const EDITOR_ENVIRONMENT_ASSET_MAX_FILE_BYTES = 1024 * 1024
 
 export enum EditorView {
   MapList,
@@ -162,6 +171,8 @@ export class EditorManager {
   private currentView: EditorView = EditorView.MapList
   private maps: EditorMap[] = []
   private currentMapMeta: EditorMapMeta | null = null
+  private customEnvironmentAssets: MapEnvironmentAsset[] = []
+  private customEnvironmentAssetsLoaded = false
   private mapSettings: MapSettings = {
     initialTimePhase: DEFAULT_MAP_TIME_PHASE,
   }
@@ -325,6 +336,8 @@ export class EditorManager {
         this.terrainManager.isTerrainContourProxy(obj),
       renderObjectTree: () => this.renderObjectTree(),
       getObjectRenderLayer: (obj) => this.getEditorObjectRenderLayer(obj),
+      getSupplementalStackingObjects: () =>
+        this.terrainManager.getTerrainRenderObjects(),
     })
 
     this.markerManager = new EditorMarkerManager(
@@ -333,8 +346,8 @@ export class EditorManager {
 
         getViewportCenter: () => this.getViewportCenter(),
 
-        registerEditorObject: (type, obj) =>
-          this.registerEditorObjectWithDepth(type, obj),
+        registerEditorObject: (type, obj, preferredName) =>
+          this.registerEditorObjectWithDepth(type, obj, preferredName),
 
         handleCanvasSelection: (obj) =>
           this.objectManager.handleCanvasSelection(obj ? [obj] : []),
@@ -366,6 +379,7 @@ export class EditorManager {
       getFabricCanvas: () => this.fabricCanvas,
       requestRender: () => this.fabricCanvas?.requestRenderAll(),
       pixelsPerMeter: EDITOR_PIXELS_PER_METER,
+      onTerrainRenderObjectsChanged: () => this.reorderCanvasObjects(),
       registerEditorObject: (type, obj, preferredName) =>
         this.registerEditorObjectWithDepth(type, obj, preferredName),
       unregisterEditorObject: (obj) =>
@@ -710,6 +724,13 @@ export class EditorManager {
       onCreateCustomNpcTemplate: async () => {
         await this.handleCreateCustomNpcTemplate()
       },
+      getCustomEnvironmentAssets: () => this.customEnvironmentAssets,
+      onCustomEnvironmentAssetSelected: async (assetId) => {
+        await this.handleCustomEnvironmentAssetSelected(assetId)
+      },
+      onCreateCustomEnvironmentAsset: async () => {
+        await this.handleCreateCustomEnvironmentAsset()
+      },
       onSunPickupSelected: (isLarge) => {
         const spawn = this.consumePanelMenuSpawn()
         if (spawn) {
@@ -774,6 +795,10 @@ export class EditorManager {
       },
       onPanelMenuMapSettings: () => {
         void this.showMapSettingsDialog()
+      },
+      onPanelMenuAssetManager: () => {
+        this.menuSystem.hidePanelMenu()
+        void this.showEnvironmentAssetManagerDialog()
       },
     })
 
@@ -1427,7 +1452,7 @@ export class EditorManager {
   }
 
   private applyDepthFilter(): void {
-    // 通知地形管理器更新渲染过滤（地形通过 _renderBackground 钩子单独绘制）
+    // 通知地形管理器更新渲染过滤。
     this.terrainManager.setSceneDepthFilter(this.sceneDepthFilter)
     const canvas = this.fabricCanvas
     if (!canvas) {
@@ -2067,6 +2092,578 @@ export class EditorManager {
     this.captureHistorySnapshot()
   }
 
+  private async refreshCustomEnvironmentAssets(): Promise<void> {
+    const assets = await listEditorEnvironmentAssets()
+    this.customEnvironmentAssets = assets
+    this.customEnvironmentAssetsLoaded = true
+    this.menuSystem?.refreshCustomEnvironmentAssets()
+  }
+
+  private findCustomEnvironmentAsset(
+    assetId: string
+  ): MapEnvironmentAsset | null {
+    for (let i = 0; i < this.customEnvironmentAssets.length; i++) {
+      const asset = this.customEnvironmentAssets[i]
+      if (asset.id === assetId) {
+        return asset
+      }
+    }
+    return null
+  }
+
+  private async handleCustomEnvironmentAssetSelected(
+    assetId: string
+  ): Promise<void> {
+    if (!this.customEnvironmentAssetsLoaded) {
+      await this.refreshCustomEnvironmentAssets()
+    }
+    const asset = this.findCustomEnvironmentAsset(assetId)
+    if (!asset) {
+      await this.dialogManager.alert(
+        localizer.t('editor_environment_asset_missing')
+      )
+      return
+    }
+    const runtimeAsset = await ensureRuntimeEnvironmentAsset(assetId)
+    if (!runtimeAsset) {
+      await this.dialogManager.alert(
+        localizer.t('editor_environment_asset_load_failed')
+      )
+      return
+    }
+
+    this.hideAllSubmenus()
+    this.menuSystem.hideObjectTypeMenu()
+    const spawn = this.consumePanelMenuSpawn()
+    if (spawn) {
+      this.markerManager.spawnEnvironmentMarker(
+        'custom',
+        {
+          type: 'custom',
+          assetId,
+          x: spawn.x * this.invPixelsPerMeter,
+          y: spawn.y * this.invPixelsPerMeter,
+          seed: (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0,
+        },
+        {},
+        asset.name
+      )
+    } else {
+      this.markerManager.spawnEnvironmentMarker(
+        'custom',
+        {
+          type: 'custom',
+          assetId,
+          x: this.getViewportCenter().x * this.invPixelsPerMeter,
+          y: this.getViewportCenter().y * this.invPixelsPerMeter,
+          seed: (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0,
+        },
+        {},
+        asset.name
+      )
+    }
+    this.captureHistorySnapshot()
+  }
+
+  private async handleCreateCustomEnvironmentAsset(): Promise<void> {
+    const input = await this.showEnvironmentAssetFormDialog({
+      title: localizer.t('editor_environment_asset_create'),
+      defaultName: '',
+      requireImage: true,
+    })
+    if (!input) {
+      return
+    }
+    const runtimeAsset = await createEnvironmentAssetFromImageFile(
+      input.name,
+      input.file as File
+    )
+    if (!runtimeAsset) {
+      await this.dialogManager.alert(
+        localizer.t('editor_environment_asset_save_failed')
+      )
+      return
+    }
+    this.customEnvironmentAssets = [
+      ...this.customEnvironmentAssets,
+      runtimeAsset.meta,
+    ]
+    this.customEnvironmentAssetsLoaded = true
+    this.menuSystem.refreshCustomEnvironmentAssets()
+  }
+
+  private async showEnvironmentAssetManagerDialog(): Promise<void> {
+    await this.refreshCustomEnvironmentAssets()
+    let selectedAssetId = this.customEnvironmentAssets[0]?.id ?? ''
+    let previewToken = 0
+
+    const container = document.createElement('div')
+    container.className = 'editor-custom-asset-dialog'
+    container.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
+
+    const panel = document.createElement('div')
+    panel.className = 'editor-asset-manager-panel'
+
+    const title = document.createElement('div')
+    title.className = 'editor-custom-asset-title'
+    title.textContent = localizer.t('editor_asset_manager')
+
+    const body = document.createElement('div')
+    body.className = 'editor-asset-manager-body'
+
+    const list = document.createElement('div')
+    list.className = 'editor-asset-manager-list'
+
+    const preview = document.createElement('div')
+    preview.className = 'editor-asset-manager-preview'
+
+    const actions = document.createElement('div')
+    actions.className = 'editor-custom-asset-actions'
+
+    const confirmButton = document.createElement('button')
+    confirmButton.className = 'editor-action-btn'
+    confirmButton.type = 'button'
+    confirmButton.textContent = localizer.t('editor_btn_confirm')
+
+    actions.appendChild(confirmButton)
+    body.appendChild(list)
+    body.appendChild(preview)
+    panel.appendChild(title)
+    panel.appendChild(body)
+    panel.appendChild(actions)
+    container.appendChild(panel)
+    this.editorOverlay.appendChild(container)
+
+    const close = () => {
+      container.remove()
+    }
+    confirmButton.addEventListener('click', close)
+
+    const renderList = () => {
+      list.innerHTML = ''
+      if (this.customEnvironmentAssets.length === 0) {
+        const empty = document.createElement('div')
+        empty.className = 'editor-asset-manager-empty'
+        empty.textContent = localizer.t('editor_asset_manager_empty')
+        list.appendChild(empty)
+        return
+      }
+
+      for (let i = 0; i < this.customEnvironmentAssets.length; i++) {
+        const asset = this.customEnvironmentAssets[i]
+        const item = document.createElement('button')
+        item.className = 'editor-asset-manager-item'
+        item.type = 'button'
+        item.textContent = asset.name
+        item.classList.toggle('is-selected', asset.id === selectedAssetId)
+        item.addEventListener('click', () => {
+          selectedAssetId = asset.id
+          renderList()
+          void renderPreview()
+        })
+        list.appendChild(item)
+      }
+    }
+
+    const renderPreview = async () => {
+      const token = previewToken + 1
+      previewToken = token
+      preview.innerHTML = ''
+      const asset = this.findCustomEnvironmentAsset(selectedAssetId)
+      if (!asset) {
+        const empty = document.createElement('div')
+        empty.className = 'editor-asset-manager-empty'
+        empty.textContent = localizer.t('editor_asset_manager_empty')
+        preview.appendChild(empty)
+        return
+      }
+
+      const actions = document.createElement('div')
+      actions.className = 'editor-asset-manager-preview-actions'
+
+      const editButton = document.createElement('button')
+      editButton.className = 'editor-asset-manager-preview-btn'
+      editButton.type = 'button'
+      editButton.textContent = localizer.t('editor_asset_edit')
+
+      const deleteButton = document.createElement('button')
+      deleteButton.className = 'editor-asset-manager-preview-btn'
+      deleteButton.type = 'button'
+      deleteButton.textContent = localizer.t('editor_asset_delete')
+
+      actions.appendChild(editButton)
+      actions.appendChild(deleteButton)
+      preview.appendChild(actions)
+
+      const runtimeAsset = await ensureRuntimeEnvironmentAsset(asset.id)
+      if (token !== previewToken) {
+        return
+      }
+      if (runtimeAsset) {
+        const canvas = document.createElement('canvas')
+        canvas.className = 'editor-asset-manager-preview-canvas'
+        canvas.width = runtimeAsset.canvas.width
+        canvas.height = runtimeAsset.canvas.height
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(runtimeAsset.canvas, 0, 0)
+        }
+        preview.appendChild(canvas)
+      }
+
+      editButton.addEventListener('click', () => {
+        void this.handleEditEnvironmentAsset(asset, () => {
+          renderList()
+          void renderPreview()
+        })
+      })
+
+      deleteButton.addEventListener('click', () => {
+        void this.handleDeleteEnvironmentAsset(asset, async () => {
+          await this.refreshCustomEnvironmentAssets()
+          selectedAssetId = this.customEnvironmentAssets[0]?.id ?? ''
+          renderList()
+          void renderPreview()
+        })
+      })
+    }
+
+    container.addEventListener('click', (event) => {
+      if (event.target === container) {
+        close()
+      }
+    })
+    container.addEventListener('keydown', (event) => {
+      event.stopPropagation()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        close()
+      }
+    })
+
+    renderList()
+    void renderPreview()
+    panel.tabIndex = 0
+    panel.focus()
+  }
+
+  private async handleEditEnvironmentAsset(
+    asset: MapEnvironmentAsset,
+    onDone: () => void
+  ): Promise<void> {
+    const runtimeAsset = await ensureRuntimeEnvironmentAsset(asset.id)
+    const input = await this.showEnvironmentAssetFormDialog({
+      title: localizer.t('editor_asset_edit'),
+      defaultName: asset.name,
+      requireImage: false,
+      existingCanvas: runtimeAsset?.canvas ?? null,
+    })
+    if (!input) {
+      return
+    }
+
+    const updated = await updateEnvironmentAsset(asset, input.name, input.file)
+    if (!updated) {
+      await this.dialogManager.alert(
+        localizer.t('editor_environment_asset_save_failed')
+      )
+      return
+    }
+    await this.refreshCustomEnvironmentAssets()
+    this.refreshEnvironmentAssetMarkerTextures(asset.id)
+    onDone()
+  }
+
+  private async handleDeleteEnvironmentAsset(
+    asset: MapEnvironmentAsset,
+    onDone: () => void | Promise<void>
+  ): Promise<void> {
+    const confirmed = await this.dialogManager.confirm(
+      localizer.t('editor_asset_delete_confirm').replace('{0}', asset.name)
+    )
+    if (!confirmed) {
+      return
+    }
+    const deleted = await deleteEnvironmentAsset(asset.id)
+    if (!deleted) {
+      await this.dialogManager.alert(localizer.t('editor_asset_delete_failed'))
+      return
+    }
+    this.refreshEnvironmentAssetMarkerTextures(asset.id)
+    await onDone()
+  }
+
+  private refreshEnvironmentAssetMarkerTextures(assetId: string): void {
+    const markers = this.markerManager.getEnvironmentMarkers()
+    for (let i = 0; i < markers.length; i++) {
+      const marker = markers[i].marker
+      if (marker.envType === 'custom' && marker.envAssetId === assetId) {
+        this.markerManager.refreshEnvironmentMarkerTexture(marker)
+      }
+    }
+    this.fabricCanvas?.requestRenderAll()
+  }
+
+  private showEnvironmentAssetFormDialog(options: {
+    title: string
+    defaultName: string
+    requireImage: boolean
+    existingCanvas?: HTMLCanvasElement | null
+  }): Promise<{
+    name: string
+    file: File | null
+  } | null> {
+    return new Promise((resolve) => {
+      let selectedFile: File | null = null
+      let hasExistingPreview =
+        options.existingCanvas instanceof HTMLCanvasElement
+      let previewUrl = ''
+
+      const container = document.createElement('div')
+      container.className = 'editor-custom-asset-dialog'
+      container.addEventListener('pointerdown', (event) => {
+        event.stopPropagation()
+      })
+
+      const panel = document.createElement('div')
+      panel.className = 'editor-custom-asset-panel'
+
+      const title = document.createElement('div')
+      title.className = 'editor-custom-asset-title'
+      title.textContent = options.title
+
+      const nameLabel = document.createElement('label')
+      nameLabel.className = 'editor-custom-asset-label'
+      nameLabel.textContent = localizer.t('editor_environment_asset_name')
+
+      const nameInput = document.createElement('input')
+      nameInput.className = 'editor-custom-asset-input'
+      nameInput.type = 'text'
+      nameInput.maxLength = 32
+      nameInput.value = options.defaultName
+
+      const uploadLabel = document.createElement('div')
+      uploadLabel.className = 'editor-custom-asset-label'
+      uploadLabel.textContent = localizer.t('editor_environment_asset_image')
+
+      const uploadArea = document.createElement('button')
+      uploadArea.className = 'editor-custom-asset-upload'
+      uploadArea.type = 'button'
+
+      const uploadText = document.createElement('span')
+      uploadText.textContent = localizer.t('editor_environment_asset_upload')
+      uploadArea.appendChild(uploadText)
+
+      const fileInput = document.createElement('input')
+      fileInput.type = 'file'
+      fileInput.accept = 'image/png,image/jpeg,image/webp,image/gif'
+      fileInput.style.display = 'none'
+
+      const error = document.createElement('div')
+      error.className = 'editor-custom-asset-error'
+
+      const actions = document.createElement('div')
+      actions.className = 'editor-custom-asset-actions'
+
+      const saveButton = document.createElement('button')
+      saveButton.className = 'editor-action-btn'
+      saveButton.dataset.primary = '1'
+      saveButton.textContent = localizer.t('editor_btn_save')
+
+      const cancelButton = document.createElement('button')
+      cancelButton.className = 'editor-action-btn'
+      cancelButton.textContent = localizer.t('editor_btn_cancel')
+
+      actions.appendChild(saveButton)
+      actions.appendChild(cancelButton)
+      panel.appendChild(title)
+      panel.appendChild(nameLabel)
+      panel.appendChild(nameInput)
+      panel.appendChild(uploadLabel)
+      panel.appendChild(uploadArea)
+      panel.appendChild(fileInput)
+      panel.appendChild(error)
+      panel.appendChild(actions)
+      container.appendChild(panel)
+      this.editorOverlay.appendChild(container)
+
+      const clearPreview = () => {
+        selectedFile = null
+        hasExistingPreview = false
+        if (previewUrl.length > 0) {
+          URL.revokeObjectURL(previewUrl)
+          previewUrl = ''
+        }
+        uploadArea.innerHTML = ''
+        uploadArea.classList.remove('has-preview')
+        uploadArea.appendChild(uploadText)
+        fileInput.value = ''
+      }
+
+      const appendRemoveButton = () => {
+        const removeButton = document.createElement('button')
+        removeButton.className = 'editor-custom-asset-remove'
+        removeButton.type = 'button'
+        removeButton.textContent = '×'
+        removeButton.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          clearPreview()
+        })
+        uploadArea.appendChild(removeButton)
+      }
+
+      const setExistingPreview = (canvas: HTMLCanvasElement) => {
+        uploadArea.innerHTML = ''
+        uploadArea.classList.add('has-preview')
+        const previewCanvas = document.createElement('canvas')
+        previewCanvas.className = 'editor-custom-asset-preview'
+        previewCanvas.width = canvas.width
+        previewCanvas.height = canvas.height
+        const ctx = previewCanvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(canvas, 0, 0)
+        }
+        uploadArea.appendChild(previewCanvas)
+        appendRemoveButton()
+      }
+
+      const setFile = (file: File) => {
+        if (!file.type.startsWith('image/')) {
+          error.textContent = localizer.t(
+            'editor_environment_asset_image_invalid'
+          )
+          return
+        }
+        if (file.size > EDITOR_ENVIRONMENT_ASSET_MAX_FILE_BYTES) {
+          error.textContent = localizer.t(
+            'editor_environment_asset_image_too_large'
+          )
+          return
+        }
+        error.textContent = ''
+        clearPreview()
+        selectedFile = file
+        hasExistingPreview = false
+        previewUrl = URL.createObjectURL(file)
+        uploadArea.innerHTML = ''
+        uploadArea.classList.add('has-preview')
+
+        const preview = document.createElement('img')
+        preview.className = 'editor-custom-asset-preview'
+        preview.src = previewUrl
+        preview.alt = ''
+
+        uploadArea.appendChild(preview)
+        appendRemoveButton()
+      }
+
+      const close = (result: { name: string; file: File | null } | null) => {
+        if (previewUrl.length > 0) {
+          URL.revokeObjectURL(previewUrl)
+          previewUrl = ''
+        }
+        container.remove()
+        resolve(result)
+      }
+
+      container.addEventListener('click', (event) => {
+        if (event.target === container) {
+          close(null)
+        }
+      })
+      container.addEventListener('keydown', (event) => {
+        event.stopPropagation()
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          close(null)
+        }
+      })
+
+      uploadArea.addEventListener('click', () => {
+        fileInput.click()
+      })
+
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files?.[0]
+        if (file) {
+          setFile(file)
+        }
+      })
+
+      uploadArea.addEventListener('dragover', (event) => {
+        event.preventDefault()
+        uploadArea.classList.add('is-dragging')
+      })
+
+      uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('is-dragging')
+      })
+
+      uploadArea.addEventListener('drop', (event) => {
+        event.preventDefault()
+        uploadArea.classList.remove('is-dragging')
+        const file = event.dataTransfer?.files?.[0]
+        if (file) {
+          setFile(file)
+        }
+      })
+
+      saveButton.addEventListener('click', () => {
+        const name = nameInput.value.trim()
+        if (name.length === 0) {
+          error.textContent = localizer.t(
+            'editor_environment_asset_name_required'
+          )
+          nameInput.focus()
+          return
+        }
+        if (options.requireImage && !selectedFile) {
+          error.textContent = localizer.t(
+            'editor_environment_asset_image_required'
+          )
+          return
+        }
+        if (!selectedFile && !hasExistingPreview) {
+          error.textContent = localizer.t(
+            'editor_environment_asset_image_required'
+          )
+          return
+        }
+        if (
+          selectedFile &&
+          selectedFile.size > EDITOR_ENVIRONMENT_ASSET_MAX_FILE_BYTES
+        ) {
+          error.textContent = localizer.t(
+            'editor_environment_asset_image_too_large'
+          )
+          return
+        }
+        close({ name, file: selectedFile })
+      })
+
+      cancelButton.addEventListener('click', () => {
+        close(null)
+      })
+
+      nameInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          close(null)
+        }
+      })
+
+      if (options.existingCanvas) {
+        setExistingPreview(options.existingCanvas)
+      }
+      nameInput.focus()
+      nameInput.select()
+    })
+  }
+
   private acquireTreeEntry(): EditorTreeHistoryEntry {
     const entry = this.treeEntryPool.pop()
     if (entry) {
@@ -2368,7 +2965,8 @@ export class EditorManager {
         dataItem.type === ObjectType.EnvHouse ||
         dataItem.type === ObjectType.EnvCrate ||
         dataItem.type === ObjectType.EnvGrass ||
-        dataItem.type === ObjectType.EnvCloud
+        dataItem.type === ObjectType.EnvCloud ||
+        dataItem.type === ObjectType.EnvCustom
       ) {
         environmentObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Player) {
@@ -2441,7 +3039,8 @@ export class EditorManager {
         node.type === 'envHouse' ||
         node.type === 'envCrate' ||
         node.type === 'envGrass' ||
-        node.type === 'envCloud'
+        node.type === 'envCloud' ||
+        node.type === 'envCustom'
       ) {
         const index = node.index ?? -1
         resolvedData =
@@ -3843,6 +4442,7 @@ export class EditorManager {
 
   show() {
     this.visible = true
+    void this.refreshCustomEnvironmentAssets()
     this.mapListManager.refreshMapMetas()
     this.showMapListView()
     this.editorOverlay.classList.add('is-visible')
@@ -3853,6 +4453,7 @@ export class EditorManager {
 
   showEditorForCurrentMap() {
     this.visible = true
+    void this.refreshCustomEnvironmentAssets()
     this.editorOverlay.classList.add('is-visible')
     this.editorOverlay.focus(this.focusOptions)
     this.updateLocalization()

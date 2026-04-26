@@ -505,6 +505,9 @@ export class EditorMapSerializer {
         y: anchorY,
         seed: envSeed,
       }
+      if (envType === 'custom' && marker.envAssetId.length > 0) {
+        envObject.assetId = marker.envAssetId
+      }
       if (rotationDeg !== 0) {
         envObject.rotationDeg = rotationDeg
       }
@@ -598,7 +601,8 @@ export class EditorMapSerializer {
         dataItem.type === 'envHouse' ||
         dataItem.type === 'envCrate' ||
         dataItem.type === 'envGrass' ||
-        dataItem.type === 'envCloud'
+        dataItem.type === 'envCloud' ||
+        dataItem.type === 'envCustom'
       ) {
         const index = data.environmentIndexMap.get(dataItem.object)
         if (index === undefined) {

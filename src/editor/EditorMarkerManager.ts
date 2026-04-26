@@ -27,6 +27,7 @@ import type {
   MapPlayerProperties,
   WeaponCategory,
 } from '../editorMapTypes'
+import { ensureRuntimeEnvironmentAsset } from '../environmentAssetRegistry'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentEffectiveScalePermille,
@@ -99,7 +100,11 @@ interface EditorMarkerSpawnOptions {
 interface EditorMarkerManagerContext {
   getCanvas: () => fabric.Canvas | null
   getViewportCenter: () => { x: number; y: number }
-  registerEditorObject: (type: ObjectType, object: fabric.Object) => void
+  registerEditorObject: (
+    type: ObjectType,
+    object: fabric.Object,
+    preferredName?: string
+  ) => void
   handleCanvasSelection: (object: fabric.Object) => void
   computeNpcBodyRadiusPx: (radiusMeters: number, ppm: number) => number
   computeWeaponRenderDimensions: (
@@ -1352,7 +1357,8 @@ export class EditorMarkerManager {
   spawnEnvironmentMarker(
     envType: MapEnvironmentObjectType,
     spawn?: MapEnvironmentObject,
-    options: EditorMarkerSpawnOptions = {}
+    options: EditorMarkerSpawnOptions = {},
+    preferredName = ''
   ) {
     const canvas = this.ctx.getCanvas()
     if (!canvas) return
@@ -1371,6 +1377,7 @@ export class EditorMarkerManager {
     const objectType = ('env' +
       envType.charAt(0).toUpperCase() +
       envType.slice(1)) as ObjectType
+    const envAssetId = envType === 'custom' ? (spawn?.assetId ?? '') : ''
     const rotationDeg = getEnvironmentRotationDeg(spawn ?? {})
     const scaleXPermille = getEnvironmentScaleXPermille(spawn ?? {})
     const scaleYPermille = getEnvironmentScaleYPermille(spawn ?? {})
@@ -1378,7 +1385,8 @@ export class EditorMarkerManager {
       envType,
       envSeed,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      envAssetId
     ) as EnvironmentMarker
     marker.angle = rotationDeg
     writeEnvironmentTransformedOffset(
@@ -1393,11 +1401,25 @@ export class EditorMarkerManager {
     marker.top = centerY - this.tempEnvironmentAnchorOffset.y
     marker.setCoords()
     canvas.add(marker)
-    this.ctx.registerEditorObject(objectType, marker)
-    const envData: EnvironmentMarkerData = { marker, envType, envSeed }
+    this.ctx.registerEditorObject(objectType, marker, preferredName)
+    const envData: EnvironmentMarkerData = {
+      marker,
+      envType,
+      envSeed,
+      envAssetId,
+    }
     this.environmentMarkers.push(envData)
     this.environmentMarkerMap.set(marker, envData)
     this.finalizeMarkerSpawn(canvas, marker, options)
+    if (envType === 'custom' && envAssetId.length > 0) {
+      void ensureRuntimeEnvironmentAsset(envAssetId).then((asset) => {
+        if (!asset || !this.environmentMarkerMap.has(marker)) {
+          return
+        }
+        this.refreshEnvironmentMarkerTexture(marker)
+        this.ctx.requestRender()
+      })
+    }
   }
 
   private finalizeMarkerSpawn(

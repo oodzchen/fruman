@@ -37,6 +37,7 @@ export enum ObjectType {
   EnvCrate = 'envCrate',
   EnvGrass = 'envGrass',
   EnvCloud = 'envCloud',
+  EnvCustom = 'envCustom',
 }
 
 export type GroundShapeType = 'rect' | 'triangle' | 'circle' | 'polygon'
@@ -300,6 +301,7 @@ export type EnvironmentMarker = fabric.Object & {
   editorShape: 'environment-marker'
   envType: MapEnvironmentObjectType
   envSeed: number
+  envAssetId: string
   anchorDX: number
   anchorDY: number
   scaleXPermille: number
@@ -310,6 +312,7 @@ export interface EnvironmentMarkerData {
   marker: EnvironmentMarker
   envType: MapEnvironmentObjectType
   envSeed: number
+  envAssetId: string
 }
 
 export interface EditorMap {

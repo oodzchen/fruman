@@ -22,6 +22,7 @@ export type MapEnvironmentObjectType =
   | 'crate'
   | 'grass'
   | 'cloud'
+  | 'custom'
 
 export const MAP_TIME_PHASE_IDS = [
   'morning',
@@ -45,10 +46,21 @@ export interface MapEnvironmentObject {
   x: number
   y: number
   seed: number
+  assetId?: string
   hidden?: boolean
   rotationDeg?: number
   scaleXPermille?: number
   scaleYPermille?: number
+}
+
+export interface MapEnvironmentAsset {
+  id: string
+  name: string
+  mimeType: string
+  width: number
+  height: number
+  createdAt: number
+  updatedAt: number
 }
 
 export type MapLightFlickerMode = 'none' | 'candle' | 'torch'
@@ -85,6 +97,7 @@ export type EditorTreeObjectType =
   | 'envCrate'
   | 'envGrass'
   | 'envCloud'
+  | 'envCustom'
 
 export interface EditorTreeNode {
   type: EditorTreeObjectType

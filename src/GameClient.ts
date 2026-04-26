@@ -32,6 +32,7 @@ import {
   computeDistanceAttenuation,
   getSoundFalloffDistance,
 } from './effectAttenuation'
+import { getRuntimeEnvironmentAsset } from './environmentAssetRegistry'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentRotationDeg,
@@ -53,8 +54,10 @@ import {
 import { InteractiveGrassDecoration } from './renderer/EnvironmentGrassRuntime'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import {
+  buildCustomEnvironmentTextureCacheKey,
   buildEnvironmentTextureCacheKey,
   clearEnvironmentTextureSourceCache,
+  createCustomEnvironmentTextureSource,
   createEnvironmentTextureSource,
   pruneEnvironmentTextureSourceCache,
 } from './renderer/ProceduralEnvironmentFactory'
@@ -3025,6 +3028,7 @@ export class GameClient {
       const scaleYPermille = getEnvironmentScaleYPermille(obj)
       const textureEntry = this.getEnvironmentTextureEntry(
         obj.type,
+        obj.assetId,
         obj.seed,
         ppm,
         scaleXPermille,
@@ -3107,18 +3111,27 @@ export class GameClient {
 
   private getEnvironmentTextureEntry(
     type: MapEnvironmentObject['type'],
+    assetId: string | undefined,
     seed: number,
     ppm: number,
     scaleXPermille: number,
     scaleYPermille: number
   ): EnvironmentTextureEntry {
-    const key = buildEnvironmentTextureCacheKey(
-      type,
-      seed,
-      ppm,
-      scaleXPermille,
-      scaleYPermille
-    )
+    const key =
+      type === 'custom'
+        ? buildCustomEnvironmentTextureCacheKey(
+            assetId,
+            ppm,
+            scaleXPermille,
+            scaleYPermille
+          )
+        : buildEnvironmentTextureCacheKey(
+            type,
+            seed,
+            ppm,
+            scaleXPermille,
+            scaleYPermille
+          )
     const cached = this.environmentTextureCache.get(key)
     if (cached) {
       this.perfEnvironmentCacheHits++
@@ -3128,13 +3141,21 @@ export class GameClient {
     }
 
     this.perfEnvironmentCacheMisses++
-    const source = createEnvironmentTextureSource(
-      type,
-      seed,
-      ppm,
-      scaleXPermille,
-      scaleYPermille
-    )
+    const source =
+      type === 'custom'
+        ? createCustomEnvironmentTextureSource(
+            assetId,
+            ppm,
+            scaleXPermille,
+            scaleYPermille
+          )
+        : createEnvironmentTextureSource(
+            type,
+            seed,
+            ppm,
+            scaleXPermille,
+            scaleYPermille
+          )
     const centerOriginX = source.canvas.width >> 1
     const centerOriginY = source.canvas.height >> 1
     const entry: EnvironmentTextureEntry = {
@@ -3220,8 +3241,22 @@ export class GameClient {
                 ? 4
                 : obj.type === 'grass'
                   ? 5
-                  : 6
+                  : obj.type === 'cloud'
+                    ? 6
+                    : 7
       hash = this.mixTerrainSignatureValue(hash ^ Math.imul(typeCode, 0x19660d))
+      if (obj.type === 'custom' && obj.assetId) {
+        for (let j = 0; j < obj.assetId.length; j++) {
+          hash = this.mixTerrainSignatureValue(
+            hash ^ Math.imul(obj.assetId.charCodeAt(j), 0x45d9f3b)
+          )
+        }
+        const assetVersion =
+          getRuntimeEnvironmentAsset(obj.assetId)?.meta.updatedAt ?? 0
+        hash = this.mixTerrainSignatureValue(
+          hash ^ Math.imul(assetVersion | 0, 0x119de1f3)
+        )
+      }
     }
     return hash
   }

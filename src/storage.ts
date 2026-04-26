@@ -13,6 +13,7 @@ import type {
   EditorTreeNode,
   EditorViewportState,
   MapCharacterBodyProfile,
+  MapEnvironmentAsset,
   MapNpc,
   MapNpcTemplate,
   MapNpcWeapon,
@@ -59,7 +60,7 @@ import {
 } from './weaponTypeUtils'
 
 const DB_NAME = 'sl2d'
-const DB_VERSION = 5
+const DB_VERSION = 7
 
 const SETTINGS_STORE = 'settings'
 const SETTINGS_KEY = 'control-panel'
@@ -68,14 +69,43 @@ const LAST_SAVE_KEY = 'last-save-id'
 const MAP_META_STORE = 'editor-map-meta'
 const MAP_DATA_STORE = 'editor-map-data'
 const MAP_VIEW_STORE = 'editor-map-view'
+const ENVIRONMENT_ASSET_STORE = 'editor-environment-assets'
 
 const SAVE_META_STORE = 'save-meta'
 const SAVE_DATA_STORE = 'save-data'
 
+const REQUIRED_OBJECT_STORES = [
+  SETTINGS_STORE,
+  MAP_META_STORE,
+  MAP_DATA_STORE,
+  MAP_VIEW_STORE,
+  ENVIRONMENT_ASSET_STORE,
+  SAVE_META_STORE,
+  SAVE_DATA_STORE,
+] as const
+
 let dbInstance: IDBDatabase | null = null
 let dbPromise: Promise<IDBDatabase> | null = null
 
+function hasRequiredObjectStores(db: IDBDatabase): boolean {
+  for (let i = 0; i < REQUIRED_OBJECT_STORES.length; i++) {
+    if (!db.objectStoreNames.contains(REQUIRED_OBJECT_STORES[i])) {
+      return false
+    }
+  }
+  return true
+}
+
 function openDB(): Promise<IDBDatabase> {
+  if (dbInstance) {
+    if (!hasRequiredObjectStores(dbInstance)) {
+      dbInstance.close()
+      dbInstance = null
+      dbPromise = null
+    } else {
+      return Promise.resolve(dbInstance)
+    }
+  }
   if (dbInstance) {
     return Promise.resolve(dbInstance)
   }
@@ -90,6 +120,11 @@ function openDB(): Promise<IDBDatabase> {
 
     request.onsuccess = () => {
       dbInstance = request.result
+      dbInstance.onversionchange = () => {
+        dbInstance?.close()
+        dbInstance = null
+        dbPromise = null
+      }
       resolve(dbInstance)
     }
 
@@ -110,6 +145,10 @@ function openDB(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(MAP_VIEW_STORE)) {
         db.createObjectStore(MAP_VIEW_STORE, { keyPath: 'id' })
+      }
+
+      if (!db.objectStoreNames.contains(ENVIRONMENT_ASSET_STORE)) {
+        db.createObjectStore(ENVIRONMENT_ASSET_STORE, { keyPath: 'id' })
       }
 
       if (!db.objectStoreNames.contains(SAVE_META_STORE)) {
@@ -166,6 +205,24 @@ interface StoredMapDataRecord {
 interface StoredMapViewRecord {
   id: string
   view: EditorViewportState
+}
+
+interface StoredEnvironmentAssetRecord extends MapEnvironmentAsset {
+  blob: Blob
+}
+
+function toEnvironmentAssetMeta(
+  record: StoredEnvironmentAssetRecord
+): MapEnvironmentAsset {
+  return {
+    id: record.id,
+    name: record.name,
+    mimeType: record.mimeType,
+    width: record.width,
+    height: record.height,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
 }
 
 function createInitialSaveWeaponSlotState(
@@ -340,6 +397,105 @@ export async function loadEditorMapViewState(
     })
   } catch {
     return null
+  }
+}
+
+export async function listEditorEnvironmentAssets(): Promise<
+  MapEnvironmentAsset[]
+> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(ENVIRONMENT_ASSET_STORE, 'readonly')
+      const store = tx.objectStore(ENVIRONMENT_ASSET_STORE)
+      const request = store.getAll()
+
+      request.onsuccess = () => {
+        const result = request.result as
+          | StoredEnvironmentAssetRecord[]
+          | undefined
+        if (!result || result.length === 0) {
+          resolve([])
+          return
+        }
+        const assets = result.map(toEnvironmentAssetMeta)
+        assets.sort((a, b) => {
+          if (a.createdAt !== b.createdAt) {
+            return a.createdAt - b.createdAt
+          }
+          return a.id.localeCompare(b.id)
+        })
+        resolve(assets)
+      }
+
+      request.onerror = () => resolve([])
+    })
+  } catch {
+    return []
+  }
+}
+
+export async function loadEditorEnvironmentAssetBlob(
+  assetId: string
+): Promise<{ asset: MapEnvironmentAsset; blob: Blob } | null> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(ENVIRONMENT_ASSET_STORE, 'readonly')
+      const store = tx.objectStore(ENVIRONMENT_ASSET_STORE)
+      const request = store.get(assetId)
+
+      request.onsuccess = () => {
+        const result = request.result as
+          | StoredEnvironmentAssetRecord
+          | undefined
+        if (!result || result.id !== assetId) {
+          resolve(null)
+          return
+        }
+        resolve({ asset: toEnvironmentAssetMeta(result), blob: result.blob })
+      }
+
+      request.onerror = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function saveEditorEnvironmentAsset(
+  asset: MapEnvironmentAsset,
+  blob: Blob
+): Promise<MapEnvironmentAsset | null> {
+  try {
+    const db = await openDB()
+    const record: StoredEnvironmentAssetRecord = { ...asset, blob }
+    return new Promise((resolve) => {
+      const tx = db.transaction(ENVIRONMENT_ASSET_STORE, 'readwrite')
+      tx.objectStore(ENVIRONMENT_ASSET_STORE).put(record)
+      tx.oncomplete = () => resolve(asset)
+      tx.onerror = () => resolve(null)
+      tx.onabort = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+export async function deleteEditorEnvironmentAsset(
+  assetId: string
+): Promise<boolean> {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(ENVIRONMENT_ASSET_STORE, 'readwrite')
+      tx.objectStore(ENVIRONMENT_ASSET_STORE).delete(assetId)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => resolve(false)
+      tx.onabort = () => resolve(false)
+    })
+  } catch {
+    return false
   }
 }
 

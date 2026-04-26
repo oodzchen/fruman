@@ -69,8 +69,10 @@ interface EditorTerrainLayer {
   contourId: number
   internalOnly: boolean
   proxy: TerrainRegionProxy | null
+  renderObject: TerrainLayerRenderObject | null
   canvasCache?: HTMLCanvasElement
   lastCacheBuildRevision?: number
+  lastContourCacheBuildRevision?: number
 }
 
 interface EditorTerrainContour {
@@ -103,6 +105,7 @@ interface EditorTerrainLayerManagerContext {
   getFabricCanvas: () => fabric.Canvas | null
   requestRender: () => void
   pixelsPerMeter: number
+  onTerrainRenderObjectsChanged: () => void
   registerEditorObject: (
     type: ObjectType,
     object: fabric.Object,
@@ -254,6 +257,67 @@ class TerrainContourRenderObject extends fabric.FabricObject {
   }
 }
 
+class TerrainLayerRenderObject extends fabric.FabricObject {
+  static override type = 'terrainLayerRender'
+
+  declare editorShape: 'terrain-layer-render'
+  declare terrainLayerId: number
+
+  private readonly resolveCanvas: () => {
+    canvas: HTMLCanvasElement
+    offsetX: number
+    offsetY: number
+  } | null
+  private sourceCanvas: HTMLCanvasElement | null = null
+
+  constructor(
+    layerId: number,
+    resolveCanvas: () => {
+      canvas: HTMLCanvasElement
+      offsetX: number
+      offsetY: number
+    } | null,
+    options?: FabricObjectOptions
+  ) {
+    super(options)
+    this.editorShape = 'terrain-layer-render'
+    this.terrainLayerId = layerId
+    this.resolveCanvas = resolveCanvas
+  }
+
+  syncFromLayer(): boolean {
+    const source = this.resolveCanvas()
+    if (!source) {
+      this.sourceCanvas = null
+      this.visible = false
+      this.dirty = true
+      return false
+    }
+    this.sourceCanvas = source.canvas
+    this.left = source.offsetX
+    this.top = source.offsetY
+    this.width = source.canvas.width
+    this.height = source.canvas.height
+    this.visible = true
+    this.setCoords()
+    this.dirty = true
+    return true
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    const canvas = this.sourceCanvas
+    if (!canvas) {
+      return
+    }
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(
+      canvas,
+      -Math.floor(canvas.width / 2),
+      -Math.floor(canvas.height / 2)
+    )
+  }
+}
+
 function buildContourTemplateRatios(
   offsets: ReadonlyArray<readonly [number, number]>
 ): ReadonlyArray<readonly [number, number]> {
@@ -387,6 +451,7 @@ export class EditorTerrainLayerManager {
   private terrainRenderCacheDepthFilter: number | 'all' = 'all'
   private activeDepthFilter: number | 'all' = 'all'
   private readonly terrainRenderOrder: EditorTerrainLayer[] = []
+  private readonly terrainRenderObjectScratch: fabric.Object[] = []
   private readonly layerCanvasOffsets = new WeakMap<
     HTMLCanvasElement,
     { x: number; y: number }
@@ -400,7 +465,15 @@ export class EditorTerrainLayerManager {
   attachToCanvas(): void {
     const canvas =
       this.ctx.getFabricCanvas() as FabricCanvasWithTerrainBackground | null
+    let detachedBackgroundHook = false
+    if (canvas?.__terrainOriginalRenderBackground) {
+      this.detachBackgroundHook(canvas)
+      detachedBackgroundHook = true
+    }
     if (canvas === this.attachedCanvas) {
+      if (detachedBackgroundHook) {
+        this.syncTerrainRenderObjects()
+      }
       return
     }
     if (this.attachedCanvas) {
@@ -408,7 +481,7 @@ export class EditorTerrainLayerManager {
     }
     this.attachedCanvas = canvas
     if (canvas) {
-      this.attachBackgroundHook(canvas)
+      this.syncTerrainRenderObjects()
     }
   }
 
@@ -649,10 +722,12 @@ export class EditorTerrainLayerManager {
           : getDefaultTerrainRenderLayer(layer.materialId)
       if (layer.serializedLayer.renderLayer === nextRenderLayer) {
         ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+        this.syncLayerRenderObject(layer)
         return false
       }
       layer.serializedLayer.renderLayer = nextRenderLayer
       ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+      this.syncLayerRenderObject(layer)
       this.invalidateTerrainRenderCache()
       this.ctx.requestRender()
       return true
@@ -677,6 +752,7 @@ export class EditorTerrainLayerManager {
     contour.renderLayer = nextRenderLayer
     if (contour.fillLayer) {
       contour.fillLayer.serializedLayer.renderLayer = nextRenderLayer
+      this.syncLayerRenderObject(contour.fillLayer)
     }
     const serializedContour = this.getSerializedContour(contour)
     serializedContour.renderLayer = nextRenderLayer
@@ -958,6 +1034,7 @@ export class EditorTerrainLayerManager {
         this.createContourFromSerialized(data.contours[i], contourLayerMap)
       }
     }
+    this.syncTerrainRenderObjects()
     this.ctx.requestRender()
   }
 
@@ -2017,6 +2094,7 @@ export class EditorTerrainLayerManager {
       contourId,
       internalOnly,
       proxy: null,
+      renderObject: null,
     }
     this.nextLayerId += 1
     this.layers.push(layer)
@@ -2262,6 +2340,8 @@ export class EditorTerrainLayerManager {
       canvas?.add(proxy)
       this.ctx.registerEditorObject(ObjectType.Terrain, proxy, generatedName)
       proxy.setCoords()
+      this.ensureTerrainRenderObject(layer)
+      this.ctx.onTerrainRenderObjectsChanged()
       return
     }
 
@@ -2283,6 +2363,8 @@ export class EditorTerrainLayerManager {
       layer.serializedLayer.renderLayer
     this.applyProxyInteraction(proxy, this.interactionEnabled)
     proxy.setCoords()
+    this.ensureTerrainRenderObject(layer)
+    this.ctx.onTerrainRenderObjectsChanged()
   }
 
   private removeEmptyLayers(): void {
@@ -2294,6 +2376,7 @@ export class EditorTerrainLayerManager {
   }
 
   private removeLayer(layer: EditorTerrainLayer): void {
+    this.removeTerrainRenderObject(layer)
     if (layer.proxy) {
       this.proxyToLayer.delete(layer.proxy)
       this.ctx.unregisterEditorObject(layer.proxy)
@@ -2307,21 +2390,22 @@ export class EditorTerrainLayerManager {
       this.layers.splice(layerIndex, 1)
       this.renderData.layers.splice(layerIndex, 1)
       this.invalidateTerrainRenderCache()
+      this.ctx.onTerrainRenderObjectsChanged()
     }
   }
 
   private removeAllLayerObjects(): void {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
-      if (!layer.proxy) {
-        continue
+      this.removeTerrainRenderObject(layer)
+      if (layer.proxy) {
+        this.proxyToLayer.delete(layer.proxy)
+        this.ctx.unregisterEditorObject(layer.proxy)
+        if (layer.proxy.canvas) {
+          layer.proxy.canvas.remove(layer.proxy)
+        }
+        layer.proxy = null
       }
-      this.proxyToLayer.delete(layer.proxy)
-      this.ctx.unregisterEditorObject(layer.proxy)
-      if (layer.proxy.canvas) {
-        layer.proxy.canvas.remove(layer.proxy)
-      }
-      layer.proxy = null
     }
   }
 
@@ -2926,6 +3010,8 @@ export class EditorTerrainLayerManager {
       contour.fillLayer = null
       return false
     }
+    this.ensureTerrainRenderObject(layer)
+    this.ctx.onTerrainRenderObjectsChanged()
     return true
   }
 
@@ -4049,6 +4135,7 @@ export class EditorTerrainLayerManager {
         offset.y += deltaYUnits
       }
     }
+    this.syncLayerRenderObject(layer)
     this.invalidateTerrainRenderCache()
   }
 
@@ -4085,6 +4172,7 @@ export class EditorTerrainLayerManager {
   private bumpLayerBuildRevision(layer: EditorTerrainLayer): void {
     layer.serializedLayer.buildRevision = this.nextBuildRevision()
     this.invalidateTerrainRenderCache()
+    this.syncLayerRenderObject(layer)
   }
 
   private bumpContourBuildRevision(
@@ -4095,6 +4183,7 @@ export class EditorTerrainLayerManager {
     target.buildRevision = this.nextBuildRevision()
     if (contour.fillLayer) {
       this.invalidateTerrainRenderCache()
+      this.syncLayerRenderObject(contour.fillLayer)
     }
   }
 
@@ -4102,7 +4191,20 @@ export class EditorTerrainLayerManager {
     if (this.activeDepthFilter === filter) return
     this.activeDepthFilter = filter
     this.terrainRenderCacheDirty = true
+    this.syncTerrainRenderObjectVisibility()
     this.ctx.requestRender()
+  }
+
+  getTerrainRenderObjects(): readonly fabric.Object[] {
+    const renderOrder = this.terrainRenderObjectScratch
+    renderOrder.length = 0
+    for (let i = 0; i < this.layers.length; i++) {
+      const object = this.layers[i].renderObject
+      if (object) {
+        renderOrder.push(object)
+      }
+    }
+    return renderOrder
   }
 
   private getTerrainLayerRenderLayer(layer: EditorTerrainLayer): number {
@@ -4160,6 +4262,113 @@ export class EditorTerrainLayerManager {
       const layer = this.layers[i]
       layer.canvasCache = undefined
       layer.lastCacheBuildRevision = undefined
+      layer.lastContourCacheBuildRevision = undefined
+      this.syncLayerRenderObject(layer)
+    }
+  }
+
+  private syncTerrainRenderObjects(): void {
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return
+    }
+    for (let i = 0; i < this.layers.length; i++) {
+      const layer = this.layers[i]
+      if (layer.grid.hasCells()) {
+        this.ensureTerrainRenderObject(layer)
+      } else {
+        this.removeTerrainRenderObject(layer)
+      }
+    }
+    this.syncTerrainRenderObjectVisibility()
+    this.ctx.onTerrainRenderObjectsChanged()
+  }
+
+  private syncTerrainRenderObjectVisibility(): void {
+    for (let i = 0; i < this.layers.length; i++) {
+      const layer = this.layers[i]
+      const object = layer.renderObject
+      if (!object) {
+        continue
+      }
+      object.visible =
+        this.activeDepthFilter === 'all' ||
+        this.getTerrainLayerRenderLayer(layer) === this.activeDepthFilter
+    }
+  }
+
+  private syncLayerRenderObject(layer: EditorTerrainLayer): void {
+    const object = layer.renderObject
+    if (!object) {
+      return
+    }
+    ;(object as EditorLayeredObject).renderLayer =
+      layer.serializedLayer.renderLayer
+    const visible =
+      this.activeDepthFilter === 'all' ||
+      this.getTerrainLayerRenderLayer(layer) === this.activeDepthFilter
+    object.visible = object.syncFromLayer() && visible
+  }
+
+  private ensureTerrainRenderObject(
+    layer: EditorTerrainLayer
+  ): TerrainLayerRenderObject | null {
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return null
+    }
+    if (!layer.renderObject) {
+      const renderObject = new TerrainLayerRenderObject(
+        layer.id,
+        () => this.resolveLayerRenderSource(layer),
+        {
+          originX: 'left',
+          originY: 'top',
+          selectable: false,
+          evented: false,
+          objectCaching: false,
+          excludeFromExport: true,
+        }
+      )
+      ;(renderObject as EditorLayeredObject).renderLayer =
+        layer.serializedLayer.renderLayer
+      layer.renderObject = renderObject
+      canvas.add(renderObject)
+    }
+    ;(layer.renderObject as EditorLayeredObject).renderLayer =
+      layer.serializedLayer.renderLayer
+    const visible =
+      this.activeDepthFilter === 'all' ||
+      this.getTerrainLayerRenderLayer(layer) === this.activeDepthFilter
+    layer.renderObject.visible = layer.renderObject.syncFromLayer() && visible
+    return layer.renderObject
+  }
+
+  private removeTerrainRenderObject(layer: EditorTerrainLayer): void {
+    const object = layer.renderObject
+    if (!object) {
+      return
+    }
+    if (object.canvas) {
+      object.canvas.remove(object)
+    }
+    layer.renderObject = null
+  }
+
+  private resolveLayerRenderSource(layer: EditorTerrainLayer): {
+    canvas: HTMLCanvasElement
+    offsetX: number
+    offsetY: number
+  } | null {
+    const canvas = this.ensureLayerCanvasCache(layer)
+    if (!canvas) {
+      return null
+    }
+    const offset = this.layerCanvasOffsets.get(canvas)
+    return {
+      canvas,
+      offsetX: offset?.x ?? 0,
+      offsetY: offset?.y ?? 0,
     }
   }
 
@@ -4167,7 +4376,16 @@ export class EditorTerrainLayerManager {
     layer: EditorTerrainLayer
   ): HTMLCanvasElement | null {
     const buildRevision = layer.serializedLayer.buildRevision ?? 0
-    if (layer.canvasCache && layer.lastCacheBuildRevision === buildRevision) {
+    const contour =
+      layer.contourId > 0 ? this.getContourById(layer.contourId) : null
+    const contourBuildRevision = contour
+      ? (this.getSerializedContour(contour).buildRevision ?? 0)
+      : 0
+    if (
+      layer.canvasCache &&
+      layer.lastCacheBuildRevision === buildRevision &&
+      layer.lastContourCacheBuildRevision === contourBuildRevision
+    ) {
       return layer.canvasCache
     }
 
@@ -4175,6 +4393,7 @@ export class EditorTerrainLayerManager {
     if (chunks.length === 0) {
       layer.canvasCache = undefined
       layer.lastCacheBuildRevision = buildRevision
+      layer.lastContourCacheBuildRevision = contourBuildRevision
       return null
     }
 
@@ -4240,6 +4459,7 @@ export class EditorTerrainLayerManager {
     )
     ctx.restore()
     layer.lastCacheBuildRevision = buildRevision
+    layer.lastContourCacheBuildRevision = contourBuildRevision
     this.layerCanvasOffsets.set(canvas, {
       x: minX + offsetXUnits,
       y: minY + offsetYUnits,

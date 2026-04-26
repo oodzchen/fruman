@@ -1046,6 +1046,211 @@
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
+      .editor-custom-asset-dialog {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.64);
+        z-index: 19990;
+        pointer-events: auto;
+      }
+      .editor-custom-asset-panel {
+        width: min(380px, calc(100% - 32px));
+        padding: 18px;
+        background: rgba(0, 0, 0, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: var(--ui-color);
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+      }
+      .editor-custom-asset-title {
+        margin-bottom: 14px;
+        font-size: 15px;
+        color: var(--ui-color);
+        text-align: center;
+      }
+      .editor-custom-asset-label {
+        margin: 10px 0 6px;
+        font-size: 12px;
+        color: var(--ui-muted);
+      }
+      .editor-custom-asset-input {
+        width: 100%;
+        height: 32px;
+        padding: 0 10px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        color: var(--ui-color);
+        font-family: var(--ui-font);
+        font-size: 13px;
+        outline: none;
+        box-sizing: border-box;
+      }
+      .editor-custom-asset-input:focus {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+      .editor-custom-asset-upload {
+        position: relative;
+        width: 100%;
+        height: 150px;
+        padding: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px dashed rgba(255, 255, 255, 0.28);
+        color: var(--ui-muted);
+        font-family: var(--ui-font);
+        font-size: 12px;
+        cursor: pointer;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      .editor-custom-asset-upload:hover,
+      .editor-custom-asset-upload.is-dragging {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+        border-color: rgba(255, 255, 255, 0.42);
+      }
+      .editor-custom-asset-upload.has-preview {
+        padding: 0;
+        border-style: solid;
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .editor-custom-asset-preview {
+        max-width: 100%;
+        max-height: 100%;
+        display: block;
+        object-fit: contain;
+        pointer-events: none;
+      }
+      .editor-custom-asset-remove {
+        position: absolute;
+        right: 6px;
+        top: 6px;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        line-height: 20px;
+        background: rgba(0, 0, 0, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        color: var(--ui-color);
+        font-family: var(--ui-font);
+        font-size: 16px;
+        cursor: pointer;
+      }
+      .editor-custom-asset-remove:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .editor-custom-asset-error {
+        min-height: 18px;
+        margin-top: 8px;
+        color: #d98b8b;
+        font-size: 12px;
+      }
+      .editor-custom-asset-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .editor-asset-manager-panel {
+        width: min(680px, calc(100% - 32px));
+        height: min(430px, calc(100% - 32px));
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        background: rgba(0, 0, 0, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: var(--ui-color);
+        font-family: var(--ui-font);
+        box-sizing: border-box;
+        outline: none;
+      }
+      .editor-asset-manager-body {
+        min-height: 0;
+        display: flex;
+        gap: 12px;
+        flex: 1 1 auto;
+      }
+      .editor-asset-manager-list {
+        width: 190px;
+        min-width: 190px;
+        padding: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-sizing: border-box;
+        overflow: auto;
+      }
+      .editor-asset-manager-item {
+        height: 26px;
+        line-height: 26px;
+        padding: 0 8px;
+        background: transparent;
+        border: none;
+        color: var(--ui-muted);
+        cursor: pointer;
+        text-align: left;
+        font-family: var(--ui-font);
+        font-size: 12px;
+        box-sizing: border-box;
+      }
+      .editor-asset-manager-item:hover,
+      .editor-asset-manager-item.is-selected {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-asset-manager-preview {
+        position: relative;
+        min-width: 0;
+        flex: 1 1 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      .editor-asset-manager-preview-actions {
+        position: absolute;
+        right: 8px;
+        top: 8px;
+        display: flex;
+        gap: 6px;
+        z-index: 1;
+      }
+      .editor-asset-manager-preview-btn {
+        height: 24px;
+        padding: 0 8px;
+        background: rgba(0, 0, 0, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        color: var(--ui-muted);
+        cursor: pointer;
+        font-family: var(--ui-font);
+        font-size: 12px;
+      }
+      .editor-asset-manager-preview-btn:hover {
+        color: var(--ui-color);
+        background: var(--ui-highlight);
+      }
+      .editor-asset-manager-preview-canvas {
+        max-width: 100%;
+        max-height: 100%;
+        display: block;
+      }
+      .editor-asset-manager-empty {
+        margin: auto;
+        color: var(--ui-muted);
+        font-size: 12px;
+        text-align: center;
+      }
       .editor-workspace {
         position: absolute;
         inset: 0;
@@ -1357,6 +1562,25 @@
                 <button class="editor-submenu-item" data-env="crate"></button>
                 <button class="editor-submenu-item" data-env="grass"></button>
                 <button class="editor-submenu-item" data-env="cloud"></button>
+                <div class="editor-submenu-group">
+                  <div class="editor-submenu-group-header">
+                    <div
+                      class="editor-submenu-group-title"
+                      id="editorEnvironmentCustomAssetTitle"
+                    ></div>
+                    <button
+                      id="editorEnvironmentAssetAddBtn"
+                      class="editor-submenu-group-add"
+                      type="button"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div
+                    id="editorEnvironmentCustomAssetList"
+                    class="editor-submenu-group-list"
+                  ></div>
+                </div>
                 <button
                   class="editor-submenu-item editor-submenu-back"
                   data-action="back"
@@ -1586,6 +1810,10 @@
                 ></button>
                 <button
                   id="editorPanelMenuMapSettings"
+                  class="editor-context-menu-item"
+                ></button>
+                <button
+                  id="editorPanelMenuAssetManager"
                   class="editor-context-menu-item"
                 ></button>
               </div>

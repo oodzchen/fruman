@@ -222,6 +222,7 @@ interface ClipboardEnvironmentTreeNode extends ClipboardTreeNodeBase {
   kind: 'environment'
   envType: MapEnvironmentObjectType
   envSeed: number
+  envAssetId: string
   anchorDX: number
   anchorDY: number
   rotationDeg: number
@@ -410,6 +411,7 @@ export class EditorClipboardManager {
   private expOrbSpawn = { x: 0, y: 0 }
   private environmentType: MapEnvironmentObjectType = 'tree'
   private environmentSeed = 1
+  private environmentAssetId = ''
   private environmentAnchorDX = 0
   private environmentAnchorDY = 0
   private environmentRotationDeg = 0
@@ -954,6 +956,7 @@ export class EditorClipboardManager {
         offsetY,
         envType: target.envType,
         envSeed: target.envSeed,
+        envAssetId: target.envAssetId,
         anchorDX: target.anchorDX,
         anchorDY: target.anchorDY,
         rotationDeg: normalizeEnvironmentRotationDeg(target.angle ?? 0),
@@ -1545,6 +1548,7 @@ export class EditorClipboardManager {
     const previousActive = canvas.getActiveObject()
     this.ctx.markerManager.spawnEnvironmentMarker(node.envType, {
       type: node.envType,
+      assetId: node.envAssetId,
       x: (targetLeft + this.environmentAnchorOffset.x) * invPixelsPerMeter,
       y: (targetTop + this.environmentAnchorOffset.y) * invPixelsPerMeter,
       seed: node.envSeed,
@@ -2232,6 +2236,7 @@ export class EditorClipboardManager {
     this.sourceTop = center.y
     this.environmentType = target.envType
     this.environmentSeed = target.envSeed
+    this.environmentAssetId = target.envAssetId
     this.environmentAnchorDX = target.anchorDX
     this.environmentAnchorDY = target.anchorDY
     this.environmentRotationDeg = normalizeEnvironmentRotationDeg(
@@ -2276,6 +2281,7 @@ export class EditorClipboardManager {
     )
     this.ctx.markerManager.spawnEnvironmentMarker(this.environmentType, {
       type: this.environmentType,
+      assetId: this.environmentAssetId,
       x:
         (this.pasteBaseLeft + offset + this.environmentAnchorOffset.x) *
         invPixelsPerMeter,

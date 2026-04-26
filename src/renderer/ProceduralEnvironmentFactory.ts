@@ -1,4 +1,5 @@
 import type { MapEnvironmentObjectType } from '../editorMapTypes'
+import { getRuntimeEnvironmentAsset } from '../environmentAssetRegistry'
 import { createEnvironmentCrateLayout } from '../environmentCrateUtils'
 import { createDefaultTerrainChunkSiteJitter } from '../terrain/TerrainDataUtils'
 import type { TerrainResolvedLayerView } from '../terrain/TerrainDataUtils'
@@ -1056,6 +1057,87 @@ export function buildEnvironmentTextureCacheKey(
   scaleYPermille: number = 1000
 ): string {
   return `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}`
+}
+
+export function buildCustomEnvironmentTextureCacheKey(
+  assetId: string | undefined,
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
+): string {
+  const assetVersion = getRuntimeEnvironmentAsset(assetId)?.meta.updatedAt ?? 0
+  return `custom_${assetId ?? ''}_${assetVersion}_${ppm}_${scaleXPermille}_${scaleYPermille}`
+}
+
+export function createCustomEnvironmentTextureSource(
+  assetId: string | undefined,
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
+): EnvironmentTextureSource {
+  const key = buildCustomEnvironmentTextureCacheKey(
+    assetId,
+    ppm,
+    scaleXPermille,
+    scaleYPermille
+  )
+  const cached = textureCache.get(key)
+  if (cached) {
+    textureCache.delete(key)
+    textureCache.set(key, cached)
+    return cached
+  }
+
+  const asset = getRuntimeEnvironmentAsset(assetId)
+  const sourceCanvas = asset?.canvas ?? createMissingEnvironmentAssetCanvas()
+  const width = Math.max(
+    1,
+    Math.floor((sourceCanvas.width * scaleXPermille) / 1000)
+  )
+  const height = Math.max(
+    1,
+    Math.floor((sourceCanvas.height * scaleYPermille) / 1000)
+  )
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    ctx.clearRect(0, 0, width, height)
+    ctx.drawImage(sourceCanvas, 0, 0, width, height)
+  }
+  const source: EnvironmentTextureSource = {
+    canvas,
+    originX: width >> 1,
+    originY: height,
+    boundsX: 0,
+    boundsY: 0,
+    boundsWidth: width,
+    boundsHeight: height,
+  }
+  textureCache.set(key, source)
+  return source
+}
+
+function createMissingEnvironmentAssetCanvas(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.fillRect(0, 0, 64, 64)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.42)'
+    ctx.lineWidth = 2
+    ctx.strokeRect(1, 1, 62, 62)
+    ctx.beginPath()
+    ctx.moveTo(14, 14)
+    ctx.lineTo(50, 50)
+    ctx.moveTo(50, 14)
+    ctx.lineTo(14, 50)
+    ctx.stroke()
+  }
+  return canvas
 }
 
 export function createEnvironmentTextureSource(
