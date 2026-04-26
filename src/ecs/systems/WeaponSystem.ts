@@ -1993,6 +1993,7 @@ export class WeaponSystem extends System {
     this.tryQueueHeavyGroundHitSound(entity, weapon)
 
     if (entity.movement && !entity.movement.isGrounded) {
+      this.checkObstacleCollision(entity, weapon)
       this.checkEntityHits(entity, weapon)
     }
 
@@ -5642,7 +5643,9 @@ export class WeaponSystem extends System {
             attacker,
             weapon
           )
-          return true
+          if (obstacle.breakableId === undefined) {
+            return true
+          }
         }
       } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
         // Circle
@@ -5666,7 +5669,9 @@ export class WeaponSystem extends System {
             attacker,
             weapon
           )
-          return true
+          if (obstacle.breakableId === undefined) {
+            return true
+          }
         }
       } else {
         // AABB (Box optimization)
@@ -5694,7 +5699,9 @@ export class WeaponSystem extends System {
             attacker,
             weapon
           )
-          return true
+          if (obstacle.breakableId === undefined) {
+            return true
+          }
         }
       }
     }
