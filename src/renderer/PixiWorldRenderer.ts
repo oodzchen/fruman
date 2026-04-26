@@ -1044,6 +1044,11 @@ export class PixiWorldRenderer {
     const originY = parallaxBottomY + parallaxCamY / parallaxZoom
     for (const [layer, bucket] of this.buckets) {
       if (layer === 0) continue
+      if (layer === RENDER_LAYER_SKY) {
+        bucket.container.scale.set(1)
+        bucket.container.position.set(parallaxCamX, parallaxCamY)
+        continue
+      }
       const factor = getParallaxScaleForLayer(layer)
       bucket.container.scale.set(factor)
       bucket.container.position.set(
