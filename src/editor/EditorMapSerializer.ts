@@ -32,7 +32,7 @@ import type { NormalAttackMovesetId, WeaponType } from '../types'
 import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
 import { computeCameraOffsetFromCenter } from './EditorCoordinateUtils'
 import type { EditorMarkerManager } from './EditorMarkerManager'
-import type { EditorTerrainLayerManager } from './EditorTerrainLayerManager'
+import type { EditorTerrainLayerManager } from './terrain/EditorTerrainLayerManager'
 import type { EditorLayeredObject, ObjectType } from './types'
 
 interface EditorObjectLike {

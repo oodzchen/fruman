@@ -62,10 +62,10 @@ import {
 import { EditorShapeManager } from './editor/EditorShapeManager'
 import { EditorSidebarManager } from './editor/EditorSidebarManager'
 import { EditorSnapManager } from './editor/EditorSnapManager'
-import { EditorTerrainBrushController } from './editor/EditorTerrainBrushController'
-import { EditorTerrainLayerManager } from './editor/EditorTerrainLayerManager'
 import { EditorThumbnailCapture } from './editor/EditorThumbnailCapture'
 import { EditorToolbarManager } from './editor/EditorToolbarManager'
+import { EditorTerrainBrushController } from './editor/terrain/EditorTerrainBrushController'
+import { EditorTerrainLayerManager } from './editor/terrain/EditorTerrainLayerManager'
 import {
   type CameraFrame,
   type CameraViewData,

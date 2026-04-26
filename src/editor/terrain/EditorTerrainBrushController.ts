@@ -1,7 +1,7 @@
 import * as fabric from 'fabric'
 
-import { getTerrainBrushCursorStyle } from '../terrain/TerrainBrushCursor'
-import type { TerrainBrushId } from '../terrain/TerrainTypes'
+import { getTerrainBrushCursorStyle } from '../../terrain/TerrainBrushCursor'
+import type { TerrainBrushId } from '../../terrain/TerrainTypes'
 import { EditorTerrainLayerManager } from './EditorTerrainLayerManager'
 
 interface EditorTerrainBrushControllerContext {

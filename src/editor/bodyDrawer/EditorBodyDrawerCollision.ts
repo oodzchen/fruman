@@ -1,4 +1,4 @@
-import type { MapCharacterBodyCollisionShape } from '../editorMapTypes'
+import type { MapCharacterBodyCollisionShape } from '../../editorMapTypes'
 import {
   EDITOR_SELECTION_HANDLES,
   getPointerAngleDeg,

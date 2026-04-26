@@ -50,7 +50,7 @@ import type { EditorShapeManager } from './EditorShapeManager'
 import type {
   EditorTerrainLayerManager,
   TerrainClipboardLayerSnapshot,
-} from './EditorTerrainLayerManager'
+} from './terrain/EditorTerrainLayerManager'
 import { ObjectType } from './types'
 import type {
   CameraFrame,

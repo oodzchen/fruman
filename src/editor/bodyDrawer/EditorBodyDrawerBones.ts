@@ -1,4 +1,4 @@
-import type { BonePart } from '../editorMapTypes'
+import type { BonePart } from '../../editorMapTypes'
 import { createLayerCanvas } from './EditorBodyDrawerCanvas'
 import type { EditorBodyLayer } from './EditorBodyDrawerTypes'
 

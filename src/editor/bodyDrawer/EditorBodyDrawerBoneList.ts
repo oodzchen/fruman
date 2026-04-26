@@ -1,4 +1,4 @@
-import type { BonePart } from '../editorMapTypes'
+import type { BonePart } from '../../editorMapTypes'
 import { BONE_HIERARCHY, type BoneHierarchyNode } from './EditorBodyDrawerBones'
 import { clearElementChildren } from './EditorBodyDrawerDom'
 

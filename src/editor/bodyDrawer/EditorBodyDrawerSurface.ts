@@ -5,7 +5,7 @@ import {
   getCharacterBrowGeometry,
   getCharacterEyeBounds,
   getCharacterEyeGeometry,
-} from '../characterBodyProfile'
+} from '../../characterBodyProfile'
 import {
   DEFAULT_CHARACTER_BROW_OFFSET_X,
   DEFAULT_CHARACTER_BROW_OFFSET_Y,
@@ -15,7 +15,7 @@ import {
   DEFAULT_CHARACTER_EYE_ROTATION_DEG,
   DEFAULT_CHARACTER_EYE_SCALE,
   DEFAULT_CHARACTER_EYE_STYLE,
-} from '../characterBodyProfile'
+} from '../../characterBodyProfile'
 import type {
   BoneSegment,
   MapCharacterBodyBrowStyle,
@@ -23,8 +23,8 @@ import type {
   MapCharacterBodyEyeStyle,
   MapCharacterBodyProfile,
   MapCharacterBodyVisualLayer,
-} from '../editorMapTypes'
-import { deriveSkeletalBodyGeometry } from '../skeletalBodyProfile'
+} from '../../editorMapTypes'
+import { deriveSkeletalBodyGeometry } from '../../skeletalBodyProfile'
 import {
   centerLoop,
   extractMaskLoops,

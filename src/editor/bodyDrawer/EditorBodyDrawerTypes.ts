@@ -4,7 +4,7 @@ import type {
   MapCharacterBodyEyeStyle,
   MapCharacterBodyPresetId,
   MapCharacterBodyProfile,
-} from '../editorMapTypes'
+} from '../../editorMapTypes'
 
 export type BodyDrawMode =
   | 'contour'

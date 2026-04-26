@@ -1,4 +1,4 @@
-import type { MapCharacterBodyPresetId } from '../editorMapTypes'
+import type { MapCharacterBodyPresetId } from '../../editorMapTypes'
 import type {
   BodyPresetBounds,
   BodyPresetConfig,

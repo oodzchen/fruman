@@ -1,4 +1,4 @@
-import { localizer } from '../Localizer'
+import { localizer } from '../../Localizer'
 import { clearElementChildren } from './EditorBodyDrawerDom'
 import type { BodyDrawMode, EditorBodyLayer } from './EditorBodyDrawerTypes'
 

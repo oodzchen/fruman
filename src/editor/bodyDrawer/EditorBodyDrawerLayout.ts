@@ -1,4 +1,5 @@
-import { localizer } from '../Localizer'
+import { localizer } from '../../Localizer'
+import { type EditorColorInputElement, EditorUIHelper } from '../EditorUIHelper'
 import {
   appendChildren,
   createPopupButton,
@@ -22,7 +23,6 @@ import {
   MAX_BRUSH_SIZE,
   MIN_BRUSH_SIZE,
 } from './EditorBodyDrawerTypes'
-import { type EditorColorInputElement, EditorUIHelper } from './EditorUIHelper'
 
 export interface EditorBodyDrawerNumberRow {
   row: HTMLDivElement

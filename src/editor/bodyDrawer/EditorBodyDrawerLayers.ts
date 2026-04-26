@@ -1,4 +1,4 @@
-import { localizer } from '../Localizer'
+import { localizer } from '../../Localizer'
 import {
   applyCanvasSnapshot,
   captureCanvasSnapshot,

@@ -1,22 +1,22 @@
 import * as fabric from 'fabric'
 
-import { localizer } from '../Localizer'
+import { localizer } from '../../Localizer'
 import {
   getDefaultTerrainRenderLayer,
   normalizeRenderLayer,
-} from '../renderLayers'
-import { TerrainChunkGrid } from '../terrain/TerrainChunkGrid'
-import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
+} from '../../renderLayers'
+import { TerrainChunkGrid } from '../../terrain/TerrainChunkGrid'
+import { TerrainCollisionBuilder } from '../../terrain/TerrainCollisionBuilder'
 import {
   type TerrainResolvedLayerView,
   inferTerrainMaterialId,
-} from '../terrain/TerrainDataUtils'
+} from '../../terrain/TerrainDataUtils'
 import {
   getTerrainBrushById,
   getTerrainMaterialById,
   getTerrainMaterialCodeById,
-} from '../terrain/TerrainMaterialRegistry'
-import { TerrainRenderer } from '../terrain/TerrainRenderer'
+} from '../../terrain/TerrainMaterialRegistry'
+import { TerrainRenderer } from '../../terrain/TerrainRenderer'
 import {
   DEFAULT_TERRAIN_RANDOM_SEED,
   type MapTerrainData,
@@ -29,14 +29,22 @@ import {
   type TerrainContourShapeKind,
   type TerrainLayerLike,
   type TerrainMaterialId,
-} from '../terrain/TerrainTypes'
-import { getVoronoiLayerBuild } from '../terrain/VoronoiBuilder'
+} from '../../terrain/TerrainTypes'
+import { getVoronoiLayerBuild } from '../../terrain/VoronoiBuilder'
 import {
   CIRCLE_CONTOUR_POINT_DATA,
   GROUND_RECT_OPTIONS,
   POLYGON_POINT_DATA,
   TRIANGLE_POINT_DATA,
-} from './EditorConstants'
+} from '../EditorConstants'
+import {
+  type EditorLayeredObject,
+  type EditorObjectData,
+  type GroundShapeType,
+  ObjectType,
+  type TerrainContourProxy,
+  type TerrainRegionProxy,
+} from '../types'
 import {
   type TerrainContourBounds,
   extractFilledCellLoops,
@@ -48,14 +56,6 @@ import {
   pointInClosedContourScaled2,
   simplifyContourLoop,
 } from './EditorTerrainContourUtils'
-import {
-  type EditorLayeredObject,
-  type EditorObjectData,
-  type GroundShapeType,
-  ObjectType,
-  type TerrainContourProxy,
-  type TerrainRegionProxy,
-} from './types'
 
 interface EditorTerrainLayer {
   id: number

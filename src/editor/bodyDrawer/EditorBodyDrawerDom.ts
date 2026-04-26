@@ -1,4 +1,4 @@
-import { EditorUIHelper } from './EditorUIHelper'
+import { EditorUIHelper } from '../EditorUIHelper'
 
 export type EditorBodyDrawerSidebarTab = 'layers' | 'bones'
 

@@ -1,10 +1,10 @@
-import { localizer } from '../Localizer'
+import { localizer } from '../../Localizer'
 import type {
   MapCharacterBodyBrowStyle,
   MapCharacterBodyEyeStyle,
-} from '../editorMapTypes'
+} from '../../editorMapTypes'
+import { EditorUIHelper } from '../EditorUIHelper'
 import type { EditorBodyLayer } from './EditorBodyDrawerTypes'
-import { EditorUIHelper } from './EditorUIHelper'
 
 export async function confirmDeleteBodyDrawerLayer(
   viewport: HTMLElement,

@@ -69,13 +69,13 @@ import {
   isSecondaryWeaponType,
   resolveWeaponStatsForSize,
 } from '../weaponTypeUtils'
-import { EditorCharacterBodyDrawer } from './EditorCharacterBodyDrawer'
 import type { EditorObjectFactory } from './EditorObjectFactory'
 import {
   computeWeaponRenderDimensions,
   renderNpcPreviewToContext,
 } from './EditorRenderUtils'
 import { EditorUIHelper } from './EditorUIHelper'
+import { EditorCharacterBodyDrawer } from './bodyDrawer/EditorCharacterBodyDrawer'
 import type {
   EditorObjectData,
   NpcMarker,

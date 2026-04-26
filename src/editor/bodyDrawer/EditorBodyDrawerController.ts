@@ -1,8 +1,8 @@
-import { localizer } from '../Localizer'
+import { localizer } from '../../Localizer'
 import {
   buildAutoCharacterBodyCollisionShapesFromLocalPoints,
   buildCollisionOutlineLoopsFromShapes,
-} from '../characterBodyCollision'
+} from '../../characterBodyCollision'
 import {
   DEFAULT_CHARACTER_BROW_OFFSET_X,
   DEFAULT_CHARACTER_BROW_OFFSET_Y,
@@ -29,7 +29,7 @@ import {
   getCharacterEyeMoveCircleRadius,
   getCharacterEyeRotationDeg,
   getCharacterEyeStyle,
-} from '../characterBodyProfile'
+} from '../../characterBodyProfile'
 import type {
   BonePart,
   BoneSegment,
@@ -38,11 +38,11 @@ import type {
   MapCharacterBodyEyeStyle,
   MapCharacterBodyPresetId,
   MapCharacterBodyProfile,
-} from '../editorMapTypes'
+} from '../../editorMapTypes'
 import {
   buildDefaultSkeletalBoneBoundary,
   buildSkeletalSurfaceSnapshot,
-} from '../skeletalBodyProfile'
+} from '../../skeletalBodyProfile'
 import { renderEditorBodyDrawerBoneList } from './EditorBodyDrawerBoneList'
 import {
   BONE_DEFAULT_POSITIONS,

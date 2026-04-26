@@ -3,12 +3,12 @@ import {
   drawCharacterBrowGeometry,
   drawCharacterEyeGeometry,
   getCharacterEyeGeometry,
-} from '../characterBodyProfile'
+} from '../../characterBodyProfile'
 import type {
   BonePart,
   MapCharacterBodyBrowStyle,
   MapCharacterBodyEyeStyle,
-} from '../editorMapTypes'
+} from '../../editorMapTypes'
 import {
   BONE_DEFAULT_POSITIONS,
   BONE_PARTS_ORDERED,

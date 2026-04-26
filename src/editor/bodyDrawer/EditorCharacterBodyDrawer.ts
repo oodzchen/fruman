@@ -1,4 +1,4 @@
-import type { MapCharacterBodyProfile } from '../editorMapTypes'
+import type { MapCharacterBodyProfile } from '../../editorMapTypes'
 import { EditorBodyDrawerController } from './EditorBodyDrawerController'
 import type { EditorCharacterBodyDrawerOptions } from './EditorBodyDrawerTypes'
 import { DRAW_WORLD_SIZE } from './EditorBodyDrawerTypes'
