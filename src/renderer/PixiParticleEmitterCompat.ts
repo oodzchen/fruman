@@ -1,4 +1,5 @@
 import type { EmitterConfigV3 } from '@pixi/particle-emitter'
+import particleEmitterBundleSource from '@pixi/particle-emitter/dist/particle-emitter.js?raw'
 import * as PIXI from 'pixi.js'
 import type { Container } from 'pixi.js'
 
@@ -98,15 +99,11 @@ export function loadPixiParticleEmitter(): Promise<ParticleEmitterConstructor | 
       if (namespace.particles?.Emitter) {
         return namespace.particles.Emitter
       }
-      return import('@pixi/particle-emitter/dist/particle-emitter.js?raw').then(
-        (module) => {
-          if (!emitterBundleExecuted) {
-            emitterBundleExecuted = true
-            new Function(module.default).call(globalThis)
-          }
-          return namespace.particles?.Emitter ?? null
-        }
-      )
+      if (!emitterBundleExecuted) {
+        emitterBundleExecuted = true
+        new Function(particleEmitterBundleSource).call(globalThis)
+      }
+      return namespace.particles?.Emitter ?? null
     })
     .catch(() => null)
 

@@ -13,6 +13,7 @@ import {
 import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
 import { DialogManager } from './DialogManager'
+import type { DisplayManager } from './DisplayManager'
 import { LevelUpManager } from './LevelUpManager'
 import { localizer } from './Localizer'
 import { MenuAction, MenuManager, MenuMode } from './MenuManager'
@@ -703,9 +704,7 @@ export class GameClient {
     this.inputEnabled = enabled
   }
 
-  setDisplayManager(
-    displayManager: import('./DisplayManager').DisplayManager
-  ): void {
+  setDisplayManager(displayManager: DisplayManager): void {
     this.menuManager.setDisplayManager(displayManager)
     displayManager.setOnResolutionChange((preset) => {
       // Force Pixi to resize immediately to match new container size
