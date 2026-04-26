@@ -1,32 +1,20 @@
 import { type AsyncZippable, strFromU8, strToU8, unzip, zip } from 'fflate'
 
-import type { EditorMapData, MapCharacterBodyProfile } from './editorMapTypes'
+import type { EditorMapData, MapEnvironmentAsset } from './editorMapTypes'
+import {
+  loadEditorEnvironmentAssetBlob,
+  saveEditorEnvironmentAsset,
+} from './storage'
 
 const MAP_JSON_PATH = 'map.json'
-const ASSET_DIR = 'assets/'
-const PNG_DATA_URL_PREFIX = 'data:image/png;base64,'
-const DATA_URL_PREFIX = 'data:'
-const ASSET_NAME_PADDING = 4
+const ENVIRONMENT_ASSET_MANIFEST_PATH = 'environment-assets.json'
+const ENVIRONMENT_ASSET_DIR = 'environment-assets/'
+const PNG_MIME_TYPE = 'image/png'
 
-type ProfileAssetKey =
-  | 'surfaceDataUrl'
-  | 'textureDataUrl'
-  | 'skeletalSurfaceDataUrl'
-
-type ProfileAssetOwner = {
-  bodyProfile?: MapCharacterBodyProfile
-}
-
-type ArchiveAsset = {
+interface ArchivedEnvironmentAsset {
+  meta: MapEnvironmentAsset
   path: string
-  data: Uint8Array
 }
-
-const PROFILE_ASSET_KEYS: readonly ProfileAssetKey[] = [
-  'surfaceDataUrl',
-  'textureDataUrl',
-  'skeletalSurfaceDataUrl',
-]
 
 function zipAsync(files: AsyncZippable): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
@@ -72,6 +60,29 @@ export function isEditorMapArchiveData(value: unknown): value is EditorMapData {
   )
 }
 
+function isEnvironmentAsset(value: unknown): value is MapEnvironmentAsset {
+  return (
+    isObjectRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.mimeType === 'string' &&
+    typeof value.width === 'number' &&
+    typeof value.height === 'number' &&
+    typeof value.createdAt === 'number' &&
+    typeof value.updatedAt === 'number'
+  )
+}
+
+function isArchivedEnvironmentAsset(
+  value: unknown
+): value is ArchivedEnvironmentAsset {
+  return (
+    isObjectRecord(value) &&
+    isEnvironmentAsset(value.meta) &&
+    typeof value.path === 'string'
+  )
+}
+
 function extractArchiveMapData(parsed: unknown): EditorMapData | null {
   if (isEditorMapArchiveData(parsed)) {
     return parsed
@@ -82,268 +93,112 @@ function extractArchiveMapData(parsed: unknown): EditorMapData | null {
   return null
 }
 
-function dataUrlToBytes(dataUrl: string): Uint8Array | null {
-  if (!dataUrl.startsWith(DATA_URL_PREFIX)) {
-    return null
+function getReferencedEnvironmentAssetIds(data: EditorMapData): string[] {
+  const objects = data.environmentObjects
+  if (!objects || objects.length === 0) {
+    return []
   }
-  const commaIndex = dataUrl.indexOf(',')
-  if (commaIndex < 0) {
-    return null
-  }
-  const metadata = dataUrl.slice(0, commaIndex).toLowerCase()
-  const payload = dataUrl.slice(commaIndex + 1)
-  if (metadata.endsWith(';base64')) {
-    const binary = atob(payload)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i)
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < objects.length; i++) {
+    const object = objects[i]
+    if (
+      object.type !== 'custom' ||
+      !object.assetId ||
+      seen.has(object.assetId)
+    ) {
+      continue
     }
-    return bytes
+    seen.add(object.assetId)
+    ids.push(object.assetId)
   }
-  return strToU8(decodeURIComponent(payload))
+  return ids
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  const chunkSize = 0x8000
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize)
-    let chunkBinary = ''
-    for (let j = 0; j < chunk.length; j++) {
-      chunkBinary += String.fromCharCode(chunk[j])
-    }
-    binary += chunkBinary
-  }
-  return btoa(binary)
+function createEnvironmentAssetPath(assetId: string): string {
+  return `${ENVIRONMENT_ASSET_DIR}${encodeURIComponent(assetId)}.png`
 }
 
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = () => resolve(null)
-    image.src = src
-  })
-}
-
-async function convertImageDataUrlToPngBytes(
-  dataUrl: string
-): Promise<Uint8Array | null> {
-  const image = await loadImage(dataUrl)
-  if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-    return null
-  }
-  const canvas = document.createElement('canvas')
-  canvas.width = image.naturalWidth
-  canvas.height = image.naturalHeight
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    return null
-  }
-  ctx.drawImage(image, 0, 0)
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, 'image/png')
-  })
-  if (!blob) {
-    return null
-  }
+async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(await blob.arrayBuffer())
 }
 
-async function readPngAssetBytes(dataUrl: string): Promise<Uint8Array | null> {
-  if (!dataUrl.startsWith(DATA_URL_PREFIX)) {
-    return null
-  }
-  if (dataUrl.startsWith(PNG_DATA_URL_PREFIX)) {
-    return dataUrlToBytes(dataUrl)
-  }
-  return convertImageDataUrlToPngBytes(dataUrl)
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return buffer
 }
 
-function createAssetPath(index: number): string {
-  return `${ASSET_DIR}image-${index.toString().padStart(ASSET_NAME_PADDING, '0')}.png`
-}
-
-function getProfileOwners(data: EditorMapData): ProfileAssetOwner[] {
-  const owners: ProfileAssetOwner[] = []
-  if (data.player) {
-    owners.push(data.player)
-  }
-  owners.push(...data.npcs)
-  if (data.enemies) {
-    owners.push(...data.enemies)
-  }
-  if (data.npcTemplates) {
-    owners.push(...data.npcTemplates)
-  }
-  return owners
-}
-
-async function extractProfileAssets(
-  profile: MapCharacterBodyProfile,
-  pathByDataUrl: Map<string, string>,
-  assets: ArchiveAsset[]
+async function appendEnvironmentAssetFiles(
+  data: EditorMapData,
+  files: AsyncZippable
 ): Promise<void> {
-  const registerAsset = async (dataUrl: string): Promise<string | null> => {
-    const cachedPath = pathByDataUrl.get(dataUrl)
-    if (cachedPath) {
-      return cachedPath
-    }
-    const bytes = await readPngAssetBytes(dataUrl)
-    if (!bytes) {
-      return null
-    }
-    const path = createAssetPath(assets.length + 1)
-    pathByDataUrl.set(dataUrl, path)
-    assets.push({ path, data: bytes })
-    return path
+  const assetIds = getReferencedEnvironmentAssetIds(data)
+  if (assetIds.length === 0) {
+    return
   }
-
-  for (let i = 0; i < PROFILE_ASSET_KEYS.length; i++) {
-    const key = PROFILE_ASSET_KEYS[i]
-    const value = profile[key]
-    if (typeof value !== 'string' || !value.startsWith(DATA_URL_PREFIX)) {
+  const archivedAssets: ArchivedEnvironmentAsset[] = []
+  for (let i = 0; i < assetIds.length; i++) {
+    const stored = await loadEditorEnvironmentAssetBlob(assetIds[i])
+    if (!stored) {
       continue
     }
-    const path = await registerAsset(value)
-    if (path) {
-      profile[key] = path
+    const path = createEnvironmentAssetPath(stored.asset.id)
+    const meta: MapEnvironmentAsset = {
+      ...stored.asset,
+      mimeType: PNG_MIME_TYPE,
     }
+    archivedAssets.push({ meta, path })
+    files[path] = [await blobToUint8Array(stored.blob), { level: 0 }]
   }
-
-  const layers = profile.layers
-  if (layers) {
-    for (let i = 0; i < layers.length; i++) {
-      const layer = layers[i]
-      if (!layer.dataUrl.startsWith(DATA_URL_PREFIX)) {
-        continue
-      }
-      const path = await registerAsset(layer.dataUrl)
-      if (path) {
-        layer.dataUrl = path
-      }
-    }
-  }
-
-  const boneSegments = profile.boneSegments
-  if (boneSegments) {
-    for (let i = 0; i < boneSegments.length; i++) {
-      const segment = boneSegments[i]
-      const value = segment.shapeDataUrl
-      if (typeof value !== 'string' || !value.startsWith(DATA_URL_PREFIX)) {
-        continue
-      }
-      const path = await registerAsset(value)
-      if (path) {
-        segment.shapeDataUrl = path
-      }
-    }
+  if (archivedAssets.length > 0) {
+    files[ENVIRONMENT_ASSET_MANIFEST_PATH] = [
+      strToU8(JSON.stringify(archivedAssets, null, 2)),
+      { level: 6 },
+    ]
   }
 }
 
-async function extractMapAssets(data: EditorMapData): Promise<ArchiveAsset[]> {
-  const assets: ArchiveAsset[] = []
-  const pathByDataUrl = new Map<string, string>()
-  const owners = getProfileOwners(data)
-  for (let i = 0; i < owners.length; i++) {
-    const profile = owners[i].bodyProfile
-    if (!profile) {
-      continue
+function parseEnvironmentAssetManifest(
+  files: Record<string, Uint8Array>
+): ArchivedEnvironmentAsset[] {
+  const manifestFile = files[ENVIRONMENT_ASSET_MANIFEST_PATH]
+  if (!manifestFile) {
+    return []
+  }
+  const parsed = JSON.parse(strFromU8(manifestFile)) as unknown
+  if (!Array.isArray(parsed)) {
+    return []
+  }
+  const assets: ArchivedEnvironmentAsset[] = []
+  for (let i = 0; i < parsed.length; i++) {
+    const asset = parsed[i]
+    if (isArchivedEnvironmentAsset(asset)) {
+      assets.push(asset)
     }
-    await extractProfileAssets(profile, pathByDataUrl, assets)
   }
   return assets
 }
 
-function resolveAssetDataUrl(
-  value: string,
+async function restoreEnvironmentAssets(
   files: Record<string, Uint8Array>
-): string | null {
-  if (value.startsWith(DATA_URL_PREFIX)) {
-    return value
-  }
-  if (!value.startsWith(ASSET_DIR)) {
-    return null
-  }
-  const asset = files[value]
-  if (!asset) {
-    return null
-  }
-  return `${PNG_DATA_URL_PREFIX}${bytesToBase64(asset)}`
-}
-
-function restoreProfileAssets(
-  profile: MapCharacterBodyProfile,
-  files: Record<string, Uint8Array>
-): boolean {
-  for (let i = 0; i < PROFILE_ASSET_KEYS.length; i++) {
-    const key = PROFILE_ASSET_KEYS[i]
-    const value = profile[key]
-    if (typeof value !== 'string') {
+): Promise<void> {
+  const archivedAssets = parseEnvironmentAssetManifest(files)
+  for (let i = 0; i < archivedAssets.length; i++) {
+    const asset = archivedAssets[i]
+    const data = files[asset.path]
+    if (!data) {
       continue
     }
-    const dataUrl = resolveAssetDataUrl(value, files)
-    if (!dataUrl) {
-      if (value.startsWith(ASSET_DIR)) {
-        return false
-      }
-      continue
-    }
-    profile[key] = dataUrl
+    const blob = new Blob([copyToArrayBuffer(data)], { type: PNG_MIME_TYPE })
+    await saveEditorEnvironmentAsset(
+      {
+        ...asset.meta,
+        mimeType: PNG_MIME_TYPE,
+      },
+      blob
+    )
   }
-
-  const layers = profile.layers
-  if (layers) {
-    for (let i = 0; i < layers.length; i++) {
-      const layer = layers[i]
-      const dataUrl = resolveAssetDataUrl(layer.dataUrl, files)
-      if (!dataUrl) {
-        if (layer.dataUrl.startsWith(ASSET_DIR)) {
-          return false
-        }
-        continue
-      }
-      layer.dataUrl = dataUrl
-    }
-  }
-
-  const boneSegments = profile.boneSegments
-  if (boneSegments) {
-    for (let i = 0; i < boneSegments.length; i++) {
-      const segment = boneSegments[i]
-      const value = segment.shapeDataUrl
-      if (typeof value !== 'string') {
-        continue
-      }
-      const dataUrl = resolveAssetDataUrl(value, files)
-      if (!dataUrl) {
-        if (value.startsWith(ASSET_DIR)) {
-          return false
-        }
-        continue
-      }
-      segment.shapeDataUrl = dataUrl
-    }
-  }
-
-  return true
-}
-
-function restoreMapAssets(
-  data: EditorMapData,
-  files: Record<string, Uint8Array>
-): boolean {
-  const owners = getProfileOwners(data)
-  for (let i = 0; i < owners.length; i++) {
-    const profile = owners[i].bodyProfile
-    if (!profile) {
-      continue
-    }
-    if (!restoreProfileAssets(profile, files)) {
-      return false
-    }
-  }
-  return true
 }
 
 function findMapJsonFile(files: Record<string, Uint8Array>): Uint8Array | null {
@@ -361,25 +216,11 @@ function findMapJsonFile(files: Record<string, Uint8Array>): Uint8Array | null {
   return null
 }
 
-function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(bytes.byteLength)
-  new Uint8Array(buffer).set(bytes)
-  return buffer
-}
-
 export async function packEditorMapData(data: EditorMapData): Promise<Blob> {
-  const exportData = structuredClone(data)
-  const assets = await extractMapAssets(exportData)
   const files: AsyncZippable = {
-    [MAP_JSON_PATH]: [
-      strToU8(JSON.stringify(exportData, null, 2)),
-      { level: 6 },
-    ],
+    [MAP_JSON_PATH]: [strToU8(JSON.stringify(data, null, 2)), { level: 6 }],
   }
-  for (let i = 0; i < assets.length; i++) {
-    const asset = assets[i]
-    files[asset.path] = [asset.data, { level: 0 }]
-  }
+  await appendEnvironmentAssetFiles(data, files)
   const zipped = await zipAsync(files)
   return new Blob([copyToArrayBuffer(zipped)], { type: 'application/zip' })
 }
@@ -397,8 +238,6 @@ export async function unpackEditorMapData(
   if (!data) {
     return null
   }
-  if (!restoreMapAssets(data, files)) {
-    return null
-  }
+  await restoreEnvironmentAssets(files)
   return data
 }
