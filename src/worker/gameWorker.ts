@@ -169,6 +169,7 @@ import {
 import type { RuntimeTerrainState } from '../terrain/TerrainRuntimeState'
 import type {
   MapTerrainData,
+  TerrainMaterialId,
   TerrainMaterialTag,
 } from '../terrain/TerrainTypes'
 import { VoronoiCollisionBuilder } from '../terrain/VoronoiCollisionBuilder'
@@ -341,6 +342,7 @@ let obstacles: {
   height: number
   rotationRad?: number
   renderLayer: number
+  materialId?: TerrainMaterialId
   materialTag: TerrainMaterialTag
   breakableId?: number
   radius?: number
@@ -3061,6 +3063,7 @@ function createTerrainFromMap(
     const polygons = VoronoiCollisionBuilder.buildPolygons(physicsTerrain)
     for (let i = 0; i < polygons.length; i++) {
       const polygon = polygons[i]
+      const materialId = getTerrainMaterialByCode(polygon.materialCode)?.id
       const materialTag = polygon.materialTag
       const renderLayer = getCollisionLayerValue(polygon.renderLayer)
       const polygonShape: Extract<
@@ -3074,6 +3077,7 @@ function createTerrainFromMap(
       const bodyId = registerPolygonShape(
         polygonShape,
         renderLayer,
+        materialId,
         materialTag,
         materialTag === 'obstacle' ? obstacleFriction : groundFriction,
         materialTag === 'obstacle',
@@ -3133,6 +3137,7 @@ function createTerrainFromMap(
         rectShape,
         bodyResult,
         renderLayer,
+        rect.materialId,
         materialTag
       )
       terrainBodyIds.push(capBodyId)
@@ -3520,6 +3525,7 @@ function registerObstacleFromRect(
   shape: Extract<MapPlacedShape['shape'], { kind: 'rect' }>,
   result: { bodyId: b2BodyId; shapeId: b2ShapeId },
   renderLayer: number,
+  materialId: TerrainMaterialId | undefined,
   materialTag: TerrainMaterialTag = 'obstacle'
 ): b2BodyId {
   const halfWidth = shape.halfWidth
@@ -3555,6 +3561,7 @@ function registerObstacleFromRect(
     width: halfWidth,
     height: halfHeight,
     renderLayer,
+    materialId,
     materialTag,
     worldVertices,
   })
@@ -3564,6 +3571,7 @@ function registerObstacleFromRect(
 function registerPolygonShape(
   shape: Extract<MapPlacedShape['shape'], { kind: 'polygon' }>,
   renderLayer: number,
+  materialId: TerrainMaterialId | undefined,
   materialTag: TerrainMaterialTag,
   friction: number,
   shouldRegisterObstacle: boolean,
@@ -3664,6 +3672,7 @@ function registerPolygonShape(
           width: halfWidth,
           height: halfHeight,
           renderLayer,
+          materialId,
           materialTag,
           vertices,
           worldVertices,
@@ -3728,6 +3737,7 @@ function registerPolygonShape(
         width: halfWidth,
         height: halfHeight,
         renderLayer,
+        materialId,
         materialTag,
         vertices,
         worldVertices,

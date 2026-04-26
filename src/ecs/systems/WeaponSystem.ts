@@ -73,7 +73,10 @@ import {
   getWeaponCollisionMask,
 } from '../../physicsLayers'
 import { getPlayerAgilityScalePercent } from '../../playerUpgrade'
-import type { TerrainMaterialTag } from '../../terrain/TerrainTypes'
+import type {
+  TerrainMaterialId,
+  TerrainMaterialTag,
+} from '../../terrain/TerrainTypes'
 import type {
   MainModule,
   WeaponTemplate,
@@ -251,6 +254,7 @@ export type ObstacleCollider = {
   height: number
   rotationRad?: number
   renderLayer: number
+  materialId?: TerrainMaterialId
   materialTag: TerrainMaterialTag
   breakableId?: number
   vertices?: { x: number; y: number }[]
@@ -1937,7 +1941,8 @@ export class WeaponSystem extends System {
     )
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
-    if (this.checkObstacleCollision(entity, weapon)) {
+    const obstacle = this.checkObstacleCollision(entity, weapon)
+    if (obstacle) {
       weapon.attackCollisionSource = 'obstacle'
       weapon.isColliding = true
       this.statsSystem?.playSoundAt(
@@ -1952,19 +1957,18 @@ export class WeaponSystem extends System {
         SOUND_DB_SWORD_HIT_OBSTACLE
       )
       this.applyPushback(entity, weapon)
-      this.startRebound(entity, playerPos, now, 'obstacle')
+      if (this.shouldSkipObstacleRebound(weapon, obstacle)) {
+        this.finishObstacleHitWithoutRebound(weapon, playerPos, now)
+      } else {
+        this.startRebound(entity, playerPos, now, 'obstacle')
+      }
       return
     }
     this.tryQueueHeavyGroundHitSound(entity, weapon)
     this.checkEntityHits(entity, weapon)
     if (t >= 1) {
       this.tryEmitCompletedFinalSwingCameraShake(entity, weapon)
-      weapon.attackPhase = 'pause'
-      this.restoreDamageOverrides(weapon)
-      weapon.attackElapsedMs = 0
-      getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
-      copyTransform(weapon.attackStartTransform, weapon.visual)
-      weapon.lastAttackTimestamp = now
+      this.enterAttackPause(weapon, playerPos, now)
     }
   }
 
@@ -2005,7 +2009,9 @@ export class WeaponSystem extends System {
     this.tryQueueHeavyGroundHitSound(entity, weapon)
 
     if (entity.movement && !entity.movement.isGrounded) {
-      this.checkObstacleCollision(entity, weapon)
+      if (weapon.attackCollisionSource === 'none') {
+        this.checkObstacleCollision(entity, weapon)
+      }
       this.checkEntityHits(entity, weapon)
     }
 
@@ -5677,9 +5683,9 @@ export class WeaponSystem extends System {
   private checkObstacleCollision(
     attacker: Entity,
     weapon?: Entity['weapon']
-  ): boolean {
-    if (!weapon) return false
-    if (this.obstacles.length === 0) return false
+  ): ObstacleCollider | null {
+    if (!weapon) return null
+    if (this.obstacles.length === 0) return null
     const wx = weapon.visual.x
     const wy = weapon.visual.y
     const wWidth = weapon.width
@@ -5720,7 +5726,7 @@ export class WeaponSystem extends System {
             weapon
           )
           if (obstacle.breakableId === undefined) {
-            return true
+            return obstacle
           }
         }
       } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
@@ -5758,7 +5764,7 @@ export class WeaponSystem extends System {
             weapon
           )
           if (obstacle.breakableId === undefined) {
-            return true
+            return obstacle
           }
         }
       } else {
@@ -5800,13 +5806,47 @@ export class WeaponSystem extends System {
             weapon
           )
           if (obstacle.breakableId === undefined) {
-            return true
+            return obstacle
           }
         }
       }
     }
 
-    return false
+    return null
+  }
+
+  private shouldSkipObstacleRebound(
+    weapon: WeaponComponent,
+    obstacle: ObstacleCollider
+  ): boolean {
+    return weapon.weaponType === 'hammer' && obstacle.materialId === 'stone'
+  }
+
+  private finishObstacleHitWithoutRebound(
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number },
+    now: number
+  ): void {
+    weapon.attackQueued = false
+    weapon.reboundLockedPause = false
+    weapon.hitEntityIds.clear()
+    weapon.attackCollisionSource = 'obstacle'
+    weapon.groundHitSoundTriggered = true
+    weapon.groundHitSoundPending = 0
+    this.enterAttackPause(weapon, playerPos, now)
+  }
+
+  private enterAttackPause(
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number },
+    now: number
+  ): void {
+    weapon.attackPhase = 'pause'
+    this.restoreDamageOverrides(weapon)
+    weapon.attackElapsedMs = 0
+    getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
+    copyTransform(weapon.attackStartTransform, weapon.visual)
+    weapon.lastAttackTimestamp = now
   }
 
   private applyPushback(entity: Entity, weapon: Entity['weapon']): void {
@@ -6316,12 +6356,7 @@ export class WeaponSystem extends System {
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
     if (t >= 1) {
-      weapon.attackPhase = 'pause'
-      this.restoreDamageOverrides(weapon)
-      weapon.attackElapsedMs = 0
-      getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
-      copyTransform(weapon.attackStartTransform, weapon.visual)
-      weapon.lastAttackTimestamp = now
+      this.enterAttackPause(weapon, playerPos, now)
     }
   }
 

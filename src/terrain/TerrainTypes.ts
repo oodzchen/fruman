@@ -117,5 +117,6 @@ export interface TerrainCollisionRect {
   widthCells: number
   heightCells: number
   renderLayer: number
+  materialId: TerrainMaterialId
   materialTag: TerrainMaterialTag
 }

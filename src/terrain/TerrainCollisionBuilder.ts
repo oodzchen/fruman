@@ -8,6 +8,7 @@ import {
   getTerrainLayerViews,
 } from './TerrainDataUtils'
 import {
+  getTerrainMaterialByCode,
   getTerrainMaterialTagByCode,
   getTerrainMaterialTagById,
   isSolidTerrainCode,
@@ -15,6 +16,7 @@ import {
 import type {
   TerrainCollisionRect,
   TerrainDataLike,
+  TerrainMaterialId,
   TerrainMaterialTag,
 } from './TerrainTypes'
 
@@ -26,7 +28,11 @@ export class TerrainCollisionBuilder {
     }
     const cellTags = new Map<
       number,
-      { materialTag: TerrainMaterialTag; renderLayer: number }
+      {
+        materialId: TerrainMaterialId
+        materialTag: TerrainMaterialTag
+        renderLayer: number
+      }
     >()
 
     for (let layerIndex = 0; layerIndex < sourceLayers.length; layerIndex++) {
@@ -41,7 +47,11 @@ export class TerrainCollisionBuilder {
   ): TerrainCollisionRect[] {
     const cellTags = new Map<
       number,
-      { materialTag: TerrainMaterialTag; renderLayer: number }
+      {
+        materialId: TerrainMaterialId
+        materialTag: TerrainMaterialTag
+        renderLayer: number
+      }
     >()
     this.appendLayerCollisionCells(cellTags, layer)
     return this.buildRectanglesFromCollisionCells(cellTags)
@@ -50,7 +60,11 @@ export class TerrainCollisionBuilder {
   private static appendLayerCollisionCells(
     cellTags: Map<
       number,
-      { materialTag: TerrainMaterialTag; renderLayer: number }
+      {
+        materialId: TerrainMaterialId
+        materialTag: TerrainMaterialTag
+        renderLayer: number
+      }
     >,
     layer: TerrainResolvedLayerView
   ): void {
@@ -82,12 +96,18 @@ export class TerrainCollisionBuilder {
         if (!materialTag) {
           continue
         }
+        const materialId =
+          layer.materialId ?? getTerrainMaterialByCode(code)?.id
+        if (!materialId) {
+          continue
+        }
         cellTags.set(
           packTerrainCollisionCell(
             baseCellX + (cellIndex % chunkSize),
             baseCellY + Math.floor(cellIndex / chunkSize)
           ),
           {
+            materialId,
             materialTag,
             renderLayer: layerRenderLayer,
           }
@@ -99,7 +119,11 @@ export class TerrainCollisionBuilder {
   private static buildRectanglesFromCollisionCells(
     cellTags: ReadonlyMap<
       number,
-      { materialTag: TerrainMaterialTag; renderLayer: number }
+      {
+        materialId: TerrainMaterialId
+        materialTag: TerrainMaterialTag
+        renderLayer: number
+      }
     >
   ): TerrainCollisionRect[] {
     if (cellTags.size === 0) {
@@ -108,7 +132,7 @@ export class TerrainCollisionBuilder {
 
     const groupedCells = new Map<string, Set<number>>()
     cellTags.forEach((entry, packedCell) => {
-      const key = `${entry.materialTag}:${entry.renderLayer}`
+      const key = `${entry.materialId}:${entry.renderLayer}`
       let cells = groupedCells.get(key)
       if (!cells) {
         cells = new Set<number>()
@@ -120,9 +144,15 @@ export class TerrainCollisionBuilder {
     const rects: TerrainCollisionRect[] = []
     groupedCells.forEach((cells, key) => {
       const separatorIndex = key.lastIndexOf(':')
-      const materialTag = key.slice(0, separatorIndex) as TerrainMaterialTag
+      const materialId = key.slice(0, separatorIndex) as TerrainMaterialId
       const renderLayer = Number.parseInt(key.slice(separatorIndex + 1), 10) | 0
-      this.appendPackedCellRectangles(rects, cells, materialTag, renderLayer)
+      this.appendPackedCellRectangles(
+        rects,
+        cells,
+        materialId,
+        getTerrainMaterialTagById(materialId),
+        renderLayer
+      )
     })
     return rects
   }
@@ -130,6 +160,7 @@ export class TerrainCollisionBuilder {
   private static appendPackedCellRectangles(
     target: TerrainCollisionRect[],
     occupiedCells: ReadonlySet<number>,
+    materialId: TerrainMaterialId,
     materialTag: TerrainMaterialTag,
     renderLayer: number
   ): void {
@@ -189,6 +220,7 @@ export class TerrainCollisionBuilder {
         widthCells,
         heightCells,
         renderLayer,
+        materialId,
         materialTag,
       })
     }
