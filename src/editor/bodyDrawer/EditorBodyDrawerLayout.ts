@@ -439,7 +439,9 @@ export function createEditorBodyDrawerLayout(
     localizer.t('editor_body_drawer_blood_color'),
     { labelWidth: '36px', gap: '8px', marginBottom: '0' }
   )
-  const bloodColorInput = EditorUIHelper.createColorInput('#7a1010')
+  const bloodColorInput = EditorUIHelper.createColorInput(
+    DEFAULT_BODY_BLOOD_COLOR
+  )
   bloodColorInput.value =
     options.initialProfile?.bloodColor ?? DEFAULT_BODY_BLOOD_COLOR
   bloodColorRow.row.appendChild(bloodColorInput)
