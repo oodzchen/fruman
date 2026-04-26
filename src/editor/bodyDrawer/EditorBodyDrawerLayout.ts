@@ -123,7 +123,7 @@ export function createEditorBodyDrawerLayout(
 
   const content = createStyledElement(
     'div',
-    'display:flex;gap:16px;align-items:stretch;justify-content:space-between;min-height:0;flex:1 1 auto;overflow:auto;flex-wrap:nowrap;'
+    'display:flex;gap:16px;align-items:stretch;justify-content:flex-start;min-height:0;flex:1 1 auto;overflow:auto;flex-wrap:nowrap;'
   )
   form.appendChild(content)
 
@@ -133,11 +133,11 @@ export function createEditorBodyDrawerLayout(
   )
   const canvasColumn = createStyledElement(
     'div',
-    'flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-width:0;min-height:0;overflow:hidden;'
+    `width:${DISPLAY_PANEL_SIZE}px;max-width:${DISPLAY_PANEL_SIZE}px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;flex:0 0 ${DISPLAY_PANEL_SIZE}px;min-width:${DISPLAY_PANEL_SIZE}px;min-height:0;overflow:hidden;`
   )
   const layerSidebar = createStyledElement(
     'div',
-    'width:96px;max-width:96px;display:flex;flex-direction:column;gap:8px;flex:0 0 96px;min-height:0;overflow-x:hidden;overflow-y:auto;'
+    'display:flex;flex-direction:column;gap:8px;flex:1 1 auto;min-width:96px;min-height:0;overflow-x:hidden;overflow-y:auto;'
   )
   appendChildren(content, sidebar, canvasColumn, layerSidebar)
 
