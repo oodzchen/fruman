@@ -1960,6 +1960,42 @@ function refreshBreakableCrateObstacleIndices(): void {
   }
 }
 
+function appendActiveBreakableCrateObstacles(): void {
+  if (breakableCrates.size <= 0) {
+    return
+  }
+  for (const crate of breakableCrates.values()) {
+    if (crate.destroyed) {
+      continue
+    }
+    for (let i = 0; i < crate.planks.length; i++) {
+      const plank = crate.planks[i]
+      plank.obstacleIndex = obstacles.length
+      obstacles.push({
+        bodyId: crate.bodyId,
+        mainShapeId: plank.shapeId,
+        capBodyId: crate.bodyId,
+        capShapeId: plank.shapeId,
+        centerX: plank.centerX,
+        centerY: plank.centerY,
+        width: plank.halfWidth,
+        height: plank.halfHeight,
+        rotationRad: plank.rotationRad,
+        renderLayer: crate.renderLayer,
+        materialTag: 'obstacle',
+        breakableId: crate.id,
+        worldVertices: computeRectWorldVertices(
+          plank.centerX,
+          plank.centerY,
+          plank.halfWidth,
+          plank.halfHeight,
+          plank.rotationRad
+        ),
+      })
+    }
+  }
+}
+
 function createBreakableCratesFromMap(map: EditorMapData): void {
   const envObjects = map.environmentObjects
   if (!envObjects || envObjects.length === 0) {
@@ -2985,6 +3021,8 @@ function rebuildTerrainCollisionFromActiveMap(): void {
   standableSurfaces = []
   obstacles = []
   createTerrainFromMap(activeMapData.terrain)
+  appendActiveBreakableCrateObstacles()
+  refreshBreakableCrateObstacleIndices()
   weaponSystem.setObstacles(obstacles)
   arrowSystem.setObstacles(obstacles)
   weaponSystem.setStandableSurfaces(standableSurfaces)

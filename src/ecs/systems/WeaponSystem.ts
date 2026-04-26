@@ -3328,7 +3328,10 @@ export class WeaponSystem extends System {
     arrowWeapon.attackDamage = weapon.attackDamage * forceMultiplier
     arrowWeapon.postureDamage = weapon.postureDamage * forceMultiplier
     arrowWeapon.toughnessDamage = weapon.toughnessDamage * forceMultiplier
-    arrowWeapon.impactLevel = 'small'
+    arrowWeapon.impactLevel = this.getRangedProjectileImpactLevel(
+      weapon,
+      projectileVisualType
+    )
     arrowWeapon.isEquipped = false
     arrowWeapon.attackPhase = 'idle'
     arrowWeapon.renderLayer = weapon.renderLayer
@@ -3436,6 +3439,24 @@ export class WeaponSystem extends System {
       DEFAULT_GRAVITY * this.getRangedGravityScale(weapon)
     )
     return aimAngle ?? Math.atan2(targetY - originY, targetX - originX)
+  }
+
+  private getRangedProjectileImpactLevel(
+    weapon: WeaponComponent,
+    projectileVisualType: Extract<WeaponVisualType, 'arrow' | 'grapeShot'>
+  ): ImpactLevel {
+    if (projectileVisualType !== 'arrow' || weapon.weaponType !== 'bow') {
+      return 'small'
+    }
+    const bowTemplate = WEAPON_DEFAULT_DATA.bow
+    const bowSizeLevel =
+      Number.isFinite(weapon.sizeLevel) && weapon.sizeLevel > 0
+        ? weapon.sizeLevel
+        : bowTemplate.sizeLevel
+    if (bowSizeLevel >= bowTemplate.sizeMaxLevel) {
+      return 'extreme'
+    }
+    return 'small'
   }
 
   private getBallisticAimAngle(

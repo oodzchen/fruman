@@ -23,6 +23,9 @@ import {
   CATERPILLAR_SPINE_KEY,
   CATERPILLAR_SPINE_SCALE,
   DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
+  TERRAIN_COLLISION_DEBUG_ALPHA,
+  TERRAIN_COLLISION_DEBUG_COLOR,
+  TERRAIN_COLLISION_DEBUG_LINE_WIDTH,
 } from './constants'
 import type { EditorMapData, MapEnvironmentObject } from './editorMapTypes'
 import {
@@ -112,9 +115,6 @@ interface EnvironmentTextureEntry {
 
 type SleepTransitionPhase = 'idle' | 'closing' | 'closed' | 'opening'
 
-const TERRAIN_COLLISION_DEBUG_COLOR = 0x4f7cff
-const TERRAIN_COLLISION_DEBUG_LINE_WIDTH = 2
-const TERRAIN_COLLISION_DEBUG_ALPHA = 0.92
 const PASS_THROUGH_GRASS_VOLUME = 0.72
 const GRASS_DYNAMIC_VIEW_PADDING_X_METERS = 4
 const GRASS_DYNAMIC_VIEW_PADDING_Y_METERS = 3

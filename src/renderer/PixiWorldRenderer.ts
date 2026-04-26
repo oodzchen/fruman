@@ -14,11 +14,15 @@ import {
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
   DEATH_CROSS_DURATION_MS,
   DEBUG_DRAW_PLAYER_COLLISION_SHAPE,
+  DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
   DEFAULT_CHECKPOINT_RENDER_RADIUS,
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_WIDTH,
   GRAPPLE_ANCHOR_HIGHLIGHT_SCALE,
+  TERRAIN_COLLISION_DEBUG_ALPHA,
+  TERRAIN_COLLISION_DEBUG_COLOR,
+  TERRAIN_COLLISION_DEBUG_LINE_WIDTH,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
@@ -171,6 +175,7 @@ interface EntityView {
   bodyHash: number
   weaponHash: number
   specialKey: string
+  collisionDebugKey: string
   spineBody: Spine | null
   spineKey: string
   spineAnimState: string
@@ -893,6 +898,7 @@ export class PixiWorldRenderer {
       bodyHash: -1,
       weaponHash: -1,
       specialKey: '',
+      collisionDebugKey: '',
       spineBody: null,
       spineKey: '',
       spineAnimState: '',
@@ -1386,12 +1392,52 @@ export class PixiWorldRenderer {
       view.specialKey = key
     }
 
+    this.updateTerrainDebrisCollisionDebug(
+      view,
+      width,
+      height,
+      variant,
+      alpha * buf[offset + OFFSETS.WEAPON_DRAW],
+      buf[offset + OFFSETS.WEAPON_ROT]
+    )
     view.specialGraphics.visible = true
     view.specialGraphics.rotation = buf[offset + OFFSETS.WEAPON_ROT]
     view.specialGraphics.alpha = alpha * buf[offset + OFFSETS.WEAPON_DRAW]
     hideSprite(view.bodySprite)
     hideSprite(view.weaponSprite)
     this.clearSpineBody(view)
+  }
+
+  private updateTerrainDebrisCollisionDebug(
+    view: EntityView,
+    width: number,
+    height: number,
+    variant: number,
+    alpha: number,
+    rotation: number
+  ): void {
+    if (!DEBUG_DRAW_TERRAIN_COLLISION_SHAPE || variant < 4) {
+      hideGraphics(view.collisionDebugGraphics)
+      return
+    }
+
+    const key = `${width}|${height}|${variant}`
+    if (view.collisionDebugKey !== key) {
+      const halfW = width * 0.5
+      const halfH = height * 0.5
+      view.collisionDebugGraphics.clear()
+      view.collisionDebugGraphics.rect(-halfW, -halfH, width, height)
+      view.collisionDebugGraphics.stroke({
+        color: TERRAIN_COLLISION_DEBUG_COLOR,
+        width: TERRAIN_COLLISION_DEBUG_LINE_WIDTH,
+        alpha: TERRAIN_COLLISION_DEBUG_ALPHA,
+      })
+      view.collisionDebugKey = key
+    }
+
+    view.collisionDebugGraphics.visible = true
+    view.collisionDebugGraphics.rotation = rotation
+    view.collisionDebugGraphics.alpha = alpha
   }
 
   private updateExpOrb(view: EntityView): void {
