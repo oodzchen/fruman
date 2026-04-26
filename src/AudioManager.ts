@@ -67,7 +67,7 @@ export class AudioManager {
         SOUND_IDS.SPEAR_ULTIMATE_THRUST,
         'audios/Weapon Whips 02-double.wav'
       ),
-      this.loadSound(SOUND_IDS.PICKUP_ITEM, 'audios/pickup-item.wav'),
+      this.loadSound(SOUND_IDS.PICKUP_ITEM, 'audios/pickup_item.ogg'),
       this.loadSound(
         SOUND_IDS.HEAVY_SWORD_HIT_GROUND,
         'audios/heavy-sword-hit-ground.wav'
@@ -81,7 +81,7 @@ export class AudioManager {
         SOUND_IDS.BOMB_EXPLOSION,
         'audios/Explosion Military Bomb 02.wav'
       ),
-      this.loadSound(SOUND_IDS.BOMB_IGNITE, 'audios/ignite.wav'),
+      this.loadSound(SOUND_IDS.BOMB_IGNITE, 'audios/ignite.ogg'),
       this.loadSound(SOUND_IDS.STAGGER_BREAK, 'audios/glass_broken.ogg'),
       this.loadSound(SOUND_IDS.WOOD_BOX_BROKEN, 'audios/wood_box_broken.ogg'),
       this.loadSound(

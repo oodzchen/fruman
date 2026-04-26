@@ -3885,6 +3885,7 @@ export class WeaponSystem extends System {
             entity.grapple.pullElapsedMs = 0
             weaponEntity.weapon.isEquipped = true
             this.showHud(entity)
+            this.playPickupItemSound(entity)
           }
           continue
         }
@@ -3941,6 +3942,7 @@ export class WeaponSystem extends System {
                 )
               }
             }
+            this.playPickupItemSound(entity)
             continue // 已自动拾取，继续检查其他武器（或结束）
           }
 
@@ -3994,6 +3996,7 @@ export class WeaponSystem extends System {
             this.showHud(entity)
             this.triggerFreeAimIfMouseMode(entity)
           }
+          this.playPickupItemSound(entity)
           return true // 替换武器，已消费互动键
         }
 
@@ -4045,6 +4048,7 @@ export class WeaponSystem extends System {
           weaponEntity.weapon.isEquipped = true
           this.showHud(entity)
           this.triggerFreeAimIfMouseMode(entity)
+          this.playPickupItemSound(entity)
           return false // 自动拾取，未消费互动键
         }
 
@@ -4117,6 +4121,7 @@ export class WeaponSystem extends System {
           weaponEntity.weapon.isEquipped = true
           this.showHud(entity)
           this.triggerFreeAimIfMouseMode(entity)
+          this.playPickupItemSound(entity)
           return true // 替换武器，已消费互动键
         }
       }
@@ -4128,6 +4133,17 @@ export class WeaponSystem extends System {
 
   private showHud(entity: Entity): void {
     showEntityHud(entity)
+  }
+
+  private playPickupItemSound(entity: Entity): void {
+    if (!entity.transform) {
+      return
+    }
+    this.statsSystem?.playSoundAt(
+      SOUND_IDS.PICKUP_ITEM,
+      entity.transform.x,
+      entity.transform.y
+    )
   }
 
   dropWeaponsOnDeath(entity: Entity): void {
@@ -4307,6 +4323,11 @@ export class WeaponSystem extends System {
         weapon.bombThrowAimAngle = 0
         weapon.bombThrownRotation = 0
         weapon.attackFacing = facing
+        this.statsSystem?.playSoundAt(
+          SOUND_IDS.BOMB_IGNITE,
+          weapon.visual.x,
+          weapon.visual.y
+        )
         this.statsSystem?.enterCombat(entity)
         this.removeDepletedConsumable(entity, weapon)
       } else if (weapon.bombState === 'lit') {
