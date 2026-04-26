@@ -144,6 +144,7 @@ const PIXI_WORLD_PERF_PARTICLES = 8
 const PIXI_WORLD_PERF_PARRY = 9
 const PIXI_WORLD_PERF_SPINE = 10
 const PIXI_WORLD_PERF_CHECKPOINT_TEX = 11
+const TERRAIN_COLLISION_DEBUG_COLOR_CSS = '#4f7cff'
 
 interface LayerBucket {
   container: Container
@@ -339,6 +340,39 @@ function getArrowTextureHalfHeight(
   return Math.ceil(
     Math.max(topExtent + lineWidth, bottomExtent + headLen + lineWidth) + 8
   )
+}
+
+function drawProjectileDebugToContext(
+  ctx: CanvasRenderingContext2D,
+  weaponType: number,
+  width: number,
+  height: number,
+  radius: number
+): void {
+  ctx.save()
+  ctx.strokeStyle = TERRAIN_COLLISION_DEBUG_COLOR_CSS
+  ctx.lineWidth = TERRAIN_COLLISION_DEBUG_LINE_WIDTH
+
+  if (weaponType === WEAPON_TYPES.ARROW) {
+    ctx.globalAlpha = TERRAIN_COLLISION_DEBUG_ALPHA * 0.7
+    ctx.beginPath()
+    ctx.arc(0, 0, radius, 0, Math.PI * 2)
+    ctx.stroke()
+
+    ctx.globalAlpha = TERRAIN_COLLISION_DEBUG_ALPHA
+    ctx.strokeRect(-height / 2, -width, height, width)
+
+    ctx.beginPath()
+    ctx.arc(0, -width, radius, 0, Math.PI * 2)
+    ctx.stroke()
+  } else if (weaponType === WEAPON_TYPES.GRAPE_SHOT) {
+    ctx.globalAlpha = TERRAIN_COLLISION_DEBUG_ALPHA
+    ctx.beginPath()
+    ctx.arc(0, 0, radius, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+
+  ctx.restore()
 }
 
 // 视差参数：每层级的缩放/移动倍率增量，|layer|=100 时缩放约 0.5x/1.5x
@@ -2029,6 +2063,10 @@ export class PixiWorldRenderer {
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const color = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
+    const weaponLocalX = (weaponX - entityX) * this.pixelsPerMeter
+    const weaponLocalY = (weaponY - entityY) * this.pixelsPerMeter
+    const projectileRadiusPx =
+      buf[offset + OFFSETS.WEAPON_R] * this.pixelsPerMeter
 
     if (isStandaloneWeapon) {
       const maxSizePx = Math.round(
@@ -2055,6 +2093,7 @@ export class PixiWorldRenderer {
     weaponHash = fnvMix(weaponHash, isAttacking ? 1 : 0)
     weaponHash = fnvMix(weaponHash, quantizedBowDraw)
     weaponHash = fnvMix(weaponHash, arrowVisible ? 1 : 0)
+    weaponHash = fnvMix(weaponHash, Math.round(projectileRadiusPx))
     weaponHash = fnvMix(weaponHash, isStandaloneWeapon ? 1 : 0)
     weaponHash = weaponHash >>> 0
 
@@ -2066,16 +2105,14 @@ export class PixiWorldRenderer {
         color,
         isAttacking,
         quantizedBowDraw,
-        arrowVisible
+        arrowVisible,
+        projectileRadiusPx
       )
       view.weaponHash = weaponHash
     }
 
     view.weaponSprite.visible = true
-    view.weaponSprite.position.set(
-      (weaponX - entityX) * this.pixelsPerMeter,
-      (weaponY - entityY) * this.pixelsPerMeter
-    )
+    view.weaponSprite.position.set(weaponLocalX, weaponLocalY)
     view.weaponSprite.rotation = weaponRotation
     view.weaponSprite.alpha = isStandaloneWeapon ? HUD_ICON_ALPHA : alpha
 
@@ -2852,7 +2889,8 @@ export class PixiWorldRenderer {
     color: string,
     isAttacking: boolean,
     bowDraw: number,
-    arrowVisible: boolean
+    arrowVisible: boolean,
+    projectileRadius: number = 0
   ): Texture {
     const quantizedBowDraw =
       weaponType === WEAPON_TYPES.BOW || weaponType === WEAPON_TYPES.BOMB
@@ -2866,6 +2904,7 @@ export class PixiWorldRenderer {
       isAttacking ? 1 : 0,
       Math.round(quantizedBowDraw * BOW_DRAW_TEXTURE_STEPS),
       arrowVisible ? 1 : 0,
+      projectileRadius > 0 ? Math.round(projectileRadius) : 0,
     ].join('|')
     const cached = this.weaponTextureCache.get(key)
     if (cached) {
@@ -2923,6 +2962,23 @@ export class PixiWorldRenderer {
       isAttacking,
       quantizedBowDraw
     )
+    if (
+      DEBUG_DRAW_TERRAIN_COLLISION_SHAPE &&
+      (weaponType === WEAPON_TYPES.ARROW ||
+        weaponType === WEAPON_TYPES.GRAPE_SHOT)
+    ) {
+      drawProjectileDebugToContext(
+        ctx,
+        weaponType,
+        width,
+        height,
+        Math.max(
+          projectileRadius,
+          weaponType === WEAPON_TYPES.GRAPE_SHOT ? width * 0.5 : height,
+          1
+        )
+      )
+    }
 
     if (weaponType === WEAPON_TYPES.BOW && arrowVisible) {
       const bowBaseWidthPx = WEAPON_DEFAULT_DATA.bow.width * this.pixelsPerMeter

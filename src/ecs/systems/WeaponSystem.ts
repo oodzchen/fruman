@@ -3322,7 +3322,7 @@ export class WeaponSystem extends System {
     arrowWeapon.baseWidth = arrowLength
     arrowWeapon.blockWidthStart = arrowLength
     arrowWeapon.blockWidthTarget = arrowLength
-    arrowWeapon.cornerRadius = 0
+    arrowWeapon.cornerRadius = circle.radius
     arrowWeapon.weight = 0
     arrowWeapon.weaponType = projectileVisualType
     arrowWeapon.attackDamage = weapon.attackDamage * forceMultiplier

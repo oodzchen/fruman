@@ -53,6 +53,11 @@ export class ArrowSystem extends System {
   private arrowPools?: ArrowPools
   private tempHitSource = { x: 0, y: 0 }
   private tempVec?: InstanceType<MainModule['b2Vec2']>
+  private tempProjectileCenterX = 0
+  private tempProjectileCenterY = 0
+  private tempProjectileWidth = 0
+  private tempProjectileHeight = 0
+  private tempProjectileRotation = 0
 
   constructor(box2d: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -337,10 +342,12 @@ export class ArrowSystem extends System {
     if (!weapon || !world) {
       return false
     }
-    const weaponX = weapon.visual.x
-    const weaponY = weapon.visual.y
-    const weaponWidth = weapon.width
-    const weaponHeight = weapon.height
+    this.resolveProjectileCollisionShape(entity, dirX, dirY)
+    const weaponX = this.tempProjectileCenterX
+    const weaponY = this.tempProjectileCenterY
+    const weaponWidth = this.tempProjectileWidth
+    const weaponHeight = this.tempProjectileHeight
+    const weaponRotation = this.tempProjectileRotation
     if (weaponWidth <= 0 || weaponHeight <= 0) {
       return false
     }
@@ -381,7 +388,7 @@ export class ArrowSystem extends System {
           weaponY,
           weaponWidth,
           weaponHeight,
-          weapon.visual.rotation,
+          weaponRotation,
           target.transform.x,
           target.transform.y,
           debrisWidth,
@@ -393,7 +400,7 @@ export class ArrowSystem extends System {
           weaponY,
           weaponWidth,
           weaponHeight,
-          weapon.visual.rotation,
+          weaponRotation,
           target.transform.x,
           target.transform.y,
           debrisRadius
@@ -422,11 +429,17 @@ export class ArrowSystem extends System {
     if (!weapon || this.obstacles.length === 0) {
       return false
     }
-    const weaponX = weapon.visual.x
-    const weaponY = weapon.visual.y
-    const weaponWidth = weapon.width
-    const weaponHeight = weapon.height
-    const weaponRotation = weapon.visual.rotation
+    const dirAngle = weapon.visual.rotation - Math.PI / 2
+    this.resolveProjectileCollisionShape(
+      entity,
+      Math.cos(dirAngle),
+      Math.sin(dirAngle)
+    )
+    const weaponX = this.tempProjectileCenterX
+    const weaponY = this.tempProjectileCenterY
+    const weaponWidth = this.tempProjectileWidth
+    const weaponHeight = this.tempProjectileHeight
+    const weaponRotation = this.tempProjectileRotation
 
     for (let i = 0; i < this.obstacles.length; i++) {
       const obstacle = this.obstacles[i]
@@ -488,6 +501,37 @@ export class ArrowSystem extends System {
       return true
     }
     return false
+  }
+
+  private resolveProjectileCollisionShape(
+    entity: Entity,
+    dirX: number,
+    dirY: number
+  ): void {
+    const weapon = entity.weapon
+    if (!weapon) {
+      this.tempProjectileCenterX = 0
+      this.tempProjectileCenterY = 0
+      this.tempProjectileWidth = 0
+      this.tempProjectileHeight = 0
+      this.tempProjectileRotation = 0
+      return
+    }
+
+    if (entity.arrow?.projectileType === 'arrow') {
+      this.tempProjectileCenterX = weapon.visual.x + dirX * (weapon.width * 0.5)
+      this.tempProjectileCenterY = weapon.visual.y + dirY * (weapon.width * 0.5)
+      this.tempProjectileWidth = weapon.height
+      this.tempProjectileHeight = weapon.width
+      this.tempProjectileRotation = weapon.visual.rotation
+      return
+    }
+
+    this.tempProjectileCenterX = weapon.visual.x
+    this.tempProjectileCenterY = weapon.visual.y
+    this.tempProjectileWidth = weapon.width
+    this.tempProjectileHeight = weapon.height
+    this.tempProjectileRotation = weapon.visual.rotation
   }
 
   private handleArrowParry(
