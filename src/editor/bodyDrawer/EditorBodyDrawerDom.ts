@@ -109,17 +109,21 @@ export function setPopupButtonEnabled(
 }
 
 export function styleCompactButton(button: HTMLButtonElement) {
-  button.style.padding = '6px 8px'
-  button.style.fontSize = '10px'
+  button.style.padding = '5px 4px'
+  button.style.fontSize = '9px'
+  button.style.lineHeight = '1.15'
+  button.style.whiteSpace = 'normal'
+  button.style.wordBreak = 'break-word'
 }
 
 export function styleDrawerModeButton(button: HTMLButtonElement) {
   button.style.flex = '1 1 100%'
   button.style.minWidth = '0'
-  button.style.padding = '6px 8px'
-  button.style.fontSize = '10px'
-  button.style.lineHeight = '1.2'
+  button.style.padding = '5px 4px'
+  button.style.fontSize = '9px'
+  button.style.lineHeight = '1.15'
   button.style.whiteSpace = 'normal'
+  button.style.wordBreak = 'break-word'
   button.style.writingMode = 'horizontal-tb'
   button.style.textOrientation = 'mixed'
   button.style.textAlign = 'center'

@@ -100,7 +100,26 @@ export function createEditorBodyDrawerLayout(
   form.style.overflow = 'hidden'
   form.style.position = 'relative'
 
-  form.appendChild(EditorUIHelper.createFormTitle(options.title))
+  const title = EditorUIHelper.createFormTitle(options.title)
+  form.appendChild(title)
+
+  const toolbar = createStyledElement(
+    'div',
+    [
+      'display:flex',
+      'align-items:center',
+      'justify-content:flex-start',
+      'gap:8px',
+      'flex-wrap:nowrap',
+      'margin:-4px 0 12px 0',
+      'padding:8px 10px',
+      'border:1px solid rgba(255,255,255,0.14)',
+      'background:rgba(255,255,255,0.04)',
+      'overflow:hidden',
+      'box-sizing:border-box',
+    ].join(';')
+  )
+  form.appendChild(toolbar)
 
   const content = createStyledElement(
     'div',
@@ -167,7 +186,7 @@ export function createEditorBodyDrawerLayout(
 
   const canvasFooter = createStyledElement(
     'div',
-    'flex:0 0 auto;width:100%;min-height:52px;padding-top:10px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;box-sizing:border-box;'
+    'flex:0 0 auto;width:100%;min-height:24px;padding-top:10px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;box-sizing:border-box;'
   )
   canvasColumn.appendChild(canvasFooter)
 
@@ -185,29 +204,19 @@ export function createEditorBodyDrawerLayout(
   )
   canvasFooter.appendChild(alertEl)
 
-  const zoomRow = createStyledElement(
-    'div',
-    'display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;width:100%;'
-  )
-  const zoomLabel = createStyledElement(
-    'span',
-    'font-size:11px;color:rgba(255,255,255,0.78);line-height:1;',
-    localizer.t('editor_body_drawer_zoom')
-  )
   const zoomSlider = document.createElement('input')
   zoomSlider.type = 'range'
   zoomSlider.min = String(CANVAS_ZOOM_MIN_PERCENT)
   zoomSlider.max = String(CANVAS_ZOOM_MAX_PERCENT)
   zoomSlider.step = String(CANVAS_ZOOM_STEP_PERCENT)
   zoomSlider.value = String(CANVAS_ZOOM_DEFAULT_PERCENT)
-  zoomSlider.style.cssText = 'width:160px;max-width:160px;cursor:pointer;'
+  zoomSlider.style.cssText = 'width:96px;max-width:96px;cursor:pointer;'
   const zoomValueText = createStyledElement(
     'span',
     'min-width:40px;font-size:11px;line-height:1;text-align:right;color:rgba(255,255,255,0.92);',
     `${CANVAS_ZOOM_DEFAULT_PERCENT}%`
   )
-  appendChildren(zoomRow, zoomLabel, zoomSlider, zoomValueText)
-  canvasFooter.appendChild(zoomRow)
+  zoomValueText.style.display = 'none'
 
   const sidebarTabBar = createStyledElement(
     'div',
@@ -337,29 +346,17 @@ export function createEditorBodyDrawerLayout(
   )
   form.appendChild(layerMenu)
 
+  const presetSelect = createPresetSelect()
   sidebar.appendChild(
-    createStyledElement(
-      'div',
-      'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.72);',
-      localizer.t('editor_body_drawer_hint')
+    createToolbarField(
+      localizer.t('editor_body_drawer_preset'),
+      presetSelect,
+      true
     )
   )
 
-  const presetWrap = createStyledElement(
-    'div',
-    'display:flex;flex-direction:column;gap:6px;'
-  )
-  const presetLabel = createStyledElement(
-    'div',
-    'font-size:11px;line-height:1;color:rgba(255,255,255,0.78);',
-    localizer.t('editor_body_drawer_preset')
-  )
-  const presetSelect = createPresetSelect()
-  appendChildren(presetWrap, presetLabel, presetSelect)
-  sidebar.appendChild(presetWrap)
-
   const modeRow = EditorUIHelper.createButtonRow({
-    gap: '8px',
+    gap: '6px',
     marginTop: '0',
     justifyContent: 'flex-start',
   })
@@ -401,10 +398,6 @@ export function createEditorBodyDrawerLayout(
     textureBtn
   )
 
-  const brushRow = EditorUIHelper.createFormRow(
-    localizer.t('editor_body_drawer_brush'),
-    { labelWidth: '36px', gap: '8px', marginBottom: '0' }
-  )
   const brushControls = createStyledElement(
     'div',
     'display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0;'
@@ -415,37 +408,74 @@ export function createEditorBodyDrawerLayout(
   brushSlider.max = String(MAX_BRUSH_SIZE)
   brushSlider.step = '1'
   brushSlider.value = String(DEFAULT_BRUSH_SIZE)
-  brushSlider.style.cssText = 'width:60px;max-width:60px;cursor:pointer;'
+  brushSlider.style.cssText = 'width:72px;max-width:72px;cursor:pointer;'
   const brushValueText = createStyledElement(
     'span',
     'display:inline-block;min-width:24px;font-size:12px;text-align:right;',
     String(DEFAULT_BRUSH_SIZE)
   )
+  brushValueText.style.display = 'none'
   appendChildren(brushControls, brushSlider, brushValueText)
-  brushRow.row.appendChild(brushControls)
-  sidebar.appendChild(brushRow.row)
-
-  const colorRow = EditorUIHelper.createFormRow(
-    localizer.t('editor_body_drawer_color'),
-    { labelWidth: '36px', gap: '8px', marginBottom: '0' }
-  )
   const colorInput = EditorUIHelper.createColorInput('#d6a86c')
   colorInput.value =
     options.initialProfile?.color ?? options.initialColor ?? colorInput.value
-  colorRow.row.appendChild(colorInput)
-  sidebar.appendChild(colorRow.row)
-
-  const bloodColorRow = EditorUIHelper.createFormRow(
-    localizer.t('editor_body_drawer_blood_color'),
-    { labelWidth: '36px', gap: '8px', marginBottom: '0' }
-  )
+  colorInput.style.minWidth = '92px'
+  colorInput.style.maxWidth = '92px'
+  const colorPicker = colorInput.firstElementChild
+  if (colorPicker instanceof HTMLInputElement) {
+    colorPicker.style.width = '20px'
+    colorPicker.style.height = '16px'
+    colorPicker.style.padding = '1px'
+  }
+  const colorAlphaSlider = colorInput.children[1]
+  if (colorAlphaSlider instanceof HTMLInputElement) {
+    colorAlphaSlider.style.minWidth = '44px'
+    colorAlphaSlider.style.maxWidth = '44px'
+  }
+  const colorAlphaText = colorInput.children[2]
+  if (colorAlphaText instanceof HTMLSpanElement) {
+    colorAlphaText.style.display = 'none'
+  }
   const bloodColorInput = EditorUIHelper.createColorInput(
     DEFAULT_BODY_BLOOD_COLOR
   )
   bloodColorInput.value =
     options.initialProfile?.bloodColor ?? DEFAULT_BODY_BLOOD_COLOR
-  bloodColorRow.row.appendChild(bloodColorInput)
-  sidebar.appendChild(bloodColorRow.row)
+  bloodColorInput.style.minWidth = '92px'
+  bloodColorInput.style.maxWidth = '92px'
+  const bloodPicker = bloodColorInput.firstElementChild
+  if (bloodPicker instanceof HTMLInputElement) {
+    bloodPicker.style.width = '20px'
+    bloodPicker.style.height = '16px'
+    bloodPicker.style.padding = '1px'
+  }
+  const bloodAlphaSlider = bloodColorInput.children[1]
+  if (bloodAlphaSlider instanceof HTMLInputElement) {
+    bloodAlphaSlider.style.minWidth = '44px'
+    bloodAlphaSlider.style.maxWidth = '44px'
+  }
+  const bloodAlphaText = bloodColorInput.children[2]
+  if (bloodAlphaText instanceof HTMLSpanElement) {
+    bloodAlphaText.style.display = 'none'
+  }
+  toolbar.appendChild(
+    createToolbarField(
+      localizer.t('editor_body_drawer_zoom'),
+      createToolbarPair(zoomSlider, zoomValueText)
+    )
+  )
+  toolbar.appendChild(
+    createToolbarField(
+      localizer.t('editor_body_drawer_blood_color'),
+      bloodColorInput
+    )
+  )
+  toolbar.appendChild(
+    createToolbarField(localizer.t('editor_body_drawer_brush'), brushControls)
+  )
+  toolbar.appendChild(
+    createToolbarField(localizer.t('editor_body_drawer_color'), colorInput)
+  )
 
   const actionRow = createStyledElement(
     'div',
@@ -630,14 +660,67 @@ function createPresetSelect(): HTMLSelectElement {
     selected: CUSTOM_BODY_PRESET_ID,
     width: '100%',
   })
+  presetSelect.style.display = 'block'
   presetSelect.style.flex = '1 1 auto'
   presetSelect.style.width = '100%'
+  presetSelect.style.maxWidth = '100%'
+  presetSelect.style.minWidth = '0'
   presetSelect.style.background = 'rgba(255,255,255,0.08)'
   presetSelect.style.borderColor = 'rgba(255,255,255,0.18)'
   presetSelect.style.color = 'rgba(255,255,255,0.92)'
-  presetSelect.style.padding = '6px 8px'
-  presetSelect.style.fontSize = '11px'
+  presetSelect.style.padding = '4px 6px'
+  presetSelect.style.fontSize = '10px'
+  presetSelect.style.lineHeight = '1.2'
   return presetSelect
+}
+
+function createToolbarField(
+  labelText: string,
+  control: HTMLElement,
+  vertical = false
+): HTMLDivElement {
+  const field = createStyledElement(
+    'div',
+    vertical
+      ? [
+          'display:flex',
+          'flex-direction:column',
+          'align-items:stretch',
+          'gap:6px',
+          'width:100%',
+          'min-width:0',
+          'padding:2px 0',
+        ].join(';')
+      : [
+          'display:flex',
+          'align-items:center',
+          'gap:8px',
+          'min-width:0',
+          'padding:2px 0',
+        ].join(';')
+  )
+  const label = createStyledElement(
+    'span',
+    vertical
+      ? 'font-size:10px;line-height:1;color:rgba(255,255,255,0.72);white-space:nowrap;'
+      : 'font-size:10px;line-height:1;color:rgba(255,255,255,0.72);white-space:nowrap;flex:0 0 auto;',
+    labelText
+  )
+  control.style.minWidth = control.style.minWidth || '0'
+  appendChildren(field, label, control)
+  return field
+}
+
+function createToolbarPair(
+  input: HTMLElement,
+  valueText: HTMLElement
+): HTMLDivElement {
+  const wrap = createStyledElement(
+    'div',
+    'display:flex;align-items:center;gap:8px;min-width:0;'
+  )
+  appendChildren(wrap, input, valueText)
+  return wrap
 }
 
 function createModeButton(label: string, primary = false): HTMLButtonElement {
