@@ -1,9 +1,18 @@
+import {
+  isEditorMapArchiveData,
+  packEditorMapData,
+  unpackEditorMapData,
+} from './MapArchive'
 import type { EditorMapData, EditorMapMeta } from './editorMapTypes'
 import { createEditorMap, listEditorMaps, loadEditorMapData } from './storage'
 
 export class MapImportExportPanel {
   private listEl: HTMLElement
   private statusEl: HTMLElement
+  private importBtn: HTMLButtonElement
+  private exportButtons = new Map<string, HTMLButtonElement>()
+  private importing = false
+  private exportingMapId: string | null = null
   private statusTimeout: ReturnType<typeof setTimeout> | null = null
 
   constructor(container: HTMLElement) {
@@ -12,21 +21,26 @@ export class MapImportExportPanel {
 
     const fileInput = document.createElement('input')
     fileInput.type = 'file'
-    fileInput.accept = '.json'
+    fileInput.accept = '.zip,application/zip'
     fileInput.style.display = 'none'
     fileInput.id = 'mapImportInput'
     fileInput.addEventListener('change', () => this.handleImport(fileInput))
 
-    const importLabel = document.createElement('label')
-    importLabel.textContent = '导入'
-    importLabel.className = 'map-panel-btn'
-    importLabel.htmlFor = 'mapImportInput'
+    this.importBtn = document.createElement('button')
+    this.importBtn.textContent = '导入'
+    this.importBtn.className = 'map-panel-btn'
+    this.importBtn.addEventListener('click', () => {
+      if (this.importing || this.exportingMapId !== null) {
+        return
+      }
+      fileInput.click()
+    })
 
     this.statusEl = document.createElement('span')
     this.statusEl.className = 'map-panel-status'
 
     header.appendChild(fileInput)
-    header.appendChild(importLabel)
+    header.appendChild(this.importBtn)
     header.appendChild(this.statusEl)
 
     this.listEl = document.createElement('div')
@@ -40,10 +54,12 @@ export class MapImportExportPanel {
 
   async refresh(): Promise<void> {
     this.listEl.innerHTML = ''
+    this.exportButtons.clear()
     const maps = await listEditorMaps()
     for (const meta of maps) {
       this.listEl.appendChild(this.buildItem(meta))
     }
+    this.updateButtonStates()
   }
 
   private buildItem(meta: EditorMapMeta): HTMLElement {
@@ -58,6 +74,7 @@ export class MapImportExportPanel {
     btn.className = 'map-panel-btn'
     btn.textContent = '导出'
     btn.addEventListener('click', () => void this.handleExport(meta))
+    this.exportButtons.set(meta.id, btn)
 
     row.appendChild(name)
     row.appendChild(btn)
@@ -65,58 +82,92 @@ export class MapImportExportPanel {
   }
 
   private async handleExport(meta: EditorMapMeta): Promise<void> {
-    const data = await loadEditorMapData(meta.id)
-    if (!data) {
-      this.showStatus('导出失败')
+    if (this.importing || this.exportingMapId !== null) {
       return
     }
-    const json = JSON.stringify(data, null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `fruman-${meta.name}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    this.showStatus('已导出')
+    this.exportingMapId = meta.id
+    this.updateButtonStates()
+    try {
+      const data = await loadEditorMapData(meta.id)
+      if (!data) {
+        this.showStatus('导出失败')
+        return
+      }
+      const blob = await packEditorMapData(data)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `fruman-${meta.name}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      this.showStatus('已导出')
+    } catch {
+      this.showStatus('导出失败')
+    } finally {
+      this.exportingMapId = null
+      this.updateButtonStates()
+    }
   }
 
   private async handleImport(input: HTMLInputElement): Promise<void> {
+    if (this.importing || this.exportingMapId !== null) {
+      input.value = ''
+      return
+    }
     const file = input.files?.[0]
     input.value = ''
     if (!file) return
 
-    let parsed: unknown
+    this.importing = true
+    this.updateButtonStates()
+    let data: EditorMapData | null = null
     try {
-      parsed = JSON.parse(await file.text())
+      const archiveBytes = new Uint8Array(await file.arrayBuffer())
+      data = await unpackEditorMapData(archiveBytes)
     } catch {
       this.showStatus('文件格式错误')
+      this.importing = false
+      this.updateButtonStates()
       return
     }
 
-    const data = parsed as EditorMapData
-    if (
-      !data ||
-      typeof data !== 'object' ||
-      (data.version !== 1 && data.version !== 2 && data.version !== 3) ||
-      (!Array.isArray(data.shapes) && data.shapes !== undefined)
-    ) {
+    if (!data || !isEditorMapArchiveData(data)) {
       this.showStatus('无效的地图文件')
+      this.importing = false
+      this.updateButtonStates()
       return
     }
 
-    let name = file.name.replace(/\.json$/, '')
+    let name = file.name.replace(/\.zip$/i, '')
     if (name.startsWith('fruman-')) {
       name = name.slice('fruman-'.length)
     }
 
-    const result = await createEditorMap(name, data)
-    if (result) {
-      this.showStatus('导入成功')
-      await this.refresh()
-    } else {
+    try {
+      const result = await createEditorMap(name, data)
+      if (result) {
+        this.showStatus('导入成功')
+        await this.refresh()
+      } else {
+        this.showStatus('导入失败')
+      }
+    } catch {
       this.showStatus('导入失败')
+    } finally {
+      this.importing = false
+      this.updateButtonStates()
     }
+  }
+
+  private updateButtonStates(): void {
+    const busy = this.importing || this.exportingMapId !== null
+    this.importBtn.disabled = busy
+    this.importBtn.textContent = this.importing ? '导入中...' : '导入'
+    this.exportButtons.forEach((button, mapId) => {
+      const exporting = this.exportingMapId === mapId
+      button.disabled = busy
+      button.textContent = exporting ? '导出中...' : '导出'
+    })
   }
 
   private showStatus(msg: string): void {
