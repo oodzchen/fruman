@@ -24,6 +24,10 @@ import {
 import type { MapCharacterBodyProfile } from '../editorMapTypes'
 import { getPublicAssetUrl } from '../publicAssetUrl'
 import { RENDER_LAYER_SKY } from '../renderLayers'
+import {
+  resolveSkeletalAnimationNameFromMotionState,
+  resolveSkeletalMoveDirection,
+} from '../skeletalAnimation'
 import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
 import {
   ENTITY_STRIDE,
@@ -1600,15 +1604,41 @@ export class PixiWorldRenderer {
     }
 
     const facing = renderer.getFacingForEntity(buf, offset)
+    const flags = buf[offset + OFFSETS.FLAGS] | 0
+    const fallbackMoveDir = buf[offset + OFFSETS.MOVE_DIR] | 0
+    const velocityX = buf[offset + OFFSETS.MOTION_VELOCITY_X]
+    const velocityY = buf[offset + OFFSETS.MOTION_VELOCITY_Y]
+    const isGrounded = buf[offset + OFFSETS.MOTION_IS_GROUNDED] === 1
+    const isSprinting = buf[offset + OFFSETS.MOTION_IS_SPRINTING] === 1
+    const animationName = resolveSkeletalAnimationNameFromMotionState(
+      (flags & FLAGS.DEAD) !== 0,
+      (flags & FLAGS.STAGGERED) !== 0,
+      (flags & FLAGS.ROLLING) !== 0,
+      (flags & FLAGS.WEAPON_ATTACKING) !== 0,
+      (flags & FLAGS.WEAPON_BLOCKING) !== 0,
+      isGrounded,
+      isSprinting,
+      fallbackMoveDir,
+      velocityX,
+      velocityY
+    )
+    const moveDir = resolveSkeletalMoveDirection(
+      velocityX,
+      fallbackMoveDir,
+      facing
+    )
     const deltaMsInt = Math.max(0, Math.round(this.currentFrameDeltaMs)) | 0
     const displayScale = this.pixelsPerMeter / SKELETAL_EDITOR_PPM
 
+    view.spineAnimState = animationName
     updateSkeletalPose(
       spine.skeleton,
       definition.boneIndex,
       view.skeletalGait,
+      animationName,
       buf,
       offset,
+      moveDir,
       facing,
       SKELETAL_EDITOR_PPM,
       deltaMsInt

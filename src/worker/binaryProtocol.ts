@@ -1,4 +1,4 @@
-export const ENTITY_STRIDE = 91
+export const ENTITY_STRIDE = 96
 
 export const OFFSETS = {
   ID: 0,
@@ -92,6 +92,11 @@ export const OFFSETS = {
   STATS_DAMAGE_TEXT_VALUE: 88, // 当帧需显示的受击数值
   STATS_DAMAGE_TEXT_TOKEN: 89, // 受击事件序号，用于前端去重
   SKELETAL_GAIT_PHASE: 90, // 骨骼身体步态相位，保持渲染和碰撞同步
+  MOTION_VELOCITY_X: 91, // 角色当前物理水平速度（米/秒）
+  MOTION_VELOCITY_Y: 92, // 角色当前物理垂直速度（米/秒）
+  MOTION_IS_GROUNDED: 93, // 1=着地，0=离地
+  MOTION_IS_SPRINTING: 94, // 1=冲刺，0=非冲刺
+  MOTION_IS_COMBAT_READY: 95, // 1=战斗准备，0=非战斗准备
 }
 
 export const FLAGS = {

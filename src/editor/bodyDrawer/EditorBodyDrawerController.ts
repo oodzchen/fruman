@@ -40,9 +40,14 @@ import type {
   MapCharacterBodyProfile,
 } from '../../editorMapTypes'
 import {
+  SKELETAL_ANIMATION_NAMES,
+  type SkeletalAnimationName,
+} from '../../skeletalAnimation'
+import {
   buildDefaultSkeletalBoneBoundary,
   buildSkeletalSurfaceSnapshot,
 } from '../../skeletalBodyProfile'
+import { showBodyDrawerAnimationPreview } from './EditorBodyDrawerAnimationPreview'
 import { renderEditorBodyDrawerBoneList } from './EditorBodyDrawerBoneList'
 import {
   BONE_DEFAULT_POSITIONS,
@@ -257,6 +262,8 @@ export class EditorBodyDrawerController {
       bonesPanel,
       boneList,
       bonePropPanel,
+      animationPanel,
+      animationList,
       boneLengthRow,
       boneWidthRow,
       contourMenu,
@@ -476,6 +483,7 @@ export class EditorBodyDrawerController {
       }
       activeSidebarTab = tab
       setSidebarTabState(sidebarTabElements, tab)
+      renderAnimationList()
       updateModeButtons()
     }
 
@@ -954,6 +962,57 @@ export class EditorBodyDrawerController {
           (layer.bounds !== null || !!layer.boneBoundaryShapes?.length)
       )
 
+    const renderAnimationList = () => {
+      animationPanel.style.display =
+        activeSidebarTab === 'bones' ? 'flex' : 'none'
+      animationList.innerHTML = ''
+      for (let i = 0; i < SKELETAL_ANIMATION_NAMES.length; i++) {
+        const animationName = SKELETAL_ANIMATION_NAMES[i]
+        const row = document.createElement('div')
+        row.style.cssText = [
+          'display:flex',
+          'align-items:center',
+          'justify-content:space-between',
+          'gap:8px',
+          'padding:6px 8px',
+          'background:rgba(255,255,255,0.04)',
+          'border:1px solid rgba(255,255,255,0.08)',
+        ].join(';')
+
+        const nameLabel = document.createElement('span')
+        nameLabel.textContent = localizer.t(
+          `editor_body_drawer_animation_${animationName}`
+        )
+        nameLabel.style.cssText =
+          'font-size:11px;line-height:1.2;color:#f4efe0;'
+        row.appendChild(nameLabel)
+
+        const previewBtn = document.createElement('button')
+        previewBtn.type = 'button'
+        previewBtn.textContent = localizer.t(
+          'editor_body_drawer_animation_preview'
+        )
+        previewBtn.style.cssText = [
+          'padding:3px 7px',
+          'font-size:10px',
+          'font-family:monospace',
+          'color:#fff',
+          'background:rgba(255,255,255,0.08)',
+          'border:1px solid rgba(255,255,255,0.2)',
+          'cursor:pointer',
+        ].join(';')
+        previewBtn.addEventListener('click', () => {
+          showBodyDrawerAnimationPreview({
+            viewport,
+            animationName: animationName as SkeletalAnimationName,
+            segments: getBoneSegments(),
+          })
+        })
+        row.appendChild(previewBtn)
+        animationList.appendChild(row)
+      }
+    }
+
     const loadBoneSegments = (segments: BoneSegment[]) => {
       loadedBoneSegments = segments.length > 0
       for (const seg of segments) {
@@ -1099,6 +1158,7 @@ export class EditorBodyDrawerController {
           },
         }
       )
+      renderAnimationList()
     }
 
     const renderLayerList = () => {
@@ -1186,6 +1246,7 @@ export class EditorBodyDrawerController {
           },
         }
       )
+      renderAnimationList()
     }
 
     layerList.addEventListener('dragover', (event) => {
@@ -4807,6 +4868,7 @@ export class EditorBodyDrawerController {
     updateModeButtons()
     syncBrushValue(String(DEFAULT_BRUSH_SIZE))
     applyCanvasZoom(CANVAS_ZOOM_DEFAULT_PERCENT)
+    renderAnimationList()
     await loadInitialProfile()
     historyManager.reset()
     return promise

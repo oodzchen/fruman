@@ -47,6 +47,8 @@ export interface EditorBodyDrawerLayout {
   bonesPanel: HTMLDivElement
   boneList: HTMLDivElement
   bonePropPanel: HTMLDivElement
+  animationPanel: HTMLDivElement
+  animationList: HTMLDivElement
   boneLengthRow: EditorBodyDrawerNumberRow
   boneWidthRow: EditorBodyDrawerNumberRow
   contourMenu: HTMLDivElement
@@ -304,6 +306,30 @@ export function createEditorBodyDrawerLayout(
   appendChildren(bonesPanel, boneList, bonePropPanel)
   layerSidebar.appendChild(bonesPanel)
 
+  const animationPanel = createStyledElement(
+    'div',
+    [
+      'display:flex',
+      'flex-direction:column',
+      'gap:8px',
+      'flex:0 0 auto',
+      'padding-top:10px',
+      'border-top:1px solid rgba(255,255,255,0.12)',
+      'margin-top:auto',
+    ].join(';')
+  )
+  const animationTitle = createStyledElement(
+    'div',
+    'font-size:11px;line-height:1;color:rgba(255,255,255,0.82);',
+    localizer.t('editor_body_drawer_animations')
+  )
+  const animationList = createStyledElement(
+    'div',
+    'display:flex;flex-direction:column;gap:6px;min-height:0;'
+  )
+  appendChildren(animationPanel, animationTitle, animationList)
+  layerSidebar.appendChild(animationPanel)
+
   const boneLengthRow = createBonePropRow('len', 0.15, 0.01)
   const boneWidthRow = createBonePropRow('wid', 0.06, 0.01)
   appendChildren(bonePropPanel, boneLengthRow.row, boneWidthRow.row)
@@ -555,6 +581,8 @@ export function createEditorBodyDrawerLayout(
     bonesPanel,
     boneList,
     bonePropPanel,
+    animationPanel,
+    animationList,
     boneLengthRow,
     boneWidthRow,
     contourMenu,

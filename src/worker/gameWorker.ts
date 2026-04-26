@@ -147,6 +147,10 @@ import type {
   SavePlayerState,
   SaveWeaponSlotState,
 } from '../saveTypes'
+import {
+  isSkeletalCombatReady,
+  isSkeletalWeaponAttacking,
+} from '../skeletalAnimation'
 import { ensureDefaultMap } from '../storage'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { hasTerrainContent } from '../terrain/TerrainDataUtils'
@@ -5382,13 +5386,20 @@ function sendState() {
       flags |= FLAGS.VISIBLE
     if (e.stats?.isDead) flags |= FLAGS.DEAD
     if (e.stats?.isVanished) flags |= FLAGS.VANISHED
-    if (e.movement?.isRolling) flags |= FLAGS.ROLLING
+    if (e.movement?.isRolling || e.movement?.isBackstepping)
+      flags |= FLAGS.ROLLING
     if (e.stats?.isStaggered) flags |= FLAGS.STAGGERED
 
     // 武器具有伤害力的条件（与实际碰撞检测逻辑一致）
-    const isWeaponAttacking =
-      e.weapon?.attackPhase === 'swing' ||
-      (e.weapon?.attackPhase === 'pause' && !e.movement?.isGrounded)
+    const isWeaponAttacking = isSkeletalWeaponAttacking(
+      e.weapon?.attackPhase,
+      e.movement?.isGrounded === true
+    )
+    const isCombatReady = isSkeletalCombatReady(
+      e.weapon?.attackPhase,
+      e.weapon?.isBlocking === true,
+      e.input?.lockedTargetId ?? null
+    )
     if (isWeaponAttacking) flags |= FLAGS.WEAPON_ATTACKING
     if (e.id === playerEntity.id) flags |= FLAGS.IS_PLAYER
     if (e.stats?.isInCombat) flags |= FLAGS.IN_COMBAT
@@ -5451,6 +5462,15 @@ function sendState() {
       ?.skeletalMode
       ? skeletalSegmentManager.getEntityGaitPhase(e.id)
       : 0
+    stateBuffer[offset + OFFSETS.MOTION_VELOCITY_X] = e.physics?.velX ?? 0
+    stateBuffer[offset + OFFSETS.MOTION_VELOCITY_Y] = e.physics?.velY ?? 0
+    stateBuffer[offset + OFFSETS.MOTION_IS_GROUNDED] = e.movement?.isGrounded
+      ? 1
+      : 0
+    stateBuffer[offset + OFFSETS.MOTION_IS_SPRINTING] = e.movement?.isSprinting
+      ? 1
+      : 0
+    stateBuffer[offset + OFFSETS.MOTION_IS_COMBAT_READY] = isCombatReady ? 1 : 0
     stateBuffer[offset + OFFSETS.ROLL_ANGLE] = e.movement
       ? e.movement.rollAngle
       : 0

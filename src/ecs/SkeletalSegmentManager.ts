@@ -19,6 +19,12 @@ import {
   updateSkeletalPoseFromInput,
 } from '../renderer/SkeletalPoseDriver'
 import {
+  isSkeletalCombatReady,
+  isSkeletalWeaponAttacking,
+  resolveSkeletalAnimationNameFromMotionState,
+  resolveSkeletalMoveDirection,
+} from '../skeletalAnimation'
+import {
   type SkeletalBoneLocalTransform,
   buildDefaultSkeletalBoneBoundary,
   deriveSkeletalBodyGeometry,
@@ -1033,6 +1039,15 @@ export class SkeletalSegmentManager extends System {
     updatePhysicsShapes: boolean
   ): void {
     const weapon = entity.weapon
+    const fallbackMoveDir = entity.input?.lastMoveDirection ?? runtime.facing
+    const velocityX = entity.physics?.velX ?? 0
+    const velocityY = entity.physics?.velY ?? 0
+    const isGrounded = entity.movement?.isGrounded !== false
+    const moveDir = resolveSkeletalMoveDirection(
+      velocityX,
+      fallbackMoveDir,
+      runtime.facing
+    )
     updateSkeletalPoseFromInput(
       runtime.skeleton,
       runtime.boneIndex,
@@ -1040,10 +1055,28 @@ export class SkeletalSegmentManager extends System {
       {
         entityX: entity.transform?.x ?? 0,
         entityY: entity.transform?.y ?? 0,
+        animationName: resolveSkeletalAnimationNameFromMotionState(
+          entity.stats?.isDead === true,
+          entity.stats?.isStaggered === true,
+          entity.movement?.isRolling === true ||
+            entity.movement?.isBackstepping === true,
+          isSkeletalWeaponAttacking(weapon?.attackPhase, isGrounded),
+          weapon?.isBlocking === true,
+          isGrounded,
+          entity.movement?.isSprinting === true,
+          fallbackMoveDir,
+          velocityX,
+          velocityY
+        ),
+        combatReady: isSkeletalCombatReady(
+          weapon?.attackPhase,
+          weapon?.isBlocking === true,
+          entity.input?.lockedTargetId ?? null
+        ),
         weaponActive: weapon?.isEquipped === true,
         weaponX: weapon?.visual.x ?? entity.transform?.x ?? 0,
         weaponY: weapon?.visual.y ?? entity.transform?.y ?? 0,
-        moveDir: entity.input?.lastMoveDirection ?? runtime.facing,
+        moveDir,
         facing: runtime.facing,
         ppm: EDITOR_PPM,
         deltaMsInt: Math.max(0, Math.round(deltaTime * 1000)) | 0,
