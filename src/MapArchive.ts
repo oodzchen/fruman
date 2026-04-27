@@ -2,18 +2,29 @@ import { type AsyncZippable, strFromU8, strToU8, unzip, zip } from 'fflate'
 
 import type { EditorMapData, MapEnvironmentAsset } from './editorMapTypes'
 import {
+  type ArchivedEnvironmentAsset,
+  ENVIRONMENT_ASSET_DIR,
+  ENVIRONMENT_ASSET_MANIFEST_PATH,
+  MAP_JSON_PATH,
+  MAP_META_JSON_PATH,
+  PNG_MIME_TYPE,
+  createEditorMapArchiveMeta,
+  extractArchiveMapData,
+  extractArchiveMapName,
+  findMapJsonFile,
+  findMapMetaJsonFile,
+  isArchivedEnvironmentAsset,
+} from './mapDataValidation'
+import {
   loadEditorEnvironmentAssetBlob,
   saveEditorEnvironmentAsset,
 } from './storage'
 
-const MAP_JSON_PATH = 'map.json'
-const ENVIRONMENT_ASSET_MANIFEST_PATH = 'environment-assets.json'
-const ENVIRONMENT_ASSET_DIR = 'environment-assets/'
-const PNG_MIME_TYPE = 'image/png'
+export { isEditorMapArchiveData } from './mapDataValidation'
 
-interface ArchivedEnvironmentAsset {
-  meta: MapEnvironmentAsset
-  path: string
+export interface UnpackedEditorMapArchive {
+  data: EditorMapData
+  name: string | null
 }
 
 function zipAsync(files: AsyncZippable): Promise<Uint8Array> {
@@ -38,59 +49,6 @@ function unzipAsync(data: Uint8Array): Promise<Record<string, Uint8Array>> {
       resolve(files)
     })
   })
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-export function isEditorMapArchiveData(value: unknown): value is EditorMapData {
-  if (!isObjectRecord(value)) {
-    return false
-  }
-  const version = value.version
-  return (
-    (version === 1 || version === 2 || version === 3) &&
-    typeof value.canvasWidth === 'number' &&
-    typeof value.canvasHeight === 'number' &&
-    typeof value.pixelsPerMeter === 'number' &&
-    isObjectRecord(value.playerSpawn) &&
-    isObjectRecord(value.camera) &&
-    (Array.isArray(value.shapes) || value.shapes === undefined)
-  )
-}
-
-function isEnvironmentAsset(value: unknown): value is MapEnvironmentAsset {
-  return (
-    isObjectRecord(value) &&
-    typeof value.id === 'string' &&
-    typeof value.name === 'string' &&
-    typeof value.mimeType === 'string' &&
-    typeof value.width === 'number' &&
-    typeof value.height === 'number' &&
-    typeof value.createdAt === 'number' &&
-    typeof value.updatedAt === 'number'
-  )
-}
-
-function isArchivedEnvironmentAsset(
-  value: unknown
-): value is ArchivedEnvironmentAsset {
-  return (
-    isObjectRecord(value) &&
-    isEnvironmentAsset(value.meta) &&
-    typeof value.path === 'string'
-  )
-}
-
-function extractArchiveMapData(parsed: unknown): EditorMapData | null {
-  if (isEditorMapArchiveData(parsed)) {
-    return parsed
-  }
-  if (isObjectRecord(parsed) && isEditorMapArchiveData(parsed.map)) {
-    return parsed.map
-  }
-  return null
 }
 
 function getReferencedEnvironmentAssetIds(data: EditorMapData): string[] {
@@ -201,33 +159,28 @@ async function restoreEnvironmentAssets(
   }
 }
 
-function findMapJsonFile(files: Record<string, Uint8Array>): Uint8Array | null {
-  const direct = files[MAP_JSON_PATH]
-  if (direct) {
-    return direct
-  }
-  const fileNames = Object.keys(files)
-  for (let i = 0; i < fileNames.length; i++) {
-    const fileName = fileNames[i]
-    if (fileName.toLowerCase().endsWith('.json')) {
-      return files[fileName]
-    }
-  }
-  return null
-}
-
-export async function packEditorMapData(data: EditorMapData): Promise<Blob> {
+export async function packEditorMapData(
+  data: EditorMapData,
+  name?: string
+): Promise<Blob> {
   const files: AsyncZippable = {
     [MAP_JSON_PATH]: [strToU8(JSON.stringify(data, null, 2)), { level: 6 }],
+  }
+  const meta = createEditorMapArchiveMeta(name)
+  if (meta) {
+    files[MAP_META_JSON_PATH] = [
+      strToU8(JSON.stringify(meta, null, 2)),
+      { level: 6 },
+    ]
   }
   await appendEnvironmentAssetFiles(data, files)
   const zipped = await zipAsync(files)
   return new Blob([copyToArrayBuffer(zipped)], { type: 'application/zip' })
 }
 
-export async function unpackEditorMapData(
+export async function unpackEditorMapArchive(
   archiveBytes: Uint8Array
-): Promise<EditorMapData | null> {
+): Promise<UnpackedEditorMapArchive | null> {
   const files = await unzipAsync(archiveBytes)
   const mapJson = findMapJsonFile(files)
   if (!mapJson) {
@@ -238,6 +191,22 @@ export async function unpackEditorMapData(
   if (!data) {
     return null
   }
+  let name = extractArchiveMapName(parsed)
+  const metaJson = findMapMetaJsonFile(files)
+  if (metaJson) {
+    try {
+      name =
+        extractArchiveMapName(JSON.parse(strFromU8(metaJson)) as unknown) ??
+        name
+    } catch {}
+  }
   await restoreEnvironmentAssets(files)
-  return data
+  return { data, name }
+}
+
+export async function unpackEditorMapData(
+  archiveBytes: Uint8Array
+): Promise<EditorMapData | null> {
+  const archive = await unpackEditorMapArchive(archiveBytes)
+  return archive?.data ?? null
 }

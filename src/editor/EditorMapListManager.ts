@@ -259,6 +259,9 @@ export class EditorMapListManager {
       const shouldDefault = meta.id === mapId
       if (meta.isDefault !== shouldDefault) {
         meta.isDefault = shouldDefault
+        if (shouldDefault) {
+          meta.source = undefined
+        }
         const saved = await saveEditorMapMeta(meta)
         if (!saved) {
           await this.context.dialogManager.alert(

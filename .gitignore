@@ -145,6 +145,11 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Public map data
+public/map_data/*
+!public/map_data/default/
+!public/map_data/default/**
+
 *~
 .claude
 .gemini

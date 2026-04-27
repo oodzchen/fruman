@@ -1,3 +1,5 @@
+import { strFromU8, unzip } from 'fflate'
+
 import {
   CHARACTER_BODY_DRAW_HALF,
   CHARACTER_BODY_DRAW_SIZE,
@@ -21,6 +23,18 @@ import type {
   MapSettings,
 } from './editorMapTypes'
 import { DEFAULT_MAP_TIME_PHASE, MAP_TIME_PHASE_IDS } from './editorMapTypes'
+import {
+  type ArchivedEnvironmentAsset,
+  ENVIRONMENT_ASSET_MANIFEST_PATH,
+  PNG_MIME_TYPE,
+  extractArchiveMapData,
+  extractArchiveMapName,
+  findMapJsonFile,
+  findMapMetaJsonFile,
+  isArchivedEnvironmentAsset,
+  isObjectRecord,
+  parseMapMetaJsonBytes,
+} from './mapDataValidation'
 import { resolveNpcBodyProfile } from './npcBodyProfileUtils'
 import {
   DEFAULT_NPC_DROP_COUNT,
@@ -28,6 +42,7 @@ import {
   normalizeNpcDropList,
 } from './npcDropUtils'
 import { clampPlayerLevel, clampPlayerUpgradeLevel } from './playerUpgrade'
+import { getPublicAssetUrl } from './publicAssetUrl'
 import { getDefaultTerrainRenderLayer } from './renderLayers'
 import type {
   SaveData,
@@ -39,7 +54,6 @@ import type {
 import { normalizeSkeletalBodyProfile } from './skeletalBodyProfile'
 import {
   createDefaultTerrainChunkSiteJitter,
-  getTerrainChunkMaterialCodes,
   inferTerrainMaterialId,
 } from './terrain/TerrainDataUtils'
 import { migrateLegacyShapesToTerrain } from './terrain/TerrainLegacyShapeMigration'
@@ -73,6 +87,11 @@ const ENVIRONMENT_ASSET_STORE = 'editor-environment-assets'
 
 const SAVE_META_STORE = 'save-meta'
 const SAVE_DATA_STORE = 'save-data'
+
+const PUBLIC_MAP_DATA_MANIFEST_PATH = 'map_data/manifest.json'
+const PUBLIC_MAP_DATA_MAP_ID_PREFIX = 'map-data'
+const BUILT_IN_DEFAULT_MAP_SOURCE = 'builtInDefault'
+const PUBLIC_MAP_DATA_SOURCE = 'publicMapData'
 
 const REQUIRED_OBJECT_STORES = [
   SETTINGS_STORE,
@@ -298,6 +317,446 @@ function compareEditorMapMetaOrder(a: EditorMapMeta, b: EditorMapMeta): number {
     return b.createdAt - a.createdAt
   }
   return a.id.localeCompare(b.id)
+}
+
+type PublicMapDataEntrySource = 'directory' | 'zip'
+
+interface PublicMapDataManifestEntry {
+  id: string
+  name: string
+  source: PublicMapDataEntrySource
+  mapPath?: string
+  metaPath?: string
+  archivePath?: string
+  assetManifestPath?: string
+  isDefault?: boolean
+}
+
+interface LoadedPublicMapDataEntry {
+  data: EditorMapData
+  name: string | null
+}
+
+let publicMapDataImportPromise: Promise<void> | null = null
+
+function isPublicMapDataManifestEntry(
+  value: unknown
+): value is PublicMapDataManifestEntry {
+  if (!isObjectRecord(value)) {
+    return false
+  }
+  const source = value.source
+  return (
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    (source === 'directory' || source === 'zip') &&
+    (value.mapPath === undefined || typeof value.mapPath === 'string') &&
+    (value.metaPath === undefined || typeof value.metaPath === 'string') &&
+    (value.archivePath === undefined ||
+      typeof value.archivePath === 'string') &&
+    (value.assetManifestPath === undefined ||
+      typeof value.assetManifestPath === 'string') &&
+    (value.isDefault === undefined || typeof value.isDefault === 'boolean')
+  )
+}
+
+function normalizePublicMapDataPath(path: string): string {
+  return path.charCodeAt(0) === 47 ? path.slice(1) : path
+}
+
+function resolveSiblingPublicMapDataPath(
+  sourcePath: string,
+  relativePath: string
+): string | null {
+  const normalizedRelative = normalizePublicMapDataPath(relativePath)
+  if (
+    normalizedRelative.length === 0 ||
+    normalizedRelative.startsWith('../') ||
+    normalizedRelative.includes('/../')
+  ) {
+    return null
+  }
+  const normalizedSource = normalizePublicMapDataPath(sourcePath)
+  const lastSlash = normalizedSource.lastIndexOf('/')
+  if (lastSlash < 0) {
+    return normalizedRelative
+  }
+  return `${normalizedSource.slice(0, lastSlash + 1)}${normalizedRelative}`
+}
+
+async function fetchPublicJson(path: string): Promise<unknown | null> {
+  try {
+    const response = await fetch(getPublicAssetUrl(path), {
+      cache: 'no-store',
+    })
+    if (!response.ok) {
+      return null
+    }
+    return (await response.json()) as unknown
+  } catch {
+    return null
+  }
+}
+
+async function fetchPublicBytes(path: string): Promise<Uint8Array | null> {
+  try {
+    const response = await fetch(getPublicAssetUrl(path), {
+      cache: 'no-store',
+    })
+    if (!response.ok) {
+      return null
+    }
+    return new Uint8Array(await response.arrayBuffer())
+  } catch {
+    return null
+  }
+}
+
+async function fetchPublicBlob(path: string): Promise<Blob | null> {
+  try {
+    const response = await fetch(getPublicAssetUrl(path), {
+      cache: 'no-store',
+    })
+    if (!response.ok) {
+      return null
+    }
+    return await response.blob()
+  } catch {
+    return null
+  }
+}
+
+function unzipAsync(data: Uint8Array): Promise<Record<string, Uint8Array>> {
+  return new Promise((resolve, reject) => {
+    unzip(data, (error, files) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve(files)
+    })
+  })
+}
+
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return buffer
+}
+
+function parseArchivedEnvironmentAssetList(
+  parsed: unknown
+): ArchivedEnvironmentAsset[] {
+  if (!Array.isArray(parsed)) {
+    return []
+  }
+  const assets: ArchivedEnvironmentAsset[] = []
+  for (let i = 0; i < parsed.length; i++) {
+    const asset = parsed[i]
+    if (isArchivedEnvironmentAsset(asset)) {
+      assets.push(asset)
+    }
+  }
+  return assets
+}
+
+function parseArchiveEnvironmentAssetManifest(
+  files: Record<string, Uint8Array>
+): ArchivedEnvironmentAsset[] {
+  const manifestFile = files[ENVIRONMENT_ASSET_MANIFEST_PATH]
+  if (!manifestFile) {
+    return []
+  }
+  try {
+    return parseArchivedEnvironmentAssetList(
+      JSON.parse(strFromU8(manifestFile)) as unknown
+    )
+  } catch {
+    return []
+  }
+}
+
+async function restoreEnvironmentAssetsFromArchiveFiles(
+  files: Record<string, Uint8Array>
+): Promise<void> {
+  const archivedAssets = parseArchiveEnvironmentAssetManifest(files)
+  for (let i = 0; i < archivedAssets.length; i++) {
+    const asset = archivedAssets[i]
+    const data = files[asset.path]
+    if (!data) {
+      continue
+    }
+    const blob = new Blob([copyToArrayBuffer(data)], { type: PNG_MIME_TYPE })
+    await saveEditorEnvironmentAsset(
+      {
+        ...asset.meta,
+        mimeType: PNG_MIME_TYPE,
+      },
+      blob
+    )
+  }
+}
+
+async function restoreEnvironmentAssetsFromPublicDirectory(
+  entry: PublicMapDataManifestEntry
+): Promise<void> {
+  if (!entry.assetManifestPath) {
+    return
+  }
+  const parsed = await fetchPublicJson(entry.assetManifestPath)
+  const archivedAssets = parseArchivedEnvironmentAssetList(parsed)
+  for (let i = 0; i < archivedAssets.length; i++) {
+    const asset = archivedAssets[i]
+    const assetPath = resolveSiblingPublicMapDataPath(
+      entry.assetManifestPath,
+      asset.path
+    )
+    if (!assetPath) {
+      continue
+    }
+    const sourceBlob = await fetchPublicBlob(assetPath)
+    if (!sourceBlob) {
+      continue
+    }
+    const blob =
+      sourceBlob.type === PNG_MIME_TYPE
+        ? sourceBlob
+        : sourceBlob.slice(0, sourceBlob.size, PNG_MIME_TYPE)
+    await saveEditorEnvironmentAsset(
+      {
+        ...asset.meta,
+        mimeType: PNG_MIME_TYPE,
+      },
+      blob
+    )
+  }
+}
+
+async function loadPublicMapDataEntry(
+  entry: PublicMapDataManifestEntry
+): Promise<LoadedPublicMapDataEntry | null> {
+  if (entry.source === 'zip') {
+    if (!entry.archivePath) {
+      return null
+    }
+    const archiveBytes = await fetchPublicBytes(entry.archivePath)
+    if (!archiveBytes) {
+      return null
+    }
+    const files = await unzipAsync(archiveBytes)
+    const mapJson = findMapJsonFile(files)
+    if (!mapJson) {
+      return null
+    }
+    const parsed = JSON.parse(strFromU8(mapJson)) as unknown
+    const data = extractArchiveMapData(parsed)
+    if (!data) {
+      return null
+    }
+    let name = extractArchiveMapName(parsed)
+    const metaJson = findMapMetaJsonFile(files)
+    if (metaJson) {
+      try {
+        name = parseMapMetaJsonBytes(metaJson) ?? name
+      } catch {}
+    }
+    await restoreEnvironmentAssetsFromArchiveFiles(files)
+    return { data, name }
+  }
+
+  if (!entry.mapPath) {
+    return null
+  }
+  const parsed = await fetchPublicJson(entry.mapPath)
+  const data = extractArchiveMapData(parsed)
+  if (!data) {
+    return null
+  }
+  let name = extractArchiveMapName(parsed)
+  if (entry.metaPath) {
+    const metaParsed = await fetchPublicJson(entry.metaPath)
+    name = extractArchiveMapName(metaParsed) ?? name
+  }
+  await restoreEnvironmentAssetsFromPublicDirectory(entry)
+  return { data, name }
+}
+
+async function loadPublicMapDataManifest(): Promise<
+  PublicMapDataManifestEntry[]
+> {
+  const parsed = await fetchPublicJson(PUBLIC_MAP_DATA_MANIFEST_PATH)
+  if (!isObjectRecord(parsed) || parsed.version !== 1) {
+    return []
+  }
+  const entries = parsed.entries
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return []
+  }
+  const validEntries: PublicMapDataManifestEntry[] = []
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    if (isPublicMapDataManifestEntry(entry)) {
+      validEntries.push(entry)
+    }
+  }
+  return validEntries
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function slugPublicMapDataId(value: string): string {
+  const lower = value.toLowerCase()
+  let slug = ''
+  let pendingDash = false
+  for (let i = 0; i < lower.length && slug.length < 48; i++) {
+    const code = lower.charCodeAt(i)
+    const isDigit = code >= 48 && code <= 57
+    const isLowerLetter = code >= 97 && code <= 122
+    if (isDigit || isLowerLetter) {
+      if (pendingDash && slug.length > 0) {
+        slug += '-'
+      }
+      slug += lower.charAt(i)
+      pendingDash = false
+    } else if (slug.length > 0) {
+      pendingDash = true
+    }
+  }
+  return slug.length > 0 ? slug : 'map'
+}
+
+function createPublicMapDataMapId(sourceId: string): string {
+  return `${PUBLIC_MAP_DATA_MAP_ID_PREFIX}-${slugPublicMapDataId(
+    sourceId
+  )}-${hashString(sourceId)}`
+}
+
+function hasMapEntries<T>(entries: readonly T[] | undefined): boolean {
+  return !!entries && entries.length > 0
+}
+
+function isLegacyBuiltInDefaultMapData(data: EditorMapData): boolean {
+  return (
+    data.playerSpawn.x === -12 &&
+    data.camera.x === 0 &&
+    data.camera.y === 0 &&
+    data.camera.zoom === DEFAULT_CAMERA_ZOOM &&
+    data.settings?.initialTimePhase === DEFAULT_MAP_TIME_PHASE &&
+    data.player === undefined &&
+    !hasMapEntries(data.shapes) &&
+    !hasMapEntries(data.npcs) &&
+    !hasMapEntries(data.enemies) &&
+    !hasMapEntries(data.weapons) &&
+    !hasMapEntries(data.checkpoints) &&
+    !hasMapEntries(data.hookAnchors) &&
+    !hasMapEntries(data.sunPickups) &&
+    !hasMapEntries(data.expOrbs) &&
+    !hasMapEntries(data.npcTemplates) &&
+    !hasMapEntries(data.environmentObjects) &&
+    !hasMapEntries(data.lights) &&
+    !hasMapEntries(data.factions) &&
+    data.editorTree === undefined
+  )
+}
+
+async function isHardcodedDefaultMap(meta: EditorMapMeta): Promise<boolean> {
+  if (meta.source === BUILT_IN_DEFAULT_MAP_SOURCE) {
+    return true
+  }
+  if (meta.source === PUBLIC_MAP_DATA_SOURCE || meta.name !== '默认地图') {
+    return false
+  }
+  const data = await loadEditorMapData(meta.id)
+  return data ? isLegacyBuiltInDefaultMapData(data) : false
+}
+
+async function upsertPublicMapDataMap(
+  entry: PublicMapDataManifestEntry,
+  loaded: LoadedPublicMapDataEntry
+): Promise<EditorMapMeta | null> {
+  try {
+    const mapId = createPublicMapDataMapId(entry.id)
+    const metaList = await listEditorMaps()
+    const existingMeta = metaList.find((meta) => meta.id === mapId)
+    const currentDefaultMeta = metaList.find((meta) => meta.isDefault)
+    const shouldBecomeDefault =
+      entry.isDefault === true &&
+      (!currentDefaultMeta ||
+        (currentDefaultMeta.id === mapId && currentDefaultMeta.isDefault) ||
+        (await isHardcodedDefaultMap(currentDefaultMeta)))
+    const db = await openDB()
+    const now = Date.now()
+    const nextMeta: EditorMapMeta = {
+      id: mapId,
+      name: loaded.name ?? entry.name,
+      createdAt: existingMeta?.createdAt ?? now,
+      updatedAt: now,
+      isDefault: shouldBecomeDefault ? true : existingMeta?.isDefault,
+      thumbnail: existingMeta?.thumbnail,
+      source: PUBLIC_MAP_DATA_SOURCE,
+    }
+    const dataRecord: StoredMapDataRecord = {
+      id: mapId,
+      data: normalizeEditorMapData(loaded.data),
+    }
+
+    return new Promise((resolve) => {
+      const tx = db.transaction([MAP_META_STORE, MAP_DATA_STORE], 'readwrite')
+      const metaStore = tx.objectStore(MAP_META_STORE)
+      if (nextMeta.isDefault === true) {
+        for (let i = 0; i < metaList.length; i++) {
+          const meta = metaList[i]
+          if (meta.id !== mapId && meta.isDefault === true) {
+            metaStore.put({
+              ...meta,
+              updatedAt: now,
+              isDefault: false,
+            })
+          }
+        }
+      }
+      metaStore.put(nextMeta)
+      tx.objectStore(MAP_DATA_STORE).put(dataRecord)
+      tx.oncomplete = () => resolve(nextMeta)
+      tx.onerror = () => resolve(null)
+      tx.onabort = () => resolve(null)
+    })
+  } catch {
+    return null
+  }
+}
+
+async function importPublicMapDataMapsNow(): Promise<void> {
+  const entries = await loadPublicMapDataManifest()
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    let loaded: LoadedPublicMapDataEntry | null = null
+    try {
+      loaded = await loadPublicMapDataEntry(entry)
+    } catch {
+      loaded = null
+    }
+    if (!loaded) {
+      continue
+    }
+    await upsertPublicMapDataMap(entry, loaded)
+  }
+}
+
+export async function importPublicMapDataMaps(): Promise<void> {
+  if (!publicMapDataImportPromise) {
+    publicMapDataImportPromise = importPublicMapDataMapsNow()
+  }
+  await publicMapDataImportPromise
 }
 
 export async function listEditorMaps(): Promise<EditorMapMeta[]> {
@@ -537,7 +996,8 @@ export async function createEditorMap(
 
 export async function saveEditorMap(
   meta: EditorMapMeta,
-  data: EditorMapData
+  data: EditorMapData,
+  options?: { preserveBuiltInSource?: boolean }
 ): Promise<EditorMapMeta | null> {
   try {
     const db = await openDB()
@@ -548,6 +1008,11 @@ export async function saveEditorMap(
       updatedAt: Date.now(),
       isDefault: meta.isDefault,
       thumbnail: meta.thumbnail,
+      source:
+        meta.source === BUILT_IN_DEFAULT_MAP_SOURCE &&
+        options?.preserveBuiltInSource !== true
+          ? undefined
+          : meta.source,
     }
     const dataRecord: StoredMapDataRecord = {
       id: meta.id,
@@ -598,6 +1063,8 @@ export async function saveEditorMapMeta(
       updatedAt: Date.now(),
       isDefault: meta.isDefault,
       thumbnail: meta.thumbnail,
+      source:
+        meta.source === BUILT_IN_DEFAULT_MAP_SOURCE ? undefined : meta.source,
     }
 
     return new Promise((resolve) => {
@@ -632,7 +1099,7 @@ export async function deleteEditorMap(mapId: string): Promise<boolean> {
   }
 }
 
-export async function getDefaultMap(): Promise<{
+async function getDefaultMapFromStore(): Promise<{
   meta: EditorMapMeta
   data: EditorMapData
 } | null> {
@@ -652,12 +1119,21 @@ export async function getDefaultMap(): Promise<{
   }
 }
 
+export async function getDefaultMap(): Promise<{
+  meta: EditorMapMeta
+  data: EditorMapData
+} | null> {
+  await importPublicMapDataMaps()
+  return getDefaultMapFromStore()
+}
+
 export async function ensureDefaultMap(
   canvasWidth: number,
   canvasHeight: number,
   pixelsPerMeter: number
 ): Promise<{ meta: EditorMapMeta; data: EditorMapData }> {
-  const existing = await getDefaultMap()
+  await importPublicMapDataMaps()
+  const existing = await getDefaultMapFromStore()
   if (existing) {
     return existing
   }
@@ -673,7 +1149,8 @@ export async function ensureDefaultMap(
   }
 
   meta.isDefault = true
-  await saveEditorMap(meta, defaultData)
+  meta.source = BUILT_IN_DEFAULT_MAP_SOURCE
+  await saveEditorMap(meta, defaultData, { preserveBuiltInSource: true })
 
   return { meta, data: defaultData }
 }
@@ -1232,7 +1709,8 @@ function isMapDataFastNormalized(data: EditorMapData): boolean {
   if (
     data.terrain &&
     typeof data.terrain === 'object' &&
-    data.terrain.version !== 4
+    (data.terrain.version !== 4 ||
+      !isTerrainStorageArrayNormalized(data.terrain))
   ) {
     return false
   }
@@ -1277,6 +1755,134 @@ function isMapDataFastNormalized(data: EditorMapData): boolean {
   return true
 }
 
+type NumericArrayRecord = Record<string, number>
+type NumericArraySource =
+  | ArrayLike<number>
+  | NumericArrayRecord
+  | null
+  | undefined
+
+function isArrayLikeNumberSource(
+  source: NumericArraySource
+): source is ArrayLike<number> {
+  return !!source && 'length' in source && typeof source.length === 'number'
+}
+
+function readNumericArraySource(
+  source: NumericArraySource,
+  index: number
+): number {
+  if (!source) {
+    return 0
+  }
+  const value = isArrayLikeNumberSource(source)
+    ? source[index]
+    : source[String(index)]
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function hasNumericArraySourceLength(
+  source: NumericArraySource,
+  length: number
+): boolean {
+  if (!source) {
+    return false
+  }
+  if (isArrayLikeNumberSource(source)) {
+    return source.length === length
+  }
+  if (length <= 0) {
+    return true
+  }
+  const lastValue = source[String(length - 1)]
+  return typeof lastValue === 'number' && Number.isFinite(lastValue)
+}
+
+function createNormalizedNumberArray(
+  source: NumericArraySource,
+  length: number
+): number[] {
+  const values = new Array<number>(length)
+  for (let i = 0; i < length; i++) {
+    values[i] = readNumericArraySource(source, i) | 0
+  }
+  return values
+}
+
+function isTerrainChunkStorageArrayNormalized(
+  chunk: {
+    cells: NumericArraySource
+    materialCodes?: NumericArraySource
+    siteJitter?: NumericArraySource
+  },
+  cellCount: number
+): boolean {
+  if (!Array.isArray(chunk.cells) || chunk.cells.length !== cellCount) {
+    return false
+  }
+  if (
+    chunk.materialCodes !== undefined &&
+    (!Array.isArray(chunk.materialCodes) ||
+      chunk.materialCodes.length !== cellCount)
+  ) {
+    return false
+  }
+  const siteJitterLength = cellCount * 2
+  if (
+    chunk.siteJitter !== undefined &&
+    (!Array.isArray(chunk.siteJitter) ||
+      chunk.siteJitter.length !== siteJitterLength)
+  ) {
+    return false
+  }
+  return true
+}
+
+function areTerrainChunksStorageArrayNormalized(
+  chunks:
+    | ReadonlyArray<{
+        cells: NumericArraySource
+        materialCodes?: NumericArraySource
+        siteJitter?: NumericArraySource
+      }>
+    | undefined,
+  cellCount: number
+): boolean {
+  if (!chunks || chunks.length === 0) {
+    return true
+  }
+  for (let i = 0; i < chunks.length; i++) {
+    if (!isTerrainChunkStorageArrayNormalized(chunks[i], cellCount)) {
+      return false
+    }
+  }
+  return true
+}
+
+function isTerrainStorageArrayNormalized(
+  terrain: MapTerrainData | undefined
+): boolean {
+  if (!terrain) {
+    return true
+  }
+  const chunkSize =
+    terrain.chunkSize > 0 ? Math.floor(terrain.chunkSize) : TERRAIN_CHUNK_SIZE
+  const cellCount = chunkSize * chunkSize
+  if (!areTerrainChunksStorageArrayNormalized(terrain.chunks, cellCount)) {
+    return false
+  }
+  const layers = terrain.layers
+  if (!layers || layers.length === 0) {
+    return true
+  }
+  for (let i = 0; i < layers.length; i++) {
+    if (!areTerrainChunksStorageArrayNormalized(layers[i].chunks, cellCount)) {
+      return false
+    }
+  }
+  return true
+}
+
 function normalizeMapTerrain(
   terrain: EditorMapData['terrain'],
   legacyShapes: ReadonlyArray<EditorMapData['shapes'][number]>,
@@ -1299,31 +1905,32 @@ function normalizeMapTerrain(
     chunks: ReadonlyArray<{
       chunkX: number
       chunkY: number
-      cells: ArrayLike<number>
-      materialCodes?: ArrayLike<number>
-      siteJitter?: ArrayLike<number>
+      cells: NumericArraySource
+      materialCodes?: NumericArraySource
+      siteJitter?: NumericArraySource
     }>
   ) =>
     chunks.map((chunk) => {
       const cellCount = chunkSize * chunkSize
-      const cells = new Array<number>(cellCount)
-      const materialCodes = getTerrainChunkMaterialCodes(chunk)
-      for (let i = 0; i < cellCount; i++) {
-        cells[i] = (materialCodes[i] ?? 0) | 0
-      }
-      const siteJitterSource =
-        chunk.siteJitter && chunk.siteJitter.length === cellCount * 2
-          ? chunk.siteJitter
-          : createDefaultTerrainChunkSiteJitter(
-              chunk.chunkX | 0,
-              chunk.chunkY | 0,
-              chunkSize,
-              randomSeed
-            )
-      const siteJitter = new Array<number>(cellCount * 2)
-      for (let i = 0; i < siteJitter.length; i++) {
-        siteJitter[i] = siteJitterSource[i] | 0
-      }
+      const cells = createNormalizedNumberArray(
+        chunk.materialCodes ?? chunk.cells,
+        cellCount
+      )
+      const siteJitterSource = hasNumericArraySourceLength(
+        chunk.siteJitter,
+        cellCount * 2
+      )
+        ? chunk.siteJitter
+        : createDefaultTerrainChunkSiteJitter(
+            chunk.chunkX | 0,
+            chunk.chunkY | 0,
+            chunkSize,
+            randomSeed
+          )
+      const siteJitter = createNormalizedNumberArray(
+        siteJitterSource,
+        cellCount * 2
+      )
       return {
         chunkX: chunk.chunkX | 0,
         chunkY: chunk.chunkY | 0,
@@ -1360,6 +1967,10 @@ function normalizeMapTerrain(
                 typeof layer.contourId === 'number'
                   ? layer.contourId | 0
                   : undefined,
+              buildRevision:
+                typeof layer.buildRevision === 'number'
+                  ? layer.buildRevision | 0
+                  : undefined,
               chunks,
             }
           })
@@ -1389,6 +2000,7 @@ function normalizeMapTerrain(
           offsetYUnits: 0,
           renderLayer: getDefaultTerrainRenderLayer(materialId),
           contourId: undefined,
+          buildRevision: undefined,
           chunks: legacyChunks,
         })
       }
@@ -1407,6 +2019,10 @@ function normalizeMapTerrain(
       straightEdge:
         typeof contour.straightEdge === 'boolean'
           ? contour.straightEdge
+          : undefined,
+      buildRevision:
+        typeof contour.buildRevision === 'number'
+          ? contour.buildRevision | 0
           : undefined,
     })) ?? []
   const visibleLayerCount = normalizedLayers.reduce(

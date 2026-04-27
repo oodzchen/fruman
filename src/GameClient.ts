@@ -892,6 +892,9 @@ export class GameClient {
       }
       this.staticRenderLayers = collectStaticRenderLayers(normalizedMap)
       if (!isRuntimeTerrainUpdate) {
+        if (!this.currentSaveData && !this.previewActive) {
+          this.applyMapInitialTimeCycle(normalizedMap)
+        }
         this.renderer.resetPlayerHudState()
         this.renderer.setCharacterBodyMap(normalizedMap)
         this.lightingController.setMap(normalizedMap)

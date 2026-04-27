@@ -2,8 +2,10 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 import { defineConfig } from 'vite'
 import { ViteImageOptimizer } from 'vite-plugin-image-optimizer'
 
+import { mapDataPlugin } from './build/mapDataPlugin'
+
 export default defineConfig(({ command }) => {
-  const plugins = [basicSsl()]
+  const plugins = [mapDataPlugin(), basicSsl()]
 
   if (command === 'build') {
     plugins.push(

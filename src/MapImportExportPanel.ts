@@ -1,7 +1,7 @@
 import {
   isEditorMapArchiveData,
   packEditorMapData,
-  unpackEditorMapData,
+  unpackEditorMapArchive,
 } from './MapArchive'
 import type { EditorMapData, EditorMapMeta } from './editorMapTypes'
 import { createEditorMap, listEditorMaps, loadEditorMapData } from './storage'
@@ -93,7 +93,7 @@ export class MapImportExportPanel {
         this.showStatus('导出失败')
         return
       }
-      const blob = await packEditorMapData(data)
+      const blob = await packEditorMapData(data, meta.name)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -121,9 +121,12 @@ export class MapImportExportPanel {
     this.importing = true
     this.updateButtonStates()
     let data: EditorMapData | null = null
+    let archiveName: string | null = null
     try {
       const archiveBytes = new Uint8Array(await file.arrayBuffer())
-      data = await unpackEditorMapData(archiveBytes)
+      const archive = await unpackEditorMapArchive(archiveBytes)
+      data = archive?.data ?? null
+      archiveName = archive?.name ?? null
     } catch {
       this.showStatus('文件格式错误')
       this.importing = false
@@ -138,8 +141,8 @@ export class MapImportExportPanel {
       return
     }
 
-    let name = file.name.replace(/\.zip$/i, '')
-    if (name.startsWith('fruman-')) {
+    let name = archiveName ?? file.name.replace(/\.zip$/i, '')
+    if (!archiveName && name.startsWith('fruman-')) {
       name = name.slice('fruman-'.length)
     }
 

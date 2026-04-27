@@ -322,6 +322,7 @@ export interface EditorMap {
   updatedAt: number
   isDefault?: boolean
   thumbnail?: string
+  source?: 'builtInDefault' | 'publicMapData'
 }
 
 export interface EditorObjectData {
