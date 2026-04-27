@@ -2165,14 +2165,14 @@ export class EditorManager {
     this.captureHistorySnapshot()
   }
 
-  private async handleCreateCustomEnvironmentAsset(): Promise<void> {
+  private async handleCreateCustomEnvironmentAsset(): Promise<MapEnvironmentAsset | null> {
     const input = await this.showEnvironmentAssetFormDialog({
       title: localizer.t('editor_environment_asset_create'),
       defaultName: '',
       requireImage: true,
     })
     if (!input) {
-      return
+      return null
     }
     const runtimeAsset = await createEnvironmentAssetFromImageFile(
       input.name,
@@ -2182,7 +2182,7 @@ export class EditorManager {
       await this.dialogManager.alert(
         localizer.t('editor_environment_asset_save_failed')
       )
-      return
+      return null
     }
     this.customEnvironmentAssets = [
       ...this.customEnvironmentAssets,
@@ -2190,6 +2190,7 @@ export class EditorManager {
     ]
     this.customEnvironmentAssetsLoaded = true
     this.menuSystem.refreshCustomEnvironmentAssets()
+    return runtimeAsset.meta
   }
 
   private async showEnvironmentAssetManagerDialog(): Promise<void> {
@@ -2220,13 +2221,20 @@ export class EditorManager {
     preview.className = 'editor-asset-manager-preview'
 
     const actions = document.createElement('div')
-    actions.className = 'editor-custom-asset-actions'
+    actions.className =
+      'editor-custom-asset-actions editor-asset-manager-actions'
+
+    const createButton = document.createElement('button')
+    createButton.className = 'editor-action-btn'
+    createButton.type = 'button'
+    createButton.textContent = localizer.t('editor_asset_create')
 
     const confirmButton = document.createElement('button')
     confirmButton.className = 'editor-action-btn'
     confirmButton.type = 'button'
     confirmButton.textContent = localizer.t('editor_btn_confirm')
 
+    actions.appendChild(createButton)
     actions.appendChild(confirmButton)
     body.appendChild(list)
     body.appendChild(preview)
@@ -2240,6 +2248,15 @@ export class EditorManager {
       container.remove()
     }
     confirmButton.addEventListener('click', close)
+    createButton.addEventListener('click', async () => {
+      const asset = await this.handleCreateCustomEnvironmentAsset()
+      if (!asset) {
+        return
+      }
+      selectedAssetId = asset.id
+      renderList()
+      void renderPreview()
+    })
 
     const renderList = () => {
       list.innerHTML = ''
