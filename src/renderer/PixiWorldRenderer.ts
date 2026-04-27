@@ -460,6 +460,11 @@ export class PixiWorldRenderer {
   private parallaxZoom = 1
   private parallaxCenterX = 0
   private parallaxBottomY = 0
+  private parallaxShakeX = 0
+  private parallaxShakeY = 0
+  private skyReferenceCamX = 0
+  private skyReferenceCamY = 0
+  private skyReferenceZoom = 1
 
   constructor(
     root: Container,
@@ -1027,13 +1032,23 @@ export class PixiWorldRenderer {
     camY: number,
     zoom: number,
     centerX: number,
-    bottomY: number
+    bottomY: number,
+    shakeX: number,
+    shakeY: number
   ): void {
     this.parallaxCamX = camX
     this.parallaxCamY = camY
     this.parallaxZoom = zoom
     this.parallaxCenterX = centerX
     this.parallaxBottomY = bottomY
+    this.parallaxShakeX = shakeX
+    this.parallaxShakeY = shakeY
+  }
+
+  setSkyReferenceCamera(camX: number, camY: number, zoom: number): void {
+    this.skyReferenceCamX = camX
+    this.skyReferenceCamY = camY
+    this.skyReferenceZoom = zoom > 0 ? zoom : 1
   }
 
   private updateBucketParallax(): void {
@@ -1043,14 +1058,30 @@ export class PixiWorldRenderer {
       parallaxZoom,
       parallaxCenterX,
       parallaxBottomY,
+      parallaxShakeX,
+      parallaxShakeY,
+      skyReferenceCamX,
+      skyReferenceCamY,
+      skyReferenceZoom,
     } = this
     const originX = parallaxCenterX + parallaxCamX / parallaxZoom
     const originY = parallaxBottomY + parallaxCamY / parallaxZoom
     for (const [layer, bucket] of this.buckets) {
       if (layer === 0) continue
       if (layer === RENDER_LAYER_SKY) {
-        bucket.container.scale.set(1)
-        bucket.container.position.set(parallaxCamX, parallaxCamY)
+        // 天空层级作为背景：抵消世界缩放，并按编辑器相机框中心对齐。
+        const skyScale = parallaxZoom > 0 ? skyReferenceZoom / parallaxZoom : 1
+        bucket.container.scale.set(skyScale)
+        bucket.container.position.set(
+          parallaxCamX +
+            (1 - skyScale) * parallaxCenterX -
+            skyScale * skyReferenceCamX -
+            parallaxShakeX,
+          parallaxCamY +
+            (1 - skyScale) * parallaxBottomY -
+            skyScale * skyReferenceCamY -
+            parallaxShakeY
+        )
         continue
       }
       const factor = getParallaxScaleForLayer(layer)

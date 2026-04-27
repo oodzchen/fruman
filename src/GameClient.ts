@@ -49,7 +49,7 @@ import {
 } from './mapObjectLayers'
 import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
-import { RENDER_LAYER_SKY, getDefaultTerrainRenderLayer } from './renderLayers'
+import { getDefaultTerrainRenderLayer } from './renderLayers'
 import {
   DayNightCycle,
   getMapTimePhaseElapsedMs,
@@ -132,7 +132,6 @@ export class GameClient {
   private static readonly PREVIEW_CAPTURE_MAX_RENDER_FRAMES = 24
   private static readonly DEFAULT_PIXELS_PER_METER = 50
   private static readonly PERF_DEBUG_QUERY_PARAM = 'perf'
-  private static readonly ENVIRONMENT_SKY_LAYER_WORLD_FALLBACK = -1
   private static readonly STATIC_SCENE_BUILD_BUDGET_MS = 2
   private static readonly PERF_LOG_HEARTBEAT_WINDOWS = 12
   private static readonly PERF_LOG_FRAME_WARN_US = 18000
@@ -770,6 +769,7 @@ export class GameClient {
     this.previewTrackedZoom = 1000
     this.setPreviewExitVisible(true)
     this.currentMapData = normalizedMap
+    this.syncSkyReferenceCamera(normalizedMap)
     this.applyMapInitialTimeCycle(normalizedMap)
     this.sleepTransitionPhase = 'idle'
     this.sleepTransitionElapsedMs = 0
@@ -884,6 +884,7 @@ export class GameClient {
       const normalizedMap =
         normalizeCharacterBodyMapProfiles(msg.map) ?? msg.map
       this.currentMapData = normalizedMap
+      this.syncSkyReferenceCamera(normalizedMap)
       if (isRuntimeTerrainUpdate) {
         this.staticSceneTextureCacheDisabled = true
         this.worldRenderer.invalidateStaticMeshCaches()
@@ -1731,7 +1732,15 @@ export class GameClient {
       this.emissiveContainer.setFromMatrix(pixiMatrix)
 
       // 传递视差相机参数，PixiWorldRenderer 在 render 时对各 bucket 独立计算偏移
-      this.worldRenderer.setParallaxCamera(camX, camY, zoom, centerX, bottomY)
+      this.worldRenderer.setParallaxCamera(
+        camX,
+        camY,
+        zoom,
+        centerX,
+        bottomY,
+        shakeOffsetX,
+        shakeOffsetY
+      )
       const lightingStartMs = performance.now()
       this.lightingController.update(
         deltaMs,
@@ -3262,9 +3271,26 @@ export class GameClient {
   }
 
   private resolveEnvironmentRenderLayer(layer: number): number {
-    return layer === RENDER_LAYER_SKY
-      ? GameClient.ENVIRONMENT_SKY_LAYER_WORLD_FALLBACK
-      : layer
+    return layer
+  }
+
+  private syncSkyReferenceCamera(map: EditorMapData | null | undefined): void {
+    const camera = map?.camera
+    if (
+      camera &&
+      camera.zoom > 0 &&
+      Number.isFinite(camera.zoom) &&
+      Number.isFinite(camera.x) &&
+      Number.isFinite(camera.y)
+    ) {
+      this.worldRenderer.setSkyReferenceCamera(
+        camera.x * this.pixelsPerMeter,
+        camera.y * this.pixelsPerMeter,
+        camera.zoom
+      )
+      return
+    }
+    this.worldRenderer.setSkyReferenceCamera(0, 0, 1)
   }
 
   private computeEnvironmentRenderSignature(
