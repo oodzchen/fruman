@@ -4155,7 +4155,7 @@ export class WeaponSystem extends System {
       return
     }
     this.statsSystem?.playSoundAt(
-      SOUND_IDS.PICKUP_ITEM,
+      SOUND_IDS.PICKUP_EQUIPMENT,
       entity.transform.x,
       entity.transform.y
     )

@@ -68,6 +68,7 @@ export class AudioManager {
         'audios/Weapon Whips 02-double.wav'
       ),
       this.loadSound(SOUND_IDS.PICKUP_ITEM, 'audios/pickup_item.ogg'),
+      this.loadSound(SOUND_IDS.PICKUP_EQUIPMENT, 'audios/pickup_item1.ogg'),
       this.loadSound(
         SOUND_IDS.HEAVY_SWORD_HIT_GROUND,
         'audios/heavy-sword-hit-ground.wav'

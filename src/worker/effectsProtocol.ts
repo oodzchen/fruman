@@ -47,6 +47,7 @@ export const SOUND_IDS = {
   STAGGER_BREAK: 20,
   WOOD_BOX_BROKEN: 21,
   PASS_THROUGH_GRASS: 22,
+  PICKUP_EQUIPMENT: 23,
 } as const
 
 export const SOUND_EFFECT_FLAGS = {
