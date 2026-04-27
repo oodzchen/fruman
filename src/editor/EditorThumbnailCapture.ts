@@ -35,7 +35,14 @@ export class EditorThumbnailCapture {
     options?: { preferPreview?: boolean }
   ): Promise<string | null> {
     if (options?.preferPreview === true && this.ctx.gameClient()) {
-      return this.captureFromPreview(data)
+      try {
+        const previewThumbnail = await this.captureFromPreview(data)
+        if (previewThumbnail) {
+          return previewThumbnail
+        }
+      } catch {
+        // Fall back to the editor capture path below.
+      }
     }
     return this.captureFromEditor()
   }
@@ -48,24 +55,24 @@ export class EditorThumbnailCapture {
       return null
     }
 
+    const previousVisibility = this.ctx.gameCanvas.style.visibility
     this.ctx.gameCanvas.style.visibility = 'visible'
 
     gameClient.setAudioMuted(true)
-    gameClient.applyMapPreview(data)
-    gameClient.start()
+    try {
+      gameClient.applyMapPreview(data, { thumbnailCapture: true })
+      gameClient.start()
 
-    await gameClient.waitForPreviewThumbnailReady()
+      await gameClient.waitForPreviewThumbnailReady()
 
-    const snapshotDataUrl = await gameClient.captureCurrentThumbnail()
-
-    gameClient.clearMapPreview()
-    gameClient.stop()
-    gameClient.setEditorPreview(true)
-    gameClient.setAudioMuted(false)
-    this.ctx.gameCanvas.style.visibility = 'hidden'
-
-    if (!snapshotDataUrl) return null
-    return snapshotDataUrl
+      return await gameClient.captureCurrentThumbnail()
+    } finally {
+      gameClient.clearMapPreview()
+      gameClient.stop()
+      gameClient.setEditorPreview(true)
+      gameClient.setAudioMuted(false)
+      this.ctx.gameCanvas.style.visibility = previousVisibility
+    }
   }
 
   private async captureFromEditor(): Promise<string | null> {

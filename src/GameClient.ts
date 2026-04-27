@@ -755,7 +755,10 @@ export class GameClient {
     }
   }
 
-  applyMapPreview(map: EditorMapData) {
+  applyMapPreview(
+    map: EditorMapData,
+    options?: { thumbnailCapture?: boolean }
+  ) {
     const normalizedMap = normalizeCharacterBodyMapProfiles(map) ?? map
     this.setEditorPreview(false)
     this.previewActive = true
@@ -791,6 +794,7 @@ export class GameClient {
     this.worker.postMessage({
       type: 'map_preview',
       map: normalizedMap,
+      thumbnailCapture: options?.thumbnailCapture === true,
     } as MainToWorkerMessage)
   }
 

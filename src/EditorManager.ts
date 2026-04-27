@@ -2827,7 +2827,7 @@ export class EditorManager {
 
     try {
       const thumbnail = await this.thumbnailCapture.captureMap(data, {
-        preferPreview: false,
+        preferPreview: true,
       })
       if (thumbnail) {
         meta.thumbnail = thumbnail

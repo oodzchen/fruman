@@ -89,6 +89,7 @@ export type WorkerControlMessage = {
 export type WorkerMapPreviewMessage = {
   type: 'map_preview'
   map: EditorMapData
+  thumbnailCapture?: boolean
 }
 
 export type WorkerSaveRequestMessage = {

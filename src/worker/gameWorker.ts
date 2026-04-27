@@ -327,6 +327,7 @@ let activeMapData: EditorMapData | null = null
 let activeMapLayerLookup: MapObjectLayerLookup = buildMapObjectLayerLookup(null)
 let defaultMapData: EditorMapData | null = null
 let isMapPreview = false
+let isThumbnailCameraCapture = false
 let runtimeTerrainState: RuntimeTerrainState | null = null
 let runtimeTerrainBuildRevision = 1
 let terrainBodyIds: b2BodyId[] = []
@@ -905,6 +906,7 @@ async function init(width: number, height: number, ppm: number) {
   defaultMapData = defaultMapResult.data
   activeMapData = defaultMapData
   isMapPreview = false
+  isThumbnailCameraCapture = false
 
   initStateBuffers()
 
@@ -4642,6 +4644,11 @@ function applyMapCamera(map: EditorMapData): void {
   requestedZoom = zoomValue
   targetZoom = zoomValue
 
+  if (isThumbnailCameraCapture) {
+    applyThumbnailCaptureCamera()
+    return
+  }
+
   const isDefaultCamera =
     Math.abs(map.camera.x) < 0.01 &&
     Math.abs(map.camera.y) < 0.01 &&
@@ -4663,6 +4670,34 @@ function applyMapCamera(map: EditorMapData): void {
     verticalLookAheadOffsetY = 0
     verticalForceCenterAfterEmergency = false
   }
+}
+
+function applyThumbnailCaptureCamera(): void {
+  if (!playerEntity?.transform) {
+    return
+  }
+
+  const centerX = canvasWidth / 2
+  const canvasHeightInMeters = canvasHeight / pixelsPerMeter
+  const playerRadius = playerEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+  const playerFeetY = playerEntity.transform.y + playerRadius
+
+  camera.x = playerEntity.transform.x - centerX / pixelsPerMeter
+  camera.y =
+    playerFeetY -
+    canvasHeightInMeters * ((VERTICAL_LOCK_SCREEN_RATIO - 1) / zoom + 1)
+
+  isCameraLocked = false
+  isTransitioning = false
+  needsReturnToCenter = false
+  outOfCenterTime = 0
+  horizontalForceCenterAfterEmergency = false
+
+  isVerticalCameraLocked = false
+  isVerticalTransitioning = false
+  verticalOutOfCenterTime = 0
+  verticalLookAheadOffsetY = 0
+  verticalForceCenterAfterEmergency = false
 }
 
 function resetWeaponPhysicsCircle(entity: Entity): void {
@@ -5399,6 +5434,10 @@ function syncUltimateCameraState(): void {
 
 function updateCamera() {
   if (!playerEntity?.transform) return
+  if (isThumbnailCameraCapture) {
+    applyThumbnailCaptureCamera()
+    return
+  }
   const playerX = playerEntity.transform.x
 
   if (ultimateCameraActive) {
@@ -6807,6 +6846,7 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       if (msg.action === 'clear_map_preview') {
         activeMapData = defaultMapData
         isMapPreview = false
+        isThumbnailCameraCapture = false
         restart()
         if (activeMapData) {
           const runtimeMapData = buildRuntimeMapData(activeMapData)
@@ -6828,6 +6868,7 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
     case 'map_preview':
       activeMapData = msg.map
       isMapPreview = true
+      isThumbnailCameraCapture = msg.thumbnailCapture === true
       restart()
       break
     case 'save_request':
@@ -7575,6 +7616,7 @@ function loadFromSave(saveData: SaveData): void {
 
   activeMapData = saveData.mapData
   isMapPreview = false
+  isThumbnailCameraCapture = false
 
   restart()
 
