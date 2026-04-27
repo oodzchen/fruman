@@ -1,4 +1,4 @@
-import type { MapEnvironmentAsset } from './editorMapTypes'
+import type { EditorMapData, MapEnvironmentAsset } from './editorMapTypes'
 import {
   deleteEditorEnvironmentAsset,
   loadEditorEnvironmentAssetBlob,
@@ -11,6 +11,11 @@ const ENVIRONMENT_ASSET_MIME_TYPE = 'image/png'
 export interface RuntimeEnvironmentAsset {
   meta: MapEnvironmentAsset
   canvas: HTMLCanvasElement
+}
+
+export interface RuntimeEnvironmentAssetPreloadResult {
+  requested: number
+  loaded: number
 }
 
 const runtimeAssets = new Map<string, RuntimeEnvironmentAsset>()
@@ -130,13 +135,55 @@ export async function ensureRuntimeEnvironmentAsset(
     return null
   }
 
-  const image = await createImageFromBlob(stored.blob)
+  let image: HTMLImageElement
+  try {
+    image = await createImageFromBlob(stored.blob)
+  } catch {
+    return null
+  }
   const canvas = drawImageToCanvas(
     image,
     stored.asset.width,
     stored.asset.height
   )
   return setRuntimeEnvironmentAsset(stored.asset, canvas)
+}
+
+export async function ensureRuntimeEnvironmentAssetsForMap(
+  data: EditorMapData | null | undefined
+): Promise<RuntimeEnvironmentAssetPreloadResult> {
+  const result: RuntimeEnvironmentAssetPreloadResult = {
+    requested: 0,
+    loaded: 0,
+  }
+  const objects = data?.environmentObjects
+  if (!objects || objects.length === 0) {
+    return result
+  }
+
+  const assetIds: string[] = []
+  const seenAssetIds = new Set<string>()
+  for (let i = 0; i < objects.length; i++) {
+    const object = objects[i]
+    if (
+      object.type !== 'custom' ||
+      !object.assetId ||
+      seenAssetIds.has(object.assetId)
+    ) {
+      continue
+    }
+    seenAssetIds.add(object.assetId)
+    assetIds.push(object.assetId)
+  }
+
+  result.requested = assetIds.length
+  for (let i = 0; i < assetIds.length; i++) {
+    const asset = await ensureRuntimeEnvironmentAsset(assetIds[i])
+    if (asset) {
+      result.loaded += 1
+    }
+  }
+  return result
 }
 
 export async function createEnvironmentAssetFromImageFile(

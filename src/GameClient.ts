@@ -32,7 +32,10 @@ import {
   computeDistanceAttenuation,
   getSoundFalloffDistance,
 } from './effectAttenuation'
-import { getRuntimeEnvironmentAsset } from './environmentAssetRegistry'
+import {
+  ensureRuntimeEnvironmentAssetsForMap,
+  getRuntimeEnvironmentAsset,
+} from './environmentAssetRegistry'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentRotationDeg,
@@ -46,7 +49,7 @@ import {
 } from './mapObjectLayers'
 import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
-import { getDefaultTerrainRenderLayer } from './renderLayers'
+import { RENDER_LAYER_SKY, getDefaultTerrainRenderLayer } from './renderLayers'
 import {
   DayNightCycle,
   getMapTimePhaseElapsedMs,
@@ -129,6 +132,7 @@ export class GameClient {
   private static readonly PREVIEW_CAPTURE_MAX_RENDER_FRAMES = 24
   private static readonly DEFAULT_PIXELS_PER_METER = 50
   private static readonly PERF_DEBUG_QUERY_PARAM = 'perf'
+  private static readonly ENVIRONMENT_SKY_LAYER_WORLD_FALLBACK = -1
   private static readonly STATIC_SCENE_BUILD_BUDGET_MS = 2
   private static readonly PERF_LOG_HEARTBEAT_WINDOWS = 12
   private static readonly PERF_LOG_FRAME_WARN_US = 18000
@@ -188,6 +192,7 @@ export class GameClient {
   private pendingStaticEnvironmentObjects: MapEnvironmentObject[] | null = null
   private pendingStaticEnvironmentLayers: number[] | null = null
   private pendingStaticEnvironmentIndex = 0
+  private environmentAssetPreloadRevision = 0
   private readonly environmentTextureCache = new Map<
     string,
     EnvironmentTextureEntry
@@ -771,6 +776,7 @@ export class GameClient {
     this.renderer.setCharacterBodyMap(normalizedMap)
     this.lightingController.setMap(normalizedMap)
     this.worldRenderer.preloadCheckpointTextures()
+    this.preloadRuntimeEnvironmentAssets(normalizedMap)
     this.syncStaticScene(normalizedMap)
 
     if (
@@ -886,6 +892,7 @@ export class GameClient {
         this.renderer.setCharacterBodyMap(normalizedMap)
         this.lightingController.setMap(normalizedMap)
         this.worldRenderer.preloadCheckpointTextures()
+        this.preloadRuntimeEnvironmentAssets(normalizedMap)
       }
       this.syncStaticScene(normalizedMap)
       if (
@@ -2651,7 +2658,15 @@ export class GameClient {
     }
 
     const envObjects = mapData.environmentObjects
-    const nextEnvSignature = this.computeEnvironmentRenderSignature(envObjects)
+    const layerLookup =
+      envObjects && envObjects.length > 0
+        ? buildMapObjectLayerLookup(mapData)
+        : null
+    const envLayers = layerLookup?.environmentObjectLayers ?? null
+    const nextEnvSignature = this.computeEnvironmentRenderSignature(
+      envObjects,
+      envLayers
+    )
     if (
       !this.staticEnvironmentReady ||
       this.staticEnvironmentSignature !== nextEnvSignature
@@ -2662,10 +2677,8 @@ export class GameClient {
       this.clearPendingStaticEnvironmentBuild()
 
       if (envObjects && envObjects.length > 0) {
-        const layerLookup = buildMapObjectLayerLookup(mapData)
         this.pendingStaticEnvironmentObjects = envObjects
-        this.pendingStaticEnvironmentLayers =
-          layerLookup.environmentObjectLayers
+        this.pendingStaticEnvironmentLayers = envLayers
         this.pendingStaticEnvironmentIndex = 0
         this.pendingStaticEnvironmentSignature = nextEnvSignature
         this.pendingEnvironmentTextureKeys.clear()
@@ -2686,8 +2699,13 @@ export class GameClient {
     const nextTerrainSignature = this.computeTerrainRenderSignature(
       map?.terrain
     )
+    const envLayerLookup =
+      map?.environmentObjects && map.environmentObjects.length > 0
+        ? buildMapObjectLayerLookup(map)
+        : null
     const nextEnvSignature = this.computeEnvironmentRenderSignature(
-      map?.environmentObjects
+      map?.environmentObjects,
+      envLayerLookup?.environmentObjectLayers ?? null
     )
     if (
       ((this.staticTerrainReady &&
@@ -2702,6 +2720,45 @@ export class GameClient {
       return
     }
     this.rebuildStaticScene()
+  }
+
+  private preloadRuntimeEnvironmentAssets(map: EditorMapData): void {
+    this.environmentAssetPreloadRevision += 1
+    const revision = this.environmentAssetPreloadRevision
+    void ensureRuntimeEnvironmentAssetsForMap(map)
+      .then((result) => {
+        if (
+          revision !== this.environmentAssetPreloadRevision ||
+          this.currentMapData !== map ||
+          result.requested === 0 ||
+          result.loaded === 0
+        ) {
+          return
+        }
+        this.forceRebuildStaticEnvironment(map)
+      })
+      .catch(() => {})
+  }
+
+  private forceRebuildStaticEnvironment(map: EditorMapData): void {
+    this.worldRenderer.invalidateStaticMeshCaches()
+    this.destroyStaticEnvironmentSprites()
+    this.destroyInteractiveGrassDecorations()
+    this.clearPendingStaticEnvironmentBuild()
+    this.staticEnvironmentSignature = 0
+    this.staticEnvironmentReady = false
+    this.activeEnvironmentTextureKeys.clear()
+    this.pendingEnvironmentTextureKeys.clear()
+    this.clearEnvironmentTextureCaches()
+    this.syncStaticScene(map)
+  }
+
+  private clearEnvironmentTextureCaches(): void {
+    for (const [, entry] of this.environmentTextureCache) {
+      entry.texture.destroy(true)
+    }
+    this.environmentTextureCache.clear()
+    clearEnvironmentTextureSourceCache()
   }
 
   private finalizeStaticSceneCaches(): void {
@@ -3044,7 +3101,8 @@ export class GameClient {
         scaleYPermille,
         this.reusableEnvironmentAnchorOffset
       )
-      const resolvedLayer = envLayers?.[index] ?? 0
+      const rawLayer = envLayers?.[index] ?? 0
+      const resolvedLayer = this.resolveEnvironmentRenderLayer(rawLayer)
       const renderX = obj.x * ppm - this.reusableEnvironmentAnchorOffset.x
       const renderY = obj.y * ppm - this.reusableEnvironmentAnchorOffset.y
       if (obj.type === 'grass') {
@@ -3196,8 +3254,15 @@ export class GameClient {
     pruneEnvironmentTextureSourceCache(activeKeys, maxEntries)
   }
 
+  private resolveEnvironmentRenderLayer(layer: number): number {
+    return layer === RENDER_LAYER_SKY
+      ? GameClient.ENVIRONMENT_SKY_LAYER_WORLD_FALLBACK
+      : layer
+  }
+
   private computeEnvironmentRenderSignature(
-    envObjects: MapEnvironmentObject[] | null | undefined
+    envObjects: MapEnvironmentObject[] | null | undefined,
+    envLayers: number[] | null | undefined
   ): number {
     if (!envObjects || envObjects.length === 0) {
       return 0
@@ -3229,6 +3294,10 @@ export class GameClient {
       )
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(scaleYCode, 0x1b873593)
+      )
+      const layerCode = this.resolveEnvironmentRenderLayer(envLayers?.[i] ?? 0)
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(layerCode, 0x5bd1e995)
       )
       const typeCode =
         obj.type === 'tree'
@@ -3504,11 +3573,7 @@ export class GameClient {
     this.worldRenderer.destroy()
     this.lightingController.destroy()
 
-    for (const [, entry] of this.environmentTextureCache) {
-      entry.texture.destroy(true)
-    }
-    this.environmentTextureCache.clear()
-    clearEnvironmentTextureSourceCache()
+    this.clearEnvironmentTextureCaches()
 
     this.app.destroy(
       { removeView: true },
