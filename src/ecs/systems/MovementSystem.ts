@@ -194,8 +194,10 @@ export class MovementSystem extends System {
       const isGroundB = isGroundCollisionCategory(categoryB)
       const isObstacleA = isObstacleCollisionCategory(categoryA)
       const isObstacleB = isObstacleCollisionCategory(categoryB)
+      const isStandableContact =
+        isGroundA || isGroundB || isObstacleA || isObstacleB
       let isSteepSurface = false
-      if (isGroundA || isGroundB || isObstacleA || isObstacleB) {
+      if (isStandableContact) {
         const normalX = (normal.x * this.slopeNormalScale) | 0
         const normalY = (normal.y * this.slopeNormalScale) | 0
         const absNormalX = normalX < 0 ? -normalX : normalX
@@ -228,7 +230,11 @@ export class MovementSystem extends System {
       if (isSteepSurface) {
         touchingWall = true
         newWallDirection = normal.x > 0 ? -1 : 1
-      } else if (absY > groundNormalMin && isFallingOrStill) {
+      } else if (
+        isStandableContact &&
+        absY > groundNormalMin &&
+        isFallingOrStill
+      ) {
         grounded = true
       } else if (absX > 0.7) {
         touchingWall = true

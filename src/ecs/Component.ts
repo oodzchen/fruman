@@ -621,6 +621,7 @@ export class WeaponComponent extends Component {
   reboundTargetTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   reboundTargetOffset: WeaponRelativeTransform = { dx: 0, dy: 0, rotation: 0 }
   hitEntityIds: Set<number> = new Set()
+  hitBreakableObstacleIds: Set<number> = new Set()
   attackStartedAirborne = false
   landingShakeTriggered = false
   impactShakeTriggered = false
@@ -827,6 +828,7 @@ export class WeaponComponent extends Component {
     this.reboundTargetOffset.dy = 0
     this.reboundTargetOffset.rotation = 0
     this.hitEntityIds.clear()
+    this.hitBreakableObstacleIds.clear()
     this.attackStartedAirborne = false
     this.landingShakeTriggered = false
     this.impactShakeTriggered = false

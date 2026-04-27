@@ -345,6 +345,7 @@ let obstacles: {
   materialId?: TerrainMaterialId
   materialTag: TerrainMaterialTag
   breakableId?: number
+  breakableHitProxy?: boolean
   radius?: number
   vertices?: { x: number; y: number }[]
   worldVertices?: { x: number; y: number }[]
@@ -376,6 +377,11 @@ interface BreakableCrateRuntime {
   centerX: number
   centerY: number
   rotationRad: number
+  hitObstacleIndex: number
+  hitLocalCenterX: number
+  hitLocalCenterY: number
+  hitHalfWidth: number
+  hitHalfHeight: number
   planks: BreakableCratePlankRuntime[]
 }
 
@@ -1207,6 +1213,7 @@ function initializeSystems() {
   movementSystem.setSoundSystem(soundSystem)
   movementSystem.setStatsSystem(statsSystem)
   movementSystem.setBreakableContactHandler(handleBreakableSprintContact)
+  physicsSystem.addAfterStepCallback(syncBreakableCrateRuntimes)
   grappleSystem.setStatsSystem(statsSystem)
   weaponSystem.setSoundSystem(soundSystem)
   weaponSystem.setBreakableObstacleHitHandler(handleBreakableObstacleHit)
@@ -1902,6 +1909,23 @@ function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
   crate.centerX = position.x
   crate.centerY = position.y
   crate.rotationRad = angle
+  const hitCenterX =
+    crate.centerX + crate.hitLocalCenterX * cos - crate.hitLocalCenterY * sin
+  const hitCenterY =
+    crate.centerY + crate.hitLocalCenterX * sin + crate.hitLocalCenterY * cos
+  const hitObstacle = obstacles[crate.hitObstacleIndex]
+  if (hitObstacle?.breakableHitProxy) {
+    hitObstacle.centerX = hitCenterX
+    hitObstacle.centerY = hitCenterY
+    hitObstacle.rotationRad = angle
+    hitObstacle.worldVertices = computeRectWorldVertices(
+      hitCenterX,
+      hitCenterY,
+      crate.hitHalfWidth,
+      crate.hitHalfHeight,
+      angle
+    )
+  }
 
   for (let i = 0; i < crate.planks.length; i++) {
     const plank = crate.planks[i]
@@ -1954,6 +1978,9 @@ function refreshBreakableCrateObstacleIndices(): void {
     if (obstacle.breakableId === undefined) {
       continue
     }
+    if (obstacle.breakableHitProxy) {
+      continue
+    }
     const plank = breakableCratePlanksByShapeId.get(obstacle.mainShapeId)
     if (!plank) {
       continue
@@ -1970,6 +1997,35 @@ function appendActiveBreakableCrateObstacles(): void {
     if (crate.destroyed) {
       continue
     }
+    const cos = Math.cos(crate.rotationRad)
+    const sin = Math.sin(crate.rotationRad)
+    const hitCenterX =
+      crate.centerX + crate.hitLocalCenterX * cos - crate.hitLocalCenterY * sin
+    const hitCenterY =
+      crate.centerY + crate.hitLocalCenterX * sin + crate.hitLocalCenterY * cos
+    crate.hitObstacleIndex = obstacles.length
+    obstacles.push({
+      bodyId: crate.bodyId,
+      mainShapeId: crate.planks[0]?.shapeId ?? (0 as unknown as b2ShapeId),
+      capBodyId: crate.bodyId,
+      capShapeId: crate.planks[0]?.shapeId ?? (0 as unknown as b2ShapeId),
+      centerX: hitCenterX,
+      centerY: hitCenterY,
+      width: crate.hitHalfWidth,
+      height: crate.hitHalfHeight,
+      rotationRad: crate.rotationRad,
+      renderLayer: crate.renderLayer,
+      materialTag: 'obstacle',
+      breakableId: crate.id,
+      breakableHitProxy: true,
+      worldVertices: computeRectWorldVertices(
+        hitCenterX,
+        hitCenterY,
+        crate.hitHalfWidth,
+        crate.hitHalfHeight,
+        crate.rotationRad
+      ),
+    })
     for (let i = 0; i < crate.planks.length; i++) {
       const plank = crate.planks[i]
       plank.obstacleIndex = obstacles.length
@@ -2022,6 +2078,20 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
     const rotationRad = (rotationDeg * Math.PI) / 180
     const cos = Math.cos(rotationRad)
     const sin = Math.sin(rotationRad)
+    const crateHitHalfWidth = Math.max(
+      0.02,
+      layout.width * scaleX * invPixelsPerMeter * 0.5
+    )
+    const crateHitHalfHeight = Math.max(
+      0.02,
+      layout.height * scaleY * invPixelsPerMeter * 0.5
+    )
+    const crateHitLocalCenterX = 0
+    const crateHitLocalCenterY = -crateHitHalfHeight
+    const crateHitCenterX =
+      env.x + crateHitLocalCenterX * cos - crateHitLocalCenterY * sin
+    const crateHitCenterY =
+      env.y + crateHitLocalCenterX * sin + crateHitLocalCenterY * cos
 
     const crateId = nextBreakableCrateId++
     const plankRuntimes: BreakableCratePlankRuntime[] = []
@@ -2067,6 +2137,11 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
       centerX: env.x,
       centerY: env.y,
       rotationRad,
+      hitObstacleIndex: -1,
+      hitLocalCenterX: crateHitLocalCenterX,
+      hitLocalCenterY: crateHitLocalCenterY,
+      hitHalfWidth: crateHitHalfWidth,
+      hitHalfHeight: crateHitHalfHeight,
       planks: plankRuntimes,
     }
     crate.bodyId = createBreakableCrateRuntimeBody(
@@ -2076,7 +2151,29 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
       renderLayer,
       crate.planks
     )
-
+    crate.hitObstacleIndex = obstacles.length
+    obstacles.push({
+      bodyId: crate.bodyId,
+      mainShapeId: crate.planks[0]?.shapeId ?? (0 as unknown as b2ShapeId),
+      capBodyId: crate.bodyId,
+      capShapeId: crate.planks[0]?.shapeId ?? (0 as unknown as b2ShapeId),
+      centerX: crateHitCenterX,
+      centerY: crateHitCenterY,
+      width: crateHitHalfWidth,
+      height: crateHitHalfHeight,
+      rotationRad,
+      renderLayer,
+      materialTag: 'obstacle',
+      breakableId: crate.id,
+      breakableHitProxy: true,
+      worldVertices: computeRectWorldVertices(
+        crateHitCenterX,
+        crateHitCenterY,
+        crateHitHalfWidth,
+        crateHitHalfHeight,
+        rotationRad
+      ),
+    })
     for (let plankIndex = 0; plankIndex < crate.planks.length; plankIndex++) {
       const plankRuntime = crate.planks[plankIndex]
       plankRuntime.bodyId = crate.bodyId

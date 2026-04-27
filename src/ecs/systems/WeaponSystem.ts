@@ -257,6 +257,7 @@ export type ObstacleCollider = {
   materialId?: TerrainMaterialId
   materialTag: TerrainMaterialTag
   breakableId?: number
+  breakableHitProxy?: boolean
   vertices?: { x: number; y: number }[]
   worldVertices?: { x: number; y: number }[]
   radius?: number
@@ -320,6 +321,11 @@ export class WeaponSystem extends System {
     null
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
+  private tempSweptWeaponTransform: WeaponTransform = {
+    x: 0,
+    y: 0,
+    rotation: 0,
+  }
   private tempRelativeTransform: WeaponRelativeTransform = {
     dx: 0,
     dy: 0,
@@ -1930,6 +1936,9 @@ export class WeaponSystem extends System {
   ): void {
     if (!entity.weapon) return
     const weapon = entity.weapon
+    const previousWeaponX = weapon.visual.x
+    const previousWeaponY = weapon.visual.y
+    const previousWeaponRotation = weapon.visual.rotation
 
     const t = clamp01(weapon.attackElapsedMs / this.getSwingMs(weapon))
 
@@ -1941,7 +1950,13 @@ export class WeaponSystem extends System {
     )
     applyOffset(this.tempRelativeTransform, playerPos, weapon.visual)
 
-    const obstacle = this.checkObstacleCollision(entity, weapon)
+    const obstacle = this.checkObstacleCollision(
+      entity,
+      weapon,
+      previousWeaponX,
+      previousWeaponY,
+      previousWeaponRotation
+    )
     if (obstacle) {
       weapon.attackCollisionSource = 'obstacle'
       weapon.isColliding = true
@@ -2006,14 +2021,14 @@ export class WeaponSystem extends System {
     }
 
     copyTransform(weapon.visual, weapon.attackStartTransform)
-    this.tryQueueHeavyGroundHitSound(entity, weapon)
 
+    if (weapon.attackCollisionSource !== 'obstacle') {
+      this.checkObstacleCollision(entity, weapon)
+    }
     if (entity.movement && !entity.movement.isGrounded) {
-      if (weapon.attackCollisionSource === 'none') {
-        this.checkObstacleCollision(entity, weapon)
-      }
       this.checkEntityHits(entity, weapon)
     }
+    this.tryQueueHeavyGroundHitSound(entity, weapon)
 
     const pauseMs = this.getPauseMs(weapon)
     const pauseThreshold = weapon.reboundLockedPause
@@ -4893,6 +4908,7 @@ export class WeaponSystem extends System {
     weapon.attackCollisionSource = 'none'
     weapon.groundHitSoundTriggered = false
     weapon.groundHitSoundPending = 0
+    weapon.hitBreakableObstacleIds.clear()
   }
 
   private clearAttackImpactState(weapon: Entity['weapon']): void {
@@ -4903,6 +4919,7 @@ export class WeaponSystem extends System {
     weapon.attackCollisionSource = 'none'
     weapon.groundHitSoundTriggered = false
     weapon.groundHitSoundPending = 0
+    weapon.hitBreakableObstacleIds.clear()
   }
 
   private isBigHammer(weapon: Entity['weapon']): boolean {
@@ -4971,7 +4988,6 @@ export class WeaponSystem extends System {
   ): void {
     if (weapon.groundHitSoundTriggered) return
     if (!this.shouldTriggerHeavyGroundHitSound(entity, weapon)) return
-    weapon.attackCollisionSource = 'ground'
     weapon.groundHitSoundTriggered = true
     weapon.groundHitSoundPending = this.getHeavyGroundHitSoundId(weapon)
   }
@@ -5320,8 +5336,17 @@ export class WeaponSystem extends System {
     attacker?: Entity,
     weapon?: WeaponComponent
   ): void {
-    if (obstacle.breakableId === undefined) {
+    const breakableId = obstacle.breakableId
+    if (breakableId === undefined) {
       return
+    }
+    if (weapon) {
+      if (weapon.hitBreakableObstacleIds.has(breakableId)) {
+        return
+      }
+      weapon.hitBreakableObstacleIds.add(breakableId)
+      weapon.groundHitSoundTriggered = true
+      weapon.groundHitSoundPending = 0
     }
     this.onBreakableObstacleHit?.({
       attacker,
@@ -5703,7 +5728,10 @@ export class WeaponSystem extends System {
 
   private checkObstacleCollision(
     attacker: Entity,
-    weapon?: Entity['weapon']
+    weapon?: Entity['weapon'],
+    previousWeaponX?: number,
+    previousWeaponY?: number,
+    previousWeaponRotation?: number
   ): ObstacleCollider | null {
     if (!weapon) return null
     if (this.obstacles.length === 0) return null
@@ -5712,128 +5740,165 @@ export class WeaponSystem extends System {
     const wWidth = weapon.width
     const wHeight = weapon.height
     const wRotation = weapon.visual.rotation
+    let blockingObstacle: ObstacleCollider | null = null
+    const hasSweep =
+      previousWeaponX !== undefined &&
+      previousWeaponY !== undefined &&
+      previousWeaponRotation !== undefined &&
+      (previousWeaponX !== wx ||
+        previousWeaponY !== wy ||
+        previousWeaponRotation !== wRotation)
 
     for (const obstacle of this.obstacles) {
       if (obstacle.renderLayer !== weapon.renderLayer) {
         continue
       }
+      if (blockingObstacle && obstacle.breakableId === undefined) {
+        continue
+      }
       const centerX = obstacle.centerX
       const centerY = obstacle.centerY
-      const worldVertices = obstacle.worldVertices
 
-      if (worldVertices) {
-        // Polygon (SAT)
-        if (
-          checkOBBvsPolygon(wx, wy, wWidth, wHeight, wRotation, worldVertices)
-        ) {
-          this.hitTerrainDebrisInOBB(
-            wx,
-            wy,
-            wWidth,
-            wHeight,
-            wRotation,
-            weapon.renderLayer,
-            weapon.impactLevel,
-            wx,
-            wy,
-            weapon
-          )
-          this.emitBreakableObstacleHit(
-            obstacle,
-            weapon.impactLevel,
-            wx,
-            wy,
-            attacker,
-            weapon
-          )
-          if (obstacle.breakableId === undefined) {
-            return obstacle
-          }
-        }
-      } else if (obstacle.radius !== undefined && obstacle.radius > 0) {
-        // Circle
-        if (
-          checkOBBvsCircle(
-            wx,
-            wy,
-            wWidth,
-            wHeight,
-            wRotation,
-            centerX,
-            centerY,
-            obstacle.radius
-          )
-        ) {
-          this.hitTerrainDebrisInOBB(
-            wx,
-            wy,
-            wWidth,
-            wHeight,
-            wRotation,
-            weapon.renderLayer,
-            weapon.impactLevel,
-            wx,
-            wy,
-            weapon
-          )
-          this.emitBreakableObstacleHit(
-            obstacle,
-            weapon.impactLevel,
-            wx,
-            wy,
-            attacker,
-            weapon
-          )
-          if (obstacle.breakableId === undefined) {
-            return obstacle
-          }
-        }
-      } else {
-        // AABB (Box optimization)
-        const halfW = obstacle.width
-        const halfH = obstacle.height
+      if (
+        this.getObstacleCollisionHitSample(
+          obstacle,
+          wx,
+          wy,
+          wWidth,
+          wHeight,
+          wRotation,
+          hasSweep ? previousWeaponX : undefined,
+          hasSweep ? previousWeaponY : undefined,
+          hasSweep ? previousWeaponRotation : undefined
+        ) < 0
+      ) {
+        continue
+      }
 
-        if (
-          checkOBBvsAABB(
-            wx,
-            wy,
-            wWidth,
-            wHeight,
-            wRotation,
-            centerX,
-            centerY,
-            halfW,
-            halfH
-          )
-        ) {
-          this.hitTerrainDebrisInOBB(
-            wx,
-            wy,
-            wWidth,
-            wHeight,
-            wRotation,
-            weapon.renderLayer,
-            weapon.impactLevel,
-            wx,
-            wy,
-            weapon
-          )
-          this.emitBreakableObstacleHit(
-            obstacle,
-            weapon.impactLevel,
-            wx,
-            wy,
-            attacker,
-            weapon
-          )
-          if (obstacle.breakableId === undefined) {
-            return obstacle
-          }
-        }
+      this.hitTerrainDebrisInOBB(
+        wx,
+        wy,
+        wWidth,
+        wHeight,
+        wRotation,
+        weapon.renderLayer,
+        weapon.impactLevel,
+        wx,
+        wy,
+        weapon
+      )
+      this.emitBreakableObstacleHit(
+        obstacle,
+        weapon.impactLevel,
+        wx,
+        wy,
+        attacker,
+        weapon
+      )
+      if (obstacle.breakableId !== undefined) {
+        continue
+      }
+      if (blockingObstacle === null) {
+        blockingObstacle = obstacle
       }
     }
 
-    return null
+    return blockingObstacle
+  }
+
+  private getObstacleCollisionHitSample(
+    obstacle: ObstacleCollider,
+    wx: number,
+    wy: number,
+    wWidth: number,
+    wHeight: number,
+    wRotation: number,
+    previousWeaponX?: number,
+    previousWeaponY?: number,
+    previousWeaponRotation?: number
+  ): number {
+    if (
+      this.checkObstacleOverlap(obstacle, wx, wy, wWidth, wHeight, wRotation)
+    ) {
+      return 0
+    }
+    if (
+      previousWeaponX === undefined ||
+      previousWeaponY === undefined ||
+      previousWeaponRotation === undefined
+    ) {
+      return -1
+    }
+
+    for (let sample = 1; sample <= 3; sample++) {
+      const currentWeight = sample
+      const previousWeight = 4 - sample
+      this.tempSweptWeaponTransform.x =
+        (previousWeaponX * previousWeight + wx * currentWeight) / 4
+      this.tempSweptWeaponTransform.y =
+        (previousWeaponY * previousWeight + wy * currentWeight) / 4
+      this.tempSweptWeaponTransform.rotation =
+        (previousWeaponRotation * previousWeight + wRotation * currentWeight) /
+        4
+      if (
+        this.checkObstacleOverlap(
+          obstacle,
+          this.tempSweptWeaponTransform.x,
+          this.tempSweptWeaponTransform.y,
+          wWidth,
+          wHeight,
+          this.tempSweptWeaponTransform.rotation
+        )
+      ) {
+        return sample
+      }
+    }
+
+    return -1
+  }
+
+  private checkObstacleOverlap(
+    obstacle: ObstacleCollider,
+    wx: number,
+    wy: number,
+    wWidth: number,
+    wHeight: number,
+    wRotation: number
+  ): boolean {
+    const worldVertices = obstacle.worldVertices
+    if (worldVertices) {
+      return checkOBBvsPolygon(
+        wx,
+        wy,
+        wWidth,
+        wHeight,
+        wRotation,
+        worldVertices
+      )
+    }
+    if (obstacle.radius !== undefined && obstacle.radius > 0) {
+      return checkOBBvsCircle(
+        wx,
+        wy,
+        wWidth,
+        wHeight,
+        wRotation,
+        obstacle.centerX,
+        obstacle.centerY,
+        obstacle.radius
+      )
+    }
+    return checkOBBvsAABB(
+      wx,
+      wy,
+      wWidth,
+      wHeight,
+      wRotation,
+      obstacle.centerX,
+      obstacle.centerY,
+      obstacle.width,
+      obstacle.height
+    )
   }
 
   private shouldSkipObstacleRebound(
