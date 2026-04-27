@@ -6925,7 +6925,8 @@ function updateParam(id?: string, value?: number) {
         playerEntity.movement.maxWallJumps = Math.floor(value)
         break
       case 'moveSpeed':
-        playerEntity.movement.moveSpeed = value
+        playerEntity.movement.baseMoveSpeed = value >= 0 ? value : 0
+        playerEntity.movement.moveSpeed = playerEntity.movement.baseMoveSpeed
         break
       case 'baseWeight':
         playerEntity.movement.baseWeight = Math.max(1, value)

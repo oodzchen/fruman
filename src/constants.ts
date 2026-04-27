@@ -136,7 +136,11 @@ export const DEFAULT_MAX_WALL_JUMPS = 1
 // 角色左右移动速度
 export const DEFAULT_MOVE_SPEED = 4
 export const DEFAULT_SLOW_SPEED = DEFAULT_MOVE_SPEED / 2
-export const DEFAULT_SPRINT_SPEED = 6
+export const SPRINT_SPEED_MULTIPLIER_NUMERATOR = 3
+export const SPRINT_SPEED_MULTIPLIER_DENOMINATOR = 2
+export const DEFAULT_SPRINT_SPEED =
+  (DEFAULT_MOVE_SPEED * SPRINT_SPEED_MULTIPLIER_NUMERATOR) /
+  SPRINT_SPEED_MULTIPLIER_DENOMINATOR
 export const SPRINT_HOLD_THRESHOLD_MS = 200
 
 export function getSlowSpeedFromMoveSpeed(moveSpeed: number): number {
@@ -147,10 +151,13 @@ export function getSlowSpeedFromMoveSpeed(moveSpeed: number): number {
 }
 
 export function getSprintSpeedFromMoveSpeed(moveSpeed: number): number {
-  if (!(moveSpeed > 0) || !(DEFAULT_MOVE_SPEED > 0)) {
+  if (!(moveSpeed > 0) || !(SPRINT_SPEED_MULTIPLIER_DENOMINATOR > 0)) {
     return 0
   }
-  return (moveSpeed * DEFAULT_SPRINT_SPEED) / DEFAULT_MOVE_SPEED
+  return (
+    (moveSpeed * SPRINT_SPEED_MULTIPLIER_NUMERATOR) /
+    SPRINT_SPEED_MULTIPLIER_DENOMINATOR
+  )
 }
 
 // 角色与其他物体接触时的摩擦力

@@ -712,12 +712,13 @@ export class MovementSystem extends System {
     const agilityScalePercent = entity.level
       ? getPlayerAgilityScalePercent(entity.level)
       : 100
+    const configuredMoveSpeed =
+      entity.movement.moveSpeed > 0 ? entity.movement.moveSpeed : 0
+    const targetMoveSpeed = entity.movement.isSprinting
+      ? getSprintSpeedFromMoveSpeed(configuredMoveSpeed)
+      : configuredMoveSpeed
     const moveSpeed =
-      (entity.movement.isSprinting
-        ? getSprintSpeedFromMoveSpeed(entity.movement.moveSpeed)
-        : entity.movement.moveSpeed) *
-      moveSpeedScale *
-      (agilityScalePercent / 100)
+      targetMoveSpeed * moveSpeedScale * (agilityScalePercent / 100)
 
     this.tempVec.x = direction * moveSpeed
     this.tempVec.y = entity.physics.velY

@@ -403,6 +403,7 @@ export function createNpc(
   const ai = new NpcAIComponent()
   ai.attackDesire = attackDesire
   ai.parryProficiency = parryProficiency
+  ai.moveSpeed = moveSpeed
   ai.redTapeEnabled = options?.redTapeEnabled === true
   ai.retreatEnabled = options?.retreatEnabled === true
   ai.retreatDelayMs = Math.round((options?.retreatDelaySec ?? 0) * 1000)
@@ -478,6 +479,7 @@ export function createNpc(
 
   if (npc.movement) {
     npc.movement.moveSpeed = moveSpeed
+    npc.movement.baseMoveSpeed = moveSpeed
   }
 
   if (npc.attackSlots) {

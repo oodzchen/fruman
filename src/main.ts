@@ -280,6 +280,28 @@ function syncInputs(
   }
 }
 
+function setParamControlValue(id: string, value: number): void {
+  let targetConfig: ParamConfig | null = null
+  for (let i = 0; i < PARAM_CONFIGS.length; i++) {
+    const config = PARAM_CONFIGS[i]
+    if (config.id === id) {
+      targetConfig = config
+      break
+    }
+  }
+  if (!targetConfig) return
+
+  const rawValue = String(value)
+  const range = document.getElementById(targetConfig.id)
+  const number = document.getElementById(targetConfig.numberId)
+  if (range instanceof HTMLInputElement) {
+    range.value = rawValue
+  }
+  if (number instanceof HTMLInputElement) {
+    number.value = rawValue
+  }
+}
+
 async function initialize() {
   await localizer.init(Language.ZhHans)
 
@@ -433,15 +455,16 @@ async function initialize() {
     game.applyMapPreview(data)
 
     if (data.camera && data.camera.zoom) {
-      const zoomValue = data.camera.zoom.toString()
-      const cameraZoomRange = document.getElementById(
-        'cameraZoom'
-      ) as HTMLInputElement
-      const cameraZoomNum = document.getElementById(
-        'cameraZoomNum'
-      ) as HTMLInputElement
-      if (cameraZoomRange) cameraZoomRange.value = zoomValue
-      if (cameraZoomNum) cameraZoomNum.value = zoomValue
+      setParamControlValue('cameraZoom', data.camera.zoom)
+    }
+
+    const previewMoveSpeed = data.player?.moveSpeed
+    if (
+      typeof previewMoveSpeed === 'number' &&
+      Number.isFinite(previewMoveSpeed) &&
+      previewMoveSpeed >= 0
+    ) {
+      setParamControlValue('moveSpeed', previewMoveSpeed)
     }
 
     applyControls.forEach((apply) => apply())

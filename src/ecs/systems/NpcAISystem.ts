@@ -84,6 +84,11 @@ export class NpcAISystem extends System {
     this.entityLookup = lookup
   }
 
+  private canSprint(ai: NpcAIComponent): boolean {
+    const baseMoveSpeed = ai.moveSpeed > 0 ? ai.moveSpeed : 0
+    return getSprintSpeedFromMoveSpeed(baseMoveSpeed) > baseMoveSpeed
+  }
+
   private getRangedMinWindupMs(entity: Entity): number {
     const weapon = entity.weapon
     if (
@@ -390,10 +395,7 @@ export class NpcAISystem extends System {
               }
             } else {
               entity.input.blockRequested = false
-              entity.input.sprintRequested =
-                !!entity.movement &&
-                getSprintSpeedFromMoveSpeed(entity.movement.moveSpeed) >
-                  entity.movement.moveSpeed
+              entity.input.sprintRequested = this.canSprint(ai)
               if (entity.movement) {
                 entity.movement.moveSpeed = ai.moveSpeed
               }
@@ -726,15 +728,8 @@ export class NpcAISystem extends System {
 
         if (distance > weaponRange) {
           entity.input.moveDirection = stableFacing
-          if (entity.movement && hasCombatLineOfSight) {
-            if (
-              getSprintSpeedFromMoveSpeed(entity.movement.moveSpeed) >
-              entity.movement.moveSpeed
-            ) {
-              entity.input.sprintRequested = true
-            } else {
-              entity.input.sprintRequested = false
-            }
+          if (hasCombatLineOfSight) {
+            entity.input.sprintRequested = this.canSprint(ai)
           } else {
             entity.input.sprintRequested = false
           }
@@ -1785,7 +1780,7 @@ export class NpcAISystem extends System {
       distance > leapMaxDistance &&
       moveDirection !== 0 &&
       hasCombatLineOfSight &&
-      getSprintSpeedFromMoveSpeed(ai.moveSpeed) > ai.moveSpeed
+      this.canSprint(ai)
     if (entity.movement) {
       entity.movement.moveSpeed =
         distance > leapMinDistance && distance < leapMaxDistance
