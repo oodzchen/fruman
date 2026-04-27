@@ -18,6 +18,10 @@ import {
   DEBUG_DRAW_PLAYER_COLLISION_SHAPE,
   DEFAULT_PLAYER_MAX_HEALTH,
   DEFAULT_PLAYER_RADIUS,
+  FOLLOW_BOND_ICON_RENDER_HEIGHT,
+  FOLLOW_BOND_ICON_RENDER_WIDTH,
+  FOLLOW_UNBOND_ICON_RENDER_HEIGHT,
+  FOLLOW_UNBOND_ICON_RENDER_WIDTH,
   GRAPE_GRAVITY_SCALE,
   GRAPE_MAX_SPEED,
   GRAPE_MIN_FORCE_RATIO,
@@ -1436,8 +1440,13 @@ export class ClientRenderer {
     const ctx = this.ctx
     ctx.save()
     ctx.globalAlpha = alpha
-    const size = 20
-    ctx.drawImage(this.handshakeIcon, cx - size / 2, cy - size / 2, size, size)
+    ctx.drawImage(
+      this.handshakeIcon,
+      cx - FOLLOW_BOND_ICON_RENDER_WIDTH / 2,
+      cy - FOLLOW_BOND_ICON_RENDER_HEIGHT / 2,
+      FOLLOW_BOND_ICON_RENDER_WIDTH,
+      FOLLOW_BOND_ICON_RENDER_HEIGHT
+    )
     ctx.restore()
   }
 
@@ -1446,8 +1455,13 @@ export class ClientRenderer {
     const ctx = this.ctx
     ctx.save()
     ctx.globalAlpha = alpha
-    const size = 20
-    ctx.drawImage(this.wavingHandIcon, cx - size / 2, cy - size / 2, size, size)
+    ctx.drawImage(
+      this.wavingHandIcon,
+      cx - FOLLOW_UNBOND_ICON_RENDER_WIDTH / 2,
+      cy - FOLLOW_UNBOND_ICON_RENDER_HEIGHT / 2,
+      FOLLOW_UNBOND_ICON_RENDER_WIDTH,
+      FOLLOW_UNBOND_ICON_RENDER_HEIGHT
+    )
     ctx.restore()
   }
 

@@ -19,6 +19,10 @@ import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_HEIGHT,
   DEFAULT_WEAPON_WIDTH,
+  FOLLOW_BOND_ICON_RENDER_HEIGHT,
+  FOLLOW_BOND_ICON_RENDER_WIDTH,
+  FOLLOW_UNBOND_ICON_RENDER_HEIGHT,
+  FOLLOW_UNBOND_ICON_RENDER_WIDTH,
   GRAPPLE_ANCHOR_HIGHLIGHT_SCALE,
   TERRAIN_COLLISION_DEBUG_ALPHA,
   TERRAIN_COLLISION_DEBUG_COLOR,
@@ -899,15 +903,15 @@ export class PixiWorldRenderer {
 
     const followBondSprite = new Sprite(this.handshakeTexture)
     followBondSprite.anchor.set(0.5)
-    followBondSprite.width = 20
-    followBondSprite.height = 20
+    followBondSprite.width = FOLLOW_BOND_ICON_RENDER_WIDTH
+    followBondSprite.height = FOLLOW_BOND_ICON_RENDER_HEIGHT
     hideSprite(followBondSprite)
     root.addChild(followBondSprite)
 
     const followUnbondSprite = new Sprite(this.wavingTexture)
     followUnbondSprite.anchor.set(0.5)
-    followUnbondSprite.width = 20
-    followUnbondSprite.height = 20
+    followUnbondSprite.width = FOLLOW_UNBOND_ICON_RENDER_WIDTH
+    followUnbondSprite.height = FOLLOW_UNBOND_ICON_RENDER_HEIGHT
     hideSprite(followUnbondSprite)
     root.addChild(followUnbondSprite)
 
