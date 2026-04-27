@@ -1526,7 +1526,7 @@ function normalizeSaveData(saveData: SaveData): SaveData {
 export async function listSaves(): Promise<SaveMeta[]> {
   try {
     const db = await openDB()
-    return new Promise((resolve) => {
+    const saves = await new Promise<SaveMeta[]>((resolve) => {
       const tx = db.transaction(SAVE_META_STORE, 'readonly')
       const store = tx.objectStore(SAVE_META_STORE)
       const index = store.index('updatedAt')
@@ -1545,9 +1545,97 @@ export async function listSaves(): Promise<SaveMeta[]> {
 
       request.onerror = () => resolve([])
     })
+    return applySaveMapThumbnailFallbacks(saves)
   } catch {
     return []
   }
+}
+
+async function applySaveMapThumbnailFallbacks(
+  saves: SaveMeta[]
+): Promise<SaveMeta[]> {
+  if (saves.length === 0) {
+    return saves
+  }
+
+  let needsFallback = false
+  const mapIds = new Set<string>()
+  for (let i = 0; i < saves.length; i++) {
+    const save = saves[i]
+    if (save.thumbnail && save.thumbnail.length > 0) {
+      continue
+    }
+    if (typeof save.mapId !== 'string' || save.mapId.length === 0) {
+      continue
+    }
+    needsFallback = true
+    mapIds.add(save.mapId)
+  }
+
+  if (!needsFallback) {
+    return saves
+  }
+
+  const mapThumbnails = await loadMapThumbnailLookup(mapIds)
+  if (mapThumbnails.size === 0) {
+    return saves
+  }
+
+  for (let i = 0; i < saves.length; i++) {
+    const save = saves[i]
+    if (save.thumbnail && save.thumbnail.length > 0) {
+      continue
+    }
+    const thumbnail = mapThumbnails.get(save.mapId)
+    if (thumbnail && thumbnail.length > 0) {
+      saves[i] = {
+        ...save,
+        thumbnail,
+      }
+    }
+  }
+
+  return saves
+}
+
+async function loadMapThumbnailLookup(
+  mapIds: ReadonlySet<string>
+): Promise<Map<string, string>> {
+  const thumbnails = new Map<string, string>()
+  if (mapIds.size === 0) {
+    return thumbnails
+  }
+
+  try {
+    const db = await openDB()
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(MAP_META_STORE, 'readonly')
+      const store = tx.objectStore(MAP_META_STORE)
+      const request = store.getAll()
+
+      request.onsuccess = () => {
+        const metas = request.result as EditorMapMeta[] | undefined
+        if (metas) {
+          for (let i = 0; i < metas.length; i++) {
+            const meta = metas[i]
+            if (
+              mapIds.has(meta.id) &&
+              meta.thumbnail &&
+              meta.thumbnail.length > 0
+            ) {
+              thumbnails.set(meta.id, meta.thumbnail)
+            }
+          }
+        }
+        resolve()
+      }
+      request.onerror = () => resolve()
+    })
+  } catch {
+    // Keep save thumbnails unchanged when map metadata cannot be read.
+  }
+
+  return thumbnails
 }
 
 export async function loadSaveData(saveId: string): Promise<SaveData | null> {
