@@ -1062,19 +1062,25 @@ export class GrappleSystem extends System {
 
     const playerX = entity.transform.x
     const playerY = entity.transform.y
-    const ropeLength = Math.max(
+    const initialRopeLength = Math.max(
       DEFAULT_GRAPPLE_TETHER_MIN_LENGTH,
       initialLength
     )
+    const maxLength = Math.max(DEFAULT_GRAPPLE_RANGE, initialRopeLength)
     const linkCount = Math.max(
       2,
       Math.min(
         DEFAULT_GRAPPLE_ROPE_MAX_SEGMENTS,
-        Math.ceil(ropeLength / DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH)
+        Math.ceil(maxLength / DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH)
       )
     )
     const segmentCount = linkCount - 1
-    const linkLength = ropeLength / linkCount
+    const linkLength = maxLength / linkCount
+    const initialLinkCount = Math.max(
+      1,
+      Math.min(linkCount, Math.ceil(initialRopeLength / linkLength))
+    )
+    const initialSegmentCount = initialLinkCount - 1
     const renderLayer = entity.render?.renderLayer ?? 0
     const anchorBodyId = this.createKinematicAnchorBody(anchorX, anchorY)
     const playerAnchorBodyId = this.createKinematicAnchorBody(playerX, playerY)
@@ -1091,9 +1097,12 @@ export class GrappleSystem extends System {
     runtime.playerFollowY = playerY
     runtime.segmentCount = segmentCount
     runtime.linkLength = linkLength
-    runtime.attachIndex = segmentCount - 1
-    runtime.jointMaxLen = linkLength
-    runtime.maxRopeLength = ropeLength
+    runtime.attachIndex = initialSegmentCount - 1
+    runtime.jointMaxLen = Math.max(
+      0.01,
+      Math.min(linkLength, initialRopeLength - initialSegmentCount * linkLength)
+    )
+    runtime.maxRopeLength = maxLength
     runtime.segmentBodies.length = 0
     runtime.segmentJoints.length = 0
     runtime.segmentFilterJoints.length = 0
@@ -1137,10 +1146,14 @@ export class GrappleSystem extends System {
       previousBodyId = segmentBodyId
     }
 
+    const attachBodyId =
+      runtime.attachIndex >= 0
+        ? runtime.segmentBodies[runtime.attachIndex]
+        : anchorBodyId
     runtime.playerJointId = this.createFixedDistanceJoint(
-      previousBodyId,
+      attachBodyId,
       playerAnchorBodyId,
-      linkLength
+      runtime.jointMaxLen
     )
     return true
   }
@@ -1276,6 +1289,18 @@ export class GrappleSystem extends System {
         this.stopPull(entity, grapple, false)
         return
       }
+      const playerAnchorBodyId = runtime.playerAnchorBodyId
+      if (!this.isBodyId(playerAnchorBodyId)) {
+        this.stopPull(entity, grapple, false)
+        return
+      }
+      this.adjustTetherLength(
+        entity,
+        runtime,
+        deltaMs,
+        playerAnchorBodyId,
+        false
+      )
       this.applyDynamicTetherTension(entity, runtime)
       return
     }
@@ -1287,7 +1312,23 @@ export class GrappleSystem extends System {
     }
 
     this.handleSwingInput(entity, grapple, deltaMs)
+    this.adjustTetherLength(
+      entity,
+      runtime,
+      deltaMs,
+      entity.physics.bodyId,
+      true
+    )
+  }
 
+  private adjustTetherLength(
+    entity: Entity,
+    runtime: RopeRuntime,
+    deltaMs: number,
+    playerBodyId: b2BodyId,
+    useAnchorLocal: boolean
+  ): void {
+    if (!entity.input) return
     const climbDir = entity.input.grappleClimbHeld
     if (climbDir === 0) return
 
@@ -1327,16 +1368,28 @@ export class GrappleSystem extends System {
       }
     }
 
+    this.rebuildPlayerTetherJoint(runtime, playerBodyId, useAnchorLocal)
+  }
+
+  private rebuildPlayerTetherJoint(
+    runtime: RopeRuntime,
+    playerBodyId: b2BodyId,
+    useAnchorLocal: boolean
+  ): void {
+    const anchorBodyId = runtime.anchorBodyId
+    if (!this.isBodyId(anchorBodyId)) return
     this.destroyJointIfValid(runtime.playerJointId)
     const attachBodyId =
       runtime.attachIndex >= 0
         ? runtime.segmentBodies[runtime.attachIndex]
         : anchorBodyId
-    const attachLocalX = runtime.attachIndex >= 0 ? 0 : runtime.anchorLocalX
-    const attachLocalY = runtime.attachIndex >= 0 ? 0 : runtime.anchorLocalY
+    const attachLocalX =
+      useAnchorLocal && runtime.attachIndex < 0 ? runtime.anchorLocalX : 0
+    const attachLocalY =
+      useAnchorLocal && runtime.attachIndex < 0 ? runtime.anchorLocalY : 0
     runtime.playerJointId = this.createFixedDistanceJoint(
       attachBodyId,
-      entity.physics.bodyId,
+      playerBodyId,
       Math.max(0.01, runtime.jointMaxLen),
       attachLocalX,
       attachLocalY
@@ -1451,7 +1504,7 @@ export class GrappleSystem extends System {
     const dist = Math.sqrt(distSq)
     const ropeLength = Math.max(
       DEFAULT_GRAPPLE_TETHER_MIN_LENGTH,
-      runtime.maxRopeLength
+      this.calculateCurrentRopeLength(runtime)
     )
     const stretch = dist - ropeLength
     if (stretch <= 0) {
