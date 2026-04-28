@@ -751,6 +751,7 @@ let pixelsPerMeter = 50
 let groundFriction = DEFAULT_GROUND_FRICTION
 let obstacleFriction = DEFAULT_OBSTACLE_FRICTION
 let groundTopY = 0
+const GRAPPLE_TARGET_RANGE_SQ = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
 
 // Parameter buffer for async init
 const pendingParams: Record<string, number> = {}
@@ -4749,6 +4750,41 @@ function resetWeaponPhysicsCircle(entity: Entity): void {
   circle.delete()
 }
 
+function canGrappleLockedTarget(player: Entity): boolean {
+  if (!player.input || !player.grapple || !player.transform) {
+    return false
+  }
+  if (!player.grapple.hasGrapple) {
+    return false
+  }
+
+  const targetId = player.input.lockedTargetId
+  if (targetId === null) {
+    return false
+  }
+
+  const target = world.getEntityById(targetId)
+  if (
+    !target ||
+    target.id === player.id ||
+    !target.transform ||
+    !target.physics ||
+    !target.stats ||
+    target.stats.isDead ||
+    target.stats.isVanished
+  ) {
+    return false
+  }
+
+  if ((target.render?.renderLayer ?? 0) !== (player.render?.renderLayer ?? 0)) {
+    return false
+  }
+
+  const dx = target.transform.x - player.transform.x
+  const dy = target.transform.y - player.transform.y
+  return dx * dx + dy * dy <= GRAPPLE_TARGET_RANGE_SQ
+}
+
 function isTemplateWeaponType(
   weaponType: string
 ): weaponType is keyof typeof WEAPON_DEFAULT_DATA {
@@ -4910,7 +4946,11 @@ function handleInput(
       if (rHoldActive && !rHoldTriggered && !isPlayerDead) {
         const g = playerEntity.grapple
         const shouldGrapple =
-          g && (g.isPulling || g.isTethering || g.hasAnchorNearby)
+          g &&
+          (g.isPulling ||
+            g.isTethering ||
+            g.hasAnchorNearby ||
+            canGrappleLockedTarget(playerEntity))
         if (shouldGrapple) {
           playerEntity.input.inputBuffer.bufferAction('grapple')
         } else {
