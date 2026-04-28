@@ -323,6 +323,7 @@ export interface EditorMap {
   isDefault?: boolean
   thumbnail?: string
   source?: 'builtInDefault' | 'publicMapData'
+  sourceDataHash?: string
 }
 
 export interface EditorObjectData {

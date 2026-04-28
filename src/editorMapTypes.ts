@@ -122,6 +122,7 @@ export interface EditorMapMeta {
   isDefault?: boolean
   thumbnail?: string
   source?: 'builtInDefault' | 'publicMapData'
+  sourceDataHash?: string
 }
 
 export interface MapVector2 {

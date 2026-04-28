@@ -335,6 +335,12 @@ interface PublicMapDataManifestEntry {
 interface LoadedPublicMapDataEntry {
   data: EditorMapData
   name: string | null
+  archiveFiles?: Record<string, Uint8Array>
+}
+
+interface PublicMapDataUpsertResult {
+  meta: EditorMapMeta
+  didWriteData: boolean
 }
 
 let publicMapDataImportPromise: Promise<void> | null = null
@@ -562,8 +568,7 @@ async function loadPublicMapDataEntry(
         name = parseMapMetaJsonBytes(metaJson) ?? name
       } catch {}
     }
-    await restoreEnvironmentAssetsFromArchiveFiles(files)
-    return { data, name }
+    return { data, name, archiveFiles: files }
   }
 
   if (!entry.mapPath) {
@@ -579,8 +584,20 @@ async function loadPublicMapDataEntry(
     const metaParsed = await fetchPublicJson(entry.metaPath)
     name = extractArchiveMapName(metaParsed) ?? name
   }
-  await restoreEnvironmentAssetsFromPublicDirectory(entry)
   return { data, name }
+}
+
+async function restoreEnvironmentAssetsFromLoadedPublicMapDataEntry(
+  entry: PublicMapDataManifestEntry,
+  loaded: LoadedPublicMapDataEntry
+): Promise<void> {
+  if (entry.source === 'zip') {
+    if (loaded.archiveFiles) {
+      await restoreEnvironmentAssetsFromArchiveFiles(loaded.archiveFiles)
+    }
+    return
+  }
+  await restoreEnvironmentAssetsFromPublicDirectory(entry)
 }
 
 async function loadPublicMapDataManifest(): Promise<
@@ -611,6 +628,11 @@ function hashString(value: string): string {
     hash = Math.imul(hash, 16777619)
   }
   return (hash >>> 0).toString(36)
+}
+
+function hashEditorMapData(data: EditorMapData): string {
+  const serialized = JSON.stringify(data)
+  return `${serialized.length.toString(36)}-${hashString(serialized)}`
 }
 
 function slugPublicMapDataId(value: string): string {
@@ -682,31 +704,62 @@ async function isHardcodedDefaultMap(meta: EditorMapMeta): Promise<boolean> {
 async function upsertPublicMapDataMap(
   entry: PublicMapDataManifestEntry,
   loaded: LoadedPublicMapDataEntry
-): Promise<EditorMapMeta | null> {
+): Promise<PublicMapDataUpsertResult | null> {
   try {
     const mapId = createPublicMapDataMapId(entry.id)
     const metaList = await listEditorMaps()
     const existingMeta = metaList.find((meta) => meta.id === mapId)
     const currentDefaultMeta = metaList.find((meta) => meta.isDefault)
+    const nextData = normalizeEditorMapData(loaded.data)
+    const nextSourceDataHash = hashEditorMapData(nextData)
+    const existingData = existingMeta ? await loadEditorMapData(mapId) : null
+    const existingSourceDataHash = existingMeta?.sourceDataHash
+    const existingDataHash = existingData
+      ? hashEditorMapData(existingData)
+      : null
+    const didChangeFromImportedSource =
+      !!existingSourceDataHash &&
+      !!existingDataHash &&
+      existingDataHash !== existingSourceDataHash
+    const shouldWriteData =
+      !existingMeta ||
+      !existingData ||
+      (!!existingSourceDataHash &&
+        !didChangeFromImportedSource &&
+        existingSourceDataHash !== nextSourceDataHash)
     const shouldBecomeDefault =
       entry.isDefault === true &&
       (!currentDefaultMeta ||
         (currentDefaultMeta.id === mapId && currentDefaultMeta.isDefault) ||
         (await isHardcodedDefaultMap(currentDefaultMeta)))
+    const nextIsDefault = shouldBecomeDefault ? true : existingMeta?.isDefault
+    const doesDefaultChange = existingMeta?.isDefault !== nextIsDefault
     const db = await openDB()
     const now = Date.now()
     const nextMeta: EditorMapMeta = {
       id: mapId,
-      name: loaded.name ?? entry.name,
+      name: existingMeta?.name ?? loaded.name ?? entry.name,
       createdAt: existingMeta?.createdAt ?? now,
-      updatedAt: now,
-      isDefault: shouldBecomeDefault ? true : existingMeta?.isDefault,
+      updatedAt:
+        shouldWriteData || !existingMeta || doesDefaultChange
+          ? now
+          : existingMeta.updatedAt,
+      isDefault: nextIsDefault,
       thumbnail: existingMeta?.thumbnail,
       source: PUBLIC_MAP_DATA_SOURCE,
+      sourceDataHash: nextSourceDataHash,
     }
-    const dataRecord: StoredMapDataRecord = {
-      id: mapId,
-      data: normalizeEditorMapData(loaded.data),
+    const shouldWriteMeta =
+      !existingMeta ||
+      existingMeta.name !== nextMeta.name ||
+      existingMeta.updatedAt !== nextMeta.updatedAt ||
+      existingMeta.isDefault !== nextMeta.isDefault ||
+      existingMeta.thumbnail !== nextMeta.thumbnail ||
+      existingMeta.source !== nextMeta.source ||
+      existingMeta.sourceDataHash !== nextMeta.sourceDataHash
+
+    if (!shouldWriteMeta && !shouldWriteData && existingMeta) {
+      return { meta: existingMeta, didWriteData: false }
     }
 
     return new Promise((resolve) => {
@@ -725,8 +778,15 @@ async function upsertPublicMapDataMap(
         }
       }
       metaStore.put(nextMeta)
-      tx.objectStore(MAP_DATA_STORE).put(dataRecord)
-      tx.oncomplete = () => resolve(nextMeta)
+      if (shouldWriteData) {
+        const dataRecord: StoredMapDataRecord = {
+          id: mapId,
+          data: nextData,
+        }
+        tx.objectStore(MAP_DATA_STORE).put(dataRecord)
+      }
+      tx.oncomplete = () =>
+        resolve({ meta: nextMeta, didWriteData: shouldWriteData })
       tx.onerror = () => resolve(null)
       tx.onabort = () => resolve(null)
     })
@@ -748,7 +808,10 @@ async function importPublicMapDataMapsNow(): Promise<void> {
     if (!loaded) {
       continue
     }
-    await upsertPublicMapDataMap(entry, loaded)
+    const upsertResult = await upsertPublicMapDataMap(entry, loaded)
+    if (upsertResult?.didWriteData) {
+      await restoreEnvironmentAssetsFromLoadedPublicMapDataEntry(entry, loaded)
+    }
   }
 }
 
@@ -1013,6 +1076,7 @@ export async function saveEditorMap(
         options?.preserveBuiltInSource !== true
           ? undefined
           : meta.source,
+      sourceDataHash: meta.sourceDataHash,
     }
     const dataRecord: StoredMapDataRecord = {
       id: meta.id,
@@ -1065,6 +1129,7 @@ export async function saveEditorMapMeta(
       thumbnail: meta.thumbnail,
       source:
         meta.source === BUILT_IN_DEFAULT_MAP_SOURCE ? undefined : meta.source,
+      sourceDataHash: meta.sourceDataHash,
     }
 
     return new Promise((resolve) => {
