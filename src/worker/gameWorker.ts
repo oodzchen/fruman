@@ -63,6 +63,7 @@ import {
   ExpOrbComponent,
   Faction,
   GrappleAnchorComponent,
+  GrappleTargetComponent,
   PhysicsComponent,
   RenderComponent,
   SunPickupComponent,
@@ -570,11 +571,30 @@ function queueBreakableCrateBreak(
   impactLevel: ImpactLevel
 ): void {
   const crate = breakableCrates.get(crateId)
-  if (!crate || crate.destroyed || pendingBreakableCrateBreakIds.has(crateId)) {
+  if (!crate || crate.destroyed) {
+    return
+  }
+  detachBreakableCrateGrappleTethers(crate)
+  if (pendingBreakableCrateBreakIds.has(crateId)) {
     return
   }
   pendingBreakableCrateBreakIds.add(crateId)
   pendingBreakableCrateBreaks.push({ crateId, impactX, impactY, impactLevel })
+}
+
+function detachBreakableCrateGrappleTethers(
+  crate: BreakableCrateRuntime
+): void {
+  if (!grappleSystem) {
+    return
+  }
+
+  for (let i = 0; i < crate.planks.length; i++) {
+    const plankEntity = crate.planks[i].entity
+    if (plankEntity) {
+      grappleSystem.detachTetherTarget(plankEntity.id)
+    }
+  }
 }
 
 function handleBreakableObstacleHit(hit: BreakableObstacleHit): void {
@@ -1125,6 +1145,7 @@ function registerComponents() {
   componentRegistry.registerComponent('Checkpoint')
   componentRegistry.registerComponent('Grapple')
   componentRegistry.registerComponent('GrappleAnchor')
+  componentRegistry.registerComponent('GrappleTarget')
   componentRegistry.registerComponent('SolarEnergy')
   componentRegistry.registerComponent('SunPickup')
   componentRegistry.registerComponent('ExpOrb')
@@ -1808,6 +1829,16 @@ function createBreakableCratePlankEntity(
   debris.fadeStartMs = 0
   debris.receivesWeaponImpulse = false
   entity.addComponent(debris)
+
+  const grappleTarget = new GrappleTargetComponent()
+  grappleTarget.bodyId = plank.bodyId
+  grappleTarget.shapeId = plank.shapeId
+  grappleTarget.anchorLocalX = plank.localCenterX
+  grappleTarget.anchorLocalY = plank.localCenterY
+  grappleTarget.toughness = 0
+  grappleTarget.canPull = true
+  grappleTarget.canTether = true
+  entity.addComponent(grappleTarget)
   return entity
 }
 
@@ -2783,6 +2814,9 @@ function breakBreakableCrate(request: BreakableCrateBreakRequest): boolean {
   for (let i = 0; i < crate.planks.length; i++) {
     const plank = crate.planks[i]
     if (plank.entity) {
+      plank.entity.removeComponent('GrappleTarget')
+      world?.markCacheDirty()
+      grappleSystem?.markAnchorsDirty()
       world?.destroyEntity(plank.entity)
       plank.entity = null
     }
@@ -4768,11 +4802,16 @@ function canGrappleLockedTarget(player: Entity): boolean {
     !target ||
     target.id === player.id ||
     !target.transform ||
-    !target.physics ||
-    !target.stats ||
-    target.stats.isDead ||
-    target.stats.isVanished
+    (target.stats !== undefined &&
+      (target.stats.isDead || target.stats.isVanished))
   ) {
+    return false
+  }
+
+  const hasBody =
+    target.physics !== undefined ||
+    (target.grappleTarget !== undefined && target.grappleTarget.canPull)
+  if (!hasBody) {
     return false
   }
 
@@ -4931,7 +4970,13 @@ function handleInput(
     const rJustReleased = !rPressed && prevKeys.has('r')
 
     if (rJustPressed) {
-      if (!isPlayerDead) {
+      const g = playerEntity.grapple
+      if (!isPlayerDead && g?.isTethering) {
+        playerEntity.input.inputBuffer.bufferAction('grapple')
+        rHoldActive = false
+        rHoldTriggered = false
+        rHoldMs = 0
+      } else if (!isPlayerDead) {
         rHoldActive = true
         rHoldTriggered = false
         rHoldMs = 0

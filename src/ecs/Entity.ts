@@ -8,6 +8,7 @@ import {
   FollowComponent,
   GrappleAnchorComponent,
   GrappleComponent,
+  GrappleTargetComponent,
   InputComponent,
   LevelComponent,
   MovementComponent,
@@ -45,6 +46,7 @@ export class Entity {
   checkpoint?: CheckpointComponent
   grapple?: GrappleComponent
   grappleAnchor?: GrappleAnchorComponent
+  grappleTarget?: GrappleTargetComponent
   faction?: FactionComponent
   npcAI?: NpcAIComponent
   npcDropTable?: NpcDropTableComponent
@@ -132,6 +134,7 @@ export class Entity {
     this.checkpoint = undefined
     this.grapple = undefined
     this.grappleAnchor = undefined
+    this.grappleTarget = undefined
     this.faction = undefined
     this.npcAI = undefined
     this.npcDropTable = undefined
@@ -184,6 +187,9 @@ export class Entity {
         break
       case 'GrappleAnchor':
         this.grappleAnchor = component as GrappleAnchorComponent
+        break
+      case 'GrappleTarget':
+        this.grappleTarget = component as GrappleTargetComponent
         break
       case 'NpcAI':
         this.npcAI = component as NpcAIComponent
@@ -258,6 +264,9 @@ export class Entity {
         break
       case 'GrappleAnchor':
         this.grappleAnchor = undefined
+        break
+      case 'GrappleTarget':
+        this.grappleTarget = undefined
         break
       case 'NpcAI':
         this.npcAI = undefined

@@ -4,7 +4,7 @@ import {
 } from '../../characterBodyProfile'
 import { ENEMY_DETECTION_RANGE } from '../../constants'
 import { getEnvironmentCollisionMask } from '../../physicsLayers'
-import type { MainModule, b2WorldId } from '../../types'
+import type { MainModule, b2BodyId, b2WorldId } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import type { SpatialHash } from '../SpatialHash'
@@ -99,14 +99,14 @@ export class TargetingSystem extends System {
       if (input.lockedTargetId !== null) {
         input.lockedTargetId = null
       } else {
-        // 主动搜索可视范围内最近的敌人，必须有视线
-        const nearestNpc = this.findNearestVisibleNpc(
+        // 主动搜索可视范围内最近的可锁定目标，必须有视线
+        const nearestTarget = this.findNearestVisibleTarget(
           player,
           entities,
           ENEMY_DETECTION_RANGE * 2.0
         )
-        if (nearestNpc) {
-          input.lockedTargetId = nearestNpc.id
+        if (nearestTarget) {
+          input.lockedTargetId = nearestTarget.id
           input.lockLostTimer = 0
         }
       }
@@ -134,18 +134,9 @@ export class TargetingSystem extends System {
           const entity = candidates[i]
           if (entity.id === player.id || entity.id === currentTarget.id)
             continue
-          if (
-            !entity.faction ||
-            !player.faction?.canAttackEntity(
-              entity.faction,
-              entity.id.toString()
-            ) ||
-            entity.stats?.isDead ||
-            entity.stats?.isVanished
-          )
-            continue
+          if (!this.canPlayerLockTarget(player, entity)) continue
 
-          const dx = entity.transform!.x - currentTarget.transform.x
+          const dx = entity.transform.x - currentTarget.transform.x
           if ((switchDir > 0 && dx > 0) || (switchDir < 0 && dx < 0)) {
             // Only switch to visible targets
             if (!this.hasLineOfSight(player, entity)) continue
@@ -169,7 +160,7 @@ export class TargetingSystem extends System {
     // Validate Lock
     if (input.lockedTargetId !== null) {
       const target = this.getEntityById(input.lockedTargetId, entities)
-      if (!target || target.stats?.isDead || target.stats?.isVanished) {
+      if (!target || !this.canPlayerLockTarget(player, target)) {
         input.lockedTargetId = null
         input.lockLostTimer = 0
       } else {
@@ -194,6 +185,54 @@ export class TargetingSystem extends System {
         }
       }
     }
+  }
+
+  private canPlayerLockTarget(
+    player: Entity,
+    target: Entity
+  ): target is Entity & { transform: NonNullable<Entity['transform']> } {
+    if (target.id === player.id || !target.transform) {
+      return false
+    }
+    if (
+      (target.render?.renderLayer ?? 0) !== (player.render?.renderLayer ?? 0)
+    ) {
+      return false
+    }
+    if (target.stats && (target.stats.isDead || target.stats.isVanished)) {
+      return false
+    }
+
+    const grappleTarget = target.grappleTarget
+    if (grappleTarget) {
+      return (
+        player.grapple?.hasGrapple === true &&
+        grappleTarget.canPull &&
+        this.getTargetBodyId(target) !== null
+      )
+    }
+
+    return (
+      target.faction !== undefined &&
+      player.faction?.canAttackEntity(target.faction, target.id.toString()) ===
+        true
+    )
+  }
+
+  private getTargetBodyId(entity: Entity): b2BodyId | null {
+    const bodyId = entity.physics?.bodyId ?? entity.grappleTarget?.bodyId
+    if (!bodyId || !this.box2d.b2Body_IsValid(bodyId)) {
+      return null
+    }
+    return bodyId
+  }
+
+  private areBodyIdsEqual(a: b2BodyId, b: b2BodyId): boolean {
+    return (
+      a.index1 === b.index1 &&
+      a.world0 === b.world0 &&
+      a.generation === b.generation
+    )
   }
 
   private hasLineOfSight(start: Entity, end: Entity): boolean {
@@ -243,19 +282,27 @@ export class TargetingSystem extends System {
       translationVec,
       filter
     )
-    // If we hit something (obstacle/ground), LoS is blocked.
-    // RayCastClosest returns hit fraction. If hit is true, it hit something in the mask.
-    return !output.hit
+    if (!output.hit) {
+      return true
+    }
+
+    const targetBodyId = this.getTargetBodyId(end)
+    if (!targetBodyId) {
+      return false
+    }
+
+    const hitBodyId = this.box2d.b2Shape_GetBody(output.shapeId)
+    return this.areBodyIdsEqual(hitBodyId, targetBodyId)
   }
 
-  private findNearestVisibleNpc(
+  private findNearestVisibleTarget(
     player: Entity,
     entities: Entity[],
     maxRange: number
   ): Entity | null {
     if (!player.transform || !player.faction) return null
 
-    let nearestNpc: Entity | null = null
+    let nearestTarget: Entity | null = null
     let minDistSq = maxRange * maxRange
     const candidates = this.getNearbyEntities(
       entities,
@@ -268,19 +315,7 @@ export class TargetingSystem extends System {
     for (let i = 0; i < candidateCount; i++) {
       const entity = candidates[i]
       if (entity.id === player.id) continue
-      if (
-        (entity.render?.renderLayer ?? 0) !== (player.render?.renderLayer ?? 0)
-      )
-        continue
-      if (
-        !entity.faction ||
-        !player.faction.canAttackEntity(entity.faction, entity.id.toString()) ||
-        entity.stats?.isDead ||
-        entity.stats?.isVanished
-      )
-        continue
-
-      if (!entity.transform) continue
+      if (!this.canPlayerLockTarget(player, entity)) continue
 
       const dx = entity.transform.x - player.transform.x
       const dy = entity.transform.y - player.transform.y
@@ -292,10 +327,10 @@ export class TargetingSystem extends System {
       if (!this.hasLineOfSight(player, entity)) continue
 
       minDistSq = distSq
-      nearestNpc = entity
+      nearestTarget = entity
     }
 
-    return nearestNpc
+    return nearestTarget
   }
 
   private updateSensor(entity: Entity, entities: Entity[]): void {

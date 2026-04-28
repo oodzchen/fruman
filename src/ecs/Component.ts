@@ -391,6 +391,30 @@ export class GrappleAnchorComponent extends Component {
   }
 }
 
+export class GrappleTargetComponent extends Component {
+  bodyId: b2BodyId = 0 as unknown as b2BodyId
+  shapeId: b2ShapeId = 0 as unknown as b2ShapeId
+  anchorLocalX = 0
+  anchorLocalY = 0
+  toughness = 0
+  canPull = true
+  canTether = true
+
+  reset(): void {
+    this.bodyId = 0 as unknown as b2BodyId
+    this.shapeId = 0 as unknown as b2ShapeId
+    this.anchorLocalX = 0
+    this.anchorLocalY = 0
+    this.toughness = 0
+    this.canPull = true
+    this.canTether = true
+  }
+
+  getName(): string {
+    return 'GrappleTarget'
+  }
+}
+
 export class StatsComponent extends Component {
   maxHealth = DEFAULT_PLAYER_MAX_HEALTH
   health = DEFAULT_PLAYER_MAX_HEALTH
