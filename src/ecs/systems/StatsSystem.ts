@@ -714,6 +714,8 @@ export class StatsSystem extends System {
       sizeLevel?: number
       hitSoundPlaybackRate?: number
       suppressImpactEffects?: boolean
+      knockbackDirectionX?: number
+      knockbackDirectionY?: number
     },
     hitSource?: { x: number; y: number },
     attacker?: Entity
@@ -752,6 +754,8 @@ export class StatsSystem extends System {
       weapon?.sizeLevel,
       hitSoundPlaybackRate,
       suppressImpactEffects,
+      weapon?.knockbackDirectionX,
+      weapon?.knockbackDirectionY,
       attacker
     )
   }
@@ -767,6 +771,8 @@ export class StatsSystem extends System {
     weaponSizeLevel?: number,
     hitSoundPlaybackRate = 1,
     suppressImpactEffects = false,
+    knockbackDirectionX?: number,
+    knockbackDirectionY?: number,
     attacker?: Entity
   ): void {
     if (!entity.stats) return
@@ -976,6 +982,19 @@ export class StatsSystem extends System {
       const dirY = entity.transform.y - hitSource.y
       const distance = Math.hypot(dirX, dirY)
       const normalizedDirX = distance > 0 ? dirX / distance : 1
+      const hasKnockbackDirection =
+        knockbackDirectionX !== undefined && knockbackDirectionY !== undefined
+      const knockbackDirectionDistance = hasKnockbackDirection
+        ? Math.hypot(knockbackDirectionX, knockbackDirectionY)
+        : 0
+      const normalizedKnockbackDirX =
+        hasKnockbackDirection && knockbackDirectionDistance > 0
+          ? knockbackDirectionX / knockbackDirectionDistance
+          : normalizedDirX
+      const normalizedKnockbackDirY =
+        hasKnockbackDirection && knockbackDirectionDistance > 0
+          ? knockbackDirectionY / knockbackDirectionDistance
+          : 0
       const impactRadius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
       const impactScale = distance > 0 ? impactRadius / distance : 0
       const impactX = entity.transform.x - dirX * impactScale
@@ -1130,14 +1149,18 @@ export class StatsSystem extends System {
         const mass = b2Body_GetMass(entity.physics.bodyId)
         const canLaunch = toughnessBroken || wasStaggered || extremeKnockdown
 
-        const impulseX = normalizedDirX * finalKnockback * 2 * mass
-        let impulseY = 0
-        if (canLaunch && impactLevel === 'extreme') {
+        const impulseX = normalizedKnockbackDirX * finalKnockback * 2 * mass
+        let impulseY = normalizedKnockbackDirY * finalKnockback * 2 * mass
+        if (!hasKnockbackDirection && canLaunch && impactLevel === 'extreme') {
           impulseY = -(
             (finalKnockback * EXTREME_LAUNCH_IMPULSE_NUMERATOR * mass) /
             EXTREME_LAUNCH_IMPULSE_DENOMINATOR
           )
-        } else if (canLaunch && impactLevel === 'large') {
+        } else if (
+          !hasKnockbackDirection &&
+          canLaunch &&
+          impactLevel === 'large'
+        ) {
           impulseY = -(
             (finalKnockback * LARGE_LAUNCH_IMPULSE_NUMERATOR * mass) /
             LARGE_LAUNCH_IMPULSE_DENOMINATOR

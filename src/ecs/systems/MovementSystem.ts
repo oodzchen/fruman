@@ -20,11 +20,12 @@ import {
 } from '../../constants'
 import {
   getPlayerCollisionMask,
+  isCharacterCollisionCategory,
   isGroundCollisionCategory,
   isObstacleCollisionCategory,
 } from '../../physicsLayers'
 import { getPlayerAgilityScalePercent } from '../../playerUpgrade'
-import type { MainModule, b2ShapeId } from '../../types'
+import type { MainModule } from '../../types'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -46,8 +47,8 @@ export class MovementSystem extends System {
   private currentDeltaTime = 0
   private currentTimeMs = 0
   private readonly slopeNormalScale = 1024
-  private onBreakableContact:
-    | ((entity: Entity, shapeId: b2ShapeId) => void)
+  private onFallImpact:
+    | ((entity: Entity, damage: number, fallDistance1000: number) => void)
     | null = null
 
   constructor(box2d: MainModule) {
@@ -82,10 +83,12 @@ export class MovementSystem extends System {
     this.statsSystem = statsSystem
   }
 
-  setBreakableContactHandler(
-    handler: ((entity: Entity, shapeId: b2ShapeId) => void) | null
+  setFallImpactHandler(
+    handler:
+      | ((entity: Entity, damage: number, fallDistance1000: number) => void)
+      | null
   ): void {
-    this.onBreakableContact = handler
+    this.onFallImpact = handler
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -138,6 +141,8 @@ export class MovementSystem extends System {
       b2Body_GetContactData,
       b2Body_GetContactCapacity,
       b2Body_GetLinearVelocity,
+      b2Body_SetBullet,
+      b2Shape_GetBody,
       b2Shape_GetFilter,
       b2Shape_GetFriction,
     } = this.box2d
@@ -161,24 +166,23 @@ export class MovementSystem extends System {
     const isMovingAlongSurface = Math.abs(velX) >= slopeMoveSpeedMin
     const isFallingOrStill =
       velY >= -0.1 || (isMovingAlongSurface && velY >= slopeGroundVelocityMin)
-    const sprintImpactSpeedSq = velX * velX + velY * velY
-    const canBreakSprintContact =
-      entity.faction?.factionId === Faction.Player &&
-      entity.movement.isSprinting &&
-      sprintImpactSpeedSq >= 6.25
     vel.delete()
     const capacity = b2Body_GetContactCapacity(entity.physics.bodyId)
     const contactData = b2Body_GetContactData(entity.physics.bodyId, capacity)
 
     let grounded = false
     let touchingWall = false
+    let touchingObstacleWall = false
     let newWallDirection = 0
+    let newObstacleWallDirection = 0
     const groundNormalMin = 0.2
     let hasSteepSurface = false
     let hasGroundSurface = false
     let hasObstacleSurface = false
     let groundSurfaceFriction = 0
     let obstacleSurfaceFriction = 0
+    let hasFallImpactContact = false
+    let hasFallImpactTargetContact = false
 
     for (let i = 0; i < contactData.length; i++) {
       const contact = contactData[i]
@@ -194,8 +198,37 @@ export class MovementSystem extends System {
       const isGroundB = isGroundCollisionCategory(categoryB)
       const isObstacleA = isObstacleCollisionCategory(categoryA)
       const isObstacleB = isObstacleCollisionCategory(categoryB)
+      const isObstacleContact = isObstacleA || isObstacleB
+      const bodyA = b2Shape_GetBody(contact.shapeIdA)
+      const bodyB = b2Shape_GetBody(contact.shapeIdB)
+      let otherCategory = 0
+      if (
+        bodyA.index1 === entity.physics.bodyId.index1 &&
+        bodyA.world0 === entity.physics.bodyId.world0 &&
+        bodyA.generation === entity.physics.bodyId.generation
+      ) {
+        otherCategory = categoryB
+      } else if (
+        bodyB.index1 === entity.physics.bodyId.index1 &&
+        bodyB.world0 === entity.physics.bodyId.world0 &&
+        bodyB.generation === entity.physics.bodyId.generation
+      ) {
+        otherCategory = categoryA
+      }
       const isStandableContact =
         isGroundA || isGroundB || isObstacleA || isObstacleB
+      const isFallImpactContact =
+        (isStandableContact ||
+          (otherCategory !== 0 &&
+            isCharacterCollisionCategory(otherCategory))) &&
+        absY > groundNormalMin &&
+        isFallingOrStill
+      if (isFallImpactContact) {
+        hasFallImpactContact = true
+        if (isObstacleContact || isCharacterCollisionCategory(otherCategory)) {
+          hasFallImpactTargetContact = true
+        }
+      }
       let isSteepSurface = false
       if (isStandableContact) {
         const normalX = (normal.x * this.slopeNormalScale) | 0
@@ -205,6 +238,11 @@ export class MovementSystem extends System {
         if (absNormalX > absNormalY) {
           hasSteepSurface = true
           isSteepSurface = true
+          if (isObstacleContact) {
+            const contactWallDirection = normal.x > 0 ? -1 : 1
+            touchingObstacleWall = true
+            newObstacleWallDirection = contactWallDirection
+          }
         } else if (isGroundA || isGroundB) {
           hasGroundSurface = true
           const groundShapeId = isGroundA ? contact.shapeIdA : contact.shapeIdB
@@ -217,9 +255,6 @@ export class MovementSystem extends System {
           const obstacleShapeId = isObstacleA
             ? contact.shapeIdA
             : contact.shapeIdB
-          if (canBreakSprintContact && this.onBreakableContact) {
-            this.onBreakableContact(entity, obstacleShapeId)
-          }
           const surfaceFriction = b2Shape_GetFriction(obstacleShapeId)
           if (surfaceFriction > obstacleSurfaceFriction) {
             obstacleSurfaceFriction = surfaceFriction
@@ -244,9 +279,11 @@ export class MovementSystem extends System {
       contact.delete()
     }
 
+    const hasGroundOrFallImpactContact = grounded || hasFallImpactContact
     entity.movement.isGrounded = grounded
     entity.movement.isTouchingWall = touchingWall
-    entity.movement.wasGrounded = grounded
+    entity.movement.isTouchingObstacleWall = touchingObstacleWall
+    entity.movement.wasGrounded = hasGroundOrFallImpactContact
     if (hasSteepSurface) {
       entity.movement.hasContactFriction = true
       entity.movement.contactFriction = 0
@@ -267,12 +304,22 @@ export class MovementSystem extends System {
     } else {
       entity.movement.wallDirection = 0
     }
+    entity.movement.obstacleWallDirection = touchingObstacleWall
+      ? newObstacleWallDirection
+      : 0
 
     this.updateBodyFriction(entity, grounded, touchingWall)
 
-    if (!grounded && velY > 0) {
+    if (!hasGroundOrFallImpactContact && velY < -0.1) {
+      if (entity.movement.maxFallVelocity > 0) {
+        b2Body_SetBullet(entity.physics.bodyId, false)
+      }
+      entity.movement.maxFallVelocity = 0
+      entity.movement.fallStartY = 0
+    } else if (!grounded && velY > 0) {
       if (entity.movement.maxFallVelocity === 0) {
         entity.movement.fallStartY = entity.transform?.y ?? 0
+        b2Body_SetBullet(entity.physics.bodyId, true)
       }
       entity.movement.maxFallVelocity = Math.max(
         entity.movement.maxFallVelocity,
@@ -281,8 +328,8 @@ export class MovementSystem extends System {
       this.applyFatalFallDamageDuringFall(entity)
     }
 
-    if (!wasGrounded && grounded) {
-      if (this.soundSystem && entity.render) {
+    if (!wasGrounded && hasGroundOrFallImpactContact) {
+      if (grounded && this.soundSystem && entity.render) {
         const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
         this.soundSystem.emitSoundAt(
           entity.transform?.x ?? 0,
@@ -293,7 +340,18 @@ export class MovementSystem extends System {
         )
       }
 
-      this.applyFallDamage(entity)
+      const fallDistance1000 = this.getFallDistance1000(entity)
+      const hasRecordedFall = entity.movement.maxFallVelocity > 0
+      const fallDamage = this.applyFallDamage(entity)
+      if (
+        fallDamage > 0 ||
+        (hasRecordedFall && fallDistance1000 > 0 && hasFallImpactTargetContact)
+      ) {
+        this.onFallImpact?.(entity, fallDamage, fallDistance1000)
+      }
+      if (hasRecordedFall) {
+        b2Body_SetBullet(entity.physics.bodyId, false)
+      }
       entity.movement.maxFallVelocity = 0
       entity.movement.fallStartY = 0
     }
@@ -848,6 +906,8 @@ export class MovementSystem extends System {
     entity.movement.isJumping = true
     entity.movement.jumpStartTime = this.currentTimeMs
     entity.movement.jumpElapsedTime = 0
+    entity.movement.maxFallVelocity = 0
+    entity.movement.fallStartY = 0
 
     const isDifferentWall =
       entity.movement.isTouchingWall &&
@@ -884,7 +944,15 @@ export class MovementSystem extends System {
       entity.movement.lastWallJumpDirection = entity.movement.wallDirection
     } else if (entity.movement.isGrounded) {
       entity.movement.wallJumpCount = 0
-      this.tempVec.x = 0
+      const obstacleEscapeSpeed =
+        entity.movement.isTouchingObstacleWall &&
+        entity.movement.obstacleWallDirection !== 0
+          ? (-entity.movement.obstacleWallDirection *
+              entity.movement.moveSpeed *
+              jumpScale) /
+            2
+          : 0
+      this.tempVec.x = obstacleEscapeSpeed * mass
       this.tempVec.y = -entity.movement.jumpForce * mass * 0.6 * jumpScale
       b2Body_ApplyLinearImpulseToCenter(
         entity.physics.bodyId,
@@ -963,12 +1031,12 @@ export class MovementSystem extends System {
     return false
   }
 
-  private applyFallDamage(entity: Entity): void {
-    if (!entity.movement || !entity.stats || !this.statsSystem) return
-    if (entity.stats.isDead) return
+  private applyFallDamage(entity: Entity): number {
+    if (!entity.movement || !entity.stats || !this.statsSystem) return 0
+    if (entity.stats.isDead) return 0
 
     const fallVelocity = entity.movement.maxFallVelocity
-    if (fallVelocity <= 0) return
+    if (fallVelocity <= 0) return 0
 
     const effectiveWeight = this.getEffectiveWeight(entity)
 
@@ -982,6 +1050,7 @@ export class MovementSystem extends System {
         toughnessDamage: 0,
         impactLevel: 'small',
       })
+      return fatalDamage
     } else if (kineticEnergy >= FALL_DAMAGE_KINETIC_THRESHOLD) {
       const excessKinetic = kineticEnergy - FALL_DAMAGE_KINETIC_THRESHOLD
       const damage = excessKinetic / FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR
@@ -991,7 +1060,9 @@ export class MovementSystem extends System {
         toughnessDamage: 0,
         impactLevel: 'small',
       })
+      return damage
     }
+    return 0
   }
 
   private applyFatalFallDamageDuringFall(entity: Entity): void {
@@ -1013,6 +1084,16 @@ export class MovementSystem extends System {
       toughnessDamage: 0,
       impactLevel: 'small',
     })
+  }
+
+  private getFallDistance1000(entity: Entity): number {
+    if (!entity.movement || !entity.transform) {
+      return 0
+    }
+    const fallDistance1000 = Math.round(
+      (entity.transform.y - entity.movement.fallStartY) * 1000
+    )
+    return fallDistance1000 > 0 ? fallDistance1000 : 0
   }
 
   private getEffectiveWeight(entity: Entity): number {

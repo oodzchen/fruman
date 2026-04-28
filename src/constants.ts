@@ -63,6 +63,7 @@ export const DEBUG_DRAW_SOUND = false
 export const DEBUG_DRAW_CAMERA = false
 export const DEBUG_DRAW_PLAYER_COLLISION_SHAPE = false
 export const DEBUG_DRAW_TERRAIN_COLLISION_SHAPE = false
+export const DEBUG_DRAW_BREAKABLE_CRATE_HEALTH = false
 export const TERRAIN_COLLISION_DEBUG_COLOR = 0x4f7cff
 export const TERRAIN_COLLISION_DEBUG_LINE_WIDTH = 2
 export const TERRAIN_COLLISION_DEBUG_ALPHA = 0.92

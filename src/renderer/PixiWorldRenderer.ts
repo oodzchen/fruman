@@ -13,6 +13,7 @@ import {
   CHECKPOINT_TREE_TRUNK_COLOR_ACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
   DEATH_CROSS_DURATION_MS,
+  DEBUG_DRAW_BREAKABLE_CRATE_HEALTH,
   DEBUG_DRAW_PLAYER_COLLISION_SHAPE,
   DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
   DEFAULT_CHECKPOINT_RENDER_RADIUS,
@@ -1265,6 +1266,16 @@ export class PixiWorldRenderer {
 
     if (flags & FLAGS.TERRAIN_DEBRIS) {
       this.updateTerrainDebris(view, renderer, buf, offset, alpha)
+      if (DEBUG_DRAW_BREAKABLE_CRATE_HEALTH) {
+        this.updateStatusBars(
+          view,
+          renderer,
+          buf,
+          offset,
+          flags,
+          playerLockedTargetId
+        )
+      }
       return
     }
     if (flags & FLAGS.EXP_ORB) {
@@ -2180,6 +2191,9 @@ export class PixiWorldRenderer {
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const isLocked = (buf[offset + OFFSETS.ID] | 0) === playerLockedTargetId
     const isHealthBarFlash = !!(flags & FLAGS.HEALTH_BAR_FLASH)
+    const isTerrainDebris = !!(flags & FLAGS.TERRAIN_DEBRIS)
+    const isDebugCrateHealth =
+      DEBUG_DRAW_BREAKABLE_CRATE_HEALTH && isTerrainDebris
 
     if (!(maxHealth > 0)) {
       hideGraphics(view.statusGraphics)
@@ -2196,15 +2210,23 @@ export class PixiWorldRenderer {
     )
     const damageTextToken = buf[offset + OFFSETS.STATS_DAMAGE_TEXT_TOKEN] | 0
     const radiusMeters = buf[offset + OFFSETS.RADIUS]
-    const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
-    const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
     const barWidth = 1.1 * this.pixelsPerMeter
     const barHeight = 6
-    const spineBodyHeightPx = renderer.getSpineBodyHeightPx(bodyProfile)
-    const baseY =
-      spineBodyHeightPx > 0
-        ? radiusMeters * this.pixelsPerMeter - spineBodyHeightPx - 18
-        : -radiusMeters * this.pixelsPerMeter - 18
+    let baseY = -radiusMeters * this.pixelsPerMeter - 18
+    if (isTerrainDebris) {
+      baseY =
+        -Math.max(
+          2,
+          Math.round(buf[offset + OFFSETS.WEAPON_H] * this.pixelsPerMeter * 0.5)
+        ) - 18
+    } else {
+      const bodyProfileIndex = buf[offset + OFFSETS.BODY_PROFILE_INDEX] | 0
+      const bodyProfile = renderer.getCharacterBodyProfile(bodyProfileIndex)
+      const spineBodyHeightPx = renderer.getSpineBodyHeightPx(bodyProfile)
+      if (spineBodyHeightPx > 0) {
+        baseY = radiusMeters * this.pixelsPerMeter - spineBodyHeightPx - 18
+      }
+    }
     const ratio = maxHealth > 0 ? health / maxHealth : 0
     const clampedRatio = Math.max(0, Math.min(1, ratio))
     const startX = -barWidth / 2
@@ -2217,7 +2239,10 @@ export class PixiWorldRenderer {
     )
     this.updateDamageTexts(view, deltaMs)
 
-    if (isPlayer || (!isInCombat && !isLocked && !isHealthBarFlash)) {
+    if (
+      isPlayer ||
+      (!isDebugCrateHealth && !isInCombat && !isLocked && !isHealthBarFlash)
+    ) {
       hideGraphics(view.statusGraphics)
       view.lastHealthRatio = -1
       return

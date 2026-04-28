@@ -21,6 +21,7 @@ import {
   CHARACTER_DEFAULT_DATA,
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+  DEBUG_DRAW_BREAKABLE_CRATE_HEALTH,
   DEBUG_DRAW_CAMERA,
   DEBUG_DRAW_PLAYER_COLLISION_SHAPE,
   DEBUG_DRAW_SENSORS,
@@ -31,6 +32,8 @@ import {
   DEFAULT_GRAPPLE_RANGE,
   DEFAULT_GRAVITY,
   DEFAULT_GROUND_FRICTION,
+  DEFAULT_HIT_SHAKE_DURATION_MS,
+  DEFAULT_HIT_SHAKE_INTENSITY,
   DEFAULT_OBSTACLE_FRICTION,
   DEFAULT_PLAYER_FOV_RAD,
   DEFAULT_PLAYER_MAX_HEALTH,
@@ -40,12 +43,17 @@ import {
   DEFAULT_WEAPON_CORNER_RADIUS,
   ENEMY_HEARING_RANGE_MULTIPLIER,
   EXP_TABLE,
+  FALL_DAMAGE_KINETIC_FATAL,
+  FALL_DAMAGE_KINETIC_THRESHOLD,
+  FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR,
   GRAPPLE_ANCHOR_BORDER_COLOR,
   GRAPPLE_ANCHOR_COLOR,
   GRAPPLE_ANCHOR_HIGHLIGHT_BORDER_COLOR,
   GRAPPLE_ANCHOR_HIGHLIGHT_COLOR,
   GRAPPLE_LONG_PRESS_MS,
+  IMPACT_LEVEL_KNOCKBACK,
   PLAYER_MAX_LEVEL,
+  PLAYER_WEIGHT_REFERENCE,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
@@ -66,6 +74,7 @@ import {
   GrappleTargetComponent,
   PhysicsComponent,
   RenderComponent,
+  StatsComponent,
   SunPickupComponent,
   TerrainDebrisComponent,
   TransformComponent,
@@ -131,6 +140,9 @@ import {
   getObstacleCollisionMask,
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
+  isCharacterCollisionCategory,
+  isGroundCollisionCategory,
+  isObstacleCollisionCategory,
 } from '../physicsLayers'
 import {
   type PlayerUpgradeStat,
@@ -375,10 +387,19 @@ interface BreakableCrateRuntime {
   seed: number
   renderLayer: number
   destroyed: boolean
+  health: number
   bodyId: b2BodyId
   centerX: number
   centerY: number
   rotationRad: number
+  isGrounded: boolean
+  wasGrounded: boolean
+  fallTrackingActive: boolean
+  fallDamageIgnoreUntilMs: number
+  maxFallVelocity1000: number
+  fallStartY1000: number
+  fallContactCount: number
+  fallSolidContactCount: number
   hitObstacleIndex: number
   hitLocalCenterX: number
   hitLocalCenterY: number
@@ -404,6 +425,27 @@ const breakableCratePlanksByShapeId = new Map<
 const brokenEnvironmentIndices = new Set<number>()
 const pendingBreakableCrateBreaks: BreakableCrateBreakRequest[] = []
 const pendingBreakableCrateBreakIds = new Set<number>()
+const fallImpactEntityIds: number[] = []
+const fallImpactCrateIds: number[] = []
+const fallImpactWeaponHit: {
+  attackDamage: number
+  postureDamage: number
+  toughnessDamage: number
+  impactLevel: ImpactLevel
+  knockbackDirectionX: number
+  knockbackDirectionY: number
+} = {
+  attackDamage: 0,
+  postureDamage: 0,
+  toughnessDamage: 0,
+  impactLevel: 'small',
+  knockbackDirectionX: 0,
+  knockbackDirectionY: 1,
+}
+const fallImpactHitSource = { x: 0, y: 0 }
+let fallImpactImpulseVec: InstanceType<MainModule['b2Vec2']> | null = null
+let fallImpactDirectionX = 0
+let fallImpactDirectionY = 1
 
 let isPaused = false
 let ultimateFlashRemainingMs = 0
@@ -435,6 +477,17 @@ const CRATE_RETAINED_DEBRIS_LINEAR_DAMPING = 0.06
 const CRATE_RETAINED_DEBRIS_ANGULAR_DAMPING = 0.14
 const CRATE_RETAINED_DEBRIS_ANGULAR_BASE1000 = 2600
 const CRATE_RETAINED_DEBRIS_ANGULAR_RANGE1000 = 2600
+const BREAKABLE_CRATE_MAX_HEALTH = 2
+const BREAKABLE_CRATE_IMPACT_DAMAGE_SMALL = 1
+const BREAKABLE_CRATE_IMPACT_DAMAGE_LARGE = 2
+const BREAKABLE_CRATE_SPAWN_FALL_DAMAGE_GRACE_MS = 500
+const FALL_IMPACT_CONTACT_NORMAL_Y_MIN = 0.2
+const FALL_IMPACT_EMBED_TOLERANCE1000 = 150
+const FALL_IMPACT_LARGE_DISTANCE1000 = 10000
+const FALL_IMPACT_EXTREME_DISTANCE1000 = 16000
+const FALL_IMPACT_SOURCE_UNSTICK_SIDE_VELOCITY1000 = 700
+const FALL_IMPACT_SOURCE_UNSTICK_UP_VELOCITY1000 = 1600
+const FALL_IMPACT_TARGET_UNSTICK_VELOCITY1000 = 900
 const DEFAULT_BREAKABLE_CRATE_LINEAR_DAMPING = 0.6
 const DEFAULT_BREAKABLE_CRATE_ANGULAR_DAMPING = 1.8
 const DEFAULT_BREAKABLE_CRATE_DENSITY = 3.6
@@ -564,6 +617,296 @@ function buildRuntimeMapData(
   }
 }
 
+function areBodyIdsEqual(a: b2BodyId, b: b2BodyId): boolean {
+  return (
+    a.index1 === b.index1 &&
+    a.world0 === b.world0 &&
+    a.generation === b.generation
+  )
+}
+
+function hasNumberValue(values: readonly number[], value: number): boolean {
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] === value) {
+      return true
+    }
+  }
+  return false
+}
+
+function getBreakableCrateByBodyId(
+  bodyId: b2BodyId
+): BreakableCrateRuntime | undefined {
+  for (const crate of breakableCrates.values()) {
+    if (!crate.destroyed && areBodyIdsEqual(crate.bodyId, bodyId)) {
+      return crate
+    }
+  }
+  return undefined
+}
+
+function getBreakableCrateByShapeId(
+  shapeId: b2ShapeId
+): BreakableCrateRuntime | undefined {
+  const plank = breakableCratePlanksByShapeId.get(shapeId)
+  if (!plank) {
+    return undefined
+  }
+  const crate = breakableCrates.get(plank.crateId)
+  return crate && !crate.destroyed ? crate : undefined
+}
+
+function getDamageableEntityByBodyId(
+  bodyId: b2BodyId,
+  skippedEntityId: number
+): Entity | undefined {
+  const entities = world.getEntities()
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    if (
+      entity.id === skippedEntityId ||
+      !entity.physics ||
+      !entity.stats ||
+      entity.stats.isDead
+    ) {
+      continue
+    }
+    if (areBodyIdsEqual(entity.physics.bodyId, bodyId)) {
+      return entity
+    }
+  }
+  return undefined
+}
+
+function getFallImpactLevel(fallDistance1000: number): ImpactLevel {
+  if (fallDistance1000 >= FALL_IMPACT_EXTREME_DISTANCE1000) {
+    return 'extreme'
+  }
+  if (fallDistance1000 >= FALL_IMPACT_LARGE_DISTANCE1000) {
+    return 'large'
+  }
+  return 'medium'
+}
+
+function updateFallImpactDirection(
+  targetX: number,
+  targetY: number,
+  impactX: number,
+  impactY: number
+): void {
+  const dirX = targetX - impactX
+  const dirY = Math.abs(targetY - impactY)
+  const distance = Math.hypot(dirX, dirY)
+  if (distance > 0) {
+    fallImpactDirectionX = dirX / distance
+    fallImpactDirectionY = dirY / distance
+    return
+  }
+  fallImpactDirectionX = 0
+  fallImpactDirectionY = 1
+}
+
+function isValidFallImpactTargetPosition(
+  impactY: number,
+  targetCenterY: number,
+  targetHalfHeight: number
+): boolean {
+  const targetBottomY = targetCenterY + targetHalfHeight
+  const embedDepth1000 = Math.round((impactY - targetBottomY) * 1000)
+  return embedDepth1000 <= FALL_IMPACT_EMBED_TOLERANCE1000
+}
+
+function getFallImpactImpulseVec(): InstanceType<MainModule['b2Vec2']> {
+  if (!fallImpactImpulseVec) {
+    fallImpactImpulseVec = new box2d.b2Vec2(0, 0)
+  }
+  return fallImpactImpulseVec
+}
+
+function applyFallImpactImpulseToBody(
+  bodyId: b2BodyId,
+  impactLevel: ImpactLevel
+): void {
+  const knockback = IMPACT_LEVEL_KNOCKBACK[impactLevel]
+  if (knockback <= 0) {
+    return
+  }
+  const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = box2d
+  const mass = b2Body_GetMass(bodyId)
+  const impulseVec = getFallImpactImpulseVec()
+  impulseVec.x = fallImpactDirectionX * knockback * 2 * mass
+  impulseVec.y = fallImpactDirectionY * knockback * 2 * mass
+  b2Body_ApplyLinearImpulseToCenter(bodyId, impulseVec, true)
+}
+
+function applyFallImpactTargetUnstickImpulse(bodyId: b2BodyId): void {
+  const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = box2d
+  const mass = b2Body_GetMass(bodyId)
+  const impulseVec = getFallImpactImpulseVec()
+  impulseVec.x =
+    (fallImpactDirectionX * FALL_IMPACT_TARGET_UNSTICK_VELOCITY1000 * mass) /
+    1000
+  impulseVec.y =
+    (fallImpactDirectionY * FALL_IMPACT_TARGET_UNSTICK_VELOCITY1000 * mass) /
+    1000
+  b2Body_ApplyLinearImpulseToCenter(bodyId, impulseVec, true)
+}
+
+function applyFallImpactSourceUnstickImpulse(bodyId: b2BodyId): void {
+  const { b2Body_ApplyLinearImpulseToCenter, b2Body_GetMass } = box2d
+  const mass = b2Body_GetMass(bodyId)
+  const impulseVec = getFallImpactImpulseVec()
+  impulseVec.x =
+    (-fallImpactDirectionX *
+      FALL_IMPACT_SOURCE_UNSTICK_SIDE_VELOCITY1000 *
+      mass) /
+    1000
+  impulseVec.y = -(FALL_IMPACT_SOURCE_UNSTICK_UP_VELOCITY1000 * mass) / 1000
+  b2Body_ApplyLinearImpulseToCenter(bodyId, impulseVec, true)
+}
+
+function applyFallImpactDamageToEntity(
+  entity: Entity,
+  damage: number,
+  impactX: number,
+  impactY: number,
+  impactLevel: ImpactLevel
+): void {
+  if (!statsSystem || !entity.stats || entity.stats.isDead) {
+    return
+  }
+  fallImpactWeaponHit.attackDamage = damage
+  fallImpactWeaponHit.impactLevel = impactLevel
+  fallImpactWeaponHit.knockbackDirectionX = fallImpactDirectionX
+  fallImpactWeaponHit.knockbackDirectionY = fallImpactDirectionY
+  fallImpactHitSource.x = impactX
+  fallImpactHitSource.y = impactY
+  statsSystem.applyWeaponHit(entity, fallImpactWeaponHit, fallImpactHitSource)
+}
+
+function applyFallImpactTargetsFromBody(
+  sourceBodyId: b2BodyId,
+  damage: number,
+  impactX: number,
+  impactY: number,
+  impactLevel: ImpactLevel,
+  skippedEntityId: number,
+  skippedCrateId: number,
+  allowSourceCrateUnstick = false
+): void {
+  if (!box2d || damage < 0) {
+    return
+  }
+  const {
+    b2Body_GetContactCapacity,
+    b2Body_GetContactData,
+    b2Shape_GetBody,
+    b2Shape_GetFilter,
+  } = box2d
+  const capacity = b2Body_GetContactCapacity(sourceBodyId)
+  if (capacity <= 0) {
+    return
+  }
+
+  fallImpactEntityIds.length = 0
+  fallImpactCrateIds.length = 0
+  const contactData = b2Body_GetContactData(sourceBodyId, capacity)
+  for (let i = 0; i < contactData.length; i++) {
+    const contact = contactData[i]
+    const normalY = contact.manifold.normal.y
+    const absNormalY = normalY < 0 ? -normalY : normalY
+    if (absNormalY <= FALL_IMPACT_CONTACT_NORMAL_Y_MIN) {
+      contact.delete()
+      continue
+    }
+
+    const bodyA = b2Shape_GetBody(contact.shapeIdA)
+    const bodyB = b2Shape_GetBody(contact.shapeIdB)
+    const filterA = b2Shape_GetFilter(contact.shapeIdA)
+    const filterB = b2Shape_GetFilter(contact.shapeIdB)
+    let otherBody: b2BodyId | null = null
+    let otherShapeId: b2ShapeId | null = null
+    let otherCategory = 0
+    if (areBodyIdsEqual(bodyA, sourceBodyId)) {
+      otherBody = bodyB
+      otherShapeId = contact.shapeIdB
+      otherCategory = filterB.categoryBits
+    } else if (areBodyIdsEqual(bodyB, sourceBodyId)) {
+      otherBody = bodyA
+      otherShapeId = contact.shapeIdA
+      otherCategory = filterA.categoryBits
+    }
+
+    if (otherBody) {
+      if (isObstacleCollisionCategory(otherCategory)) {
+        const targetCrate =
+          getBreakableCrateByBodyId(otherBody) ||
+          (otherShapeId ? getBreakableCrateByShapeId(otherShapeId) : undefined)
+        if (
+          targetCrate &&
+          targetCrate.id !== skippedCrateId &&
+          !hasNumberValue(fallImpactCrateIds, targetCrate.id)
+        ) {
+          fallImpactCrateIds.push(targetCrate.id)
+          updateFallImpactDirection(
+            targetCrate.centerX,
+            targetCrate.centerY,
+            impactX,
+            impactY
+          )
+          if (damage > 0) {
+            applyFallImpactImpulseToBody(targetCrate.bodyId, impactLevel)
+            applyBreakableCrateDamage(
+              targetCrate.id,
+              damage,
+              impactX,
+              impactY,
+              impactLevel
+            )
+            if (targetCrate.health > 0 && allowSourceCrateUnstick) {
+              applyFallImpactSourceUnstickImpulse(sourceBodyId)
+            }
+          } else if (allowSourceCrateUnstick) {
+            applyFallImpactTargetUnstickImpulse(targetCrate.bodyId)
+            applyFallImpactSourceUnstickImpulse(sourceBodyId)
+          }
+        }
+      } else if (isCharacterCollisionCategory(otherCategory) && damage > 0) {
+        const targetEntity = getDamageableEntityByBodyId(
+          otherBody,
+          skippedEntityId
+        )
+        if (
+          targetEntity &&
+          targetEntity.transform &&
+          isValidFallImpactTargetPosition(
+            impactY,
+            targetEntity.transform.y,
+            targetEntity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+          ) &&
+          !hasNumberValue(fallImpactEntityIds, targetEntity.id)
+        ) {
+          fallImpactEntityIds.push(targetEntity.id)
+          updateFallImpactDirection(
+            targetEntity.transform.x,
+            targetEntity.transform.y,
+            impactX,
+            impactY
+          )
+          applyFallImpactDamageToEntity(
+            targetEntity,
+            damage,
+            impactX,
+            impactY,
+            impactLevel
+          )
+        }
+      }
+    }
+    contact.delete()
+  }
+}
+
 function queueBreakableCrateBreak(
   crateId: number,
   impactX: number,
@@ -580,6 +923,90 @@ function queueBreakableCrateBreak(
   }
   pendingBreakableCrateBreakIds.add(crateId)
   pendingBreakableCrateBreaks.push({ crateId, impactX, impactY, impactLevel })
+}
+
+function getBreakableCrateImpactDamage(impactLevel: ImpactLevel): number {
+  return impactLevel === 'large' || impactLevel === 'extreme'
+    ? BREAKABLE_CRATE_IMPACT_DAMAGE_LARGE
+    : BREAKABLE_CRATE_IMPACT_DAMAGE_SMALL
+}
+
+function getBreakableCrateHitDamage(hit: BreakableObstacleHit): number {
+  const weaponDamage = hit.weapon?.attackDamage
+  if (weaponDamage !== undefined && weaponDamage > 0) {
+    return Math.max(1, Math.trunc(weaponDamage))
+  }
+  return getBreakableCrateImpactDamage(hit.impactLevel)
+}
+
+function emitBreakableCrateHitFeedback(
+  crate: BreakableCrateRuntime,
+  impactX: number,
+  impactY: number
+): void {
+  const dirX = crate.centerX >= impactX ? 1 : -1
+
+  for (let i = 0; i < crate.planks.length; i++) {
+    const stats = crate.planks[i].entity?.stats
+    if (!stats) {
+      continue
+    }
+    stats.hitShakeElapsedMs = 0
+    stats.hitShakeDurationMs = DEFAULT_HIT_SHAKE_DURATION_MS
+    stats.hitShakeIntensity = DEFAULT_HIT_SHAKE_INTENSITY
+    stats.hitShakeDirectionX = dirX
+  }
+
+  effectsEmitter.playSoundAt(SOUND_IDS.BODY_HIT, impactX, impactY)
+}
+
+function getBreakableCrateDebugStats(
+  crate: BreakableCrateRuntime
+): StatsComponent | undefined {
+  if (!DEBUG_DRAW_BREAKABLE_CRATE_HEALTH) {
+    return undefined
+  }
+  return crate.planks[0]?.entity?.stats
+}
+
+function syncBreakableCrateDebugStats(crate: BreakableCrateRuntime): void {
+  const stats = getBreakableCrateDebugStats(crate)
+  if (!stats) {
+    return
+  }
+  stats.maxHealth = BREAKABLE_CRATE_MAX_HEALTH
+  stats.health = crate.health
+}
+
+function applyBreakableCrateDamage(
+  crateId: number,
+  damage: number,
+  impactX: number,
+  impactY: number,
+  impactLevel: ImpactLevel
+): void {
+  const crate = breakableCrates.get(crateId)
+  if (!crate || crate.destroyed || pendingBreakableCrateBreakIds.has(crateId)) {
+    return
+  }
+
+  const damageValue = Math.max(1, Math.trunc(damage))
+  crate.health -= damageValue
+  const debugStats = getBreakableCrateDebugStats(crate)
+  if (debugStats) {
+    debugStats.maxHealth = BREAKABLE_CRATE_MAX_HEALTH
+    debugStats.health = Math.max(0, crate.health)
+    debugStats.healthBarTimerMs = 3000
+    debugStats.pendingDamageTextValue += damageValue
+    debugStats.pendingDamageTextToken += 1
+  }
+  if (crate.health <= 0) {
+    crate.health = 0
+    queueBreakableCrateBreak(crateId, impactX, impactY, impactLevel)
+    return
+  }
+
+  emitBreakableCrateHitFeedback(crate, impactX, impactY)
 }
 
 function detachBreakableCrateGrappleTethers(
@@ -602,22 +1029,39 @@ function handleBreakableObstacleHit(hit: BreakableObstacleHit): void {
   if (crateId === undefined) {
     return
   }
-  queueBreakableCrateBreak(crateId, hit.impactX, hit.impactY, hit.impactLevel)
+  applyBreakableCrateDamage(
+    crateId,
+    getBreakableCrateHitDamage(hit),
+    hit.impactX,
+    hit.impactY,
+    hit.impactLevel
+  )
 }
 
-function handleBreakableSprintContact(
+function handleEntityFallImpact(
   entity: Entity,
-  shapeId: b2ShapeId
+  damage: number,
+  fallDistance1000: number
 ): void {
-  const plank = breakableCratePlanksByShapeId.get(shapeId)
-  if (!plank || !entity.transform) {
+  if (
+    !entity.physics ||
+    !entity.transform ||
+    damage < 0 ||
+    fallDistance1000 <= 0
+  ) {
     return
   }
-  queueBreakableCrateBreak(
-    plank.crateId,
+  const sourceRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+  const impactLevel = getFallImpactLevel(fallDistance1000)
+  applyFallImpactTargetsFromBody(
+    entity.physics.bodyId,
+    damage,
     entity.transform.x,
-    entity.transform.y,
-    'medium'
+    entity.transform.y + sourceRadius,
+    impactLevel,
+    entity.id,
+    0,
+    true
   )
 }
 
@@ -1247,7 +1691,7 @@ function initializeSystems() {
   npcAISystem.setWeaponSystem(weaponSystem)
   movementSystem.setSoundSystem(soundSystem)
   movementSystem.setStatsSystem(statsSystem)
-  movementSystem.setBreakableContactHandler(handleBreakableSprintContact)
+  movementSystem.setFallImpactHandler(handleEntityFallImpact)
   physicsSystem.addAfterStepCallback(syncBreakableCrateRuntimes)
   grappleSystem.setStatsSystem(statsSystem)
   weaponSystem.setSoundSystem(soundSystem)
@@ -1841,6 +2285,13 @@ function createBreakableCratePlankEntity(
   debris.receivesWeaponImpulse = false
   entity.addComponent(debris)
 
+  const stats = new StatsComponent()
+  const isDebugHealthPlank =
+    DEBUG_DRAW_BREAKABLE_CRATE_HEALTH && plankIndex === 0
+  stats.maxHealth = isDebugHealthPlank ? BREAKABLE_CRATE_MAX_HEALTH : 0
+  stats.health = isDebugHealthPlank ? BREAKABLE_CRATE_MAX_HEALTH : 0
+  entity.addComponent(stats)
+
   const grappleTarget = new GrappleTargetComponent()
   grappleTarget.bodyId = plank.bodyId
   grappleTarget.shapeId = plank.shapeId
@@ -1942,24 +2393,203 @@ function applyBreakableCratePreBreakParams(): void {
   }
 }
 
+function getBreakableCrateVelocityEnergy(maxFallVelocity1000: number): number {
+  if (maxFallVelocity1000 <= 0) {
+    return 0
+  }
+  return Math.trunc(
+    (PLAYER_WEIGHT_REFERENCE * maxFallVelocity1000 * maxFallVelocity1000) /
+      2000000
+  )
+}
+
+function getBreakableCrateHeightEnergy(
+  fallStartY1000: number,
+  landingY1000: number
+): number {
+  const fallHeight1000 = landingY1000 - fallStartY1000
+  if (fallHeight1000 <= 0) {
+    return 0
+  }
+  return Math.trunc(
+    (PLAYER_WEIGHT_REFERENCE * DEFAULT_GRAVITY * fallHeight1000) / 1000
+  )
+}
+
+function getBreakableCrateFallDamage(
+  maxFallVelocity1000: number,
+  fallStartY1000: number,
+  landingY1000: number
+): number {
+  const velocityEnergy = getBreakableCrateVelocityEnergy(maxFallVelocity1000)
+  const heightEnergy = getBreakableCrateHeightEnergy(
+    fallStartY1000,
+    landingY1000
+  )
+  const kineticEnergy =
+    velocityEnergy > heightEnergy ? velocityEnergy : heightEnergy
+  if (kineticEnergy >= FALL_DAMAGE_KINETIC_FATAL) {
+    return BREAKABLE_CRATE_MAX_HEALTH
+  }
+  if (kineticEnergy < FALL_DAMAGE_KINETIC_THRESHOLD) {
+    return 0
+  }
+  const excessKinetic = kineticEnergy - FALL_DAMAGE_KINETIC_THRESHOLD
+  return Math.max(
+    1,
+    Math.trunc(excessKinetic / FALL_DAMAGE_KINETIC_TO_HEALTH_DIVISOR)
+  )
+}
+
+function isBreakableCrateGrounded(crate: BreakableCrateRuntime): boolean {
+  const {
+    b2Body_GetContactCapacity,
+    b2Body_GetContactData,
+    b2Shape_GetBody,
+    b2Shape_GetFilter,
+  } = box2d
+  const capacity = b2Body_GetContactCapacity(crate.bodyId)
+  if (capacity <= 0) {
+    crate.fallContactCount = 0
+    crate.fallSolidContactCount = 0
+    return false
+  }
+  const contactData = b2Body_GetContactData(crate.bodyId, capacity)
+  let grounded = false
+  crate.fallContactCount = contactData.length
+  crate.fallSolidContactCount = 0
+  for (let i = 0; i < contactData.length; i++) {
+    const contact = contactData[i]
+    const normalY = contact.manifold.normal.y
+    const absNormalY = normalY < 0 ? -normalY : normalY
+    const filterA = b2Shape_GetFilter(contact.shapeIdA)
+    const filterB = b2Shape_GetFilter(contact.shapeIdB)
+    const categoryA = filterA.categoryBits
+    const categoryB = filterB.categoryBits
+    const bodyA = b2Shape_GetBody(contact.shapeIdA)
+    const bodyB = b2Shape_GetBody(contact.shapeIdB)
+    let otherCategory = 0
+    if (areBodyIdsEqual(bodyA, crate.bodyId)) {
+      otherCategory = categoryB
+    } else if (areBodyIdsEqual(bodyB, crate.bodyId)) {
+      otherCategory = categoryA
+    }
+    if (
+      otherCategory !== 0 &&
+      (isGroundCollisionCategory(otherCategory) ||
+        isObstacleCollisionCategory(otherCategory) ||
+        (isCharacterCollisionCategory(otherCategory) &&
+          absNormalY > FALL_IMPACT_CONTACT_NORMAL_Y_MIN))
+    ) {
+      crate.fallSolidContactCount += 1
+      grounded = true
+    }
+    contact.delete()
+  }
+  return grounded
+}
+
+function updateBreakableCrateFallDamage(
+  crate: BreakableCrateRuntime,
+  velocityY1000: number
+): void {
+  const grounded = isBreakableCrateGrounded(crate)
+  const wasGrounded = crate.wasGrounded
+  crate.isGrounded = grounded
+  crate.wasGrounded = grounded
+  const ignoreSpawnFallDamage = playTimeMs < crate.fallDamageIgnoreUntilMs
+
+  if (ignoreSpawnFallDamage) {
+    if (grounded) {
+      if (crate.fallTrackingActive) {
+        box2d.b2Body_SetBullet(crate.bodyId, false)
+      }
+      crate.fallTrackingActive = false
+      crate.maxFallVelocity1000 = 0
+      crate.fallStartY1000 = 0
+      return
+    }
+    if (velocityY1000 > 0) {
+      if (!crate.fallTrackingActive) {
+        crate.fallTrackingActive = true
+        crate.fallStartY1000 = Math.round(crate.centerY * 1000)
+        box2d.b2Body_SetBullet(crate.bodyId, true)
+      }
+      if (velocityY1000 > crate.maxFallVelocity1000) {
+        crate.maxFallVelocity1000 = velocityY1000
+      }
+    }
+    return
+  }
+
+  if (!grounded && velocityY1000 > 0) {
+    if (!crate.fallTrackingActive) {
+      crate.fallTrackingActive = true
+      crate.fallStartY1000 = Math.round(crate.centerY * 1000)
+      box2d.b2Body_SetBullet(crate.bodyId, true)
+    }
+    if (velocityY1000 > crate.maxFallVelocity1000) {
+      crate.maxFallVelocity1000 = velocityY1000
+    }
+    return
+  }
+
+  if (wasGrounded || !grounded || !crate.fallTrackingActive) {
+    return
+  }
+
+  const landingY1000 = Math.round(crate.centerY * 1000)
+  const damage = getBreakableCrateFallDamage(
+    crate.maxFallVelocity1000,
+    crate.fallStartY1000,
+    landingY1000
+  )
+  const fallDistance1000 = Math.max(0, landingY1000 - crate.fallStartY1000)
+  box2d.b2Body_SetBullet(crate.bodyId, false)
+  crate.fallTrackingActive = false
+  crate.maxFallVelocity1000 = 0
+  crate.fallStartY1000 = 0
+  if (damage <= 0) {
+    return
+  }
+  const impactX = crate.centerX
+  const impactY = crate.centerY + crate.hitHalfHeight
+  const impactLevel = getFallImpactLevel(fallDistance1000)
+  if (fallDistance1000 > 0) {
+    applyFallImpactTargetsFromBody(
+      crate.bodyId,
+      damage,
+      impactX,
+      impactY,
+      impactLevel,
+      0,
+      crate.id
+    )
+  }
+  applyBreakableCrateDamage(crate.id, damage, impactX, impactY, impactLevel)
+}
+
 function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
   if (!box2d || crate.destroyed) {
     return
   }
   const position = box2d.b2Body_GetPosition(crate.bodyId)
   const rotation = box2d.b2Body_GetRotation(crate.bodyId)
+  const velocity = box2d.b2Body_GetLinearVelocity(crate.bodyId)
   const angle = box2d.b2Rot_GetAngle(rotation)
   const cos = Math.cos(angle)
   const sin = Math.sin(angle)
   crate.centerX = position.x
   crate.centerY = position.y
   crate.rotationRad = angle
+  syncBreakableCrateDebugStats(crate)
+  updateBreakableCrateFallDamage(crate, Math.round(velocity.y * 1000))
   const hitCenterX =
     crate.centerX + crate.hitLocalCenterX * cos - crate.hitLocalCenterY * sin
   const hitCenterY =
     crate.centerY + crate.hitLocalCenterX * sin + crate.hitLocalCenterY * cos
   const hitObstacle = obstacles[crate.hitObstacleIndex]
-  if (hitObstacle?.breakableHitProxy) {
+  if (hitObstacle?.breakableHitProxy && hitObstacle.breakableId === crate.id) {
     hitObstacle.centerX = hitCenterX
     hitObstacle.centerY = hitCenterY
     hitObstacle.rotationRad = angle
@@ -1983,7 +2613,7 @@ function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
     plank.rotationRad = angle
 
     const obstacle = obstacles[plank.obstacleIndex]
-    if (obstacle) {
+    if (obstacle?.breakableId === crate.id && !obstacle.breakableHitProxy) {
       obstacle.centerX = worldX
       obstacle.centerY = worldY
       obstacle.rotationRad = angle
@@ -2006,6 +2636,7 @@ function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
 
   position.delete()
   rotation.delete()
+  velocity.delete()
 }
 
 function syncBreakableCrateRuntimes(): void {
@@ -2018,16 +2649,28 @@ function syncBreakableCrateRuntimes(): void {
 }
 
 function refreshBreakableCrateObstacleIndices(): void {
+  for (const crate of breakableCrates.values()) {
+    crate.hitObstacleIndex = -1
+    for (let i = 0; i < crate.planks.length; i++) {
+      crate.planks[i].obstacleIndex = -1
+    }
+  }
   for (let i = 0; i < obstacles.length; i++) {
     const obstacle = obstacles[i]
-    if (obstacle.breakableId === undefined) {
+    const crateId = obstacle.breakableId
+    if (crateId === undefined) {
+      continue
+    }
+    const crate = breakableCrates.get(crateId)
+    if (!crate || crate.destroyed) {
       continue
     }
     if (obstacle.breakableHitProxy) {
+      crate.hitObstacleIndex = i
       continue
     }
     const plank = breakableCratePlanksByShapeId.get(obstacle.mainShapeId)
-    if (!plank) {
+    if (!plank || plank.crateId !== crateId) {
       continue
     }
     plank.obstacleIndex = i
@@ -2178,10 +2821,20 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
       seed: env.seed,
       renderLayer,
       destroyed: false,
+      health: BREAKABLE_CRATE_MAX_HEALTH,
       bodyId: 0 as unknown as b2BodyId,
       centerX: env.x,
       centerY: env.y,
       rotationRad,
+      isGrounded: false,
+      wasGrounded: false,
+      fallTrackingActive: false,
+      fallDamageIgnoreUntilMs:
+        playTimeMs + BREAKABLE_CRATE_SPAWN_FALL_DAMAGE_GRACE_MS,
+      maxFallVelocity1000: 0,
+      fallStartY1000: 0,
+      fallContactCount: 0,
+      fallSolidContactCount: 0,
       hitObstacleIndex: -1,
       hitLocalCenterX: crateHitLocalCenterX,
       hitLocalCenterY: crateHitLocalCenterY,

@@ -32,6 +32,8 @@ const collisionCategories: Record<CollisionLayerKind, number[]> = {
 
 let configuredLayers: number[] = [DEFAULT_LAYER]
 let anyGroundMask = 0
+let anyPlayerMask = 0
+let anyEnemyMask = 0
 let anyObstacleMask = 0
 
 function findKindIndex(kind: CollisionLayerKind): number {
@@ -95,6 +97,8 @@ export function configureCollisionLayers(layerValues: readonly number[]): void {
   }
   configuredLayers = normalizedLayers
   anyGroundMask = 0
+  anyPlayerMask = 0
+  anyEnemyMask = 0
   anyObstacleMask = 0
   for (let slot = 0; slot < configuredLayers.length; slot++) {
     const baseBit = slot * KIND_COUNT
@@ -103,6 +107,8 @@ export function configureCollisionLayers(layerValues: readonly number[]): void {
       collisionCategories[kind][slot] = (1 << (baseBit + kindIndex)) >>> 0
     }
     anyGroundMask = (anyGroundMask | collisionCategories.ground[slot]) >>> 0
+    anyPlayerMask = (anyPlayerMask | collisionCategories.player[slot]) >>> 0
+    anyEnemyMask = (anyEnemyMask | collisionCategories.enemy[slot]) >>> 0
     anyObstacleMask =
       (anyObstacleMask | collisionCategories.obstacle[slot]) >>> 0
   }
@@ -191,6 +197,11 @@ export function getEnvironmentCollisionMask(layer: number): number {
 
 export function isGroundCollisionCategory(bits: number): boolean {
   return ((bits >>> 0) & anyGroundMask) !== 0
+}
+
+export function isCharacterCollisionCategory(bits: number): boolean {
+  const characterMask = (anyPlayerMask | anyEnemyMask) >>> 0
+  return ((bits >>> 0) & characterMask) !== 0
 }
 
 export function isObstacleCollisionCategory(bits: number): boolean {
