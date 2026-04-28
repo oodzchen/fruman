@@ -703,14 +703,6 @@ export class MovementSystem extends System {
       direction = 0
     }
 
-    if (
-      direction === 0 &&
-      !entity.movement.isGrounded &&
-      entity.grapple?.retainAirMomentum
-    ) {
-      return
-    }
-
     const moveSpeedScale =
       entity.input.moveSpeedScale > 0 ? entity.input.moveSpeedScale : 1
     const agilityScalePercent = entity.level
@@ -723,6 +715,23 @@ export class MovementSystem extends System {
       : configuredMoveSpeed
     const moveSpeed =
       targetMoveSpeed * moveSpeedScale * (agilityScalePercent / 100)
+
+    const retainAirMomentum =
+      !entity.movement.isGrounded && entity.grapple?.retainAirMomentum === true
+    if (retainAirMomentum) {
+      if (direction === 0) {
+        return
+      }
+
+      const targetVelX = direction * moveSpeed
+      const retainedSpeedInInputDirection = entity.physics.velX * direction
+      if (
+        retainedSpeedInInputDirection > 0 &&
+        retainedSpeedInInputDirection > Math.abs(targetVelX)
+      ) {
+        return
+      }
+    }
 
     this.tempVec.x = direction * moveSpeed
     this.tempVec.y = entity.physics.velY

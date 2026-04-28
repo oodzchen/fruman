@@ -75,6 +75,12 @@ export class GrappleSystem extends System {
   private readonly dynamicTetherStretchSpeed = 8
   private readonly dynamicTetherMaxSpeed = 14
   private readonly dynamicTetherRopeDensity = 0.05
+  private readonly ropeJumpScale = 1000
+  private readonly ropeJumpBaseUpwardScale = 600
+  private readonly ropeJumpAmplitudeBoostScale = 350
+  private readonly ropeJumpSpeedBoostScale = 250
+  private readonly ropeJumpReferenceSpeedSq = 144
+  private readonly ropeJumpMaxSpeedScale = 1500
   private world: World
   private box2d: MainModule
   private worldId: b2WorldId
@@ -1270,9 +1276,9 @@ export class GrappleSystem extends System {
 
     if (entity.input.jumpRequested && !entity.movement.isGrounded) {
       if (!isDynamicAnchor) {
-        this.performRopeJump(entity, grapple)
         entity.input.jumpRequested = false
         this.stopPull(entity, grapple, true)
+        this.performRopeJump(entity, grapple)
         return
       }
     }
@@ -1757,17 +1763,61 @@ export class GrappleSystem extends System {
   ): void {
     if (!entity.physics || !entity.movement || !entity.transform) return
 
-    const mass = this.box2d.b2Body_GetMass(entity.physics.bodyId)
-    const jumpForce = entity.movement.jumpForce
-    const jumpScale = 1
-
-    this.tempVec.x = 0
-    this.tempVec.y = -jumpForce * mass * 0.6 * jumpScale
-    this.box2d.b2Body_ApplyLinearImpulseToCenter(
-      entity.physics.bodyId,
-      this.tempVec,
-      true
+    const currentVel = this.box2d.b2Body_GetLinearVelocity(
+      entity.physics.bodyId
     )
+    const currentVx = currentVel.x
+    const currentVy = currentVel.y
+    currentVel.delete()
+
+    const jumpDeltaY =
+      (-entity.movement.jumpForce * this.ropeJumpBaseUpwardScale) /
+      this.ropeJumpScale
+    const ropeDx = entity.transform.x - grapple.targetX
+    const ropeDy = entity.transform.y - grapple.targetY
+    const distSq = ropeDx * ropeDx + ropeDy * ropeDy
+
+    this.tempVec.x = currentVx
+    this.tempVec.y = currentVy + jumpDeltaY
+
+    if (distSq > 0.01) {
+      const invDist = 1 / Math.sqrt(distSq)
+      const ropeX = ropeDx * invDist
+      const ropeY = ropeDy * invDist
+      const tangentX = -ropeY
+      const tangentY = ropeX
+      const tangentSpeed = currentVx * tangentX + currentVy * tangentY
+      const amplitudeRatio = Math.min(1, Math.abs(ropeX))
+      const speedRatio = Math.min(
+        1,
+        (tangentSpeed * tangentSpeed) / this.ropeJumpReferenceSpeedSq
+      )
+      const boostScale =
+        (amplitudeRatio * this.ropeJumpAmplitudeBoostScale +
+          speedRatio * this.ropeJumpSpeedBoostScale) /
+        this.ropeJumpScale
+      const tangentBoostSpeed = tangentSpeed * boostScale
+
+      this.tempVec.x += tangentX * tangentBoostSpeed
+      this.tempVec.y += tangentY * tangentBoostSpeed
+    }
+
+    const maxReleaseSpeed =
+      (Math.max(entity.movement.jumpForce, entity.movement.moveSpeed * 4) *
+        this.ropeJumpMaxSpeedScale) /
+      this.ropeJumpScale
+    const releaseSpeedSq =
+      this.tempVec.x * this.tempVec.x + this.tempVec.y * this.tempVec.y
+    const maxReleaseSpeedSq = maxReleaseSpeed * maxReleaseSpeed
+    if (releaseSpeedSq > maxReleaseSpeedSq && releaseSpeedSq > 0) {
+      const speedScale = maxReleaseSpeed / Math.sqrt(releaseSpeedSq)
+      this.tempVec.x *= speedScale
+      this.tempVec.y *= speedScale
+    }
+
+    grapple.velocityX = this.tempVec.x
+    grapple.velocityY = this.tempVec.y
+    this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
   }
 
   private applyTetherSwingImpulse(
