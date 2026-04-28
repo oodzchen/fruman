@@ -230,7 +230,8 @@ export class InputComponent extends Component {
   lockedTargetId: number | null = null
   assassinationTargetId: number | null = null
   lockToggleRequested = false
-  lockSwitchIntent = 0
+  lockSwitchIntentX = 0
+  lockSwitchIntentY = 0
   lockLostTimer = 0
   freeAimToggleRequested = false
   freeAimAdjust = 0
@@ -262,7 +263,8 @@ export class InputComponent extends Component {
     this.lockedTargetId = null
     this.assassinationTargetId = null
     this.lockToggleRequested = false
-    this.lockSwitchIntent = 0
+    this.lockSwitchIntentX = 0
+    this.lockSwitchIntentY = 0
     this.lockLostTimer = 0
     this.freeAimToggleRequested = false
     this.freeAimAdjust = 0

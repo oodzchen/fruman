@@ -328,6 +328,8 @@ export class GameClient {
     mouseZoom: 1.0,
     mouseX: 0,
     mouseY: 0,
+    mouseDeltaX: 0,
+    mouseDeltaY: 0,
     mouseCaptured: false,
   }
 
@@ -1250,7 +1252,11 @@ export class GameClient {
       }
       const canvasWidth = this.app.renderer.width
       const canvasHeight = this.app.renderer.height
+      let mouseDeltaX = 0
+      let mouseDeltaY = 0
       if (document.pointerLockElement === this.appCanvas) {
+        mouseDeltaX = e.movementX
+        mouseDeltaY = e.movementY
         this.mouseX += e.movementX
         this.mouseY += e.movementY
         if (this.mouseX < 0) this.mouseX = 0
@@ -1261,11 +1267,15 @@ export class GameClient {
         const rect = this.appCanvas.getBoundingClientRect()
         const x = Math.floor(e.clientX - rect.left)
         const y = Math.floor(e.clientY - rect.top)
-        this.mouseX = x < 0 ? 0 : x > canvasWidth ? canvasWidth : x
-        this.mouseY = y < 0 ? 0 : y > canvasHeight ? canvasHeight : y
+        const nextMouseX = x < 0 ? 0 : x > canvasWidth ? canvasWidth : x
+        const nextMouseY = y < 0 ? 0 : y > canvasHeight ? canvasHeight : y
+        mouseDeltaX = e.movementX
+        mouseDeltaY = e.movementY
+        this.mouseX = nextMouseX
+        this.mouseY = nextMouseY
       }
       this.mouseCaptured = true
-      this.sendInput()
+      this.sendInput(mouseDeltaX, mouseDeltaY)
     })
 
     this.inputTarget.addEventListener(
@@ -1379,7 +1389,7 @@ export class GameClient {
     return false
   }
 
-  private sendInput() {
+  private sendInput(mouseDeltaX = 0, mouseDeltaY = 0) {
     this.keysArray.length = 0
     for (const k of this.keys) {
       this.keysArray.push(k)
@@ -1395,6 +1405,8 @@ export class GameClient {
     this.inputMessage.mouseZoom = this.targetZoom
     this.inputMessage.mouseX = this.mouseX
     this.inputMessage.mouseY = this.mouseY
+    this.inputMessage.mouseDeltaX = mouseDeltaX
+    this.inputMessage.mouseDeltaY = mouseDeltaY
     this.inputMessage.mouseCaptured = this.mouseCaptured
     this.worker.postMessage(this.inputMessage)
   }

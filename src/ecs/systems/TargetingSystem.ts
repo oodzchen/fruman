@@ -12,6 +12,8 @@ import { System } from '../System'
 
 // 扇形射线数量，在 FOV 内均匀分布
 const FAN_RAY_COUNT = 9
+const PLAYER_LOCK_RANGE = ENEMY_DETECTION_RANGE * 2.0
+const PLAYER_LOCK_RANGE_SQ = PLAYER_LOCK_RANGE * PLAYER_LOCK_RANGE
 
 export class TargetingSystem extends System {
   private box2d: MainModule
@@ -88,7 +90,8 @@ export class TargetingSystem extends System {
     if (player.weapon?.bowFreeAim) {
       input.lockedTargetId = null
       input.lockToggleRequested = false
-      input.lockSwitchIntent = 0
+      input.lockSwitchIntentX = 0
+      input.lockSwitchIntentY = 0
       input.lockLostTimer = 0
       return
     }
@@ -103,7 +106,7 @@ export class TargetingSystem extends System {
         const nearestTarget = this.findNearestVisibleTarget(
           player,
           entities,
-          ENEMY_DETECTION_RANGE * 2.0
+          PLAYER_LOCK_RANGE
         )
         if (nearestTarget) {
           input.lockedTargetId = nearestTarget.id
@@ -112,49 +115,26 @@ export class TargetingSystem extends System {
       }
     }
 
-    // Switch Target (Simplified: Iterate all entities to find best candidate in direction)
-    // Maintaining old logic for switching as it might need to search outside current narrow ray hits?
-    // Or restrict to visible? Let's restrict to visible for consistency.
-    if (input.lockSwitchIntent !== 0 && input.lockedTargetId !== null) {
+    if (
+      (input.lockSwitchIntentX !== 0 || input.lockSwitchIntentY !== 0) &&
+      input.lockedTargetId !== null
+    ) {
       const currentTarget = this.getEntityById(input.lockedTargetId, entities)
       if (currentTarget && currentTarget.transform) {
-        const switchDir = input.lockSwitchIntent
-        let bestId: number | null = null
-        let minDistance = Infinity
-        const switchRange = ENEMY_DETECTION_RANGE * 2.0
-        const candidates = this.getNearbyEntities(
+        const bestId = this.findSwitchTarget(
+          player,
+          currentTarget,
           entities,
-          player.transform.x,
-          player.transform.y,
-          switchRange
+          input.lockSwitchIntentX,
+          input.lockSwitchIntentY
         )
-        const candidateCount = this.getNearbyEntityCount(entities)
-
-        for (let i = 0; i < candidateCount; i++) {
-          const entity = candidates[i]
-          if (entity.id === player.id || entity.id === currentTarget.id)
-            continue
-          if (!this.canPlayerLockTarget(player, entity)) continue
-
-          const dx = entity.transform.x - currentTarget.transform.x
-          if ((switchDir > 0 && dx > 0) || (switchDir < 0 && dx < 0)) {
-            // Only switch to visible targets
-            if (!this.hasLineOfSight(player, entity)) continue
-
-            const dist = Math.abs(dx)
-            if (dist < minDistance) {
-              minDistance = dist
-              bestId = entity.id
-            }
-          }
-        }
-
         if (bestId !== null) {
           input.lockedTargetId = bestId
           input.lockLostTimer = 0
         }
       }
-      input.lockSwitchIntent = 0
+      input.lockSwitchIntentX = 0
+      input.lockSwitchIntentY = 0
     }
 
     // Validate Lock
@@ -167,7 +147,7 @@ export class TargetingSystem extends System {
         // Distance check
         const dx = target.transform!.x - player.transform.x
         const dy = target.transform!.y - player.transform.y
-        if (Math.hypot(dx, dy) > ENEMY_DETECTION_RANGE * 2.0) {
+        if (dx * dx + dy * dy > PLAYER_LOCK_RANGE_SQ) {
           input.lockedTargetId = null
           input.lockLostTimer = 0
         } else {
@@ -185,6 +165,56 @@ export class TargetingSystem extends System {
         }
       }
     }
+  }
+
+  private findSwitchTarget(
+    player: Entity,
+    currentTarget: Entity,
+    entities: Entity[],
+    directionX: number,
+    directionY: number
+  ): number | null {
+    if (!player.transform || !currentTarget.transform) return null
+
+    let bestId: number | null = null
+    let bestDistSq = Infinity
+    const candidates = this.getNearbyEntities(
+      entities,
+      currentTarget.transform.x,
+      currentTarget.transform.y,
+      PLAYER_LOCK_RANGE
+    )
+    const candidateCount = this.getNearbyEntityCount(entities)
+
+    for (let i = 0; i < candidateCount; i++) {
+      const entity = candidates[i]
+      if (entity.id === player.id || entity.id === currentTarget.id) continue
+      if (!this.canPlayerLockTarget(player, entity)) continue
+
+      const playerDx = entity.transform.x - player.transform.x
+      const playerDy = entity.transform.y - player.transform.y
+      if (playerDx * playerDx + playerDy * playerDy > PLAYER_LOCK_RANGE_SQ) {
+        continue
+      }
+
+      const targetDx = entity.transform.x - currentTarget.transform.x
+      const targetDy = entity.transform.y - currentTarget.transform.y
+      const targetDistSq = targetDx * targetDx + targetDy * targetDy
+      if (targetDistSq > PLAYER_LOCK_RANGE_SQ || targetDistSq === 0) {
+        continue
+      }
+
+      const forward = targetDx * directionX + targetDy * directionY
+      if (forward <= 0) continue
+      if (!this.hasLineOfSight(player, entity)) continue
+
+      if (targetDistSq < bestDistSq) {
+        bestDistSq = targetDistSq
+        bestId = entity.id
+      }
+    }
+
+    return bestId
   }
 
   private canPlayerLockTarget(

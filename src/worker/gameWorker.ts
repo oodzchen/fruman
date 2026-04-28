@@ -766,12 +766,23 @@ let rHoldMs = 0
 let rHoldActive = false
 let rHoldTriggered = false
 let eUsedForUltimate = false
+let lockCancelOnReleaseArmed = false
+let lockSwitchAttemptedDuringHold = false
+let lockSwitchMouseSwipeStartMs = -1
+let lockSwitchMouseLastMoveMs = -1
+let lockSwitchMouseSwipeAccumX = 0
+let lockSwitchMouseSwipeAccumY = 0
+let lockSwitchMouseSwipeConsumed = false
 let canvasHeight = 0
 let pixelsPerMeter = 50
 let groundFriction = DEFAULT_GROUND_FRICTION
 let obstacleFriction = DEFAULT_OBSTACLE_FRICTION
 let groundTopY = 0
 const GRAPPLE_TARGET_RANGE_SQ = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
+const LOCK_SWITCH_MOUSE_SWIPE_THRESHOLD_PX = 30
+const LOCK_SWITCH_MOUSE_SWIPE_WINDOW_MS = 180
+const LOCK_SWITCH_MOUSE_IDLE_RESET_MS = 120
+const LOCK_SWITCH_MOUSE_SWIPE_MIN_SPEED_PX_PER_SEC = 240
 
 // Parameter buffer for async init
 const pendingParams: Record<string, number> = {}
@@ -4824,6 +4835,14 @@ function canGrappleLockedTarget(player: Entity): boolean {
   return dx * dx + dy * dy <= GRAPPLE_TARGET_RANGE_SQ
 }
 
+function resetLockSwitchMouseSwipe(): void {
+  lockSwitchMouseSwipeStartMs = -1
+  lockSwitchMouseLastMoveMs = -1
+  lockSwitchMouseSwipeAccumX = 0
+  lockSwitchMouseSwipeAccumY = 0
+  lockSwitchMouseSwipeConsumed = false
+}
+
 function isTemplateWeaponType(
   weaponType: string
 ): weaponType is keyof typeof WEAPON_DEFAULT_DATA {
@@ -4836,6 +4855,8 @@ function handleInput(
   mouseZoomTarget: number,
   mouseX: number,
   mouseY: number,
+  mouseDeltaX: number,
+  mouseDeltaY: number,
   mouseCaptured: boolean
 ) {
   const temp = prevKeys
@@ -4878,6 +4899,9 @@ function handleInput(
       playerEntity.input.grapplePersistentRequested = false
       playerEntity.input.freeAimToggleRequested = false
       playerEntity.input.inputBuffer.clearAll()
+      lockCancelOnReleaseArmed = false
+      lockSwitchAttemptedDuringHold = false
+      resetLockSwitchMouseSwipe()
       if (!eHeld) {
         eUsedForUltimate = false
       }
@@ -4936,16 +4960,110 @@ function handleInput(
       weaponSystem.handleSkillRequest(playerEntity)
     }
 
-    // Q for lock toggle
-    const lockToggleJustPressed = currKeys.has('q') && !prevKeys.has('q')
+    const qHeld = currKeys.has('q')
+    const qJustPressed = qHeld && !prevKeys.has('q')
+    const qJustReleased = !qHeld && prevKeys.has('q')
+    const isLocked = playerEntity.input.lockedTargetId !== null
 
-    if (lockToggleJustPressed && !isPlayerDead) {
-      const dir = playerEntity.input.moveDirection
-      const isLocked = playerEntity.input.lockedTargetId !== null
-      if (dir !== 0 && isLocked) {
-        playerEntity.input.lockSwitchIntent = dir
-      } else {
-        playerEntity.input.lockToggleRequested = true
+    if (isPlayerDead) {
+      lockCancelOnReleaseArmed = false
+      lockSwitchAttemptedDuringHold = false
+      resetLockSwitchMouseSwipe()
+    } else {
+      if (qJustPressed) {
+        resetLockSwitchMouseSwipe()
+        if (isLocked) {
+          lockCancelOnReleaseArmed = true
+          lockSwitchAttemptedDuringHold = false
+        } else {
+          lockCancelOnReleaseArmed = false
+          lockSwitchAttemptedDuringHold = false
+          playerEntity.input.lockToggleRequested = true
+        }
+      }
+
+      if (qHeld && isLocked) {
+        let switchX = 0
+        let switchY = 0
+
+        if (mouseCaptured && (mouseDeltaX !== 0 || mouseDeltaY !== 0)) {
+          const mouseMoveTimeMs = playTimeMs
+          if (lockSwitchMouseSwipeConsumed) {
+            const idleMs =
+              lockSwitchMouseLastMoveMs >= 0
+                ? mouseMoveTimeMs - lockSwitchMouseLastMoveMs
+                : LOCK_SWITCH_MOUSE_IDLE_RESET_MS
+            if (idleMs >= LOCK_SWITCH_MOUSE_IDLE_RESET_MS) {
+              resetLockSwitchMouseSwipe()
+            } else {
+              lockSwitchMouseLastMoveMs = mouseMoveTimeMs
+            }
+          }
+
+          if (!lockSwitchMouseSwipeConsumed) {
+            if (
+              lockSwitchMouseSwipeStartMs < 0 ||
+              mouseMoveTimeMs - lockSwitchMouseSwipeStartMs >
+                LOCK_SWITCH_MOUSE_SWIPE_WINDOW_MS
+            ) {
+              lockSwitchMouseSwipeStartMs = mouseMoveTimeMs
+              lockSwitchMouseSwipeAccumX = 0
+              lockSwitchMouseSwipeAccumY = 0
+            }
+
+            lockSwitchMouseSwipeAccumX += mouseDeltaX
+            lockSwitchMouseSwipeAccumY += mouseDeltaY
+            lockSwitchMouseLastMoveMs = mouseMoveTimeMs
+
+            const swipeAbsX = Math.abs(lockSwitchMouseSwipeAccumX)
+            const swipeAbsY = Math.abs(lockSwitchMouseSwipeAccumY)
+            if (
+              swipeAbsX >= LOCK_SWITCH_MOUSE_SWIPE_THRESHOLD_PX ||
+              swipeAbsY >= LOCK_SWITCH_MOUSE_SWIPE_THRESHOLD_PX
+            ) {
+              const dominantSwipeAbs =
+                swipeAbsX >= swipeAbsY ? swipeAbsX : swipeAbsY
+              const swipeElapsedMs =
+                mouseMoveTimeMs - lockSwitchMouseSwipeStartMs
+              const speedElapsedMs =
+                swipeElapsedMs > 0 ? swipeElapsedMs : FIXED_STEP_MS
+              const hasEnoughSwipeSpeed =
+                dominantSwipeAbs * 1000 >=
+                LOCK_SWITCH_MOUSE_SWIPE_MIN_SPEED_PX_PER_SEC * speedElapsedMs
+
+              if (hasEnoughSwipeSpeed) {
+                if (swipeAbsX >= swipeAbsY) {
+                  switchX = lockSwitchMouseSwipeAccumX > 0 ? 1 : -1
+                } else {
+                  switchY = lockSwitchMouseSwipeAccumY > 0 ? 1 : -1
+                }
+                lockSwitchMouseSwipeStartMs = -1
+                lockSwitchMouseSwipeAccumX = 0
+                lockSwitchMouseSwipeAccumY = 0
+                lockSwitchMouseSwipeConsumed = true
+              }
+            }
+          }
+        }
+
+        if (switchX !== 0 || switchY !== 0) {
+          playerEntity.input.lockSwitchIntentX = switchX
+          playerEntity.input.lockSwitchIntentY = switchY
+          lockSwitchAttemptedDuringHold = true
+        }
+      }
+
+      if (qJustReleased) {
+        if (
+          lockCancelOnReleaseArmed &&
+          !lockSwitchAttemptedDuringHold &&
+          playerEntity.input.lockedTargetId !== null
+        ) {
+          playerEntity.input.lockToggleRequested = true
+        }
+        lockCancelOnReleaseArmed = false
+        lockSwitchAttemptedDuringHold = false
+        resetLockSwitchMouseSwipe()
       }
     }
 
@@ -6839,6 +6957,9 @@ function restart() {
   rHoldMs = 0
   rHoldActive = false
   rHoldTriggered = false
+  lockCancelOnReleaseArmed = false
+  lockSwitchAttemptedDuringHold = false
+  resetLockSwitchMouseSwipe()
 
   // Reset camera state variables
   isCameraLocked = false
@@ -6908,6 +7029,8 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
           msg.mouseZoom,
           msg.mouseX,
           msg.mouseY,
+          msg.mouseDeltaX,
+          msg.mouseDeltaY,
           msg.mouseCaptured
         )
       }

@@ -65,6 +65,8 @@ export type WorkerInputMessage = {
   mouseZoom: number // Target zoom
   mouseX: number
   mouseY: number
+  mouseDeltaX: number
+  mouseDeltaY: number
   mouseCaptured: boolean
 }
 

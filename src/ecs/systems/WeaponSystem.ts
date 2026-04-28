@@ -2907,7 +2907,9 @@ export class WeaponSystem extends System {
       hasAmmo && entity.input.attackRequested && !entity.isStunned()
     const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
     const wantsLockToggle =
-      entity.input.lockToggleRequested || entity.input.lockSwitchIntent !== 0
+      entity.input.lockToggleRequested ||
+      entity.input.lockSwitchIntentX !== 0 ||
+      entity.input.lockSwitchIntentY !== 0
     if (weapon.bowFreeAim && wantsLockToggle) {
       weapon.bowFreeAim = false
       weapon.bowFreeAimAngle = 0
