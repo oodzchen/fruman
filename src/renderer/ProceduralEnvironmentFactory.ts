@@ -32,6 +32,7 @@ const ENV_TREE_VORONOI_SEED = 38291
 const ENV_HILL_VORONOI_SEED = 52847
 const ENV_HOUSE_VORONOI_SEED = 71503
 const ENV_CLOUD_DETAIL_SEED = 91867
+const ENV_FLOWER_DETAIL_SEED = 64717
 
 type CloudPuff = readonly [number, number, number]
 
@@ -78,6 +79,7 @@ export interface EnvironmentTextureSource {
 }
 
 export const ENVIRONMENT_GRASS_BLADE_STRIDE = 10
+export const ENVIRONMENT_FLOWER_PETAL_STRIDE = 11
 
 export const ENVIRONMENT_GRASS_BLADE_OFFSETS = {
   BASE_X: 0,
@@ -92,7 +94,24 @@ export const ENVIRONMENT_GRASS_BLADE_OFFSETS = {
   RESPONSE: 9,
 } as const
 
+export const ENVIRONMENT_FLOWER_PETAL_OFFSETS = {
+  INNER_LEFT_X: 0,
+  INNER_LEFT_Y: 1,
+  SIDE_LEFT_X: 2,
+  SIDE_LEFT_Y: 3,
+  TIP_X: 4,
+  TIP_Y: 5,
+  SIDE_RIGHT_X: 6,
+  SIDE_RIGHT_Y: 7,
+  INNER_RIGHT_X: 8,
+  INNER_RIGHT_Y: 9,
+  COLOR: 10,
+} as const
+
+export type EnvironmentFoliageType = 'grass' | 'flower'
+
 export interface EnvironmentGrassLayout {
+  kind: EnvironmentFoliageType
   bladeCount: number
   bladeValues: Int32Array
   canvasWidth: number
@@ -101,6 +120,16 @@ export interface EnvironmentGrassLayout {
   originY: number
   clumpWidth: number
   maxHeight: number
+}
+
+export interface EnvironmentFlowerLayout extends EnvironmentGrassLayout {
+  kind: 'flower'
+  flowerStemBladeOffset: number
+  petalCount: number
+  petalValues: Int32Array
+  hasStamen: boolean
+  stamenColor: number
+  stamenRadius: number
 }
 
 function lcgStep(seed: number): number {
@@ -829,6 +858,7 @@ export function createEnvironmentGrassLayout(
   }
 
   return {
+    kind: 'grass',
     bladeCount,
     bladeValues,
     canvasWidth,
@@ -938,6 +968,491 @@ export function createEnvironmentGrassTextureSource(
     boundsWidth: bounds.width,
     boundsHeight: bounds.height,
   }
+}
+
+// ===== FLOWER =====
+
+export function isEnvironmentFlowerLayout(
+  layout: EnvironmentGrassLayout
+): layout is EnvironmentFlowerLayout {
+  return layout.kind === 'flower'
+}
+
+export function createEnvironmentFlowerLayout(
+  seed: number,
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
+): EnvironmentFlowerLayout {
+  let s = lcgStep(seed ^ ENV_SEED_MIX ^ ENV_FLOWER_DETAIL_SEED)
+  const rootGrassCount = lcgRange(s, 0, 3)
+  s = lcgStep(s)
+  const baseClumpWidth = Math.max(
+    10,
+    roundDiv(ppm * (24 + rootGrassCount * 8 + lcgRange(s, 0, 20)), 100)
+  )
+  s = lcgStep(s)
+  const stemHeightUnscaled = Math.max(
+    18,
+    roundDiv(ppm * lcgRange(s, 70, 126), 100)
+  )
+  s = lcgStep(s)
+  const stemLeanPercent = lcgRange(s, -18, 18)
+  s = lcgStep(s)
+  const petalCount = lcgRange(s, 3, 12)
+  s = lcgStep(s)
+  const basePetalLength = Math.max(6, roundDiv(ppm * lcgRange(s, 14, 28), 100))
+  s = lcgStep(s)
+  const basePetalWidth = Math.max(4, roundDiv(ppm * lcgRange(s, 7, 18), 100))
+  s = lcgStep(s)
+  const baseHue = lcgRange(s, 0, 359)
+  s = lcgStep(s)
+  const hasStamen = lcgRange(s, 0, 99) < 72
+  s = lcgStep(s)
+  const baseStamenRadius = Math.max(2, roundDiv(ppm * lcgRange(s, 4, 8), 100))
+  s = lcgStep(s)
+  const stamenGreen = lcgRange(s, 224, 255)
+  s = lcgStep(s)
+  const stamenBlue = lcgRange(s, 74, 236)
+
+  const clumpWidth = Math.max(
+    10,
+    scaleByPermille(baseClumpWidth, scaleXPermille)
+  )
+  const stemHeight = Math.max(
+    18,
+    scaleByPermille(stemHeightUnscaled, scaleYPermille)
+  )
+  const stemTipX = scaleByPermille(
+    roundDiv(stemHeightUnscaled * stemLeanPercent, 100),
+    scaleXPermille
+  )
+  const headRadiusX = Math.max(
+    8,
+    scaleByPermille(
+      roundDiv(
+        (basePetalLength + basePetalWidth + baseStamenRadius) * 155,
+        100
+      ),
+      scaleXPermille
+    )
+  )
+  const headRadiusY = Math.max(
+    8,
+    scaleByPermille(
+      roundDiv(
+        (basePetalLength + basePetalWidth + baseStamenRadius) * 155,
+        100
+      ),
+      scaleYPermille
+    )
+  )
+  const localMinX = Math.min(-(clumpWidth >> 1), stemTipX - headRadiusX)
+  const localMaxX = Math.max(clumpWidth >> 1, stemTipX + headRadiusX)
+  const localMinY = -stemHeight - headRadiusY
+  const localMaxY = 0
+  const padding = Math.max(8, roundDiv(ppm * 12, 10))
+  const canvasWidth = localMaxX - localMinX + padding * 2
+  const canvasHeight = localMaxY - localMinY + padding * 2
+  const originX = padding - localMinX
+  const originY = padding - localMinY
+  const bladeCount = rootGrassCount + 1
+  const bladeValues = new Int32Array(
+    bladeCount * ENVIRONMENT_GRASS_BLADE_STRIDE
+  )
+
+  let writeIndex = 0
+  for (let i = 0; i < rootGrassCount; i++) {
+    s = lcgStep(s ^ Math.imul(i + 1, 0x51ed270b))
+    const baseOffsetPercent = lcgRange(s, -46, 46)
+    s = lcgStep(s)
+    const bladeHeightUnscaled = Math.max(
+      5,
+      roundDiv(ppm * lcgRange(s, 18, 42), 100)
+    )
+    s = lcgStep(s)
+    const leanPercent = lcgRange(s, -42, 42)
+    s = lcgStep(s)
+    const baseWidthPercent = lcgRange(s, 5, 13)
+    s = lcgStep(s)
+    const colorIndex = lcgRange(s, 0, GRASS_MATERIAL.fillPalette.length - 1)
+    s = lcgStep(s)
+    const phase = lcgRange(s, 0, 255)
+    s = lcgStep(s)
+    const response = lcgRange(s, 76, 132)
+    const baseXUnscaled = roundDiv(baseClumpWidth * baseOffsetPercent, 100)
+    const tipXUnscaled =
+      baseXUnscaled + roundDiv(bladeHeightUnscaled * leanPercent, 100)
+    const bladeHeight = Math.max(
+      5,
+      scaleByPermille(bladeHeightUnscaled, scaleYPermille)
+    )
+
+    writeEnvironmentBladeValues(
+      bladeValues,
+      writeIndex,
+      scaleByPermille(baseXUnscaled, scaleXPermille),
+      scaleByPermille(tipXUnscaled, scaleXPermille),
+      Math.max(
+        1,
+        scaleByPermille(
+          Math.max(1, roundDiv(ppm * baseWidthPercent, 100)),
+          scaleXPermille
+        )
+      ),
+      bladeHeight,
+      colorIndex,
+      phase,
+      response
+    )
+    writeIndex += ENVIRONMENT_GRASS_BLADE_STRIDE
+  }
+
+  const flowerStemBladeOffset = writeIndex
+  s = lcgStep(s ^ 0x2c1b3c6d)
+  const stemColorIndex = lcgRange(s, 0, GRASS_MATERIAL.fillPalette.length - 1)
+  s = lcgStep(s)
+  const stemPhase = lcgRange(s, 0, 255)
+  const stemBaseHalfWidth = Math.max(
+    1,
+    scaleByPermille(Math.max(1, roundDiv(ppm * 4, 100)), scaleXPermille)
+  )
+  writeEnvironmentBladeValues(
+    bladeValues,
+    writeIndex,
+    0,
+    stemTipX,
+    stemBaseHalfWidth,
+    stemHeight,
+    stemColorIndex,
+    stemPhase,
+    118
+  )
+
+  const petalValues = new Int32Array(
+    petalCount * ENVIRONMENT_FLOWER_PETAL_STRIDE
+  )
+  s = lcgStep(s)
+  const angleOffsetDeg = lcgRange(s, 0, 359)
+  let petalWriteIndex = 0
+  for (let i = 0; i < petalCount; i++) {
+    s = lcgStep(s ^ Math.imul(i + 1, 0x7f4a7c15))
+    const angleDeg =
+      angleOffsetDeg + roundDiv(i * 360, petalCount) + lcgRange(s, -10, 10)
+    s = lcgStep(s)
+    const petalLength = Math.max(
+      4,
+      roundDiv(basePetalLength * lcgRange(s, 78, 132), 100)
+    )
+    s = lcgStep(s)
+    const petalWidth = Math.max(
+      3,
+      roundDiv(basePetalWidth * lcgRange(s, 72, 138), 100)
+    )
+    s = lcgStep(s)
+    const sideLength = Math.max(
+      2,
+      roundDiv(petalLength * lcgRange(s, 42, 74), 100)
+    )
+    s = lcgStep(s)
+    const innerHalfWidth = Math.max(
+      1,
+      roundDiv(petalWidth * lcgRange(s, 8, 26), 100)
+    )
+    s = lcgStep(s)
+    const skewPercent = lcgRange(s, -22, 22)
+    s = lcgStep(s)
+    const petalHue = normalizeHue(baseHue + lcgRange(s, -18, 18))
+    s = lcgStep(s)
+    const petalSaturation = lcgRange(s, 48, 96)
+    s = lcgStep(s)
+    const petalValue = lcgRange(s, 62, 96)
+    writeFlowerPetalValues(
+      petalValues,
+      petalWriteIndex,
+      angleDeg,
+      hasStamen ? Math.max(1, baseStamenRadius - 1) : 1,
+      petalLength,
+      petalWidth,
+      sideLength,
+      innerHalfWidth,
+      skewPercent,
+      scaleXPermille,
+      scaleYPermille,
+      createHsvColor(petalHue, petalSaturation, petalValue)
+    )
+    petalWriteIndex += ENVIRONMENT_FLOWER_PETAL_STRIDE
+  }
+
+  return {
+    kind: 'flower',
+    bladeCount,
+    bladeValues,
+    canvasWidth,
+    canvasHeight,
+    originX,
+    originY,
+    clumpWidth,
+    maxHeight: stemHeight,
+    flowerStemBladeOffset,
+    petalCount,
+    petalValues,
+    hasStamen,
+    stamenColor: createRgbColor(255, stamenGreen, stamenBlue),
+    stamenRadius: Math.max(
+      1,
+      scaleByPermille(
+        baseStamenRadius,
+        Math.min(scaleXPermille, scaleYPermille)
+      )
+    ),
+  }
+}
+
+function writeEnvironmentBladeValues(
+  bladeValues: Int32Array,
+  writeIndex: number,
+  baseX: number,
+  tipX: number,
+  baseHalfWidth: number,
+  bladeHeight: number,
+  colorIndex: number,
+  phase: number,
+  response: number
+): void {
+  const shoulderY = -roundDiv(bladeHeight * 45, 100)
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_X] = baseX
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_X] = tipX
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_HALF_WIDTH] =
+    baseHalfWidth
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.INNER_HALF_WIDTH] =
+    Math.max(1, baseHalfWidth >> 1)
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.SHOULDER_Y] =
+    shoulderY
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_Y] = -bladeHeight
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.COLOR_INDEX] =
+    colorIndex
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.HEIGHT] = bladeHeight
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.PHASE] = phase
+  bladeValues[writeIndex + ENVIRONMENT_GRASS_BLADE_OFFSETS.RESPONSE] = response
+}
+
+function writeFlowerPetalValues(
+  petalValues: Int32Array,
+  writeIndex: number,
+  angleDeg: number,
+  innerRadius: number,
+  petalLength: number,
+  petalWidth: number,
+  sideLength: number,
+  innerHalfWidth: number,
+  skewPercent: number,
+  scaleXPermille: number,
+  scaleYPermille: number,
+  color: number
+): void {
+  const radians = ((angleDeg - 90) * Math.PI) / 180
+  const axisX = Math.round(Math.cos(radians) * 1024)
+  const axisY = Math.round(Math.sin(radians) * 1024)
+  const tangentX = -axisY
+  const tangentY = axisX
+  const sideLeftWidth = Math.max(
+    1,
+    petalWidth + roundDiv(petalWidth * skewPercent, 100)
+  )
+  const sideRightWidth = Math.max(
+    1,
+    petalWidth - roundDiv(petalWidth * skewPercent, 100)
+  )
+  writeFlowerPetalPoint(
+    petalValues,
+    writeIndex + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_X,
+    axisX,
+    axisY,
+    tangentX,
+    tangentY,
+    innerRadius,
+    -innerHalfWidth,
+    scaleXPermille,
+    scaleYPermille
+  )
+  writeFlowerPetalPoint(
+    petalValues,
+    writeIndex + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_LEFT_X,
+    axisX,
+    axisY,
+    tangentX,
+    tangentY,
+    innerRadius + sideLength,
+    -sideLeftWidth,
+    scaleXPermille,
+    scaleYPermille
+  )
+  writeFlowerPetalPoint(
+    petalValues,
+    writeIndex + ENVIRONMENT_FLOWER_PETAL_OFFSETS.TIP_X,
+    axisX,
+    axisY,
+    tangentX,
+    tangentY,
+    innerRadius + petalLength,
+    0,
+    scaleXPermille,
+    scaleYPermille
+  )
+  writeFlowerPetalPoint(
+    petalValues,
+    writeIndex + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_RIGHT_X,
+    axisX,
+    axisY,
+    tangentX,
+    tangentY,
+    innerRadius + sideLength,
+    sideRightWidth,
+    scaleXPermille,
+    scaleYPermille
+  )
+  writeFlowerPetalPoint(
+    petalValues,
+    writeIndex + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_RIGHT_X,
+    axisX,
+    axisY,
+    tangentX,
+    tangentY,
+    innerRadius,
+    innerHalfWidth,
+    scaleXPermille,
+    scaleYPermille
+  )
+  petalValues[writeIndex + ENVIRONMENT_FLOWER_PETAL_OFFSETS.COLOR] = color
+}
+
+function writeFlowerPetalPoint(
+  petalValues: Int32Array,
+  writeIndex: number,
+  axisX: number,
+  axisY: number,
+  tangentX: number,
+  tangentY: number,
+  axisDistance: number,
+  tangentDistance: number,
+  scaleXPermille: number,
+  scaleYPermille: number
+): void {
+  const x = roundDiv(axisX * axisDistance + tangentX * tangentDistance, 1024)
+  const y = roundDiv(axisY * axisDistance + tangentY * tangentDistance, 1024)
+  petalValues[writeIndex] = scaleByPermille(x, scaleXPermille)
+  petalValues[writeIndex + 1] = scaleByPermille(y, scaleYPermille)
+}
+
+function drawEnvironmentFlowerHead(
+  ctx: CanvasRenderingContext2D,
+  layout: EnvironmentFlowerLayout
+): void {
+  const stemOffset = layout.flowerStemBladeOffset
+  const headX =
+    layout.originX +
+    layout.bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_X]
+  const headY =
+    layout.originY +
+    layout.bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_Y]
+  const petalValues = layout.petalValues
+
+  for (
+    let i = 0;
+    i < petalValues.length;
+    i += ENVIRONMENT_FLOWER_PETAL_STRIDE
+  ) {
+    ctx.beginPath()
+    ctx.moveTo(
+      headX + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_X],
+      headY + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_Y]
+    )
+    ctx.quadraticCurveTo(
+      headX + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_LEFT_X],
+      headY + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_LEFT_Y],
+      headX + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.TIP_X],
+      headY + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.TIP_Y]
+    )
+    ctx.quadraticCurveTo(
+      headX + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_RIGHT_X],
+      headY + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_RIGHT_Y],
+      headX + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_RIGHT_X],
+      headY + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_RIGHT_Y]
+    )
+    ctx.quadraticCurveTo(
+      headX,
+      headY,
+      headX + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_X],
+      headY + petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_Y]
+    )
+    ctx.fillStyle = colorToCssHex(
+      petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.COLOR]
+    )
+    ctx.fill()
+  }
+
+  if (layout.hasStamen) {
+    ctx.beginPath()
+    ctx.arc(headX, headY, layout.stamenRadius, 0, Math.PI * 2)
+    ctx.fillStyle = colorToCssHex(layout.stamenColor)
+    ctx.fill()
+  }
+}
+
+export function createEnvironmentFlowerTextureSource(
+  seed: number,
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
+): EnvironmentTextureSource {
+  const layout = createEnvironmentFlowerLayout(
+    seed,
+    ppm,
+    scaleXPermille,
+    scaleYPermille
+  )
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, layout.canvasWidth)
+  canvas.height = Math.max(1, layout.canvasHeight)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return {
+      canvas,
+      originX: layout.originX,
+      originY: layout.originY,
+      boundsX: 0,
+      boundsY: 0,
+      boundsWidth: canvas.width,
+      boundsHeight: canvas.height,
+    }
+  }
+
+  drawEnvironmentGrassLayout(ctx, layout)
+  drawEnvironmentFlowerHead(ctx, layout)
+
+  const bounds = getCanvasOpaqueBounds(canvas)
+  return {
+    canvas,
+    originX: layout.originX,
+    originY: layout.originY,
+    boundsX: bounds.x,
+    boundsY: bounds.y,
+    boundsWidth: bounds.width,
+    boundsHeight: bounds.height,
+  }
+}
+
+export function createEnvironmentFoliageLayout(
+  type: EnvironmentFoliageType,
+  seed: number,
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
+): EnvironmentGrassLayout {
+  return type === 'flower'
+    ? createEnvironmentFlowerLayout(seed, ppm, scaleXPermille, scaleYPermille)
+    : createEnvironmentGrassLayout(seed, ppm, scaleXPermille, scaleYPermille)
 }
 
 // ===== CLOUD =====
@@ -1221,6 +1736,13 @@ export function createEnvironmentTextureSource(
       scaleXPermille,
       scaleYPermille
     )
+  } else if (type === 'flower') {
+    source = createEnvironmentFlowerTextureSource(
+      seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
   } else if (type === 'cloud') {
     source = createEnvironmentCloudTextureSource(
       seed,
@@ -1273,8 +1795,81 @@ function roundDiv(numerator: number, denominator: number): number {
   return ((numerator + (denominator >> 1)) / denominator) | 0
 }
 
+function clamp(value: number, min: number, max: number): number {
+  if (value < min) {
+    return min
+  }
+  if (value > max) {
+    return max
+  }
+  return value
+}
+
 function scaleByPermille(value: number, scalePermille: number): number {
   return roundDiv(value * scalePermille, 1000)
+}
+
+function normalizeHue(hue: number): number {
+  const normalized = hue % 360
+  return normalized < 0 ? normalized + 360 : normalized
+}
+
+function createRgbColor(red: number, green: number, blue: number): number {
+  return (clampByte(red) << 16) | (clampByte(green) << 8) | clampByte(blue)
+}
+
+function createHsvColor(
+  hue: number,
+  saturationPercent: number,
+  valuePercent: number
+): number {
+  const normalizedHue = normalizeHue(hue)
+  const segment = (normalizedHue / 60) | 0
+  const segmentOffset = normalizedHue - segment * 60
+  const saturation = clamp(saturationPercent, 0, 100)
+  const value = clamp(valuePercent, 0, 100)
+  const p = roundDiv(value * (100 - saturation), 100)
+  const q = roundDiv(value * (6000 - saturation * segmentOffset), 6000)
+  const t = roundDiv(value * (6000 - saturation * (60 - segmentOffset)), 6000)
+  let red = value
+  let green = t
+  let blue = p
+
+  if (segment === 1) {
+    red = q
+    green = value
+    blue = p
+  } else if (segment === 2) {
+    red = p
+    green = value
+    blue = t
+  } else if (segment === 3) {
+    red = p
+    green = q
+    blue = value
+  } else if (segment === 4) {
+    red = t
+    green = p
+    blue = value
+  } else if (segment === 5) {
+    red = value
+    green = p
+    blue = q
+  }
+
+  return createRgbColor(
+    roundDiv(red * 255, 100),
+    roundDiv(green * 255, 100),
+    roundDiv(blue * 255, 100)
+  )
+}
+
+function colorToCssHex(color: number): string {
+  return `#${(color & 0xffffff).toString(16).padStart(6, '0')}`
+}
+
+function clampByte(value: number): number {
+  return clamp(value, 0, 255)
 }
 
 function scaleContourPoints(

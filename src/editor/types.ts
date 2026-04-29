@@ -36,6 +36,7 @@ export enum ObjectType {
   EnvHouse = 'envHouse',
   EnvCrate = 'envCrate',
   EnvGrass = 'envGrass',
+  EnvFlower = 'envFlower',
   EnvCloud = 'envCloud',
   EnvCustom = 'envCustom',
 }

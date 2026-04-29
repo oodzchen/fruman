@@ -616,6 +616,7 @@ export class EditorMapSerializer {
         dataItem.type === 'envHouse' ||
         dataItem.type === 'envCrate' ||
         dataItem.type === 'envGrass' ||
+        dataItem.type === 'envFlower' ||
         dataItem.type === 'envCloud' ||
         dataItem.type === 'envCustom'
       ) {

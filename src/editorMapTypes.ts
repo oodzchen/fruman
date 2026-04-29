@@ -21,6 +21,7 @@ export type MapEnvironmentObjectType =
   | 'house'
   | 'crate'
   | 'grass'
+  | 'flower'
   | 'cloud'
   | 'custom'
 
@@ -97,6 +98,7 @@ export type EditorTreeObjectType =
   | 'envHouse'
   | 'envCrate'
   | 'envGrass'
+  | 'envFlower'
   | 'envCloud'
   | 'envCustom'
 

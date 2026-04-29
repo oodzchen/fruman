@@ -84,6 +84,7 @@ export function buildMapObjectLayerLookup(
       type === 'envHouse' ||
       type === 'envCrate' ||
       type === 'envGrass' ||
+      type === 'envFlower' ||
       type === 'envCloud' ||
       type === 'envCustom'
     ) {

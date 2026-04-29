@@ -3141,8 +3141,9 @@ export class GameClient {
       const resolvedLayer = this.resolveEnvironmentRenderLayer(rawLayer)
       const renderX = obj.x * ppm - this.reusableEnvironmentAnchorOffset.x
       const renderY = obj.y * ppm - this.reusableEnvironmentAnchorOffset.y
-      if (obj.type === 'grass') {
+      if (obj.type === 'grass' || obj.type === 'flower') {
         const decoration = new InteractiveGrassDecoration({
+          type: obj.type,
           texture: textureEntry.texture,
           worldX: Math.round(obj.x * ppm),
           worldY: Math.round(obj.y * ppm),
@@ -3373,9 +3374,11 @@ export class GameClient {
                 ? 4
                 : obj.type === 'grass'
                   ? 5
-                  : obj.type === 'cloud'
+                  : obj.type === 'flower'
                     ? 6
-                    : 7
+                    : obj.type === 'cloud'
+                      ? 7
+                      : 8
       hash = this.mixTerrainSignatureValue(hash ^ Math.imul(typeCode, 0x19660d))
       if (obj.type === 'custom' && obj.assetId) {
         for (let j = 0; j < obj.assetId.length; j++) {

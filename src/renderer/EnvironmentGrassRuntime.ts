@@ -3,10 +3,15 @@ import { Container, Graphics, Sprite, type Texture } from 'pixi.js'
 import { DEFAULT_PLAYER_RADIUS } from '../constants'
 import { getTerrainMaterialById } from '../terrain/TerrainMaterialRegistry'
 import {
+  ENVIRONMENT_FLOWER_PETAL_OFFSETS,
+  ENVIRONMENT_FLOWER_PETAL_STRIDE,
   ENVIRONMENT_GRASS_BLADE_OFFSETS,
   ENVIRONMENT_GRASS_BLADE_STRIDE,
+  type EnvironmentFlowerLayout,
+  type EnvironmentFoliageType,
   type EnvironmentGrassLayout,
-  createEnvironmentGrassLayout,
+  createEnvironmentFoliageLayout,
+  isEnvironmentFlowerLayout,
 } from './ProceduralEnvironmentFactory'
 
 const GRASS_MATERIAL = getTerrainMaterialById('grass')
@@ -69,6 +74,7 @@ for (let i = 0; i < ANGLE_TABLE_SIZE; i++) {
 }
 
 export interface InteractiveGrassDecorationOptions {
+  type?: EnvironmentFoliageType
   texture: Texture
   worldX: number
   worldY: number
@@ -111,7 +117,8 @@ export class InteractiveGrassDecoration {
   private outsideElapsedMs = EXIT_RESET_MS
 
   constructor(options: InteractiveGrassDecorationOptions) {
-    this.layout = createEnvironmentGrassLayout(
+    this.layout = createEnvironmentFoliageLayout(
+      options.type ?? 'grass',
       options.seed,
       options.ppm,
       options.scaleXPermille,
@@ -564,6 +571,216 @@ export class InteractiveGrassDecoration {
         2
       )
       .fill(GRASS_FILL_COLORS[GRASS_FILL_COLORS.length - 1])
+
+    if (isEnvironmentFlowerLayout(this.layout)) {
+      this.drawFlowerHead(this.layout)
+    }
+  }
+
+  private drawFlowerHead(layout: EnvironmentFlowerLayout): void {
+    const bladeValues = layout.bladeValues
+    const stemOffset = layout.flowerStemBladeOffset
+    const responsePercent =
+      bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.RESPONSE]
+    const responsePermille = clamp(
+      1000 +
+        (responsePercent - RESPONSE_CENTER_PERCENT) *
+          RESPONSE_SCALE_PER_PERCENT,
+      RESPONSE_MIN_PERMILLE,
+      RESPONSE_MAX_PERMILLE
+    )
+    const phase =
+      bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.PHASE] -
+      PHASE_CENTER
+    const phaseAngleUnits = roundDiv(
+      this.bendVelocityUnits * phase,
+      PHASE_VELOCITY_DIVISOR
+    )
+    const stemAngleUnits = remapRenderAngleUnits(
+      clamp(
+        roundDiv(this.bendAngleUnits * responsePermille, 1000) +
+          phaseAngleUnits,
+        -MAX_RENDER_ANGLE_UNITS,
+        MAX_RENDER_ANGLE_UNITS
+      )
+    )
+    const tipAngleUnits = clamp(
+      roundDiv(
+        stemAngleUnits * TIP_SEGMENT_ANGLE_NUMERATOR,
+        TIP_SEGMENT_ANGLE_DENOMINATOR
+      ),
+      -MAX_RENDER_ANGLE_UNITS,
+      MAX_RENDER_ANGLE_UNITS
+    )
+    const baseX =
+      this.localCenterX +
+      bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_X]
+    const baseTipX =
+      bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_X] -
+      bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.BASE_X]
+    const baseShoulderY =
+      bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.SHOULDER_Y]
+    const baseTipY =
+      bladeValues[stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_Y]
+    const midLowerY =
+      baseShoulderY +
+      roundDiv(
+        (baseTipY - baseShoulderY) * MID_LOWER_Y_NUMERATOR,
+        MID_LOWER_Y_DENOMINATOR
+      )
+    const midUpperY =
+      baseShoulderY +
+      roundDiv(
+        (baseTipY - baseShoulderY) * MID_UPPER_Y_NUMERATOR,
+        MID_UPPER_Y_DENOMINATOR
+      )
+    const midLowerTipX = roundDiv(
+      baseTipX * MID_LOWER_TIP_X_NUMERATOR,
+      MID_LOWER_TIP_X_DENOMINATOR
+    )
+    const midUpperTipX = roundDiv(
+      baseTipX * MID_UPPER_TIP_X_NUMERATOR,
+      MID_UPPER_TIP_X_DENOMINATOR
+    )
+    const shoulderAngleUnits = roundDiv(
+      stemAngleUnits * LOWER_SEGMENT_ANGLE_NUMERATOR,
+      LOWER_SEGMENT_ANGLE_DENOMINATOR
+    )
+    const midLowerAngleUnits = roundDiv(
+      stemAngleUnits * MID_LOWER_SEGMENT_ANGLE_NUMERATOR,
+      MID_LOWER_SEGMENT_ANGLE_DENOMINATOR
+    )
+    const midUpperAngleUnits = roundDiv(
+      stemAngleUnits * MID_UPPER_SEGMENT_ANGLE_NUMERATOR,
+      MID_UPPER_SEGMENT_ANGLE_DENOMINATOR
+    )
+    const shoulderCenterX =
+      baseX + rotateX(0, baseShoulderY, shoulderAngleUnits)
+    const shoulderCenterY =
+      this.localCenterY + rotateY(0, baseShoulderY, shoulderAngleUnits)
+    const midLowerCenterX =
+      shoulderCenterX +
+      rotateX(midLowerTipX, midLowerY - baseShoulderY, midLowerAngleUnits)
+    const midLowerCenterY =
+      shoulderCenterY +
+      rotateY(midLowerTipX, midLowerY - baseShoulderY, midLowerAngleUnits)
+    const midUpperCenterX =
+      midLowerCenterX +
+      rotateX(
+        midUpperTipX - midLowerTipX,
+        midUpperY - midLowerY,
+        midUpperAngleUnits
+      )
+    const midUpperCenterY =
+      midLowerCenterY +
+      rotateY(
+        midUpperTipX - midLowerTipX,
+        midUpperY - midLowerY,
+        midUpperAngleUnits
+      )
+    const headX =
+      midUpperCenterX +
+      rotateX(baseTipX - midUpperTipX, baseTipY - midUpperY, tipAngleUnits)
+    const headY =
+      midUpperCenterY +
+      rotateY(baseTipX - midUpperTipX, baseTipY - midUpperY, tipAngleUnits)
+    const graphics = this.graphics
+    const petalValues = layout.petalValues
+
+    for (
+      let i = 0;
+      i < petalValues.length;
+      i += ENVIRONMENT_FLOWER_PETAL_STRIDE
+    ) {
+      const innerLeftX =
+        headX +
+        rotateX(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_Y],
+          tipAngleUnits
+        )
+      const innerLeftY =
+        headY +
+        rotateY(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_LEFT_Y],
+          tipAngleUnits
+        )
+      const sideLeftX =
+        headX +
+        rotateX(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_LEFT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_LEFT_Y],
+          tipAngleUnits
+        )
+      const sideLeftY =
+        headY +
+        rotateY(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_LEFT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_LEFT_Y],
+          tipAngleUnits
+        )
+      const tipX =
+        headX +
+        rotateX(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.TIP_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.TIP_Y],
+          tipAngleUnits
+        )
+      const tipY =
+        headY +
+        rotateY(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.TIP_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.TIP_Y],
+          tipAngleUnits
+        )
+      const sideRightX =
+        headX +
+        rotateX(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_RIGHT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_RIGHT_Y],
+          tipAngleUnits
+        )
+      const sideRightY =
+        headY +
+        rotateY(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_RIGHT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.SIDE_RIGHT_Y],
+          tipAngleUnits
+        )
+      const innerRightX =
+        headX +
+        rotateX(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_RIGHT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_RIGHT_Y],
+          tipAngleUnits
+        )
+      const innerRightY =
+        headY +
+        rotateY(
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_RIGHT_X],
+          petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.INNER_RIGHT_Y],
+          tipAngleUnits
+        )
+
+      graphics.moveTo(innerLeftX, innerLeftY)
+      graphics.quadraticCurveTo(sideLeftX, sideLeftY, tipX, tipY)
+      graphics.quadraticCurveTo(
+        sideRightX,
+        sideRightY,
+        innerRightX,
+        innerRightY
+      )
+      graphics.quadraticCurveTo(headX, headY, innerLeftX, innerLeftY)
+      graphics.closePath()
+      graphics.fill(petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.COLOR])
+    }
+
+    if (layout.hasStamen) {
+      graphics
+        .circle(headX, headY, layout.stamenRadius)
+        .fill(layout.stamenColor)
+    }
   }
 }
 

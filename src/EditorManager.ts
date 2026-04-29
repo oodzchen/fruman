@@ -3064,6 +3064,7 @@ export class EditorManager {
         node.type === 'envHouse' ||
         node.type === 'envCrate' ||
         node.type === 'envGrass' ||
+        node.type === 'envFlower' ||
         node.type === 'envCloud' ||
         node.type === 'envCustom'
       ) {
