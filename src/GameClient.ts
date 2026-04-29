@@ -130,6 +130,9 @@ type SleepTransitionPhase = 'idle' | 'closing' | 'closed' | 'opening'
 const PASS_THROUGH_GRASS_VOLUME = 0.72
 const GRASS_DYNAMIC_VIEW_PADDING_X_METERS = 4
 const GRASS_DYNAMIC_VIEW_PADDING_Y_METERS = 3
+const GRASS_INTERACTION_GRID_CELL_METERS = 3
+const GRASS_INTERACTION_GRID_KEY_OFFSET = 32768
+const GRASS_INTERACTION_GRID_KEY_MASK = 0xffff
 
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
@@ -147,6 +150,7 @@ export class GameClient {
   private static readonly PERF_LOG_WORKER_WARN_US = 12000
   private static readonly PERF_LOG_SYSTEM_WARN_US = 4000
   private static readonly PERF_LOG_STATIC_BUILD_WARN_US = 3000
+  private static readonly PERF_LOG_GRASS_WARN_US = 3000
   private static readonly ENVIRONMENT_TEXTURE_CACHE_LIMIT = 96
   private static readonly SLEEP_CLOSE_DURATION_MS = 640
   private static readonly SLEEP_BLACKOUT_DURATION_MS = 1000
@@ -180,6 +184,18 @@ export class GameClient {
   private staticTerrainGraphics: Container[] = []
   private staticEnvironmentSprites: Sprite[] = []
   private interactiveGrassDecorations: InteractiveGrassDecoration[] = []
+  private readonly interactiveGrassGrid = new Map<
+    number,
+    Map<number, InteractiveGrassDecoration[]>
+  >()
+  private grassDynamicInViewFlags = new Uint8Array(0)
+  private grassInteractionGridCellSizePx = Math.max(
+    1,
+    Math.round(
+      GameClient.DEFAULT_PIXELS_PER_METER * GRASS_INTERACTION_GRID_CELL_METERS
+    )
+  )
+  private grassInteractionQueryId = 1
   private pendingStaticTerrainGraphics: Container[] = []
   private pendingStaticTerrainGraphicLayers: number[] = []
   private staticTerrainSignature = 0
@@ -266,6 +282,21 @@ export class GameClient {
   private perfEnvironmentBuildCount = 0
   private perfEnvironmentCacheHits = 0
   private perfEnvironmentCacheMisses = 0
+  private perfGrassUpdateTotalUs = 0
+  private perfGrassUpdateAvgUs = 0
+  private perfGrassUpdateMaxUs = 0
+  private perfGrassCountTotal = 0
+  private perfGrassCountAvg = 0
+  private perfGrassInViewTotal = 0
+  private perfGrassInViewAvg = 0
+  private perfGrassInteractorTotal = 0
+  private perfGrassInteractorAvg = 0
+  private perfGrassCandidateTotal = 0
+  private perfGrassCandidateAvg = 0
+  private perfGrassInteractionTestTotal = 0
+  private perfGrassInteractionTestAvg = 0
+  private perfGrassDynamicTotal = 0
+  private perfGrassDynamicAvg = 0
   private lastRenderTimeUs = 0
   private lastWorldRenderTimeUs = 0
   private lastLightingTimeUs = 0
@@ -1885,6 +1916,25 @@ export class GameClient {
             this.perfEnvironmentBuildTotalUs / this.perfEnvironmentBuildCount
           )
         : 0
+    this.perfGrassUpdateAvgUs = Math.round(
+      this.perfGrassUpdateTotalUs / sampleCount
+    )
+    this.perfGrassCountAvg = Math.round(this.perfGrassCountTotal / sampleCount)
+    this.perfGrassInViewAvg = Math.round(
+      this.perfGrassInViewTotal / sampleCount
+    )
+    this.perfGrassInteractorAvg = Math.round(
+      this.perfGrassInteractorTotal / sampleCount
+    )
+    this.perfGrassCandidateAvg = Math.round(
+      this.perfGrassCandidateTotal / sampleCount
+    )
+    this.perfGrassInteractionTestAvg = Math.round(
+      this.perfGrassInteractionTestTotal / sampleCount
+    )
+    this.perfGrassDynamicAvg = Math.round(
+      this.perfGrassDynamicTotal / sampleCount
+    )
     if (this.perfDebugEnabled) {
       this.maybeEmitPerfLogs()
     }
@@ -1913,6 +1963,14 @@ export class GameClient {
     this.perfEnvironmentBuildCount = 0
     this.perfEnvironmentCacheHits = 0
     this.perfEnvironmentCacheMisses = 0
+    this.perfGrassUpdateTotalUs = 0
+    this.perfGrassUpdateMaxUs = 0
+    this.perfGrassCountTotal = 0
+    this.perfGrassInViewTotal = 0
+    this.perfGrassInteractorTotal = 0
+    this.perfGrassCandidateTotal = 0
+    this.perfGrassInteractionTestTotal = 0
+    this.perfGrassDynamicTotal = 0
   }
 
   private buildDebugOverlayText(): string {
@@ -1926,6 +1984,7 @@ export class GameClient {
       `${this.renderFps} FPS  frame ${this.formatUsAsMs(this.perfFrameAvgUs)} max ${this.formatUsAsMs(this.perfFrameMaxUs)}`,
       `main upd ${this.formatUsAsMs(this.perfUpdateAvgUs)}  world ${this.formatUsAsMs(this.perfWorldAvgUs)}  light ${this.formatUsAsMs(this.perfLightingAvgUs)}  scene ${this.formatUsAsMs(this.perfSceneRenderAvgUs)}  render ${this.formatUsAsMs(this.perfRenderAvgUs)}  ${workerSummary}`,
       `ent ${this.renderer.getEntityCount()} vis ${this.worldRenderer.getVisibleEntityCount()} ptc ${this.renderer.getActiveParticleCount()} spine ${this.worldRenderer.getActiveSpineCount()} static t ${this.pendingStaticTerrainTaskIndex}/${this.pendingStaticTerrainTaskTotal} e ${this.pendingStaticEnvironmentIndex}/${this.pendingStaticEnvironmentObjects?.length ?? 0}`,
+      `grass ${this.formatUsAsMs(this.perfGrassUpdateAvgUs)}/${this.formatUsAsMs(this.perfGrassUpdateMaxUs)} all ${this.perfGrassCountAvg} view ${this.perfGrassInViewAvg} actor ${this.perfGrassInteractorAvg} cand ${this.perfGrassCandidateAvg} test ${this.perfGrassInteractionTestAvg} dyn ${this.perfGrassDynamicAvg}`,
       `light fx ${this.lightingFilterApplied ? 'on' : 'off'} vis ${this.lightingController.getVisibleLightCount()} map ${this.lightingController.getMapLightCount()} renderer ${this.rendererLabel}`,
     ]
     if (this.workerPerfSnapshot) {
@@ -1958,13 +2017,13 @@ export class GameClient {
       }
     }
     if (bestIndex < 0) {
-      return `worker fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)}  sys n/a`
+      return `worker fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)}  crate ${snapshot.breakableCrateAwakeCount}/${snapshot.breakableCrateCount}/${snapshot.breakableCratePlankCount}  sys n/a`
     }
-    return `worker fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)}  sys ${snapshot.systemNames[bestIndex]} ${this.formatUsAsMs(snapshot.systemAvgUs[bestIndex] | 0)}`
+    return `worker fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)}  crate ${snapshot.breakableCrateAwakeCount}/${snapshot.breakableCrateCount}/${snapshot.breakableCratePlankCount}  sys ${snapshot.systemNames[bestIndex]} ${this.formatUsAsMs(snapshot.systemAvgUs[bestIndex] | 0)}`
   }
 
   private buildWorkerPerfLine(snapshot: WorkerPerfSnapshotMessage): string {
-    return `worker upd ${this.formatUsAsMs(snapshot.updateAvgUs)} max ${this.formatUsAsMs(snapshot.updateMaxUs)}  fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)} x${(snapshot.fixedStepsAvg100 / 100).toFixed(2)}  world ${this.formatUsAsMs(snapshot.worldUpdateAvgUs)}  send ${this.formatUsAsMs(snapshot.sendStateAvgUs)}`
+    return `worker upd ${this.formatUsAsMs(snapshot.updateAvgUs)} max ${this.formatUsAsMs(snapshot.updateMaxUs)}  fixed ${this.formatUsAsMs(snapshot.fixedAvgUs)} x${(snapshot.fixedStepsAvg100 / 100).toFixed(2)}  world ${this.formatUsAsMs(snapshot.worldUpdateAvgUs)}  send ${this.formatUsAsMs(snapshot.sendStateAvgUs)}  crate ${snapshot.breakableCrateAwakeCount}/${snapshot.breakableCrateCount}/${snapshot.breakableCratePlankCount}`
   }
 
   private buildWorkerSystemPerfLine(
@@ -2043,6 +2102,9 @@ export class GameClient {
       (workerSnapshot.updateAvgUs >= GameClient.PERF_LOG_WORKER_WARN_US ||
         workerSnapshot.worldUpdateAvgUs >= GameClient.PERF_LOG_WORLD_WARN_US ||
         workerTopSystemUs >= GameClient.PERF_LOG_SYSTEM_WARN_US)
+    const grassSlow =
+      this.perfGrassUpdateAvgUs >= GameClient.PERF_LOG_GRASS_WARN_US ||
+      this.perfGrassUpdateMaxUs >= GameClient.PERF_LOG_GRASS_WARN_US * 2
     const staticHeavy =
       (this.perfStaticBuildCount > 0 &&
         this.perfStaticBuildMaxUs >=
@@ -2057,10 +2119,11 @@ export class GameClient {
       queueStarted ||
       queueFinished ||
       staticHeavy ||
+      grassSlow ||
       mainSlow ||
       workerSlow ||
       (this.perfLogWindowsSinceEmit >= GameClient.PERF_LOG_HEARTBEAT_WINDOWS &&
-        (queueActive || mainSlow || workerSlow))
+        (queueActive || mainSlow || workerSlow || grassSlow))
 
     if (!shouldEmit) {
       return
@@ -2074,11 +2137,13 @@ export class GameClient {
           ? 'static-heavy'
           : lightingSlow
             ? 'lighting-slow'
-            : mainSlow
-              ? 'main-slow'
-              : workerSlow
-                ? 'worker-slow'
-                : 'heartbeat'
+            : grassSlow
+              ? 'grass-slow'
+              : mainSlow
+                ? 'main-slow'
+                : workerSlow
+                  ? 'worker-slow'
+                  : 'heartbeat'
     const voronoiPerf = getVoronoiBuildPerfSnapshot()
     const mainSummary =
       `reason=${reason} ` +
@@ -2087,6 +2152,7 @@ export class GameClient {
       `state=${this.formatUsAsMs(this.perfStateSyncAvgUs)} fx=${this.formatUsAsMs(this.perfEffectsApplyAvgUs)} ` +
       `static=${this.formatUsAsMs(this.perfStaticBuildAvgUs)}/${this.formatUsAsMs(this.perfStaticBuildMaxUs)} ` +
       `terrain=${this.formatUsAsMs(this.perfTerrainBuildAvgUs)} env=${this.formatUsAsMs(this.perfEnvironmentBuildAvgUs)} ` +
+      `grass=${this.formatUsAsMs(this.perfGrassUpdateAvgUs)}/${this.formatUsAsMs(this.perfGrassUpdateMaxUs)} all=${this.perfGrassCountAvg} view=${this.perfGrassInViewAvg} actor=${this.perfGrassInteractorAvg} cand=${this.perfGrassCandidateAvg} test=${this.perfGrassInteractionTestAvg} dyn=${this.perfGrassDynamicAvg} ` +
       `lights=${this.lightingController.getVisibleLightCount()}/${this.lightingController.getMapLightCount()} filter=${this.lightingFilterApplied ? 'on' : 'off'} ` +
       `queue=t${terrainQueueIndex}/${terrainQueueTotal} e${environmentQueueIndex}/${environmentQueueTotal} envCache=${this.perfEnvironmentCacheHits}/${this.perfEnvironmentCacheMisses} ` +
       `ent=${this.renderer.getEntityCount()} vis=${this.worldRenderer.getVisibleEntityCount()} ptc=${this.renderer.getActiveParticleCount()} spine=${this.worldRenderer.getActiveSpineCount()}`
@@ -2711,6 +2777,10 @@ export class GameClient {
       this.clearPendingStaticEnvironmentBuild()
 
       if (envObjects && envObjects.length > 0) {
+        this.grassInteractionGridCellSizePx = Math.max(
+          1,
+          Math.round(this.pixelsPerMeter * GRASS_INTERACTION_GRID_CELL_METERS)
+        )
         this.pendingStaticEnvironmentObjects = envObjects
         this.pendingStaticEnvironmentLayers = envLayers
         this.pendingStaticEnvironmentIndex = 0
@@ -2870,8 +2940,80 @@ export class GameClient {
       this.interactiveGrassDecorations[i].destroy()
     }
     this.interactiveGrassDecorations.length = 0
+    this.interactiveGrassGrid.clear()
+    this.grassDynamicInViewFlags = new Uint8Array(0)
     this.grassInteractorPrevX.clear()
     this.grassInteractorPrevY.clear()
+  }
+
+  private insertInteractiveGrassDecoration(
+    decoration: InteractiveGrassDecoration
+  ): void {
+    const layerGrid = this.getInteractiveGrassLayerGrid(decoration.getLayer())
+    const cellSize = this.grassInteractionGridCellSizePx
+    const centerX = decoration.getRenderX()
+    const centerY = decoration.getRenderY()
+    const radius = decoration.getInteractionRadiusPx()
+    const minCellX = this.getGrassGridCellCoord(centerX - radius, cellSize)
+    const maxCellX = this.getGrassGridCellCoord(centerX + radius, cellSize)
+    const minCellY = this.getGrassGridCellCoord(centerY - radius, cellSize)
+    const maxCellY = this.getGrassGridCellCoord(centerY + radius, cellSize)
+
+    for (let cellY = minCellY; cellY <= maxCellY; cellY++) {
+      for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+        const key = this.getGrassGridCellKey(cellX, cellY)
+        let bucket = layerGrid.get(key)
+        if (!bucket) {
+          bucket = []
+          layerGrid.set(key, bucket)
+        }
+        bucket.push(decoration)
+      }
+    }
+  }
+
+  private getInteractiveGrassLayerGrid(
+    layer: number
+  ): Map<number, InteractiveGrassDecoration[]> {
+    let layerGrid = this.interactiveGrassGrid.get(layer)
+    if (!layerGrid) {
+      layerGrid = new Map<number, InteractiveGrassDecoration[]>()
+      this.interactiveGrassGrid.set(layer, layerGrid)
+    }
+    return layerGrid
+  }
+
+  private getGrassGridCellCoord(value: number, cellSize: number): number {
+    return Math.floor(value / cellSize)
+  }
+
+  private getGrassGridCellKey(cellX: number, cellY: number): number {
+    const keyX =
+      (cellX + GRASS_INTERACTION_GRID_KEY_OFFSET) &
+      GRASS_INTERACTION_GRID_KEY_MASK
+    const keyY =
+      (cellY + GRASS_INTERACTION_GRID_KEY_OFFSET) &
+      GRASS_INTERACTION_GRID_KEY_MASK
+    return keyX | (keyY << 16) | 0
+  }
+
+  private ensureGrassDynamicInViewCapacity(size: number): void {
+    if (this.grassDynamicInViewFlags.length >= size) {
+      return
+    }
+    let nextSize = Math.max(32, this.grassDynamicInViewFlags.length)
+    while (nextSize < size) {
+      nextSize <<= 1
+    }
+    this.grassDynamicInViewFlags = new Uint8Array(nextSize)
+  }
+
+  private nextGrassInteractionQueryId(): number {
+    this.grassInteractionQueryId = (this.grassInteractionQueryId + 1) | 0
+    if (this.grassInteractionQueryId <= 0) {
+      this.grassInteractionQueryId = 1
+    }
+    return this.grassInteractionQueryId
   }
 
   private preparePendingStaticTerrainBuild(
@@ -3165,7 +3307,9 @@ export class GameClient {
           decoration.root,
           resolvedLayer
         )
+        decoration.setRuntimeIndex(this.interactiveGrassDecorations.length)
         this.interactiveGrassDecorations.push(decoration)
+        this.insertInteractiveGrassDecoration(decoration)
         this.recordEnvironmentBuildTime(envBuildStartMs)
         if (
           this.pendingStaticEnvironmentIndex < envObjects.length &&
@@ -3528,12 +3672,37 @@ export class GameClient {
     return (mixed ^ (mixed >>> 16)) >>> 0
   }
 
+  private recordInteractiveGrassPerf(
+    startMs: number,
+    grassCount: number,
+    inViewCount: number,
+    interactorCount: number,
+    candidateCount: number,
+    interactionTestCount: number,
+    dynamicCount: number
+  ): void {
+    const elapsedUs = Math.round((performance.now() - startMs) * 1000)
+    this.perfGrassUpdateTotalUs += elapsedUs
+    if (elapsedUs > this.perfGrassUpdateMaxUs) {
+      this.perfGrassUpdateMaxUs = elapsedUs
+    }
+    this.perfGrassCountTotal += grassCount
+    this.perfGrassInViewTotal += inViewCount
+    this.perfGrassInteractorTotal += interactorCount
+    this.perfGrassCandidateTotal += candidateCount
+    this.perfGrassInteractionTestTotal += interactionTestCount
+    this.perfGrassDynamicTotal += dynamicCount
+  }
+
   private updateInteractiveGrass(deltaMs: number): void {
+    const perfStartMs = performance.now()
     const grassCount = this.interactiveGrassDecorations.length
     if (grassCount <= 0) {
+      this.recordInteractiveGrassPerf(perfStartMs, 0, 0, 0, 0, 0, 0)
       return
     }
 
+    this.ensureGrassDynamicInViewCapacity(grassCount)
     const hasPlayer = this.renderer.hasPlayerPosition()
     const playerX = hasPlayer
       ? Math.round(this.renderer.getPlayerWorldX() * this.pixelsPerMeter)
@@ -3557,6 +3726,10 @@ export class GameClient {
       this.pixelsPerMeter * GRASS_DYNAMIC_VIEW_PADDING_Y_METERS
     )
     const interactorCount = this.collectGrassInteractors()
+    let inViewCount = 0
+    let candidateCount = 0
+    let interactionTestCount = 0
+    let dynamicCount = 0
 
     for (let i = 0; i < grassCount; i++) {
       const decoration = this.interactiveGrassDecorations[i]
@@ -3569,9 +3742,49 @@ export class GameClient {
         screenX <= width + paddingX &&
         screenY >= -paddingY &&
         screenY <= height + paddingY
-      decoration.beginFrame()
+      this.grassDynamicInViewFlags[i] = dynamicInView ? 1 : 0
       if (dynamicInView) {
-        for (let actorIndex = 0; actorIndex < interactorCount; actorIndex++) {
+        inViewCount++
+      }
+      decoration.beginFrame()
+    }
+
+    if (interactorCount > 0 && inViewCount > 0) {
+      const cellSize = this.grassInteractionGridCellSizePx
+      for (let actorIndex = 0; actorIndex < interactorCount; actorIndex++) {
+        const layerGrid = this.interactiveGrassGrid.get(
+          this.grassInteractorLayer[actorIndex]
+        )
+        if (!layerGrid) {
+          continue
+        }
+        const cellX = this.getGrassGridCellCoord(
+          this.grassInteractorX[actorIndex],
+          cellSize
+        )
+        const cellY = this.getGrassGridCellCoord(
+          this.grassInteractorY[actorIndex],
+          cellSize
+        )
+        const bucket = layerGrid.get(this.getGrassGridCellKey(cellX, cellY))
+        if (!bucket || bucket.length === 0) {
+          continue
+        }
+        const queryId = this.nextGrassInteractionQueryId()
+        for (let i = 0; i < bucket.length; i++) {
+          const decoration = bucket[i]
+          if (!decoration.tryMarkInteractorQuery(queryId)) {
+            continue
+          }
+          const decorationIndex = decoration.getRuntimeIndex()
+          if (
+            decorationIndex < 0 ||
+            this.grassDynamicInViewFlags[decorationIndex] === 0
+          ) {
+            continue
+          }
+          candidateCount++
+          interactionTestCount++
           const playSound = decoration.interact(
             this.grassInteractorX[actorIndex],
             this.grassInteractorY[actorIndex],
@@ -3597,8 +3810,28 @@ export class GameClient {
           }
         }
       }
-      decoration.finishFrame(deltaMs, dynamicInView)
     }
+
+    for (let i = 0; i < grassCount; i++) {
+      if (
+        this.interactiveGrassDecorations[i].finishFrame(
+          deltaMs,
+          this.grassDynamicInViewFlags[i] === 1
+        )
+      ) {
+        dynamicCount++
+      }
+    }
+
+    this.recordInteractiveGrassPerf(
+      perfStartMs,
+      grassCount,
+      inViewCount,
+      interactorCount,
+      candidateCount,
+      interactionTestCount,
+      dynamicCount
+    )
   }
 
   private collectGrassInteractors(): number {

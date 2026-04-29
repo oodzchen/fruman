@@ -247,6 +247,9 @@ export type WorkerPerfSnapshotMessage = {
   cameraAvgUs: number
   sendStateAvgUs: number
   entityCount: number
+  breakableCrateCount: number
+  breakableCrateAwakeCount: number
+  breakableCratePlankCount: number
   systemNames: string[]
   systemAvgUs: number[]
   systemMaxUs: number[]

@@ -402,6 +402,7 @@ interface BreakableCrateRuntime {
   fallStartY1000: number
   fallContactCount: number
   fallSolidContactCount: number
+  sleepSynced: boolean
   hitObstacleIndex: number
   hitLocalCenterX: number
   hitLocalCenterY: number
@@ -1341,6 +1342,9 @@ const perfSnapshotMessage: WorkerPerfSnapshotMessage = {
   cameraAvgUs: 0,
   sendStateAvgUs: 0,
   entityCount: 0,
+  breakableCrateCount: 0,
+  breakableCrateAwakeCount: 0,
+  breakableCratePlankCount: 0,
   systemNames: [],
   systemAvgUs: [],
   systemMaxUs: [],
@@ -1546,6 +1550,14 @@ function postWorkerPerfSnapshot(entityCount: number): void {
   const systemAvgUs = perfSnapshotMessage.systemAvgUs
   const systemMaxUs = perfSnapshotMessage.systemMaxUs
   const systemNames = perfSnapshotMessage.systemNames
+  let breakableCratePlankCount = 0
+  let breakableCrateAwakeCount = 0
+  for (const crate of breakableCrates.values()) {
+    breakableCratePlankCount += crate.planks.length
+    if (box2d?.b2Body_IsAwake(crate.bodyId)) {
+      breakableCrateAwakeCount++
+    }
+  }
   const fixedCount = workerPerfFixedCount > 0 ? workerPerfFixedCount : 1
   const updateCount = workerPerfUpdateCount > 0 ? workerPerfUpdateCount : 1
   perfSnapshotMessage.updateAvgUs = Math.round(
@@ -1583,6 +1595,9 @@ function postWorkerPerfSnapshot(entityCount: number): void {
       (workerPerfSendStateCount > 0 ? workerPerfSendStateCount : 1)
   )
   perfSnapshotMessage.entityCount = entityCount
+  perfSnapshotMessage.breakableCrateCount = breakableCrates.size
+  perfSnapshotMessage.breakableCrateAwakeCount = breakableCrateAwakeCount
+  perfSnapshotMessage.breakableCratePlankCount = breakableCratePlankCount
 
   systemNames.length = workerPerfSystemNames.length
   systemAvgUs.length = workerPerfSystemNames.length
@@ -2592,6 +2607,10 @@ function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
   if (!box2d || crate.destroyed) {
     return
   }
+  const isAwake = box2d.b2Body_IsAwake(crate.bodyId)
+  if (!isAwake && crate.sleepSynced) {
+    return
+  }
   const position = box2d.b2Body_GetPosition(crate.bodyId)
   const rotation = box2d.b2Body_GetRotation(crate.bodyId)
   const velocity = box2d.b2Body_GetLinearVelocity(crate.bodyId)
@@ -2617,7 +2636,8 @@ function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
       hitCenterY,
       crate.hitHalfWidth,
       crate.hitHalfHeight,
-      angle
+      angle,
+      hitObstacle.worldVertices
     )
   }
 
@@ -2641,7 +2661,8 @@ function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
         worldY,
         plank.halfWidth,
         plank.halfHeight,
-        angle
+        angle,
+        obstacle.worldVertices
       )
     }
 
@@ -2653,6 +2674,7 @@ function syncBreakableCrateRuntime(crate: BreakableCrateRuntime): void {
     }
   }
 
+  crate.sleepSynced = !isAwake
   position.delete()
   rotation.delete()
   velocity.delete()
@@ -2854,6 +2876,7 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
       fallStartY1000: 0,
       fallContactCount: 0,
       fallSolidContactCount: 0,
+      sleepSynced: false,
       hitObstacleIndex: -1,
       hitLocalCenterX: crateHitLocalCenterX,
       hitLocalCenterY: crateHitLocalCenterY,
@@ -4880,25 +4903,72 @@ function computeRectWorldVertices(
   centerY: number,
   halfWidth: number,
   halfHeight: number,
-  rotationRad: number
+  rotationRad: number,
+  target?: { x: number; y: number }[]
 ): { x: number; y: number }[] {
   const cos = Math.cos(rotationRad)
   const sin = Math.sin(rotationRad)
-  const corners = [
-    { x: -halfWidth, y: -halfHeight },
-    { x: halfWidth, y: -halfHeight },
-    { x: halfWidth, y: halfHeight },
-    { x: -halfWidth, y: halfHeight },
-  ]
-  const world: { x: number; y: number }[] = []
-  for (let i = 0; i < corners.length; i++) {
-    const localX = corners[i].x
-    const localY = corners[i].y
-    const worldX = centerX + localX * cos - localY * sin
-    const worldY = centerY + localX * sin + localY * cos
-    world.push({ x: worldX, y: worldY })
-  }
+  const world =
+    target && target.length >= 4
+      ? target
+      : [
+          { x: 0, y: 0 },
+          { x: 0, y: 0 },
+          { x: 0, y: 0 },
+          { x: 0, y: 0 },
+        ]
+  world.length = 4
+
+  writeRectWorldVertex(
+    world[0],
+    centerX,
+    centerY,
+    -halfWidth,
+    -halfHeight,
+    cos,
+    sin
+  )
+  writeRectWorldVertex(
+    world[1],
+    centerX,
+    centerY,
+    halfWidth,
+    -halfHeight,
+    cos,
+    sin
+  )
+  writeRectWorldVertex(
+    world[2],
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    cos,
+    sin
+  )
+  writeRectWorldVertex(
+    world[3],
+    centerX,
+    centerY,
+    -halfWidth,
+    halfHeight,
+    cos,
+    sin
+  )
   return world
+}
+
+function writeRectWorldVertex(
+  target: { x: number; y: number },
+  centerX: number,
+  centerY: number,
+  localX: number,
+  localY: number,
+  cos: number,
+  sin: number
+): void {
+  target.x = centerX + localX * cos - localY * sin
+  target.y = centerY + localX * sin + localY * cos
 }
 
 function applyWeaponSlotConfig(
