@@ -47,6 +47,7 @@ export interface CheckpointTreeTextureOptions {
   leafColor: string
   trunkColor: string
   glow: boolean
+  cellStroke?: boolean
 }
 
 export function createCheckpointTreeTextureSource(
@@ -150,13 +151,15 @@ export function createCheckpointTreeTextureSource(
   )
 
   const standaloneOpts: VoronoiLayerBuildOptions = { expandNeighbors: false }
+  const drawCellStroke = options.cellStroke === true
   drawVoronoiLayer(
     ctx,
     trunkLayer,
     cellSize,
     trunkStyle,
     WOOD_MATERIAL_CODE,
-    standaloneOpts
+    standaloneOpts,
+    drawCellStroke
   )
   drawVoronoiLayer(
     ctx,
@@ -164,7 +167,8 @@ export function createCheckpointTreeTextureSource(
     cellSize,
     leafStyle,
     LEAVES_MATERIAL_CODE,
-    standaloneOpts
+    standaloneOpts,
+    drawCellStroke
   )
 
   if (options.glow) {
@@ -227,7 +231,8 @@ export function drawVoronoiLayer(
   cellSize: number,
   style: TintedMaterialStyle,
   materialCode: number,
-  options?: VoronoiLayerBuildOptions
+  options?: VoronoiLayerBuildOptions,
+  drawStroke = false
 ): void {
   const build = getVoronoiLayerBuild(layer, cellSize, options)
   for (let cellIndex = 0; cellIndex < build.cells.length; cellIndex++) {
@@ -250,9 +255,11 @@ export function drawVoronoiLayer(
     ctx.closePath()
     ctx.fillStyle = style.fillPalette[paletteIndex]
     ctx.fill()
-    ctx.strokeStyle = style.strokeColor
-    ctx.lineWidth = 1
-    ctx.stroke()
+    if (drawStroke) {
+      ctx.strokeStyle = style.strokeColor
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
   }
 }
 

@@ -131,6 +131,7 @@ export type WeaponMarker = fabric.Group & {
 
 export type CheckpointMarker = fabric.Object & {
   editorShape: 'checkpoint-marker'
+  cellStroke: boolean
 }
 
 export type HookAnchorMarker = fabric.Group & {
@@ -273,6 +274,7 @@ export interface WeaponMarkerData {
 
 export interface CheckpointMarkerData {
   marker: CheckpointMarker
+  cellStroke: boolean
 }
 
 export interface HookAnchorMarkerData {
@@ -306,6 +308,7 @@ export type EnvironmentMarker = fabric.Object & {
   anchorDY: number
   scaleXPermille: number
   scaleYPermille: number
+  cellStroke: boolean
 }
 
 export interface EnvironmentMarkerData {
@@ -313,6 +316,7 @@ export interface EnvironmentMarkerData {
   envType: MapEnvironmentObjectType
   envSeed: number
   envAssetId: string
+  cellStroke: boolean
 }
 
 export interface EditorMap {

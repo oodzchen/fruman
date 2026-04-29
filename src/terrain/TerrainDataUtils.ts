@@ -16,6 +16,7 @@ export interface TerrainResolvedLayerView extends TerrainDataLike {
   materialId?: TerrainMaterialId
   renderLayer?: number
   buildRevision?: number
+  cellStroke?: boolean
   sourceLayer?: TerrainLayerLike
   layers?: undefined
   contourClipPoints?: readonly number[]
@@ -53,10 +54,11 @@ export function getTerrainLayerViews(
     const layers = new Array<TerrainResolvedLayerView>(terrain.layers.length)
     for (let i = 0; i < terrain.layers.length; i++) {
       const layer = terrain.layers[i]
+      let contour: TerrainContourLike | undefined
       let contourClipPoints: readonly number[] | undefined
       let contourBuildRevision: number | undefined
       if (layer.contourId && contourMap) {
-        const contour = contourMap.get(layer.contourId)
+        contour = contourMap.get(layer.contourId)
         const useStraightEdge =
           contour?.straightEdge !== false &&
           (contour?.straightEdge === true || contour?.shapeKind != null)
@@ -69,7 +71,8 @@ export function getTerrainLayerViews(
         terrain,
         layer,
         contourClipPoints,
-        contourBuildRevision
+        contourBuildRevision,
+        contour
       )
     }
     return layers
@@ -190,7 +193,8 @@ function createLayerView(
   terrain: TerrainDataLike,
   layer: TerrainLayerLike,
   contourClipPoints?: readonly number[],
-  contourBuildRevision?: number
+  contourBuildRevision?: number,
+  contour?: TerrainContourLike
 ): TerrainResolvedLayerView {
   return {
     version: terrain.version,
@@ -205,6 +209,7 @@ function createLayerView(
     materialId: layer.materialId,
     renderLayer: layer.renderLayer,
     buildRevision: layer.buildRevision,
+    cellStroke: contour?.cellStroke === true || layer.cellStroke === true,
     sourceLayer: layer,
     contourClipPoints,
     contourBuildRevision,

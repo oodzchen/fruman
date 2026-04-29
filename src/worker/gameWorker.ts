@@ -3998,7 +3998,8 @@ function createCheckpointsFromMap(map: EditorMapData): void {
     createCheckpointEntity(
       checkpoint.x,
       checkpoint.y,
-      getCheckpointRenderLayer(i)
+      getCheckpointRenderLayer(i),
+      checkpoint.cellStroke === true
     )
   }
 }
@@ -4006,7 +4007,8 @@ function createCheckpointsFromMap(map: EditorMapData): void {
 function createCheckpointEntity(
   x: number,
   y: number,
-  renderLayer: number
+  renderLayer: number,
+  cellStroke: boolean
 ): void {
   if (!world) return
   const entity = world.createEntity()
@@ -4021,6 +4023,7 @@ function createCheckpointEntity(
   render.borderColor = CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE
   render.visible = true
   render.renderLayer = renderLayer
+  render.cellStroke = cellStroke
   entity.addComponent(render)
 
   const checkpoint = new CheckpointComponent()
@@ -7088,6 +7091,9 @@ function sendState() {
     if (e.stats && e.stats.healthBarTimerMs > 0) flags |= FLAGS.HEALTH_BAR_FLASH
     if (e.weapon?.isBlocking) flags |= FLAGS.WEAPON_BLOCKING
     if (e.checkpoint) flags |= FLAGS.CHECKPOINT
+    if (e.checkpoint && e.render?.cellStroke === true) {
+      flags |= FLAGS.CHECKPOINT_CELL_STROKE
+    }
     if (e.grapple?.hasGrapple) flags |= FLAGS.GRAPPLE_READY
     if (e.grappleAnchor) flags |= FLAGS.GRAPPLE_ANCHOR
     if (e.sunPickup) {

@@ -38,6 +38,7 @@ import {
 } from '../environmentTransformUtils'
 import { resolveNpcBodyProfile } from '../npcBodyProfileUtils'
 import { buildDefaultNpcDropList, normalizeNpcDropList } from '../npcDropUtils'
+import { isEnvironmentCellStrokeSupported } from '../renderer/ProceduralEnvironmentFactory'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
 import type {
@@ -518,6 +519,74 @@ export class EditorMarkerManager {
     marker.top = center.y
     marker.setCoords()
     this.ctx.requestRender()
+    return true
+  }
+
+  isProceduralCellStrokeSupported(object: fabric.Object | null): boolean {
+    if (this.isCheckpointMarker(object)) {
+      return true
+    }
+    return (
+      this.isEnvironmentMarker(object) &&
+      isEnvironmentCellStrokeSupported(object.envType)
+    )
+  }
+
+  getProceduralCellStroke(object: fabric.Object | null): boolean | null {
+    if (this.isCheckpointMarker(object)) {
+      const data = this.checkpointMarkerMap.get(object)
+      return data ? data.cellStroke === true : object.cellStroke === true
+    }
+    if (!this.isEnvironmentMarker(object)) {
+      return null
+    }
+    if (!isEnvironmentCellStrokeSupported(object.envType)) {
+      return null
+    }
+    const data = this.environmentMarkerMap.get(object)
+    return data ? data.cellStroke === true : object.cellStroke === true
+  }
+
+  setProceduralCellStroke(
+    object: fabric.Object | null,
+    cellStroke: boolean
+  ): boolean {
+    if (this.isCheckpointMarker(object)) {
+      const nextCellStroke = cellStroke === true
+      if ((object.cellStroke === true) === nextCellStroke) {
+        return false
+      }
+      object.cellStroke = nextCellStroke
+      const data = this.checkpointMarkerMap.get(object)
+      if (data) {
+        data.cellStroke = nextCellStroke
+      }
+      const center = object.getCenterPoint()
+      this.objectFactory.refreshCheckpointMarkerTexture(object)
+      object.left = center.x
+      object.top = center.y
+      object.setCoords()
+      this.ctx.requestRender()
+      return true
+    }
+
+    if (
+      !this.isEnvironmentMarker(object) ||
+      !isEnvironmentCellStrokeSupported(object.envType)
+    ) {
+      return false
+    }
+
+    const nextCellStroke = cellStroke === true
+    if ((object.cellStroke === true) === nextCellStroke) {
+      return false
+    }
+    object.cellStroke = nextCellStroke
+    const data = this.environmentMarkerMap.get(object)
+    if (data) {
+      data.cellStroke = nextCellStroke
+    }
+    this.refreshEnvironmentMarkerTexture(object)
     return true
   }
 
@@ -1244,14 +1313,16 @@ export class EditorMarkerManager {
 
     const ObjectTypeCheckpoint = 'checkpoint' as ObjectType
 
-    const marker =
-      this.objectFactory.createCheckpointMarker() as CheckpointMarker
+    const cellStroke = spawn?.cellStroke === true
+    const marker = this.objectFactory.createCheckpointMarker(
+      cellStroke
+    ) as CheckpointMarker
     marker.left = centerX
     marker.top = centerY
     marker.setCoords()
     canvas.add(marker)
     this.ctx.registerEditorObject(ObjectTypeCheckpoint, marker)
-    const checkpointData: CheckpointMarkerData = { marker }
+    const checkpointData: CheckpointMarkerData = { marker, cellStroke }
     this.checkpointMarkers.push(checkpointData)
     this.checkpointMarkerMap.set(marker, checkpointData)
     this.finalizeMarkerSpawn(canvas, marker, options)
@@ -1381,12 +1452,15 @@ export class EditorMarkerManager {
     const rotationDeg = getEnvironmentRotationDeg(spawn ?? {})
     const scaleXPermille = getEnvironmentScaleXPermille(spawn ?? {})
     const scaleYPermille = getEnvironmentScaleYPermille(spawn ?? {})
+    const cellStroke =
+      isEnvironmentCellStrokeSupported(envType) && spawn?.cellStroke === true
     const marker = this.objectFactory.createEnvironmentMarkerWithScale(
       envType,
       envSeed,
       scaleXPermille,
       scaleYPermille,
-      envAssetId
+      envAssetId,
+      cellStroke
     ) as EnvironmentMarker
     marker.angle = rotationDeg
     writeEnvironmentTransformedOffset(
@@ -1407,6 +1481,7 @@ export class EditorMarkerManager {
       envType,
       envSeed,
       envAssetId,
+      cellStroke,
     }
     this.environmentMarkers.push(envData)
     this.environmentMarkerMap.set(marker, envData)

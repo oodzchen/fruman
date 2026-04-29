@@ -245,6 +245,13 @@ export interface EditorPropertiesPanelContext {
     target: fabric.Object,
     straightEdge: boolean
   ) => boolean
+  getTerrainCellStroke: (target: fabric.Object) => boolean | null
+  setTerrainCellStroke: (target: fabric.Object, cellStroke: boolean) => boolean
+  getProceduralCellStroke: (target: fabric.Object) => boolean | null
+  setProceduralCellStroke: (
+    target: fabric.Object,
+    cellStroke: boolean
+  ) => boolean
 }
 
 export class EditorPropertiesPanel {
@@ -3045,7 +3052,8 @@ export class EditorPropertiesPanel {
     target: fabric.Object
   ): Promise<boolean> {
     const straightEdgeValue = this.context.getTerrainStraightEdge(target)
-    if (straightEdgeValue === null) {
+    const cellStrokeValue = this.context.getTerrainCellStroke(target)
+    if (straightEdgeValue === null && cellStrokeValue === null) {
       return false
     }
 
@@ -3056,22 +3064,49 @@ export class EditorPropertiesPanel {
       dialog
 
     previewCanvas.style.display = 'none'
-    const straightEdgeRow = EditorUIHelper.createFormRow(
-      localizer.t('editor_terrain_properties_straight_edge')
-    )
-    const straightEdgeCheckbox = document.createElement('input')
-    straightEdgeCheckbox.type = 'checkbox'
-    straightEdgeCheckbox.checked = straightEdgeValue
-    straightEdgeRow.row.appendChild(straightEdgeCheckbox)
-    leftPanel.appendChild(straightEdgeRow.row)
+    let straightEdgeCheckbox: HTMLInputElement | null = null
+    if (straightEdgeValue !== null) {
+      const straightEdgeRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_terrain_properties_straight_edge')
+      )
+      straightEdgeCheckbox = document.createElement('input')
+      straightEdgeCheckbox.type = 'checkbox'
+      straightEdgeCheckbox.checked = straightEdgeValue
+      straightEdgeRow.row.appendChild(straightEdgeCheckbox)
+      leftPanel.appendChild(straightEdgeRow.row)
+    }
 
-    const straightEdgeHint = document.createElement('div')
-    straightEdgeHint.textContent = localizer.t(
-      'editor_terrain_properties_straight_edge_hint'
-    )
-    straightEdgeHint.style.cssText =
-      'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
-    rightPanel.appendChild(straightEdgeHint)
+    let cellStrokeCheckbox: HTMLInputElement | null = null
+    if (cellStrokeValue !== null) {
+      const cellStrokeRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_terrain_properties_cell_stroke')
+      )
+      cellStrokeCheckbox = document.createElement('input')
+      cellStrokeCheckbox.type = 'checkbox'
+      cellStrokeCheckbox.checked = cellStrokeValue
+      cellStrokeRow.row.appendChild(cellStrokeCheckbox)
+      leftPanel.appendChild(cellStrokeRow.row)
+    }
+
+    if (straightEdgeValue !== null) {
+      const straightEdgeHint = document.createElement('div')
+      straightEdgeHint.textContent = localizer.t(
+        'editor_terrain_properties_straight_edge_hint'
+      )
+      straightEdgeHint.style.cssText =
+        'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+      rightPanel.appendChild(straightEdgeHint)
+    }
+
+    if (cellStrokeValue !== null) {
+      const cellStrokeHint = document.createElement('div')
+      cellStrokeHint.textContent = localizer.t(
+        'editor_terrain_properties_cell_stroke_hint'
+      )
+      cellStrokeHint.style.cssText =
+        'margin-top:8px;font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+      rightPanel.appendChild(cellStrokeHint)
+    }
 
     const buttonRow = EditorUIHelper.createButtonRow()
     const confirmBtn = EditorUIHelper.createButton(
@@ -3098,9 +3133,96 @@ export class EditorPropertiesPanel {
       }
 
       confirmBtn.addEventListener('click', () => {
-        const changed = this.context.setTerrainStraightEdge(
+        let changed = false
+        if (straightEdgeCheckbox) {
+          changed =
+            this.context.setTerrainStraightEdge(
+              target,
+              straightEdgeCheckbox.checked
+            ) || changed
+        }
+        if (cellStrokeCheckbox) {
+          changed =
+            this.context.setTerrainCellStroke(
+              target,
+              cellStrokeCheckbox.checked
+            ) || changed
+        }
+        if (changed) {
+          this.context.requestRender()
+        }
+        finish(changed)
+      })
+
+      cancelBtn.addEventListener('click', () => finish(false))
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+          finish(false)
+        }
+      })
+    })
+  }
+
+  public async showProceduralTexturePropertiesDialog(
+    target: fabric.Object
+  ): Promise<boolean> {
+    const cellStrokeValue = this.context.getProceduralCellStroke(target)
+    if (cellStrokeValue === null) {
+      return false
+    }
+
+    const dialog = EditorUIHelper.createPropertiesDialog(
+      localizer.t('editor_terrain_properties_title')
+    )
+    const { leftPanel, rightPanel, footerPanel, previewCanvas, modal, close } =
+      dialog
+
+    previewCanvas.style.display = 'none'
+    const cellStrokeRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_terrain_properties_cell_stroke')
+    )
+    const cellStrokeCheckbox = document.createElement('input')
+    cellStrokeCheckbox.type = 'checkbox'
+    cellStrokeCheckbox.checked = cellStrokeValue
+    cellStrokeRow.row.appendChild(cellStrokeCheckbox)
+    leftPanel.appendChild(cellStrokeRow.row)
+
+    const cellStrokeHint = document.createElement('div')
+    cellStrokeHint.textContent = localizer.t(
+      'editor_procedural_properties_cell_stroke_hint'
+    )
+    cellStrokeHint.style.cssText =
+      'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+    rightPanel.appendChild(cellStrokeHint)
+
+    const buttonRow = EditorUIHelper.createButtonRow()
+    const confirmBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_confirm'),
+      { primary: true }
+    )
+    const cancelBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_cancel')
+    )
+    buttonRow.appendChild(confirmBtn)
+    buttonRow.appendChild(cancelBtn)
+    footerPanel.appendChild(buttonRow)
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return false
+    }
+    return await new Promise<boolean>((resolve) => {
+      dialog.show(viewport)
+
+      const finish = (changed: boolean) => {
+        close()
+        resolve(changed)
+      }
+
+      confirmBtn.addEventListener('click', () => {
+        const changed = this.context.setProceduralCellStroke(
           target,
-          straightEdgeCheckbox.checked
+          cellStrokeCheckbox.checked
         )
         if (changed) {
           this.context.requestRender()

@@ -1,6 +1,7 @@
-export const TERRAIN_DATA_VERSION = 4
+export const TERRAIN_DATA_VERSION = 5
 export const TERRAIN_CHUNK_SIZE = 16
-export const TERRAIN_CELL_SIZE_METERS = 0.5
+export const LEGACY_TERRAIN_CELL_SIZE_METERS = 0.5
+export const TERRAIN_CELL_SIZE_METERS = 1
 export const DEFAULT_TERRAIN_RANDOM_SEED = 1
 export const VORONOI_SITE_JITTER_SCALE = 256
 
@@ -52,6 +53,7 @@ export interface TerrainContourLike {
   renderLayer?: number
   shapeKind?: TerrainContourShapeKind
   straightEdge?: boolean
+  cellStroke?: boolean
   buildRevision?: number
 }
 
@@ -71,6 +73,7 @@ export interface TerrainLayerLike {
   materialId?: TerrainMaterialId
   renderLayer?: number
   contourId?: number
+  cellStroke?: boolean
   buildRevision?: number
   chunks: ReadonlyArray<TerrainChunkLike>
 }
@@ -105,7 +108,7 @@ export interface MapTerrainLayer extends TerrainLayerLike {
 }
 
 export interface MapTerrainData extends TerrainDataLike {
-  version: 1 | 2 | 3 | 4
+  version: 1 | 2 | 3 | 4 | 5
   chunks: MapTerrainChunk[]
   layers?: MapTerrainLayer[]
   contours?: TerrainContourLike[]

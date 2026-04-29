@@ -11,10 +11,14 @@ import type {
 } from '../editorMapTypes'
 import { DEFAULT_ENVIRONMENT_SCALE_PERMILLE } from '../environmentTransformUtils'
 import { renderBody } from '../renderer/BodyRenderer'
-import { createCheckpointTreeTextureSource } from '../renderer/CheckpointTreeTextureFactory'
+import {
+  type CheckpointTreeTextureSource,
+  createCheckpointTreeTextureSource,
+} from '../renderer/CheckpointTreeTextureFactory'
 import {
   createCustomEnvironmentTextureSource,
   createEnvironmentTextureSource,
+  isEnvironmentCellStrokeSupported,
 } from '../renderer/ProceduralEnvironmentFactory'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import type { NpcType, WeaponType } from '../types'
@@ -193,10 +197,11 @@ class CheckpointMarkerRenderObject extends fabric.FabricObject {
   static override type = 'customCheckpointMarker'
 
   declare editorShape: 'checkpoint-marker'
+  declare cellStroke: boolean
 
-  private readonly textureCanvas: HTMLCanvasElement
-  private readonly drawOriginX: number
-  private readonly drawOriginY: number
+  private textureCanvas: HTMLCanvasElement
+  private drawOriginX: number
+  private drawOriginY: number
 
   constructor(
     textureCanvas: HTMLCanvasElement,
@@ -211,6 +216,16 @@ class CheckpointMarkerRenderObject extends fabric.FabricObject {
     this.width = textureCanvas.width
     this.height = textureCanvas.height
     this.editorShape = 'checkpoint-marker'
+    this.cellStroke = false
+  }
+
+  applyTextureSource(source: CheckpointTreeTextureSource): void {
+    this.textureCanvas = source.canvas
+    this.drawOriginX = source.originX
+    this.drawOriginY = source.originY
+    this.width = source.canvas.width
+    this.height = source.canvas.height
+    this.dirty = true
   }
 
   override _render(ctx: CanvasRenderingContext2D): void {
@@ -229,6 +244,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
   declare anchorDY: EnvironmentMarker['anchorDY']
   declare scaleXPermille: EnvironmentMarker['scaleXPermille']
   declare scaleYPermille: EnvironmentMarker['scaleYPermille']
+  declare cellStroke: EnvironmentMarker['cellStroke']
 
   private textureCanvas: HTMLCanvasElement
   private drawOffsetX: number
@@ -248,6 +264,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
     this.anchorDY = config.anchorDY
     this.scaleXPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
     this.scaleYPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+    this.cellStroke = false
     this.applyTextureConfig(config)
   }
 
@@ -568,15 +585,16 @@ export class EditorObjectFactory {
     return group
   }
 
-  createCheckpointMarker() {
+  createCheckpointMarker(cellStroke = false) {
     const source = createCheckpointTreeTextureSource({
       radiusPx: this.pixelsPerMeter,
       leafColor: CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
       trunkColor: CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
       glow: false,
+      cellStroke,
     })
 
-    return new CheckpointMarkerRenderObject(
+    const marker = new CheckpointMarkerRenderObject(
       source.canvas,
       source.originX,
       source.originY,
@@ -591,6 +609,19 @@ export class EditorObjectFactory {
         objectCaching: true,
       }
     ) as CheckpointMarker
+    marker.cellStroke = cellStroke
+    return marker
+  }
+
+  refreshCheckpointMarkerTexture(marker: CheckpointMarker): void {
+    const source = createCheckpointTreeTextureSource({
+      radiusPx: this.pixelsPerMeter,
+      leafColor: CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
+      trunkColor: CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+      glow: false,
+      cellStroke: marker.cellStroke === true,
+    })
+    ;(marker as CheckpointMarkerRenderObject).applyTextureSource(source)
   }
 
   createSunPickupMarker(isLarge: boolean) {
@@ -911,14 +942,16 @@ export class EditorObjectFactory {
   createEnvironmentMarker(
     envType: MapEnvironmentObjectType,
     envSeed: number,
-    envAssetId = ''
+    envAssetId = '',
+    cellStroke = false
   ) {
     return this.createEnvironmentMarkerWithScale(
       envType,
       envSeed,
       DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
       DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
-      envAssetId
+      envAssetId,
+      cellStroke
     )
   }
 
@@ -927,14 +960,18 @@ export class EditorObjectFactory {
     envSeed: number,
     scaleXPermille: number,
     scaleYPermille: number,
-    envAssetId = ''
+    envAssetId = '',
+    cellStroke = false
   ) {
+    const drawCellStroke =
+      isEnvironmentCellStrokeSupported(envType) && cellStroke
     const textureConfig = this.buildEnvironmentMarkerTextureConfig(
       envType,
       envSeed,
       scaleXPermille,
       scaleYPermille,
-      envAssetId
+      envAssetId,
+      drawCellStroke
     )
     const marker = new EnvironmentMarkerRenderObject(textureConfig, {
       originX: 'center',
@@ -952,6 +989,7 @@ export class EditorObjectFactory {
     marker.envAssetId = envAssetId
     marker.scaleXPermille = scaleXPermille
     marker.scaleYPermille = scaleYPermille
+    marker.cellStroke = drawCellStroke
     marker.scaleX = 1
     marker.scaleY = 1
     return marker
@@ -967,7 +1005,8 @@ export class EditorObjectFactory {
       marker.envSeed,
       scaleXPermille,
       scaleYPermille,
-      marker.envAssetId
+      marker.envAssetId,
+      marker.cellStroke === true
     )
     ;(marker as EnvironmentMarkerRenderObject).applyTextureConfig(textureConfig)
     marker.scaleXPermille = scaleXPermille
@@ -981,7 +1020,8 @@ export class EditorObjectFactory {
     envSeed: number,
     scaleXPermille: number,
     scaleYPermille: number,
-    envAssetId = ''
+    envAssetId = '',
+    cellStroke = false
   ): EnvironmentMarkerTextureConfig {
     const source =
       envType === 'custom'
@@ -996,7 +1036,8 @@ export class EditorObjectFactory {
             envSeed,
             this.pixelsPerMeter,
             scaleXPermille,
-            scaleYPermille
+            scaleYPermille,
+            cellStroke
           )
     return {
       textureCanvas: source.canvas,

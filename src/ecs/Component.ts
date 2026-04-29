@@ -303,6 +303,7 @@ export class RenderComponent extends Component {
   bloodColor = ''
   borderColor = '#FFD700'
   visible = true
+  cellStroke = false
 
   reset(): void {
     this.radius = 0.5
@@ -318,6 +319,7 @@ export class RenderComponent extends Component {
     this.bloodColor = ''
     this.borderColor = '#FFD700'
     this.visible = true
+    this.cellStroke = false
   }
 
   getName(): string {

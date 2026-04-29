@@ -203,6 +203,7 @@ interface ClipboardWeaponTreeNode extends ClipboardTreeNodeBase {
 
 interface ClipboardCheckpointTreeNode extends ClipboardTreeNodeBase {
   kind: 'checkpoint'
+  cellStroke: boolean
 }
 
 interface ClipboardHookAnchorTreeNode extends ClipboardTreeNodeBase {
@@ -228,6 +229,7 @@ interface ClipboardEnvironmentTreeNode extends ClipboardTreeNodeBase {
   rotationDeg: number
   scaleXPermille: number
   scaleYPermille: number
+  cellStroke: boolean
 }
 
 type RectResetData = Extract<ShapeResetData, { kind: 'rect' }>
@@ -404,7 +406,8 @@ export class EditorClipboardManager {
     bowAmmo: undefined as number | undefined,
   }
 
-  private checkpointSpawn = { x: 0, y: 0 }
+  private checkpointSpawn = { x: 0, y: 0, cellStroke: false }
+  private checkpointCellStroke = false
   private hookAnchorSpawn = { x: 0, y: 0 }
   private sunPickupIsLarge = false
   private sunPickupSpawn = { x: 0, y: 0 }
@@ -417,6 +420,7 @@ export class EditorClipboardManager {
   private environmentRotationDeg = 0
   private environmentScaleXPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
   private environmentScaleYPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
+  private environmentCellStroke = false
   private environmentAnchorOffset = { x: 0, y: 0 }
 
   private cameraZoom = 1
@@ -906,11 +910,16 @@ export class EditorClipboardManager {
     }
 
     if (this.ctx.markerManager.isCheckpointMarker(target)) {
+      const checkpointData = this.ctx.markerManager
+        .getCheckpointMarkerMap()
+        .get(target)
       return {
         kind: 'checkpoint',
         parentIndex,
         offsetX,
         offsetY,
+        cellStroke:
+          checkpointData?.cellStroke === true || target.cellStroke === true,
       }
     }
 
@@ -968,6 +977,7 @@ export class EditorClipboardManager {
           target.scaleYPermille,
           target.scaleY
         ),
+        cellStroke: target.cellStroke === true,
       }
     }
 
@@ -1115,6 +1125,7 @@ export class EditorClipboardManager {
       offsetCellY: snapshot.offsetCellY,
       offsetXUnits: snapshot.offsetXUnits,
       offsetYUnits: snapshot.offsetYUnits,
+      cellStroke: snapshot.cellStroke === true,
       chunks,
     }
   }
@@ -1234,7 +1245,7 @@ export class EditorClipboardManager {
       return this.createWeaponObject(node, targetLeft, targetTop)
     }
     if (node.kind === 'checkpoint') {
-      return this.createCheckpointObject(targetLeft, targetTop)
+      return this.createCheckpointObject(node, targetLeft, targetTop)
     }
     if (node.kind === 'hookAnchor') {
       return this.createHookAnchorObject(targetLeft, targetTop)
@@ -1459,6 +1470,7 @@ export class EditorClipboardManager {
   }
 
   private createCheckpointObject(
+    node: ClipboardCheckpointTreeNode,
     targetLeft: number,
     targetTop: number
   ): fabric.Object | null {
@@ -1469,6 +1481,7 @@ export class EditorClipboardManager {
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     this.checkpointSpawn.x = targetLeft * invPixelsPerMeter
     this.checkpointSpawn.y = targetTop * invPixelsPerMeter
+    this.checkpointSpawn.cellStroke = node.cellStroke === true
     const previousActive = canvas.getActiveObject()
     this.ctx.markerManager.spawnCheckpointMarker(this.checkpointSpawn)
     const nextActive = canvas.getActiveObject()
@@ -1555,6 +1568,7 @@ export class EditorClipboardManager {
       rotationDeg: node.rotationDeg,
       scaleXPermille: node.scaleXPermille,
       scaleYPermille: node.scaleYPermille,
+      cellStroke: node.cellStroke === true,
     })
     const nextActive = canvas.getActiveObject()
     return nextActive && nextActive !== previousActive ? nextActive : null
@@ -1897,6 +1911,7 @@ export class EditorClipboardManager {
       offsetCellY: this.terrainOffsetCellY,
       offsetXUnits: this.terrainOffsetXUnits,
       offsetYUnits: this.terrainOffsetYUnits,
+      cellStroke: false,
       chunks,
     }
   }
@@ -2156,9 +2171,14 @@ export class EditorClipboardManager {
   }
 
   private copyCheckpointMarker(target: CheckpointMarker): boolean {
+    const checkpointData = this.ctx.markerManager
+      .getCheckpointMarkerMap()
+      .get(target)
     this.kind = 'checkpoint'
     this.sourceLeft = target.left ?? 0
     this.sourceTop = target.top ?? 0
+    this.checkpointCellStroke =
+      checkpointData?.cellStroke === true || target.cellStroke === true
     return true
   }
 
@@ -2170,6 +2190,7 @@ export class EditorClipboardManager {
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     this.checkpointSpawn.x = (this.pasteBaseLeft + offset) * invPixelsPerMeter
     this.checkpointSpawn.y = (this.pasteBaseTop + offset) * invPixelsPerMeter
+    this.checkpointSpawn.cellStroke = this.checkpointCellStroke
     this.ctx.markerManager.spawnCheckpointMarker(this.checkpointSpawn)
     return canvas.getActiveObject() ?? null
   }
@@ -2250,6 +2271,7 @@ export class EditorClipboardManager {
       target.scaleYPermille,
       target.scaleY
     )
+    this.environmentCellStroke = target.cellStroke === true
     return true
   }
 
@@ -2292,6 +2314,7 @@ export class EditorClipboardManager {
       rotationDeg: this.environmentRotationDeg,
       scaleXPermille: this.environmentScaleXPermille,
       scaleYPermille: this.environmentScaleYPermille,
+      cellStroke: this.environmentCellStroke,
     })
     return canvas.getActiveObject() ?? null
   }

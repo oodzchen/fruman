@@ -533,6 +533,14 @@ export class EditorManager {
         this.terrainManager.getProxyStraightEdge(target),
       setTerrainStraightEdge: (target, straightEdge) =>
         this.terrainManager.setProxyStraightEdge(target, straightEdge),
+      getTerrainCellStroke: (target) =>
+        this.terrainManager.getProxyCellStroke(target),
+      setTerrainCellStroke: (target, cellStroke) =>
+        this.terrainManager.setProxyCellStroke(target, cellStroke),
+      getProceduralCellStroke: (target) =>
+        this.markerManager.getProceduralCellStroke(target),
+      setProceduralCellStroke: (target, cellStroke) =>
+        this.markerManager.setProceduralCellStroke(target, cellStroke),
       getFactions: () => this.factions,
       addFaction: (id) => {
         if (!this.factions.includes(id)) {
@@ -3414,7 +3422,15 @@ export class EditorManager {
     }
     if (this.terrainManager.isTerrainProxy(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'commonProperties', 'rename', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'terrainProperties',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
@@ -3530,12 +3546,29 @@ export class EditorManager {
     }
     if (this.markerManager.isCheckpointMarker(target)) {
       this.showPolygonMenuWithActions(
-        ['copy', 'paste', 'commonProperties', 'rename', 'lock', 'delete'],
+        [
+          'copy',
+          'paste',
+          'terrainProperties',
+          'commonProperties',
+          'rename',
+          'lock',
+          'delete',
+        ],
         target,
         -1,
         clientX,
         clientY
       )
+      return
+    }
+    if (this.markerManager.isEnvironmentMarker(target)) {
+      const actions: ContextMenuAction[] = ['copy', 'paste']
+      if (this.markerManager.isProceduralCellStrokeSupported(target)) {
+        actions.push('terrainProperties')
+      }
+      actions.push('commonProperties', 'rename', 'lock', 'delete')
+      this.showPolygonMenuWithActions(actions, target, -1, clientX, clientY)
       return
     }
     if (this.markerManager.isHookAnchorMarker(target)) {
@@ -4148,7 +4181,12 @@ export class EditorManager {
     }
     if (action === 'terrainProperties') {
       const changed =
-        await this.propertiesPanel.showTerrainPropertiesDialog(target)
+        this.terrainManager.isTerrainContourProxy(target) ||
+        this.terrainManager.isTerrainProxy(target)
+          ? await this.propertiesPanel.showTerrainPropertiesDialog(target)
+          : await this.propertiesPanel.showProceduralTexturePropertiesDialog(
+              target
+            )
       this.contextMenu.hide()
       if (changed) {
         this.captureHistorySnapshot()

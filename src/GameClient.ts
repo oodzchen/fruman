@@ -62,6 +62,7 @@ import {
   clearEnvironmentTextureSourceCache,
   createCustomEnvironmentTextureSource,
   createEnvironmentTextureSource,
+  isEnvironmentCellStrokeSupported,
   pruneEnvironmentTextureSourceCache,
 } from './renderer/ProceduralEnvironmentFactory'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
@@ -83,7 +84,11 @@ import {
 } from './terrain/TerrainDataUtils'
 import type { TerrainResolvedLayerView } from './terrain/TerrainDataUtils'
 import { TerrainRenderer } from './terrain/TerrainRenderer'
-import type { TerrainDataLike, TerrainLayerLike } from './terrain/TerrainTypes'
+import type {
+  TerrainContourLike,
+  TerrainDataLike,
+  TerrainLayerLike,
+} from './terrain/TerrainTypes'
 import { getVoronoiBuildPerfSnapshot } from './terrain/VoronoiBuilder'
 import { VoronoiCollisionBuilder } from './terrain/VoronoiCollisionBuilder'
 import {
@@ -3111,13 +3116,16 @@ export class GameClient {
       const envBuildStartMs = performance.now()
       const scaleXPermille = getEnvironmentScaleXPermille(obj)
       const scaleYPermille = getEnvironmentScaleYPermille(obj)
+      const cellStroke =
+        isEnvironmentCellStrokeSupported(obj.type) && obj.cellStroke === true
       const textureEntry = this.getEnvironmentTextureEntry(
         obj.type,
         obj.assetId,
         obj.seed,
         ppm,
         scaleXPermille,
-        scaleYPermille
+        scaleYPermille,
+        cellStroke
       )
       this.pendingEnvironmentTextureKeys.add(textureEntry.key)
       const rotationDeg = getEnvironmentRotationDeg(obj)
@@ -3201,7 +3209,8 @@ export class GameClient {
     seed: number,
     ppm: number,
     scaleXPermille: number,
-    scaleYPermille: number
+    scaleYPermille: number,
+    cellStroke: boolean
   ): EnvironmentTextureEntry {
     const key =
       type === 'custom'
@@ -3216,7 +3225,8 @@ export class GameClient {
             seed,
             ppm,
             scaleXPermille,
-            scaleYPermille
+            scaleYPermille,
+            cellStroke
           )
     const cached = this.environmentTextureCache.get(key)
     if (cached) {
@@ -3240,7 +3250,8 @@ export class GameClient {
             seed,
             ppm,
             scaleXPermille,
-            scaleYPermille
+            scaleYPermille,
+            cellStroke
           )
     const centerOriginX = source.canvas.width >> 1
     const centerOriginY = source.canvas.height >> 1
@@ -3340,6 +3351,13 @@ export class GameClient {
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(scaleYCode, 0x1b873593)
       )
+      const cellStrokeCode =
+        isEnvironmentCellStrokeSupported(obj.type) && obj.cellStroke === true
+          ? 1
+          : 0
+      hash = this.mixTerrainSignatureValue(
+        hash ^ Math.imul(cellStrokeCode, 0x1f123bb5)
+      )
       const layerCode = this.resolveEnvironmentRenderLayer(envLayers?.[i] ?? 0)
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(layerCode, 0x5bd1e995)
@@ -3396,6 +3414,11 @@ export class GameClient {
       for (let i = 0; i < terrain.layers.length; i++) {
         hash = this.mixTerrainLayerSignature(hash, terrain.layers[i])
       }
+      if (terrain.contours && terrain.contours.length > 0) {
+        for (let i = 0; i < terrain.contours.length; i++) {
+          hash = this.mixTerrainContourSignature(hash, terrain.contours[i])
+        }
+      }
       return hash
     }
     hash = this.mixTerrainSignatureValue(
@@ -3427,6 +3450,9 @@ export class GameClient {
       nextHash ^ Math.imul((layer.contourId ?? 0) | 0, 0x9e3779b1)
     )
     nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ (layer.cellStroke === true ? 0x1f123bb5 : 0)
+    )
+    nextHash = this.mixTerrainSignatureValue(
       nextHash ^
         Math.imul(this.hashTerrainMaterialId(layer.materialId), 0x85ebca6b)
     )
@@ -3438,6 +3464,27 @@ export class GameClient {
     return this.mixTerrainSignatureValue(
       nextHash ^ Math.imul(layer.chunks.length | 0, 0x4b3cd7a1)
     )
+  }
+
+  private mixTerrainContourSignature(
+    hash: number,
+    contour: TerrainContourLike
+  ): number {
+    let nextHash = this.mixTerrainSignatureValue(
+      hash ^ Math.imul(contour.id | 0, 0x27d4eb2d)
+    )
+    nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ (contour.cellStroke === true ? 0x1f123bb5 : 0)
+    )
+    nextHash = this.mixTerrainSignatureValue(
+      nextHash ^ (contour.straightEdge === true ? 0x165667b1 : 0)
+    )
+    if (typeof contour.buildRevision === 'number') {
+      nextHash = this.mixTerrainSignatureValue(
+        nextHash ^ Math.imul(contour.buildRevision | 0, 0xc2b2ae35)
+      )
+    }
+    return nextHash
   }
 
   private hashTerrainMaterialId(materialId: string | undefined): number {

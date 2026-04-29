@@ -27,6 +27,7 @@ import {
   getDefaultShapeRenderLayer,
   normalizeRenderLayer,
 } from '../renderLayers'
+import { isEnvironmentCellStrokeSupported } from '../renderer/ProceduralEnvironmentFactory'
 import { normalizeSkeletalBodyProfile } from '../skeletalBodyProfile'
 import type { NormalAttackMovesetId, WeaponType } from '../types'
 import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
@@ -406,7 +407,15 @@ export class EditorMapSerializer {
       if (indexMap) {
         indexMap.set(marker, checkpoints.length)
       }
-      checkpoints.push({ x, y })
+      const checkpoint = markers[i]
+      checkpoints.push({
+        x,
+        y,
+        cellStroke:
+          checkpoint.cellStroke === true || marker.cellStroke === true
+            ? true
+            : undefined,
+      })
     }
     return checkpoints
   }
@@ -475,7 +484,7 @@ export class EditorMapSerializer {
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     const result: MapEnvironmentObject[] = []
     for (let i = 0; i < markers.length; i++) {
-      const { marker, envType, envSeed } = markers[i]
+      const { marker, envType, envSeed, cellStroke } = markers[i]
       const center = marker.getCenterPoint()
       const rotationDeg = normalizeEnvironmentRotationDeg(marker.angle ?? 0)
       const scaleXPermille = getEnvironmentEffectiveScalePermille(
@@ -516,6 +525,12 @@ export class EditorMapSerializer {
       }
       if (scaleYPermille !== DEFAULT_ENVIRONMENT_SCALE_PERMILLE) {
         envObject.scaleYPermille = scaleYPermille
+      }
+      if (
+        isEnvironmentCellStrokeSupported(envType) &&
+        (cellStroke === true || marker.cellStroke === true)
+      ) {
+        envObject.cellStroke = true
       }
       result.push(envObject)
     }

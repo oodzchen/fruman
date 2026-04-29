@@ -51,6 +51,7 @@ export interface MapEnvironmentObject {
   rotationDeg?: number
   scaleXPermille?: number
   scaleYPermille?: number
+  cellStroke?: boolean
 }
 
 export interface MapEnvironmentAsset {
@@ -358,6 +359,7 @@ export interface MapNpcTemplate extends MapNpcConfig {
 export interface MapCheckpoint {
   x: number
   y: number
+  cellStroke?: boolean
 }
 
 export interface MapHookAnchor {

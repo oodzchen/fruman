@@ -1557,14 +1557,23 @@ export class PixiWorldRenderer {
       buf[offset + OFFSETS.BORDER_COLOR] | 0
     )
     const active = leafColorInt === CHECKPOINT_TREE_TOP_COLOR_ACTIVE_INT
-    const key = [radius | 0, leafColor, trunkColor, active ? 1 : 0].join('|')
+    const flags = buf[offset + OFFSETS.FLAGS] | 0
+    const cellStroke = (flags & FLAGS.CHECKPOINT_CELL_STROKE) !== 0
+    const key = [
+      radius | 0,
+      leafColor,
+      trunkColor,
+      active ? 1 : 0,
+      cellStroke ? 1 : 0,
+    ].join('|')
 
     if (view.specialKey !== key || !view.specialSprite.visible) {
       const textureEntry = this.getCheckpointTexture(
         radius,
         leafColor,
         trunkColor,
-        active
+        active,
+        cellStroke
       )
       view.specialSprite.texture = textureEntry.texture
       view.specialSprite.anchor.set(textureEntry.anchorX, textureEntry.anchorY)
@@ -1583,13 +1592,15 @@ export class PixiWorldRenderer {
       radiusPx,
       CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
       CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
+      false,
       false
     )
     this.getCheckpointTexture(
       radiusPx,
       CHECKPOINT_TREE_TOP_COLOR_ACTIVE,
       CHECKPOINT_TREE_TRUNK_COLOR_ACTIVE,
-      true
+      true,
+      false
     )
   }
 
@@ -1597,13 +1608,15 @@ export class PixiWorldRenderer {
     radius: number,
     leafColor: string,
     trunkColor: string,
-    glow: boolean
+    glow: boolean,
+    cellStroke = false
   ): CheckpointTextureEntry {
     const key = [
       Math.max(1, Math.round(radius)),
       leafColor.toLowerCase(),
       trunkColor.toLowerCase(),
       glow ? 1 : 0,
+      cellStroke ? 1 : 0,
     ].join('|')
     const cached = this.checkpointTextureCache.get(key)
     if (cached) {
@@ -1616,6 +1629,7 @@ export class PixiWorldRenderer {
       leafColor,
       trunkColor,
       glow,
+      cellStroke,
     })
     const entry: CheckpointTextureEntry = {
       texture: Texture.from(source.canvas),

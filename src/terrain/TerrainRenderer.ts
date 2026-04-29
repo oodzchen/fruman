@@ -165,7 +165,7 @@ export class TerrainRenderer {
       layer,
       chunkIndex,
       cellSizeUnits,
-      options.drawStroke === true
+      this.shouldDrawCellStroke(layer, options.drawStroke)
     )
     ctx.restore()
     const sprite = new Sprite(Texture.from(canvas))
@@ -436,7 +436,7 @@ export class TerrainRenderer {
     if (chunkSize <= 0) {
       return
     }
-    const drawStroke = options.drawStroke === true
+    const drawStroke = this.shouldDrawCellStroke(layer, options.drawStroke)
     if (layer.version >= 4) {
       ctx.save()
       this.applyLayerBaseTranslation(
@@ -508,6 +508,13 @@ export class TerrainRenderer {
         randomSeed
       )
     }
+  }
+
+  private static shouldDrawCellStroke(
+    layer: TerrainResolvedLayerView,
+    drawStroke: boolean | undefined
+  ): boolean {
+    return drawStroke === true && layer.cellStroke === true
   }
 
   private static drawGridChunk(

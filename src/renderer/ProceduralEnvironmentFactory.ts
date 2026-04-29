@@ -163,7 +163,8 @@ export function createEnvironmentTreeTextureSource(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  cellStroke = false
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const crownShape = lcgRange(s, 0, 2) as EnvironmentTreeCrownShape
@@ -298,7 +299,8 @@ export function createEnvironmentTreeTextureSource(
     cellSize,
     createNaturalMaterialStyle(WOOD_CODE),
     WOOD_CODE,
-    STANDALONE_VORONOI_OPTS
+    STANDALONE_VORONOI_OPTS,
+    cellStroke
   )
   drawVoronoiLayer(
     ctx,
@@ -306,7 +308,8 @@ export function createEnvironmentTreeTextureSource(
     cellSize,
     createNaturalMaterialStyle(LEAVES_CODE),
     LEAVES_CODE,
-    STANDALONE_VORONOI_OPTS
+    STANDALONE_VORONOI_OPTS,
+    cellStroke
   )
 
   const bounds = getCanvasOpaqueBounds(canvas)
@@ -327,7 +330,8 @@ export function createEnvironmentHillTextureSource(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  cellStroke = false
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const halfWidthNum = lcgRange(s, 150, 300)
@@ -411,7 +415,8 @@ export function createEnvironmentHillTextureSource(
     cellSize,
     createNaturalMaterialStyle(GRASS_CODE),
     GRASS_CODE,
-    STANDALONE_VORONOI_OPTS
+    STANDALONE_VORONOI_OPTS,
+    cellStroke
   )
   drawVoronoiLayer(
     ctx,
@@ -419,7 +424,8 @@ export function createEnvironmentHillTextureSource(
     cellSize,
     createNaturalMaterialStyle(STONE_CODE),
     STONE_CODE,
-    STANDALONE_VORONOI_OPTS
+    STANDALONE_VORONOI_OPTS,
+    cellStroke
   )
 
   const bounds = getCanvasOpaqueBounds(canvas)
@@ -440,7 +446,8 @@ export function createEnvironmentHouseTextureSource(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  cellStroke = false
 ): EnvironmentTextureSource {
   let s = lcgStep(seed ^ ENV_SEED_MIX)
   const wallWidthNum = lcgRange(s, 100, 180)
@@ -529,7 +536,8 @@ export function createEnvironmentHouseTextureSource(
     cellSize,
     createNaturalMaterialStyle(WOOD_CODE),
     WOOD_CODE,
-    STANDALONE_VORONOI_OPTS
+    STANDALONE_VORONOI_OPTS,
+    cellStroke
   )
   drawVoronoiLayer(
     ctx,
@@ -537,7 +545,8 @@ export function createEnvironmentHouseTextureSource(
     cellSize,
     createNaturalMaterialStyle(THATCH_CODE),
     THATCH_CODE,
-    STANDALONE_VORONOI_OPTS
+    STANDALONE_VORONOI_OPTS,
+    cellStroke
   )
 
   const doorW = Math.max(4, Math.round((wallHalfWidth * 35) / 100))
@@ -1049,14 +1058,23 @@ export function createEnvironmentCloudTextureSource(
 const textureCache = new Map<string, EnvironmentTextureSource>()
 const ENVIRONMENT_TEXTURE_SOURCE_CACHE_LIMIT = 96
 
+export function isEnvironmentCellStrokeSupported(
+  type: MapEnvironmentObjectType
+): boolean {
+  return type === 'tree' || type === 'hill' || type === 'house'
+}
+
 export function buildEnvironmentTextureCacheKey(
   type: MapEnvironmentObjectType,
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  cellStroke = false
 ): string {
-  return `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}`
+  const strokeCode =
+    isEnvironmentCellStrokeSupported(type) && cellStroke ? 1 : 0
+  return `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}_${strokeCode}`
 }
 
 export function buildCustomEnvironmentTextureCacheKey(
@@ -1145,14 +1163,17 @@ export function createEnvironmentTextureSource(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  cellStroke = false
 ): EnvironmentTextureSource {
+  const drawCellStroke = isEnvironmentCellStrokeSupported(type) && cellStroke
   const key = buildEnvironmentTextureCacheKey(
     type,
     seed,
     ppm,
     scaleXPermille,
-    scaleYPermille
+    scaleYPermille,
+    drawCellStroke
   )
   const cached = textureCache.get(key)
   if (cached) {
@@ -1167,21 +1188,24 @@ export function createEnvironmentTextureSource(
       seed,
       ppm,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      drawCellStroke
     )
   } else if (type === 'hill') {
     source = createEnvironmentHillTextureSource(
       seed,
       ppm,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      drawCellStroke
     )
   } else if (type === 'house') {
     source = createEnvironmentHouseTextureSource(
       seed,
       ppm,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      drawCellStroke
     )
   } else if (type === 'crate') {
     source = createEnvironmentCrateTextureSource(
@@ -1209,7 +1233,8 @@ export function createEnvironmentTextureSource(
       seed,
       ppm,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      drawCellStroke
     )
   }
 
