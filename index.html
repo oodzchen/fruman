@@ -631,6 +631,78 @@
         color: var(--ui-color);
         background: var(--ui-highlight);
       }
+      .editor-environment-palette {
+        position: absolute;
+        top: 12px;
+        left: 204px;
+        right: 12px;
+        min-height: 42px;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 6px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-sizing: border-box;
+        pointer-events: auto;
+        z-index: 4;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
+      .editor-environment-palette.is-visible {
+        display: flex;
+      }
+      .editor-environment-palette-item {
+        flex: 0 0 auto;
+        width: 34px;
+        height: 34px;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ui-muted);
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        cursor: pointer;
+        box-sizing: border-box;
+      }
+      .editor-environment-palette-item:hover,
+      .editor-environment-palette-item.is-selected {
+        color: var(--ui-color);
+        background: rgba(240, 220, 180, 0.14);
+        border-color: rgba(240, 220, 180, 0.55);
+      }
+      .editor-environment-palette-create {
+        margin-left: 4px;
+        border-style: dashed;
+      }
+      .editor-environment-palette-icon {
+        width: 32px;
+        height: 32px;
+        display: block;
+        pointer-events: none;
+      }
+      .global-tooltip {
+        position: fixed;
+        display: none;
+        max-width: 180px;
+        min-height: 22px;
+        line-height: 22px;
+        padding: 0 8px;
+        font-size: 12px;
+        color: var(--ui-color);
+        background: rgba(0, 0, 0, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        font-family: var(--ui-font);
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 12000;
+        box-sizing: border-box;
+      }
+      .global-tooltip.is-visible {
+        display: block;
+      }
       .editor-object-list {
         display: flex;
         flex-direction: column;
@@ -1484,6 +1556,10 @@
                   <div id="editorObjectTree" class="editor-object-tree"></div>
                 </div>
               </div>
+              <div
+                id="editorEnvironmentPalette"
+                class="editor-environment-palette"
+              ></div>
               <div id="editorObjectTypeMenu" class="editor-submenu">
                 <div class="editor-object-list">
                   <button class="editor-object-item" data-type="empty"></button>

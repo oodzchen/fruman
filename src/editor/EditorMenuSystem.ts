@@ -371,7 +371,7 @@ export class EditorMenuSystem {
           return
         }
         if (type === 'environment') {
-          this.showEnvironmentSubmenu()
+          this.ctx.onObjectTypeSelected(type)
           return
         }
         if (type) {

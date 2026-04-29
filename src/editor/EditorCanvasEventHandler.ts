@@ -18,6 +18,7 @@ interface EditorCanvasEventHandlerContext {
   getCurrentView: () => EditorView
   hidePolygonMenu: () => void
   handleEditablePolygonContextMenuEvent: (event: MouseEvent) => void
+  handleEnvironmentStampPointerDown: (opt: fabric.TPointerEventInfo) => boolean
   handleEditablePolygonPointerDown: (opt: fabric.TPointerEventInfo) => boolean
   handleTerrainPointerDown: (opt: fabric.TPointerEventInfo) => boolean
   handleTerrainPointerMove: (opt: fabric.TPointerEventInfo) => boolean
@@ -131,6 +132,11 @@ export class EditorCanvasEventHandler {
     }
     if (evt.button === 0) {
       this.ctx.hidePolygonMenu()
+      if (this.ctx.handleEnvironmentStampPointerDown(opt)) {
+        evt.preventDefault()
+        evt.stopPropagation()
+        return
+      }
       if (!opt.target) {
         this.ctx.clearSelection()
       }

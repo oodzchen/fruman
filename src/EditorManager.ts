@@ -37,6 +37,10 @@ import {
 import type { ContextMenuAction } from './editor/EditorContextMenu'
 import { EditorContextMenu } from './editor/EditorContextMenu'
 import { computeCameraOffsetFromCenter } from './editor/EditorCoordinateUtils'
+import {
+  EditorEnvironmentPalette,
+  type EditorEnvironmentPaletteSelection,
+} from './editor/EditorEnvironmentPalette'
 import { EditorHistoryManager } from './editor/EditorHistoryManager'
 import { EditorMapListManager } from './editor/EditorMapListManager'
 import { EditorMapSerializer } from './editor/EditorMapSerializer'
@@ -64,6 +68,7 @@ import { EditorSidebarManager } from './editor/EditorSidebarManager'
 import { EditorSnapManager } from './editor/EditorSnapManager'
 import { EditorThumbnailCapture } from './editor/EditorThumbnailCapture'
 import { EditorToolbarManager } from './editor/EditorToolbarManager'
+import { TooltipManager } from './editor/TooltipManager'
 import { EditorTerrainBrushController } from './editor/terrain/EditorTerrainBrushController'
 import { EditorTerrainLayerManager } from './editor/terrain/EditorTerrainLayerManager'
 import {
@@ -90,6 +95,8 @@ import type {
   EditorMapMeta,
   EditorViewportState,
   MapEnvironmentAsset,
+  MapEnvironmentObject,
+  MapEnvironmentObjectType,
   MapNpcTemplate,
   MapNpcWeapon,
   MapSettings,
@@ -126,7 +133,7 @@ import {
   saveEditorMapViewState,
   saveEditorSetting,
 } from './storage'
-import type { TerrainMaterialId } from './terrain/TerrainTypes'
+import type { TerrainBrushId, TerrainMaterialId } from './terrain/TerrainTypes'
 import type { NpcPatrolMode, NpcType, WeaponType } from './types'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
@@ -157,6 +164,8 @@ export class EditorManager {
   private propertiesPanel: EditorPropertiesPanel
   private mapListManager: EditorMapListManager
   private objectTreeManager: EditorObjectTreeManager
+  private environmentPalette!: EditorEnvironmentPalette
+  private tooltipManager!: TooltipManager
   private menuSystem!: EditorMenuSystem
   private contextMenu!: EditorContextMenu
   private shapeManager: EditorShapeManager
@@ -188,6 +197,24 @@ export class EditorManager {
   private lastHistoryWasTree = false
   private fabricCanvas: fabric.Canvas | null = null
   private activeObjectType: ObjectType | null = null
+  private environmentStampSelection: EditorEnvironmentPaletteSelection | null =
+    null
+  private readonly environmentStampSpawnScratch: MapEnvironmentObject = {
+    type: 'tree',
+    x: 0,
+    y: 0,
+    seed: 1,
+    assetId: '',
+  }
+  private environmentStampCanvasModeApplied = false
+  private environmentStampPreviousSelection = true
+  private environmentStampPreviousSkipTargetFind = false
+  private temporarySelectActive = false
+  private temporarySelectSavedObjectType: ObjectType | null = null
+  private temporarySelectSavedTerrainBrushId: TerrainBrushId | null = null
+  private temporarySelectSavedEnvironmentStamp: EditorEnvironmentPaletteSelection | null =
+    null
+  private temporarySelectSavedEnvironmentPaletteVisible = false
   private handleResize: () => void
   private panelCollapsed = false
   private readonly editorDayNightCycle = new DayNightCycle()
@@ -227,12 +254,16 @@ export class EditorManager {
     const workspace = document.getElementById('editorWorkspace')
     const editorCanvas = document.getElementById('editorCanvas')
     const gameCanvas = document.getElementById('gameCanvas')
+    const environmentPalette = document.getElementById(
+      'editorEnvironmentPalette'
+    )
 
     if (
       !(overlay instanceof HTMLDivElement) ||
       !(workspace instanceof HTMLDivElement) ||
       !(editorCanvas instanceof HTMLCanvasElement) ||
-      !(gameCanvas instanceof HTMLCanvasElement)
+      !(gameCanvas instanceof HTMLCanvasElement) ||
+      !(environmentPalette instanceof HTMLDivElement)
     ) {
       throw new Error('Editor elements are missing.')
     }
@@ -772,7 +803,7 @@ export class EditorManager {
             type: envType,
             x: spawn.x * this.invPixelsPerMeter,
             y: spawn.y * this.invPixelsPerMeter,
-            seed: (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0,
+            seed: this.createEnvironmentSeed(),
           })
         } else {
           this.markerManager.spawnEnvironmentMarker(envType)
@@ -808,6 +839,18 @@ export class EditorManager {
         this.menuSystem.hidePanelMenu()
         void this.showEnvironmentAssetManagerDialog()
       },
+    })
+
+    this.environmentPalette = new EditorEnvironmentPalette({
+      container: environmentPalette,
+      getCustomEnvironmentAssets: () => this.customEnvironmentAssets,
+      onSelected: (selection) => this.selectEnvironmentStamp(selection),
+      onCreateCustomEnvironmentAsset: () =>
+        this.handleCreateCustomEnvironmentAsset(),
+    })
+
+    this.tooltipManager = new TooltipManager({
+      root: this.editorOverlay,
     })
 
     this.contextMenu = new EditorContextMenu({
@@ -850,6 +893,8 @@ export class EditorManager {
       hidePolygonMenu: () => this.contextMenu.hide(),
       handleEditablePolygonContextMenuEvent: (event) =>
         this.handleEditablePolygonContextMenuEvent(event),
+      handleEnvironmentStampPointerDown: (opt) =>
+        this.handleEnvironmentStampPointerDown(opt),
       handleEditablePolygonPointerDown: (opt) =>
         this.handleEditablePolygonPointerDown(opt),
       handleTerrainPointerDown: (opt) =>
@@ -859,8 +904,7 @@ export class EditorManager {
       handleTerrainPointerUp: () =>
         this.terrainBrushController.handlePointerUp(),
       clearSelection: () => this.clearEditorSelection(),
-      restoreCanvasCursor: () =>
-        this.terrainBrushController.restoreCanvasCursor(),
+      restoreCanvasCursor: () => this.restoreEditorCanvasCursor(),
       handleCanvasSelection: (objects) =>
         this.objectManager.handleCanvasSelection(objects),
       onObjectMoving: (target) => this.handleObjectMoving(target),
@@ -898,7 +942,8 @@ export class EditorManager {
         const target = event.target as Node
         if (
           this.contextMenu.containsTarget(target) ||
-          this.menuSystem.containsTarget(target)
+          this.menuSystem.containsTarget(target) ||
+          this.environmentPalette.containsTarget(target)
         ) {
           return
         }
@@ -959,6 +1004,7 @@ export class EditorManager {
     this.sidebarManager.setSelectModeActive(this.activeObjectType === null)
     this.mapListManager.updateLocalization()
     this.menuSystem.updateLocalization()
+    this.environmentPalette.updateLocalization()
     this.renderObjectTree()
   }
 
@@ -990,6 +1036,10 @@ export class EditorManager {
     }
     const key = event.key
     const isModifier = event.ctrlKey || event.metaKey
+    if (this.currentView === EditorView.Editor && key === 'Control') {
+      this.beginTemporarySelectMode()
+      return
+    }
     if (isModifier && key.toLowerCase() === 'z') {
       event.preventDefault()
       if (event.shiftKey) {
@@ -1002,6 +1052,16 @@ export class EditorManager {
     if (this.currentView === EditorView.MapList) {
       this.mapListManager.handleMapListKeyDown(event)
       return
+    }
+    if (this.currentView === EditorView.Editor && key === 'Escape') {
+      if (
+        this.environmentStampSelection ||
+        this.environmentPalette.isVisible()
+      ) {
+        event.preventDefault()
+        this.setActiveObjectType(null)
+        return
+      }
     }
     if (this.currentView === EditorView.Editor && isModifier) {
       const lowered = key.toLowerCase()
@@ -1071,6 +1131,14 @@ export class EditorManager {
       return
     }
     if (event.defaultPrevented) {
+      return
+    }
+    if (
+      event.key === 'Control' &&
+      this.temporarySelectActive &&
+      !event.ctrlKey
+    ) {
+      this.endTemporarySelectMode()
       return
     }
     if (this.dialogManager.isDialogOpen()) {
@@ -1276,9 +1344,13 @@ export class EditorManager {
     }
 
     if (type === 'environment') {
-      this.setActiveObjectType(null)
       this.hideAllSubmenus()
-      this.menuSystem.showEnvironmentSubmenu()
+      this.menuSystem.hideObjectTypeMenu()
+      this.contextMenu.hide()
+      this.environmentPalette.show()
+      if (!this.customEnvironmentAssetsLoaded) {
+        void this.refreshCustomEnvironmentAssets()
+      }
       return
     }
 
@@ -1302,6 +1374,7 @@ export class EditorManager {
     this.toolbarManager.hide()
     this.menuSystem.hideAll()
     this.contextMenu.hide()
+    this.clearTemporarySelectState()
     this.setActiveObjectType(null)
     this.mapListManager.show()
   }
@@ -1813,7 +1886,8 @@ export class EditorManager {
   private isInsideAnyMenu(targetNode: Node) {
     return (
       this.menuSystem.containsTarget(targetNode) ||
-      this.contextMenu.containsTarget(targetNode)
+      this.contextMenu.containsTarget(targetNode) ||
+      this.environmentPalette.containsTarget(targetNode)
     )
   }
 
@@ -1877,6 +1951,9 @@ export class EditorManager {
     if (type !== ObjectType.Terrain) {
       this.terrainBrushController.clearBrush()
     }
+    if (!this.isEnvironmentStampObjectType(type)) {
+      this.clearEnvironmentStampMode(true)
+    }
     this.terrainManager.setInteractionEnabled(
       !this.terrainBrushController.isBrushSelected()
     )
@@ -1884,10 +1961,229 @@ export class EditorManager {
   }
 
   private enterSelectionMode() {
+    this.clearTemporarySelectState()
     this.hideAllSubmenus()
     this.menuSystem.hideObjectTypeMenu()
     this.contextMenu.hide()
     this.setActiveObjectType(null)
+  }
+
+  private beginTemporarySelectMode(): void {
+    if (this.temporarySelectActive) {
+      return
+    }
+
+    const savedObjectType = this.activeObjectType
+    const savedTerrainBrushId = this.terrainBrushController.getSelectedBrushId()
+    const savedEnvironmentStamp = this.environmentStampSelection
+    const savedPaletteVisible = this.environmentPalette.isVisible()
+    if (
+      savedObjectType === null &&
+      savedTerrainBrushId === null &&
+      savedEnvironmentStamp === null &&
+      !savedPaletteVisible
+    ) {
+      return
+    }
+
+    this.temporarySelectSavedObjectType = savedObjectType
+    this.temporarySelectSavedTerrainBrushId = savedTerrainBrushId
+    this.temporarySelectSavedEnvironmentStamp = savedEnvironmentStamp
+    this.temporarySelectSavedEnvironmentPaletteVisible = savedPaletteVisible
+    this.temporarySelectActive = true
+    this.setActiveObjectType(null)
+  }
+
+  private endTemporarySelectMode(): void {
+    if (!this.temporarySelectActive) {
+      return
+    }
+
+    const savedObjectType = this.temporarySelectSavedObjectType
+    const savedTerrainBrushId = this.temporarySelectSavedTerrainBrushId
+    const savedEnvironmentStamp = this.temporarySelectSavedEnvironmentStamp
+    const savedPaletteVisible =
+      this.temporarySelectSavedEnvironmentPaletteVisible
+    this.clearTemporarySelectState()
+
+    if (savedEnvironmentStamp) {
+      if (savedPaletteVisible) {
+        this.environmentPalette.show()
+      }
+      this.environmentPalette.restoreSelection(savedEnvironmentStamp)
+      this.selectEnvironmentStamp(savedEnvironmentStamp)
+      return
+    }
+
+    if (savedTerrainBrushId) {
+      this.terrainBrushController.selectBrush(savedTerrainBrushId)
+      this.setActiveObjectType(ObjectType.Terrain)
+      return
+    }
+
+    if (savedObjectType !== null) {
+      this.setActiveObjectType(savedObjectType)
+      return
+    }
+
+    if (savedPaletteVisible) {
+      this.environmentPalette.show()
+    }
+  }
+
+  private clearTemporarySelectState(): void {
+    this.temporarySelectActive = false
+    this.temporarySelectSavedObjectType = null
+    this.temporarySelectSavedTerrainBrushId = null
+    this.temporarySelectSavedEnvironmentStamp = null
+    this.temporarySelectSavedEnvironmentPaletteVisible = false
+  }
+
+  private isEnvironmentStampObjectType(type: ObjectType | null): boolean {
+    return (
+      type === ObjectType.EnvTree ||
+      type === ObjectType.EnvHill ||
+      type === ObjectType.EnvHouse ||
+      type === ObjectType.EnvCrate ||
+      type === ObjectType.EnvGrass ||
+      type === ObjectType.EnvFlower ||
+      type === ObjectType.EnvCloud ||
+      type === ObjectType.EnvCustom
+    )
+  }
+
+  private getEnvironmentStampObjectType(
+    envType: MapEnvironmentObjectType
+  ): ObjectType {
+    if (envType === 'tree') {
+      return ObjectType.EnvTree
+    }
+    if (envType === 'hill') {
+      return ObjectType.EnvHill
+    }
+    if (envType === 'house') {
+      return ObjectType.EnvHouse
+    }
+    if (envType === 'crate') {
+      return ObjectType.EnvCrate
+    }
+    if (envType === 'grass') {
+      return ObjectType.EnvGrass
+    }
+    if (envType === 'flower') {
+      return ObjectType.EnvFlower
+    }
+    if (envType === 'cloud') {
+      return ObjectType.EnvCloud
+    }
+    return ObjectType.EnvCustom
+  }
+
+  private selectEnvironmentStamp(
+    selection: EditorEnvironmentPaletteSelection
+  ): void {
+    this.environmentStampSelection = selection
+    this.setActiveObjectType(
+      this.getEnvironmentStampObjectType(selection.envType)
+    )
+    this.environmentStampSelection = selection
+    this.applyEnvironmentStampCursor()
+  }
+
+  private clearEnvironmentStampMode(hidePalette: boolean): void {
+    if (
+      !this.environmentStampSelection &&
+      !this.environmentPalette?.isVisible()
+    ) {
+      return
+    }
+    this.environmentStampSelection = null
+    this.environmentPalette?.clearSelection()
+    if (hidePalette) {
+      this.environmentPalette?.hide()
+    }
+    this.restoreEnvironmentStampCanvasMode()
+    this.restoreEditorCanvasCursor()
+  }
+
+  private restoreEditorCanvasCursor(): void {
+    if (this.environmentStampSelection) {
+      this.applyEnvironmentStampCursor()
+      return
+    }
+    this.restoreEnvironmentStampCanvasMode()
+    this.terrainBrushController.restoreCanvasCursor()
+  }
+
+  private applyEnvironmentStampCursor(): void {
+    const canvas = this.fabricCanvas
+    const selection = this.environmentStampSelection
+    if (!canvas || !selection) {
+      return
+    }
+    this.applyEnvironmentStampCanvasMode()
+    canvas.defaultCursor = selection.cursor
+    canvas.hoverCursor = selection.cursor
+    canvas.moveCursor = selection.cursor
+    canvas.upperCanvasEl.style.cursor = selection.cursor
+    canvas.wrapperEl.style.cursor = selection.cursor
+  }
+
+  private applyEnvironmentStampCanvasMode(): void {
+    const canvas = this.fabricCanvas
+    if (!canvas) {
+      return
+    }
+    if (!this.environmentStampCanvasModeApplied) {
+      this.environmentStampPreviousSelection = canvas.selection
+      this.environmentStampPreviousSkipTargetFind = canvas.skipTargetFind
+      this.environmentStampCanvasModeApplied = true
+    }
+    canvas.selection = false
+    canvas.skipTargetFind = true
+  }
+
+  private restoreEnvironmentStampCanvasMode(): void {
+    const canvas = this.fabricCanvas
+    if (!canvas || !this.environmentStampCanvasModeApplied) {
+      return
+    }
+    canvas.selection = this.environmentStampPreviousSelection
+    canvas.skipTargetFind = this.environmentStampPreviousSkipTargetFind
+    this.environmentStampCanvasModeApplied = false
+  }
+
+  private handleEnvironmentStampPointerDown(
+    opt: fabric.TPointerEventInfo
+  ): boolean {
+    const selection = this.environmentStampSelection
+    const canvas = this.fabricCanvas
+    if (!selection || !canvas) {
+      return false
+    }
+    const event = opt.e as MouseEvent
+    if (event.button !== 0) {
+      return false
+    }
+    const pointer = canvas.getScenePoint(event)
+    const envObject = this.environmentStampSpawnScratch
+    envObject.type = selection.envType
+    envObject.assetId = selection.assetId
+    envObject.x = Math.round(pointer.x) * this.invPixelsPerMeter
+    envObject.y = Math.round(pointer.y) * this.invPixelsPerMeter
+    envObject.seed = this.createEnvironmentSeed()
+    this.markerManager.spawnEnvironmentMarker(
+      selection.envType,
+      envObject,
+      { select: false },
+      selection.envType === 'custom' ? selection.label : ''
+    )
+    this.captureHistorySnapshot()
+    return true
+  }
+
+  private createEnvironmentSeed(): number {
+    return (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0
   }
 
   private resetDragState() {
@@ -2105,6 +2401,7 @@ export class EditorManager {
     this.customEnvironmentAssets = assets
     this.customEnvironmentAssetsLoaded = true
     this.menuSystem?.refreshCustomEnvironmentAssets()
+    this.environmentPalette?.refresh()
   }
 
   private findCustomEnvironmentAsset(
@@ -2151,7 +2448,7 @@ export class EditorManager {
           assetId,
           x: spawn.x * this.invPixelsPerMeter,
           y: spawn.y * this.invPixelsPerMeter,
-          seed: (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0,
+          seed: this.createEnvironmentSeed(),
         },
         {},
         asset.name
@@ -2164,7 +2461,7 @@ export class EditorManager {
           assetId,
           x: this.getViewportCenter().x * this.invPixelsPerMeter,
           y: this.getViewportCenter().y * this.invPixelsPerMeter,
-          seed: (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0,
+          seed: this.createEnvironmentSeed(),
         },
         {},
         asset.name
@@ -2198,6 +2495,7 @@ export class EditorManager {
     ]
     this.customEnvironmentAssetsLoaded = true
     this.menuSystem.refreshCustomEnvironmentAssets()
+    this.environmentPalette.refresh()
     return runtimeAsset.meta
   }
 
@@ -4405,7 +4703,7 @@ export class EditorManager {
     this.fabricCanvas.selectionKey = ['ctrlKey', 'metaKey']
     this.fabricCanvas.uniScaleKey = 'shiftKey'
     this.terrainManager.attachToCanvas()
-    this.terrainBrushController.restoreCanvasCursor()
+    this.restoreEditorCanvasCursor()
 
     this.canvasEventHandler.attachEventListeners()
 
@@ -4522,7 +4820,9 @@ export class EditorManager {
     this.editorOverlay.classList.remove('is-visible')
     this.menuSystem.hideAll()
     this.contextMenu.hide()
+    this.tooltipManager.hide()
     this.objectManager.cancelObjectRename()
+    this.clearTemporarySelectState()
     this.setActiveObjectType(null)
     this.gameCanvas.style.visibility = 'visible'
   }
