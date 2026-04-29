@@ -45,6 +45,7 @@ type RopeRuntime = {
   active: boolean
   anchorBodyId: b2BodyId | null
   anchorBodyOwned: boolean
+  anchorIsDynamicTarget: boolean
   anchorEntityId: number
   anchorLocalX: number
   anchorLocalY: number
@@ -62,6 +63,47 @@ type RopeRuntime = {
   segmentFilterJoints: b2JointId[]
   jointMaxLen: number
   maxRopeLength: number
+}
+
+type RopeBridgeEndpointBuild = {
+  entityId: number
+  bodyId: b2BodyId | null
+  bodyOwned: boolean
+  localX: number
+  localY: number
+  x: number
+  y: number
+  renderLayer: number
+  hasDynamicBody: boolean
+}
+
+type RopeBridgeRuntime = {
+  active: boolean
+  endpointAEntityId: number
+  endpointBEntityId: number
+  bodyAId: b2BodyId | null
+  bodyAOwned: boolean
+  bodyBId: b2BodyId | null
+  bodyBOwned: boolean
+  targetABodyId: b2BodyId | null
+  targetBBodyId: b2BodyId | null
+  endpointAHasDynamicBody: boolean
+  endpointBHasDynamicBody: boolean
+  localAX: number
+  localAY: number
+  localBX: number
+  localBY: number
+  followAX: number
+  followAY: number
+  followBX: number
+  followBY: number
+  renderLayer: number
+  segmentCount: number
+  linkLength: number
+  maxRopeLength: number
+  segmentBodies: b2BodyId[]
+  segmentJoints: b2JointId[]
+  segmentFilterJoints: b2JointId[]
 }
 
 export class GrappleSystem extends System {
@@ -99,6 +141,29 @@ export class GrappleSystem extends System {
   private ropeHideDistanceSq =
     DEFAULT_PLAYER_RADIUS * 2 * (DEFAULT_PLAYER_RADIUS * 2)
   private ropeRuntimeByEntityId = new Map<number, RopeRuntime>()
+  private bridgeRopes: RopeBridgeRuntime[] = []
+  private readonly bridgeEndpointA: RopeBridgeEndpointBuild = {
+    entityId: -1,
+    bodyId: null,
+    bodyOwned: false,
+    localX: 0,
+    localY: 0,
+    x: 0,
+    y: 0,
+    renderLayer: 0,
+    hasDynamicBody: false,
+  }
+  private readonly bridgeEndpointB: RopeBridgeEndpointBuild = {
+    entityId: -1,
+    bodyId: null,
+    bodyOwned: false,
+    localX: 0,
+    localY: 0,
+    x: 0,
+    y: 0,
+    renderLayer: 0,
+    hasDynamicBody: false,
+  }
   private ropeDensity = DEFAULT_GRAPPLE_ROPE_DENSITY
   private ropeLinearDamping = DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING
   private ropeHertz = DEFAULT_GRAPPLE_ROPE_HERTZ
@@ -182,6 +247,8 @@ export class GrappleSystem extends System {
       grapple.desiredDistanceSq = 0
       grapple.moveLockEndTime = 0
     })
+
+    this.detachBridgeRopesForTarget(targetEntityId)
   }
 
   private updateExistingRopeSegments(): void {
@@ -194,6 +261,16 @@ export class GrappleSystem extends System {
         }
       }
     })
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active) continue
+      for (let j = 0; j < runtime.segmentBodies.length; j++) {
+        const bodyId = runtime.segmentBodies[j]
+        if (this.isBodyId(bodyId) && this.box2d.b2Body_IsValid(bodyId)) {
+          this.box2d.b2Body_SetLinearDamping(bodyId, this.ropeLinearDamping)
+        }
+      }
+    }
   }
 
   private updateExistingRopeJoints(): void {
@@ -223,6 +300,20 @@ export class GrappleSystem extends System {
         )
       }
     })
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active) continue
+      for (let j = 0; j < runtime.segmentJoints.length; j++) {
+        const jointId = runtime.segmentJoints[j]
+        if (this.isJointId(jointId) && this.box2d.b2Joint_IsValid(jointId)) {
+          this.box2d.b2DistanceJoint_SetSpringHertz(jointId, this.ropeHertz)
+          this.box2d.b2DistanceJoint_SetSpringDampingRatio(
+            jointId,
+            this.ropeDampingRatio
+          )
+        }
+      }
+    }
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -232,6 +323,8 @@ export class GrappleSystem extends System {
     if (this.anchorsDirty) {
       this.refreshAnchorCache()
     }
+
+    this.updateBridgeRopes(deltaMs)
 
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i]
@@ -245,13 +338,18 @@ export class GrappleSystem extends System {
         entity.input.lastMoveDirection !== 0
           ? entity.input.lastMoveDirection
           : 1
-      grapple.hasAnchorNearby = this.findAnchorTarget(
-        entity.transform.x,
-        entity.transform.y,
-        facing,
-        this.tempTarget,
-        entity.render?.renderLayer ?? 0
-      )
+      const currentTargetX = grapple.isTethering ? grapple.targetX : undefined
+      const currentTargetY = grapple.isTethering ? grapple.targetY : undefined
+      grapple.hasAnchorNearby =
+        this.findAnchorTarget(
+          entity.transform.x,
+          entity.transform.y,
+          facing,
+          this.tempTarget,
+          entity.render?.renderLayer ?? 0,
+          currentTargetX,
+          currentTargetY
+        ) !== null
 
       if (!grapple.hasGrapple) {
         if (grapple.isTethering) {
@@ -286,6 +384,14 @@ export class GrappleSystem extends System {
         grappleActionActive &&
         this.currentTimeMs >= grapple.cooldownEndTime
       ) {
+        if (entity.input.grapplePersistentRequested) {
+          if (this.transferTetherToSelectedTarget(entity, grapple)) {
+            inputBuffer.clearAction('grapple')
+            continue
+          }
+          inputBuffer.clearAction('grapple')
+          continue
+        }
         this.destroyAnchorTether(entity, grapple)
         grapple.isPulling = false
         grapple.isTethering = false
@@ -344,7 +450,20 @@ export class GrappleSystem extends System {
                 entity.transform.y
               )
 
-              if (
+              if (lockedTarget.grappleAnchor) {
+                if (entity.input.grapplePersistentRequested) {
+                  if (this.startAnchorTether(entity, grapple, lockedTarget)) {
+                    grapple.pullMode = this.pullModeAnchorTether
+                    grapple.isTethering = true
+                  } else {
+                    this.stopPull(entity, grapple, false)
+                  }
+                } else {
+                  grapple.pullMode = this.pullModeAnchor
+                  grapple.isTethering = false
+                  this.applyGrappleImpulse(entity, grapple)
+                }
+              } else if (
                 entity.input.grapplePersistentRequested &&
                 lockedTarget.grappleTarget?.canTether === true
               ) {
@@ -376,6 +495,7 @@ export class GrappleSystem extends System {
             }
           }
         } else {
+          const wantsPersistent = entity.input.grapplePersistentRequested
           const facing =
             entity.input.lastMoveDirection !== 0
               ? entity.input.lastMoveDirection
@@ -386,75 +506,44 @@ export class GrappleSystem extends System {
           const currentTargetY = grapple.isTethering
             ? grapple.targetY
             : undefined
-          const wantsPersistent = entity.input.grapplePersistentRequested
-          const grappleTarget = wantsPersistent
-            ? this.findGrappleTargetAnchor(
-                entity.transform.x,
-                entity.transform.y,
-                facing,
-                this.tempTarget,
-                entity.render?.renderLayer ?? 0,
-                currentTargetX,
-                currentTargetY
-              )
-            : null
 
-          if (grappleTarget) {
-            grapple.targetX = this.tempTarget.x
-            grapple.targetY = this.tempTarget.y
-            grapple.targetEntityId = grappleTarget.id
-            grapple.desiredDistanceSq = 0
-            grapple.pullElapsedMs = 0
-            grapple.isPulling = true
-            grapple.cooldownEndTime = this.currentTimeMs
-            this.statsSystem?.playSoundAt(
-              SOUND_IDS.GRAPPLE_PULL_START,
-              entity.transform.x,
-              entity.transform.y
-            )
+          const anchorTarget = this.findAnchorTarget(
+            entity.transform.x,
+            entity.transform.y,
+            facing,
+            this.tempTarget,
+            entity.render?.renderLayer ?? 0,
+            currentTargetX,
+            currentTargetY
+          )
+          if (!anchorTarget) {
+            inputBuffer.clearAction('grapple')
+            continue
+          }
+          grapple.targetX = this.tempTarget.x
+          grapple.targetY = this.tempTarget.y
+          grapple.targetEntityId = anchorTarget.id
+          grapple.desiredDistanceSq = 0
+          grapple.pullElapsedMs = 0
+          grapple.isPulling = true
+          grapple.cooldownEndTime = this.currentTimeMs
+          this.statsSystem?.playSoundAt(
+            SOUND_IDS.GRAPPLE_PULL_START,
+            entity.transform.x,
+            entity.transform.y
+          )
 
-            if (this.startAnchorTether(entity, grapple, grappleTarget)) {
+          grapple.pullMode = this.pullModeAnchor
+          if (wantsPersistent) {
+            if (this.startAnchorTether(entity, grapple, anchorTarget)) {
               grapple.pullMode = this.pullModeAnchorTether
               grapple.isTethering = true
             } else {
               this.stopPull(entity, grapple, false)
             }
-          } else if (
-            this.findAnchorTarget(
-              entity.transform.x,
-              entity.transform.y,
-              facing,
-              this.tempTarget,
-              entity.render?.renderLayer ?? 0,
-              currentTargetX,
-              currentTargetY
-            )
-          ) {
-            grapple.targetX = this.tempTarget.x
-            grapple.targetY = this.tempTarget.y
-            grapple.targetEntityId = -1
-            grapple.desiredDistanceSq = 0
-            grapple.pullElapsedMs = 0
-            grapple.isPulling = true
-            grapple.cooldownEndTime = this.currentTimeMs
-            this.statsSystem?.playSoundAt(
-              SOUND_IDS.GRAPPLE_PULL_START,
-              entity.transform.x,
-              entity.transform.y
-            )
-
-            if (wantsPersistent) {
-              if (this.startAnchorTether(entity, grapple)) {
-                grapple.pullMode = this.pullModeAnchorTether
-                grapple.isTethering = true
-              } else {
-                this.stopPull(entity, grapple, false)
-              }
-            } else {
-              grapple.pullMode = this.pullModeAnchor
-              grapple.isTethering = false
-              this.applyGrappleImpulse(entity, grapple)
-            }
+          } else {
+            grapple.isTethering = false
+            this.applyGrappleImpulse(entity, grapple)
           }
         }
       }
@@ -469,17 +558,58 @@ export class GrappleSystem extends System {
     startOffset: number,
     maxPoints: number
   ): number {
-    const grapple = entity.grapple
-    if (!grapple || !grapple.isTethering || !grapple.isPulling) {
-      return 0
-    }
-    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
-    if (!runtime || !runtime.active || maxPoints < 2) {
+    if (maxPoints < 2) {
       return 0
     }
 
     let pointCount = 0
-    let outOffset = startOffset
+    pointCount = this.writePlayerRopePoints(
+      entity,
+      targetBuffer,
+      startOffset,
+      maxPoints,
+      pointCount
+    )
+
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      if (pointCount >= maxPoints) break
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active) continue
+      pointCount = this.writeBridgeRopePoints(
+        runtime,
+        targetBuffer,
+        startOffset,
+        maxPoints,
+        pointCount
+      )
+    }
+
+    return pointCount
+  }
+
+  private writePlayerRopePoints(
+    entity: Entity,
+    targetBuffer: Float32Array<ArrayBufferLike>,
+    startOffset: number,
+    maxPoints: number,
+    pointCount: number
+  ): number {
+    const grapple = entity.grapple
+    if (!grapple || !grapple.isTethering || !grapple.isPulling) {
+      return pointCount
+    }
+    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
+    if (!runtime || !runtime.active) {
+      return pointCount
+    }
+
+    if (pointCount > 0) {
+      if (pointCount >= maxPoints) return pointCount
+      this.writeRopeBreak(targetBuffer, startOffset, pointCount)
+      pointCount += 1
+    }
+
+    let outOffset = startOffset + pointCount * 2
 
     targetBuffer[outOffset] = grapple.targetX
     targetBuffer[outOffset + 1] = grapple.targetY
@@ -509,6 +639,64 @@ export class GrappleSystem extends System {
     return pointCount
   }
 
+  private writeBridgeRopePoints(
+    runtime: RopeBridgeRuntime,
+    targetBuffer: Float32Array<ArrayBufferLike>,
+    startOffset: number,
+    maxPoints: number,
+    pointCount: number
+  ): number {
+    const entityA = this.getEntityById(runtime.endpointAEntityId)
+    const entityB = this.getEntityById(runtime.endpointBEntityId)
+    if (!entityA?.transform || !entityB?.transform) {
+      return pointCount
+    }
+
+    if (pointCount > 0) {
+      if (pointCount >= maxPoints) return pointCount
+      this.writeRopeBreak(targetBuffer, startOffset, pointCount)
+      pointCount += 1
+    }
+
+    let outOffset = startOffset + pointCount * 2
+    targetBuffer[outOffset] = entityA.transform.x
+    targetBuffer[outOffset + 1] = entityA.transform.y
+    pointCount += 1
+    outOffset += 2
+
+    for (let i = 0; i < runtime.segmentBodies.length; i++) {
+      if (pointCount >= maxPoints - 1) break
+      const bodyId = runtime.segmentBodies[i]
+      if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+        continue
+      }
+      const pos = this.box2d.b2Body_GetPosition(bodyId)
+      targetBuffer[outOffset] = pos.x
+      targetBuffer[outOffset + 1] = pos.y
+      pointCount += 1
+      outOffset += 2
+      pos.delete()
+    }
+
+    if (pointCount < maxPoints) {
+      targetBuffer[outOffset] = entityB.transform.x
+      targetBuffer[outOffset + 1] = entityB.transform.y
+      pointCount += 1
+    }
+
+    return pointCount
+  }
+
+  private writeRopeBreak(
+    targetBuffer: Float32Array<ArrayBufferLike>,
+    startOffset: number,
+    pointCount: number
+  ): void {
+    const outOffset = startOffset + pointCount * 2
+    targetBuffer[outOffset] = Number.NaN
+    targetBuffer[outOffset + 1] = Number.NaN
+  }
+
   private refreshAnchorCache(): void {
     this.anchorEntities.length = 0
     this.grappleTargetEntities.length = 0
@@ -533,10 +721,9 @@ export class GrappleSystem extends System {
     renderLayer: number,
     currentTargetX?: number,
     currentTargetY?: number
-  ): boolean {
+  ): Entity | null {
     let bestDistSq = this.rangeSq + 1
-    let bestX = 0
-    let bestY = 0
+    let bestTarget: Entity | null = null
     const forwardX = facing >= 0 ? 1 : -1
 
     for (let i = 0; i < this.anchorEntities.length; i++) {
@@ -563,18 +750,17 @@ export class GrappleSystem extends System {
       if (dot < this.cosHalfFov) continue
       if (distSq < bestDistSq) {
         bestDistSq = distSq
-        bestX = anchorPos.x
-        bestY = anchorPos.y
+        bestTarget = anchor
       }
     }
 
-    if (bestDistSq <= this.rangeSq) {
-      out.x = bestX
-      out.y = bestY
-      return true
+    if (bestTarget?.transform) {
+      out.x = bestTarget.transform.x
+      out.y = bestTarget.transform.y
+      return bestTarget
     }
 
-    return false
+    return null
   }
 
   private findGrappleTargetAnchor(
@@ -817,6 +1003,14 @@ export class GrappleSystem extends System {
     )
   }
 
+  private areBodyIdsEqual(a: b2BodyId, b: b2BodyId): boolean {
+    return (
+      a.index1 === b.index1 &&
+      a.world0 === b.world0 &&
+      a.generation === b.generation
+    )
+  }
+
   private canUseLockedTarget(
     owner: Entity,
     target: Entity
@@ -831,6 +1025,9 @@ export class GrappleSystem extends System {
     }
     if (target.stats && (target.stats.isDead || target.stats.isVanished)) {
       return false
+    }
+    if (target.grappleAnchor) {
+      return true
     }
     if (target.grappleTarget) {
       return (
@@ -946,6 +1143,7 @@ export class GrappleSystem extends System {
       active: false,
       anchorBodyId: null,
       anchorBodyOwned: false,
+      anchorIsDynamicTarget: false,
       anchorEntityId: -1,
       anchorLocalX: 0,
       anchorLocalY: 0,
@@ -985,6 +1183,7 @@ export class GrappleSystem extends System {
     let anchorEntityId = -1
     let anchorLocalX = 0
     let anchorLocalY = 0
+    let anchorIsDynamicTarget = false
     const dx = entity.transform.x - grapple.targetX
     const dy = entity.transform.y - grapple.targetY
     const currentDist = Math.sqrt(dx * dx + dy * dy)
@@ -993,35 +1192,45 @@ export class GrappleSystem extends System {
       if (!anchorEntity.transform) {
         return false
       }
-      const targetBodyId = this.getValidBodyId(anchorEntity)
-      if (!targetBodyId) {
-        return false
-      }
-      anchorBodyId = targetBodyId
-      anchorBodyOwned = false
       anchorEntityId = anchorEntity.id
-      anchorLocalX = anchorEntity.grappleTarget?.anchorLocalX ?? 0
-      anchorLocalY = anchorEntity.grappleTarget?.anchorLocalY ?? 0
       grapple.targetX = anchorEntity.transform.x
       grapple.targetY = anchorEntity.transform.y
       grapple.targetEntityId = anchorEntity.id
-      if (
-        !this.buildDynamicAnchorTether(
-          entity,
-          runtime,
-          anchorEntity.id,
-          targetBodyId,
-          anchorEntity.transform.x,
-          anchorEntity.transform.y,
-          anchorLocalX,
-          anchorLocalY,
-          currentDist
-        )
-      ) {
+      if (anchorEntity.grappleTarget) {
+        const targetBodyId = this.getValidBodyId(anchorEntity)
+        if (!targetBodyId) {
+          return false
+        }
+        anchorBodyId = targetBodyId
+        anchorBodyOwned = false
+        anchorIsDynamicTarget = true
+        anchorLocalX = anchorEntity.grappleTarget.anchorLocalX
+        anchorLocalY = anchorEntity.grappleTarget.anchorLocalY
+        if (
+          !this.buildDynamicAnchorTether(
+            entity,
+            runtime,
+            anchorEntity.id,
+            targetBodyId,
+            anchorEntity.transform.x,
+            anchorEntity.transform.y,
+            anchorLocalX,
+            anchorLocalY,
+            currentDist
+          )
+        ) {
+          return false
+        }
+        runtime.active = true
+        return true
+      }
+      if (!anchorEntity.grappleAnchor) {
         return false
       }
-      runtime.active = true
-      return true
+      anchorBodyId = this.createAnchorBody(
+        anchorEntity.transform.x,
+        anchorEntity.transform.y
+      )
     } else {
       anchorBodyId = this.createAnchorBody(grapple.targetX, grapple.targetY)
       grapple.targetEntityId = -1
@@ -1042,7 +1251,8 @@ export class GrappleSystem extends System {
       anchorBodyOwned,
       anchorEntityId,
       anchorLocalX,
-      anchorLocalY
+      anchorLocalY,
+      anchorIsDynamicTarget
     )
     runtime.active = true
 
@@ -1093,6 +1303,7 @@ export class GrappleSystem extends System {
 
     runtime.anchorBodyId = anchorBodyId
     runtime.anchorBodyOwned = true
+    runtime.anchorIsDynamicTarget = true
     runtime.anchorEntityId = anchorEntityId
     runtime.anchorLocalX = anchorLocalX
     runtime.anchorLocalY = anchorLocalY
@@ -1174,7 +1385,8 @@ export class GrappleSystem extends System {
     anchorBodyOwned: boolean,
     anchorEntityId: number,
     anchorLocalX: number,
-    anchorLocalY: number
+    anchorLocalY: number,
+    anchorIsDynamicTarget: boolean
   ): void {
     if (!entity.transform || !entity.physics) return
     const maxLength = DEFAULT_GRAPPLE_RANGE
@@ -1196,6 +1408,7 @@ export class GrappleSystem extends System {
 
     runtime.anchorBodyId = anchorBodyId
     runtime.anchorBodyOwned = anchorBodyOwned
+    runtime.anchorIsDynamicTarget = anchorIsDynamicTarget
     runtime.anchorEntityId = anchorEntityId
     runtime.anchorLocalX = anchorLocalX
     runtime.anchorLocalY = anchorLocalY
@@ -1272,7 +1485,7 @@ export class GrappleSystem extends System {
       return
     }
 
-    const isDynamicAnchor = runtime.anchorEntityId >= 0
+    const isDynamicAnchor = runtime.anchorIsDynamicTarget
 
     if (entity.input.jumpRequested && !entity.movement.isGrounded) {
       if (!isDynamicAnchor) {
@@ -1410,18 +1623,35 @@ export class GrappleSystem extends System {
       return true
     }
     const anchorEntity = this.getEntityById(runtime.anchorEntityId)
-    if (!anchorEntity?.transform || !this.getValidBodyId(anchorEntity)) {
+    if (!anchorEntity?.transform) {
+      return false
+    }
+    if (runtime.anchorIsDynamicTarget && !this.getValidBodyId(anchorEntity)) {
       return false
     }
     grapple.targetX = anchorEntity.transform.x
     grapple.targetY = anchorEntity.transform.y
     grapple.targetEntityId = anchorEntity.id
+    if (
+      !runtime.anchorIsDynamicTarget &&
+      runtime.anchorBodyOwned &&
+      this.isBodyId(runtime.anchorBodyId) &&
+      this.box2d.b2Body_IsValid(runtime.anchorBodyId)
+    ) {
+      this.tempVec.x = anchorEntity.transform.x
+      this.tempVec.y = anchorEntity.transform.y
+      this.box2d.b2Body_SetTransform(
+        runtime.anchorBodyId,
+        this.tempVec,
+        this.tempRot
+      )
+    }
     return true
   }
 
   private hasDynamicAnchorTether(entity: Entity): boolean {
     const runtime = this.ropeRuntimeByEntityId.get(entity.id)
-    return runtime?.active === true && runtime.anchorEntityId >= 0
+    return runtime?.active === true && runtime.anchorIsDynamicTarget
   }
 
   private syncDynamicTetherEndpointBodies(
@@ -1429,7 +1659,11 @@ export class GrappleSystem extends System {
     runtime: RopeRuntime,
     deltaMs: number
   ): boolean {
-    if (!entity.transform || runtime.anchorEntityId < 0) {
+    if (
+      !entity.transform ||
+      runtime.anchorEntityId < 0 ||
+      !runtime.anchorIsDynamicTarget
+    ) {
       return false
     }
     const anchorEntity = this.getEntityById(runtime.anchorEntityId)
@@ -1486,7 +1720,11 @@ export class GrappleSystem extends System {
     entity: Entity,
     runtime: RopeRuntime
   ): void {
-    if (!entity.transform || runtime.anchorEntityId < 0) {
+    if (
+      !entity.transform ||
+      runtime.anchorEntityId < 0 ||
+      !runtime.anchorIsDynamicTarget
+    ) {
       return
     }
 
@@ -1552,7 +1790,9 @@ export class GrappleSystem extends System {
       segIndex > 0 ? runtime.segmentBodies[segIndex - 1] : anchorBodyId
     if (!this.isBodyId(prevBodyId)) return
     const anchorEntity =
-      segIndex === 0 && runtime.anchorEntityId >= 0
+      segIndex === 0 &&
+      runtime.anchorEntityId >= 0 &&
+      runtime.anchorIsDynamicTarget
         ? this.getEntityById(runtime.anchorEntityId)
         : null
     const prevPos =
@@ -1624,6 +1864,7 @@ export class GrappleSystem extends System {
     }
     runtime.anchorBodyId = null
     runtime.anchorBodyOwned = false
+    runtime.anchorIsDynamicTarget = false
     runtime.anchorEntityId = -1
     runtime.anchorLocalX = 0
     runtime.anchorLocalY = 0
@@ -1640,6 +1881,538 @@ export class GrappleSystem extends System {
     runtime.active = false
 
     grapple.isTethering = false
+  }
+
+  private transferTetherToSelectedTarget(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>
+  ): boolean {
+    if (!entity.input) {
+      return false
+    }
+    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
+    if (!runtime?.active || runtime.anchorEntityId < 0) {
+      return false
+    }
+
+    const source = this.getEntityById(runtime.anchorEntityId)
+    if (!source?.transform) {
+      return false
+    }
+
+    const target = this.resolveTetherTransferTarget(entity, runtime, source)
+    if (!target || !this.canUseLockedTarget(entity, target)) {
+      return false
+    }
+
+    if (!this.createBridgeRope(source, target)) {
+      return false
+    }
+
+    this.destroyAnchorTether(entity, grapple)
+    grapple.isPulling = false
+    grapple.isTethering = false
+    grapple.retainAirMomentum = false
+    grapple.pullMode = this.pullModeAnchor
+    grapple.targetEntityId = -1
+    grapple.desiredDistanceSq = 0
+    grapple.moveLockEndTime = 0
+    entity.input.grappleLengthAdjustSteps = 0
+    entity.input.grapplePersistentRequested = false
+    return true
+  }
+
+  private resolveTetherTransferTarget(
+    entity: Entity,
+    runtime: RopeRuntime,
+    source: Entity
+  ): Entity | null {
+    const lockedTargetId = entity.input?.lockedTargetId ?? null
+    if (lockedTargetId !== null && lockedTargetId !== runtime.anchorEntityId) {
+      return this.getEntityById(lockedTargetId)
+    }
+
+    if (!entity.transform || !source.transform) {
+      return null
+    }
+
+    const facing =
+      entity.input?.lastMoveDirection !== undefined &&
+      entity.input.lastMoveDirection !== 0
+        ? entity.input.lastMoveDirection
+        : 1
+    return this.findAnchorTarget(
+      entity.transform.x,
+      entity.transform.y,
+      facing,
+      this.tempTarget,
+      entity.render?.renderLayer ?? 0,
+      source.transform.x,
+      source.transform.y
+    )
+  }
+
+  private createBridgeRope(source: Entity, target: Entity): boolean {
+    if (source.id === target.id) {
+      return false
+    }
+
+    const endpointA = this.bridgeEndpointA
+    const endpointB = this.bridgeEndpointB
+    if (!this.resolveBridgeEndpoint(source, endpointA)) {
+      return false
+    }
+    if (!this.resolveBridgeEndpoint(target, endpointB)) {
+      return false
+    }
+
+    if (endpointA.renderLayer !== endpointB.renderLayer) {
+      return false
+    }
+
+    if (
+      endpointA.hasDynamicBody &&
+      endpointB.hasDynamicBody &&
+      this.isBodyId(endpointA.bodyId) &&
+      this.isBodyId(endpointB.bodyId) &&
+      this.areBodyIdsEqual(endpointA.bodyId, endpointB.bodyId)
+    ) {
+      return false
+    }
+
+    const dx = endpointB.x - endpointA.x
+    const dy = endpointB.y - endpointA.y
+    const distSq = dx * dx + dy * dy
+    if (distSq <= 0.0001) {
+      return false
+    }
+
+    const existing = this.findBridgeRope(source.id, target.id)
+    if (existing) {
+      this.destroyBridgeRope(existing)
+    }
+
+    const runtime = this.acquireBridgeRope()
+    runtime.active = false
+    runtime.endpointAEntityId = endpointA.entityId
+    runtime.endpointBEntityId = endpointB.entityId
+    runtime.bodyAId = this.createKinematicAnchorBody(endpointA.x, endpointA.y)
+    runtime.bodyAOwned = true
+    runtime.bodyBId = this.createKinematicAnchorBody(endpointB.x, endpointB.y)
+    runtime.bodyBOwned = true
+    runtime.targetABodyId = endpointA.bodyId
+    runtime.targetBBodyId = endpointB.bodyId
+    runtime.endpointAHasDynamicBody = endpointA.hasDynamicBody
+    runtime.endpointBHasDynamicBody = endpointB.hasDynamicBody
+    runtime.localAX = endpointA.localX
+    runtime.localAY = endpointA.localY
+    runtime.localBX = endpointB.localX
+    runtime.localBY = endpointB.localY
+    runtime.followAX = endpointA.x
+    runtime.followAY = endpointA.y
+    runtime.followBX = endpointB.x
+    runtime.followBY = endpointB.y
+    runtime.renderLayer = endpointA.renderLayer
+    runtime.segmentBodies.length = 0
+    runtime.segmentJoints.length = 0
+    runtime.segmentFilterJoints.length = 0
+
+    const ropeLength = Math.sqrt(distSq)
+    const linkCount = Math.max(
+      1,
+      Math.min(
+        DEFAULT_GRAPPLE_ROPE_MAX_SEGMENTS,
+        Math.ceil(ropeLength / DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH)
+      )
+    )
+    const segmentCount = linkCount - 1
+    const linkLength = ropeLength / linkCount
+    runtime.segmentCount = segmentCount
+    runtime.linkLength = linkLength
+    runtime.maxRopeLength = ropeLength
+
+    const invDist = 1 / ropeLength
+    const dirX = dx * invDist
+    const dirY = dy * invDist
+    const categoryBits =
+      getRopeCollisionCategory(runtime.renderLayer) |
+      getWeaponCollisionCategory(runtime.renderLayer)
+    const maskBits =
+      getGroundCollisionCategory(runtime.renderLayer) |
+      getObstacleCollisionCategory(runtime.renderLayer)
+
+    let previousBodyId = runtime.bodyAId
+    for (let i = 0; i < segmentCount; i++) {
+      if (!this.isBodyId(previousBodyId)) {
+        this.destroyBridgeRope(runtime)
+        return false
+      }
+      const centerFactor = i + 1
+      const centerX = endpointA.x + dirX * (centerFactor * linkLength)
+      const centerY = endpointA.y + dirY * (centerFactor * linkLength)
+      const segmentBodyId = this.createRopeSegmentBody(
+        centerX,
+        centerY,
+        runtime.renderLayer,
+        this.dynamicTetherRopeDensity,
+        categoryBits,
+        maskBits
+      )
+      runtime.segmentBodies.push(segmentBodyId)
+      if (endpointA.hasDynamicBody && this.isBodyId(endpointA.bodyId)) {
+        runtime.segmentFilterJoints.push(
+          this.createBodyCollisionFilterJoint(segmentBodyId, endpointA.bodyId)
+        )
+      }
+      if (endpointB.hasDynamicBody && this.isBodyId(endpointB.bodyId)) {
+        runtime.segmentFilterJoints.push(
+          this.createBodyCollisionFilterJoint(segmentBodyId, endpointB.bodyId)
+        )
+      }
+      runtime.segmentJoints.push(
+        this.createFixedDistanceJoint(previousBodyId, segmentBodyId, linkLength)
+      )
+      previousBodyId = segmentBodyId
+    }
+
+    if (!this.isBodyId(previousBodyId) || !this.isBodyId(runtime.bodyBId)) {
+      this.destroyBridgeRope(runtime)
+      return false
+    }
+    runtime.segmentJoints.push(
+      this.createFixedDistanceJoint(previousBodyId, runtime.bodyBId, linkLength)
+    )
+
+    runtime.active = true
+    return true
+  }
+
+  private resolveBridgeEndpoint(
+    entity: Entity,
+    out: RopeBridgeEndpointBuild
+  ): boolean {
+    if (!entity.transform) {
+      return false
+    }
+
+    out.entityId = entity.id
+    out.bodyId = null
+    out.bodyOwned = false
+    out.localX = 0
+    out.localY = 0
+    out.x = entity.transform.x
+    out.y = entity.transform.y
+    out.renderLayer = entity.render?.renderLayer ?? 0
+    out.hasDynamicBody = false
+
+    if (entity.grappleTarget) {
+      if (!entity.grappleTarget.canTether) {
+        return false
+      }
+      const bodyId = this.getValidBodyId(entity)
+      if (!bodyId) {
+        return false
+      }
+      out.bodyId = bodyId
+      out.localX = entity.grappleTarget.anchorLocalX
+      out.localY = entity.grappleTarget.anchorLocalY
+      out.hasDynamicBody = true
+      return true
+    }
+
+    if (entity.grappleAnchor) {
+      return true
+    }
+
+    return false
+  }
+
+  private acquireBridgeRope(): RopeBridgeRuntime {
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active) {
+        return runtime
+      }
+    }
+
+    const runtime: RopeBridgeRuntime = {
+      active: false,
+      endpointAEntityId: -1,
+      endpointBEntityId: -1,
+      bodyAId: null,
+      bodyAOwned: false,
+      bodyBId: null,
+      bodyBOwned: false,
+      targetABodyId: null,
+      targetBBodyId: null,
+      endpointAHasDynamicBody: false,
+      endpointBHasDynamicBody: false,
+      localAX: 0,
+      localAY: 0,
+      localBX: 0,
+      localBY: 0,
+      followAX: 0,
+      followAY: 0,
+      followBX: 0,
+      followBY: 0,
+      renderLayer: 0,
+      segmentCount: 0,
+      linkLength: DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH,
+      maxRopeLength: 0,
+      segmentBodies: [],
+      segmentJoints: [],
+      segmentFilterJoints: [],
+    }
+    this.bridgeRopes.push(runtime)
+    return runtime
+  }
+
+  private findBridgeRope(
+    endpointAEntityId: number,
+    endpointBEntityId: number
+  ): RopeBridgeRuntime | null {
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active) continue
+      if (
+        (runtime.endpointAEntityId === endpointAEntityId &&
+          runtime.endpointBEntityId === endpointBEntityId) ||
+        (runtime.endpointAEntityId === endpointBEntityId &&
+          runtime.endpointBEntityId === endpointAEntityId)
+      ) {
+        return runtime
+      }
+    }
+    return null
+  }
+
+  private updateBridgeRopes(deltaMs: number): void {
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active) continue
+      if (!this.syncBridgeEndpoint(runtime, true, deltaMs)) {
+        this.destroyBridgeRope(runtime)
+        continue
+      }
+      if (!this.syncBridgeEndpoint(runtime, false, deltaMs)) {
+        this.destroyBridgeRope(runtime)
+        continue
+      }
+      this.applyBridgeTension(runtime)
+    }
+  }
+
+  private syncBridgeEndpoint(
+    runtime: RopeBridgeRuntime,
+    useEndpointA: boolean,
+    deltaMs: number
+  ): boolean {
+    const entityId = useEndpointA
+      ? runtime.endpointAEntityId
+      : runtime.endpointBEntityId
+    const bodyId = useEndpointA ? runtime.bodyAId : runtime.bodyBId
+    const targetBodyId = useEndpointA
+      ? runtime.targetABodyId
+      : runtime.targetBBodyId
+    const hasDynamicBody = useEndpointA
+      ? runtime.endpointAHasDynamicBody
+      : runtime.endpointBHasDynamicBody
+    const entity = this.getEntityById(entityId)
+    if (!entity?.transform) {
+      return false
+    }
+
+    if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+      return false
+    }
+
+    if (hasDynamicBody) {
+      const currentBodyId = this.getValidBodyId(entity)
+      if (
+        currentBodyId === null ||
+        !this.isBodyId(targetBodyId) ||
+        !this.areBodyIdsEqual(currentBodyId, targetBodyId)
+      ) {
+        return false
+      }
+    } else if (!entity.grappleAnchor) {
+      return false
+    }
+
+    if (useEndpointA) {
+      this.syncKinematicAnchorBody(
+        bodyId,
+        entity.transform.x,
+        entity.transform.y,
+        runtime.followAX,
+        runtime.followAY,
+        deltaMs
+      )
+      runtime.followAX = entity.transform.x
+      runtime.followAY = entity.transform.y
+    } else {
+      this.syncKinematicAnchorBody(
+        bodyId,
+        entity.transform.x,
+        entity.transform.y,
+        runtime.followBX,
+        runtime.followBY,
+        deltaMs
+      )
+      runtime.followBX = entity.transform.x
+      runtime.followBY = entity.transform.y
+    }
+
+    return true
+  }
+
+  private applyBridgeTension(runtime: RopeBridgeRuntime): void {
+    const entityA = this.getEntityById(runtime.endpointAEntityId)
+    const entityB = this.getEntityById(runtime.endpointBEntityId)
+    if (!entityA?.transform || !entityB?.transform) {
+      return
+    }
+
+    const dx = entityB.transform.x - entityA.transform.x
+    const dy = entityB.transform.y - entityA.transform.y
+    const distSq = dx * dx + dy * dy
+    if (distSq <= 0.0001) {
+      return
+    }
+
+    const dist = Math.sqrt(distSq)
+    const stretch = dist - runtime.maxRopeLength
+    if (stretch <= 0) {
+      return
+    }
+
+    const invDist = 1 / dist
+    const dirX = dx * invDist
+    const dirY = dy * invDist
+    const dynamicEndpointCount =
+      (runtime.endpointAHasDynamicBody ? 1 : 0) +
+      (runtime.endpointBHasDynamicBody ? 1 : 0)
+    if (dynamicEndpointCount <= 0) {
+      return
+    }
+
+    const targetAlong =
+      Math.min(
+        this.dynamicTetherMaxSpeed,
+        this.dynamicTetherBaseSpeed + stretch * this.dynamicTetherStretchSpeed
+      ) / dynamicEndpointCount
+
+    if (
+      runtime.endpointAHasDynamicBody &&
+      this.isBodyId(runtime.targetABodyId)
+    ) {
+      this.applyBridgeEndpointTension(
+        runtime.targetABodyId,
+        dirX,
+        dirY,
+        targetAlong
+      )
+    }
+    if (
+      runtime.endpointBHasDynamicBody &&
+      this.isBodyId(runtime.targetBBodyId)
+    ) {
+      this.applyBridgeEndpointTension(
+        runtime.targetBBodyId,
+        -dirX,
+        -dirY,
+        targetAlong
+      )
+    }
+  }
+
+  private applyBridgeEndpointTension(
+    bodyId: b2BodyId,
+    dirX: number,
+    dirY: number,
+    targetAlong: number
+  ): void {
+    if (!this.box2d.b2Body_IsValid(bodyId)) {
+      return
+    }
+
+    const currentVel = this.box2d.b2Body_GetLinearVelocity(bodyId)
+    const currentAlong = currentVel.x * dirX + currentVel.y * dirY
+    if (currentAlong >= targetAlong) {
+      currentVel.delete()
+      return
+    }
+
+    const addSpeed = targetAlong - currentAlong
+    this.tempVec.x = currentVel.x + dirX * addSpeed
+    this.tempVec.y = currentVel.y + dirY * addSpeed
+    this.box2d.b2Body_SetLinearVelocity(bodyId, this.tempVec)
+    currentVel.delete()
+  }
+
+  private detachBridgeRopesForTarget(targetEntityId: number): void {
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active) continue
+      if (
+        runtime.endpointAEntityId === targetEntityId ||
+        runtime.endpointBEntityId === targetEntityId
+      ) {
+        this.destroyBridgeRope(runtime)
+      }
+    }
+  }
+
+  private destroyBridgeRope(runtime: RopeBridgeRuntime): void {
+    if (!runtime.active) {
+      return
+    }
+
+    for (let i = 0; i < runtime.segmentJoints.length; i++) {
+      this.destroyJointIfValid(runtime.segmentJoints[i])
+    }
+    runtime.segmentJoints.length = 0
+
+    for (let i = 0; i < runtime.segmentFilterJoints.length; i++) {
+      this.destroyJointIfValid(runtime.segmentFilterJoints[i])
+    }
+    runtime.segmentFilterJoints.length = 0
+
+    for (let i = 0; i < runtime.segmentBodies.length; i++) {
+      this.destroyBodyIfValid(runtime.segmentBodies[i])
+    }
+    runtime.segmentBodies.length = 0
+
+    if (runtime.bodyAOwned) {
+      this.destroyBodyIfValid(runtime.bodyAId)
+    }
+    if (runtime.bodyBOwned) {
+      this.destroyBodyIfValid(runtime.bodyBId)
+    }
+
+    runtime.active = false
+    runtime.endpointAEntityId = -1
+    runtime.endpointBEntityId = -1
+    runtime.bodyAId = null
+    runtime.bodyAOwned = false
+    runtime.bodyBId = null
+    runtime.bodyBOwned = false
+    runtime.targetABodyId = null
+    runtime.targetBBodyId = null
+    runtime.endpointAHasDynamicBody = false
+    runtime.endpointBHasDynamicBody = false
+    runtime.localAX = 0
+    runtime.localAY = 0
+    runtime.localBX = 0
+    runtime.localBY = 0
+    runtime.followAX = 0
+    runtime.followAY = 0
+    runtime.followBX = 0
+    runtime.followBY = 0
+    runtime.renderLayer = 0
+    runtime.segmentCount = 0
+    runtime.linkLength = DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH
+    runtime.maxRopeLength = 0
   }
 
   private createAnchorBody(x: number, y: number): b2BodyId {

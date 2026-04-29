@@ -5514,6 +5514,7 @@ function canGrappleLockedTarget(player: Entity): boolean {
   }
 
   const hasBody =
+    target.grappleAnchor !== undefined ||
     target.physics !== undefined ||
     (target.grappleTarget !== undefined && target.grappleTarget.canPull)
   if (!hasBody) {
@@ -5782,13 +5783,7 @@ function handleInput(
     const rJustReleased = !rPressed && prevKeys.has('r')
 
     if (rJustPressed) {
-      const g = playerEntity.grapple
-      if (!isPlayerDead && g?.isTethering) {
-        playerEntity.input.inputBuffer.bufferAction('grapple')
-        rHoldActive = false
-        rHoldTriggered = false
-        rHoldMs = 0
-      } else if (!isPlayerDead) {
+      if (!isPlayerDead) {
         rHoldActive = true
         rHoldTriggered = false
         rHoldMs = 0
@@ -5955,8 +5950,13 @@ function fixedUpdate() {
         rHoldMs += FIXED_STEP_MS
         if (rHoldMs >= GRAPPLE_LONG_PRESS_MS) {
           rHoldTriggered = true
-          playerEntity.input.grapplePersistentRequested = true
-          playerEntity.input.inputBuffer.bufferAction('grapple')
+          const canPersistGrapple =
+            playerEntity.input.lockedTargetId !== null ||
+            playerEntity.grapple?.hasAnchorNearby === true
+          if (canPersistGrapple) {
+            playerEntity.input.grapplePersistentRequested = true
+            playerEntity.input.inputBuffer.bufferAction('grapple')
+          }
         }
       }
     }
@@ -7519,7 +7519,7 @@ function sendState() {
   }
 
   let ropePointCount = 0
-  if (playerEntity?.grapple?.isTethering) {
+  if (playerEntity && grappleSystem) {
     ropePointCount = grappleSystem.writeActiveRopePoints(
       playerEntity,
       stateBuffer,

@@ -2564,7 +2564,9 @@ export class PixiWorldRenderer {
     targetX: number,
     targetY: number
   ): void {
-    if (!grappleActive) {
+    const ropePointCount = renderer.getRopePointCount()
+    const hasRopePoints = ropePointCount > 1
+    if (!grappleActive && !hasRopePoints) {
       if (this.ropeGraphics.visible) {
         this.ropeGraphics.clear()
         this.ropeGraphics.visible = false
@@ -2573,24 +2575,54 @@ export class PixiWorldRenderer {
     }
     this.ropeGraphics.clear()
 
-    const ropePointCount = renderer.getRopePointCount()
     const ropePoints = renderer.getRopePointsBuffer()
     this.ropeGraphics.visible = true
 
-    if (ropePointCount > 1) {
-      this.ropeGraphics.moveTo(
-        ropePoints[0] * this.pixelsPerMeter,
-        ropePoints[1] * this.pixelsPerMeter
-      )
+    if (hasRopePoints) {
+      let hasActiveLine = false
+      const firstX = ropePoints[0]
+      const firstY = ropePoints[1]
+      if (Number.isFinite(firstX) && Number.isFinite(firstY)) {
+        this.ropeGraphics.moveTo(
+          firstX * this.pixelsPerMeter,
+          firstY * this.pixelsPerMeter
+        )
+        hasActiveLine = true
+      }
       let ropeOffset = 0
       for (let i = 1; i < ropePointCount; i++) {
         ropeOffset += ROPE_POINT_STRIDE
-        this.ropeGraphics.lineTo(
-          ropePoints[ropeOffset] * this.pixelsPerMeter,
-          ropePoints[ropeOffset + 1] * this.pixelsPerMeter
-        )
+        const x = ropePoints[ropeOffset]
+        const y = ropePoints[ropeOffset + 1]
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          hasActiveLine = false
+          continue
+        }
+        if (hasActiveLine) {
+          this.ropeGraphics.lineTo(
+            x * this.pixelsPerMeter,
+            y * this.pixelsPerMeter
+          )
+        } else {
+          this.ropeGraphics.moveTo(
+            x * this.pixelsPerMeter,
+            y * this.pixelsPerMeter
+          )
+          hasActiveLine = true
+        }
       }
-    } else {
+    }
+
+    if (
+      grappleActive &&
+      (!hasRopePoints ||
+        !this.ropePointsIncludePosition(
+          ropePoints,
+          ropePointCount,
+          playerX,
+          playerY
+        ))
+    ) {
       this.ropeGraphics.moveTo(
         playerX * this.pixelsPerMeter,
         playerY * this.pixelsPerMeter
@@ -2602,6 +2634,29 @@ export class PixiWorldRenderer {
     }
 
     this.ropeGraphics.stroke({ color: GRAPPLE_LINE_COLOR, width: 2 })
+  }
+
+  private ropePointsIncludePosition(
+    ropePoints: Float32Array,
+    ropePointCount: number,
+    x: number,
+    y: number
+  ): boolean {
+    let offset = 0
+    const thresholdSq = 0.04
+    for (let i = 0; i < ropePointCount; i++) {
+      const px = ropePoints[offset]
+      const py = ropePoints[offset + 1]
+      if (Number.isFinite(px) && Number.isFinite(py)) {
+        const dx = px - x
+        const dy = py - y
+        if (dx * dx + dy * dy <= thresholdSq) {
+          return true
+        }
+      }
+      offset += ROPE_POINT_STRIDE
+    }
+    return false
   }
 
   private updateSoundDebug(renderer: ClientRenderer): void {

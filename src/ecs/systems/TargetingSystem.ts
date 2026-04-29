@@ -2,7 +2,7 @@ import {
   getCharacterEyeOffsetX,
   getCharacterEyeOffsetY,
 } from '../../characterBodyProfile'
-import { ENEMY_DETECTION_RANGE } from '../../constants'
+import { DEFAULT_PLAYER_FOV_RAD, ENEMY_DETECTION_RANGE } from '../../constants'
 import { getEnvironmentCollisionMask } from '../../physicsLayers'
 import type { MainModule, b2BodyId, b2WorldId } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
@@ -14,6 +14,7 @@ import { System } from '../System'
 const FAN_RAY_COUNT = 9
 const PLAYER_LOCK_RANGE = ENEMY_DETECTION_RANGE * 2.0
 const PLAYER_LOCK_RANGE_SQ = PLAYER_LOCK_RANGE * PLAYER_LOCK_RANGE
+const PLAYER_LOCK_HALF_FOV_COS = Math.cos(DEFAULT_PLAYER_FOV_RAD * 0.5)
 
 export class TargetingSystem extends System {
   private box2d: MainModule
@@ -232,6 +233,9 @@ export class TargetingSystem extends System {
     if (target.stats && (target.stats.isDead || target.stats.isVanished)) {
       return false
     }
+    if (!this.isInPlayerFacingRange(player, target)) {
+      return false
+    }
 
     const grappleTarget = target.grappleTarget
     if (grappleTarget) {
@@ -247,6 +251,34 @@ export class TargetingSystem extends System {
       player.faction?.canAttackEntity(target.faction, target.id.toString()) ===
         true
     )
+  }
+
+  private isInPlayerFacingRange(player: Entity, target: Entity): boolean {
+    if (!player.transform || !target.transform) {
+      return false
+    }
+
+    let facingDir = 1
+    if (
+      player.input?.facingOverride !== null &&
+      player.input?.facingOverride !== undefined &&
+      player.input.facingOverride !== 0
+    ) {
+      facingDir = player.input.facingOverride
+    } else if (player.input?.lastMoveDirection !== 0) {
+      facingDir = player.input?.lastMoveDirection ?? 1
+    }
+
+    const forwardX = facingDir >= 0 ? 1 : -1
+    const dx = target.transform.x - player.transform.x
+    const dy = target.transform.y - player.transform.y
+    const distSq = dx * dx + dy * dy
+    if (distSq <= 0) {
+      return false
+    }
+
+    const dot = (dx * forwardX) / Math.sqrt(distSq)
+    return dot >= PLAYER_LOCK_HALF_FOV_COS
   }
 
   private getTargetBodyId(entity: Entity): b2BodyId | null {

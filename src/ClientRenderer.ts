@@ -1254,6 +1254,7 @@ export class ClientRenderer {
       this.grappleLineStartedClose = false
       this.grappleLineHidden = false
     }
+    const hasRopePoints = this.ropePointCount > 1 && this.incomingView !== null
 
     this.dynamicRenderLayers.length = 0
     for (let i = 0; i < this.entityCount; i++) {
@@ -1286,14 +1287,14 @@ export class ClientRenderer {
       if (drawStaticLayer) {
         drawStaticLayer(layer)
       }
-      if (shouldDrawGrappleLine && layer === playerRenderLayer) {
-        const hasRopePoints =
-          this.ropePointCount > 1 &&
-          this.incomingView !== null &&
-          playerGrappleActive
+      if (layer === playerRenderLayer) {
         if (hasRopePoints) {
           this.drawGrappleRopePoints()
-        } else {
+        }
+        if (
+          shouldDrawGrappleLine &&
+          (!hasRopePoints || !this.ropePointsIncludePosition(playerX, playerY))
+        ) {
           this.drawGrappleLine(
             playerX,
             playerY,
@@ -1448,6 +1449,25 @@ export class ClientRenderer {
       FOLLOW_BOND_ICON_RENDER_HEIGHT
     )
     ctx.restore()
+  }
+
+  private ropePointsIncludePosition(x: number, y: number): boolean {
+    const view = this.ropePointsBuffer
+    let offset = 0
+    const thresholdSq = 0.04
+    for (let i = 0; i < this.ropePointCount; i++) {
+      const px = view[offset]
+      const py = view[offset + 1]
+      if (Number.isFinite(px) && Number.isFinite(py)) {
+        const dx = px - x
+        const dy = py - y
+        if (dx * dx + dy * dy <= thresholdSq) {
+          return true
+        }
+      }
+      offset += ROPE_POINT_STRIDE
+    }
+    return false
   }
 
   private drawFollowUnbondIcon(cx: number, cy: number, alpha: number): void {
@@ -2414,17 +2434,28 @@ export class ClientRenderer {
     ctx.strokeStyle = GRAPPLE_LINE_COLOR
     ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.moveTo(
-      view[offset] * this.pixelsPerMeter,
-      view[offset + 1] * this.pixelsPerMeter
-    )
+    let hasActiveLine = false
+    const firstX = view[offset]
+    const firstY = view[offset + 1]
+    if (Number.isFinite(firstX) && Number.isFinite(firstY)) {
+      ctx.moveTo(firstX * this.pixelsPerMeter, firstY * this.pixelsPerMeter)
+      hasActiveLine = true
+    }
 
     for (let i = 1; i < this.ropePointCount; i++) {
       offset += ROPE_POINT_STRIDE
-      ctx.lineTo(
-        view[offset] * this.pixelsPerMeter,
-        view[offset + 1] * this.pixelsPerMeter
-      )
+      const x = view[offset]
+      const y = view[offset + 1]
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        hasActiveLine = false
+        continue
+      }
+      if (hasActiveLine) {
+        ctx.lineTo(x * this.pixelsPerMeter, y * this.pixelsPerMeter)
+      } else {
+        ctx.moveTo(x * this.pixelsPerMeter, y * this.pixelsPerMeter)
+        hasActiveLine = true
+      }
     }
     ctx.stroke()
 
@@ -2435,6 +2466,10 @@ export class ClientRenderer {
       for (let i = 0; i < this.ropePointCount; i++) {
         const x = view[offset] * this.pixelsPerMeter
         const y = view[offset + 1] * this.pixelsPerMeter
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          offset += ROPE_POINT_STRIDE
+          continue
+        }
         ctx.beginPath()
         ctx.arc(x, y, radiusPx, 0, Math.PI * 2)
         ctx.fill()
