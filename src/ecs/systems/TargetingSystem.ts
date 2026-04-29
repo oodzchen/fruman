@@ -141,7 +141,7 @@ export class TargetingSystem extends System {
     // Validate Lock
     if (input.lockedTargetId !== null) {
       const target = this.getEntityById(input.lockedTargetId, entities)
-      if (!target || !this.canPlayerLockTarget(player, target)) {
+      if (!target || !this.canPlayerKeepLockTarget(player, target)) {
         input.lockedTargetId = null
         input.lockLostTimer = 0
       } else {
@@ -152,6 +152,7 @@ export class TargetingSystem extends System {
           input.lockedTargetId = null
           input.lockLostTimer = 0
         } else {
+          this.faceLockedTarget(player, target)
           // Line of Sight check
           if (this.hasLineOfSight(player, target)) {
             input.lockLostTimer = 0
@@ -190,7 +191,7 @@ export class TargetingSystem extends System {
     for (let i = 0; i < candidateCount; i++) {
       const entity = candidates[i]
       if (entity.id === player.id || entity.id === currentTarget.id) continue
-      if (!this.canPlayerLockTarget(player, entity)) continue
+      if (!this.canPlayerKeepLockTarget(player, entity)) continue
 
       const playerDx = entity.transform.x - player.transform.x
       const playerDy = entity.transform.y - player.transform.y
@@ -218,7 +219,17 @@ export class TargetingSystem extends System {
     return bestId
   }
 
-  private canPlayerLockTarget(
+  private canPlayerAcquireLockTarget(
+    player: Entity,
+    target: Entity
+  ): target is Entity & { transform: NonNullable<Entity['transform']> } {
+    return (
+      this.canPlayerKeepLockTarget(player, target) &&
+      this.isInPlayerFacingRange(player, target)
+    )
+  }
+
+  private canPlayerKeepLockTarget(
     player: Entity,
     target: Entity
   ): target is Entity & { transform: NonNullable<Entity['transform']> } {
@@ -231,9 +242,6 @@ export class TargetingSystem extends System {
       return false
     }
     if (target.stats && (target.stats.isDead || target.stats.isVanished)) {
-      return false
-    }
-    if (!this.isInPlayerFacingRange(player, target)) {
       return false
     }
 
@@ -279,6 +287,17 @@ export class TargetingSystem extends System {
 
     const dot = (dx * forwardX) / Math.sqrt(distSq)
     return dot >= PLAYER_LOCK_HALF_FOV_COS
+  }
+
+  private faceLockedTarget(player: Entity, target: Entity): void {
+    if (!player.input || !player.transform || !target.transform) {
+      return
+    }
+
+    const dx = target.transform.x - player.transform.x
+    if (dx !== 0) {
+      player.input.lastMoveDirection = dx > 0 ? 1 : -1
+    }
   }
 
   private getTargetBodyId(entity: Entity): b2BodyId | null {
@@ -377,7 +396,7 @@ export class TargetingSystem extends System {
     for (let i = 0; i < candidateCount; i++) {
       const entity = candidates[i]
       if (entity.id === player.id) continue
-      if (!this.canPlayerLockTarget(player, entity)) continue
+      if (!this.canPlayerAcquireLockTarget(player, entity)) continue
 
       const dx = entity.transform.x - player.transform.x
       const dy = entity.transform.y - player.transform.y

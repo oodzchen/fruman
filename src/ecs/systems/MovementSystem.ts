@@ -707,26 +707,10 @@ export class MovementSystem extends System {
         entity.weapon.attackPhase === 'pause' ||
         entity.weapon.attackPhase === 'recover')
 
-    if (!isInAttackAction) {
-      if (entity.input.lockedTargetId !== null) {
-        // 有锁定目标时，优先面朝目标，避免被 facingOverride 抢占
-        const lockedTargetId = entity.input.lockedTargetId
-        let target: Entity | undefined
-        if (this.entityLookup) {
-          target = this.entityLookup(lockedTargetId)
-        } else {
-          for (const candidate of this.allEntities) {
-            if (candidate.id === lockedTargetId) {
-              target = candidate
-              break
-            }
-          }
-        }
-        if (target && target.transform && entity.transform) {
-          const dx = target.transform.x - entity.transform.x
-          entity.input.lastMoveDirection = dx >= 0 ? 1 : -1
-        }
-      } else if (entity.input.facingOverride !== null) {
+    if (entity.input.lockedTargetId !== null) {
+      this.faceLockedTarget(entity)
+    } else if (!isInAttackAction) {
+      if (entity.input.facingOverride !== null) {
         entity.input.lastMoveDirection = entity.input.facingOverride
       } else if (direction !== 0) {
         entity.input.lastMoveDirection = direction
@@ -795,6 +779,31 @@ export class MovementSystem extends System {
     this.tempVec.x = direction * moveSpeed
     this.tempVec.y = entity.physics.velY
     b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+  }
+
+  private faceLockedTarget(entity: Entity): void {
+    if (!entity.input || !entity.transform) return
+
+    const lockedTargetId = entity.input.lockedTargetId
+    if (lockedTargetId === null) return
+
+    let target: Entity | undefined
+    if (this.entityLookup) {
+      target = this.entityLookup(lockedTargetId)
+    } else {
+      for (const candidate of this.allEntities) {
+        if (candidate.id === lockedTargetId) {
+          target = candidate
+          break
+        }
+      }
+    }
+    if (!target?.transform) return
+
+    const dx = target.transform.x - entity.transform.x
+    if (dx !== 0) {
+      entity.input.lastMoveDirection = dx > 0 ? 1 : -1
+    }
   }
 
   private handleJump(entity: Entity): void {
