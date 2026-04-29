@@ -254,7 +254,7 @@ export const BOW_GRAVITY_SCALE = 0.5
 export const BOW_FREE_AIM_TURN_SPEED = 1.0
 export const BOW_FREE_AIM_MAX_OFFSET = Math.PI * 0.45
 
-export const GRAPE_MIN_WINDUP_MS = 200
+export const GRAPE_MIN_WINDUP_MS = 400
 export const GRAPE_MIN_FORCE_RATIO = 0.35
 export const GRAPE_MIN_SPEED = 9
 export const GRAPE_MAX_SPEED = 21
