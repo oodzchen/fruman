@@ -1,12 +1,14 @@
 import * as fabric from 'fabric'
 
 import type {
+  MapEnvironmentFlowerOptions,
   MapEnvironmentObjectType,
   MapNpcDropItem,
   MapNpcWeapon,
   MapPlayerProperties,
 } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
+import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   getEnvironmentEffectiveScalePermille,
@@ -230,6 +232,7 @@ interface ClipboardEnvironmentTreeNode extends ClipboardTreeNodeBase {
   scaleXPermille: number
   scaleYPermille: number
   cellStroke: boolean
+  flowerOptions: MapEnvironmentFlowerOptions | null
 }
 
 type RectResetData = Extract<ShapeResetData, { kind: 'rect' }>
@@ -421,6 +424,7 @@ export class EditorClipboardManager {
   private environmentScaleXPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
   private environmentScaleYPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
   private environmentCellStroke = false
+  private environmentFlowerOptions: MapEnvironmentFlowerOptions | null = null
   private environmentAnchorOffset = { x: 0, y: 0 }
 
   private cameraZoom = 1
@@ -978,6 +982,8 @@ export class EditorClipboardManager {
           target.scaleY
         ),
         cellStroke: target.cellStroke === true,
+        flowerOptions:
+          cloneEnvironmentFlowerOptions(target.flowerOptions) ?? null,
       }
     }
 
@@ -1569,6 +1575,7 @@ export class EditorClipboardManager {
       scaleXPermille: node.scaleXPermille,
       scaleYPermille: node.scaleYPermille,
       cellStroke: node.cellStroke === true,
+      flowerOptions: node.flowerOptions ?? undefined,
     })
     const nextActive = canvas.getActiveObject()
     return nextActive && nextActive !== previousActive ? nextActive : null
@@ -2272,6 +2279,8 @@ export class EditorClipboardManager {
       target.scaleY
     )
     this.environmentCellStroke = target.cellStroke === true
+    this.environmentFlowerOptions =
+      cloneEnvironmentFlowerOptions(target.flowerOptions) ?? null
     return true
   }
 
@@ -2315,6 +2324,7 @@ export class EditorClipboardManager {
       scaleXPermille: this.environmentScaleXPermille,
       scaleYPermille: this.environmentScaleYPermille,
       cellStroke: this.environmentCellStroke,
+      flowerOptions: this.environmentFlowerOptions ?? undefined,
     })
     return canvas.getActiveObject() ?? null
   }

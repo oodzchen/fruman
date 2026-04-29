@@ -15,6 +15,7 @@ import type {
   MapSunPickup,
 } from '../editorMapTypes'
 import { DEFAULT_MAP_TIME_PHASE } from '../editorMapTypes'
+import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   type EnvironmentTransformOffset,
@@ -484,7 +485,7 @@ export class EditorMapSerializer {
     const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
     const result: MapEnvironmentObject[] = []
     for (let i = 0; i < markers.length; i++) {
-      const { marker, envType, envSeed, cellStroke } = markers[i]
+      const { marker, envType, envSeed, cellStroke, flowerOptions } = markers[i]
       const center = marker.getCenterPoint()
       const rotationDeg = normalizeEnvironmentRotationDeg(marker.angle ?? 0)
       const scaleXPermille = getEnvironmentEffectiveScalePermille(
@@ -531,6 +532,14 @@ export class EditorMapSerializer {
         (cellStroke === true || marker.cellStroke === true)
       ) {
         envObject.cellStroke = true
+      }
+      if (envType === 'flower') {
+        const serializedFlowerOptions = cloneEnvironmentFlowerOptions(
+          flowerOptions ?? marker.flowerOptions
+        )
+        if (serializedFlowerOptions) {
+          envObject.flowerOptions = serializedFlowerOptions
+        }
       }
       result.push(envObject)
     }

@@ -1,6 +1,30 @@
-import type { MapEnvironmentObjectType } from '../editorMapTypes'
+import type {
+  MapEnvironmentFlowerOptions,
+  MapEnvironmentObjectType,
+} from '../editorMapTypes'
 import { getRuntimeEnvironmentAsset } from '../environmentAssetRegistry'
 import { createEnvironmentCrateLayout } from '../environmentCrateUtils'
+import {
+  ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MAX,
+  ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MIN,
+  ENVIRONMENT_FLOWER_PETAL_COUNT_MAX,
+  ENVIRONMENT_FLOWER_PETAL_COUNT_MIN,
+  ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MAX,
+  ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MIN,
+  ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MIN,
+  buildEnvironmentFlowerOptionsCacheKey,
+} from '../environmentFlowerOptions'
 import { createDefaultTerrainChunkSiteJitter } from '../terrain/TerrainDataUtils'
 import type { TerrainResolvedLayerView } from '../terrain/TerrainDataUtils'
 import {
@@ -982,38 +1006,116 @@ export function createEnvironmentFlowerLayout(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  flowerOptions?: MapEnvironmentFlowerOptions | null
 ): EnvironmentFlowerLayout {
   let s = lcgStep(seed ^ ENV_SEED_MIX ^ ENV_FLOWER_DETAIL_SEED)
-  const rootGrassCount = lcgRange(s, 0, 3)
-  s = lcgStep(s)
-  const baseClumpWidth = Math.max(
-    10,
-    roundDiv(ppm * (24 + rootGrassCount * 8 + lcgRange(s, 0, 20)), 100)
+  const rootGrassCount = clampFlowerOption(
+    flowerOptions?.rootGrassCount,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MIN,
+      ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MAX
+    ),
+    ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MIN,
+    ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MAX
   )
   s = lcgStep(s)
+  const clumpWidthPercent = clampFlowerOption(
+    flowerOptions?.clumpWidthPercent,
+    24 + rootGrassCount * 8 + lcgRange(s, 0, 20),
+    ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MIN,
+    ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MAX
+  )
+  const baseClumpWidth = Math.max(10, roundDiv(ppm * clumpWidthPercent, 100))
+  s = lcgStep(s)
+  const stemHeightPercent = clampFlowerOption(
+    flowerOptions?.stemHeightPercent,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MIN,
+      ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MAX
+    ),
+    ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MIN,
+    ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MAX
+  )
   const stemHeightUnscaled = Math.max(
     18,
-    roundDiv(ppm * lcgRange(s, 70, 126), 100)
+    roundDiv(ppm * stemHeightPercent, 100)
   )
   s = lcgStep(s)
-  const stemLeanPercent = lcgRange(s, -18, 18)
+  const stemLeanPercent = clampFlowerOption(
+    flowerOptions?.stemLeanPercent,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MIN,
+      ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MAX
+    ),
+    ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MIN,
+    ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MAX
+  )
   s = lcgStep(s)
-  const petalCount = lcgRange(s, 3, 12)
+  const petalCount = clampFlowerOption(
+    flowerOptions?.petalCount,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_PETAL_COUNT_MIN,
+      ENVIRONMENT_FLOWER_PETAL_COUNT_MAX
+    ),
+    ENVIRONMENT_FLOWER_PETAL_COUNT_MIN,
+    ENVIRONMENT_FLOWER_PETAL_COUNT_MAX
+  )
   s = lcgStep(s)
-  const basePetalLength = Math.max(6, roundDiv(ppm * lcgRange(s, 14, 28), 100))
+  const petalLengthPercent = clampFlowerOption(
+    flowerOptions?.petalLengthPercent,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MIN,
+      ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MAX
+    ),
+    ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MIN,
+    ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MAX
+  )
+  const basePetalLength = Math.max(6, roundDiv(ppm * petalLengthPercent, 100))
   s = lcgStep(s)
-  const basePetalWidth = Math.max(4, roundDiv(ppm * lcgRange(s, 7, 18), 100))
+  const petalWidthPercent = clampFlowerOption(
+    flowerOptions?.petalWidthPercent,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MIN,
+      ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MAX
+    ),
+    ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MIN,
+    ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MAX
+  )
+  const basePetalWidth = Math.max(4, roundDiv(ppm * petalWidthPercent, 100))
   s = lcgStep(s)
   const baseHue = lcgRange(s, 0, 359)
   s = lcgStep(s)
-  const hasStamen = lcgRange(s, 0, 99) < 72
+  const hasStamen = flowerOptions?.stamenEnabled ?? lcgRange(s, 0, 99) < 72
   s = lcgStep(s)
-  const baseStamenRadius = Math.max(2, roundDiv(ppm * lcgRange(s, 4, 8), 100))
+  const stamenRadiusPercent = clampFlowerOption(
+    flowerOptions?.stamenRadiusPercent,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MIN,
+      ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MAX
+    ),
+    ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MIN,
+    ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MAX
+  )
+  const baseStamenRadius = Math.max(2, roundDiv(ppm * stamenRadiusPercent, 100))
   s = lcgStep(s)
   const stamenGreen = lcgRange(s, 224, 255)
   s = lcgStep(s)
   const stamenBlue = lcgRange(s, 74, 236)
+  const fixedPetalColor = parseFlowerColorOption(flowerOptions?.petalColor)
+  const stamenColor =
+    parseFlowerColorOption(flowerOptions?.stamenColor) ??
+    createRgbColor(255, stamenGreen, stamenBlue)
+  const fixedPetalLength = flowerOptions?.petalLengthPercent !== undefined
+  const fixedPetalWidth = flowerOptions?.petalWidthPercent !== undefined
+  const fixedPetalAngleOffset = flowerOptions?.petalAngleOffsetDeg !== undefined
 
   const clumpWidth = Math.max(
     10,
@@ -1133,34 +1235,54 @@ export function createEnvironmentFlowerLayout(
     petalCount * ENVIRONMENT_FLOWER_PETAL_STRIDE
   )
   s = lcgStep(s)
-  const angleOffsetDeg = lcgRange(s, 0, 359)
+  const angleOffsetDeg = clampFlowerOption(
+    flowerOptions?.petalAngleOffsetDeg,
+    lcgRange(
+      s,
+      ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MIN,
+      ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MAX
+    ),
+    ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MIN,
+    ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MAX
+  )
   let petalWriteIndex = 0
   for (let i = 0; i < petalCount; i++) {
     s = lcgStep(s ^ Math.imul(i + 1, 0x7f4a7c15))
+    const angleJitterDeg = lcgRange(s, -10, 10)
     const angleDeg =
-      angleOffsetDeg + roundDiv(i * 360, petalCount) + lcgRange(s, -10, 10)
+      angleOffsetDeg +
+      roundDiv(i * 360, petalCount) +
+      (fixedPetalAngleOffset ? 0 : angleJitterDeg)
     s = lcgStep(s)
+    const petalLengthScalePercent = lcgRange(s, 78, 132)
     const petalLength = Math.max(
       4,
-      roundDiv(basePetalLength * lcgRange(s, 78, 132), 100)
+      fixedPetalLength
+        ? basePetalLength
+        : roundDiv(basePetalLength * petalLengthScalePercent, 100)
     )
     s = lcgStep(s)
+    const petalWidthScalePercent = lcgRange(s, 72, 138)
     const petalWidth = Math.max(
       3,
-      roundDiv(basePetalWidth * lcgRange(s, 72, 138), 100)
+      fixedPetalWidth
+        ? basePetalWidth
+        : roundDiv(basePetalWidth * petalWidthScalePercent, 100)
     )
     s = lcgStep(s)
+    const sideLengthPercent = lcgRange(s, 42, 74)
     const sideLength = Math.max(
       2,
-      roundDiv(petalLength * lcgRange(s, 42, 74), 100)
+      roundDiv(petalLength * (fixedPetalLength ? 58 : sideLengthPercent), 100)
     )
     s = lcgStep(s)
+    const innerHalfWidthPercent = lcgRange(s, 8, 26)
     const innerHalfWidth = Math.max(
       1,
-      roundDiv(petalWidth * lcgRange(s, 8, 26), 100)
+      roundDiv(petalWidth * (fixedPetalWidth ? 17 : innerHalfWidthPercent), 100)
     )
     s = lcgStep(s)
-    const skewPercent = lcgRange(s, -22, 22)
+    const skewPercent = fixedPetalWidth ? 0 : lcgRange(s, -22, 22)
     s = lcgStep(s)
     const petalHue = normalizeHue(baseHue + lcgRange(s, -18, 18))
     s = lcgStep(s)
@@ -1179,7 +1301,7 @@ export function createEnvironmentFlowerLayout(
       skewPercent,
       scaleXPermille,
       scaleYPermille,
-      createHsvColor(petalHue, petalSaturation, petalValue)
+      fixedPetalColor ?? createHsvColor(petalHue, petalSaturation, petalValue)
     )
     petalWriteIndex += ENVIRONMENT_FLOWER_PETAL_STRIDE
   }
@@ -1198,7 +1320,7 @@ export function createEnvironmentFlowerLayout(
     petalCount,
     petalValues,
     hasStamen,
-    stamenColor: createRgbColor(255, stamenGreen, stamenBlue),
+    stamenColor,
     stamenRadius: Math.max(
       1,
       scaleByPermille(
@@ -1404,13 +1526,15 @@ export function createEnvironmentFlowerTextureSource(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  flowerOptions?: MapEnvironmentFlowerOptions | null
 ): EnvironmentTextureSource {
   const layout = createEnvironmentFlowerLayout(
     seed,
     ppm,
     scaleXPermille,
-    scaleYPermille
+    scaleYPermille,
+    flowerOptions
   )
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, layout.canvasWidth)
@@ -1448,10 +1572,17 @@ export function createEnvironmentFoliageLayout(
   seed: number,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  flowerOptions?: MapEnvironmentFlowerOptions | null
 ): EnvironmentGrassLayout {
   return type === 'flower'
-    ? createEnvironmentFlowerLayout(seed, ppm, scaleXPermille, scaleYPermille)
+    ? createEnvironmentFlowerLayout(
+        seed,
+        ppm,
+        scaleXPermille,
+        scaleYPermille,
+        flowerOptions
+      )
     : createEnvironmentGrassLayout(seed, ppm, scaleXPermille, scaleYPermille)
 }
 
@@ -1585,11 +1716,17 @@ export function buildEnvironmentTextureCacheKey(
   ppm: number,
   scaleXPermille: number = 1000,
   scaleYPermille: number = 1000,
-  cellStroke = false
+  cellStroke = false,
+  flowerOptions?: MapEnvironmentFlowerOptions | null
 ): string {
   const strokeCode =
     isEnvironmentCellStrokeSupported(type) && cellStroke ? 1 : 0
-  return `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}_${strokeCode}`
+  const key = `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}_${strokeCode}`
+  if (type !== 'flower') {
+    return key
+  }
+  const flowerKey = buildEnvironmentFlowerOptionsCacheKey(flowerOptions)
+  return flowerKey.length > 0 ? `${key}_${flowerKey}` : key
 }
 
 export function buildCustomEnvironmentTextureCacheKey(
@@ -1679,7 +1816,8 @@ export function createEnvironmentTextureSource(
   ppm: number,
   scaleXPermille: number = 1000,
   scaleYPermille: number = 1000,
-  cellStroke = false
+  cellStroke = false,
+  flowerOptions?: MapEnvironmentFlowerOptions | null
 ): EnvironmentTextureSource {
   const drawCellStroke = isEnvironmentCellStrokeSupported(type) && cellStroke
   const key = buildEnvironmentTextureCacheKey(
@@ -1688,7 +1826,8 @@ export function createEnvironmentTextureSource(
     ppm,
     scaleXPermille,
     scaleYPermille,
-    drawCellStroke
+    drawCellStroke,
+    flowerOptions
   )
   const cached = textureCache.get(key)
   if (cached) {
@@ -1741,7 +1880,8 @@ export function createEnvironmentTextureSource(
       seed,
       ppm,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      flowerOptions
     )
   } else if (type === 'cloud') {
     source = createEnvironmentCloudTextureSource(
@@ -1805,6 +1945,18 @@ function clamp(value: number, min: number, max: number): number {
   return value
 }
 
+function clampFlowerOption(
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return fallback
+  }
+  return clamp(Math.round(value), min, max)
+}
+
 function scaleByPermille(value: number, scalePermille: number): number {
   return roundDiv(value * scalePermille, 1000)
 }
@@ -1866,6 +2018,26 @@ function createHsvColor(
 
 function colorToCssHex(color: number): string {
   return `#${(color & 0xffffff).toString(16).padStart(6, '0')}`
+}
+
+function parseFlowerColorOption(color: string | undefined): number | null {
+  if (!color || color.length !== 7 || color.charCodeAt(0) !== 35) {
+    return null
+  }
+  for (let i = 1; i < color.length; i++) {
+    const code = color.charCodeAt(i)
+    if (
+      !(
+        (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 70) ||
+        (code >= 97 && code <= 102)
+      )
+    ) {
+      return null
+    }
+  }
+  const value = Number.parseInt(color.slice(1), 16)
+  return Number.isFinite(value) ? value & 0xffffff : null
 }
 
 function clampByte(value: number): number {

@@ -1,12 +1,35 @@
 import { localizer } from '../Localizer'
 import type {
   MapEnvironmentAsset,
+  MapEnvironmentFlowerOptions,
   MapEnvironmentObjectType,
 } from '../editorMapTypes'
 import {
   ensureRuntimeEnvironmentAsset,
   getRuntimeEnvironmentAsset,
 } from '../environmentAssetRegistry'
+import {
+  ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MAX,
+  ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MIN,
+  ENVIRONMENT_FLOWER_PETAL_COUNT_MAX,
+  ENVIRONMENT_FLOWER_PETAL_COUNT_MIN,
+  ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MAX,
+  ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MIN,
+  ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MIN,
+  ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MAX,
+  ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MIN,
+  clearEnvironmentFlowerOptions,
+} from '../environmentFlowerOptions'
+import { isEnvironmentCellStrokeSupported } from '../renderer/ProceduralEnvironmentFactory'
 
 const BUILTIN_ENVIRONMENT_TYPES: readonly MapEnvironmentObjectType[] = [
   'tree',
@@ -22,12 +45,208 @@ const ICON_SIZE = 32
 const ICON_PAD = 4
 const CURSOR_HOTSPOT_X = 16
 const CURSOR_HOTSPOT_Y = 28
+const DEFAULT_FLOWER_PETAL_COLOR = '#df6688'
+const DEFAULT_FLOWER_STAMEN_COLOR = '#ffe07a'
+
+type FlowerNumberOptionKey =
+  | 'rootGrassCount'
+  | 'clumpWidthPercent'
+  | 'stemHeightPercent'
+  | 'stemLeanPercent'
+  | 'petalCount'
+  | 'petalLengthPercent'
+  | 'petalWidthPercent'
+  | 'petalAngleOffsetDeg'
+  | 'stamenRadiusPercent'
+
+type FlowerBooleanOptionKey = 'stamenEnabled'
+type FlowerColorOptionKey = 'petalColor' | 'stamenColor'
+
+interface FlowerNumberOptionConfig {
+  key: FlowerNumberOptionKey
+  labelKey: string
+  min: number
+  max: number
+  defaultValue: number
+}
+
+interface FlowerBooleanOptionConfig {
+  key: FlowerBooleanOptionKey
+  labelKey: string
+  defaultValue: boolean
+}
+
+interface FlowerColorOptionConfig {
+  key: FlowerColorOptionKey
+  labelKey: string
+  defaultValue: string
+}
+
+const FLOWER_NUMBER_OPTION_CONFIGS: readonly FlowerNumberOptionConfig[] = [
+  {
+    key: 'rootGrassCount',
+    labelKey: 'editor_environment_flower_root_grass_count',
+    min: ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MIN,
+    max: ENVIRONMENT_FLOWER_ROOT_GRASS_COUNT_MAX,
+    defaultValue: 2,
+  },
+  {
+    key: 'clumpWidthPercent',
+    labelKey: 'editor_environment_flower_clump_width',
+    min: ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MIN,
+    max: ENVIRONMENT_FLOWER_CLUMP_WIDTH_PERCENT_MAX,
+    defaultValue: 44,
+  },
+  {
+    key: 'stemHeightPercent',
+    labelKey: 'editor_environment_flower_stem_height',
+    min: ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MIN,
+    max: ENVIRONMENT_FLOWER_STEM_HEIGHT_PERCENT_MAX,
+    defaultValue: 98,
+  },
+  {
+    key: 'stemLeanPercent',
+    labelKey: 'editor_environment_flower_stem_lean',
+    min: ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MIN,
+    max: ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MAX,
+    defaultValue: 0,
+  },
+  {
+    key: 'petalCount',
+    labelKey: 'editor_environment_flower_petal_count',
+    min: ENVIRONMENT_FLOWER_PETAL_COUNT_MIN,
+    max: ENVIRONMENT_FLOWER_PETAL_COUNT_MAX,
+    defaultValue: 7,
+  },
+  {
+    key: 'petalLengthPercent',
+    labelKey: 'editor_environment_flower_petal_length',
+    min: ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MIN,
+    max: ENVIRONMENT_FLOWER_PETAL_LENGTH_PERCENT_MAX,
+    defaultValue: 21,
+  },
+  {
+    key: 'petalWidthPercent',
+    labelKey: 'editor_environment_flower_petal_width',
+    min: ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MIN,
+    max: ENVIRONMENT_FLOWER_PETAL_WIDTH_PERCENT_MAX,
+    defaultValue: 12,
+  },
+  {
+    key: 'petalAngleOffsetDeg',
+    labelKey: 'editor_environment_flower_petal_angle_offset',
+    min: ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MIN,
+    max: ENVIRONMENT_FLOWER_PETAL_ANGLE_OFFSET_DEG_MAX,
+    defaultValue: 0,
+  },
+  {
+    key: 'stamenRadiusPercent',
+    labelKey: 'editor_environment_flower_stamen_radius',
+    min: ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MIN,
+    max: ENVIRONMENT_FLOWER_STAMEN_RADIUS_PERCENT_MAX,
+    defaultValue: 6,
+  },
+]
+
+const FLOWER_BOOLEAN_OPTION_CONFIGS: readonly FlowerBooleanOptionConfig[] = [
+  {
+    key: 'stamenEnabled',
+    labelKey: 'editor_environment_flower_stamen_enabled',
+    defaultValue: true,
+  },
+]
+
+const FLOWER_COLOR_OPTION_CONFIGS: readonly FlowerColorOptionConfig[] = [
+  {
+    key: 'petalColor',
+    labelKey: 'editor_environment_flower_petal_color',
+    defaultValue: DEFAULT_FLOWER_PETAL_COLOR,
+  },
+  {
+    key: 'stamenColor',
+    labelKey: 'editor_environment_flower_stamen_color',
+    defaultValue: DEFAULT_FLOWER_STAMEN_COLOR,
+  },
+]
 
 export interface EditorEnvironmentPaletteSelection {
   envType: MapEnvironmentObjectType
   assetId: string
   label: string
   cursor: string
+}
+
+interface EditorRandomNumberOption {
+  random: boolean
+  value: number
+}
+
+interface EditorRandomBooleanOption {
+  random: boolean
+  value: boolean
+}
+
+interface EditorRandomColorOption {
+  random: boolean
+  value: string
+}
+
+interface EditorEnvironmentPaletteFlowerStampOptions {
+  rootGrassCount: EditorRandomNumberOption
+  clumpWidthPercent: EditorRandomNumberOption
+  stemHeightPercent: EditorRandomNumberOption
+  stemLeanPercent: EditorRandomNumberOption
+  petalCount: EditorRandomNumberOption
+  petalLengthPercent: EditorRandomNumberOption
+  petalWidthPercent: EditorRandomNumberOption
+  petalAngleOffsetDeg: EditorRandomNumberOption
+  petalColor: EditorRandomColorOption
+  stamenEnabled: EditorRandomBooleanOption
+  stamenRadiusPercent: EditorRandomNumberOption
+  stamenColor: EditorRandomColorOption
+}
+
+export interface EditorEnvironmentPaletteStampOptions {
+  cellStroke: boolean
+  flower: EditorEnvironmentPaletteFlowerStampOptions
+}
+
+function createDefaultFlowerStampOptions(): EditorEnvironmentPaletteFlowerStampOptions {
+  return {
+    rootGrassCount: createRandomNumberOption(2),
+    clumpWidthPercent: createRandomNumberOption(44),
+    stemHeightPercent: createRandomNumberOption(98),
+    stemLeanPercent: createRandomNumberOption(0),
+    petalCount: createRandomNumberOption(7),
+    petalLengthPercent: createRandomNumberOption(21),
+    petalWidthPercent: createRandomNumberOption(12),
+    petalAngleOffsetDeg: createRandomNumberOption(0),
+    petalColor: createRandomColorOption(DEFAULT_FLOWER_PETAL_COLOR),
+    stamenEnabled: createRandomBooleanOption(true),
+    stamenRadiusPercent: createRandomNumberOption(6),
+    stamenColor: createRandomColorOption(DEFAULT_FLOWER_STAMEN_COLOR),
+  }
+}
+
+function createRandomNumberOption(value: number): EditorRandomNumberOption {
+  return {
+    random: true,
+    value,
+  }
+}
+
+function createRandomBooleanOption(value: boolean): EditorRandomBooleanOption {
+  return {
+    random: true,
+    value,
+  }
+}
+
+function createRandomColorOption(value: string): EditorRandomColorOption {
+  return {
+    random: true,
+    value,
+  }
 }
 
 interface EditorEnvironmentPaletteContext {
@@ -39,13 +258,39 @@ interface EditorEnvironmentPaletteContext {
 
 export class EditorEnvironmentPalette {
   private readonly ctx: EditorEnvironmentPaletteContext
+  private readonly propertyPanel: HTMLDivElement
+  private readonly propertyTitle: HTMLDivElement
+  private readonly propertyBody: HTMLDivElement
+  private readonly stampOptionsByKey = new Map<
+    string,
+    EditorEnvironmentPaletteStampOptions
+  >()
+  private readonly stampOptionsFallback: EditorEnvironmentPaletteStampOptions =
+    {
+      cellStroke: false,
+      flower: createDefaultFlowerStampOptions(),
+    }
   private selectedKey = ''
   private selection: EditorEnvironmentPaletteSelection | null = null
   private loadingAssetIds = new Set<string>()
 
   constructor(ctx: EditorEnvironmentPaletteContext) {
     this.ctx = ctx
+    this.propertyPanel = document.createElement('div')
+    this.propertyPanel.className = 'editor-environment-property-panel'
+    this.propertyTitle = document.createElement('div')
+    this.propertyTitle.className = 'editor-environment-property-title'
+    this.propertyBody = document.createElement('div')
+    this.propertyBody.className = 'editor-environment-property-body'
+    this.propertyPanel.appendChild(this.propertyTitle)
+    this.propertyPanel.appendChild(this.propertyBody)
+    const panelParent = this.ctx.container.parentElement ?? this.ctx.container
+    panelParent.appendChild(this.propertyPanel)
+
     this.ctx.container.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
+    this.propertyPanel.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
     this.render()
@@ -58,6 +303,7 @@ export class EditorEnvironmentPalette {
 
   hide(): void {
     this.ctx.container.classList.remove('is-visible')
+    this.hidePropertyPanel()
   }
 
   refresh(): void {
@@ -74,6 +320,7 @@ export class EditorEnvironmentPalette {
     this.selectedKey = ''
     this.selection = null
     this.updateSelectedState()
+    this.hidePropertyPanel()
   }
 
   getSelection(): EditorEnvironmentPaletteSelection | null {
@@ -84,6 +331,65 @@ export class EditorEnvironmentPalette {
     this.selectedKey = this.buildKey(selection.envType, selection.assetId)
     this.selection = selection
     this.updateSelectedState()
+    this.renderPropertyPanel()
+  }
+
+  getStampOptions(
+    selection: EditorEnvironmentPaletteSelection
+  ): EditorEnvironmentPaletteStampOptions {
+    const key = this.buildKey(selection.envType, selection.assetId)
+    return this.stampOptionsByKey.get(key) ?? this.stampOptionsFallback
+  }
+
+  writeFlowerOptionsForStamp(
+    selection: EditorEnvironmentPaletteSelection,
+    target: MapEnvironmentFlowerOptions
+  ): boolean {
+    clearEnvironmentFlowerOptions(target)
+    if (selection.envType !== 'flower') {
+      return false
+    }
+
+    const options = this.getStampOptions(selection).flower
+    let hasOptions = false
+    for (let i = 0; i < FLOWER_NUMBER_OPTION_CONFIGS.length; i++) {
+      const config = FLOWER_NUMBER_OPTION_CONFIGS[i]
+      const option = options[config.key]
+      if (option.random) {
+        continue
+      }
+      target[config.key] = this.clampInteger(
+        option.value,
+        config.min,
+        config.max
+      )
+      hasOptions = true
+    }
+
+    for (let i = 0; i < FLOWER_BOOLEAN_OPTION_CONFIGS.length; i++) {
+      const config = FLOWER_BOOLEAN_OPTION_CONFIGS[i]
+      const option = options[config.key]
+      if (option.random) {
+        continue
+      }
+      target[config.key] = option.value
+      hasOptions = true
+    }
+
+    for (let i = 0; i < FLOWER_COLOR_OPTION_CONFIGS.length; i++) {
+      const config = FLOWER_COLOR_OPTION_CONFIGS[i]
+      const option = options[config.key]
+      if (option.random) {
+        continue
+      }
+      target[config.key] = this.normalizeColorInputValue(
+        option.value,
+        config.defaultValue
+      )
+      hasOptions = true
+    }
+
+    return hasOptions
   }
 
   isVisible(): boolean {
@@ -91,12 +397,15 @@ export class EditorEnvironmentPalette {
   }
 
   containsTarget(target: Node): boolean {
-    return this.ctx.container.contains(target)
+    return (
+      this.ctx.container.contains(target) || this.propertyPanel.contains(target)
+    )
   }
 
   private render(): void {
     const container = this.ctx.container
     container.textContent = ''
+    this.refreshSelectionLabel()
 
     for (let i = 0; i < BUILTIN_ENVIRONMENT_TYPES.length; i++) {
       const envType = BUILTIN_ENVIRONMENT_TYPES[i]
@@ -110,6 +419,7 @@ export class EditorEnvironmentPalette {
 
     container.appendChild(this.createCreateButton())
     this.updateSelectedState()
+    this.renderPropertyPanel()
   }
 
   private createBuiltinButton(
@@ -187,6 +497,7 @@ export class EditorEnvironmentPalette {
     this.selectedKey = this.buildKey(selection.envType, selection.assetId)
     this.selection = selection
     this.updateSelectedState()
+    this.renderPropertyPanel()
     this.ctx.onSelected(selection)
   }
 
@@ -219,6 +530,272 @@ export class EditorEnvironmentPalette {
       label: asset.name,
       cursor: this.createCursor('custom', asset.id),
     })
+  }
+
+  private getOrCreateStampOptions(
+    key: string
+  ): EditorEnvironmentPaletteStampOptions {
+    const existing = this.stampOptionsByKey.get(key)
+    if (existing) {
+      return existing
+    }
+    const options: EditorEnvironmentPaletteStampOptions = {
+      cellStroke: false,
+      flower: createDefaultFlowerStampOptions(),
+    }
+    this.stampOptionsByKey.set(key, options)
+    return options
+  }
+
+  private refreshSelectionLabel(): void {
+    const selection = this.selection
+    if (!selection || selection.envType === 'custom') {
+      return
+    }
+    selection.label = localizer.t(`editor_env_${selection.envType}`)
+  }
+
+  private renderPropertyPanel(): void {
+    const selection = this.selection
+    this.propertyBody.textContent = ''
+    if (!selection || !this.isVisible()) {
+      this.hidePropertyPanel()
+      return
+    }
+
+    this.propertyTitle.textContent = selection.label
+    const key = this.buildKey(selection.envType, selection.assetId)
+    const options = this.getOrCreateStampOptions(key)
+    if (isEnvironmentCellStrokeSupported(selection.envType)) {
+      this.propertyBody.appendChild(
+        this.createCheckboxRow(
+          localizer.t('editor_terrain_properties_cell_stroke'),
+          options.cellStroke,
+          (checked) => {
+            options.cellStroke = checked
+          }
+        )
+      )
+    }
+    if (selection.envType === 'flower') {
+      this.renderFlowerPropertyRows(options.flower)
+    }
+
+    this.propertyPanel.classList.add('is-visible')
+  }
+
+  private hidePropertyPanel(): void {
+    this.propertyPanel.classList.remove('is-visible')
+    this.propertyBody.textContent = ''
+  }
+
+  private createCheckboxRow(
+    label: string,
+    checked: boolean,
+    onChange: (checked: boolean) => void
+  ): HTMLLabelElement {
+    const row = document.createElement('label')
+    row.className = 'editor-environment-property-row'
+
+    const checkbox = document.createElement('input')
+    checkbox.type = 'checkbox'
+    checkbox.checked = checked
+    checkbox.addEventListener('change', () => {
+      onChange(checkbox.checked)
+    })
+
+    const text = document.createElement('span')
+    text.textContent = label
+
+    row.appendChild(checkbox)
+    row.appendChild(text)
+    return row
+  }
+
+  private renderFlowerPropertyRows(
+    options: EditorEnvironmentPaletteFlowerStampOptions
+  ): void {
+    for (let i = 0; i < FLOWER_NUMBER_OPTION_CONFIGS.length; i++) {
+      const config = FLOWER_NUMBER_OPTION_CONFIGS[i]
+      this.propertyBody.appendChild(
+        this.createRandomNumberRow(config, options[config.key])
+      )
+    }
+    for (let i = 0; i < FLOWER_COLOR_OPTION_CONFIGS.length; i++) {
+      const config = FLOWER_COLOR_OPTION_CONFIGS[i]
+      this.propertyBody.appendChild(
+        this.createRandomColorRow(config, options[config.key])
+      )
+    }
+    for (let i = 0; i < FLOWER_BOOLEAN_OPTION_CONFIGS.length; i++) {
+      const config = FLOWER_BOOLEAN_OPTION_CONFIGS[i]
+      this.propertyBody.appendChild(
+        this.createRandomBooleanRow(config, options[config.key])
+      )
+    }
+  }
+
+  private createRandomNumberRow(
+    config: FlowerNumberOptionConfig,
+    option: EditorRandomNumberOption
+  ): HTMLDivElement {
+    const row = this.createRandomPropertyRow(config.labelKey)
+    const input = document.createElement('input')
+    input.type = 'number'
+    input.min = `${config.min}`
+    input.max = `${config.max}`
+    input.step = '1'
+    input.value = `${this.clampInteger(option.value, config.min, config.max)}`
+    input.className = 'editor-environment-property-number'
+
+    const commitValue = () => {
+      if (!Number.isFinite(input.valueAsNumber)) {
+        return
+      }
+      option.value = this.clampInteger(
+        input.valueAsNumber,
+        config.min,
+        config.max
+      )
+      input.value = `${option.value}`
+    }
+    input.addEventListener('input', commitValue)
+    input.addEventListener('change', commitValue)
+
+    this.attachRandomToggle(row, input, option)
+    row.insertBefore(input, row.lastElementChild)
+    return row
+  }
+
+  private createRandomBooleanRow(
+    config: FlowerBooleanOptionConfig,
+    option: EditorRandomBooleanOption
+  ): HTMLDivElement {
+    const row = this.createRandomPropertyRow(config.labelKey)
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.checked = option.value
+    input.className = 'editor-environment-property-value-checkbox'
+    input.setAttribute('aria-label', localizer.t('editor_environment_enabled'))
+    input.addEventListener('change', () => {
+      option.value = input.checked
+    })
+
+    this.attachRandomToggle(row, input, option)
+    row.insertBefore(input, row.lastElementChild)
+    return row
+  }
+
+  private createRandomColorRow(
+    config: FlowerColorOptionConfig,
+    option: EditorRandomColorOption
+  ): HTMLDivElement {
+    const row = this.createRandomPropertyRow(config.labelKey)
+    const input = document.createElement('input')
+    input.type = 'color'
+    input.value = this.normalizeColorInputValue(
+      option.value,
+      config.defaultValue
+    )
+    input.className = 'editor-environment-property-color'
+    const commitValue = () => {
+      option.value = this.normalizeColorInputValue(
+        input.value,
+        config.defaultValue
+      )
+      input.value = option.value
+    }
+    input.addEventListener('input', commitValue)
+    input.addEventListener('change', commitValue)
+
+    this.attachRandomToggle(row, input, option)
+    row.insertBefore(input, row.lastElementChild)
+    return row
+  }
+
+  private createRandomPropertyRow(labelKey: string): HTMLDivElement {
+    const row = document.createElement('div')
+    row.className =
+      'editor-environment-property-row editor-environment-property-random-row'
+
+    const text = document.createElement('span')
+    text.className = 'editor-environment-property-label'
+    text.textContent = localizer.t(labelKey)
+    row.appendChild(text)
+
+    const randomLabel = document.createElement('label')
+    randomLabel.className = 'editor-environment-property-random-toggle'
+    const randomCheckbox = document.createElement('input')
+    randomCheckbox.type = 'checkbox'
+    randomLabel.appendChild(randomCheckbox)
+    const randomText = document.createElement('span')
+    randomText.textContent = localizer.t('editor_environment_random')
+    randomLabel.appendChild(randomText)
+    row.appendChild(randomLabel)
+    return row
+  }
+
+  private attachRandomToggle(
+    row: HTMLDivElement,
+    input: HTMLInputElement,
+    option:
+      | EditorRandomNumberOption
+      | EditorRandomBooleanOption
+      | EditorRandomColorOption
+  ): void {
+    const randomCheckbox = row.querySelector<HTMLInputElement>(
+      '.editor-environment-property-random-toggle input'
+    )
+    if (!randomCheckbox) {
+      return
+    }
+    randomCheckbox.checked = option.random
+    const syncEnabledState = () => {
+      input.disabled = option.random
+      row.classList.toggle('is-random', option.random)
+    }
+    randomCheckbox.addEventListener('change', () => {
+      option.random = randomCheckbox.checked
+      syncEnabledState()
+    })
+    syncEnabledState()
+  }
+
+  private clampInteger(value: number, min: number, max: number): number {
+    const rounded = Math.round(value)
+    if (rounded < min) {
+      return min
+    }
+    if (rounded > max) {
+      return max
+    }
+    return rounded
+  }
+
+  private normalizeColorInputValue(value: string, fallback: string): string {
+    if (this.isColorInputValue(value)) {
+      return value.toLowerCase()
+    }
+    return fallback
+  }
+
+  private isColorInputValue(value: string): boolean {
+    if (value.length !== 7 || value.charCodeAt(0) !== 35) {
+      return false
+    }
+    for (let i = 1; i < value.length; i++) {
+      const code = value.charCodeAt(i)
+      if (
+        !(
+          (code >= 48 && code <= 57) ||
+          (code >= 65 && code <= 70) ||
+          (code >= 97 && code <= 102)
+        )
+      ) {
+        return false
+      }
+    }
+    return true
   }
 
   private createCursor(

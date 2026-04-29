@@ -2,6 +2,7 @@ import * as fabric from 'fabric'
 
 import type {
   MapCharacterBodyProfile,
+  MapEnvironmentFlowerOptions,
   MapEnvironmentObjectType,
   MapNpcDropItem,
   MapNpcWeapon,
@@ -310,6 +311,7 @@ export type EnvironmentMarker = fabric.Object & {
   scaleXPermille: number
   scaleYPermille: number
   cellStroke: boolean
+  flowerOptions: MapEnvironmentFlowerOptions | null
 }
 
 export interface EnvironmentMarkerData {
@@ -318,6 +320,7 @@ export interface EnvironmentMarkerData {
   envSeed: number
   envAssetId: string
   cellStroke: boolean
+  flowerOptions: MapEnvironmentFlowerOptions | null
 }
 
 export interface EditorMap {

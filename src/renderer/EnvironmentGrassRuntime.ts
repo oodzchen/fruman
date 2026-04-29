@@ -1,6 +1,7 @@
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js'
 
 import { DEFAULT_PLAYER_RADIUS } from '../constants'
+import type { MapEnvironmentFlowerOptions } from '../editorMapTypes'
 import { getTerrainMaterialById } from '../terrain/TerrainMaterialRegistry'
 import {
   ENVIRONMENT_FLOWER_PETAL_OFFSETS,
@@ -86,6 +87,7 @@ export interface InteractiveGrassDecorationOptions {
   ppm: number
   scaleXPermille: number
   scaleYPermille: number
+  flowerOptions?: MapEnvironmentFlowerOptions | null
 }
 
 export class InteractiveGrassDecoration {
@@ -122,7 +124,8 @@ export class InteractiveGrassDecoration {
       options.seed,
       options.ppm,
       options.scaleXPermille,
-      options.scaleYPermille
+      options.scaleYPermille,
+      options.flowerOptions
     )
     this.layer = options.layer
     this.worldX = options.worldX

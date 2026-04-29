@@ -25,6 +25,21 @@ export type MapEnvironmentObjectType =
   | 'cloud'
   | 'custom'
 
+export interface MapEnvironmentFlowerOptions {
+  rootGrassCount?: number
+  clumpWidthPercent?: number
+  stemHeightPercent?: number
+  stemLeanPercent?: number
+  petalCount?: number
+  petalLengthPercent?: number
+  petalWidthPercent?: number
+  petalAngleOffsetDeg?: number
+  petalColor?: string
+  stamenEnabled?: boolean
+  stamenRadiusPercent?: number
+  stamenColor?: string
+}
+
 export const MAP_TIME_PHASE_IDS = [
   'morning',
   'noon',
@@ -53,6 +68,7 @@ export interface MapEnvironmentObject {
   scaleXPermille?: number
   scaleYPermille?: number
   cellStroke?: boolean
+  flowerOptions?: MapEnvironmentFlowerOptions
 }
 
 export interface MapEnvironmentAsset {

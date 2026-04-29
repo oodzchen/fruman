@@ -36,6 +36,7 @@ import {
   ensureRuntimeEnvironmentAssetsForMap,
   getRuntimeEnvironmentAsset,
 } from './environmentAssetRegistry'
+import { buildEnvironmentFlowerOptionsCacheKey } from './environmentFlowerOptions'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentRotationDeg,
@@ -3118,6 +3119,8 @@ export class GameClient {
       const scaleYPermille = getEnvironmentScaleYPermille(obj)
       const cellStroke =
         isEnvironmentCellStrokeSupported(obj.type) && obj.cellStroke === true
+      const flowerOptions =
+        obj.type === 'flower' ? obj.flowerOptions : undefined
       const textureEntry = this.getEnvironmentTextureEntry(
         obj.type,
         obj.assetId,
@@ -3125,7 +3128,8 @@ export class GameClient {
         ppm,
         scaleXPermille,
         scaleYPermille,
-        cellStroke
+        cellStroke,
+        flowerOptions
       )
       this.pendingEnvironmentTextureKeys.add(textureEntry.key)
       const rotationDeg = getEnvironmentRotationDeg(obj)
@@ -3155,6 +3159,7 @@ export class GameClient {
           ppm,
           scaleXPermille,
           scaleYPermille,
+          flowerOptions,
         })
         this.worldRenderer.addEnvironmentDecoration(
           decoration.root,
@@ -3211,7 +3216,8 @@ export class GameClient {
     ppm: number,
     scaleXPermille: number,
     scaleYPermille: number,
-    cellStroke: boolean
+    cellStroke: boolean,
+    flowerOptions: MapEnvironmentObject['flowerOptions']
   ): EnvironmentTextureEntry {
     const key =
       type === 'custom'
@@ -3227,7 +3233,8 @@ export class GameClient {
             ppm,
             scaleXPermille,
             scaleYPermille,
-            cellStroke
+            cellStroke,
+            flowerOptions
           )
     const cached = this.environmentTextureCache.get(key)
     if (cached) {
@@ -3252,7 +3259,8 @@ export class GameClient {
             ppm,
             scaleXPermille,
             scaleYPermille,
-            cellStroke
+            cellStroke,
+            flowerOptions
           )
     const centerOriginX = source.canvas.width >> 1
     const centerOriginY = source.canvas.height >> 1
@@ -3359,6 +3367,16 @@ export class GameClient {
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(cellStrokeCode, 0x1f123bb5)
       )
+      if (obj.type === 'flower') {
+        const flowerKey = buildEnvironmentFlowerOptionsCacheKey(
+          obj.flowerOptions
+        )
+        for (let j = 0; j < flowerKey.length; j++) {
+          hash = this.mixTerrainSignatureValue(
+            hash ^ Math.imul(flowerKey.charCodeAt(j), 0x27d4eb2d)
+          )
+        }
+      }
       const layerCode = this.resolveEnvironmentRenderLayer(envLayers?.[i] ?? 0)
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(layerCode, 0x5bd1e995)

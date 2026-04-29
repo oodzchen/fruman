@@ -95,6 +95,7 @@ import type {
   EditorMapMeta,
   EditorViewportState,
   MapEnvironmentAsset,
+  MapEnvironmentFlowerOptions,
   MapEnvironmentObject,
   MapEnvironmentObjectType,
   MapNpcTemplate,
@@ -206,6 +207,8 @@ export class EditorManager {
     seed: 1,
     assetId: '',
   }
+  private readonly environmentStampFlowerOptionsScratch: MapEnvironmentFlowerOptions =
+    {}
   private environmentStampCanvasModeApplied = false
   private environmentStampPreviousSelection = true
   private environmentStampPreviousSkipTargetFind = false
@@ -2172,6 +2175,15 @@ export class EditorManager {
     envObject.x = Math.round(pointer.x) * this.invPixelsPerMeter
     envObject.y = Math.round(pointer.y) * this.invPixelsPerMeter
     envObject.seed = this.createEnvironmentSeed()
+    envObject.cellStroke =
+      this.environmentPalette.getStampOptions(selection).cellStroke
+    envObject.flowerOptions =
+      this.environmentPalette.writeFlowerOptionsForStamp(
+        selection,
+        this.environmentStampFlowerOptionsScratch
+      )
+        ? this.environmentStampFlowerOptionsScratch
+        : undefined
     this.markerManager.spawnEnvironmentMarker(
       selection.envType,
       envObject,

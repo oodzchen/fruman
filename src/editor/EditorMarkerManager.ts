@@ -28,6 +28,7 @@ import type {
   WeaponCategory,
 } from '../editorMapTypes'
 import { ensureRuntimeEnvironmentAsset } from '../environmentAssetRegistry'
+import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentEffectiveScalePermille,
@@ -1454,13 +1455,18 @@ export class EditorMarkerManager {
     const scaleYPermille = getEnvironmentScaleYPermille(spawn ?? {})
     const cellStroke =
       isEnvironmentCellStrokeSupported(envType) && spawn?.cellStroke === true
+    const flowerOptions =
+      envType === 'flower'
+        ? cloneEnvironmentFlowerOptions(spawn?.flowerOptions)
+        : undefined
     const marker = this.objectFactory.createEnvironmentMarkerWithScale(
       envType,
       envSeed,
       scaleXPermille,
       scaleYPermille,
       envAssetId,
-      cellStroke
+      cellStroke,
+      flowerOptions ?? null
     ) as EnvironmentMarker
     marker.angle = rotationDeg
     writeEnvironmentTransformedOffset(
@@ -1482,6 +1488,7 @@ export class EditorMarkerManager {
       envSeed,
       envAssetId,
       cellStroke,
+      flowerOptions: flowerOptions ?? null,
     }
     this.environmentMarkers.push(envData)
     this.environmentMarkerMap.set(marker, envData)

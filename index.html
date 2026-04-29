@@ -683,6 +683,113 @@
         display: block;
         pointer-events: none;
       }
+      .editor-environment-property-panel {
+        position: absolute;
+        top: 60px;
+        right: 12px;
+        min-width: 238px;
+        max-width: 280px;
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px;
+        color: var(--ui-muted);
+        background: rgba(0, 0, 0, 0.56);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font-family: var(--ui-font);
+        pointer-events: auto;
+        z-index: 4;
+        box-sizing: border-box;
+      }
+      .editor-environment-property-panel.is-visible {
+        display: flex;
+      }
+      .editor-environment-property-title {
+        height: 16px;
+        line-height: 16px;
+        font-size: 11px;
+        color: var(--ui-color);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .editor-environment-property-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .editor-environment-property-row {
+        min-height: 22px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        font-size: 12px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .editor-environment-property-row input {
+        width: 13px;
+        height: 13px;
+        margin: 0;
+        accent-color: #d6c9a3;
+        cursor: pointer;
+      }
+      .editor-environment-property-random-row {
+        display: grid;
+        grid-template-columns: minmax(82px, 1fr) 54px 54px;
+        gap: 6px;
+        cursor: default;
+      }
+      .editor-environment-property-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .editor-environment-property-number {
+        width: 54px !important;
+        height: 20px !important;
+        padding: 0 4px;
+        color: var(--ui-color);
+        background: rgba(0, 0, 0, 0.32);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-family: var(--ui-font);
+        font-size: 11px;
+        box-sizing: border-box;
+      }
+      .editor-environment-property-color {
+        width: 34px !important;
+        height: 20px !important;
+        padding: 0;
+        background: rgba(0, 0, 0, 0.32);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-sizing: border-box;
+      }
+      .editor-environment-property-value-checkbox {
+        justify-self: start;
+      }
+      .editor-environment-property-random-toggle {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        color: var(--ui-muted);
+        cursor: pointer;
+      }
+      .editor-environment-property-random-toggle span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .editor-environment-property-random-row.is-random
+        .editor-environment-property-number,
+      .editor-environment-property-random-row.is-random
+        .editor-environment-property-color,
+      .editor-environment-property-random-row.is-random
+        .editor-environment-property-value-checkbox {
+        opacity: 0.42;
+        cursor: default;
+      }
       .global-tooltip {
         position: fixed;
         display: none;
