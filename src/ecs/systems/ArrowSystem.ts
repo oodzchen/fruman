@@ -554,7 +554,8 @@ export class ArrowSystem extends System {
         hitY,
         radius,
         SOUND_DB_PARRY,
-        SOUND_RANGE_MULTIPLIER_WEAPON
+        SOUND_RANGE_MULTIPLIER_WEAPON,
+        defender.id
       )
     }
     this.statsSystem.applyParryRecovery(defender)

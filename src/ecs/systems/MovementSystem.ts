@@ -336,7 +336,8 @@ export class MovementSystem extends System {
           (entity.transform?.y ?? 0) + radius,
           radius,
           SOUND_DB_LAND,
-          SOUND_RANGE_MULTIPLIER_SPRINT
+          SOUND_RANGE_MULTIPLIER_SPRINT,
+          entity.id
         )
       }
 

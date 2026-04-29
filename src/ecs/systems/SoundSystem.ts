@@ -68,7 +68,8 @@ export class SoundSystem extends System {
     y: number,
     sourceRadius: number,
     db: number,
-    rangeMultiplier = 1
+    rangeMultiplier = 1,
+    sourceEntityId = 0
   ): void {
     if (this.activeWaves.length >= MAX_SOUND_WAVES) return
     if (db <= 0) return
@@ -83,7 +84,7 @@ export class SoundSystem extends System {
       sourceRadius * FOOTSTEP_WAVE_DISTANCE_MULTIPLIER * rangeMultiplier
     wave.baseDb = db
     wave.currentDb = db
-    wave.sourceEntityId = 0
+    wave.sourceEntityId = sourceEntityId
     this.activeWaves.push(wave)
   }
 
@@ -213,9 +214,10 @@ export class SoundSystem extends System {
       if (entity.stats?.isDead || entity.stats?.isVanished) continue
       if (entity.npcAI.soundAlertCooldownMs > 0) continue
 
-      // 只对敌对阵营的声音产生警戒反应
+      let hostileSource = false
       if (source?.faction && entity.faction) {
-        if (!entity.faction.canAttack(source.faction)) continue
+        hostileSource = entity.faction.canAttack(source.faction)
+        if (!hostileSource) continue
       }
 
       const hearingRange =
@@ -229,12 +231,18 @@ export class SoundSystem extends System {
       const radiusSq = wave.radius * wave.radius
       if (distanceSq < prevRadiusSq || distanceSq > radiusSq) continue
 
-      this.triggerSoundAlert(entity, source)
+      if (hostileSource && source) {
+        this.triggerCombatSoundAlert(entity, source)
+      } else {
+        this.triggerSoundInvestigation(entity, wave.x, wave.y)
+      }
     }
   }
 
-  private triggerSoundAlert(entity: Entity, source?: Entity): void {
+  private triggerCombatSoundAlert(entity: Entity, source: Entity): void {
     if (entity.npcAI) {
+      entity.npcAI.soundInvestigationActive = false
+      entity.npcAI.soundInvestigationTimeRemainingMs = 0
       entity.npcAI.alertChaseActive = true
       entity.npcAI.alertTimeRemainingMs = 0
       entity.npcAI.state = 'approach'
@@ -243,8 +251,28 @@ export class SoundSystem extends System {
       entity.stats.isInCombat = true
       entity.stats.combatExitTimer = 0
     }
-    if (source && entity.input && entity.input.lockedTargetId == null) {
+    if (entity.input && entity.input.lockedTargetId == null) {
       entity.input.lockedTargetId = source.id
+      entity.input.lockLostTimer = 0
+    }
+  }
+
+  private triggerSoundInvestigation(
+    entity: Entity,
+    soundX: number,
+    soundY: number
+  ): void {
+    if (!entity.npcAI || entity.stats?.isInCombat) return
+    entity.npcAI.soundInvestigationActive = true
+    entity.npcAI.soundInvestigationX = soundX
+    entity.npcAI.soundInvestigationY = soundY
+    entity.npcAI.soundInvestigationTimeRemainingMs =
+      entity.npcAI.alertDurationMs
+    entity.npcAI.alertChaseActive = false
+    entity.npcAI.alertTimeRemainingMs = 0
+    entity.npcAI.state = 'alert'
+    if (entity.input) {
+      entity.input.lockedTargetId = null
       entity.input.lockLostTimer = 0
     }
   }

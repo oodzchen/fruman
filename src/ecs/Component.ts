@@ -1185,6 +1185,10 @@ export class NpcAIComponent extends Component {
   alertLastPaceSwitchTimestamp = 0
   alertNextPaceResumeTimestamp = 0
   alertChaseActive = false
+  soundInvestigationActive = false
+  soundInvestigationX = 0
+  soundInvestigationY = 0
+  soundInvestigationTimeRemainingMs = 0
   lastAggressionCheckTimestamp = 0
   lastPosition = { x: 0, y: 0 }
   mapSpawnIndex = -1
@@ -1278,6 +1282,10 @@ export class NpcAIComponent extends Component {
     this.alertLastPaceSwitchTimestamp = 0
     this.alertNextPaceResumeTimestamp = 0
     this.alertChaseActive = false
+    this.soundInvestigationActive = false
+    this.soundInvestigationX = 0
+    this.soundInvestigationY = 0
+    this.soundInvestigationTimeRemainingMs = 0
     this.lastAggressionCheckTimestamp = 0
     this.lastPosition.x = 0
     this.lastPosition.y = 0

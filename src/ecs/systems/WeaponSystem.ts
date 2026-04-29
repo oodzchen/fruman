@@ -4897,7 +4897,7 @@ export class WeaponSystem extends System {
   ): void {
     if (!this.soundSystem) return
     const radius = source.render?.radius ?? DEFAULT_PLAYER_RADIUS
-    this.soundSystem.emitSoundAt(x, y, radius, db, rangeMultiplier)
+    this.soundSystem.emitSoundAt(x, y, radius, db, rangeMultiplier, source.id)
   }
 
   private beginAttackImpactState(

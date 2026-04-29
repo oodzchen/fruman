@@ -54,6 +54,8 @@ import {
   IMPACT_LEVEL_KNOCKBACK,
   PLAYER_MAX_LEVEL,
   PLAYER_WEIGHT_REFERENCE,
+  SOUND_DB_SWORD_HIT_OBSTACLE,
+  SOUND_RANGE_MULTIPLIER_WEAPON,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
@@ -413,6 +415,7 @@ interface BreakableCrateBreakRequest {
   impactX: number
   impactY: number
   impactLevel: ImpactLevel
+  sourceEntityId: number
 }
 
 const WOOD_MATERIAL = getTerrainMaterialById('wood')
@@ -861,7 +864,8 @@ function applyFallImpactTargetsFromBody(
               damage,
               impactX,
               impactY,
-              impactLevel
+              impactLevel,
+              skippedEntityId
             )
             if (targetCrate.health > 0 && allowSourceCrateUnstick) {
               applyFallImpactSourceUnstickImpulse(sourceBodyId)
@@ -911,7 +915,8 @@ function queueBreakableCrateBreak(
   crateId: number,
   impactX: number,
   impactY: number,
-  impactLevel: ImpactLevel
+  impactLevel: ImpactLevel,
+  sourceEntityId: number
 ): void {
   const crate = breakableCrates.get(crateId)
   if (!crate || crate.destroyed) {
@@ -922,7 +927,13 @@ function queueBreakableCrateBreak(
     return
   }
   pendingBreakableCrateBreakIds.add(crateId)
-  pendingBreakableCrateBreaks.push({ crateId, impactX, impactY, impactLevel })
+  pendingBreakableCrateBreaks.push({
+    crateId,
+    impactX,
+    impactY,
+    impactLevel,
+    sourceEntityId,
+  })
 }
 
 function getBreakableCrateImpactDamage(impactLevel: ImpactLevel): number {
@@ -983,7 +994,8 @@ function applyBreakableCrateDamage(
   damage: number,
   impactX: number,
   impactY: number,
-  impactLevel: ImpactLevel
+  impactLevel: ImpactLevel,
+  sourceEntityId = 0
 ): void {
   const crate = breakableCrates.get(crateId)
   if (!crate || crate.destroyed || pendingBreakableCrateBreakIds.has(crateId)) {
@@ -1002,7 +1014,13 @@ function applyBreakableCrateDamage(
   }
   if (crate.health <= 0) {
     crate.health = 0
-    queueBreakableCrateBreak(crateId, impactX, impactY, impactLevel)
+    queueBreakableCrateBreak(
+      crateId,
+      impactX,
+      impactY,
+      impactLevel,
+      sourceEntityId
+    )
     return
   }
 
@@ -1034,7 +1052,8 @@ function handleBreakableObstacleHit(hit: BreakableObstacleHit): void {
     getBreakableCrateHitDamage(hit),
     hit.impactX,
     hit.impactY,
-    hit.impactLevel
+    hit.impactLevel,
+    hit.attacker?.id ?? 0
   )
 }
 
@@ -3445,6 +3464,24 @@ function flushPendingBreakableCrateBreaks(): void {
   }
 }
 
+function emitBreakableCrateBreakSound(
+  request: BreakableCrateBreakRequest
+): void {
+  let sourceRadius = DEFAULT_PLAYER_RADIUS
+  if (request.sourceEntityId > 0) {
+    const source = world.getEntityById(request.sourceEntityId)
+    sourceRadius = source?.render?.radius ?? DEFAULT_PLAYER_RADIUS
+  }
+  soundSystem.emitSoundAt(
+    request.impactX,
+    request.impactY,
+    sourceRadius,
+    SOUND_DB_SWORD_HIT_OBSTACLE,
+    SOUND_RANGE_MULTIPLIER_WEAPON,
+    request.sourceEntityId
+  )
+}
+
 function breakBreakableCrate(request: BreakableCrateBreakRequest): boolean {
   if (!box2d) {
     return false
@@ -3461,6 +3498,7 @@ function breakBreakableCrate(request: BreakableCrateBreakRequest): boolean {
     request.impactX,
     request.impactY
   )
+  emitBreakableCrateBreakSound(request)
   let remainingDebrisBudget =
     MAX_TERRAIN_DEBRIS_ACTIVE - countActiveTerrainDebris()
   if (remainingDebrisBudget < 0) {

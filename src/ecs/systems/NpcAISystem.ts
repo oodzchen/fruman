@@ -167,6 +167,16 @@ export class NpcAISystem extends System {
         }
       }
       if ((target.render?.renderLayer ?? 0) !== entityLayer) {
+        if (
+          this.updateSoundInvestigationState(
+            entity,
+            entity.npcAI,
+            deltaMs,
+            false
+          )
+        ) {
+          continue
+        }
         if (entity.stats?.isInCombat) entity.stats.isInCombat = false
         entity.npcAI.forcedChaseDistanceRemaining = 0
         entity.npcAI.alertChaseActive = false
@@ -191,6 +201,16 @@ export class NpcAISystem extends System {
         target.faction &&
         !entity.faction.canAttackEntity(target.faction, target.id.toString())
       ) {
+        if (
+          this.updateSoundInvestigationState(
+            entity,
+            entity.npcAI,
+            deltaMs,
+            false
+          )
+        ) {
+          continue
+        }
         if (entity.stats?.isInCombat) entity.stats.isInCombat = false
         entity.npcAI.forcedChaseDistanceRemaining = 0
         entity.npcAI.alertChaseActive = false
@@ -251,6 +271,7 @@ export class NpcAISystem extends System {
         entity.sensor?.detectedTargetId === null &&
         entity.input.lockedTargetId === null &&
         !entity.stats?.isInCombat &&
+        !ai.soundInvestigationActive &&
         !ai.alertChaseActive &&
         ai.forcedChaseDistanceRemaining <= 0
 
@@ -306,6 +327,16 @@ export class NpcAISystem extends System {
       const hasCombatLineOfSight =
         hasSensorContact && distance <= ai.detectionRange
       const hasAlertLineOfSight = hasSensorContact && distance <= alertRange
+      if (
+        this.updateSoundInvestigationState(
+          entity,
+          ai,
+          deltaMs,
+          !!hasCombatLineOfSight
+        )
+      ) {
+        continue
+      }
       const isTargetSwinging = target.weapon
         ? target.weapon.attackPhase === 'swing'
         : false
@@ -1097,6 +1128,7 @@ export class NpcAISystem extends System {
     ai.alertLastPaceSwitchTimestamp = 0
     ai.alertNextPaceResumeTimestamp = 0
     ai.alertChaseActive = false
+    this.clearSoundInvestigation(ai)
     ai.pendingAttackMoveId = ''
     if (entity.movement) {
       entity.movement.moveSpeed = ai.moveSpeed
@@ -1277,6 +1309,62 @@ export class NpcAISystem extends System {
     ai.comboSwingsDone = 0
   }
 
+  private updateSoundInvestigationState(
+    entity: Entity,
+    ai: NpcAIComponent,
+    deltaMs: number,
+    hasCombatLineOfSight: boolean
+  ): boolean {
+    if (!ai.soundInvestigationActive || !entity.input || !entity.transform) {
+      return false
+    }
+    if (
+      entity.stats?.isInCombat ||
+      ai.alertChaseActive ||
+      hasCombatLineOfSight
+    ) {
+      this.clearSoundInvestigation(ai)
+      return false
+    }
+
+    ai.soundInvestigationTimeRemainingMs = Math.max(
+      0,
+      ai.soundInvestigationTimeRemainingMs - deltaMs
+    )
+    if (ai.soundInvestigationTimeRemainingMs <= 0) {
+      this.clearSoundInvestigation(ai)
+      entity.input.moveDirection = 0
+      entity.input.sprintRequested = false
+      return true
+    }
+
+    ai.state = 'alert'
+    entity.input.lockedTargetId = null
+    entity.input.lockLostTimer = 0
+    entity.input.attackRequested = false
+    entity.input.sprintRequested = false
+    entity.input.blockRequested = false
+    if (entity.weapon) {
+      entity.weapon.attackQueued = false
+    }
+    if (entity.movement) {
+      entity.movement.moveSpeed = ai.moveSpeed
+    }
+
+    const dx = ai.soundInvestigationX - entity.transform.x
+    if (Math.abs(dx) >= ENEMY_PACE_MIN_DISTANCE) {
+      const facing = (dx >= 0 ? 1 : -1) as -1 | 1
+      ai.lastFacing = facing
+      entity.input.facingOverride = facing
+      entity.input.moveDirection = facing
+      return true
+    }
+
+    entity.input.facingOverride = ai.lastFacing
+    entity.input.moveDirection = 0
+    return true
+  }
+
   private updateAlertState(
     entity: Entity,
     ai: NpcAIComponent,
@@ -1427,6 +1515,7 @@ export class NpcAISystem extends System {
     ai.alertLastPaceSwitchTimestamp = 0
     ai.alertNextPaceResumeTimestamp = 0
     ai.alertChaseActive = false
+    this.clearSoundInvestigation(ai)
     if (
       entity.input &&
       entity.input.lockedTargetId === target.id &&
@@ -1435,6 +1524,13 @@ export class NpcAISystem extends System {
       entity.input.lockedTargetId = null
       entity.input.lockLostTimer = 0
     }
+  }
+
+  private clearSoundInvestigation(ai: NpcAIComponent): void {
+    ai.soundInvestigationActive = false
+    ai.soundInvestigationX = 0
+    ai.soundInvestigationY = 0
+    ai.soundInvestigationTimeRemainingMs = 0
   }
 
   private updateProbeCycle(
@@ -2066,6 +2162,7 @@ export class NpcAISystem extends System {
         entity.npcAI.alertLastPaceSwitchTimestamp = 0
         entity.npcAI.alertNextPaceResumeTimestamp = 0
         entity.npcAI.alertChaseActive = false
+        this.clearSoundInvestigation(entity.npcAI)
       }
       if (entity.movement && entity.npcAI) {
         entity.movement.moveSpeed = entity.npcAI.moveSpeed
