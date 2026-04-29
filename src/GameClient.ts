@@ -97,6 +97,7 @@ import {
   FLAGS,
   MAX_ENTITIES,
   OFFSETS,
+  WEAPON_TYPES,
 } from './worker/binaryProtocol'
 import { SOUND_IDS } from './worker/effectsProtocol'
 import GameWorker from './worker/gameWorker?worker'
@@ -133,6 +134,8 @@ const GRASS_DYNAMIC_VIEW_PADDING_Y_METERS = 3
 const GRASS_INTERACTION_GRID_CELL_METERS = 3
 const GRASS_INTERACTION_GRID_KEY_OFFSET = 32768
 const GRASS_INTERACTION_GRID_KEY_MASK = 0xffff
+const FOLIAGE_CUT_MAX_BURSTS_PER_FRAME = 8
+const FOLIAGE_CUT_DEBRIS_CHANCE_DENOMINATOR = 2
 
 export class GameClient {
   private static readonly START_MENU_CAMERA_STABLE_MS = 150
@@ -406,6 +409,9 @@ export class GameClient {
   private readonly grassInteractorLayer = new Int32Array(MAX_ENTITIES)
   private readonly grassInteractorDeltaX = new Int32Array(MAX_ENTITIES)
   private readonly grassInteractorDeltaY = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorWeaponX = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorWeaponY = new Int32Array(MAX_ENTITIES)
+  private readonly grassInteractorWeaponCutting = new Uint8Array(MAX_ENTITIES)
   private readonly grassInteractorPrevX = new Map<number, number>()
   private readonly grassInteractorPrevY = new Map<number, number>()
 
@@ -3730,6 +3736,8 @@ export class GameClient {
     let candidateCount = 0
     let interactionTestCount = 0
     let dynamicCount = 0
+    let foliageCutBurstCount = 0
+    const particleSystem = this.renderer.getParticleSystem()
 
     for (let i = 0; i < grassCount; i++) {
       const decoration = this.interactiveGrassDecorations[i]
@@ -3808,6 +3816,31 @@ export class GameClient {
               )
             }
           }
+          if (
+            foliageCutBurstCount < FOLIAGE_CUT_MAX_BURSTS_PER_FRAME &&
+            this.grassInteractorWeaponCutting[actorIndex] === 1 &&
+            decoration.tryCutFoliage(
+              this.grassInteractorX[actorIndex],
+              this.grassInteractorY[actorIndex],
+              this.grassInteractorLayer[actorIndex],
+              this.grassInteractorWeaponX[actorIndex],
+              this.grassInteractorWeaponY[actorIndex]
+            )
+          ) {
+            if (
+              ((Math.random() * FOLIAGE_CUT_DEBRIS_CHANCE_DENOMINATOR) | 0) ===
+              0
+            ) {
+              particleSystem.spawnFoliageDebris(
+                decoration.getDebrisWorldX() / this.pixelsPerMeter,
+                decoration.getDebrisWorldY() / this.pixelsPerMeter,
+                decoration.getDebrisColor(),
+                decoration.getDebrisVariant(),
+                decoration.getDebrisSizePx() / this.pixelsPerMeter
+              )
+              foliageCutBurstCount++
+            }
+          }
         }
       }
     }
@@ -3841,6 +3874,7 @@ export class GameClient {
 
     for (let i = 0; i < entityCount && interactorCount < MAX_ENTITIES; i++) {
       const offset = i * ENTITY_STRIDE
+      const flags = buf[offset + OFFSETS.FLAGS] | 0
       if (!this.isGrassInteractorEntity(buf, offset)) {
         continue
       }
@@ -3857,6 +3891,21 @@ export class GameClient {
         previousX === undefined ? 0 : x - previousX
       this.grassInteractorDeltaY[interactorCount] =
         previousY === undefined ? 0 : y - previousY
+      if (this.isFoliageCuttingWeapon(buf, offset, flags)) {
+        const weaponX = Math.round(
+          buf[offset + OFFSETS.WEAPON_X] * this.pixelsPerMeter
+        )
+        const weaponY = Math.round(
+          buf[offset + OFFSETS.WEAPON_Y] * this.pixelsPerMeter
+        )
+        this.grassInteractorWeaponX[interactorCount] = weaponX
+        this.grassInteractorWeaponY[interactorCount] = weaponY
+        this.grassInteractorWeaponCutting[interactorCount] = 1
+      } else {
+        this.grassInteractorWeaponX[interactorCount] = x
+        this.grassInteractorWeaponY[interactorCount] = y
+        this.grassInteractorWeaponCutting[interactorCount] = 0
+      }
       this.grassInteractorPrevX.set(entityId, x)
       this.grassInteractorPrevY.set(entityId, y)
       interactorCount++
@@ -3887,6 +3936,29 @@ export class GameClient {
       return false
     }
     return buf[offset + OFFSETS.RADIUS] > 0
+  }
+
+  private isFoliageCuttingWeapon(
+    buf: Float32Array,
+    offset: number,
+    flags: number
+  ): boolean {
+    if (
+      (flags & FLAGS.WEAPON_ATTACKING) === 0 ||
+      buf[offset + OFFSETS.WEAPON_ACTIVE] !== 1
+    ) {
+      return false
+    }
+    const weaponType = buf[offset + OFFSETS.WEAPON_TYPE] | 0
+    return (
+      weaponType === WEAPON_TYPES.SWORD ||
+      weaponType === WEAPON_TYPES.SHORT_SWORD ||
+      weaponType === WEAPON_TYPES.LONG_SWORD ||
+      weaponType === WEAPON_TYPES.SPEAR ||
+      weaponType === WEAPON_TYPES.HAMMER ||
+      weaponType === WEAPON_TYPES.BIG_HAMMER ||
+      weaponType === WEAPON_TYPES.HOOK
+    )
   }
 
   private getGrassSoundAttenuation(

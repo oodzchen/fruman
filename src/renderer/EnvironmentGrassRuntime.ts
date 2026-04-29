@@ -2,14 +2,24 @@ import { Container, Sprite, type Texture } from 'pixi.js'
 
 import { DEFAULT_PLAYER_RADIUS } from '../constants'
 import type { MapEnvironmentFlowerOptions } from '../editorMapTypes'
+import { getTerrainMaterialById } from '../terrain/TerrainMaterialRegistry'
 import {
+  FOLIAGE_DEBRIS_VARIANT_FLOWER,
+  FOLIAGE_DEBRIS_VARIANT_GRASS,
+} from './ParticleSystem'
+import {
+  ENVIRONMENT_FLOWER_PETAL_OFFSETS,
+  ENVIRONMENT_FLOWER_PETAL_STRIDE,
   ENVIRONMENT_GRASS_BLADE_OFFSETS,
   ENVIRONMENT_GRASS_BLADE_STRIDE,
   type EnvironmentFoliageType,
   type EnvironmentGrassLayout,
   createEnvironmentFoliageLayout,
+  isEnvironmentFlowerLayout,
 } from './ProceduralEnvironmentFactory'
 
+const GRASS_MATERIAL = getTerrainMaterialById('grass')
+const DEFAULT_GRASS_DEBRIS_COLOR = 0x6f9638
 const CONTACT_SHAPE_PADDING_NUM = 2
 const CONTACT_SHAPE_PADDING_DEN = 10
 const CONTACT_BAND_COUNT = 14
@@ -29,6 +39,16 @@ const MIN_VISIBLE_ANGLE_UNITS = 2 * ANGLE_UNIT_SCALE
 const MIN_VISIBLE_VELOCITY_UNITS = 24
 const CONTACT_LEAN_NUMERATOR = 1
 const CONTACT_LEAN_DENOMINATOR = 1
+const CUT_DEBRIS_COOLDOWN_MS = 120
+const CUT_IMPULSE_MULTIPLIER = 12
+const CUT_BEND_PERMILLE = 220
+const GRASS_DEBRIS_LOCAL_Y_NUMERATOR = 11
+const GRASS_DEBRIS_LOCAL_Y_DENOMINATOR = 20
+const GRASS_DEBRIS_BAND_WIDTH_NUMERATOR = 82
+const GRASS_DEBRIS_BAND_WIDTH_DENOMINATOR = 100
+const GRASS_DEBRIS_COLORS = GRASS_MATERIAL.fillPalette.map((color) =>
+  parseHexColorInt(color, DEFAULT_GRASS_DEBRIS_COLOR)
+)
 
 export interface InteractiveGrassDecorationOptions {
   type?: EnvironmentFoliageType
@@ -68,11 +88,17 @@ export class InteractiveGrassDecoration {
   private readonly moveThresholdSq: number
   private readonly contactAngleUnits: number
   private readonly interactionRadiusPx: number
+  private readonly debrisColor: number
+  private readonly debrisVariant: number
+  private readonly debrisSizePx: number
+  private readonly debrisWorldX: number
+  private readonly debrisWorldY: number
   private bendAngleUnits = 0
   private bendVelocityUnits = 0
   private actorInsideThisFrame = false
   private entryImpulsePending = false
   private outsideElapsedMs = EXIT_RESET_MS
+  private cutDebrisCooldownMs = 0
   private lastInteractorQueryId = 0
   private runtimeIndex = -1
   private spriteSkewPermille = 0
@@ -127,6 +153,36 @@ export class InteractiveGrassDecoration {
       ) | 0
     const moveThresholdPx = Math.max(1, roundDiv(options.ppm * 12, 100))
     this.moveThresholdSq = moveThresholdPx * moveThresholdPx
+    this.debrisColor = resolveFoliageDebrisColor(this.layout)
+    this.debrisVariant = isEnvironmentFlowerLayout(this.layout)
+      ? FOLIAGE_DEBRIS_VARIANT_FLOWER
+      : FOLIAGE_DEBRIS_VARIANT_GRASS
+    this.debrisSizePx =
+      this.debrisVariant === FOLIAGE_DEBRIS_VARIANT_GRASS
+        ? Math.max(
+            1,
+            roundDiv(
+              this.layout.clumpWidth * GRASS_DEBRIS_BAND_WIDTH_NUMERATOR,
+              GRASS_DEBRIS_BAND_WIDTH_DENOMINATOR
+            )
+          )
+        : 0
+    const debrisLocalX = resolveFoliageDebrisLocalX(this.layout)
+    const debrisLocalY = resolveFoliageDebrisLocalY(this.layout)
+    this.debrisWorldX =
+      this.renderX +
+      roundDiv(
+        debrisLocalX * this.inverseRotationCos +
+          debrisLocalY * this.inverseRotationSin,
+        FIXED_ONE
+      )
+    this.debrisWorldY =
+      this.renderY +
+      roundDiv(
+        debrisLocalY * this.inverseRotationCos -
+          debrisLocalX * this.inverseRotationSin,
+        FIXED_ONE
+      )
 
     const root = new Container()
     root.position.set(this.renderX, this.renderY)
@@ -258,10 +314,116 @@ export class InteractiveGrassDecoration {
     return false
   }
 
+  tryCutFoliage(
+    actorX: number,
+    actorY: number,
+    actorLayer: number,
+    weaponX: number,
+    weaponY: number
+  ): boolean {
+    if (actorLayer !== this.layer || this.cutDebrisCooldownMs > 0) {
+      return false
+    }
+
+    let localCutX = toLocalX(
+      actorX - this.renderX,
+      actorY - this.renderY,
+      this.inverseRotationCos,
+      this.inverseRotationSin
+    )
+    let localCutY = toLocalY(
+      actorX - this.renderX,
+      actorY - this.renderY,
+      this.inverseRotationCos,
+      this.inverseRotationSin
+    )
+    let insideContact = isInsideContactProfile(
+      localCutX,
+      localCutY,
+      this.contactTopLocalY,
+      this.contactBottomLocalY,
+      this.contactBandHeight,
+      this.contactMinXByBand,
+      this.contactMaxXByBand
+    )
+
+    if (!insideContact) {
+      localCutX = toLocalX(
+        weaponX - this.renderX,
+        weaponY - this.renderY,
+        this.inverseRotationCos,
+        this.inverseRotationSin
+      )
+      localCutY = toLocalY(
+        weaponX - this.renderX,
+        weaponY - this.renderY,
+        this.inverseRotationCos,
+        this.inverseRotationSin
+      )
+      insideContact = isInsideContactProfile(
+        localCutX,
+        localCutY,
+        this.contactTopLocalY,
+        this.contactBottomLocalY,
+        this.contactBandHeight,
+        this.contactMinXByBand,
+        this.contactMaxXByBand
+      )
+    }
+
+    if (!insideContact) {
+      return false
+    }
+
+    const localDeltaX = toLocalX(
+      weaponX - actorX,
+      weaponY - actorY,
+      this.inverseRotationCos,
+      this.inverseRotationSin
+    )
+    const localDeltaY = toLocalY(
+      weaponX - actorX,
+      weaponY - actorY,
+      this.inverseRotationCos,
+      this.inverseRotationSin
+    )
+    const direction = resolveContactDirection(
+      localDeltaX,
+      localDeltaY,
+      localCutX,
+      this.bendAngleUnits
+    )
+    const cutVelocityUnits =
+      this.contactAngleUnits * CUT_IMPULSE_MULTIPLIER * direction
+    const cutAngleUnits =
+      roundDiv(this.contactAngleUnits * CUT_BEND_PERMILLE, 1000) * direction
+    if (
+      (direction > 0 && this.bendAngleUnits < 0) ||
+      (direction < 0 && this.bendAngleUnits > 0)
+    ) {
+      this.bendAngleUnits = 0
+    }
+    this.actorInsideThisFrame = true
+    this.entryImpulsePending = false
+    this.bendAngleUnits = clamp(
+      this.bendAngleUnits + cutAngleUnits,
+      -MAX_RENDER_ANGLE_UNITS,
+      MAX_RENDER_ANGLE_UNITS
+    )
+    this.bendVelocityUnits = cutVelocityUnits
+    this.cutDebrisCooldownMs = CUT_DEBRIS_COOLDOWN_MS
+    return true
+  }
+
   finishFrame(deltaMs: number, dynamicInView: boolean): boolean {
+    if (this.cutDebrisCooldownMs > 0) {
+      this.cutDebrisCooldownMs = Math.max(0, this.cutDebrisCooldownMs - deltaMs)
+    }
+
     if (!dynamicInView && !this.actorInsideThisFrame) {
       this.outsideElapsedMs = EXIT_RESET_MS
       this.entryImpulsePending = false
+      this.cutDebrisCooldownMs = 0
       this.bendAngleUnits = 0
       this.bendVelocityUnits = 0
       this.showStaticSprite()
@@ -331,6 +493,26 @@ export class InteractiveGrassDecoration {
 
   getWorldY(): number {
     return this.worldY
+  }
+
+  getDebrisWorldX(): number {
+    return this.debrisWorldX
+  }
+
+  getDebrisWorldY(): number {
+    return this.debrisWorldY
+  }
+
+  getDebrisColor(): number {
+    return this.debrisColor
+  }
+
+  getDebrisVariant(): number {
+    return this.debrisVariant
+  }
+
+  getDebrisSizePx(): number {
+    return this.debrisSizePx
   }
 
   destroy(): void {
@@ -597,6 +779,117 @@ function ceilDiv(numerator: number, denominator: number): number {
 
 function clampToInt16(value: number): number {
   return clamp(value, -32768, 32767)
+}
+
+function resolveFoliageDebrisColor(layout: EnvironmentGrassLayout): number {
+  if (isEnvironmentFlowerLayout(layout) && layout.petalValues.length > 0) {
+    return averageFlowerPetalColor(layout.petalValues)
+  }
+  return averageGrassBladeColor(layout.bladeValues)
+}
+
+function averageFlowerPetalColor(petalValues: Int32Array): number {
+  let red = 0
+  let green = 0
+  let blue = 0
+  let count = 0
+  for (
+    let i = 0;
+    i < petalValues.length;
+    i += ENVIRONMENT_FLOWER_PETAL_STRIDE
+  ) {
+    const color =
+      petalValues[i + ENVIRONMENT_FLOWER_PETAL_OFFSETS.COLOR] & 0xffffff
+    red += (color >> 16) & 0xff
+    green += (color >> 8) & 0xff
+    blue += color & 0xff
+    count++
+  }
+  return composeAverageColor(red, green, blue, count)
+}
+
+function averageGrassBladeColor(bladeValues: Int32Array): number {
+  let red = 0
+  let green = 0
+  let blue = 0
+  let count = 0
+  for (let i = 0; i < bladeValues.length; i += ENVIRONMENT_GRASS_BLADE_STRIDE) {
+    const color = getGrassDebrisColor(
+      bladeValues[i + ENVIRONMENT_GRASS_BLADE_OFFSETS.COLOR_INDEX]
+    )
+    red += (color >> 16) & 0xff
+    green += (color >> 8) & 0xff
+    blue += color & 0xff
+    count++
+  }
+  return composeAverageColor(red, green, blue, count)
+}
+
+function composeAverageColor(
+  red: number,
+  green: number,
+  blue: number,
+  count: number
+): number {
+  if (count <= 0) {
+    return DEFAULT_GRASS_DEBRIS_COLOR
+  }
+  return (
+    (roundDiv(red, count) << 16) |
+    (roundDiv(green, count) << 8) |
+    roundDiv(blue, count)
+  )
+}
+
+function getGrassDebrisColor(colorIndex: number): number {
+  if (GRASS_DEBRIS_COLORS.length === 0) {
+    return DEFAULT_GRASS_DEBRIS_COLOR
+  }
+  return GRASS_DEBRIS_COLORS[
+    clamp(colorIndex, 0, GRASS_DEBRIS_COLORS.length - 1)
+  ]
+}
+
+function parseHexColorInt(color: string, fallback: number): number {
+  if (color.length !== 7 || color.charCodeAt(0) !== 35) {
+    return fallback
+  }
+  for (let i = 1; i < color.length; i++) {
+    const code = color.charCodeAt(i)
+    if (
+      !(
+        (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 70) ||
+        (code >= 97 && code <= 102)
+      )
+    ) {
+      return fallback
+    }
+  }
+  return Number.parseInt(color.slice(1), 16) & 0xffffff
+}
+
+function resolveFoliageDebrisLocalX(layout: EnvironmentGrassLayout): number {
+  if (isEnvironmentFlowerLayout(layout)) {
+    const stemOffset = layout.flowerStemBladeOffset
+    return layout.bladeValues[
+      stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_X
+    ]
+  }
+  return 0
+}
+
+function resolveFoliageDebrisLocalY(layout: EnvironmentGrassLayout): number {
+  if (isEnvironmentFlowerLayout(layout)) {
+    const stemOffset = layout.flowerStemBladeOffset
+    return layout.bladeValues[
+      stemOffset + ENVIRONMENT_GRASS_BLADE_OFFSETS.TIP_Y
+    ]
+  }
+  return -roundDiv(
+    layout.maxHeight * GRASS_DEBRIS_LOCAL_Y_NUMERATOR,
+    GRASS_DEBRIS_LOCAL_Y_DENOMINATOR
+  )
 }
 
 function toLocalX(

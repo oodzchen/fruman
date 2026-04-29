@@ -51,8 +51,10 @@ import { createCheckpointTreeTextureSource } from './CheckpointTreeTextureFactor
 import { HUD_ICON_ALPHA, HUD_ICON_COLOR } from './HudWeaponSlotRenderer'
 import { ParrySparkEmitterPool } from './ParrySparkEmitterPool'
 import {
+  FOLIAGE_DEBRIS_VARIANT_FLOWER,
   PARTICLE_TYPE_CHECKPOINT_PULSE,
   PARTICLE_TYPE_DEATH,
+  PARTICLE_TYPE_FOLIAGE_DEBRIS,
   PARTICLE_TYPE_HEAL,
   PARTICLE_TYPE_SPARK,
 } from './ParticleSystem'
@@ -130,6 +132,11 @@ const SOUND_DEBUG_WAVE_COLOR = 0xff9f1a
 const SOUND_DEBUG_RANGE_COLOR = 0xffcc80
 const SOUND_DEBUG_LISTENER_ALPHA = 0.45
 const SOUND_DEBUG_RANGE_ALPHA_MULTIPLIER = 0.5
+const GRASS_DEBRIS_TEXTURE_WIDTH = 64
+const GRASS_DEBRIS_TEXTURE_HEIGHT = 16
+const GRASS_DEBRIS_BAND_HEIGHT_NUMERATOR = 16
+const GRASS_DEBRIS_BAND_HEIGHT_DENOMINATOR = 100
+const FLOWER_DEBRIS_TEXTURE_SIZE = 48
 const ENTITY_GROUND_SORT_SCALE = 16
 const SKELETAL_EDITOR_PPM = 128
 const STANDALONE_WEAPON_SORT_OFFSET = -1
@@ -433,6 +440,8 @@ export class PixiWorldRenderer {
   private checkpointTexGenUs = 0
   private readonly damageTextPool: DamageTextView[] = []
   private readonly particleTexture: Texture
+  private readonly grassDebrisTexture: Texture
+  private readonly flowerDebrisTexture: Texture
   private readonly particleSprites: ParticleSpriteView[] = []
   private readonly bombExplosionEmitterPool: BombExplosionEmitterPool
   private readonly parrySparkEmitterPool: ParrySparkEmitterPool
@@ -502,6 +511,13 @@ export class PixiWorldRenderer {
     this.handshakeTexture = createImageTexture('images/handshake_yellow.png')
     this.wavingTexture = createImageTexture('images/waving_hand.png')
     this.particleTexture = this.createCircleTexture(24, '#ffffff')
+    this.grassDebrisTexture = this.createGrassDebrisTexture(
+      GRASS_DEBRIS_TEXTURE_WIDTH,
+      GRASS_DEBRIS_TEXTURE_HEIGHT
+    )
+    this.flowerDebrisTexture = this.createFlowerDebrisTexture(
+      FLOWER_DEBRIS_TEXTURE_SIZE
+    )
 
     this.lockedReticleOutlineSprite = new Sprite(this.getReticleTexture())
     this.lockedReticleOutlineSprite.anchor.set(0.5)
@@ -605,6 +621,12 @@ export class PixiWorldRenderer {
     this.handshakeTexture.destroy(true)
     this.wavingTexture.destroy(true)
     this.particleTexture.destroy(true)
+    if (this.grassDebrisTexture !== Texture.WHITE) {
+      this.grassDebrisTexture.destroy(true)
+    }
+    if (this.flowerDebrisTexture !== Texture.WHITE) {
+      this.flowerDebrisTexture.destroy(true)
+    }
     this.bombExplosionEmitterPool.destroy()
     this.parrySparkEmitterPool.destroy()
   }
@@ -2918,7 +2940,41 @@ export class PixiWorldRenderer {
         sprite.tint = 0xffffff
         sprite.alpha = alpha
         sprite.scale.set(pulseScale)
+        sprite.rotation = 0
         sprite.blendMode = 'add'
+        continue
+      }
+
+      if (particle.type === PARTICLE_TYPE_FOLIAGE_DEBRIS) {
+        sprite.visible = true
+        sprite.position.set(
+          particle.x * this.pixelsPerMeter,
+          particle.y * this.pixelsPerMeter
+        )
+        sprite.tint = particle.color | 0
+        sprite.alpha = alpha * 0.95
+        sprite.rotation = particle.rotation
+        sprite.blendMode = 'normal'
+        if (particle.variant === FOLIAGE_DEBRIS_VARIANT_FLOWER) {
+          const sizePx = Math.max(
+            16,
+            Math.min(24, particle.size * this.pixelsPerMeter * 5)
+          )
+          sprite.texture = this.flowerDebrisTexture
+          sprite.scale.set(sizePx / FLOWER_DEBRIS_TEXTURE_SIZE)
+        } else {
+          const widthPx = Math.max(1, particle.size * this.pixelsPerMeter)
+          const heightPx = Math.max(
+            1,
+            (widthPx * GRASS_DEBRIS_BAND_HEIGHT_NUMERATOR) /
+              GRASS_DEBRIS_BAND_HEIGHT_DENOMINATOR
+          )
+          sprite.texture = this.grassDebrisTexture
+          sprite.scale.set(
+            widthPx / GRASS_DEBRIS_TEXTURE_WIDTH,
+            heightPx / GRASS_DEBRIS_TEXTURE_HEIGHT
+          )
+        }
         continue
       }
 
@@ -2954,6 +3010,7 @@ export class PixiWorldRenderer {
           ? alpha * 0.85
           : alpha
       sprite.scale.set(diameter / 24)
+      sprite.rotation = 0
       sprite.blendMode = blendMode
     }
   }
@@ -3315,6 +3372,85 @@ export class PixiWorldRenderer {
     const texture = Texture.from(canvas)
     this.iconTextureCache.set(key, texture)
     return texture
+  }
+
+  private createGrassDebrisTexture(width: number, height: number): Texture {
+    const created = createCanvas2D(width, height)
+    if (!created) {
+      return Texture.WHITE
+    }
+
+    const { canvas, ctx } = created
+    const centerY = height >> 1
+    const bladeHeight = Math.max(1, Math.round(height * 0.13))
+    const left = 2
+    const right = width - 2
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.moveTo(left, centerY - bladeHeight * 2)
+    ctx.lineTo(Math.round(width * 0.78), centerY - bladeHeight * 3)
+    ctx.lineTo(right, centerY - bladeHeight * 2)
+    ctx.lineTo(Math.round(width * 0.16), centerY - bladeHeight)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(Math.round(width * 0.13), centerY)
+    ctx.lineTo(right, centerY - bladeHeight)
+    ctx.lineTo(Math.round(width * 0.92), centerY + bladeHeight)
+    ctx.lineTo(Math.round(width * 0.2), centerY + bladeHeight * 2)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(Math.round(width * 0.36), centerY + bladeHeight * 3)
+    ctx.lineTo(Math.round(width * 0.68), centerY + bladeHeight * 2)
+    ctx.lineTo(Math.round(width * 0.76), centerY + bladeHeight * 3)
+    ctx.lineTo(Math.round(width * 0.4), centerY + bladeHeight * 4)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(Math.round(width * 0.03), centerY + bladeHeight * 2)
+    ctx.lineTo(Math.round(width * 0.24), centerY + bladeHeight)
+    ctx.lineTo(Math.round(width * 0.3), centerY + bladeHeight * 2)
+    ctx.lineTo(Math.round(width * 0.08), centerY + bladeHeight * 4)
+    ctx.closePath()
+    ctx.fill()
+    return Texture.from(canvas)
+  }
+
+  private createFlowerDebrisTexture(size: number): Texture {
+    const created = createCanvas2D(size, size)
+    if (!created) {
+      return Texture.WHITE
+    }
+
+    const { canvas, ctx } = created
+    const center = size >> 1
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.moveTo(center - 18, center - 7)
+    ctx.lineTo(center + 8, center - 10)
+    ctx.lineTo(center + 14, center - 5)
+    ctx.lineTo(center - 8, center + 1)
+    ctx.lineTo(center - 20, center - 2)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(center + 5, center + 6)
+    ctx.lineTo(center + 16, center + 2)
+    ctx.lineTo(center + 20, center + 10)
+    ctx.lineTo(center + 9, center + 16)
+    ctx.lineTo(center + 2, center + 11)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(center - 12, center + 8)
+    ctx.lineTo(center - 3, center + 4)
+    ctx.lineTo(center + 2, center + 13)
+    ctx.lineTo(center - 8, center + 18)
+    ctx.lineTo(center - 16, center + 13)
+    ctx.closePath()
+    ctx.fill()
+    return Texture.from(canvas)
   }
 
   private getCheckpointPulseTexture(

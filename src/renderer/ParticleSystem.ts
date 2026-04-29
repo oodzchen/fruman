@@ -8,6 +8,9 @@ export const PARTICLE_TYPE_DEATH = 2
 export const PARTICLE_TYPE_HEAL = 3
 export const PARTICLE_TYPE_CHECKPOINT_PULSE = 4
 export const PARTICLE_TYPE_CRIT_BURST = 5
+export const PARTICLE_TYPE_FOLIAGE_DEBRIS = 6
+export const FOLIAGE_DEBRIS_VARIANT_GRASS = 0
+export const FOLIAGE_DEBRIS_VARIANT_FLOWER = 1
 const CHECKPOINT_PULSE_EDGE_COLOR = '#ffe260'
 const CHECKPOINT_PULSE_MID_COLOR = '#ffec8a'
 const CHECKPOINT_PULSE_CORE_COLOR = '#fff6bc'
@@ -35,6 +38,9 @@ type Particle = {
   drag: number
   type: number
   curve: number
+  rotation: number
+  spin: number
+  variant: number
 }
 
 export interface ParticleSnapshot {
@@ -52,6 +58,9 @@ export interface ParticleSnapshot {
   readonly drag: number
   readonly type: number
   readonly curve: number
+  readonly rotation: number
+  readonly spin: number
+  readonly variant: number
 }
 
 export class ParticleSystem {
@@ -80,6 +89,9 @@ export class ParticleSystem {
         drag: 0,
         type: 0,
         curve: 0,
+        rotation: 0,
+        spin: 0,
+        variant: 0,
       }
     }
     this.poolIndex = maxParticles
@@ -136,6 +148,7 @@ export class ParticleSystem {
       particle.vy = vy
       particle.x += vx * dt
       particle.y += vy * dt
+      particle.rotation += particle.spin * dt
       i += 1
     }
   }
@@ -257,6 +270,35 @@ export class ParticleSystem {
     }
 
     ctx.globalCompositeOperation = savedComposite
+    lastColor = ''
+
+    // 植被碎屑：原地松散掉落的叶片/花瓣碎片簇
+    for (let i = 0; i < this.activeCount; i++) {
+      const particle = this.active[i]
+      if (particle.type !== PARTICLE_TYPE_FOLIAGE_DEBRIS) continue
+
+      const lifeRatio = particle.age / particle.life
+      const alpha = 1 - lifeRatio
+      const px = particle.x * pixelsPerMeter
+      const py = particle.y * pixelsPerMeter
+      const angle = particle.rotation
+      const cos = Math.cos(angle)
+      const sin = Math.sin(angle)
+      const unit = particle.size * pixelsPerMeter
+      const color = this.getColorString(particle.color)
+      if (color !== lastColor) {
+        ctx.fillStyle = color
+        lastColor = color
+      }
+
+      ctx.globalAlpha = alpha * 0.95
+      if (particle.variant === FOLIAGE_DEBRIS_VARIANT_FLOWER) {
+        this.drawFlowerDebrisFallback(ctx, px, py, cos, sin, unit)
+      } else {
+        this.drawGrassDebrisFallback(ctx, px, py, cos, sin, unit)
+      }
+    }
+
     lastColor = ''
 
     // 血液和死亡粒子
@@ -409,6 +451,46 @@ export class ParticleSystem {
     }
   }
 
+  spawnFoliageDebris(
+    x: number,
+    y: number,
+    color: number,
+    variant: number,
+    size: number
+  ): void {
+    const isGrass = variant === FOLIAGE_DEBRIS_VARIANT_GRASS
+    const count = isGrass ? 1 : 4
+    for (let i = 0; i < count; i++) {
+      const particle = this.acquire()
+      if (!particle) return
+      particle.x = x + (Math.random() - 0.5) * (isGrass ? 0.02 : 0.04)
+      particle.y = y + (Math.random() - 0.5) * (isGrass ? 0.02 : 0.03)
+      particle.prevX = particle.x
+      particle.prevY = particle.y
+      particle.vx = (Math.random() - 0.5) * (isGrass ? 0.08 : 0.12)
+      particle.vy = isGrass
+        ? -2.7 - Math.random() * 0.5
+        : -1.55 - Math.random() * 0.35
+      particle.age = 0
+      particle.life = isGrass
+        ? 0.48 + Math.random() * 0.18
+        : 0.62 + Math.random() * 0.26
+      particle.size = isGrass && size > 0 ? size : 0.078 + Math.random() * 0.024
+      particle.color = color
+      particle.gravity = isGrass ? 8.5 : 7.8
+      particle.drag = isGrass ? 2.2 : 1.8
+      particle.type = PARTICLE_TYPE_FOLIAGE_DEBRIS
+      particle.curve = 0
+      particle.rotation = isGrass
+        ? (Math.random() - 0.5) * 0.12
+        : Math.random() * TWO_PI
+      particle.spin = (Math.random() * 2 - 1) * (isGrass ? 0.28 : 1.15)
+      particle.variant = variant
+      this.active[this.activeCount] = particle
+      this.activeCount += 1
+    }
+  }
+
   spawnCritBurst(x: number, y: number): void {
     const count = 16
     for (let i = 0; i < count; i++) {
@@ -488,12 +570,106 @@ export class ParticleSystem {
   private acquire(): Particle | null {
     if (this.poolIndex === 0) return null
     this.poolIndex -= 1
-    return this.pool[this.poolIndex]
+    const particle = this.pool[this.poolIndex]
+    particle.rotation = 0
+    particle.spin = 0
+    particle.variant = 0
+    return particle
+  }
+
+  private drawGrassDebrisFallback(
+    ctx: RenderContext2D,
+    px: number,
+    py: number,
+    cos: number,
+    sin: number,
+    unit: number
+  ): void {
+    ctx.beginPath()
+    this.moveRotatedPoint(ctx, px, py, cos, sin, -unit * 0.5, -unit * 0.1)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.4, -unit * 0.13)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.49, -unit * 0.08)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, -unit * 0.42, -unit * 0.03)
+    ctx.closePath()
+    ctx.fill()
+
+    ctx.beginPath()
+    this.moveRotatedPoint(ctx, px, py, cos, sin, -unit * 0.34, unit * 0.02)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.45, -unit * 0.01)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.5, unit * 0.05)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, -unit * 0.3, unit * 0.11)
+    ctx.closePath()
+    ctx.fill()
+
+    ctx.beginPath()
+    this.moveRotatedPoint(ctx, px, py, cos, sin, -unit * 0.08, unit * 0.16)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.28, unit * 0.13)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.36, unit * 0.18)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, -unit * 0.02, unit * 0.24)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  private drawFlowerDebrisFallback(
+    ctx: RenderContext2D,
+    px: number,
+    py: number,
+    cos: number,
+    sin: number,
+    unit: number
+  ): void {
+    ctx.beginPath()
+    this.moveRotatedPoint(ctx, px, py, cos, sin, -unit * 1.8, -unit * 0.55)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.9, -unit * 0.85)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 1.35, -unit * 0.35)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, -unit * 1.2, unit * 0.2)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, -unit * 1.95, -unit * 0.05)
+    ctx.closePath()
+    ctx.fill()
+
+    ctx.beginPath()
+    this.moveRotatedPoint(ctx, px, py, cos, sin, unit * 0.45, unit * 0.52)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 1.25, unit * 0.22)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 1.58, unit * 0.85)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.72, unit * 1.28)
+    this.lineRotatedPoint(ctx, px, py, cos, sin, unit * 0.18, unit * 0.88)
+    ctx.closePath()
+    ctx.fill()
   }
 
   private release(particle: Particle): void {
     this.pool[this.poolIndex] = particle
     this.poolIndex += 1
+  }
+
+  private moveRotatedPoint(
+    ctx: RenderContext2D,
+    originX: number,
+    originY: number,
+    cos: number,
+    sin: number,
+    localX: number,
+    localY: number
+  ): void {
+    ctx.moveTo(
+      originX + localX * cos - localY * sin,
+      originY + localX * sin + localY * cos
+    )
+  }
+
+  private lineRotatedPoint(
+    ctx: RenderContext2D,
+    originX: number,
+    originY: number,
+    cos: number,
+    sin: number,
+    localX: number,
+    localY: number
+  ): void {
+    ctx.lineTo(
+      originX + localX * cos - localY * sin,
+      originY + localX * sin + localY * cos
+    )
   }
 
   private getColorString(colorInt: number): string {
