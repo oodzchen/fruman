@@ -21,7 +21,6 @@ import { saveManager } from './SaveManager'
 import {
   CATERPILLAR_ATLAS_KEY,
   CATERPILLAR_SPINE_KEY,
-  CATERPILLAR_SPINE_SCALE,
   DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
   TERRAIN_COLLISION_DEBUG_ALPHA,
   TERRAIN_COLLISION_DEBUG_COLOR,
@@ -50,6 +49,7 @@ import {
 } from './mapObjectLayers'
 import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
+import { getPublicAssetUrl } from './publicAssetUrl'
 import { getDefaultTerrainRenderLayer } from './renderLayers'
 import {
   DayNightCycle,
@@ -67,12 +67,7 @@ import {
   pruneEnvironmentTextureSourceCache,
 } from './renderer/ProceduralEnvironmentFactory'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
-import {
-  acquireSpine,
-  loadSpineAssets,
-  releaseSpine,
-  storeSpinePreview,
-} from './renderer/SpineBodyManager'
+import { loadSpineAssets } from './renderer/SpineBodyManager'
 import { WorldLightingController } from './renderer/WorldLightingController'
 import type { SaveData } from './saveTypes'
 import { normalizeCharacterBodyMapProfiles } from './skeletalBodyProfile'
@@ -114,8 +109,10 @@ import type {
 
 interface PixiApplicationInitResult {
   app: Application
-  rendererLabel: 'webgpu' | 'webgl' | 'canvas'
+  rendererLabel: RendererPreference
 }
+
+type RendererPreference = 'webgpu' | 'webgl' | 'canvas'
 
 interface EnvironmentTextureEntry {
   key: string
@@ -241,7 +238,7 @@ export class GameClient {
   private pixelsPerMeter = GameClient.DEFAULT_PIXELS_PER_METER
 
   private camera = { x: 0, y: 0 }
-  private rendererLabel: 'webgpu' | 'webgl' | 'canvas'
+  private rendererLabel: RendererPreference
   private readonly perfDebugEnabled: boolean
   private renderFps = 0
   private fpsText = '0 FPS'
@@ -428,18 +425,10 @@ export class GameClient {
     inputTarget.prepend(appCanvas)
     await loadSpineAssets(
       CATERPILLAR_SPINE_KEY,
-      '/animations/caterpillar_move/paxing_ske.json',
+      getPublicAssetUrl('animations/caterpillar_move/paxing_ske.json'),
       CATERPILLAR_ATLAS_KEY,
-      '/animations/caterpillar_move/paxing_tex.atlas'
+      getPublicAssetUrl('animations/caterpillar_move/paxing_tex.atlas')
     )
-    const previewSpine = acquireSpine(CATERPILLAR_SPINE_KEY)
-    if (previewSpine) {
-      previewSpine.scale.set(CATERPILLAR_SPINE_SCALE)
-      previewSpine.update(0)
-      const extracted = app.renderer.extract.canvas(previewSpine)
-      storeSpinePreview(CATERPILLAR_SPINE_KEY, extracted as HTMLCanvasElement)
-      releaseSpine(CATERPILLAR_SPINE_KEY, previewSpine)
-    }
     const spineCollisionMessages: WorkerSpineCollisionDataMessage[] = []
     const caterpillarBodyProfile = getDefaultNpcBodyProfile('caterpillar')
     if (caterpillarBodyProfile) {
@@ -471,18 +460,13 @@ export class GameClient {
     const rendererParam = new URLSearchParams(window.location.search).get(
       'renderer'
     )
-    const requestedPreference =
+    const requestedPreference: RendererPreference | null =
       rendererParam === 'webgpu' ||
       rendererParam === 'webgl' ||
       rendererParam === 'canvas'
         ? rendererParam
         : null
-    const preferences: Array<'webgpu' | 'webgl' | 'canvas'> =
-      requestedPreference === 'webgpu'
-        ? ['webgpu', 'webgl', 'canvas']
-        : requestedPreference === 'canvas'
-          ? ['canvas', 'webgl', 'webgpu']
-          : ['webgl', 'webgpu', 'canvas']
+    const preferences = this.resolveRendererPreferences(requestedPreference)
     let lastError: unknown = null
 
     for (let i = 0; i < preferences.length; i++) {
@@ -505,7 +489,6 @@ export class GameClient {
           },
           canvasOptions: {},
         })
-        console.info('[Renderer]', preference)
         return {
           app,
           rendererLabel: preference,
@@ -521,6 +504,21 @@ export class GameClient {
       : new Error('Failed to initialize Pixi renderer')
   }
 
+  private static resolveRendererPreferences(
+    requestedPreference: RendererPreference | null
+  ): RendererPreference[] {
+    if (requestedPreference === 'webgpu') {
+      return ['webgpu', 'webgl', 'canvas']
+    }
+    if (requestedPreference === 'webgl') {
+      return ['webgl', 'canvas']
+    }
+    if (requestedPreference === 'canvas') {
+      return ['canvas', 'webgl']
+    }
+    return ['webgl', 'canvas']
+  }
+
   private static readPerfDebugFlag(): boolean {
     return (
       new URLSearchParams(window.location.search).get(
@@ -531,7 +529,7 @@ export class GameClient {
 
   private constructor(
     app: Application,
-    rendererLabel: 'webgpu' | 'webgl' | 'canvas',
+    rendererLabel: RendererPreference,
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement,
     spineCollisionMessages: WorkerSpineCollisionDataMessage[],
@@ -544,6 +542,13 @@ export class GameClient {
 
     const width = app.renderer.width
     const height = app.renderer.height
+    this.appCanvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault()
+      console.error('[Renderer] webgl context lost')
+    })
+    this.appCanvas.addEventListener('webglcontextrestored', () => {
+      console.info('[Renderer] webgl context restored')
+    })
 
     // PixiJS scene hierarchy
     onInitProgress?.('init_textures')
@@ -721,9 +726,6 @@ export class GameClient {
     this.setupAudioResume()
 
     onInitProgress?.('init_audio')
-    this.audioManager.init().catch((error) => {
-      console.error('Failed to initialize audio:', error)
-    })
 
     this.setupMenuActions()
 
@@ -750,6 +752,9 @@ export class GameClient {
 
     // Ticker-based render loop (replaces requestAnimationFrame)
     app.ticker.add(() => this.renderLoopTick())
+    if (!app.ticker.started) {
+      app.start()
+    }
   }
 
   setInputEnabled(enabled: boolean) {
@@ -823,7 +828,6 @@ export class GameClient {
     this.staticRenderLayers = collectStaticRenderLayers(normalizedMap)
     this.renderer.setCharacterBodyMap(normalizedMap)
     this.lightingController.setMap(normalizedMap)
-    this.worldRenderer.preloadCheckpointTextures()
     this.preloadRuntimeEnvironmentAssets(normalizedMap)
     this.syncStaticScene(normalizedMap)
 
@@ -917,13 +921,6 @@ export class GameClient {
       }
     } else if (msg.type === 'perf_snapshot') {
       this.workerPerfSnapshot = msg
-    } else if (msg.type === 'perf_log') {
-      if (this.perfDebugEnabled) {
-        console.info(
-          msg.scope === 'worker' ? '[Perf][Worker]' : '[Perf][Main]',
-          msg.message
-        )
-      }
     } else if (msg.type === 'map_data') {
       const isRuntimeTerrainUpdate = msg.runtimeTerrainUpdate === true
       const normalizedMap =
@@ -944,7 +941,6 @@ export class GameClient {
         this.renderer.resetPlayerHudState()
         this.renderer.setCharacterBodyMap(normalizedMap)
         this.lightingController.setMap(normalizedMap)
-        this.worldRenderer.preloadCheckpointTextures()
         this.preloadRuntimeEnvironmentAssets(normalizedMap)
       }
       this.syncStaticScene(normalizedMap)
@@ -1747,6 +1743,7 @@ export class GameClient {
     if (hudDirty) {
       this.hudRenderContext.beginFrame()
     }
+    this.worldRenderContext.beginFrame()
     let worldTimeUs = 0
     this.lastLightingTimeUs = 0
     this.lastSceneRenderTimeUs = 0

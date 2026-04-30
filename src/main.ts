@@ -248,7 +248,6 @@ const setupDetailsState = (
 
 interface SyncInputsResult {
   apply: () => void
-  getValue: () => number
 }
 
 function syncInputs(
@@ -261,14 +260,12 @@ function syncInputs(
   const range = document.getElementById(rangeId)
   const number = document.getElementById(numberId)
 
-  let currentValue = defaultValue
-
   if (!(range instanceof HTMLInputElement)) {
-    return { apply: () => {}, getValue: () => currentValue }
+    return { apply: () => {} }
   }
 
   if (!(number instanceof HTMLInputElement)) {
-    return { apply: () => {}, getValue: () => currentValue }
+    return { apply: () => {} }
   }
 
   const applyValue = (rawValue: string, shouldStore: boolean) => {
@@ -276,7 +273,6 @@ function syncInputs(
     if (!Number.isFinite(value)) {
       return
     }
-    currentValue = value
     callback(value)
     if (shouldStore) {
       updateStoredValue(rangeId, rawValue)
@@ -311,7 +307,6 @@ function syncInputs(
 
   return {
     apply: () => setPairValue(range.value, false),
-    getValue: () => currentValue,
   }
 }
 
@@ -454,7 +449,6 @@ async function initialize() {
   }
 
   // 设置所有参数控件
-  const paramResults: Record<string, SyncInputsResult> = {}
   for (const config of PARAM_CONFIGS) {
     const callback = paramCallbacks[config.id]
     if (callback) {
@@ -464,24 +458,11 @@ async function initialize() {
         storedValues,
         updateStoredValue
       )
-      paramResults[config.id] = result
       applyControls.push(result.apply)
     }
   }
 
   applyControls.forEach((apply) => apply())
-
-  // 打印最终实际使用的可配置参数
-  console.log('=== 游戏初始化完成 ===')
-  console.log('可配置参数:')
-  const paramLog: Record<string, number> = {}
-  for (const config of PARAM_CONFIGS) {
-    const result = paramResults[config.id]
-    if (result) {
-      paramLog[localizer.t(config.label)] = result.getValue()
-    }
-  }
-  console.table(paramLog)
 
   const editorManager = new EditorManager()
   editorManager.setGameClient(game)
@@ -561,8 +542,11 @@ async function initialize() {
   })
 
   game.setOnFirstFrameRendered(() => {
-    game.scheduleStartMenu(800)
+    if (!menuManager.isVisible()) {
+      game.scheduleStartMenu(0)
+    }
   })
+  game.scheduleStartMenu(800)
 
   const mapPanelEl = document.getElementById('mapPanel')
   if (mapPanelEl) {
@@ -570,4 +554,6 @@ async function initialize() {
   }
 }
 
-initialize()
+initialize().catch((error) => {
+  console.error('initialize failed', error)
+})

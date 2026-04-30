@@ -225,12 +225,6 @@ export type WorkerMapDataMessage = {
   runtimeTerrainUpdate?: boolean
 }
 
-export type WorkerPerfLogMessage = {
-  type: 'perf_log'
-  scope: 'worker' | 'main'
-  message: string
-}
-
 export type WorkerPerfSnapshotMessage = {
   type: 'perf_snapshot'
   updateAvgUs: number
@@ -296,7 +290,6 @@ export type WorkerToMainMessage =
   | WorkerStateMessage
   | WorkerDebugMessage
   | WorkerMapDataMessage
-  | WorkerPerfLogMessage
   | WorkerPerfSnapshotMessage
   | WorkerSaveResponseMessage
   | WorkerCheckpointActivatedMessage

@@ -1,6 +1,7 @@
 const STORAGE_KEY_RESOLUTION = 'sl2d_resolution'
 const DEFAULT_RESOLUTION_VALUE = '800x600'
 const DEFAULT_RESOLUTION_INDEX_FALLBACK = 5 // 800×600
+let resolutionStorageWarningLogged = false
 const LEGACY_RESOLUTION_VALUES: string[] = [
   '568x320',
   '667x375',
@@ -72,6 +73,31 @@ function resolveStoredResolutionIndex(savedValue: string | null): number {
   return findResolutionIndex(savedValue)
 }
 
+function readStoredResolutionValue(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY_RESOLUTION)
+  } catch (error) {
+    logResolutionStorageWarning(error instanceof Error ? error.message : '')
+    return null
+  }
+}
+
+function writeStoredResolutionValue(value: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_RESOLUTION, value)
+  } catch (error) {
+    logResolutionStorageWarning(error instanceof Error ? error.message : '')
+  }
+}
+
+function logResolutionStorageWarning(message: string): void {
+  if (resolutionStorageWarningLogged) {
+    return
+  }
+  resolutionStorageWarningLogged = true
+  console.warn('[Display] resolution storage unavailable:', message)
+}
+
 export class DisplayManager {
   private viewport: HTMLElement
   private canvasBottom: HTMLElement | null
@@ -85,7 +111,7 @@ export class DisplayManager {
     this.canvasBottom = document.getElementById('canvasBottom')
 
     this.resolutionIndex = resolveStoredResolutionIndex(
-      localStorage.getItem(STORAGE_KEY_RESOLUTION)
+      readStoredResolutionValue()
     )
     this.persistResolution()
 
@@ -151,8 +177,7 @@ export class DisplayManager {
   }
 
   private persistResolution(): void {
-    localStorage.setItem(
-      STORAGE_KEY_RESOLUTION,
+    writeStoredResolutionValue(
       getResolutionStorageValue(RESOLUTION_PRESETS[this.resolutionIndex])
     )
   }

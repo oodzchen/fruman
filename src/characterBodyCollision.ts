@@ -154,14 +154,17 @@ function getSharedCollisionRasterContext(
   height: number
 ): CollisionCanvasContext | null {
   if (!sharedCollisionRasterContext) {
+    const contextSettings: CanvasRenderingContext2DSettings = {
+      willReadFrequently: true,
+    }
     if (typeof OffscreenCanvas !== 'undefined') {
       const canvas = new OffscreenCanvas(width, height)
-      sharedCollisionRasterContext = canvas.getContext('2d')
+      sharedCollisionRasterContext = canvas.getContext('2d', contextSettings)
     } else if (typeof document !== 'undefined') {
       const canvas = document.createElement('canvas')
       canvas.width = width
       canvas.height = height
-      sharedCollisionRasterContext = canvas.getContext('2d')
+      sharedCollisionRasterContext = canvas.getContext('2d', contextSettings)
     }
   }
   if (!sharedCollisionRasterContext) {
