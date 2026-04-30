@@ -1252,6 +1252,13 @@ export class EditorManager {
       this.menuSystem.showTerrainContourSubmenu()
       return
     }
+    if (type === ObjectType.ReferenceLine) {
+      this.hideAllSubmenus()
+      this.menuSystem.hideObjectTypeMenu()
+      this.terrainBrushController.selectReferenceLineTool()
+      this.setActiveObjectType(ObjectType.ReferenceLine)
+      return
+    }
 
     if (type === ObjectType.Weapon) {
       this.setActiveObjectType(ObjectType.Weapon)
@@ -1951,7 +1958,7 @@ export class EditorManager {
 
   private setActiveObjectType(type: ObjectType | null) {
     this.activeObjectType = type
-    if (type !== ObjectType.Terrain) {
+    if (type !== ObjectType.Terrain && type !== ObjectType.ReferenceLine) {
       this.terrainBrushController.clearBrush()
     }
     if (!this.isEnvironmentStampObjectType(type)) {
@@ -2021,6 +2028,12 @@ export class EditorManager {
     if (savedTerrainBrushId) {
       this.terrainBrushController.selectBrush(savedTerrainBrushId)
       this.setActiveObjectType(ObjectType.Terrain)
+      return
+    }
+
+    if (savedObjectType === ObjectType.ReferenceLine) {
+      this.terrainBrushController.selectReferenceLineTool()
+      this.setActiveObjectType(ObjectType.ReferenceLine)
       return
     }
 
@@ -3265,6 +3278,7 @@ export class EditorManager {
     }
 
     const terrainObjects: EditorObjectData[] = []
+    const referenceLineObjects: EditorObjectData[] = []
     const npcObjects: EditorObjectData[] = []
     const weaponObjects: EditorObjectData[] = []
     const checkpointObjects: EditorObjectData[] = []
@@ -3279,6 +3293,8 @@ export class EditorManager {
       const dataItem = editorObjects[i]
       if (dataItem.type === ObjectType.Terrain) {
         terrainObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.ReferenceLine) {
+        referenceLineObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Npc) {
         npcObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Weapon) {
@@ -3330,6 +3346,12 @@ export class EditorManager {
         resolvedData =
           index >= 0 && index < terrainObjects.length
             ? terrainObjects[index]
+            : null
+      } else if (node.type === 'referenceLine') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < referenceLineObjects.length
+            ? referenceLineObjects[index]
             : null
       } else if (node.type === 'npc' || node.type === 'enemy') {
         const index = node.index ?? -1
@@ -3715,20 +3737,12 @@ export class EditorManager {
       return
     }
     if (this.terrainManager.isTerrainContourProxy(target)) {
-      this.showPolygonMenuWithActions(
-        [
-          'fill',
-          'terrainProperties',
-          'commonProperties',
-          'rename',
-          'lock',
-          'delete',
-        ],
-        target,
-        -1,
-        clientX,
-        clientY
-      )
+      const actions: ContextMenuAction[] = []
+      if (!this.terrainManager.isReferenceLineProxy(target)) {
+        actions.push('fill', 'terrainProperties')
+      }
+      actions.push('commonProperties', 'rename', 'lock', 'delete')
+      this.showPolygonMenuWithActions(actions, target, -1, clientX, clientY)
       return
     }
     if (this.terrainManager.isTerrainProxy(target)) {

@@ -29,6 +29,7 @@ export enum ObjectType {
   Ground = 'ground',
   Obstacle = 'obstacle',
   Terrain = 'terrain',
+  ReferenceLine = 'referenceLine',
   SunPickupSmall = 'sunPickupSmall',
   SunPickupLarge = 'sunPickupLarge',
   ExpOrb = 'expOrb',

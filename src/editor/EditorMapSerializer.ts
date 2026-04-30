@@ -168,6 +168,11 @@ export class EditorMapSerializer {
       this.ctx.getEditorObjects(),
       { shareData: options?.shareTerrainData === true }
     )
+    const referenceLineIndexMap = new Map<fabric.Object, number>()
+    const referenceLines = this.ctx.terrainManager.serializeReferenceLines(
+      referenceLineIndexMap,
+      this.ctx.getEditorObjects()
+    )
     const editorTree = this.serializeEditorTree({
       npcIndexMap,
       weaponIndexMap,
@@ -177,6 +182,7 @@ export class EditorMapSerializer {
       expOrbIndexMap,
       environmentIndexMap,
       terrainIndexMap,
+      referenceLineIndexMap,
     })
     return {
       version: 3,
@@ -189,6 +195,7 @@ export class EditorMapSerializer {
       camera,
       shapes: [],
       terrain,
+      referenceLines,
       npcs,
       weapons,
       checkpoints,
@@ -222,6 +229,7 @@ export class EditorMapSerializer {
       this.ctx.resizeEditorCanvas()
       this.ctx.clearEditorScene()
       this.ctx.terrainManager.applySerializedData(data.terrain)
+      this.ctx.terrainManager.applySerializedReferenceLines(data.referenceLines)
       this.ctx.markerManager.spawnPlayerMarker(
         data.playerSpawn,
         data.player,
@@ -555,6 +563,7 @@ export class EditorMapSerializer {
     expOrbIndexMap: Map<fabric.Object, number>
     environmentIndexMap: Map<fabric.Object, number>
     terrainIndexMap: Map<fabric.Object, number>
+    referenceLineIndexMap: Map<fabric.Object, number>
   }): EditorTreeData | null {
     const editorObjects = this.ctx.getEditorObjects()
     if (editorObjects.length === 0) {
@@ -636,6 +645,12 @@ export class EditorMapSerializer {
         node.index = index
       } else if (dataItem.type === 'terrain') {
         const index = data.terrainIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'referenceLine') {
+        const index = data.referenceLineIndexMap.get(dataItem.object)
         if (index === undefined) {
           return null
         }

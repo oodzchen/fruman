@@ -94,6 +94,11 @@ export interface MapLightObject {
   nightOnly?: boolean
 }
 
+export interface MapReferenceLine {
+  points: number[]
+  renderLayer?: number
+}
+
 export type EditorTreeObjectType =
   | 'empty'
   | 'player'
@@ -104,6 +109,7 @@ export type EditorTreeObjectType =
   | 'checkpoint'
   | 'hookAnchor'
   | 'terrain'
+  | 'referenceLine'
   | 'ground'
   | 'obstacle'
   | 'sunPickupSmall'
@@ -459,6 +465,7 @@ export interface EditorMapData {
   sunPickups?: MapSunPickup[]
   expOrbs?: MapExpOrb[]
   terrain?: MapTerrainData
+  referenceLines?: MapReferenceLine[]
   npcTemplates?: MapNpcTemplate[]
   editorTree?: EditorTreeData
   factions?: string[]

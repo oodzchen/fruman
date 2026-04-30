@@ -1,6 +1,7 @@
 import * as fabric from 'fabric'
 
 import { localizer } from '../../Localizer'
+import type { MapReferenceLine } from '../../editorMapTypes'
 import {
   getDefaultTerrainRenderLayer,
   normalizeRenderLayer,
@@ -85,6 +86,7 @@ interface EditorTerrainContour {
   shapeKind: TerrainContourShapeKind | null
   straightEdge: boolean
   cellStroke: boolean
+  referenceLine: boolean
   fillLayer: EditorTerrainLayer | null
   proxy: TerrainContourProxy
 }
@@ -135,7 +137,11 @@ const TERRAIN_STRAIGHT_CONTOUR_FILL_PADDING_CELLS = 1
 const TERRAIN_CONTOUR_RATIO_SCALE = 1024
 const TERRAIN_CONTOUR_STROKE_COLOR = 'rgba(245,208,96,0.92)'
 const TERRAIN_CONTOUR_IDLE_STROKE_COLOR = 'rgba(214,174,92,0.62)'
+const TERRAIN_REFERENCE_LINE_STROKE_COLOR = 'rgba(28,28,28,0.88)'
+const TERRAIN_REFERENCE_LINE_IDLE_STROKE_COLOR = 'rgba(16,16,16,0.64)'
 const TERRAIN_CONTOUR_STROKE_WIDTH = 2
+const TERRAIN_REFERENCE_LINE_DASH = [10, 6]
+const TERRAIN_SOLID_LINE_DASH: number[] = []
 const FULL_CIRCLE_RADIANS = Math.PI * 2
 const TERRAIN_CONTOUR_PERF_DEBUG_ENABLED =
   typeof window !== 'undefined' &&
@@ -157,6 +163,7 @@ class TerrainContourRenderObject extends fabric.FabricObject {
   private contourShapeKind: TerrainContourShapeKind | null = null
   private contourStrokeColor = TERRAIN_CONTOUR_IDLE_STROKE_COLOR
   private contourShowGuides = false
+  private contourReferenceLine = false
   private contourActivePointIndex = -1
 
   constructor(options?: FabricObjectOptions) {
@@ -168,12 +175,14 @@ class TerrainContourRenderObject extends fabric.FabricObject {
     shapeKind: TerrainContourShapeKind | null,
     strokeColor: string,
     showGuides: boolean,
+    referenceLine: boolean,
     activePointIndex: number
   ): void {
     this.contourPoints = points
     this.contourShapeKind = shapeKind
     this.contourStrokeColor = strokeColor
     this.contourShowGuides = showGuides
+    this.contourReferenceLine = referenceLine
     this.contourActivePointIndex = activePointIndex
     this.dirty = true
   }
@@ -195,6 +204,9 @@ class TerrainContourRenderObject extends fabric.FabricObject {
     ctx.strokeStyle = this.contourStrokeColor
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
+    if (this.contourReferenceLine) {
+      ctx.setLineDash(TERRAIN_REFERENCE_LINE_DASH)
+    }
 
     if (this.contourShapeKind === 'rect') {
       ctx.beginPath()
@@ -220,6 +232,9 @@ class TerrainContourRenderObject extends fabric.FabricObject {
     }
 
     if (this.contourShowGuides) {
+      if (this.contourReferenceLine) {
+        ctx.setLineDash(TERRAIN_SOLID_LINE_DASH)
+      }
       this.renderPointGuides(ctx, points, originX, originY, anchorX, anchorY)
     }
     ctx.restore()
@@ -399,6 +414,7 @@ export class EditorTerrainLayerManager {
   private nextLayerId = 1
   private nextContourId = 1
   private contourEditMode = false
+  private referenceLineEditMode = false
   private activeContourId = -1
   private selectedContourId = -1
   private activeContourPointIndex = -1
@@ -524,6 +540,7 @@ export class EditorTerrainLayerManager {
     this.selectedContourId = -1
     this.activeContourPointIndex = -1
     this.contourEditMode = false
+    this.referenceLineEditMode = false
     this.clearTerrainRenderCache()
     this.ctx.requestRender()
   }
@@ -596,6 +613,13 @@ export class EditorTerrainLayerManager {
     return contourProxy.editorShape === 'terrain-contour-proxy'
   }
 
+  isReferenceLineProxy(object: fabric.Object | null): boolean {
+    if (!this.isTerrainContourProxy(object)) {
+      return false
+    }
+    return this.proxyToContour.get(object)?.referenceLine === true
+  }
+
   setInteractionEnabled(enabled: boolean): void {
     if (this.interactionEnabled === enabled) {
       return
@@ -623,6 +647,9 @@ export class EditorTerrainLayerManager {
       return
     }
     this.contourEditMode = active
+    if (active) {
+      this.referenceLineEditMode = false
+    }
     this.resetMovingContourState()
     const canvas = this.ctx.getFabricCanvas()
     if (canvas) {
@@ -635,6 +662,36 @@ export class EditorTerrainLayerManager {
     } else {
       const activeObject = canvas?.getActiveObject() ?? null
       if (this.isTerrainContourProxy(activeObject)) {
+        this.setActiveContour(this.proxyToContour.get(activeObject) ?? null)
+      }
+    }
+    this.refreshAllContourVisuals()
+    this.ctx.requestRender()
+  }
+
+  setReferenceLineEditMode(active: boolean): void {
+    if (this.referenceLineEditMode === active) {
+      return
+    }
+    this.referenceLineEditMode = active
+    if (active) {
+      this.contourEditMode = false
+    }
+    this.resetMovingContourState()
+    const canvas = this.ctx.getFabricCanvas()
+    if (canvas) {
+      canvas.discardActiveObject()
+    }
+    if (!active) {
+      this.activeContourPointIndex = -1
+      this.activeContourId = -1
+      this.resetContourInteraction()
+    } else {
+      const activeObject = canvas?.getActiveObject() ?? null
+      if (
+        this.isTerrainContourProxy(activeObject) &&
+        this.isReferenceLineProxy(activeObject)
+      ) {
         this.setActiveContour(this.proxyToContour.get(activeObject) ?? null)
       }
     }
@@ -707,7 +764,7 @@ export class EditorTerrainLayerManager {
       return null
     }
     const contour = this.proxyToContour.get(object)
-    return contour ? contour.straightEdge : null
+    return contour && !contour.referenceLine ? contour.straightEdge : null
   }
 
   getProxyCellStroke(object: fabric.Object | null): boolean | null {
@@ -717,7 +774,7 @@ export class EditorTerrainLayerManager {
     }
     if (this.isTerrainContourProxy(object)) {
       const contour = this.proxyToContour.get(object)
-      return contour ? contour.cellStroke : null
+      return contour && !contour.referenceLine ? contour.cellStroke : null
     }
     return null
   }
@@ -765,6 +822,11 @@ export class EditorTerrainLayerManager {
       return false
     }
     contour.renderLayer = nextRenderLayer
+    if (contour.referenceLine) {
+      ;(object as EditorLayeredObject).renderLayer = nextRenderLayer
+      this.ctx.requestRender()
+      return true
+    }
     if (contour.fillLayer) {
       contour.fillLayer.serializedLayer.renderLayer = nextRenderLayer
       this.syncLayerRenderObject(contour.fillLayer)
@@ -785,7 +847,11 @@ export class EditorTerrainLayerManager {
       return false
     }
     const contour = this.proxyToContour.get(object)
-    if (!contour || contour.straightEdge === straightEdge) {
+    if (
+      !contour ||
+      contour.referenceLine ||
+      contour.straightEdge === straightEdge
+    ) {
       return false
     }
     contour.straightEdge = straightEdge
@@ -817,7 +883,11 @@ export class EditorTerrainLayerManager {
       return false
     }
     const contour = this.proxyToContour.get(object)
-    if (!contour || contour.cellStroke === cellStroke) {
+    if (
+      !contour ||
+      contour.referenceLine ||
+      contour.cellStroke === cellStroke
+    ) {
       return false
     }
     contour.cellStroke = cellStroke
@@ -966,7 +1036,8 @@ export class EditorTerrainLayerManager {
     orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>,
     options?: TerrainSerializeOptions
   ): MapTerrainData | undefined {
-    if (this.layers.length === 0 && this.contours.length === 0) {
+    const orderedContours = this.getOrderedContours(orderedObjects, false)
+    if (this.layers.length === 0 && orderedContours.length === 0) {
       return undefined
     }
     const shareData = options?.shareData === true
@@ -990,9 +1061,8 @@ export class EditorTerrainLayerManager {
           : layer.grid.serializeChunks(),
       })
     }
-    const orderedContours = this.getOrderedContours(orderedObjects)
     const contours =
-      this.contours.length > 0
+      orderedContours.length > 0
         ? orderedContours.map<TerrainContourLike>((contour) => {
             const serializedContour = this.getSerializedContour(contour)
             if (shareData) {
@@ -1035,6 +1105,28 @@ export class EditorTerrainLayerManager {
       layers,
       contours,
     }
+  }
+
+  serializeReferenceLines(
+    indexMap?: Map<fabric.Object, number>,
+    orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>
+  ): MapReferenceLine[] | undefined {
+    const orderedReferenceLines = this.getOrderedContours(orderedObjects, true)
+    if (orderedReferenceLines.length === 0) {
+      return undefined
+    }
+    const referenceLines = new Array<MapReferenceLine>(
+      orderedReferenceLines.length
+    )
+    for (let i = 0; i < orderedReferenceLines.length; i++) {
+      const line = orderedReferenceLines[i]
+      referenceLines[i] = {
+        points: line.points.slice(),
+        renderLayer: line.renderLayer,
+      }
+      indexMap?.set(line.proxy, i)
+    }
+    return referenceLines
   }
 
   applySerializedData(data: MapTerrainData | undefined): void {
@@ -1087,6 +1179,42 @@ export class EditorTerrainLayerManager {
       }
     }
     this.syncTerrainRenderObjects()
+    this.ctx.requestRender()
+  }
+
+  applySerializedReferenceLines(
+    referenceLines: readonly MapReferenceLine[] | undefined
+  ): void {
+    if (!referenceLines || referenceLines.length === 0) {
+      return
+    }
+    for (let i = 0; i < referenceLines.length; i++) {
+      const source = referenceLines[i]
+      if (!Array.isArray(source.points) || source.points.length < 6) {
+        continue
+      }
+      const referenceLine = this.createContour(
+        source.points[0] | 0,
+        source.points[1] | 0,
+        true
+      )
+      referenceLine.points.length = source.points.length
+      for (
+        let pointIndex = 0;
+        pointIndex < source.points.length;
+        pointIndex++
+      ) {
+        referenceLine.points[pointIndex] = source.points[pointIndex] | 0
+      }
+      referenceLine.renderLayer =
+        typeof source.renderLayer === 'number'
+          ? source.renderLayer | 0
+          : getDefaultTerrainRenderLayer('dirt')
+      this.markContourBoundsDirty(referenceLine)
+      ;(referenceLine.proxy as EditorLayeredObject).renderLayer =
+        referenceLine.renderLayer
+      this.refreshContourProxy(referenceLine)
+    }
     this.ctx.requestRender()
   }
 
@@ -1247,7 +1375,11 @@ export class EditorTerrainLayerManager {
   }
 
   handleSelectionContourPointerDown(opt: fabric.TPointerEventInfo): boolean {
-    if (this.contourEditMode || this.contourPointerActive) {
+    if (
+      this.contourEditMode ||
+      this.referenceLineEditMode ||
+      this.contourPointerActive
+    ) {
       return false
     }
     const canvas = this.ctx.getFabricCanvas()
@@ -1296,14 +1428,22 @@ export class EditorTerrainLayerManager {
   }
 
   handleSelectionContourPointerMove(opt: fabric.TPointerEventInfo): boolean {
-    if (this.contourEditMode || !this.contourPointerActive) {
+    if (
+      this.contourEditMode ||
+      this.referenceLineEditMode ||
+      !this.contourPointerActive
+    ) {
       return false
     }
     return this.handleContourPointerMove(opt)
   }
 
   handleSelectionContourPointerUp(): boolean {
-    if (this.contourEditMode || !this.contourPointerActive) {
+    if (
+      this.contourEditMode ||
+      this.referenceLineEditMode ||
+      !this.contourPointerActive
+    ) {
       return false
     }
     return this.handleContourPointerUp()
@@ -1329,6 +1469,9 @@ export class EditorTerrainLayerManager {
       : null
     const contour = target ? (this.proxyToContour.get(target) ?? null) : null
     if (contour) {
+      if (contour.referenceLine) {
+        return false
+      }
       this.setActiveContour(contour)
       const pointIndex = getNearestContourPointIndex(
         contour.points,
@@ -1359,6 +1502,65 @@ export class EditorTerrainLayerManager {
     this.contourPointerActive = true
     this.contourPointerChanged = false
     this.contourDrawingContour = newContour
+    this.contourDragTarget = null
+    this.contourDragPointIndex = -1
+    this.contourLastPointX = pointX
+    this.contourLastPointY = pointY
+    canvas.discardActiveObject()
+    this.ctx.requestRender()
+    return true
+  }
+
+  handleReferenceLinePointerDown(opt: fabric.TPointerEventInfo): boolean {
+    if (!this.referenceLineEditMode) {
+      return false
+    }
+    const canvas = this.ctx.getFabricCanvas()
+    if (!canvas) {
+      return false
+    }
+    const mouseEvent = opt.e as MouseEvent
+    if (mouseEvent.button !== 0) {
+      return false
+    }
+    const point = canvas.getScenePoint(mouseEvent)
+    const pointX = Math.round(point.x)
+    const pointY = Math.round(point.y)
+    const target = this.isTerrainContourProxy(opt.target ?? null)
+      ? (opt.target as TerrainContourProxy)
+      : null
+    const contour = target ? (this.proxyToContour.get(target) ?? null) : null
+    if (contour?.referenceLine) {
+      this.setActiveContour(contour)
+      const pointIndex = getNearestContourPointIndex(
+        contour.points,
+        pointX,
+        pointY,
+        this.getContourPointHitDistanceSq()
+      )
+      if (pointIndex >= 0) {
+        this.contourPointerActive = true
+        this.contourPointerChanged = false
+        this.contourDragTarget = contour
+        this.contourDragPointIndex = pointIndex
+        this.contourDragOriginalPoints = contour.points.slice()
+        this.activeContourPointIndex = pointIndex
+        this.contourLastPointX = pointX
+        this.contourLastPointY = pointY
+        this.lockContourProxyMovement(contour.proxy)
+        this.refreshContourProxy(contour)
+      }
+      this.activeContourPointIndex = pointIndex
+      this.refreshContourProxy(contour)
+      this.ctx.requestRender()
+      return true
+    }
+
+    const newReferenceLine = this.createContour(pointX, pointY, true)
+    this.setActiveContour(newReferenceLine)
+    this.contourPointerActive = true
+    this.contourPointerChanged = false
+    this.contourDrawingContour = newReferenceLine
     this.contourDragTarget = null
     this.contourDragPointIndex = -1
     this.contourLastPointX = pointX
@@ -1492,6 +1694,39 @@ export class EditorTerrainLayerManager {
       this.getContourEdgeHitDistanceSq()
     )
     this.setActiveContour(contour)
+    if (contour.referenceLine) {
+      if (pointIndex >= 0) {
+        this.activeContourPointIndex = pointIndex
+        this.refreshContourProxy(contour)
+        return {
+          target,
+          actions: ['remove', 'commonProperties', 'rename', 'lock', 'delete'],
+          pointIndex,
+          insertX: 0,
+          insertY: 0,
+        }
+      }
+      if (edge) {
+        this.activeContourPointIndex = -1
+        this.refreshContourProxy(contour)
+        return {
+          target,
+          actions: ['add', 'commonProperties', 'rename', 'lock', 'delete'],
+          pointIndex: edge.insertAfterIndex,
+          insertX: edge.x,
+          insertY: edge.y,
+        }
+      }
+      this.activeContourPointIndex = -1
+      this.refreshContourProxy(contour)
+      return {
+        target,
+        actions: ['commonProperties', 'rename', 'lock', 'delete'],
+        pointIndex: -1,
+        insertX: 0,
+        insertY: 0,
+      }
+    }
     if (pointIndex >= 0) {
       this.activeContourPointIndex = pointIndex
       this.refreshContourProxy(contour)
@@ -1639,6 +1874,9 @@ export class EditorTerrainLayerManager {
     }
     const contour = this.proxyToContour.get(object)
     if (!contour) {
+      return false
+    }
+    if (contour.referenceLine) {
       return false
     }
     if (
@@ -1948,6 +2186,9 @@ export class EditorTerrainLayerManager {
     if (!contour) {
       return false
     }
+    if (contour.referenceLine) {
+      return this.applyReferenceLineTransform(contour, proxy)
+    }
     const scaleX = proxy.scaleX ?? 1
     const scaleY = proxy.scaleY ?? 1
     if (contour.shapeKind && (scaleX !== 1 || scaleY !== 1)) {
@@ -1997,6 +2238,49 @@ export class EditorTerrainLayerManager {
     if (contour.fillLayer) {
       this.applyLayerUnitDelta(contour.fillLayer, deltaX, deltaY)
     }
+    this.refreshContourProxy(contour)
+    this.ctx.requestRender()
+    return true
+  }
+
+  private applyReferenceLineTransform(
+    contour: EditorTerrainContour,
+    proxy: TerrainContourProxy
+  ): boolean {
+    const matrix = proxy.calcTransformMatrix()
+    const width = Math.max(1, Math.round(proxy.width ?? 1))
+    const height = Math.max(1, Math.round(proxy.height ?? 1))
+    const originX = -Math.floor(width / 2)
+    const originY = -Math.floor(height / 2)
+    const anchorX = proxy.terrainContourAnchorLeft | 0
+    const anchorY = proxy.terrainContourAnchorTop | 0
+    let changed = false
+    for (let i = 0; i < contour.points.length; i += 2) {
+      const localX = originX + contour.points[i] - anchorX
+      const localY = originY + contour.points[i + 1] - anchorY
+      const nextX = Math.round(
+        matrix[0] * localX + matrix[2] * localY + matrix[4]
+      )
+      const nextY = Math.round(
+        matrix[1] * localX + matrix[3] * localY + matrix[5]
+      )
+      if (contour.points[i] !== nextX || contour.points[i + 1] !== nextY) {
+        contour.points[i] = nextX
+        contour.points[i + 1] = nextY
+        changed = true
+      }
+    }
+    proxy.scaleX = 1
+    proxy.scaleY = 1
+    proxy.angle = 0
+    if (!changed) {
+      proxy.left = proxy.terrainContourAnchorLeft
+      proxy.top = proxy.terrainContourAnchorTop
+      proxy.setCoords()
+      this.ctx.requestRender()
+      return false
+    }
+    this.markContourBoundsDirty(contour)
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
     return true
@@ -2476,7 +2760,11 @@ export class EditorTerrainLayerManager {
     }
   }
 
-  private createContour(startX: number, startY: number): EditorTerrainContour {
+  private createContour(
+    startX: number,
+    startY: number,
+    referenceLine = false
+  ): EditorTerrainContour {
     const contourId = this.nextContourId
     this.nextContourId += 1
     const proxy = new TerrainContourRenderObject({
@@ -2490,6 +2778,7 @@ export class EditorTerrainLayerManager {
       lockRotation: true,
       lockScalingX: true,
       lockScalingY: true,
+      strokeWidth: 0,
       objectCaching: false,
       hoverCursor: 'default',
       moveCursor: 'move',
@@ -2521,26 +2810,31 @@ export class EditorTerrainLayerManager {
       shapeKind: null,
       straightEdge: false,
       cellStroke: false,
+      referenceLine,
       fillLayer: null,
       proxy,
     }
     this.contours.push(contour)
-    this.renderData.contours.push({
-      id: contour.id,
-      points: contour.points,
-      renderLayer: contour.renderLayer,
-      cellStroke: contour.cellStroke ? true : undefined,
-      buildRevision: this.nextBuildRevision(),
-    })
+    if (!referenceLine) {
+      this.renderData.contours.push({
+        id: contour.id,
+        points: contour.points,
+        renderLayer: contour.renderLayer,
+        cellStroke: contour.cellStroke ? true : undefined,
+        buildRevision: this.nextBuildRevision(),
+      })
+    }
     this.proxyToContour.set(proxy, contour)
     this.applyContourProxyInteraction(proxy, this.interactionEnabled)
     this.refreshContourProxy(contour)
     const canvas = this.ctx.getFabricCanvas()
     canvas?.add(proxy)
     this.ctx.registerEditorObject(
-      ObjectType.Terrain,
+      referenceLine ? ObjectType.ReferenceLine : ObjectType.Terrain,
       proxy,
-      this.buildGeneratedContourName()
+      referenceLine
+        ? this.buildGeneratedReferenceLineName()
+        : this.buildGeneratedContourName()
     )
     return contour
   }
@@ -2633,6 +2927,16 @@ export class EditorTerrainLayerManager {
 
   private buildGeneratedContourName(): string {
     return `${localizer.t('editor_terrain_brush_contour')}${this.contours.length}`
+  }
+
+  private buildGeneratedReferenceLineName(): string {
+    let count = 0
+    for (let i = 0; i < this.contours.length; i++) {
+      if (this.contours[i].referenceLine) {
+        count += 1
+      }
+    }
+    return `${localizer.t('editor_terrain_reference_line')}${count}`
   }
 
   private setActiveContour(contour: EditorTerrainContour | null): void {
@@ -2762,13 +3066,19 @@ export class EditorTerrainLayerManager {
       return
     }
     const showContourGuides =
-      (this.contourEditMode && contour.id === this.activeContourId) ||
+      ((this.contourEditMode || this.referenceLineEditMode) &&
+        contour.id === this.activeContourId) ||
       (!this.contourEditMode &&
+        !this.referenceLineEditMode &&
         contour.id === this.selectedContourId &&
         !contour.shapeKind)
-    const contourStroke = showContourGuides
-      ? TERRAIN_CONTOUR_STROKE_COLOR
-      : TERRAIN_CONTOUR_IDLE_STROKE_COLOR
+    const contourStroke = contour.referenceLine
+      ? showContourGuides
+        ? TERRAIN_REFERENCE_LINE_STROKE_COLOR
+        : TERRAIN_REFERENCE_LINE_IDLE_STROKE_COLOR
+      : showContourGuides
+        ? TERRAIN_CONTOUR_STROKE_COLOR
+        : TERRAIN_CONTOUR_IDLE_STROKE_COLOR
     const proxy = contour.proxy
     proxy.terrainContourId = contour.id
     proxy.terrainContourAnchorLeft = bounds.minX
@@ -2777,6 +3087,7 @@ export class EditorTerrainLayerManager {
     proxy.terrainContourHeight = bounds.height
     proxy.width = bounds.width
     proxy.height = bounds.height
+    proxy.strokeWidth = 0
     proxy.left = bounds.minX
     proxy.top = bounds.minY
     ;(proxy as EditorLayeredObject).renderLayer = contour.renderLayer
@@ -2785,6 +3096,7 @@ export class EditorTerrainLayerManager {
       contour.shapeKind,
       contourStroke,
       showContourGuides,
+      contour.referenceLine,
       this.activeContourPointIndex
     )
     if (updateInteraction) {
@@ -2803,10 +3115,14 @@ export class EditorTerrainLayerManager {
     enabled: boolean
   ): void {
     const contour = this.proxyToContour.get(proxy) ?? null
-    const isShapeContour = contour?.shapeKind !== null
-    if (this.contourEditMode) {
+    const isShapeContour =
+      contour !== null && !contour.referenceLine && contour.shapeKind !== null
+    if (this.contourEditMode || this.referenceLineEditMode) {
+      const editableInCurrentMode = this.contourEditMode
+        ? contour?.referenceLine !== true
+        : contour?.referenceLine === true
       proxy.selectable = false
-      proxy.evented = true
+      proxy.evented = editableInCurrentMode
       proxy.hasBorders = false
       proxy.hasControls = false
       proxy.lockScalingX = true
@@ -2817,12 +3133,14 @@ export class EditorTerrainLayerManager {
     }
     proxy.selectable = enabled
     proxy.evented = enabled
+    const isReferenceLine = contour?.referenceLine === true
+    const canTransform = isShapeContour || isReferenceLine
     proxy.hasBorders = enabled
-    proxy.hasControls = enabled && isShapeContour
+    proxy.hasControls = enabled && canTransform
     proxy.lockScalingFlip = true
-    proxy.lockRotation = true
-    proxy.lockScalingX = !(enabled && isShapeContour)
-    proxy.lockScalingY = !(enabled && isShapeContour)
+    proxy.lockRotation = !(enabled && isReferenceLine)
+    proxy.lockScalingX = !(enabled && canTransform)
+    proxy.lockScalingY = !(enabled && canTransform)
     proxy.hoverCursor = 'default'
     proxy.moveCursor = enabled ? 'move' : 'default'
   }
@@ -3726,20 +4044,31 @@ export class EditorTerrainLayerManager {
   }
 
   private getOrderedContours(
-    orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>
+    orderedObjects?: ReadonlyArray<{ object: fabric.Object; type: ObjectType }>,
+    referenceLine = false
   ): EditorTerrainContour[] {
     if (!orderedObjects || orderedObjects.length === 0) {
-      return this.contours.slice()
+      return this.contours.filter(
+        (contour) => contour.referenceLine === referenceLine
+      )
     }
     const orderedContours: EditorTerrainContour[] = []
     const included = new Set<number>()
     for (let i = 0; i < orderedObjects.length; i++) {
       const objectData = orderedObjects[i]
       if (objectData.type !== ObjectType.Terrain) {
+        if (!referenceLine || objectData.type !== ObjectType.ReferenceLine) {
+          continue
+        }
+      } else if (referenceLine) {
         continue
       }
       const contour = this.proxyToContour.get(objectData.object)
-      if (!contour || included.has(contour.id)) {
+      if (
+        !contour ||
+        contour.referenceLine !== referenceLine ||
+        included.has(contour.id)
+      ) {
         continue
       }
       included.add(contour.id)
@@ -3747,7 +4076,10 @@ export class EditorTerrainLayerManager {
     }
     for (let i = 0; i < this.contours.length; i++) {
       const contour = this.contours[i]
-      if (!included.has(contour.id)) {
+      if (
+        contour.referenceLine === referenceLine &&
+        !included.has(contour.id)
+      ) {
         orderedContours.push(contour)
       }
     }
@@ -4240,6 +4572,9 @@ export class EditorTerrainLayerManager {
     contour: EditorTerrainContour,
     serializedContour?: TerrainContourLike
   ): void {
+    if (contour.referenceLine) {
+      return
+    }
     const target = serializedContour ?? this.getSerializedContour(contour)
     target.buildRevision = this.nextBuildRevision()
     if (contour.fillLayer) {

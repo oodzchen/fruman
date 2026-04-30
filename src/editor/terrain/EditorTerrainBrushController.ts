@@ -14,6 +14,7 @@ interface EditorTerrainBrushControllerContext {
 export class EditorTerrainBrushController {
   private readonly ctx: EditorTerrainBrushControllerContext
   private selectedBrushId: TerrainBrushId | null = null
+  private referenceLineMode = false
   private isPainting = false
   private lastCellX = 0
   private lastCellY = 0
@@ -26,21 +27,35 @@ export class EditorTerrainBrushController {
 
   selectBrush(brushId: TerrainBrushId): void {
     this.selectedBrushId = brushId
+    this.referenceLineMode = false
     this.ctx.terrainManager.setContourEditMode(brushId === 'contour')
+    this.ctx.terrainManager.setReferenceLineEditMode(false)
+    this.applyCanvasSelectionForBrush()
+    this.restoreCanvasCursor()
+  }
+
+  selectReferenceLineTool(): void {
+    this.selectedBrushId = null
+    this.referenceLineMode = true
+    this.cancelStroke()
+    this.ctx.terrainManager.setContourEditMode(false)
+    this.ctx.terrainManager.setReferenceLineEditMode(true)
     this.applyCanvasSelectionForBrush()
     this.restoreCanvasCursor()
   }
 
   clearBrush(): void {
     this.selectedBrushId = null
+    this.referenceLineMode = false
     this.cancelStroke()
     this.ctx.terrainManager.setContourEditMode(false)
+    this.ctx.terrainManager.setReferenceLineEditMode(false)
     this.restoreCanvasSelectionForBrush()
     this.restoreCanvasCursor()
   }
 
   isBrushSelected(): boolean {
-    return this.selectedBrushId !== null
+    return this.selectedBrushId !== null || this.referenceLineMode
   }
 
   getSelectedBrushId(): TerrainBrushId | null {
@@ -52,13 +67,15 @@ export class EditorTerrainBrushController {
     if (!canvas) {
       return
     }
-    const cursor = this.selectedBrushId
-      ? getTerrainBrushCursorStyle(this.selectedBrushId)
-      : 'default'
+    const cursor = this.referenceLineMode
+      ? 'crosshair'
+      : this.selectedBrushId
+        ? getTerrainBrushCursorStyle(this.selectedBrushId)
+        : 'default'
     canvas.defaultCursor = cursor
     canvas.hoverCursor = cursor
     canvas.moveCursor = cursor
-    if (this.selectedBrushId) {
+    if (this.selectedBrushId || this.referenceLineMode) {
       this.applyCanvasSelectionForBrush()
     } else {
       this.restoreCanvasSelectionForBrush()
@@ -74,6 +91,9 @@ export class EditorTerrainBrushController {
       return false
     }
     if (!this.selectedBrushId) {
+      if (this.referenceLineMode) {
+        return this.ctx.terrainManager.handleReferenceLinePointerDown(opt)
+      }
       return this.ctx.terrainManager.handleSelectionContourPointerDown(opt)
     }
     if (this.selectedBrushId === 'contour') {
@@ -109,6 +129,9 @@ export class EditorTerrainBrushController {
 
   handlePointerMove(opt: fabric.TPointerEventInfo): boolean {
     if (!this.selectedBrushId) {
+      if (this.referenceLineMode) {
+        return this.ctx.terrainManager.handleContourPointerMove(opt)
+      }
       return this.ctx.terrainManager.handleSelectionContourPointerMove(opt)
     }
     if (this.selectedBrushId === 'contour') {
@@ -142,6 +165,13 @@ export class EditorTerrainBrushController {
 
   handlePointerUp(): boolean {
     if (!this.selectedBrushId) {
+      if (this.referenceLineMode) {
+        const changed = this.ctx.terrainManager.handleContourPointerUp()
+        if (changed) {
+          this.ctx.onCommit()
+        }
+        return changed
+      }
       const changed = this.ctx.terrainManager.handleSelectionContourPointerUp()
       if (changed) {
         this.ctx.onCommit()
@@ -193,7 +223,7 @@ export class EditorTerrainBrushController {
     if (!canvas) {
       return
     }
-    if (this.selectedBrushId && canvas.selection) {
+    if ((this.selectedBrushId || this.referenceLineMode) && canvas.selection) {
       canvas.selection = false
       this.didDisableCanvasSelectionForBrush = true
       return
