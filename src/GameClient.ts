@@ -2413,6 +2413,26 @@ export class GameClient {
     this.updateParam('ropeDampingRatio', value)
   }
 
+  setRopeClimbLinearDamping(value: number): void {
+    this.updateParam('ropeClimbLinearDamping', value)
+  }
+
+  setRopeClimbHertz(value: number): void {
+    this.updateParam('ropeClimbHertz', value)
+  }
+
+  setRopeClimbDampingRatio(value: number): void {
+    this.updateParam('ropeClimbDampingRatio', value)
+  }
+
+  setRopeClimbWeightForceScale(value: number): void {
+    this.updateParam('ropeClimbWeightForceScale', value)
+  }
+
+  setRopeClimbJumpRecoilScale(value: number): void {
+    this.updateParam('ropeClimbJumpRecoilScale', value)
+  }
+
   setSwingForce(value: number): void {
     this.updateParam('swingForce', value)
   }

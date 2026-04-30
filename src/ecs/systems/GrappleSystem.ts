@@ -3,6 +3,11 @@ import {
   DEFAULT_GRAPPLE_ENEMY_STUN_EXTRA_MS,
   DEFAULT_GRAPPLE_PULL_STOP_DISTANCE,
   DEFAULT_GRAPPLE_RANGE,
+  DEFAULT_GRAPPLE_ROPE_CLIMB_DAMPING_RATIO,
+  DEFAULT_GRAPPLE_ROPE_CLIMB_HERTZ,
+  DEFAULT_GRAPPLE_ROPE_CLIMB_JUMP_RECOIL_SCALE,
+  DEFAULT_GRAPPLE_ROPE_CLIMB_LINEAR_DAMPING,
+  DEFAULT_GRAPPLE_ROPE_CLIMB_WEIGHT_FORCE_SCALE,
   DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO,
   DEFAULT_GRAPPLE_ROPE_DENSITY,
   DEFAULT_GRAPPLE_ROPE_HEALTH,
@@ -157,6 +162,23 @@ type RopeBridgeRuntime = {
   segmentBodies: b2BodyId[]
   segmentJoints: b2JointId[]
   segmentFilterJoints: b2JointId[]
+  climbTuningActive: boolean
+}
+
+type RopeClimbRuntime = {
+  active: boolean
+  sourceType: number
+  ownerEntityId: number
+  bridgeRuntime: RopeBridgeRuntime | null
+  bridgeHitId: number
+  nodeIndex: number
+  maxNodeIndex: number
+  pathDistance: number
+  normalOffset: number
+  jointLength: number
+  travelRemainder: number
+  lastMoveStep: number
+  jointId: b2JointId | null
 }
 
 export class GrappleSystem extends System {
@@ -166,6 +188,15 @@ export class GrappleSystem extends System {
   private readonly pullModePlayerArc = 3
   private readonly pullModeAnchorTether = 4
   private readonly pullModeObject = 5
+  private readonly ropeClimbSourceNone = 0
+  private readonly ropeClimbSourcePlayer = 1
+  private readonly ropeClimbSourceBridge = 2
+  private readonly ropeClimbInteractRadius =
+    DEFAULT_PLAYER_RADIUS + DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH * 4
+  private readonly ropeClimbInteractRadiusSq =
+    (DEFAULT_PLAYER_RADIUS + DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH * 4) *
+    (DEFAULT_PLAYER_RADIUS + DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH * 4)
+  private readonly ropeClimbMinJointLength = DEFAULT_GRAPPLE_ROPE_SEGMENT_RADIUS
   private readonly dynamicTetherBaseSpeed = 2
   private readonly dynamicTetherStretchSpeed = 8
   private readonly dynamicTetherMaxSpeed = 14
@@ -195,11 +226,28 @@ export class GrappleSystem extends System {
   private ropeHideDistanceSq =
     DEFAULT_PLAYER_RADIUS * 2 * (DEFAULT_PLAYER_RADIUS * 2)
   private ropeRuntimeByEntityId = new Map<number, RopeRuntime>()
+  private ropeClimbRuntimeByEntityId = new Map<number, RopeClimbRuntime>()
   private bridgeRopes: RopeBridgeRuntime[] = []
   private nextRopeHitId = 1
   private hitRopeSegmentIndex = -1
   private hitRopeSegmentX = 0
   private hitRopeSegmentY = 0
+  private climbCandidateBridgeRuntime: RopeBridgeRuntime | null = null
+  private climbCandidateNodeIndex = -1
+  private climbCandidateDistSq = 0
+  private climbCandidatePathDistance = 0
+  private climbCandidateNormalOffset = 0
+  private readonly climbPointA = { x: 0, y: 0 }
+  private readonly climbPointB = { x: 0, y: 0 }
+  private climbAttachX = 0
+  private climbAttachY = 0
+  private climbTangentX = 0
+  private climbTangentY = 1
+  private climbNormalX = -1
+  private climbNormalY = 0
+  private climbPathLength = 0
+  private climbSegmentStartNodeIndex = 0
+  private climbSegmentRatio = 0
   private readonly ropeHitShakeDurationMs = 220
   private readonly ropeHitShakeAmplitude = 0.24
   private readonly bridgeEndpointA: RopeBridgeEndpointBuild = {
@@ -228,6 +276,13 @@ export class GrappleSystem extends System {
   private ropeLinearDamping = DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING
   private ropeHertz = DEFAULT_GRAPPLE_ROPE_HERTZ
   private ropeDampingRatio = DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO
+  private ropeClimbLinearDamping = DEFAULT_GRAPPLE_ROPE_CLIMB_LINEAR_DAMPING
+  private ropeClimbHertz = DEFAULT_GRAPPLE_ROPE_CLIMB_HERTZ
+  private ropeClimbDampingRatio = DEFAULT_GRAPPLE_ROPE_CLIMB_DAMPING_RATIO
+  private ropeClimbWeightForceScale =
+    DEFAULT_GRAPPLE_ROPE_CLIMB_WEIGHT_FORCE_SCALE
+  private ropeClimbJumpRecoilScale =
+    DEFAULT_GRAPPLE_ROPE_CLIMB_JUMP_RECOIL_SCALE
   private swingForce = DEFAULT_GRAPPLE_SWING_FORCE
 
   constructor(world: World, box2d: MainModule, worldId: b2WorldId) {
@@ -280,8 +335,59 @@ export class GrappleSystem extends System {
     this.updateExistingRopeJoints()
   }
 
+  setRopeClimbLinearDamping(value: number): void {
+    this.ropeClimbLinearDamping = Math.max(0, value)
+    this.updateExistingRopeSegments()
+  }
+
+  setRopeClimbHertz(value: number): void {
+    this.ropeClimbHertz = Math.max(0, value)
+    this.updateExistingRopeJoints()
+  }
+
+  setRopeClimbDampingRatio(value: number): void {
+    this.ropeClimbDampingRatio = Math.max(0, value)
+    this.updateExistingRopeJoints()
+  }
+
+  setRopeClimbWeightForceScale(value: number): void {
+    this.ropeClimbWeightForceScale = Math.max(0, value)
+  }
+
+  setRopeClimbJumpRecoilScale(value: number): void {
+    this.ropeClimbJumpRecoilScale = Math.max(0, value)
+  }
+
   setSwingForce(value: number): void {
     this.swingForce = value
+  }
+
+  tryToggleRopeClimb(entity: Entity): boolean {
+    const grapple = entity.grapple
+    if (
+      !grapple ||
+      !grapple.hasGrapple ||
+      !entity.input ||
+      !entity.physics ||
+      !entity.transform ||
+      entity.isStunned()
+    ) {
+      return false
+    }
+    if (entity.movement?.isRolling || entity.movement?.isBackstepping) {
+      return false
+    }
+
+    if (grapple.isRopeClimbing) {
+      this.stopRopeClimb(entity, grapple, true)
+      return true
+    }
+
+    if (this.tryStartPlayerRopeClimb(entity, grapple)) {
+      return true
+    }
+
+    return this.tryStartBridgeRopeClimb(entity, grapple)
   }
 
   detachTetherTarget(targetEntityId: number): void {
@@ -322,13 +428,30 @@ export class GrappleSystem extends System {
         }
       }
     })
+    this.ropeClimbRuntimeByEntityId.forEach((runtime) => {
+      if (
+        runtime.active &&
+        this.isJointId(runtime.jointId) &&
+        this.box2d.b2Joint_IsValid(runtime.jointId)
+      ) {
+        this.box2d.b2DistanceJoint_SetSpringHertz(
+          runtime.jointId,
+          this.ropeHertz
+        )
+        this.box2d.b2DistanceJoint_SetSpringDampingRatio(
+          runtime.jointId,
+          this.ropeDampingRatio
+        )
+      }
+    })
     for (let i = 0; i < this.bridgeRopes.length; i++) {
       const runtime = this.bridgeRopes[i]
       if (!runtime.active) continue
+      const linearDamping = this.getBridgeRopeLinearDamping(runtime)
       for (let j = 0; j < runtime.segmentBodies.length; j++) {
         const bodyId = runtime.segmentBodies[j]
         if (this.isBodyId(bodyId) && this.box2d.b2Body_IsValid(bodyId)) {
-          this.box2d.b2Body_SetLinearDamping(bodyId, this.ropeLinearDamping)
+          this.box2d.b2Body_SetLinearDamping(bodyId, linearDamping)
         }
       }
     }
@@ -364,16 +487,70 @@ export class GrappleSystem extends System {
     for (let i = 0; i < this.bridgeRopes.length; i++) {
       const runtime = this.bridgeRopes[i]
       if (!runtime.active) continue
+      const hertz = this.getBridgeRopeHertz(runtime)
+      const dampingRatio = this.getBridgeRopeDampingRatio(runtime)
       for (let j = 0; j < runtime.segmentJoints.length; j++) {
         const jointId = runtime.segmentJoints[j]
         if (this.isJointId(jointId) && this.box2d.b2Joint_IsValid(jointId)) {
-          this.box2d.b2DistanceJoint_SetSpringHertz(jointId, this.ropeHertz)
+          this.box2d.b2DistanceJoint_SetSpringHertz(jointId, hertz)
           this.box2d.b2DistanceJoint_SetSpringDampingRatio(
             jointId,
-            this.ropeDampingRatio
+            dampingRatio
           )
         }
       }
+    }
+  }
+
+  private getBridgeRopeLinearDamping(runtime: RopeBridgeRuntime): number {
+    return runtime.climbTuningActive
+      ? this.ropeClimbLinearDamping
+      : this.ropeLinearDamping
+  }
+
+  private getBridgeRopeHertz(runtime: RopeBridgeRuntime): number {
+    return runtime.climbTuningActive ? this.ropeClimbHertz : this.ropeHertz
+  }
+
+  private getBridgeRopeDampingRatio(runtime: RopeBridgeRuntime): number {
+    return runtime.climbTuningActive
+      ? this.ropeClimbDampingRatio
+      : this.ropeDampingRatio
+  }
+
+  private setBridgeRopeClimbTuning(
+    runtime: RopeBridgeRuntime,
+    active: boolean
+  ): void {
+    if (runtime.climbTuningActive === active) {
+      return
+    }
+
+    runtime.climbTuningActive = active
+    this.updateBridgeRopeSegmentDamping(runtime)
+    this.updateBridgeRopeJointTuning(runtime)
+  }
+
+  private updateBridgeRopeSegmentDamping(runtime: RopeBridgeRuntime): void {
+    const linearDamping = this.getBridgeRopeLinearDamping(runtime)
+    for (let i = 0; i < runtime.segmentBodies.length; i++) {
+      const bodyId = runtime.segmentBodies[i]
+      if (this.isBodyId(bodyId) && this.box2d.b2Body_IsValid(bodyId)) {
+        this.box2d.b2Body_SetLinearDamping(bodyId, linearDamping)
+      }
+    }
+  }
+
+  private updateBridgeRopeJointTuning(runtime: RopeBridgeRuntime): void {
+    const hertz = this.getBridgeRopeHertz(runtime)
+    const dampingRatio = this.getBridgeRopeDampingRatio(runtime)
+    for (let i = 0; i < runtime.segmentJoints.length; i++) {
+      const jointId = runtime.segmentJoints[i]
+      if (!this.isJointId(jointId) || !this.box2d.b2Joint_IsValid(jointId)) {
+        continue
+      }
+      this.box2d.b2DistanceJoint_SetSpringHertz(jointId, hertz)
+      this.box2d.b2DistanceJoint_SetSpringDampingRatio(jointId, dampingRatio)
     }
   }
 
@@ -413,6 +590,9 @@ export class GrappleSystem extends System {
         ) !== null
 
       if (!grapple.hasGrapple) {
+        if (grapple.isRopeClimbing) {
+          this.stopRopeClimb(entity, grapple, false)
+        }
         if (grapple.isTethering) {
           this.destroyAnchorTether(entity, grapple)
         }
@@ -425,14 +605,27 @@ export class GrappleSystem extends System {
       }
 
       if (entity.stats?.isDead) {
-        this.stopPull(entity, grapple, false)
+        if (grapple.isRopeClimbing) {
+          this.stopRopeClimb(entity, grapple, true)
+        } else {
+          this.stopPull(entity, grapple, false)
+        }
         entity.input.grappleLengthAdjustSteps = 0
         continue
       }
 
       if (entity.isStunned()) {
-        this.stopPull(entity, grapple, false)
+        if (grapple.isRopeClimbing) {
+          this.stopRopeClimb(entity, grapple, true)
+        } else {
+          this.stopPull(entity, grapple, false)
+        }
         entity.input.grappleLengthAdjustSteps = 0
+        continue
+      }
+
+      if (grapple.isRopeClimbing) {
+        this.updateRopeClimb(entity, grapple, deltaMs)
         continue
       }
 
@@ -663,6 +856,11 @@ export class GrappleSystem extends System {
     if (!runtime || !runtime.active) {
       return pointCount
     }
+    const climbRuntime = this.ropeClimbRuntimeByEntityId.get(entity.id)
+    const isPlayerRopeClimbing =
+      grapple.isRopeClimbing &&
+      climbRuntime?.active === true &&
+      climbRuntime.sourceType === this.ropeClimbSourcePlayer
 
     if (pointCount > 0) {
       if (pointCount >= maxPoints) return pointCount
@@ -677,8 +875,17 @@ export class GrappleSystem extends System {
     pointCount += 1
     outOffset += 2
 
-    const visibleCount = runtime.attachIndex + 1
-    for (let i = 0; i < visibleCount && pointCount < maxPoints - 1; i++) {
+    const visibleCount = isPlayerRopeClimbing
+      ? climbRuntime.maxNodeIndex
+      : runtime.attachIndex + 1
+    const reservedEndPointCount = isPlayerRopeClimbing
+      ? maxPoints
+      : maxPoints - 1
+    for (
+      let i = 0;
+      i < visibleCount && pointCount < reservedEndPointCount;
+      i++
+    ) {
       const bodyId = runtime.segmentBodies[i]
       if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
         continue
@@ -697,7 +904,7 @@ export class GrappleSystem extends System {
       pos.delete()
     }
 
-    if (entity.transform && pointCount < maxPoints) {
+    if (!isPlayerRopeClimbing && entity.transform && pointCount < maxPoints) {
       targetBuffer[outOffset] = entity.transform.x
       targetBuffer[outOffset + 1] = entity.transform.y
       pointCount += 1
@@ -1033,6 +1240,10 @@ export class GrappleSystem extends System {
     grapple: NonNullable<Entity['grapple']>,
     allowImmediateRetry: boolean
   ): void {
+    if (grapple.isRopeClimbing) {
+      this.stopRopeClimb(entity, grapple, false)
+    }
+
     if (grapple.isTethering) {
       this.destroyAnchorTether(entity, grapple)
     }
@@ -1354,6 +1565,894 @@ export class GrappleSystem extends System {
     }
     this.ropeRuntimeByEntityId.set(entityId, runtime)
     return runtime
+  }
+
+  private getOrCreateRopeClimbRuntime(entityId: number): RopeClimbRuntime {
+    const existing = this.ropeClimbRuntimeByEntityId.get(entityId)
+    if (existing) {
+      return existing
+    }
+    const runtime: RopeClimbRuntime = {
+      active: false,
+      sourceType: this.ropeClimbSourceNone,
+      ownerEntityId: -1,
+      bridgeRuntime: null,
+      bridgeHitId: 0,
+      nodeIndex: 0,
+      maxNodeIndex: 0,
+      pathDistance: 0,
+      normalOffset: 0,
+      jointLength: this.ropeClimbMinJointLength,
+      travelRemainder: 0,
+      lastMoveStep: 0,
+      jointId: null,
+    }
+    this.ropeClimbRuntimeByEntityId.set(entityId, runtime)
+    return runtime
+  }
+
+  private tryStartPlayerRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>
+  ): boolean {
+    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
+    if (
+      !entity.transform ||
+      !runtime?.active ||
+      !grapple.isPulling ||
+      !grapple.isTethering ||
+      runtime.anchorIsDynamicTarget
+    ) {
+      return false
+    }
+
+    const maxNodeIndex = Math.max(
+      0,
+      Math.min(runtime.attachIndex + 1, runtime.segmentBodies.length)
+    )
+    const nodeIndex = this.findNearestPlayerRopeNode(
+      runtime,
+      entity.transform.x,
+      entity.transform.y,
+      maxNodeIndex,
+      Number.POSITIVE_INFINITY
+    )
+    if (nodeIndex < 0) {
+      return false
+    }
+
+    this.destroyJointIfValid(runtime.playerJointId)
+    runtime.playerJointId = null
+
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const jointLength = Math.max(
+      this.ropeClimbMinJointLength,
+      Math.min(radius, runtime.jointMaxLen)
+    )
+    return this.startRopeClimb(
+      entity,
+      grapple,
+      this.ropeClimbSourcePlayer,
+      entity.id,
+      null,
+      nodeIndex,
+      maxNodeIndex,
+      jointLength
+    )
+  }
+
+  private tryStartBridgeRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>
+  ): boolean {
+    if (!entity.transform || grapple.isPulling || grapple.isTethering) {
+      return false
+    }
+
+    this.findNearestBridgeRopePoint(
+      entity.transform.x,
+      entity.transform.y,
+      entity.render?.renderLayer ?? 0
+    )
+    const bridgeRuntime = this.climbCandidateBridgeRuntime
+    if (!bridgeRuntime || this.climbCandidateNodeIndex < 0) {
+      return false
+    }
+
+    const maxNodeIndex = bridgeRuntime.segmentBodies.length + 1
+    return this.startRopeClimb(
+      entity,
+      grapple,
+      this.ropeClimbSourceBridge,
+      -1,
+      bridgeRuntime,
+      this.climbCandidateNodeIndex,
+      maxNodeIndex,
+      entity.render?.radius ?? DEFAULT_PLAYER_RADIUS,
+      this.climbCandidatePathDistance,
+      this.climbCandidateNormalOffset
+    )
+  }
+
+  private startRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    sourceType: number,
+    ownerEntityId: number,
+    bridgeRuntime: RopeBridgeRuntime | null,
+    nodeIndex: number,
+    maxNodeIndex: number,
+    jointLength: number,
+    pathDistance = 0,
+    normalOffset = 0
+  ): boolean {
+    const climbRuntime = this.getOrCreateRopeClimbRuntime(entity.id)
+    this.destroyRopeClimbJoint(climbRuntime)
+
+    climbRuntime.active = true
+    climbRuntime.sourceType = sourceType
+    climbRuntime.ownerEntityId = ownerEntityId
+    climbRuntime.bridgeRuntime = bridgeRuntime
+    climbRuntime.bridgeHitId = bridgeRuntime?.hitId ?? 0
+    climbRuntime.nodeIndex = Math.max(0, Math.min(nodeIndex, maxNodeIndex))
+    climbRuntime.maxNodeIndex = Math.max(0, maxNodeIndex)
+    climbRuntime.pathDistance = pathDistance
+    const normalLimit = Math.max(jointLength, this.ropeClimbMinJointLength)
+    climbRuntime.normalOffset =
+      normalOffset < -normalLimit
+        ? -normalLimit
+        : normalOffset > normalLimit
+          ? normalLimit
+          : normalOffset
+    climbRuntime.jointLength = Math.max(
+      this.ropeClimbMinJointLength,
+      jointLength
+    )
+    climbRuntime.travelRemainder = 0
+    climbRuntime.lastMoveStep = 0
+
+    if (sourceType === this.ropeClimbSourceBridge) {
+      if (
+        !bridgeRuntime ||
+        !this.resolveBridgeRopePoint(bridgeRuntime, climbRuntime.pathDistance)
+      ) {
+        this.resetRopeClimbRuntime(climbRuntime)
+        return false
+      }
+      this.setBridgeRopeClimbTuning(bridgeRuntime, true)
+    } else {
+      if (!this.rebuildRopeClimbJoint(entity, climbRuntime)) {
+        this.resetRopeClimbRuntime(climbRuntime)
+        return false
+      }
+    }
+
+    grapple.isRopeClimbing = true
+    grapple.ropeClimbSource = sourceType
+    grapple.retainAirMomentum = false
+    grapple.moveLockEndTime = 0
+    if (sourceType === this.ropeClimbSourceBridge) {
+      grapple.isPulling = false
+      grapple.isTethering = false
+      grapple.pullMode = this.pullModeAnchor
+      grapple.targetEntityId = -1
+      grapple.desiredDistanceSq = 0
+    }
+    entity.input!.grappleLengthAdjustSteps = 0
+    return true
+  }
+
+  private updateRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    deltaMs: number
+  ): void {
+    if (!entity.input) {
+      this.stopRopeClimb(entity, grapple, true)
+      return
+    }
+
+    const climbRuntime = this.ropeClimbRuntimeByEntityId.get(entity.id)
+    if (!climbRuntime?.active) {
+      grapple.isRopeClimbing = false
+      grapple.ropeClimbSource = this.ropeClimbSourceNone
+      return
+    }
+
+    if (this.tryPerformRopeClimbJump(entity, grapple, climbRuntime)) {
+      return
+    }
+
+    entity.input.grappleLengthAdjustSteps = 0
+    if (climbRuntime.sourceType === this.ropeClimbSourcePlayer) {
+      this.updatePlayerRopeClimb(entity, grapple, climbRuntime, deltaMs)
+      return
+    }
+    if (climbRuntime.sourceType === this.ropeClimbSourceBridge) {
+      this.updateBridgeRopeClimb(entity, grapple, climbRuntime, deltaMs)
+      return
+    }
+
+    this.stopRopeClimb(entity, grapple, false)
+  }
+
+  private updatePlayerRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    climbRuntime: RopeClimbRuntime,
+    deltaMs: number
+  ): void {
+    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
+    if (
+      !runtime?.active ||
+      runtime.anchorIsDynamicTarget ||
+      !grapple.isPulling ||
+      !grapple.isTethering
+    ) {
+      this.stopRopeClimb(entity, grapple, true)
+      return
+    }
+
+    if (!this.syncTetherAnchorTarget(runtime, grapple)) {
+      this.stopRopeClimb(entity, grapple, true)
+      return
+    }
+
+    this.handleRopeNodeSwingInput(entity, climbRuntime, deltaMs)
+    if (
+      !this.advanceRopeClimb(entity, climbRuntime, runtime.linkLength, deltaMs)
+    ) {
+      this.stopRopeClimb(entity, grapple, true)
+    }
+  }
+
+  private updateBridgeRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    climbRuntime: RopeClimbRuntime,
+    deltaMs: number
+  ): void {
+    const bridgeRuntime = climbRuntime.bridgeRuntime
+    if (
+      !bridgeRuntime?.active ||
+      bridgeRuntime.hitId !== climbRuntime.bridgeHitId
+    ) {
+      this.stopRopeClimb(entity, grapple, false)
+      return
+    }
+
+    if (
+      !this.syncBridgeRopeClimbAttachment(
+        entity,
+        bridgeRuntime,
+        climbRuntime,
+        deltaMs
+      )
+    ) {
+      this.stopRopeClimb(entity, grapple, false)
+    }
+  }
+
+  private tryPerformRopeClimbJump(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    climbRuntime: RopeClimbRuntime
+  ): boolean {
+    if (!entity.input?.inputBuffer.hasActiveAction('jump')) {
+      return false
+    }
+
+    entity.input.inputBuffer.clearAction('jump')
+    entity.input.jumpRequested = false
+
+    if (climbRuntime.sourceType === this.ropeClimbSourceBridge) {
+      this.performBridgeRopeClimbJump(entity, climbRuntime)
+      this.stopRopeClimb(entity, grapple, false)
+      return true
+    }
+
+    this.stopRopeClimb(entity, grapple, true)
+    this.performRopeJump(entity, grapple)
+    return true
+  }
+
+  private performBridgeRopeClimbJump(
+    entity: Entity,
+    climbRuntime: RopeClimbRuntime
+  ): void {
+    if (!entity.physics || !entity.movement || !entity.transform) {
+      return
+    }
+
+    const runtime = climbRuntime.bridgeRuntime
+    if (
+      this.ropeClimbJumpRecoilScale > 0 &&
+      runtime?.active === true &&
+      runtime.hitId === climbRuntime.bridgeHitId &&
+      this.resolveBridgeRopePoint(runtime, climbRuntime.pathDistance)
+    ) {
+      const mass = this.box2d.b2Body_GetMass(entity.physics.bodyId)
+      const jumpDeltaY =
+        (-entity.movement.jumpForce * this.ropeJumpBaseUpwardScale) /
+        this.ropeJumpScale
+      this.applyBridgeRopePointImpulse(
+        runtime,
+        0,
+        -jumpDeltaY * mass * this.ropeClimbJumpRecoilScale
+      )
+    }
+
+    this.startRopeJumpMotion(entity)
+  }
+
+  private advanceRopeClimb(
+    entity: Entity,
+    climbRuntime: RopeClimbRuntime,
+    linkLength: number,
+    deltaMs: number
+  ): boolean {
+    const climbDir = entity.input?.grappleClimbHeld ?? 0
+    if (climbDir === 0 || !(linkLength > 0)) {
+      climbRuntime.travelRemainder = 0
+      climbRuntime.lastMoveStep = 0
+      return true
+    }
+
+    const moveStep = climbDir < 0 ? -1 : 1
+    if (moveStep !== climbRuntime.lastMoveStep) {
+      climbRuntime.travelRemainder = 0
+      climbRuntime.lastMoveStep = moveStep
+    }
+
+    climbRuntime.travelRemainder += (GRAPPLE_CLIMB_SPEED * deltaMs) / 1000
+    while (climbRuntime.travelRemainder >= linkLength) {
+      const nextNodeIndex = climbRuntime.nodeIndex + moveStep
+      if (nextNodeIndex < 0 || nextNodeIndex > climbRuntime.maxNodeIndex) {
+        climbRuntime.travelRemainder = 0
+        return true
+      }
+      climbRuntime.nodeIndex = nextNodeIndex
+      climbRuntime.travelRemainder -= linkLength
+      if (climbRuntime.sourceType === this.ropeClimbSourceBridge) {
+        if (!this.isRopeClimbNodeValid(climbRuntime)) {
+          return false
+        }
+      } else {
+        if (!this.rebuildRopeClimbJoint(entity, climbRuntime)) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  private stopRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    destroyOwnedRope: boolean
+  ): void {
+    const climbRuntime = this.ropeClimbRuntimeByEntityId.get(entity.id)
+    const sourceType =
+      climbRuntime?.active === true
+        ? climbRuntime.sourceType
+        : grapple.ropeClimbSource
+    const bridgeRuntime =
+      climbRuntime?.active === true &&
+      climbRuntime.sourceType === this.ropeClimbSourceBridge
+        ? climbRuntime.bridgeRuntime
+        : null
+
+    if (climbRuntime) {
+      this.destroyRopeClimbJoint(climbRuntime)
+      this.resetRopeClimbRuntime(climbRuntime)
+    }
+
+    grapple.isRopeClimbing = false
+    grapple.ropeClimbSource = this.ropeClimbSourceNone
+    if (sourceType === this.ropeClimbSourceBridge) {
+      grapple.retainAirMomentum = true
+      if (
+        bridgeRuntime?.active === true &&
+        !this.hasActiveBridgeRopeClimber(bridgeRuntime)
+      ) {
+        this.setBridgeRopeClimbTuning(bridgeRuntime, false)
+      }
+    }
+
+    if (
+      destroyOwnedRope &&
+      sourceType === this.ropeClimbSourcePlayer &&
+      grapple.isTethering
+    ) {
+      this.stopPull(entity, grapple, false)
+    }
+  }
+
+  private resetRopeClimbRuntime(runtime: RopeClimbRuntime): void {
+    runtime.active = false
+    runtime.sourceType = this.ropeClimbSourceNone
+    runtime.ownerEntityId = -1
+    runtime.bridgeRuntime = null
+    runtime.bridgeHitId = 0
+    runtime.nodeIndex = 0
+    runtime.maxNodeIndex = 0
+    runtime.pathDistance = 0
+    runtime.normalOffset = 0
+    runtime.jointLength = this.ropeClimbMinJointLength
+    runtime.travelRemainder = 0
+    runtime.lastMoveStep = 0
+    runtime.jointId = null
+  }
+
+  private destroyRopeClimbJoint(runtime: RopeClimbRuntime): void {
+    this.destroyJointIfValid(runtime.jointId)
+    runtime.jointId = null
+  }
+
+  private rebuildRopeClimbJoint(
+    entity: Entity,
+    climbRuntime: RopeClimbRuntime
+  ): boolean {
+    if (!entity.physics) {
+      return false
+    }
+
+    const nodeBodyId = this.getRopeClimbNodeBody(climbRuntime)
+    if (!this.isBodyId(nodeBodyId) || !this.box2d.b2Body_IsValid(nodeBodyId)) {
+      return false
+    }
+
+    this.destroyRopeClimbJoint(climbRuntime)
+    climbRuntime.jointId = this.createFixedDistanceJoint(
+      nodeBodyId,
+      entity.physics.bodyId,
+      climbRuntime.jointLength
+    )
+    return true
+  }
+
+  private isRopeClimbNodeValid(climbRuntime: RopeClimbRuntime): boolean {
+    const nodeBodyId = this.getRopeClimbNodeBody(climbRuntime)
+    return this.isBodyId(nodeBodyId) && this.box2d.b2Body_IsValid(nodeBodyId)
+  }
+
+  private syncBridgeRopeClimbAttachment(
+    entity: Entity,
+    runtime: RopeBridgeRuntime,
+    climbRuntime: RopeClimbRuntime,
+    deltaMs: number
+  ): boolean {
+    if (!entity.input || !entity.physics || !entity.transform) {
+      return false
+    }
+
+    if (!this.resolveBridgeRopePoint(runtime, climbRuntime.pathDistance)) {
+      return false
+    }
+    if (climbRuntime.pathDistance > this.climbPathLength) {
+      climbRuntime.pathDistance = this.climbPathLength
+    }
+
+    const deltaSec = deltaMs / 1000
+    const inputX = entity.input.moveDirection
+    const inputY = entity.input.grappleClimbHeld
+    const inputScale = inputX !== 0 && inputY !== 0 ? Math.SQRT1_2 : 1
+    const dirX = inputX * inputScale
+    const dirY = inputY * inputScale
+
+    if (inputX !== 0) {
+      entity.input.lastMoveDirection = inputX
+    }
+
+    if (dirX !== 0 || dirY !== 0) {
+      const alongInput = dirX * this.climbTangentX + dirY * this.climbTangentY
+      const normalInput = dirX * this.climbNormalX + dirY * this.climbNormalY
+      climbRuntime.pathDistance += alongInput * GRAPPLE_CLIMB_SPEED * deltaSec
+      if (climbRuntime.pathDistance < 0) {
+        climbRuntime.pathDistance = 0
+      } else if (climbRuntime.pathDistance > this.climbPathLength) {
+        climbRuntime.pathDistance = this.climbPathLength
+      }
+
+      const normalLimit = Math.max(
+        entity.render?.radius ?? DEFAULT_PLAYER_RADIUS,
+        this.ropeClimbMinJointLength
+      )
+      climbRuntime.normalOffset += normalInput * GRAPPLE_CLIMB_SPEED * deltaSec
+      if (climbRuntime.normalOffset < -normalLimit) {
+        climbRuntime.normalOffset = -normalLimit
+      } else if (climbRuntime.normalOffset > normalLimit) {
+        climbRuntime.normalOffset = normalLimit
+      }
+    }
+
+    if (!this.resolveBridgeRopePoint(runtime, climbRuntime.pathDistance)) {
+      return false
+    }
+
+    this.applyBridgeRopeClimbWeight(entity, runtime)
+
+    const targetX =
+      this.climbAttachX + this.climbNormalX * climbRuntime.normalOffset
+    const targetY =
+      this.climbAttachY + this.climbNormalY * climbRuntime.normalOffset
+    const invDelta = deltaMs > 0 ? 1000 / deltaMs : 0
+
+    this.tempVec.x = (targetX - entity.transform.x) * invDelta
+    this.tempVec.y = (targetY - entity.transform.y) * invDelta
+    this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+    return true
+  }
+
+  private applyBridgeRopeClimbWeight(
+    entity: Entity,
+    runtime: RopeBridgeRuntime
+  ): void {
+    if (!entity.physics) {
+      return
+    }
+
+    const mass = this.box2d.b2Body_GetMass(entity.physics.bodyId)
+    if (!(mass > 0)) {
+      return
+    }
+
+    this.applyBridgeRopePointForce(
+      runtime,
+      0,
+      mass * DEFAULT_GRAVITY * this.ropeClimbWeightForceScale
+    )
+  }
+
+  private hasActiveBridgeRopeClimber(runtime: RopeBridgeRuntime): boolean {
+    for (const climbRuntime of this.ropeClimbRuntimeByEntityId.values()) {
+      if (
+        climbRuntime.active &&
+        climbRuntime.sourceType === this.ropeClimbSourceBridge &&
+        climbRuntime.bridgeRuntime === runtime
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private applyBridgeRopePointForce(
+    runtime: RopeBridgeRuntime,
+    forceX: number,
+    forceY: number
+  ): void {
+    const startWeight = 1 - this.climbSegmentRatio
+    const endWeight = this.climbSegmentRatio
+    this.applyBridgeRopeNodeForce(
+      runtime,
+      this.climbSegmentStartNodeIndex,
+      forceX * startWeight,
+      forceY * startWeight
+    )
+    this.applyBridgeRopeNodeForce(
+      runtime,
+      this.climbSegmentStartNodeIndex + 1,
+      forceX * endWeight,
+      forceY * endWeight
+    )
+  }
+
+  private applyBridgeRopePointImpulse(
+    runtime: RopeBridgeRuntime,
+    impulseX: number,
+    impulseY: number
+  ): void {
+    const startWeight = 1 - this.climbSegmentRatio
+    const endWeight = this.climbSegmentRatio
+    this.applyBridgeRopeNodeImpulse(
+      runtime,
+      this.climbSegmentStartNodeIndex,
+      impulseX * startWeight,
+      impulseY * startWeight
+    )
+    this.applyBridgeRopeNodeImpulse(
+      runtime,
+      this.climbSegmentStartNodeIndex + 1,
+      impulseX * endWeight,
+      impulseY * endWeight
+    )
+  }
+
+  private applyBridgeRopeNodeForce(
+    runtime: RopeBridgeRuntime,
+    nodeIndex: number,
+    forceX: number,
+    forceY: number
+  ): void {
+    if (forceX === 0 && forceY === 0) {
+      return
+    }
+
+    const bodyId = this.getBridgeRopeDynamicNodeBody(runtime, nodeIndex)
+    if (!bodyId) {
+      return
+    }
+
+    this.tempVec.x = forceX
+    this.tempVec.y = forceY
+    this.box2d.b2Body_ApplyForceToCenter(bodyId, this.tempVec, true)
+  }
+
+  private applyBridgeRopeNodeImpulse(
+    runtime: RopeBridgeRuntime,
+    nodeIndex: number,
+    impulseX: number,
+    impulseY: number
+  ): void {
+    if (impulseX === 0 && impulseY === 0) {
+      return
+    }
+
+    const bodyId = this.getBridgeRopeDynamicNodeBody(runtime, nodeIndex)
+    if (!bodyId) {
+      return
+    }
+
+    this.tempVec.x = impulseX
+    this.tempVec.y = impulseY
+    this.box2d.b2Body_ApplyLinearImpulseToCenter(bodyId, this.tempVec, true)
+  }
+
+  private getBridgeRopeDynamicNodeBody(
+    runtime: RopeBridgeRuntime,
+    nodeIndex: number
+  ): b2BodyId | null {
+    if (runtime.segmentBodies.length <= 0) {
+      return null
+    }
+
+    let segmentIndex = nodeIndex - 1
+    if (segmentIndex < 0) {
+      segmentIndex = 0
+    } else if (segmentIndex >= runtime.segmentBodies.length) {
+      segmentIndex = runtime.segmentBodies.length - 1
+    }
+
+    const bodyId = runtime.segmentBodies[segmentIndex]
+    if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+      return null
+    }
+    return bodyId
+  }
+
+  private getRopeClimbNodeBody(
+    climbRuntime: RopeClimbRuntime
+  ): b2BodyId | null {
+    if (climbRuntime.sourceType === this.ropeClimbSourcePlayer) {
+      const runtime = this.ropeRuntimeByEntityId.get(climbRuntime.ownerEntityId)
+      if (!runtime?.active) {
+        return null
+      }
+      return this.getPlayerRopeNodeBody(runtime, climbRuntime.nodeIndex)
+    }
+    if (climbRuntime.sourceType === this.ropeClimbSourceBridge) {
+      const runtime = climbRuntime.bridgeRuntime
+      if (!runtime?.active || runtime.hitId !== climbRuntime.bridgeHitId) {
+        return null
+      }
+      return this.getBridgeRopeNodeBody(runtime, climbRuntime.nodeIndex)
+    }
+    return null
+  }
+
+  private getPlayerRopeNodeBody(
+    runtime: RopeRuntime,
+    nodeIndex: number
+  ): b2BodyId | null {
+    if (nodeIndex === 0) {
+      return runtime.anchorBodyId
+    }
+    const segmentIndex = nodeIndex - 1
+    if (segmentIndex < 0 || segmentIndex >= runtime.segmentBodies.length) {
+      return null
+    }
+    return runtime.segmentBodies[segmentIndex]
+  }
+
+  private getBridgeRopeNodeBody(
+    runtime: RopeBridgeRuntime,
+    nodeIndex: number
+  ): b2BodyId | null {
+    if (nodeIndex === 0) {
+      return runtime.bodyAId
+    }
+    const maxNodeIndex = runtime.segmentBodies.length + 1
+    if (nodeIndex === maxNodeIndex) {
+      return runtime.bodyBId
+    }
+    const segmentIndex = nodeIndex - 1
+    if (segmentIndex < 0 || segmentIndex >= runtime.segmentBodies.length) {
+      return null
+    }
+    return runtime.segmentBodies[segmentIndex]
+  }
+
+  private findNearestPlayerRopeNode(
+    runtime: RopeRuntime,
+    x: number,
+    y: number,
+    maxNodeIndex: number,
+    limitDistSq: number
+  ): number {
+    let nearestNodeIndex = -1
+    let nearestDistSq = limitDistSq
+    for (let nodeIndex = 0; nodeIndex <= maxNodeIndex; nodeIndex++) {
+      const bodyId = this.getPlayerRopeNodeBody(runtime, nodeIndex)
+      if (!this.readBodyPosition(bodyId, this.climbPointA)) {
+        continue
+      }
+      const dx = this.climbPointA.x - x
+      const dy = this.climbPointA.y - y
+      const distSq = dx * dx + dy * dy
+      if (distSq <= nearestDistSq) {
+        nearestDistSq = distSq
+        nearestNodeIndex = nodeIndex
+      }
+    }
+    return nearestNodeIndex
+  }
+
+  private resolveBridgeRopePoint(
+    runtime: RopeBridgeRuntime,
+    pathDistance: number
+  ): boolean {
+    const maxNodeIndex = runtime.segmentBodies.length + 1
+    if (!this.readBodyPosition(runtime.bodyAId, this.climbPointA)) {
+      return false
+    }
+
+    let targetDistance = pathDistance
+    if (targetDistance < 0) {
+      targetDistance = 0
+    }
+
+    let accumulated = 0
+    let resolved = false
+    let lastTangentX = 0
+    let lastTangentY = 1
+    let lastPointX = this.climbPointA.x
+    let lastPointY = this.climbPointA.y
+
+    for (let nodeIndex = 1; nodeIndex <= maxNodeIndex; nodeIndex++) {
+      const bodyId = this.getBridgeRopeNodeBody(runtime, nodeIndex)
+      if (!this.readBodyPosition(bodyId, this.climbPointB)) {
+        continue
+      }
+
+      const dx = this.climbPointB.x - this.climbPointA.x
+      const dy = this.climbPointB.y - this.climbPointA.y
+      const lenSq = dx * dx + dy * dy
+      if (lenSq > 0.0001) {
+        const len = Math.sqrt(lenSq)
+        const nextDistance = accumulated + len
+        const tangentX = dx / len
+        const tangentY = dy / len
+
+        if (!resolved && targetDistance <= nextDistance) {
+          const t = (targetDistance - accumulated) / len
+          this.climbAttachX = this.climbPointA.x + dx * t
+          this.climbAttachY = this.climbPointA.y + dy * t
+          this.climbTangentX = tangentX
+          this.climbTangentY = tangentY
+          this.climbNormalX = -tangentY
+          this.climbNormalY = tangentX
+          this.climbSegmentStartNodeIndex = nodeIndex - 1
+          this.climbSegmentRatio = t
+          resolved = true
+        }
+
+        accumulated = nextDistance
+        lastTangentX = tangentX
+        lastTangentY = tangentY
+        lastPointX = this.climbPointB.x
+        lastPointY = this.climbPointB.y
+      }
+
+      this.climbPointA.x = this.climbPointB.x
+      this.climbPointA.y = this.climbPointB.y
+    }
+
+    this.climbPathLength = accumulated
+    if (!(accumulated > 0)) {
+      return false
+    }
+
+    if (!resolved) {
+      this.climbAttachX = lastPointX
+      this.climbAttachY = lastPointY
+      this.climbTangentX = lastTangentX
+      this.climbTangentY = lastTangentY
+      this.climbNormalX = -lastTangentY
+      this.climbNormalY = lastTangentX
+      this.climbSegmentStartNodeIndex = Math.max(0, maxNodeIndex - 1)
+      this.climbSegmentRatio = 1
+    }
+
+    return true
+  }
+
+  private findNearestBridgeRopePoint(
+    x: number,
+    y: number,
+    renderLayer: number
+  ): void {
+    this.climbCandidateBridgeRuntime = null
+    this.climbCandidateNodeIndex = -1
+    this.climbCandidateDistSq = this.ropeClimbInteractRadiusSq
+    this.climbCandidatePathDistance = 0
+    this.climbCandidateNormalOffset = 0
+
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (!runtime.active || runtime.renderLayer !== renderLayer) {
+        continue
+      }
+      const maxNodeIndex = runtime.segmentBodies.length + 1
+      if (!this.readBodyPosition(runtime.bodyAId, this.climbPointA)) {
+        continue
+      }
+
+      let accumulated = 0
+      for (let nodeIndex = 1; nodeIndex <= maxNodeIndex; nodeIndex++) {
+        const bodyId = this.getBridgeRopeNodeBody(runtime, nodeIndex)
+        if (!this.readBodyPosition(bodyId, this.climbPointB)) {
+          continue
+        }
+
+        const segDx = this.climbPointB.x - this.climbPointA.x
+        const segDy = this.climbPointB.y - this.climbPointA.y
+        const lenSq = segDx * segDx + segDy * segDy
+        if (lenSq > 0.0001) {
+          const len = Math.sqrt(lenSq)
+          const rawT =
+            ((x - this.climbPointA.x) * segDx +
+              (y - this.climbPointA.y) * segDy) /
+            lenSq
+          const t = rawT < 0 ? 0 : rawT > 1 ? 1 : rawT
+          const pointX = this.climbPointA.x + segDx * t
+          const pointY = this.climbPointA.y + segDy * t
+          const dx = pointX - x
+          const dy = pointY - y
+          const distSq = dx * dx + dy * dy
+          if (distSq <= this.climbCandidateDistSq) {
+            const tangentX = segDx / len
+            const tangentY = segDy / len
+            const normalX = -tangentY
+            const normalY = tangentX
+            this.climbCandidateDistSq = distSq
+            this.climbCandidateBridgeRuntime = runtime
+            this.climbCandidateNodeIndex = nodeIndex - 1
+            this.climbCandidatePathDistance = accumulated + len * t
+            this.climbCandidateNormalOffset =
+              (x - pointX) * normalX + (y - pointY) * normalY
+          }
+          accumulated += len
+        }
+
+        this.climbPointA.x = this.climbPointB.x
+        this.climbPointA.y = this.climbPointB.y
+      }
+    }
+  }
+
+  private readBodyPosition(
+    bodyId: b2BodyId | null,
+    out: { x: number; y: number }
+  ): boolean {
+    if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+      return false
+    }
+    const pos = this.box2d.b2Body_GetPosition(bodyId)
+    out.x = pos.x
+    out.y = pos.y
+    pos.delete()
+    return true
   }
 
   private startAnchorTether(
@@ -2071,6 +3170,10 @@ export class GrappleSystem extends System {
     entity: Entity,
     grapple: NonNullable<Entity['grapple']>
   ): void {
+    if (grapple.isRopeClimbing) {
+      this.stopRopeClimb(entity, grapple, false)
+    }
+
     const runtime = this.ropeRuntimeByEntityId.get(entity.id)
     if (!runtime || !runtime.active) {
       grapple.isTethering = false
@@ -2234,6 +3337,7 @@ export class GrappleSystem extends System {
 
     const runtime = this.acquireBridgeRope()
     runtime.active = false
+    runtime.climbTuningActive = false
     runtime.endpointAEntityId = endpointA.entityId
     runtime.endpointBEntityId = endpointB.entityId
     runtime.bodyAId = this.createKinematicAnchorBody(endpointA.x, endpointA.y)
@@ -2419,6 +3523,7 @@ export class GrappleSystem extends System {
       segmentBodies: [],
       segmentJoints: [],
       segmentFilterJoints: [],
+      climbTuningActive: false,
     }
     this.bridgeRopes.push(runtime)
     return runtime
@@ -2639,6 +3744,8 @@ export class GrappleSystem extends System {
       return
     }
 
+    this.stopRopeClimbersForBridge(runtime)
+
     for (let i = 0; i < runtime.segmentJoints.length; i++) {
       this.destroyJointIfValid(runtime.segmentJoints[i])
     }
@@ -2684,9 +3791,32 @@ export class GrappleSystem extends System {
     runtime.segmentCount = 0
     runtime.linkLength = DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH
     runtime.maxRopeLength = 0
+    runtime.climbTuningActive = false
     runtime.hitId = 0
     runtime.health = 0
     this.resetRopeHitShake(runtime)
+  }
+
+  private stopRopeClimbersForBridge(runtime: RopeBridgeRuntime): void {
+    this.ropeClimbRuntimeByEntityId.forEach((climbRuntime, entityId) => {
+      if (
+        !climbRuntime.active ||
+        climbRuntime.sourceType !== this.ropeClimbSourceBridge ||
+        climbRuntime.bridgeRuntime !== runtime
+      ) {
+        return
+      }
+
+      const entity = this.getEntityById(entityId)
+      const grapple = entity?.grapple
+      if (entity && grapple) {
+        this.stopRopeClimb(entity, grapple, false)
+        return
+      }
+
+      this.destroyRopeClimbJoint(climbRuntime)
+      this.resetRopeClimbRuntime(climbRuntime)
+    })
   }
 
   hitRopesInOBB(request: RopeHitRequest): boolean {
@@ -2740,7 +3870,10 @@ export class GrappleSystem extends System {
       return false
     }
 
-    const visibleSegmentCount = runtime.attachIndex + 1
+    const visibleSegmentCount = this.getVisiblePlayerRopeSegmentCount(
+      ownerEntityId,
+      runtime
+    )
     if (
       !this.findHitRopeSegmentInOBB(
         runtime.segmentBodies,
@@ -2816,7 +3949,10 @@ export class GrappleSystem extends System {
       return false
     }
 
-    const visibleSegmentCount = runtime.attachIndex + 1
+    const visibleSegmentCount = this.getVisiblePlayerRopeSegmentCount(
+      ownerEntityId,
+      runtime
+    )
     if (
       !this.findHitRopeSegmentInCircle(
         runtime.segmentBodies,
@@ -3219,6 +4355,20 @@ export class GrappleSystem extends System {
     return attachedSegments * runtime.linkLength + runtime.jointMaxLen
   }
 
+  private getVisiblePlayerRopeSegmentCount(
+    ownerEntityId: number,
+    runtime: RopeRuntime
+  ): number {
+    const climbRuntime = this.ropeClimbRuntimeByEntityId.get(ownerEntityId)
+    if (
+      climbRuntime?.active === true &&
+      climbRuntime.sourceType === this.ropeClimbSourcePlayer
+    ) {
+      return Math.min(climbRuntime.maxNodeIndex, runtime.segmentBodies.length)
+    }
+    return runtime.attachIndex + 1
+  }
+
   private isPlayerTetherOverStretchLimit(
     entity: Entity,
     grapple: NonNullable<Entity['grapple']>,
@@ -3311,6 +4461,56 @@ export class GrappleSystem extends System {
     grapple.velocityX = this.tempVec.x
     grapple.velocityY = this.tempVec.y
     this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+    this.beginRopeJumpState(entity)
+  }
+
+  private startRopeJumpMotion(entity: Entity): void {
+    if (!entity.physics || !entity.movement) {
+      return
+    }
+
+    const currentVel = this.box2d.b2Body_GetLinearVelocity(
+      entity.physics.bodyId
+    )
+    const currentVx = currentVel.x
+    const currentVy = currentVel.y
+    currentVel.delete()
+
+    const jumpDeltaY =
+      (-entity.movement.jumpForce * this.ropeJumpBaseUpwardScale) /
+      this.ropeJumpScale
+
+    this.tempVec.x = currentVx
+    this.tempVec.y = currentVy + jumpDeltaY
+
+    const maxReleaseSpeed =
+      (Math.max(entity.movement.jumpForce, entity.movement.moveSpeed * 4) *
+        this.ropeJumpMaxSpeedScale) /
+      this.ropeJumpScale
+    const releaseSpeedSq =
+      this.tempVec.x * this.tempVec.x + this.tempVec.y * this.tempVec.y
+    const maxReleaseSpeedSq = maxReleaseSpeed * maxReleaseSpeed
+    if (releaseSpeedSq > maxReleaseSpeedSq && releaseSpeedSq > 0) {
+      const speedScale = maxReleaseSpeed / Math.sqrt(releaseSpeedSq)
+      this.tempVec.x *= speedScale
+      this.tempVec.y *= speedScale
+    }
+
+    this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+    this.beginRopeJumpState(entity)
+  }
+
+  private beginRopeJumpState(entity: Entity): void {
+    if (!entity.movement) {
+      return
+    }
+
+    entity.movement.isJumping = true
+    entity.movement.jumpStartTime = this.currentTimeMs
+    entity.movement.jumpElapsedTime = 0
+    entity.movement.maxFallVelocity = 0
+    entity.movement.fallStartY = 0
+    entity.movement.isGrounded = false
   }
 
   private applyTetherSwingImpulse(
@@ -3349,6 +4549,83 @@ export class GrappleSystem extends System {
     this.tempVec.x = currentVx + addVx
     this.tempVec.y = currentVy + addVy
     this.box2d.b2Body_SetLinearVelocity(entity.physics.bodyId, this.tempVec)
+  }
+
+  private handleRopeNodeSwingInput(
+    entity: Entity,
+    climbRuntime: RopeClimbRuntime,
+    deltaMs: number
+  ): void {
+    if (
+      !entity.physics ||
+      !entity.transform ||
+      !entity.input ||
+      !entity.movement
+    ) {
+      return
+    }
+
+    if (entity.movement.isGrounded) {
+      return
+    }
+
+    const moveDir = entity.input.moveDirection
+    if (moveDir === 0) {
+      return
+    }
+
+    const nodeBodyId = this.getRopeClimbNodeBody(climbRuntime)
+    if (!this.readBodyPosition(nodeBodyId, this.climbPointA)) {
+      return
+    }
+
+    entity.input.lastMoveDirection = moveDir
+
+    const currentVel = this.box2d.b2Body_GetLinearVelocity(
+      entity.physics.bodyId
+    )
+    const currentVx = currentVel.x
+    const currentVy = currentVel.y
+    currentVel.delete()
+
+    const dx = this.climbPointA.x - entity.transform.x
+    const dy = this.climbPointA.y - entity.transform.y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+
+    let tangentX = 1
+    let tangentY = 0
+    let swingDir = moveDir
+    let useAssistForce = true
+
+    if (dist >= 0.1) {
+      const ropeX = dx / dist
+      const ropeY = dy / dist
+      tangentX = -ropeY
+      tangentY = ropeX
+
+      const tangentVel = currentVx * tangentX + currentVy * tangentY
+      if (Math.abs(tangentVel) >= 0.1) {
+        swingDir = tangentVel > 0 ? 1 : -1
+        const horizontalSwingDir = tangentX * swingDir > 0 ? 1 : -1
+        useAssistForce = moveDir === horizontalSwingDir
+      } else if (tangentX < 0) {
+        swingDir = -moveDir
+      }
+    }
+
+    const mass = this.box2d.b2Body_GetMass(entity.physics.bodyId)
+    const forceScale = useAssistForce
+      ? this.swingForce
+      : -this.swingForce * 0.67
+    const deltaTime = deltaMs / 1000
+
+    this.tempVec.x = tangentX * swingDir * forceScale * mass * deltaTime
+    this.tempVec.y = tangentY * swingDir * forceScale * mass * deltaTime
+    this.box2d.b2Body_ApplyForceToCenter(
+      entity.physics.bodyId,
+      this.tempVec,
+      true
+    )
   }
 
   private handleSwingInput(

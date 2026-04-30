@@ -2687,6 +2687,146 @@
           </div>
 
           <div class="control-group">
+            <label
+              for="ropeClimbLinearDamping"
+              title="攀爬桥接绳时绳索段的线性阻尼"
+              >攀爬绳索线性阻尼</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeClimbLinearDamping"
+                min="0"
+                max="30"
+                step="0.1"
+                value="10"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeClimbLinearDampingNum"
+                min="0"
+                max="60"
+                step="0.1"
+                value="10"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="ropeClimbHertz"
+              title="攀爬桥接绳时绳索关节的弹簧刚度频率"
+              >攀爬绳索关节刚度(Hz)</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeClimbHertz"
+                min="10"
+                max="1000"
+                step="10"
+                value="160"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeClimbHertzNum"
+                min="10"
+                max="2000"
+                step="10"
+                value="160"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="ropeClimbDampingRatio"
+              title="攀爬桥接绳时绳索关节的阻尼比"
+              >攀爬绳索关节阻尼比</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeClimbDampingRatio"
+                min="0"
+                max="2"
+                step="0.05"
+                value="1"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeClimbDampingRatioNum"
+                min="0"
+                max="4"
+                step="0.05"
+                value="1"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="ropeClimbWeightForceScale"
+              title="攀爬时角色体重施加到桥接绳上的比例"
+              >攀爬体重拉力比例</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeClimbWeightForceScale"
+                min="0"
+                max="2"
+                step="0.05"
+                value="0.1"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeClimbWeightForceScaleNum"
+                min="0"
+                max="5"
+                step="0.05"
+                value="0.1"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="ropeClimbJumpRecoilScale"
+              title="攀爬跳跃脱离时施加给桥接绳的反向弹力比例"
+              >攀爬跳跃反冲比例</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeClimbJumpRecoilScale"
+                min="0"
+                max="2"
+                step="0.05"
+                value="0"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeClimbJumpRecoilScaleNum"
+                min="0"
+                max="5"
+                step="0.05"
+                value="0"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
             <label for="swingForce" title="按方向键时施加的摆荡推力大小"
               >摆荡推力</label
             >

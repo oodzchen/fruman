@@ -431,6 +431,10 @@ export class MovementSystem extends System {
       entity.grapple.retainAirMomentum = false
     }
 
+    if (entity.grapple?.isRopeClimbing) {
+      return
+    }
+
     this.handleSprintAndRoll(entity)
 
     if (entity.movement.isRolling || entity.movement.isBackstepping) {

@@ -1739,6 +1739,7 @@ function initializeSystems() {
   arrowSystem.setRopeHitHandler((hit) => grappleSystem.hitRopesInOBB(hit))
   interactionSystem.setWeaponSystem(weaponSystem)
   interactionSystem.setCheckpointSystem(checkpointSystem)
+  interactionSystem.setGrappleSystem(grappleSystem)
   sunPickupSystem = new SunPickupSystem()
   sunPickupSystem.setEffectsEmitter(effectsEmitter)
   expOrbSystem = new ExpOrbSystem()
@@ -7306,7 +7307,8 @@ function sendState() {
     }
 
     if (e.grapple) {
-      stateBuffer[offset + OFFSETS.GRAPPLE_ACTIVE] = e.grapple.isPulling ? 1 : 0
+      stateBuffer[offset + OFFSETS.GRAPPLE_ACTIVE] =
+        e.grapple.isPulling && !e.grapple.isRopeClimbing ? 1 : 0
       stateBuffer[offset + OFFSETS.GRAPPLE_TARGET_X] = e.grapple.targetX
       stateBuffer[offset + OFFSETS.GRAPPLE_TARGET_Y] = e.grapple.targetY
       stateBuffer[offset + OFFSETS.GRAPPLE_START_X] = e.grapple.startX
@@ -8029,6 +8031,26 @@ function updateParam(id?: string, value?: number) {
 
   if (id === 'ropeDampingRatio') {
     grappleSystem.setRopeDampingRatio(value)
+  }
+
+  if (id === 'ropeClimbLinearDamping') {
+    grappleSystem.setRopeClimbLinearDamping(value)
+  }
+
+  if (id === 'ropeClimbHertz') {
+    grappleSystem.setRopeClimbHertz(value)
+  }
+
+  if (id === 'ropeClimbDampingRatio') {
+    grappleSystem.setRopeClimbDampingRatio(value)
+  }
+
+  if (id === 'ropeClimbWeightForceScale') {
+    grappleSystem.setRopeClimbWeightForceScale(value)
+  }
+
+  if (id === 'ropeClimbJumpRecoilScale') {
+    grappleSystem.setRopeClimbJumpRecoilScale(value)
   }
 
   if (id === 'swingForce') {

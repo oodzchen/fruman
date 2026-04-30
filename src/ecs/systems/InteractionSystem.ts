@@ -3,6 +3,7 @@ import type { Entity } from '../Entity'
 import { System } from '../System'
 import { showEntityHud } from '../hudVisibility'
 import type { CheckpointSystem } from './CheckpointSystem'
+import type { GrappleSystem } from './GrappleSystem'
 import type { WeaponSystem } from './WeaponSystem'
 
 /**
@@ -19,6 +20,7 @@ import type { WeaponSystem } from './WeaponSystem'
 export class InteractionSystem extends System {
   private weaponSystem: WeaponSystem | null = null
   private checkpointSystem: CheckpointSystem | null = null
+  private grappleSystem: GrappleSystem | null = null
 
   setWeaponSystem(weaponSystem: WeaponSystem): void {
     this.weaponSystem = weaponSystem
@@ -26,6 +28,10 @@ export class InteractionSystem extends System {
 
   setCheckpointSystem(checkpointSystem: CheckpointSystem): void {
     this.checkpointSystem = checkpointSystem
+  }
+
+  setGrappleSystem(grappleSystem: GrappleSystem): void {
+    this.grappleSystem = grappleSystem
   }
 
   update(entities: Entity[], _deltaTime: number): void {
@@ -41,6 +47,14 @@ export class InteractionSystem extends System {
         hasInteractAction &&
         this.checkpointSystem &&
         this.checkpointSystem.tryRequestSleep(entity)
+      ) {
+        interactionConsumed = true
+      }
+
+      if (
+        !interactionConsumed &&
+        hasInteractAction &&
+        this.grappleSystem?.tryToggleRopeClimb(entity)
       ) {
         interactionConsumed = true
       }
