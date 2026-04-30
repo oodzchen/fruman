@@ -17,6 +17,8 @@ import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   GRAPPLE_CLIMB_SPEED,
+  GRAPPLE_ROPE_BREAK_STRETCH_DENOMINATOR,
+  GRAPPLE_ROPE_BREAK_STRETCH_NUMERATOR,
 } from '../../constants'
 import {
   getGroundCollisionCategory,
@@ -1501,6 +1503,11 @@ export class GrappleSystem extends System {
       return
     }
 
+    if (this.isPlayerTetherOverStretchLimit(entity, grapple, runtime)) {
+      this.stopPull(entity, grapple, false)
+      return
+    }
+
     entity.input.grappleLengthAdjustSteps = 0
 
     if (isDynamicAnchor) {
@@ -2198,7 +2205,9 @@ export class GrappleSystem extends System {
         this.destroyBridgeRope(runtime)
         continue
       }
-      this.applyBridgeTension(runtime)
+      if (!this.applyBridgeTension(runtime)) {
+        this.destroyBridgeRope(runtime)
+      }
     }
   }
 
@@ -2266,24 +2275,28 @@ export class GrappleSystem extends System {
     return true
   }
 
-  private applyBridgeTension(runtime: RopeBridgeRuntime): void {
+  private applyBridgeTension(runtime: RopeBridgeRuntime): boolean {
     const entityA = this.getEntityById(runtime.endpointAEntityId)
     const entityB = this.getEntityById(runtime.endpointBEntityId)
     if (!entityA?.transform || !entityB?.transform) {
-      return
+      return true
     }
 
     const dx = entityB.transform.x - entityA.transform.x
     const dy = entityB.transform.y - entityA.transform.y
     const distSq = dx * dx + dy * dy
     if (distSq <= 0.0001) {
-      return
+      return true
+    }
+
+    if (this.isDistanceOverRopeBreakLimit(distSq, runtime.maxRopeLength)) {
+      return false
     }
 
     const dist = Math.sqrt(distSq)
     const stretch = dist - runtime.maxRopeLength
     if (stretch <= 0) {
-      return
+      return true
     }
 
     const invDist = 1 / dist
@@ -2293,7 +2306,7 @@ export class GrappleSystem extends System {
       (runtime.endpointAHasDynamicBody ? 1 : 0) +
       (runtime.endpointBHasDynamicBody ? 1 : 0)
     if (dynamicEndpointCount <= 0) {
-      return
+      return true
     }
 
     const targetAlong =
@@ -2324,6 +2337,7 @@ export class GrappleSystem extends System {
         targetAlong
       )
     }
+    return true
   }
 
   private applyBridgeEndpointTension(
@@ -2528,6 +2542,37 @@ export class GrappleSystem extends System {
   private calculateCurrentRopeLength(runtime: RopeRuntime): number {
     const attachedSegments = runtime.attachIndex + 1
     return attachedSegments * runtime.linkLength + runtime.jointMaxLen
+  }
+
+  private isPlayerTetherOverStretchLimit(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime
+  ): boolean {
+    if (!entity.transform) {
+      return false
+    }
+
+    const dx = entity.transform.x - grapple.targetX
+    const dy = entity.transform.y - grapple.targetY
+    const distSq = dx * dx + dy * dy
+    const ropeLength = Math.max(0.01, this.calculateCurrentRopeLength(runtime))
+    return this.isDistanceOverRopeBreakLimit(distSq, ropeLength)
+  }
+
+  private isDistanceOverRopeBreakLimit(
+    distSq: number,
+    ropeLength: number
+  ): boolean {
+    if (!(ropeLength > 0)) {
+      return false
+    }
+
+    const denominatorSq =
+      GRAPPLE_ROPE_BREAK_STRETCH_DENOMINATOR *
+      GRAPPLE_ROPE_BREAK_STRETCH_DENOMINATOR
+    const numeratorLength = ropeLength * GRAPPLE_ROPE_BREAK_STRETCH_NUMERATOR
+    return distSq * denominatorSq > numeratorLength * numeratorLength
   }
 
   private performRopeJump(
