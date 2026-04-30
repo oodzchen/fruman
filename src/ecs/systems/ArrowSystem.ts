@@ -21,6 +21,7 @@ import {
 import type { SpatialHash } from '../SpatialHash'
 import { System } from '../System'
 import type { World } from '../World'
+import type { RopeHitRequest } from './GrappleSystem'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
 import type { BreakableObstacleHit, ObstacleCollider } from './WeaponSystem'
@@ -49,6 +50,7 @@ export class ArrowSystem extends System {
   private obstacles: ObstacleCollider[] = []
   private onBreakableObstacleHit: ((hit: BreakableObstacleHit) => void) | null =
     null
+  private onRopeHit: ((hit: RopeHitRequest) => boolean) | null = null
   private world?: World
   private arrowPools?: ArrowPools
   private tempHitSource = { x: 0, y: 0 }
@@ -58,6 +60,19 @@ export class ArrowSystem extends System {
   private tempProjectileWidth = 0
   private tempProjectileHeight = 0
   private tempProjectileRotation = 0
+  private readonly tempRopeHitRequest: RopeHitRequest = {
+    centerX: 0,
+    centerY: 0,
+    width: 0,
+    height: 0,
+    rotation: 0,
+    renderLayer: 0,
+    impactX: 0,
+    impactY: 0,
+    damage: 1,
+    hitDirX: 0,
+    hitDirY: 0,
+  }
 
   constructor(box2d: MainModule, statsSystem?: StatsSystem) {
     super()
@@ -95,6 +110,10 @@ export class ArrowSystem extends System {
     handler: ((hit: BreakableObstacleHit) => void) | null
   ): void {
     this.onBreakableObstacleHit = handler
+  }
+
+  setRopeHitHandler(handler: ((hit: RopeHitRequest) => boolean) | null): void {
+    this.onRopeHit = handler
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -426,7 +445,7 @@ export class ArrowSystem extends System {
     impactY: number
   ): boolean {
     const weapon = entity.weapon
-    if (!weapon || this.obstacles.length === 0) {
+    if (!weapon) {
       return false
     }
     const dirAngle = weapon.visual.rotation - Math.PI / 2
@@ -440,6 +459,26 @@ export class ArrowSystem extends System {
     const weaponWidth = this.tempProjectileWidth
     const weaponHeight = this.tempProjectileHeight
     const weaponRotation = this.tempProjectileRotation
+
+    if (
+      this.hitRopesInProjectileOBB(
+        weaponX,
+        weaponY,
+        weaponWidth,
+        weaponHeight,
+        weaponRotation,
+        weapon.renderLayer,
+        impactX,
+        impactY,
+        weapon
+      )
+    ) {
+      return true
+    }
+
+    if (this.obstacles.length === 0) {
+      return false
+    }
 
     for (let i = 0; i < this.obstacles.length; i++) {
       const obstacle = this.obstacles[i]
@@ -501,6 +540,48 @@ export class ArrowSystem extends System {
       return true
     }
     return false
+  }
+
+  private hitRopesInProjectileOBB(
+    centerX: number,
+    centerY: number,
+    width: number,
+    height: number,
+    rotation: number,
+    renderLayer: number,
+    impactX: number,
+    impactY: number,
+    weapon: NonNullable<Entity['weapon']>
+  ): boolean {
+    if (!this.onRopeHit || width <= 0 || height <= 0) {
+      return false
+    }
+
+    const request = this.tempRopeHitRequest
+    request.centerX = centerX
+    request.centerY = centerY
+    request.width = width
+    request.height = height
+    request.rotation = rotation
+    request.renderLayer = renderLayer
+    request.impactX = impactX
+    request.impactY = impactY
+    request.damage = this.getProjectileRopeHitDamage(weapon)
+    request.hitDirX = Math.cos(rotation - Math.PI / 2)
+    request.hitDirY = Math.sin(rotation - Math.PI / 2)
+    request.weapon = weapon
+    return this.onRopeHit(request)
+  }
+
+  private getProjectileRopeHitDamage(
+    weapon: NonNullable<Entity['weapon']>
+  ): number {
+    if (weapon.attackDamage > 0) {
+      return weapon.attackDamage
+    }
+    return weapon.impactLevel === 'large' || weapon.impactLevel === 'extreme'
+      ? 2
+      : 1
   }
 
   private resolveProjectileCollisionShape(

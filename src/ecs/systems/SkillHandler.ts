@@ -11,6 +11,7 @@ export class SkillHandler {
       weapon.skillFacing =
         entity.input?.lastMoveDirection || weapon.attackFacing || 1
       weapon.hitEntityIds.clear()
+      weapon.hitRopeIds.clear()
       weapon.attackStartTransform.x = weapon.visual.x
       weapon.attackStartTransform.y = weapon.visual.y
       weapon.attackStartTransform.rotation = weapon.visual.rotation

@@ -87,6 +87,8 @@ export interface BreakableObstacleOBBHitRequest {
   impactLevel: ImpactLevel
   impactX: number
   impactY: number
+  hitDirX?: number
+  hitDirY?: number
 }
 
 export interface BreakableObstacleCircleHitRequest {
@@ -99,6 +101,8 @@ export interface BreakableObstacleCircleHitRequest {
   impactLevel: ImpactLevel
   impactX: number
   impactY: number
+  hitDirX?: number
+  hitDirY?: number
 }
 
 export class UltimateHandler {
@@ -495,6 +499,8 @@ export class UltimateHandler {
       impactLevel: 'extreme',
       impactX: giantX,
       impactY: groundY,
+      hitDirX: 0,
+      hitDirY: -1,
     })
   }
 
@@ -1101,6 +1107,8 @@ export class UltimateHandler {
       impactLevel: 'extreme',
       impactX: weapon.ultimateSpearCrossX,
       impactY: weapon.ultimateSpearCrossY,
+      hitDirX: Math.cos(topRot),
+      hitDirY: Math.sin(topRot),
     })
     this.onBreakableObstacleOBBHit?.({
       attacker,
@@ -1114,6 +1122,8 @@ export class UltimateHandler {
       impactLevel: 'extreme',
       impactX: weapon.ultimateSpearCrossX,
       impactY: weapon.ultimateSpearCrossY,
+      hitDirX: Math.cos(bottomRot),
+      hitDirY: Math.sin(bottomRot),
     })
     this.onBreakableObstacleOBBHit?.({
       attacker,
@@ -1127,6 +1137,8 @@ export class UltimateHandler {
       impactLevel: 'extreme',
       impactX: weapon.ultimateSpearCrossX,
       impactY: weapon.ultimateSpearCrossY,
+      hitDirX: Math.cos(weapon.swingEndTransform.rotation),
+      hitDirY: Math.sin(weapon.swingEndTransform.rotation),
     })
   }
 

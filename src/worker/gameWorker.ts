@@ -1730,8 +1730,13 @@ function initializeSystems() {
   grappleSystem.setStatsSystem(statsSystem)
   weaponSystem.setSoundSystem(soundSystem)
   weaponSystem.setBreakableObstacleHitHandler(handleBreakableObstacleHit)
+  weaponSystem.setRopeHitHandler((hit) => grappleSystem.hitRopesInOBB(hit))
+  weaponSystem.setRopeCircleHitHandler((hit) =>
+    grappleSystem.hitRopesInCircle(hit)
+  )
   arrowSystem.setSoundSystem(soundSystem)
   arrowSystem.setBreakableObstacleHitHandler(handleBreakableObstacleHit)
+  arrowSystem.setRopeHitHandler((hit) => grappleSystem.hitRopesInOBB(hit))
   interactionSystem.setWeaponSystem(weaponSystem)
   interactionSystem.setCheckpointSystem(checkpointSystem)
   sunPickupSystem = new SunPickupSystem()

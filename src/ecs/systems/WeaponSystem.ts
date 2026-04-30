@@ -151,6 +151,7 @@ import {
 } from '../WeaponPoseUtils'
 import type { World } from '../World'
 import { showEntityHud } from '../hudVisibility'
+import type { RopeCircleHitRequest, RopeHitRequest } from './GrappleSystem'
 import { SkillHandler } from './SkillHandler'
 import type { SoundSystem } from './SoundSystem'
 import type { StatsSystem } from './StatsSystem'
@@ -319,6 +320,9 @@ export class WeaponSystem extends System {
   private skeletalSegmentManager: SkeletalSegmentManager | null = null
   private onBreakableObstacleHit: ((hit: BreakableObstacleHit) => void) | null =
     null
+  private onRopeHit: ((hit: RopeHitRequest) => boolean) | null = null
+  private onRopeCircleHit: ((hit: RopeCircleHitRequest) => boolean) | null =
+    null
 
   private tempTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   private tempSweptWeaponTransform: WeaponTransform = {
@@ -352,6 +356,30 @@ export class WeaponSystem extends System {
     bowAmmo: 0,
     bowAmmoMax: 0,
     skillId: '',
+  }
+  private readonly tempRopeHitRequest: RopeHitRequest = {
+    centerX: 0,
+    centerY: 0,
+    width: 0,
+    height: 0,
+    rotation: 0,
+    renderLayer: 0,
+    impactX: 0,
+    impactY: 0,
+    damage: 1,
+    hitDirX: 0,
+    hitDirY: 0,
+  }
+  private readonly tempRopeCircleHitRequest: RopeCircleHitRequest = {
+    centerX: 0,
+    centerY: 0,
+    radius: 0,
+    renderLayer: 0,
+    impactX: 0,
+    impactY: 0,
+    damage: 1,
+    hitDirX: 0,
+    hitDirY: 0,
   }
   private tempPlayerPos = { x: 0, y: 0 }
   private tempHitSource = { x: 0, y: 0 }
@@ -4911,6 +4939,7 @@ export class WeaponSystem extends System {
     weapon.groundHitSoundTriggered = false
     weapon.groundHitSoundPending = 0
     weapon.hitBreakableObstacleIds.clear()
+    weapon.hitRopeIds.clear()
   }
 
   private clearAttackImpactState(weapon: Entity['weapon']): void {
@@ -4922,6 +4951,7 @@ export class WeaponSystem extends System {
     weapon.groundHitSoundTriggered = false
     weapon.groundHitSoundPending = 0
     weapon.hitBreakableObstacleIds.clear()
+    weapon.hitRopeIds.clear()
   }
 
   private isBigHammer(weapon: Entity['weapon']): boolean {
@@ -5330,6 +5360,151 @@ export class WeaponSystem extends System {
     this.onBreakableObstacleHit = handler
   }
 
+  setRopeHitHandler(handler: ((hit: RopeHitRequest) => boolean) | null): void {
+    this.onRopeHit = handler
+  }
+
+  setRopeCircleHitHandler(
+    handler: ((hit: RopeCircleHitRequest) => boolean) | null
+  ): void {
+    this.onRopeCircleHit = handler
+  }
+
+  private getRopeHitDamage(weapon: WeaponComponent): number {
+    if (weapon.attackDamage > 0) {
+      return weapon.attackDamage
+    }
+    return weapon.impactLevel === 'large' || weapon.impactLevel === 'extreme'
+      ? 2
+      : 1
+  }
+
+  private hitRopesInWeaponOBB(
+    centerX: number,
+    centerY: number,
+    width: number,
+    height: number,
+    rotation: number,
+    renderLayer: number,
+    impactX: number,
+    impactY: number,
+    weapon: WeaponComponent,
+    hitDirX?: number,
+    hitDirY?: number
+  ): boolean {
+    if (!this.onRopeHit || width <= 0 || height <= 0) {
+      return false
+    }
+
+    const request = this.tempRopeHitRequest
+    request.centerX = centerX
+    request.centerY = centerY
+    request.width = width
+    request.height = height
+    request.rotation = rotation
+    request.renderLayer = renderLayer
+    request.impactX = impactX
+    request.impactY = impactY
+    request.damage = this.getRopeHitDamage(weapon)
+    request.hitDirX = hitDirX ?? Math.cos(rotation)
+    request.hitDirY = hitDirY ?? Math.sin(rotation)
+    request.weapon = weapon
+    return this.onRopeHit(request)
+  }
+
+  private hitRopesInCircle(
+    centerX: number,
+    centerY: number,
+    radius: number,
+    renderLayer: number,
+    impactX: number,
+    impactY: number,
+    weapon?: WeaponComponent,
+    hitDirX?: number,
+    hitDirY?: number
+  ): boolean {
+    if (!this.onRopeCircleHit || radius <= 0) {
+      return false
+    }
+
+    const request = this.tempRopeCircleHitRequest
+    request.centerX = centerX
+    request.centerY = centerY
+    request.radius = radius
+    request.renderLayer = renderLayer
+    request.impactX = impactX
+    request.impactY = impactY
+    request.damage = weapon ? this.getRopeHitDamage(weapon) : 1
+    request.hitDirX = hitDirX
+    request.hitDirY = hitDirY
+    request.weapon = weapon
+    return this.onRopeCircleHit(request)
+  }
+
+  private hitRopesWithSweptWeaponOBB(
+    weapon: WeaponComponent,
+    previousWeaponX?: number,
+    previousWeaponY?: number,
+    previousWeaponRotation?: number
+  ): boolean {
+    const wx = weapon.visual.x
+    const wy = weapon.visual.y
+    const wWidth = weapon.width
+    const wHeight = weapon.height
+    const wRotation = weapon.visual.rotation
+    let hit = this.hitRopesInWeaponOBB(
+      wx,
+      wy,
+      wWidth,
+      wHeight,
+      wRotation,
+      weapon.renderLayer,
+      wx,
+      wy,
+      weapon
+    )
+
+    if (
+      previousWeaponX === undefined ||
+      previousWeaponY === undefined ||
+      previousWeaponRotation === undefined ||
+      (previousWeaponX === wx &&
+        previousWeaponY === wy &&
+        previousWeaponRotation === wRotation)
+    ) {
+      return hit
+    }
+
+    for (let sample = 1; sample <= 3; sample++) {
+      const currentWeight = sample
+      const previousWeight = 4 - sample
+      this.tempSweptWeaponTransform.x =
+        (previousWeaponX * previousWeight + wx * currentWeight) / 4
+      this.tempSweptWeaponTransform.y =
+        (previousWeaponY * previousWeight + wy * currentWeight) / 4
+      this.tempSweptWeaponTransform.rotation =
+        (previousWeaponRotation * previousWeight + wRotation * currentWeight) /
+        4
+      if (
+        this.hitRopesInWeaponOBB(
+          this.tempSweptWeaponTransform.x,
+          this.tempSweptWeaponTransform.y,
+          wWidth,
+          wHeight,
+          this.tempSweptWeaponTransform.rotation,
+          weapon.renderLayer,
+          wx,
+          wy,
+          weapon
+        )
+      ) {
+        hit = true
+      }
+    }
+
+    return hit
+  }
+
   private emitBreakableObstacleHit(
     obstacle: ObstacleCollider,
     impactLevel: ImpactLevel,
@@ -5363,6 +5538,21 @@ export class WeaponSystem extends System {
   private handleBreakableObstacleOBBHit(
     request: BreakableObstacleOBBHitRequest
   ): void {
+    if (request.weapon) {
+      this.hitRopesInWeaponOBB(
+        request.centerX,
+        request.centerY,
+        request.width,
+        request.height,
+        request.rotation,
+        request.renderLayer,
+        request.impactX,
+        request.impactY,
+        request.weapon,
+        request.hitDirX,
+        request.hitDirY
+      )
+    }
     if (this.obstacles.length > 0) {
       for (let i = 0; i < this.obstacles.length; i++) {
         const obstacle = this.obstacles[i]
@@ -5448,7 +5638,9 @@ export class WeaponSystem extends System {
       request.impactX,
       request.impactY,
       request.attacker,
-      request.weapon
+      request.weapon,
+      request.hitDirX,
+      request.hitDirY
     )
     this.hitTerrainDebrisInCircle(
       request.centerX,
@@ -5471,9 +5663,25 @@ export class WeaponSystem extends System {
     impactX: number,
     impactY: number,
     attacker?: Entity,
-    weapon?: WeaponComponent
+    weapon?: WeaponComponent,
+    hitDirX?: number,
+    hitDirY?: number
   ): void {
-    if (this.obstacles.length === 0 || radius <= 0) {
+    if (radius <= 0) {
+      return
+    }
+    this.hitRopesInCircle(
+      centerX,
+      centerY,
+      radius,
+      renderLayer,
+      impactX,
+      impactY,
+      weapon,
+      hitDirX,
+      hitDirY
+    )
+    if (this.obstacles.length === 0) {
       return
     }
     for (let i = 0; i < this.obstacles.length; i++) {
@@ -5736,7 +5944,6 @@ export class WeaponSystem extends System {
     previousWeaponRotation?: number
   ): ObstacleCollider | null {
     if (!weapon) return null
-    if (this.obstacles.length === 0) return null
     const wx = weapon.visual.x
     const wy = weapon.visual.y
     const wWidth = weapon.width
@@ -5750,6 +5957,15 @@ export class WeaponSystem extends System {
       (previousWeaponX !== wx ||
         previousWeaponY !== wy ||
         previousWeaponRotation !== wRotation)
+
+    this.hitRopesWithSweptWeaponOBB(
+      weapon,
+      hasSweep ? previousWeaponX : undefined,
+      hasSweep ? previousWeaponY : undefined,
+      hasSweep ? previousWeaponRotation : undefined
+    )
+
+    if (this.obstacles.length === 0) return null
 
     for (const obstacle of this.obstacles) {
       if (obstacle.renderLayer !== weapon.renderLayer) {
@@ -6483,6 +6699,7 @@ export class WeaponSystem extends System {
         weapon.skillPhase = 'hammer_crit_swing'
         weapon.skillElapsedMs = 0
         weapon.hitEntityIds.clear()
+        weapon.hitRopeIds.clear()
         weapon.originalAttackDamage = weapon.attackDamage
         weapon.attackDamage = Math.floor((weapon.attackDamage * 6) / 5)
         weapon.originalPostureDamage = weapon.postureDamage
@@ -6504,6 +6721,7 @@ export class WeaponSystem extends System {
       weapon.width =
         minWidth + (baseWidth - minWidth) * (1 - Math.sin(t * Math.PI))
 
+      this.hitRopesWithSweptWeaponOBB(weapon)
       const entityHitCount = this.checkEntityHits(entity, weapon)
       if (entityHitCount > 0) {
         // 发射点在锤头前缘（朝向一侧半幅宽处）

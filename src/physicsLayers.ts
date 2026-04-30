@@ -184,11 +184,11 @@ export function getEnemyCollisionMask(layer: number): number {
 }
 
 export function getWeaponCollisionMask(layer: number): number {
-  return getCombinedMask(layer, ['ground', 'obstacle'])
+  return getCombinedMask(layer, ['ground', 'obstacle', 'rope'])
 }
 
 export function getRopeCollisionMask(layer: number): number {
-  return getCombinedMask(layer, ['obstacle', 'enemy'])
+  return getCombinedMask(layer, ['obstacle', 'enemy', 'weapon'])
 }
 
 export function getEnvironmentCollisionMask(layer: number): number {

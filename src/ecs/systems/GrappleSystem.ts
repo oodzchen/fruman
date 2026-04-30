@@ -5,6 +5,7 @@ import {
   DEFAULT_GRAPPLE_RANGE,
   DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO,
   DEFAULT_GRAPPLE_ROPE_DENSITY,
+  DEFAULT_GRAPPLE_ROPE_HEALTH,
   DEFAULT_GRAPPLE_ROPE_HERTZ,
   DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING,
   DEFAULT_GRAPPLE_ROPE_MAX_SEGMENTS,
@@ -39,12 +40,55 @@ import { SOUND_IDS } from '../../worker/effectsProtocol'
 import { Faction } from '../Component'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
+import { checkOBBvsCircle } from '../OBBCollision'
 import { System } from '../System'
 import type { World } from '../World'
 import type { StatsSystem } from './StatsSystem'
 
+export type RopeHitWeaponState = {
+  hitRopeIds: Set<number>
+  groundHitSoundTriggered: boolean
+  groundHitSoundPending: number
+}
+
+export type RopeHitRequest = {
+  centerX: number
+  centerY: number
+  width: number
+  height: number
+  rotation: number
+  renderLayer: number
+  impactX: number
+  impactY: number
+  damage: number
+  hitDirX?: number
+  hitDirY?: number
+  weapon?: RopeHitWeaponState
+}
+
+export type RopeCircleHitRequest = {
+  centerX: number
+  centerY: number
+  radius: number
+  renderLayer: number
+  impactX: number
+  impactY: number
+  damage: number
+  hitDirX?: number
+  hitDirY?: number
+  weapon?: RopeHitWeaponState
+}
+
 type RopeRuntime = {
   active: boolean
+  hitId: number
+  health: number
+  hitShakeSegmentIndex: number
+  hitShakeStartTimeMs: number
+  hitShakeEndTimeMs: number
+  hitShakeDirX: number
+  hitShakeDirY: number
+  renderLayer: number
   anchorBodyId: b2BodyId | null
   anchorBodyOwned: boolean
   anchorIsDynamicTarget: boolean
@@ -81,6 +125,13 @@ type RopeBridgeEndpointBuild = {
 
 type RopeBridgeRuntime = {
   active: boolean
+  hitId: number
+  health: number
+  hitShakeSegmentIndex: number
+  hitShakeStartTimeMs: number
+  hitShakeEndTimeMs: number
+  hitShakeDirX: number
+  hitShakeDirY: number
   endpointAEntityId: number
   endpointBEntityId: number
   bodyAId: b2BodyId | null
@@ -144,6 +195,12 @@ export class GrappleSystem extends System {
     DEFAULT_PLAYER_RADIUS * 2 * (DEFAULT_PLAYER_RADIUS * 2)
   private ropeRuntimeByEntityId = new Map<number, RopeRuntime>()
   private bridgeRopes: RopeBridgeRuntime[] = []
+  private nextRopeHitId = 1
+  private hitRopeSegmentIndex = -1
+  private hitRopeSegmentX = 0
+  private hitRopeSegmentY = 0
+  private readonly ropeHitShakeDurationMs = 220
+  private readonly ropeHitShakeAmplitude = 0.24
   private readonly bridgeEndpointA: RopeBridgeEndpointBuild = {
     entityId: -1,
     bodyId: null,
@@ -625,8 +682,14 @@ export class GrappleSystem extends System {
         continue
       }
       const pos = this.box2d.b2Body_GetPosition(bodyId)
-      targetBuffer[outOffset] = pos.x
-      targetBuffer[outOffset + 1] = pos.y
+      this.writeRopeSegmentPoint(
+        runtime,
+        i,
+        pos.x,
+        pos.y,
+        targetBuffer,
+        outOffset
+      )
       pointCount += 1
       outOffset += 2
       pos.delete()
@@ -673,8 +736,14 @@ export class GrappleSystem extends System {
         continue
       }
       const pos = this.box2d.b2Body_GetPosition(bodyId)
-      targetBuffer[outOffset] = pos.x
-      targetBuffer[outOffset + 1] = pos.y
+      this.writeRopeSegmentPoint(
+        runtime,
+        i,
+        pos.x,
+        pos.y,
+        targetBuffer,
+        outOffset
+      )
       pointCount += 1
       outOffset += 2
       pos.delete()
@@ -697,6 +766,46 @@ export class GrappleSystem extends System {
     const outOffset = startOffset + pointCount * 2
     targetBuffer[outOffset] = Number.NaN
     targetBuffer[outOffset + 1] = Number.NaN
+  }
+
+  private writeRopeSegmentPoint(
+    runtime: RopeRuntime | RopeBridgeRuntime,
+    segmentIndex: number,
+    x: number,
+    y: number,
+    targetBuffer: Float32Array<ArrayBufferLike>,
+    outOffset: number
+  ): void {
+    if (
+      segmentIndex === runtime.hitShakeSegmentIndex &&
+      this.currentTimeMs < runtime.hitShakeEndTimeMs
+    ) {
+      const elapsedMs = this.currentTimeMs - runtime.hitShakeStartTimeMs
+      const progress = Math.min(
+        1,
+        Math.max(0, elapsedMs / this.ropeHitShakeDurationMs)
+      )
+      const amplitude =
+        this.ropeHitShakeAmplitude * Math.sin(progress * Math.PI)
+      targetBuffer[outOffset] = x + runtime.hitShakeDirX * amplitude
+      targetBuffer[outOffset + 1] = y + runtime.hitShakeDirY * amplitude
+      return
+    }
+
+    targetBuffer[outOffset] = x
+    targetBuffer[outOffset + 1] = y
+  }
+
+  private resetRopeHitShake(runtime: RopeRuntime | RopeBridgeRuntime): void {
+    runtime.hitShakeSegmentIndex = -1
+    runtime.hitShakeStartTimeMs = 0
+    runtime.hitShakeEndTimeMs = 0
+    runtime.hitShakeDirX = 0
+    runtime.hitShakeDirY = 0
+  }
+
+  private getDefaultRopeHealth(): number {
+    return Math.max(1, Math.trunc(DEFAULT_GRAPPLE_ROPE_HEALTH))
   }
 
   private refreshAnchorCache(): void {
@@ -1143,6 +1252,14 @@ export class GrappleSystem extends System {
     }
     const runtime: RopeRuntime = {
       active: false,
+      hitId: 0,
+      health: 0,
+      hitShakeSegmentIndex: -1,
+      hitShakeStartTimeMs: 0,
+      hitShakeEndTimeMs: 0,
+      hitShakeDirX: 0,
+      hitShakeDirY: 0,
+      renderLayer: 0,
       anchorBodyId: null,
       anchorBodyOwned: false,
       anchorIsDynamicTarget: false,
@@ -1310,6 +1427,10 @@ export class GrappleSystem extends System {
     runtime.anchorLocalX = anchorLocalX
     runtime.anchorLocalY = anchorLocalY
     runtime.playerAnchorBodyId = playerAnchorBodyId
+    runtime.hitId = this.nextRopeHitId++
+    runtime.health = this.getDefaultRopeHealth()
+    this.resetRopeHitShake(runtime)
+    runtime.renderLayer = renderLayer
     runtime.anchorFollowX = anchorX
     runtime.anchorFollowY = anchorY
     runtime.playerFollowX = playerX
@@ -1414,6 +1535,10 @@ export class GrappleSystem extends System {
     runtime.anchorEntityId = anchorEntityId
     runtime.anchorLocalX = anchorLocalX
     runtime.anchorLocalY = anchorLocalY
+    runtime.hitId = this.nextRopeHitId++
+    runtime.health = this.getDefaultRopeHealth()
+    this.resetRopeHitShake(runtime)
+    runtime.renderLayer = entity.render?.renderLayer ?? 0
 
     const dx = entity.transform.x - anchorX
     const dy = entity.transform.y - anchorY
@@ -1885,6 +2010,10 @@ export class GrappleSystem extends System {
     runtime.segmentCount = 0
     runtime.linkLength = DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH
     runtime.attachIndex = -1
+    runtime.hitId = 0
+    runtime.health = 0
+    runtime.renderLayer = 0
+    this.resetRopeHitShake(runtime)
     runtime.active = false
 
     grapple.isTethering = false
@@ -2020,6 +2149,9 @@ export class GrappleSystem extends System {
     runtime.followBX = endpointB.x
     runtime.followBY = endpointB.y
     runtime.renderLayer = endpointA.renderLayer
+    runtime.hitId = this.nextRopeHitId++
+    runtime.health = this.getDefaultRopeHealth()
+    this.resetRopeHitShake(runtime)
     runtime.segmentBodies.length = 0
     runtime.segmentJoints.length = 0
     runtime.segmentFilterJoints.length = 0
@@ -2144,6 +2276,13 @@ export class GrappleSystem extends System {
 
     const runtime: RopeBridgeRuntime = {
       active: false,
+      hitId: 0,
+      health: 0,
+      hitShakeSegmentIndex: -1,
+      hitShakeStartTimeMs: 0,
+      hitShakeEndTimeMs: 0,
+      hitShakeDirX: 0,
+      hitShakeDirY: 0,
       endpointAEntityId: -1,
       endpointBEntityId: -1,
       bodyAId: null,
@@ -2427,6 +2566,424 @@ export class GrappleSystem extends System {
     runtime.segmentCount = 0
     runtime.linkLength = DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH
     runtime.maxRopeLength = 0
+    runtime.hitId = 0
+    runtime.health = 0
+    this.resetRopeHitShake(runtime)
+  }
+
+  hitRopesInOBB(request: RopeHitRequest): boolean {
+    if (request.width <= 0 || request.height <= 0) {
+      return false
+    }
+
+    let hit = false
+    for (const [ownerEntityId, runtime] of this.ropeRuntimeByEntityId) {
+      if (this.tryHitPlayerRopeInOBB(ownerEntityId, runtime, request)) {
+        hit = true
+      }
+    }
+
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      if (this.tryHitBridgeRopeInOBB(this.bridgeRopes[i], request)) {
+        hit = true
+      }
+    }
+
+    return hit
+  }
+
+  hitRopesInCircle(request: RopeCircleHitRequest): boolean {
+    if (request.radius <= 0) {
+      return false
+    }
+
+    let hit = false
+    for (const [ownerEntityId, runtime] of this.ropeRuntimeByEntityId) {
+      if (this.tryHitPlayerRopeInCircle(ownerEntityId, runtime, request)) {
+        hit = true
+      }
+    }
+
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      if (this.tryHitBridgeRopeInCircle(this.bridgeRopes[i], request)) {
+        hit = true
+      }
+    }
+
+    return hit
+  }
+
+  private tryHitPlayerRopeInOBB(
+    ownerEntityId: number,
+    runtime: RopeRuntime,
+    request: RopeHitRequest
+  ): boolean {
+    if (!this.canHitRopeRuntime(runtime, request)) {
+      return false
+    }
+
+    const visibleSegmentCount = runtime.attachIndex + 1
+    if (
+      !this.findHitRopeSegmentInOBB(
+        runtime.segmentBodies,
+        visibleSegmentCount,
+        request
+      )
+    ) {
+      return false
+    }
+
+    const damage = this.getRopeHitDamage(request)
+    if (damage <= 0) {
+      return false
+    }
+    this.markRopeHit(runtime.hitId, request)
+    runtime.health -= damage
+    if (runtime.health <= 0) {
+      runtime.health = 0
+      this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
+      const owner = this.getEntityById(ownerEntityId)
+      const grapple = owner?.grapple
+      if (owner && grapple) {
+        this.stopPull(owner, grapple, false)
+      }
+      return true
+    }
+
+    this.applyRopeHitFeedback(runtime, request)
+    return true
+  }
+
+  private tryHitBridgeRopeInOBB(
+    runtime: RopeBridgeRuntime,
+    request: RopeHitRequest
+  ): boolean {
+    if (!this.canHitBridgeRopeRuntime(runtime, request)) {
+      return false
+    }
+
+    if (
+      !this.findHitRopeSegmentInOBB(
+        runtime.segmentBodies,
+        runtime.segmentBodies.length,
+        request
+      )
+    ) {
+      return false
+    }
+
+    const damage = this.getRopeHitDamage(request)
+    if (damage <= 0) {
+      return false
+    }
+    this.markRopeHit(runtime.hitId, request)
+    runtime.health -= damage
+    if (runtime.health <= 0) {
+      runtime.health = 0
+      this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
+      this.destroyBridgeRope(runtime)
+      return true
+    }
+
+    this.applyRopeHitFeedback(runtime, request)
+    return true
+  }
+
+  private tryHitPlayerRopeInCircle(
+    ownerEntityId: number,
+    runtime: RopeRuntime,
+    request: RopeCircleHitRequest
+  ): boolean {
+    if (!this.canHitRopeRuntime(runtime, request)) {
+      return false
+    }
+
+    const visibleSegmentCount = runtime.attachIndex + 1
+    if (
+      !this.findHitRopeSegmentInCircle(
+        runtime.segmentBodies,
+        visibleSegmentCount,
+        request
+      )
+    ) {
+      return false
+    }
+
+    const damage = this.getRopeHitDamage(request)
+    if (damage <= 0) {
+      return false
+    }
+    this.markRopeHit(runtime.hitId, request)
+    runtime.health -= damage
+    if (runtime.health <= 0) {
+      runtime.health = 0
+      this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
+      const owner = this.getEntityById(ownerEntityId)
+      const grapple = owner?.grapple
+      if (owner && grapple) {
+        this.stopPull(owner, grapple, false)
+      }
+      return true
+    }
+
+    this.applyRopeCircleHitFeedback(runtime, request)
+    return true
+  }
+
+  private tryHitBridgeRopeInCircle(
+    runtime: RopeBridgeRuntime,
+    request: RopeCircleHitRequest
+  ): boolean {
+    if (!this.canHitBridgeRopeRuntime(runtime, request)) {
+      return false
+    }
+
+    if (
+      !this.findHitRopeSegmentInCircle(
+        runtime.segmentBodies,
+        runtime.segmentBodies.length,
+        request
+      )
+    ) {
+      return false
+    }
+
+    const damage = this.getRopeHitDamage(request)
+    if (damage <= 0) {
+      return false
+    }
+    this.markRopeHit(runtime.hitId, request)
+    runtime.health -= damage
+    if (runtime.health <= 0) {
+      runtime.health = 0
+      this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
+      this.destroyBridgeRope(runtime)
+      return true
+    }
+
+    this.applyRopeCircleHitFeedback(runtime, request)
+    return true
+  }
+
+  private canHitRopeRuntime(
+    runtime: RopeRuntime,
+    request: RopeHitRequest | RopeCircleHitRequest
+  ): boolean {
+    return (
+      runtime.active &&
+      runtime.health > 0 &&
+      runtime.hitId > 0 &&
+      runtime.renderLayer === request.renderLayer &&
+      !this.isRopeAlreadyHit(runtime.hitId, request)
+    )
+  }
+
+  private canHitBridgeRopeRuntime(
+    runtime: RopeBridgeRuntime,
+    request: RopeHitRequest | RopeCircleHitRequest
+  ): boolean {
+    return (
+      runtime.active &&
+      runtime.health > 0 &&
+      runtime.hitId > 0 &&
+      runtime.renderLayer === request.renderLayer &&
+      !this.isRopeAlreadyHit(runtime.hitId, request)
+    )
+  }
+
+  private isRopeAlreadyHit(
+    hitId: number,
+    request: RopeHitRequest | RopeCircleHitRequest
+  ): boolean {
+    return request.weapon?.hitRopeIds.has(hitId) === true
+  }
+
+  private markRopeHit(
+    hitId: number,
+    request: RopeHitRequest | RopeCircleHitRequest
+  ): void {
+    const weapon = request.weapon
+    if (!weapon) {
+      return
+    }
+    weapon.hitRopeIds.add(hitId)
+    weapon.groundHitSoundTriggered = true
+    weapon.groundHitSoundPending = 0
+  }
+
+  private getRopeHitDamage(
+    request: RopeHitRequest | RopeCircleHitRequest
+  ): number {
+    if (!(request.damage > 0)) {
+      return 0
+    }
+    return Math.max(1, Math.trunc(request.damage))
+  }
+
+  private findHitRopeSegmentInOBB(
+    segmentBodies: b2BodyId[],
+    segmentCount: number,
+    request: RopeHitRequest
+  ): boolean {
+    const count = Math.min(segmentCount, segmentBodies.length)
+    if (count <= 0) {
+      return false
+    }
+
+    this.hitRopeSegmentIndex = -1
+    for (let i = 0; i < count; i++) {
+      const bodyId = segmentBodies[i]
+      if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+        continue
+      }
+      const pos = this.box2d.b2Body_GetPosition(bodyId)
+      const hit = checkOBBvsCircle(
+        request.centerX,
+        request.centerY,
+        request.width,
+        request.height,
+        request.rotation,
+        pos.x,
+        pos.y,
+        DEFAULT_GRAPPLE_ROPE_SEGMENT_RADIUS
+      )
+      if (hit) {
+        this.hitRopeSegmentIndex = i
+        this.hitRopeSegmentX = pos.x
+        this.hitRopeSegmentY = pos.y
+        pos.delete()
+        return true
+      }
+      pos.delete()
+    }
+
+    return false
+  }
+
+  private findHitRopeSegmentInCircle(
+    segmentBodies: b2BodyId[],
+    segmentCount: number,
+    request: RopeCircleHitRequest
+  ): boolean {
+    const count = Math.min(segmentCount, segmentBodies.length)
+    if (count <= 0) {
+      return false
+    }
+
+    const radius = request.radius + DEFAULT_GRAPPLE_ROPE_SEGMENT_RADIUS
+    const radiusSq = radius * radius
+    this.hitRopeSegmentIndex = -1
+    for (let i = 0; i < count; i++) {
+      const bodyId = segmentBodies[i]
+      if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+        continue
+      }
+      const pos = this.box2d.b2Body_GetPosition(bodyId)
+      const dx = pos.x - request.centerX
+      const dy = pos.y - request.centerY
+      if (dx * dx + dy * dy <= radiusSq) {
+        this.hitRopeSegmentIndex = i
+        this.hitRopeSegmentX = pos.x
+        this.hitRopeSegmentY = pos.y
+        pos.delete()
+        return true
+      }
+      pos.delete()
+    }
+
+    return false
+  }
+
+  private applyRopeHitFeedback(
+    runtime: RopeRuntime | RopeBridgeRuntime,
+    request: RopeHitRequest
+  ): void {
+    this.startRopeHitShake(runtime, request)
+    this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
+  }
+
+  private applyRopeCircleHitFeedback(
+    runtime: RopeRuntime | RopeBridgeRuntime,
+    request: RopeCircleHitRequest
+  ): void {
+    this.startRopeCircleHitShake(runtime, request)
+    this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
+  }
+
+  private startRopeHitShake(
+    runtime: RopeRuntime | RopeBridgeRuntime,
+    request: RopeHitRequest
+  ): void {
+    if (this.tryStartRopeHitShakeFromRequestDirection(runtime, request)) {
+      return
+    }
+    const dx = this.hitRopeSegmentX - request.centerX
+    const dy = this.hitRopeSegmentY - request.centerY
+    const distSq = dx * dx + dy * dy
+    let dirX = 0
+    let dirY = 0
+    if (distSq > 0.0001) {
+      const invDist = 1 / Math.sqrt(distSq)
+      dirX = dx * invDist
+      dirY = dy * invDist
+    } else {
+      dirX = Math.cos(request.rotation)
+      dirY = Math.sin(request.rotation)
+    }
+
+    this.startRopeHitShakeWithDirection(runtime, dirX, dirY)
+  }
+
+  private startRopeCircleHitShake(
+    runtime: RopeRuntime | RopeBridgeRuntime,
+    request: RopeCircleHitRequest
+  ): void {
+    if (this.tryStartRopeHitShakeFromRequestDirection(runtime, request)) {
+      return
+    }
+    const dx = this.hitRopeSegmentX - request.centerX
+    const dy = this.hitRopeSegmentY - request.centerY
+    const distSq = dx * dx + dy * dy
+    let dirX = 0
+    let dirY = -1
+    if (distSq > 0.0001) {
+      const invDist = 1 / Math.sqrt(distSq)
+      dirX = dx * invDist
+      dirY = dy * invDist
+    }
+
+    this.startRopeHitShakeWithDirection(runtime, dirX, dirY)
+  }
+
+  private tryStartRopeHitShakeFromRequestDirection(
+    runtime: RopeRuntime | RopeBridgeRuntime,
+    request: RopeHitRequest | RopeCircleHitRequest
+  ): boolean {
+    const dirX = request.hitDirX ?? 0
+    const dirY = request.hitDirY ?? 0
+    const distSq = dirX * dirX + dirY * dirY
+    if (distSq <= 0.0001) {
+      return false
+    }
+    const invDist = 1 / Math.sqrt(distSq)
+    this.startRopeHitShakeWithDirection(runtime, dirX * invDist, dirY * invDist)
+    return true
+  }
+
+  private startRopeHitShakeWithDirection(
+    runtime: RopeRuntime | RopeBridgeRuntime,
+    dirX: number,
+    dirY: number
+  ): void {
+    runtime.hitShakeSegmentIndex = this.hitRopeSegmentIndex
+    runtime.hitShakeStartTimeMs = this.currentTimeMs
+    runtime.hitShakeEndTimeMs = this.currentTimeMs + this.ropeHitShakeDurationMs
+    runtime.hitShakeDirX = dirX
+    runtime.hitShakeDirY = dirY
+  }
+
+  private emitRopeHitSound(x: number, y: number): void {
+    this.statsSystem?.playSoundAt(SOUND_IDS.BODY_HIT, x, y)
   }
 
   private createAnchorBody(x: number, y: number): b2BodyId {
