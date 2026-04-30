@@ -2354,6 +2354,7 @@ function createBreakableCrateRuntimeBody(
     b2BodyType,
     b2DefaultBodyDef,
     b2CreateBody,
+    b2Body_ApplyMassFromShapes,
     b2DefaultShapeDef,
     b2CreatePolygonShape,
     b2MakeOffsetBox,
@@ -2394,6 +2395,7 @@ function createBreakableCrateRuntimeBody(
     breakableCratePlanksByShapeId.set(plank.shapeId, plank)
     box.delete()
   }
+  b2Body_ApplyMassFromShapes(bodyId)
 
   localCenter.delete()
   localRotation.delete()
@@ -2822,19 +2824,16 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
     )
     const crateHitLocalCenterX = 0
     const crateHitLocalCenterY = -crateHitHalfHeight
-    const crateHitCenterX =
-      env.x + crateHitLocalCenterX * cos - crateHitLocalCenterY * sin
-    const crateHitCenterY =
-      env.y + crateHitLocalCenterX * sin + crateHitLocalCenterY * cos
 
     const crateId = nextBreakableCrateId++
     const plankRuntimes: BreakableCratePlankRuntime[] = []
+    let massArea = 0
+    let massCenterX = 0
+    let massCenterY = 0
     for (let plankIndex = 0; plankIndex < layout.planks.length; plankIndex++) {
       const plank = layout.planks[plankIndex]
       const localCenterX = plank.localCenterX * scaleX * invPixelsPerMeter
       const localCenterY = plank.localCenterY * scaleY * invPixelsPerMeter
-      const centerX = env.x + localCenterX * cos - localCenterY * sin
-      const centerY = env.y + localCenterX * sin + localCenterY * cos
       const halfWidth = Math.max(
         0.02,
         plank.width * scaleX * invPixelsPerMeter * 0.5
@@ -2851,14 +2850,47 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
         obstacleIndex: -1,
         localCenterX,
         localCenterY,
-        centerX,
-        centerY,
+        centerX: 0,
+        centerY: 0,
         halfWidth,
         halfHeight,
         rotationRad,
         debrisVariant: plank.debrisVariant,
       }
       plankRuntimes.push(plankRuntime)
+      const area = halfWidth * halfHeight
+      massArea += area
+      massCenterX += localCenterX * area
+      massCenterY += localCenterY * area
+    }
+    const centerOfMassLocalX = massArea > 0 ? massCenterX / massArea : 0
+    const centerOfMassLocalY = massArea > 0 ? massCenterY / massArea : 0
+    const bodyCenterX =
+      env.x + centerOfMassLocalX * cos - centerOfMassLocalY * sin
+    const bodyCenterY =
+      env.y + centerOfMassLocalX * sin + centerOfMassLocalY * cos
+    const adjustedHitLocalCenterX = crateHitLocalCenterX - centerOfMassLocalX
+    const adjustedHitLocalCenterY = crateHitLocalCenterY - centerOfMassLocalY
+    const crateHitCenterX =
+      bodyCenterX +
+      adjustedHitLocalCenterX * cos -
+      adjustedHitLocalCenterY * sin
+    const crateHitCenterY =
+      bodyCenterY +
+      adjustedHitLocalCenterX * sin +
+      adjustedHitLocalCenterY * cos
+    for (let plankIndex = 0; plankIndex < plankRuntimes.length; plankIndex++) {
+      const plankRuntime = plankRuntimes[plankIndex]
+      plankRuntime.localCenterX -= centerOfMassLocalX
+      plankRuntime.localCenterY -= centerOfMassLocalY
+      plankRuntime.centerX =
+        bodyCenterX +
+        plankRuntime.localCenterX * cos -
+        plankRuntime.localCenterY * sin
+      plankRuntime.centerY =
+        bodyCenterY +
+        plankRuntime.localCenterX * sin +
+        plankRuntime.localCenterY * cos
     }
 
     const crate: BreakableCrateRuntime = {
@@ -2869,8 +2901,8 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
       destroyed: false,
       health: BREAKABLE_CRATE_MAX_HEALTH,
       bodyId: 0 as unknown as b2BodyId,
-      centerX: env.x,
-      centerY: env.y,
+      centerX: bodyCenterX,
+      centerY: bodyCenterY,
       rotationRad,
       isGrounded: false,
       wasGrounded: false,
@@ -2883,15 +2915,15 @@ function createBreakableCratesFromMap(map: EditorMapData): void {
       fallSolidContactCount: 0,
       sleepSynced: false,
       hitObstacleIndex: -1,
-      hitLocalCenterX: crateHitLocalCenterX,
-      hitLocalCenterY: crateHitLocalCenterY,
+      hitLocalCenterX: adjustedHitLocalCenterX,
+      hitLocalCenterY: adjustedHitLocalCenterY,
       hitHalfWidth: crateHitHalfWidth,
       hitHalfHeight: crateHitHalfHeight,
       planks: plankRuntimes,
     }
     crate.bodyId = createBreakableCrateRuntimeBody(
-      env.x,
-      env.y,
+      bodyCenterX,
+      bodyCenterY,
       rotationRad,
       renderLayer,
       crate.planks

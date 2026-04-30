@@ -180,6 +180,7 @@ export class GrappleSystem extends System {
   private box2d: MainModule
   private worldId: b2WorldId
   private tempVec: b2Vec2
+  private tempPointVec: b2Vec2
   private tempRot: b2Rot
   private currentTimeMs = 0
   private anchorsDirty = true
@@ -235,6 +236,7 @@ export class GrappleSystem extends System {
     this.box2d = box2d
     this.worldId = worldId
     this.tempVec = new box2d.b2Vec2(0, 0)
+    this.tempPointVec = new box2d.b2Vec2(0, 0)
     this.tempRot = new box2d.b2Rot()
     this.tempRot.SetAngle(0)
 
@@ -1122,6 +1124,75 @@ export class GrappleSystem extends System {
     )
   }
 
+  private writeGrappleTargetWorldPoint(
+    entity: Entity,
+    bodyId: b2BodyId,
+    localX: number,
+    localY: number,
+    out: { x: number; y: number }
+  ): void {
+    const transform = entity.transform
+    if (!transform) {
+      out.x = 0
+      out.y = 0
+      return
+    }
+
+    out.x = transform.x
+    out.y = transform.y
+    const physicsBodyId = entity.physics?.bodyId
+    if (
+      !this.isBodyId(physicsBodyId) ||
+      !this.areBodyIdsEqual(physicsBodyId, bodyId) ||
+      (localX === 0 && localY === 0)
+    ) {
+      return
+    }
+
+    const cos = Math.cos(transform.rotation)
+    const sin = Math.sin(transform.rotation)
+    out.x = transform.x + localX * cos - localY * sin
+    out.y = transform.y + localX * sin + localY * cos
+  }
+
+  private applyBodyVelocityCorrectionAtPoint(
+    bodyId: b2BodyId,
+    pointX: number,
+    pointY: number,
+    dirX: number,
+    dirY: number,
+    targetAlong: number
+  ): void {
+    if (!this.box2d.b2Body_IsValid(bodyId)) {
+      return
+    }
+
+    const mass = this.box2d.b2Body_GetMass(bodyId)
+    if (!(mass > 0)) {
+      return
+    }
+
+    const currentVel = this.box2d.b2Body_GetLinearVelocity(bodyId)
+    const currentAlong = currentVel.x * dirX + currentVel.y * dirY
+    if (currentAlong >= targetAlong) {
+      currentVel.delete()
+      return
+    }
+
+    const addSpeed = targetAlong - currentAlong
+    this.tempVec.x = dirX * addSpeed * mass
+    this.tempVec.y = dirY * addSpeed * mass
+    this.tempPointVec.x = pointX
+    this.tempPointVec.y = pointY
+    this.box2d.b2Body_ApplyLinearImpulse(
+      bodyId,
+      this.tempVec,
+      this.tempPointVec,
+      true
+    )
+    currentVel.delete()
+  }
+
   private canUseLockedTarget(
     owner: Entity,
     target: Entity
@@ -1311,10 +1382,6 @@ export class GrappleSystem extends System {
       if (!anchorEntity.transform) {
         return false
       }
-      anchorEntityId = anchorEntity.id
-      grapple.targetX = anchorEntity.transform.x
-      grapple.targetY = anchorEntity.transform.y
-      grapple.targetEntityId = anchorEntity.id
       if (anchorEntity.grappleTarget) {
         const targetBodyId = this.getValidBodyId(anchorEntity)
         if (!targetBodyId) {
@@ -1325,17 +1392,31 @@ export class GrappleSystem extends System {
         anchorIsDynamicTarget = true
         anchorLocalX = anchorEntity.grappleTarget.anchorLocalX
         anchorLocalY = anchorEntity.grappleTarget.anchorLocalY
+        this.writeGrappleTargetWorldPoint(
+          anchorEntity,
+          targetBodyId,
+          anchorLocalX,
+          anchorLocalY,
+          this.tempTarget
+        )
+        anchorEntityId = anchorEntity.id
+        grapple.targetX = this.tempTarget.x
+        grapple.targetY = this.tempTarget.y
+        grapple.targetEntityId = anchorEntity.id
+        const anchorDx = entity.transform.x - this.tempTarget.x
+        const anchorDy = entity.transform.y - this.tempTarget.y
+        const anchorDist = Math.sqrt(anchorDx * anchorDx + anchorDy * anchorDy)
         if (
           !this.buildDynamicAnchorTether(
             entity,
             runtime,
             anchorEntity.id,
             targetBodyId,
-            anchorEntity.transform.x,
-            anchorEntity.transform.y,
+            this.tempTarget.x,
+            this.tempTarget.y,
             anchorLocalX,
             anchorLocalY,
-            currentDist
+            anchorDist
           )
         ) {
           return false
@@ -1346,6 +1427,10 @@ export class GrappleSystem extends System {
       if (!anchorEntity.grappleAnchor) {
         return false
       }
+      anchorEntityId = anchorEntity.id
+      grapple.targetX = anchorEntity.transform.x
+      grapple.targetY = anchorEntity.transform.y
+      grapple.targetEntityId = anchorEntity.id
       anchorBodyId = this.createAnchorBody(
         anchorEntity.transform.x,
         anchorEntity.transform.y
@@ -1758,11 +1843,24 @@ export class GrappleSystem extends System {
     if (!anchorEntity?.transform) {
       return false
     }
-    if (runtime.anchorIsDynamicTarget && !this.getValidBodyId(anchorEntity)) {
-      return false
+    if (runtime.anchorIsDynamicTarget) {
+      const anchorBodyId = this.getValidBodyId(anchorEntity)
+      if (!anchorBodyId) {
+        return false
+      }
+      this.writeGrappleTargetWorldPoint(
+        anchorEntity,
+        anchorBodyId,
+        runtime.anchorLocalX,
+        runtime.anchorLocalY,
+        this.tempTarget
+      )
+      grapple.targetX = this.tempTarget.x
+      grapple.targetY = this.tempTarget.y
+    } else {
+      grapple.targetX = anchorEntity.transform.x
+      grapple.targetY = anchorEntity.transform.y
     }
-    grapple.targetX = anchorEntity.transform.x
-    grapple.targetY = anchorEntity.transform.y
     grapple.targetEntityId = anchorEntity.id
     if (
       !runtime.anchorIsDynamicTarget &&
@@ -1807,16 +1905,28 @@ export class GrappleSystem extends System {
       return false
     }
 
+    const anchorBodyId = this.getValidBodyId(anchorEntity)
+    if (!anchorBodyId) {
+      return false
+    }
+    this.writeGrappleTargetWorldPoint(
+      anchorEntity,
+      anchorBodyId,
+      runtime.anchorLocalX,
+      runtime.anchorLocalY,
+      this.tempTarget
+    )
+
     this.syncKinematicAnchorBody(
       runtime.anchorBodyId,
-      anchorEntity.transform.x,
-      anchorEntity.transform.y,
+      this.tempTarget.x,
+      this.tempTarget.y,
       runtime.anchorFollowX,
       runtime.anchorFollowY,
       deltaMs
     )
-    runtime.anchorFollowX = anchorEntity.transform.x
-    runtime.anchorFollowY = anchorEntity.transform.y
+    runtime.anchorFollowX = this.tempTarget.x
+    runtime.anchorFollowY = this.tempTarget.y
 
     this.syncKinematicAnchorBody(
       runtime.playerAnchorBodyId,
@@ -1864,14 +1974,13 @@ export class GrappleSystem extends System {
     if (!anchorEntity?.transform) {
       return
     }
-
     const anchorBodyId = this.getValidBodyId(anchorEntity)
     if (!anchorBodyId) {
       return
     }
 
-    const dx = entity.transform.x - anchorEntity.transform.x
-    const dy = entity.transform.y - anchorEntity.transform.y
+    const dx = runtime.playerFollowX - runtime.anchorFollowX
+    const dy = runtime.playerFollowY - runtime.anchorFollowY
     const distSq = dx * dx + dy * dy
     if (distSq <= 0.0001) {
       return
@@ -1890,23 +1999,18 @@ export class GrappleSystem extends System {
     const invDist = 1 / dist
     const dirX = dx * invDist
     const dirY = dy * invDist
-    const currentVel = this.box2d.b2Body_GetLinearVelocity(anchorBodyId)
-    const currentAlong = currentVel.x * dirX + currentVel.y * dirY
     const targetAlong = Math.min(
       this.dynamicTetherMaxSpeed,
       this.dynamicTetherBaseSpeed + stretch * this.dynamicTetherStretchSpeed
     )
-
-    if (currentAlong >= targetAlong) {
-      currentVel.delete()
-      return
-    }
-
-    const addSpeed = targetAlong - currentAlong
-    this.tempVec.x = currentVel.x + dirX * addSpeed
-    this.tempVec.y = currentVel.y + dirY * addSpeed
-    this.box2d.b2Body_SetLinearVelocity(anchorBodyId, this.tempVec)
-    currentVel.delete()
+    this.applyBodyVelocityCorrectionAtPoint(
+      anchorBodyId,
+      runtime.anchorFollowX,
+      runtime.anchorFollowY,
+      dirX,
+      dirY,
+      targetAlong
+    )
   }
 
   private repositionSegment(
@@ -2255,6 +2359,13 @@ export class GrappleSystem extends System {
       out.bodyId = bodyId
       out.localX = entity.grappleTarget.anchorLocalX
       out.localY = entity.grappleTarget.anchorLocalY
+      this.writeGrappleTargetWorldPoint(
+        entity,
+        bodyId,
+        out.localX,
+        out.localY,
+        out
+      )
       out.hasDynamicBody = true
       return true
     }
@@ -2387,42 +2498,51 @@ export class GrappleSystem extends System {
       return false
     }
 
+    if (hasDynamicBody && this.isBodyId(targetBodyId)) {
+      const localX = useEndpointA ? runtime.localAX : runtime.localBX
+      const localY = useEndpointA ? runtime.localAY : runtime.localBY
+      this.writeGrappleTargetWorldPoint(
+        entity,
+        targetBodyId,
+        localX,
+        localY,
+        this.tempTarget
+      )
+    } else {
+      this.tempTarget.x = entity.transform.x
+      this.tempTarget.y = entity.transform.y
+    }
+
     if (useEndpointA) {
       this.syncKinematicAnchorBody(
         bodyId,
-        entity.transform.x,
-        entity.transform.y,
+        this.tempTarget.x,
+        this.tempTarget.y,
         runtime.followAX,
         runtime.followAY,
         deltaMs
       )
-      runtime.followAX = entity.transform.x
-      runtime.followAY = entity.transform.y
+      runtime.followAX = this.tempTarget.x
+      runtime.followAY = this.tempTarget.y
     } else {
       this.syncKinematicAnchorBody(
         bodyId,
-        entity.transform.x,
-        entity.transform.y,
+        this.tempTarget.x,
+        this.tempTarget.y,
         runtime.followBX,
         runtime.followBY,
         deltaMs
       )
-      runtime.followBX = entity.transform.x
-      runtime.followBY = entity.transform.y
+      runtime.followBX = this.tempTarget.x
+      runtime.followBY = this.tempTarget.y
     }
 
     return true
   }
 
   private applyBridgeTension(runtime: RopeBridgeRuntime): boolean {
-    const entityA = this.getEntityById(runtime.endpointAEntityId)
-    const entityB = this.getEntityById(runtime.endpointBEntityId)
-    if (!entityA?.transform || !entityB?.transform) {
-      return true
-    }
-
-    const dx = entityB.transform.x - entityA.transform.x
-    const dy = entityB.transform.y - entityA.transform.y
+    const dx = runtime.followBX - runtime.followAX
+    const dy = runtime.followBY - runtime.followAY
     const distSq = dx * dx + dy * dy
     if (distSq <= 0.0001) {
       return true
@@ -2460,6 +2580,8 @@ export class GrappleSystem extends System {
     ) {
       this.applyBridgeEndpointTension(
         runtime.targetABodyId,
+        runtime.followAX,
+        runtime.followAY,
         dirX,
         dirY,
         targetAlong
@@ -2471,6 +2593,8 @@ export class GrappleSystem extends System {
     ) {
       this.applyBridgeEndpointTension(
         runtime.targetBBodyId,
+        runtime.followBX,
+        runtime.followBY,
         -dirX,
         -dirY,
         targetAlong
@@ -2481,26 +2605,20 @@ export class GrappleSystem extends System {
 
   private applyBridgeEndpointTension(
     bodyId: b2BodyId,
+    pointX: number,
+    pointY: number,
     dirX: number,
     dirY: number,
     targetAlong: number
   ): void {
-    if (!this.box2d.b2Body_IsValid(bodyId)) {
-      return
-    }
-
-    const currentVel = this.box2d.b2Body_GetLinearVelocity(bodyId)
-    const currentAlong = currentVel.x * dirX + currentVel.y * dirY
-    if (currentAlong >= targetAlong) {
-      currentVel.delete()
-      return
-    }
-
-    const addSpeed = targetAlong - currentAlong
-    this.tempVec.x = currentVel.x + dirX * addSpeed
-    this.tempVec.y = currentVel.y + dirY * addSpeed
-    this.box2d.b2Body_SetLinearVelocity(bodyId, this.tempVec)
-    currentVel.delete()
+    this.applyBodyVelocityCorrectionAtPoint(
+      bodyId,
+      pointX,
+      pointY,
+      dirX,
+      dirY,
+      targetAlong
+    )
   }
 
   private detachBridgeRopesForTarget(targetEntityId: number): void {
