@@ -1,5 +1,6 @@
 import {
   Application,
+  Assets,
   BlurFilter,
   Container,
   Graphics,
@@ -152,6 +153,7 @@ export class GameClient {
   private static readonly PERF_LOG_STATIC_BUILD_WARN_US = 3000
   private static readonly PERF_LOG_GRASS_WARN_US = 3000
   private static readonly ENVIRONMENT_TEXTURE_CACHE_LIMIT = 96
+  private static readonly STATIC_SCENE_CACHE_WARMUP_FRAMES = 2
   private static readonly SLEEP_CLOSE_DURATION_MS = 640
   private static readonly SLEEP_BLACKOUT_DURATION_MS = 1000
   private static readonly SLEEP_OPEN_DURATION_MS = 320
@@ -203,6 +205,8 @@ export class GameClient {
   private staticTerrainReady = false
   private staticEnvironmentReady = false
   private staticSceneTextureCacheDisabled = false
+  private staticSceneCacheRefreshQueued = false
+  private staticSceneCacheWarmupFrames = 0
   private pendingStaticTerrainSignature = 0
   private pendingStaticTerrainLayers: TerrainResolvedLayerView[] | null = null
   private pendingStaticTerrainLayerIndex = 0
@@ -316,8 +320,11 @@ export class GameClient {
   private perfLastStaticQueueActive = false
   private destroyed = false
 
+  private hasReceivedMapData = false
   private hasReceivedFirstState = false
   private isFirstFrameRendered = false
+  private introSceneReady = false
+  private rendererContextLost = false
   private onFirstFrameRendered?: () => void
 
   // Input State
@@ -423,6 +430,7 @@ export class GameClient {
     appCanvas.id = 'gameCanvas'
     appCanvas.classList.add('game-canvas')
     inputTarget.prepend(appCanvas)
+    this.configurePixiAssetLoading()
     await loadSpineAssets(
       CATERPILLAR_SPINE_KEY,
       getPublicAssetUrl('animations/caterpillar_move/paxing_ske.json'),
@@ -452,6 +460,13 @@ export class GameClient {
       spineCollisionMessages,
       onInitProgress
     )
+  }
+
+  private static configurePixiAssetLoading(): void {
+    Assets.setPreferences({
+      preferCreateImageBitmap: false,
+      preferWorkers: false,
+    })
   }
 
   private static async createPixiApplication(
@@ -544,9 +559,13 @@ export class GameClient {
     const height = app.renderer.height
     this.appCanvas.addEventListener('webglcontextlost', (event) => {
       event.preventDefault()
-      console.error('[Renderer] webgl context lost')
+      this.rendererContextLost = true
+      console.warn('[Renderer] webgl context lost')
     })
     this.appCanvas.addEventListener('webglcontextrestored', () => {
+      this.rendererContextLost = false
+      this.worldRenderer.invalidateStaticMeshCaches()
+      this.queueStaticSceneCacheRefresh()
       console.info('[Renderer] webgl context restored')
     })
 
@@ -849,7 +868,10 @@ export class GameClient {
 
   private setupAudioResume() {
     const passiveListenerOptions: AddEventListenerOptions = { passive: true }
-    const resumeAudio = () => {
+    const resumeAudio = (event: Event) => {
+      if (!event.isTrusted) {
+        return
+      }
       this.audioManager.resumeContext()
     }
     this.inputTarget.addEventListener('keydown', resumeAudio)
@@ -922,6 +944,7 @@ export class GameClient {
     } else if (msg.type === 'perf_snapshot') {
       this.workerPerfSnapshot = msg
     } else if (msg.type === 'map_data') {
+      this.hasReceivedMapData = true
       const isRuntimeTerrainUpdate = msg.runtimeTerrainUpdate === true
       const normalizedMap =
         normalizeCharacterBodyMapProfiles(msg.map) ?? msg.map
@@ -1706,11 +1729,13 @@ export class GameClient {
     this.updateStartMenuFlow(deltaMs | 0)
     this.pumpStaticSceneBuild()
     this.render(deltaMs | 0)
+    this.updateStaticSceneCacheRefresh()
     if (!this.editorPreview) {
       this.worldRenderer.commitPerfWindow(shouldRefreshPerfText)
     }
     this.renderFrameRevision++
     this.updatePreviewCaptureState()
+    this.updateIntroSceneReady()
 
     if (this.pendingCheckpointCapture) {
       this.pendingCheckpointCapture = false
@@ -1719,7 +1744,7 @@ export class GameClient {
 
     if (
       !this.isFirstFrameRendered &&
-      this.hasReceivedFirstState &&
+      this.introSceneReady &&
       this.onFirstFrameRendered
     ) {
       this.isFirstFrameRendered = true
@@ -2661,12 +2686,14 @@ export class GameClient {
 
   private updateStartMenuFlow(deltaMs: number) {
     if (this.pendingStartMenuDelayMs >= 0) {
-      this.pendingStartMenuDelayMs -= deltaMs
-      if (this.pendingStartMenuDelayMs <= 0) {
-        const skipAnimation = this.pendingStartMenuSkipAnimation
-        this.pendingStartMenuDelayMs = -1
-        this.pendingStartMenuSkipAnimation = false
-        this.showStartMenu(skipAnimation)
+      if (this.introSceneReady) {
+        this.pendingStartMenuDelayMs -= deltaMs
+        if (this.pendingStartMenuDelayMs <= 0) {
+          const skipAnimation = this.pendingStartMenuSkipAnimation
+          this.pendingStartMenuDelayMs = -1
+          this.pendingStartMenuSkipAnimation = false
+          this.showStartMenu(skipAnimation)
+        }
       }
     }
 
@@ -2894,9 +2921,58 @@ export class GameClient {
     }
     if (this.staticSceneTextureCacheDisabled) {
       this.worldRenderer.invalidateStaticMeshCaches()
+      this.staticSceneCacheRefreshQueued = false
+      this.staticSceneCacheWarmupFrames = 0
+      return
+    }
+    this.queueStaticSceneCacheRefresh()
+  }
+
+  private queueStaticSceneCacheRefresh(): void {
+    this.worldRenderer.invalidateStaticMeshCaches()
+    this.staticSceneCacheRefreshQueued = true
+    this.staticSceneCacheWarmupFrames =
+      GameClient.STATIC_SCENE_CACHE_WARMUP_FRAMES
+  }
+
+  private updateStaticSceneCacheRefresh(): void {
+    if (!this.staticSceneCacheRefreshQueued) {
+      return
+    }
+    if (!this.staticTerrainReady || !this.staticEnvironmentReady) {
+      return
+    }
+    if (this.staticSceneTextureCacheDisabled) {
+      this.worldRenderer.invalidateStaticMeshCaches()
+      this.staticSceneCacheRefreshQueued = false
+      this.staticSceneCacheWarmupFrames = 0
+      return
+    }
+    if (this.staticSceneCacheWarmupFrames > 0) {
+      this.staticSceneCacheWarmupFrames--
       return
     }
     this.worldRenderer.refreshStaticMeshCaches()
+    this.staticSceneCacheRefreshQueued = false
+  }
+
+  private updateIntroSceneReady(): void {
+    if (this.introSceneReady) {
+      return
+    }
+    if (
+      this.rendererContextLost ||
+      !this.hasReceivedMapData ||
+      !this.hasReceivedFirstState ||
+      !this.staticTerrainReady ||
+      !this.staticEnvironmentReady ||
+      this.pendingStaticTerrainLayers !== null ||
+      this.pendingStaticEnvironmentObjects !== null ||
+      this.renderer.getEntityCount() <= 0
+    ) {
+      return
+    }
+    this.introSceneReady = true
   }
 
   private recordStaticBuildTime(startMs: number): void {

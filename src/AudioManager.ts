@@ -107,6 +107,9 @@ export class AudioManager {
   }
 
   async init(): Promise<void> {
+    if (!this.hasUserActivation && !this.hasActiveUserGesture()) {
+      return
+    }
     if (this.initPromise) {
       return this.initPromise
     }
@@ -115,14 +118,19 @@ export class AudioManager {
   }
 
   resumeContext(): void {
+    const hasActiveGesture = this.hasActiveUserGesture()
+    if (!hasActiveGesture && !this.audioContext) {
+      return
+    }
     this.hasUserActivation = true
     const audioContext = this.getOrCreateAudioContext()
     if (!audioContext) {
       return
     }
     if (
-      audioContext.state === 'suspended' ||
-      audioContext.state === 'interrupted'
+      hasActiveGesture &&
+      (audioContext.state === 'suspended' ||
+        audioContext.state === 'interrupted')
     ) {
       audioContext.resume().catch((e: unknown) => {
         console.warn('AudioContext resume failed:', e)
@@ -131,6 +139,10 @@ export class AudioManager {
     this.init().catch((error: unknown) => {
       console.warn('Audio init failed:', error)
     })
+  }
+
+  private hasActiveUserGesture(): boolean {
+    return !navigator.userActivation || navigator.userActivation.isActive
   }
 
   private getOrCreateAudioContext(): AudioContext | null {
