@@ -23,8 +23,8 @@ import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   GRAPPLE_CLIMB_SPEED,
-  GRAPPLE_ROPE_BREAK_STRETCH_DENOMINATOR,
-  GRAPPLE_ROPE_BREAK_STRETCH_NUMERATOR,
+  GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR,
+  GRAPPLE_ROPE_ELASTIC_LIMIT_NUMERATOR,
 } from '../../constants'
 import {
   getGroundCollisionCategory,
@@ -86,6 +86,7 @@ export type RopeCircleHitRequest = {
 
 type RopeRuntime = {
   active: boolean
+  ownerEntityId: number
   hitId: number
   health: number
   hitShakeSegmentIndex: number
@@ -101,6 +102,10 @@ type RopeRuntime = {
   anchorLocalX: number
   anchorLocalY: number
   playerAnchorBodyId: b2BodyId | null
+  playerAttached: boolean
+  playerTetherState: number
+  playerGroundJumpActive: boolean
+  airJumpDetachArmed: boolean
   anchorFollowX: number
   anchorFollowY: number
   playerFollowX: number
@@ -169,6 +174,7 @@ type RopeClimbRuntime = {
   active: boolean
   sourceType: number
   ownerEntityId: number
+  playerRuntime: RopeRuntime | null
   bridgeRuntime: RopeBridgeRuntime | null
   bridgeHitId: number
   nodeIndex: number
@@ -188,6 +194,8 @@ export class GrappleSystem extends System {
   private readonly pullModePlayerArc = 3
   private readonly pullModeAnchorTether = 4
   private readonly pullModeObject = 5
+  private readonly playerTetherStateAir = 0
+  private readonly playerTetherStateGround = 1
   private readonly ropeClimbSourceNone = 0
   private readonly ropeClimbSourcePlayer = 1
   private readonly ropeClimbSourceBridge = 2
@@ -201,6 +209,9 @@ export class GrappleSystem extends System {
   private readonly dynamicTetherStretchSpeed = 8
   private readonly dynamicTetherMaxSpeed = 14
   private readonly dynamicTetherRopeDensity = 0.05
+  private readonly maxRopesPerTetherTarget = 4
+  private readonly ropeRetractTensionSlack =
+    DEFAULT_GRAPPLE_ROPE_SEGMENT_RADIUS * 2
   private readonly ropeJumpScale = 1000
   private readonly ropeJumpBaseUpwardScale = 600
   private readonly ropeJumpAmplitudeBoostScale = 350
@@ -226,6 +237,7 @@ export class GrappleSystem extends System {
   private ropeHideDistanceSq =
     DEFAULT_PLAYER_RADIUS * 2 * (DEFAULT_PLAYER_RADIUS * 2)
   private ropeRuntimeByEntityId = new Map<number, RopeRuntime>()
+  private detachedPlayerRopes: RopeRuntime[] = []
   private ropeClimbRuntimeByEntityId = new Map<number, RopeClimbRuntime>()
   private bridgeRopes: RopeBridgeRuntime[] = []
   private nextRopeHitId = 1
@@ -233,6 +245,7 @@ export class GrappleSystem extends System {
   private hitRopeSegmentX = 0
   private hitRopeSegmentY = 0
   private climbCandidateBridgeRuntime: RopeBridgeRuntime | null = null
+  private climbCandidatePlayerRuntime: RopeRuntime | null = null
   private climbCandidateNodeIndex = -1
   private climbCandidateDistSq = 0
   private climbCandidatePathDistance = 0
@@ -387,6 +400,10 @@ export class GrappleSystem extends System {
       return true
     }
 
+    if (this.tryStartDetachedPlayerRopeClimb(entity, grapple)) {
+      return true
+    }
+
     return this.tryStartBridgeRopeClimb(entity, grapple)
   }
 
@@ -415,6 +432,14 @@ export class GrappleSystem extends System {
       grapple.moveLockEndTime = 0
     })
 
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (!runtime.active || runtime.anchorEntityId !== targetEntityId) {
+        continue
+      }
+      this.destroyPlayerRopeRuntime(runtime)
+    }
+
     this.detachBridgeRopesForTarget(targetEntityId)
   }
 
@@ -428,6 +453,16 @@ export class GrappleSystem extends System {
         }
       }
     })
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (!runtime.active) continue
+      for (let j = 0; j < runtime.segmentBodies.length; j++) {
+        const bodyId = runtime.segmentBodies[j]
+        if (this.isBodyId(bodyId) && this.box2d.b2Body_IsValid(bodyId)) {
+          this.box2d.b2Body_SetLinearDamping(bodyId, this.ropeLinearDamping)
+        }
+      }
+    }
     this.ropeClimbRuntimeByEntityId.forEach((runtime) => {
       if (
         runtime.active &&
@@ -484,6 +519,20 @@ export class GrappleSystem extends System {
         )
       }
     })
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (!runtime.active) continue
+      for (let j = 0; j < runtime.segmentJoints.length; j++) {
+        const jointId = runtime.segmentJoints[j]
+        if (this.isJointId(jointId) && this.box2d.b2Joint_IsValid(jointId)) {
+          this.box2d.b2DistanceJoint_SetSpringHertz(jointId, this.ropeHertz)
+          this.box2d.b2DistanceJoint_SetSpringDampingRatio(
+            jointId,
+            this.ropeDampingRatio
+          )
+        }
+      }
+    }
     for (let i = 0; i < this.bridgeRopes.length; i++) {
       const runtime = this.bridgeRopes[i]
       if (!runtime.active) continue
@@ -563,6 +612,7 @@ export class GrappleSystem extends System {
     }
 
     this.updateBridgeRopes(deltaMs)
+    this.updateDetachedPlayerRopes(deltaMs)
 
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i]
@@ -646,14 +696,28 @@ export class GrappleSystem extends System {
           inputBuffer.clearAction('grapple')
           continue
         }
-        this.destroyAnchorTether(entity, grapple)
-        grapple.isPulling = false
-        grapple.isTethering = false
-        grapple.retainAirMomentum = false
-        grapple.pullMode = this.pullModeAnchor
-        grapple.targetEntityId = -1
-        grapple.desiredDistanceSq = 0
-        grapple.moveLockEndTime = 0
+        const previousTargetX = grapple.targetX
+        const previousTargetY = grapple.targetY
+        const shouldStartPullAfterDetach =
+          entity.input.lockedTargetId !== null || grapple.hasAnchorNearby
+        const runtime = this.ropeRuntimeByEntityId.get(entity.id)
+        if (runtime?.active === true && runtime.playerAttached) {
+          this.detachPlayerFromTether(
+            entity,
+            grapple,
+            runtime,
+            false,
+            runtime.anchorIsDynamicTarget
+          )
+        }
+        if (shouldStartPullAfterDetach) {
+          this.tryStartGrappleAction(
+            entity,
+            grapple,
+            previousTargetX,
+            previousTargetY
+          )
+        }
         inputBuffer.clearAction('grapple')
         continue
       }
@@ -674,136 +738,172 @@ export class GrappleSystem extends System {
         continue
       }
 
-      const canUse = !entity.isStunned()
-
-      if (canUse) {
-        const lockedTargetId = entity.input.lockedTargetId
-        if (lockedTargetId !== null) {
-          const lockedTarget = this.getEntityById(lockedTargetId)
-          if (lockedTarget && this.canUseLockedTarget(entity, lockedTarget)) {
-            const dx = lockedTarget.transform.x - entity.transform.x
-            const dy = lockedTarget.transform.y - entity.transform.y
-            const distSq = dx * dx + dy * dy
-            if (distSq <= this.rangeSq) {
-              const playerToughness = entity.stats?.toughness ?? 0
-              const targetToughness = this.getTargetToughness(lockedTarget)
-              const desiredDistance = this.getAttackDistance(
-                entity,
-                lockedTarget
-              )
-              grapple.targetX = lockedTarget.transform.x
-              grapple.targetY = lockedTarget.transform.y
-              grapple.targetEntityId = lockedTarget.id
-              grapple.pullElapsedMs = 0
-              grapple.isPulling = true
-              grapple.cooldownEndTime = this.currentTimeMs
-              grapple.desiredDistanceSq = desiredDistance * desiredDistance
-              this.statsSystem?.playSoundAt(
-                SOUND_IDS.GRAPPLE_PULL_START,
-                entity.transform.x,
-                entity.transform.y
-              )
-
-              if (lockedTarget.grappleAnchor) {
-                if (entity.input.grapplePersistentRequested) {
-                  if (this.startAnchorTether(entity, grapple, lockedTarget)) {
-                    grapple.pullMode = this.pullModeAnchorTether
-                    grapple.isTethering = true
-                  } else {
-                    this.stopPull(entity, grapple, false)
-                  }
-                } else {
-                  grapple.pullMode = this.pullModeAnchor
-                  grapple.isTethering = false
-                  this.applyGrappleImpulse(entity, grapple)
-                }
-              } else if (
-                entity.input.grapplePersistentRequested &&
-                lockedTarget.grappleTarget?.canTether === true
-              ) {
-                if (this.startAnchorTether(entity, grapple, lockedTarget)) {
-                  grapple.pullMode = this.pullModeAnchorTether
-                  grapple.isTethering = true
-                } else {
-                  this.stopPull(entity, grapple, false)
-                }
-              } else {
-                this.triggerNpcAggro(entity, lockedTarget)
-                if (targetToughness <= playerToughness) {
-                  if (lockedTarget.grappleTarget) {
-                    grapple.pullMode = this.pullModeObject
-                  } else {
-                    grapple.pullMode = this.pullModeNpc
-                    this.applyNpcStun(lockedTarget, grapple.pullDurationMs)
-                  }
-                } else {
-                  const isGrounded = lockedTarget.movement?.isGrounded ?? false
-                  grapple.pullMode = isGrounded
-                    ? this.pullModePlayerLinear
-                    : this.pullModePlayerArc
-                  if (grapple.pullMode === this.pullModePlayerArc) {
-                    this.applyGrappleImpulse(entity, grapple)
-                  }
-                }
-              }
-            }
-          }
-        } else {
-          const wantsPersistent = entity.input.grapplePersistentRequested
-          const facing =
-            entity.input.lastMoveDirection !== 0
-              ? entity.input.lastMoveDirection
-              : 1
-          const currentTargetX = grapple.isTethering
-            ? grapple.targetX
-            : undefined
-          const currentTargetY = grapple.isTethering
-            ? grapple.targetY
-            : undefined
-
-          const anchorTarget = this.findAnchorTarget(
-            entity.transform.x,
-            entity.transform.y,
-            facing,
-            this.tempTarget,
-            entity.render?.renderLayer ?? 0,
-            currentTargetX,
-            currentTargetY
-          )
-          if (!anchorTarget) {
-            inputBuffer.clearAction('grapple')
-            continue
-          }
-          grapple.targetX = this.tempTarget.x
-          grapple.targetY = this.tempTarget.y
-          grapple.targetEntityId = anchorTarget.id
-          grapple.desiredDistanceSq = 0
-          grapple.pullElapsedMs = 0
-          grapple.isPulling = true
-          grapple.cooldownEndTime = this.currentTimeMs
-          this.statsSystem?.playSoundAt(
-            SOUND_IDS.GRAPPLE_PULL_START,
-            entity.transform.x,
-            entity.transform.y
-          )
-
-          grapple.pullMode = this.pullModeAnchor
-          if (wantsPersistent) {
-            if (this.startAnchorTether(entity, grapple, anchorTarget)) {
-              grapple.pullMode = this.pullModeAnchorTether
-              grapple.isTethering = true
-            } else {
-              this.stopPull(entity, grapple, false)
-            }
-          } else {
-            grapple.isTethering = false
-            this.applyGrappleImpulse(entity, grapple)
-          }
-        }
-      }
-
+      this.tryStartGrappleAction(entity, grapple)
       inputBuffer.clearAction('grapple')
     }
+  }
+
+  private tryStartGrappleAction(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    excludedTargetX?: number,
+    excludedTargetY?: number
+  ): boolean {
+    if (!entity.input || !entity.transform) {
+      return false
+    }
+
+    const lockedTargetId = entity.input.lockedTargetId
+    if (lockedTargetId !== null) {
+      const lockedTarget = this.getEntityById(lockedTargetId)
+      if (!lockedTarget || !this.canUseLockedTarget(entity, lockedTarget)) {
+        return false
+      }
+      return this.startLockedTargetGrapple(entity, grapple, lockedTarget)
+    }
+
+    const facing =
+      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
+    const anchorTarget = this.findAnchorTarget(
+      entity.transform.x,
+      entity.transform.y,
+      facing,
+      this.tempTarget,
+      entity.render?.renderLayer ?? 0,
+      excludedTargetX,
+      excludedTargetY
+    )
+    if (!anchorTarget) {
+      return false
+    }
+
+    return this.startAnchorTargetGrapple(
+      entity,
+      grapple,
+      anchorTarget,
+      this.tempTarget.x,
+      this.tempTarget.y
+    )
+  }
+
+  private startLockedTargetGrapple(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    lockedTarget: Entity & { transform: NonNullable<Entity['transform']> }
+  ): boolean {
+    if (!entity.input || !entity.transform) {
+      return false
+    }
+
+    const dx = lockedTarget.transform.x - entity.transform.x
+    const dy = lockedTarget.transform.y - entity.transform.y
+    const distSq = dx * dx + dy * dy
+    if (distSq > this.rangeSq) {
+      return false
+    }
+
+    const playerToughness = entity.stats?.toughness ?? 0
+    const targetToughness = this.getTargetToughness(lockedTarget)
+    const desiredDistance = this.getAttackDistance(entity, lockedTarget)
+    grapple.targetX = lockedTarget.transform.x
+    grapple.targetY = lockedTarget.transform.y
+    grapple.targetEntityId = lockedTarget.id
+    grapple.pullElapsedMs = 0
+    grapple.isPulling = true
+    grapple.cooldownEndTime = this.currentTimeMs
+    grapple.desiredDistanceSq = desiredDistance * desiredDistance
+    this.statsSystem?.playSoundAt(
+      SOUND_IDS.GRAPPLE_PULL_START,
+      entity.transform.x,
+      entity.transform.y
+    )
+
+    if (lockedTarget.grappleAnchor) {
+      if (entity.input.grapplePersistentRequested) {
+        if (this.startAnchorTether(entity, grapple, lockedTarget)) {
+          grapple.pullMode = this.pullModeAnchorTether
+          grapple.isTethering = true
+        } else {
+          this.stopPull(entity, grapple, false)
+        }
+      } else {
+        grapple.pullMode = this.pullModeAnchor
+        grapple.isTethering = false
+        this.applyGrappleImpulse(entity, grapple)
+      }
+      return true
+    }
+
+    if (
+      entity.input.grapplePersistentRequested &&
+      lockedTarget.grappleTarget?.canTether === true
+    ) {
+      if (this.startAnchorTether(entity, grapple, lockedTarget)) {
+        grapple.pullMode = this.pullModeAnchorTether
+        grapple.isTethering = true
+      } else {
+        this.stopPull(entity, grapple, false)
+      }
+      return true
+    }
+
+    this.triggerNpcAggro(entity, lockedTarget)
+    if (targetToughness <= playerToughness) {
+      if (lockedTarget.grappleTarget) {
+        grapple.pullMode = this.pullModeObject
+      } else {
+        grapple.pullMode = this.pullModeNpc
+        this.applyNpcStun(lockedTarget, grapple.pullDurationMs)
+      }
+    } else {
+      const isGrounded = lockedTarget.movement?.isGrounded ?? false
+      grapple.pullMode = isGrounded
+        ? this.pullModePlayerLinear
+        : this.pullModePlayerArc
+      if (grapple.pullMode === this.pullModePlayerArc) {
+        this.applyGrappleImpulse(entity, grapple)
+      }
+    }
+    return true
+  }
+
+  private startAnchorTargetGrapple(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    anchorTarget: Entity,
+    targetX: number,
+    targetY: number
+  ): boolean {
+    if (!entity.input || !entity.transform) {
+      return false
+    }
+
+    grapple.targetX = targetX
+    grapple.targetY = targetY
+    grapple.targetEntityId = anchorTarget.id
+    grapple.desiredDistanceSq = 0
+    grapple.pullElapsedMs = 0
+    grapple.isPulling = true
+    grapple.cooldownEndTime = this.currentTimeMs
+    this.statsSystem?.playSoundAt(
+      SOUND_IDS.GRAPPLE_PULL_START,
+      entity.transform.x,
+      entity.transform.y
+    )
+
+    grapple.pullMode = this.pullModeAnchor
+    if (entity.input.grapplePersistentRequested) {
+      if (this.startAnchorTether(entity, grapple, anchorTarget)) {
+        grapple.pullMode = this.pullModeAnchorTether
+        grapple.isTethering = true
+      } else {
+        this.stopPull(entity, grapple, false)
+      }
+    } else {
+      grapple.isTethering = false
+      this.applyGrappleImpulse(entity, grapple)
+    }
+    return true
   }
 
   writeActiveRopePoints(
@@ -819,11 +919,26 @@ export class GrappleSystem extends System {
     let pointCount = 0
     pointCount = this.writePlayerRopePoints(
       entity,
+      this.ropeRuntimeByEntityId.get(entity.id) ?? null,
       targetBuffer,
       startOffset,
       maxPoints,
       pointCount
     )
+
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      if (pointCount >= maxPoints) break
+      const runtime = this.detachedPlayerRopes[i]
+      if (!runtime.active) continue
+      pointCount = this.writePlayerRopePoints(
+        entity,
+        runtime,
+        targetBuffer,
+        startOffset,
+        maxPoints,
+        pointCount
+      )
+    }
 
     for (let i = 0; i < this.bridgeRopes.length; i++) {
       if (pointCount >= maxPoints) break
@@ -843,22 +958,18 @@ export class GrappleSystem extends System {
 
   private writePlayerRopePoints(
     entity: Entity,
+    runtime: RopeRuntime | null,
     targetBuffer: Float32Array<ArrayBufferLike>,
     startOffset: number,
     maxPoints: number,
     pointCount: number
   ): number {
     const grapple = entity.grapple
-    if (!grapple || !grapple.isTethering || !grapple.isPulling) {
-      return pointCount
-    }
-    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
     if (!runtime || !runtime.active) {
       return pointCount
     }
-    const climbRuntime = this.ropeClimbRuntimeByEntityId.get(entity.id)
+    const climbRuntime = this.findPlayerRopeClimbRuntime(runtime)
     const isPlayerRopeClimbing =
-      grapple.isRopeClimbing &&
       climbRuntime?.active === true &&
       climbRuntime.sourceType === this.ropeClimbSourcePlayer
 
@@ -870,8 +981,9 @@ export class GrappleSystem extends System {
 
     let outOffset = startOffset + pointCount * 2
 
-    targetBuffer[outOffset] = grapple.targetX
-    targetBuffer[outOffset + 1] = grapple.targetY
+    if (!this.writePlayerRopeAnchorPoint(runtime, targetBuffer, outOffset)) {
+      return pointCount
+    }
     pointCount += 1
     outOffset += 2
 
@@ -904,13 +1016,32 @@ export class GrappleSystem extends System {
       pos.delete()
     }
 
-    if (!isPlayerRopeClimbing && entity.transform && pointCount < maxPoints) {
+    if (
+      runtime.playerAttached &&
+      !isPlayerRopeClimbing &&
+      runtime.ownerEntityId === entity.id &&
+      entity.transform &&
+      pointCount < maxPoints
+    ) {
       targetBuffer[outOffset] = entity.transform.x
       targetBuffer[outOffset + 1] = entity.transform.y
       pointCount += 1
     }
 
     return pointCount
+  }
+
+  private writePlayerRopeAnchorPoint(
+    runtime: RopeRuntime,
+    targetBuffer: Float32Array<ArrayBufferLike>,
+    outOffset: number
+  ): boolean {
+    if (!this.readBodyPosition(runtime.anchorBodyId, this.climbPointA)) {
+      return false
+    }
+    targetBuffer[outOffset] = this.climbPointA.x
+    targetBuffer[outOffset + 1] = this.climbPointA.y
+    return true
   }
 
   private writeBridgeRopePoints(
@@ -1534,6 +1665,7 @@ export class GrappleSystem extends System {
     }
     const runtime: RopeRuntime = {
       active: false,
+      ownerEntityId: entityId,
       hitId: 0,
       health: 0,
       hitShakeSegmentIndex: -1,
@@ -1549,6 +1681,10 @@ export class GrappleSystem extends System {
       anchorLocalX: 0,
       anchorLocalY: 0,
       playerAnchorBodyId: null,
+      playerAttached: false,
+      playerTetherState: this.playerTetherStateAir,
+      playerGroundJumpActive: false,
+      airJumpDetachArmed: true,
       anchorFollowX: 0,
       anchorFollowY: 0,
       playerFollowX: 0,
@@ -1567,6 +1703,78 @@ export class GrappleSystem extends System {
     return runtime
   }
 
+  private prepareNewAnchorTetherRuntime(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>
+  ): RopeRuntime {
+    const activeRuntime = this.ropeRuntimeByEntityId.get(entity.id)
+    if (activeRuntime?.active === true) {
+      this.detachPlayerFromTether(entity, grapple, activeRuntime, false)
+    }
+    return this.getOrCreateRopeRuntime(entity.id)
+  }
+
+  private canCreateRopeOnTarget(
+    targetEntityId: number,
+    ignoredPlayerRuntime: RopeRuntime | null = null,
+    ignoredBridgeRuntime: RopeBridgeRuntime | null = null
+  ): boolean {
+    if (targetEntityId < 0) {
+      return true
+    }
+
+    return (
+      this.getRopeCountForTarget(
+        targetEntityId,
+        ignoredPlayerRuntime,
+        ignoredBridgeRuntime
+      ) < this.maxRopesPerTetherTarget
+    )
+  }
+
+  private getRopeCountForTarget(
+    targetEntityId: number,
+    ignoredPlayerRuntime: RopeRuntime | null,
+    ignoredBridgeRuntime: RopeBridgeRuntime | null
+  ): number {
+    let count = 0
+
+    for (const runtime of this.ropeRuntimeByEntityId.values()) {
+      if (
+        runtime !== ignoredPlayerRuntime &&
+        runtime.active &&
+        runtime.anchorEntityId === targetEntityId
+      ) {
+        count++
+      }
+    }
+
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (
+        runtime !== ignoredPlayerRuntime &&
+        runtime.active &&
+        runtime.anchorEntityId === targetEntityId
+      ) {
+        count++
+      }
+    }
+
+    for (let i = 0; i < this.bridgeRopes.length; i++) {
+      const runtime = this.bridgeRopes[i]
+      if (
+        runtime !== ignoredBridgeRuntime &&
+        runtime.active &&
+        (runtime.endpointAEntityId === targetEntityId ||
+          runtime.endpointBEntityId === targetEntityId)
+      ) {
+        count++
+      }
+    }
+
+    return count
+  }
+
   private getOrCreateRopeClimbRuntime(entityId: number): RopeClimbRuntime {
     const existing = this.ropeClimbRuntimeByEntityId.get(entityId)
     if (existing) {
@@ -1576,6 +1784,7 @@ export class GrappleSystem extends System {
       active: false,
       sourceType: this.ropeClimbSourceNone,
       ownerEntityId: -1,
+      playerRuntime: null,
       bridgeRuntime: null,
       bridgeHitId: 0,
       nodeIndex: 0,
@@ -1601,6 +1810,7 @@ export class GrappleSystem extends System {
       !runtime?.active ||
       !grapple.isPulling ||
       !grapple.isTethering ||
+      !runtime.playerAttached ||
       runtime.anchorIsDynamicTarget
     ) {
       return false
@@ -1634,11 +1844,58 @@ export class GrappleSystem extends System {
       grapple,
       this.ropeClimbSourcePlayer,
       entity.id,
+      runtime,
       null,
       nodeIndex,
       maxNodeIndex,
       jointLength
     )
+  }
+
+  private tryStartDetachedPlayerRopeClimb(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>
+  ): boolean {
+    if (!entity.transform || grapple.isPulling || grapple.isTethering) {
+      return false
+    }
+
+    this.findNearestDetachedPlayerRopeNode(
+      entity.transform.x,
+      entity.transform.y,
+      entity.render?.renderLayer ?? 0
+    )
+    const runtime = this.climbCandidatePlayerRuntime
+    if (!runtime || this.climbCandidateNodeIndex < 0) {
+      return false
+    }
+
+    const maxNodeIndex = Math.max(
+      0,
+      Math.min(runtime.attachIndex + 1, runtime.segmentBodies.length)
+    )
+    const radius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    if (
+      !this.startRopeClimb(
+        entity,
+        grapple,
+        this.ropeClimbSourcePlayer,
+        runtime.ownerEntityId,
+        runtime,
+        null,
+        this.climbCandidateNodeIndex,
+        maxNodeIndex,
+        radius
+      )
+    ) {
+      return false
+    }
+
+    if (this.readBodyPosition(runtime.anchorBodyId, this.climbPointA)) {
+      grapple.targetX = this.climbPointA.x
+      grapple.targetY = this.climbPointA.y
+    }
+    return true
   }
 
   private tryStartBridgeRopeClimb(
@@ -1665,6 +1922,7 @@ export class GrappleSystem extends System {
       grapple,
       this.ropeClimbSourceBridge,
       -1,
+      null,
       bridgeRuntime,
       this.climbCandidateNodeIndex,
       maxNodeIndex,
@@ -1679,6 +1937,7 @@ export class GrappleSystem extends System {
     grapple: NonNullable<Entity['grapple']>,
     sourceType: number,
     ownerEntityId: number,
+    playerRuntime: RopeRuntime | null,
     bridgeRuntime: RopeBridgeRuntime | null,
     nodeIndex: number,
     maxNodeIndex: number,
@@ -1692,6 +1951,7 @@ export class GrappleSystem extends System {
     climbRuntime.active = true
     climbRuntime.sourceType = sourceType
     climbRuntime.ownerEntityId = ownerEntityId
+    climbRuntime.playerRuntime = playerRuntime
     climbRuntime.bridgeRuntime = bridgeRuntime
     climbRuntime.bridgeHitId = bridgeRuntime?.hitId ?? 0
     climbRuntime.nodeIndex = Math.max(0, Math.min(nodeIndex, maxNodeIndex))
@@ -1725,6 +1985,15 @@ export class GrappleSystem extends System {
         this.resetRopeClimbRuntime(climbRuntime)
         return false
       }
+    }
+
+    if (entity.movement) {
+      entity.movement.isJumping = false
+      entity.movement.jumpElapsedTime = 0
+    }
+    if (entity.input) {
+      entity.input.inputBuffer.clearAction('jump')
+      entity.input.jumpRequested = false
     }
 
     grapple.isRopeClimbing = true
@@ -1782,20 +2051,34 @@ export class GrappleSystem extends System {
     climbRuntime: RopeClimbRuntime,
     deltaMs: number
   ): void {
-    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
-    if (
-      !runtime?.active ||
-      runtime.anchorIsDynamicTarget ||
-      !grapple.isPulling ||
-      !grapple.isTethering
-    ) {
+    const runtime =
+      climbRuntime.playerRuntime ?? this.ropeRuntimeByEntityId.get(entity.id)
+    if (!runtime?.active) {
       this.stopRopeClimb(entity, grapple, true)
       return
     }
 
-    if (!this.syncTetherAnchorTarget(runtime, grapple)) {
-      this.stopRopeClimb(entity, grapple, true)
-      return
+    const isCurrentAttachedRope =
+      runtime.playerAttached &&
+      this.ropeRuntimeByEntityId.get(entity.id) === runtime
+    if (isCurrentAttachedRope) {
+      if (!grapple.isPulling || !grapple.isTethering) {
+        this.stopRopeClimb(entity, grapple, true)
+        return
+      }
+      if (!this.syncTetherAnchorTarget(runtime, grapple)) {
+        this.stopRopeClimb(entity, grapple, true)
+        return
+      }
+    } else {
+      if (!this.syncDetachedPlayerRopeAnchor(runtime, deltaMs)) {
+        this.stopRopeClimb(entity, grapple, false)
+        return
+      }
+      if (this.readBodyPosition(runtime.anchorBodyId, this.climbPointA)) {
+        grapple.targetX = this.climbPointA.x
+        grapple.targetY = this.climbPointA.y
+      }
     }
 
     this.handleRopeNodeSwingInput(entity, climbRuntime, deltaMs)
@@ -1972,6 +2255,7 @@ export class GrappleSystem extends System {
     runtime.active = false
     runtime.sourceType = this.ropeClimbSourceNone
     runtime.ownerEntityId = -1
+    runtime.playerRuntime = null
     runtime.bridgeRuntime = null
     runtime.bridgeHitId = 0
     runtime.nodeIndex = 0
@@ -2225,7 +2509,9 @@ export class GrappleSystem extends System {
     climbRuntime: RopeClimbRuntime
   ): b2BodyId | null {
     if (climbRuntime.sourceType === this.ropeClimbSourcePlayer) {
-      const runtime = this.ropeRuntimeByEntityId.get(climbRuntime.ownerEntityId)
+      const runtime =
+        climbRuntime.playerRuntime ??
+        this.ropeRuntimeByEntityId.get(climbRuntime.ownerEntityId)
       if (!runtime?.active) {
         return null
       }
@@ -2441,6 +2727,47 @@ export class GrappleSystem extends System {
     }
   }
 
+  private findNearestDetachedPlayerRopeNode(
+    x: number,
+    y: number,
+    renderLayer: number
+  ): void {
+    this.climbCandidatePlayerRuntime = null
+    this.climbCandidateNodeIndex = -1
+    this.climbCandidateDistSq = this.ropeClimbInteractRadiusSq
+
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (
+        !runtime.active ||
+        runtime.playerAttached ||
+        runtime.renderLayer !== renderLayer
+      ) {
+        continue
+      }
+
+      const maxNodeIndex = Math.max(
+        0,
+        Math.min(runtime.attachIndex + 1, runtime.segmentBodies.length)
+      )
+      for (let nodeIndex = 0; nodeIndex <= maxNodeIndex; nodeIndex++) {
+        const bodyId = this.getPlayerRopeNodeBody(runtime, nodeIndex)
+        if (!this.readBodyPosition(bodyId, this.climbPointA)) {
+          continue
+        }
+
+        const dx = this.climbPointA.x - x
+        const dy = this.climbPointA.y - y
+        const distSq = dx * dx + dy * dy
+        if (distSq <= this.climbCandidateDistSq) {
+          this.climbCandidateDistSq = distSq
+          this.climbCandidatePlayerRuntime = runtime
+          this.climbCandidateNodeIndex = nodeIndex
+        }
+      }
+    }
+  }
+
   private readBodyPosition(
     bodyId: b2BodyId | null,
     out: { x: number; y: number }
@@ -2464,9 +2791,6 @@ export class GrappleSystem extends System {
       return false
     }
 
-    const runtime = this.getOrCreateRopeRuntime(entity.id)
-    this.destroyAnchorTether(entity, grapple)
-
     let anchorBodyId: b2BodyId | null = null
     let anchorBodyOwned = true
     let anchorEntityId = -1
@@ -2476,6 +2800,7 @@ export class GrappleSystem extends System {
     const dx = entity.transform.x - grapple.targetX
     const dy = entity.transform.y - grapple.targetY
     const currentDist = Math.sqrt(dx * dx + dy * dy)
+    const startsGrounded = entity.movement?.isGrounded === true
 
     if (anchorEntity) {
       if (!anchorEntity.transform) {
@@ -2499,12 +2824,16 @@ export class GrappleSystem extends System {
           this.tempTarget
         )
         anchorEntityId = anchorEntity.id
+        if (!this.canCreateRopeOnTarget(anchorEntityId)) {
+          return false
+        }
         grapple.targetX = this.tempTarget.x
         grapple.targetY = this.tempTarget.y
         grapple.targetEntityId = anchorEntity.id
         const anchorDx = entity.transform.x - this.tempTarget.x
         const anchorDy = entity.transform.y - this.tempTarget.y
         const anchorDist = Math.sqrt(anchorDx * anchorDx + anchorDy * anchorDy)
+        const runtime = this.prepareNewAnchorTetherRuntime(entity, grapple)
         if (
           !this.buildDynamicAnchorTether(
             entity,
@@ -2515,18 +2844,25 @@ export class GrappleSystem extends System {
             this.tempTarget.y,
             anchorLocalX,
             anchorLocalY,
-            anchorDist
+            anchorDist,
+            startsGrounded
           )
         ) {
           return false
         }
         runtime.active = true
+        if (!startsGrounded) {
+          this.applyTetherSwingImpulse(entity, grapple)
+        }
         return true
       }
       if (!anchorEntity.grappleAnchor) {
         return false
       }
       anchorEntityId = anchorEntity.id
+      if (!this.canCreateRopeOnTarget(anchorEntityId)) {
+        return false
+      }
       grapple.targetX = anchorEntity.transform.x
       grapple.targetY = anchorEntity.transform.y
       grapple.targetEntityId = anchorEntity.id
@@ -2543,6 +2879,7 @@ export class GrappleSystem extends System {
       return false
     }
 
+    const runtime = this.prepareNewAnchorTetherRuntime(entity, grapple)
     runtime.maxRopeLength = DEFAULT_GRAPPLE_RANGE
     this.buildAnchorTether(
       entity,
@@ -2555,11 +2892,14 @@ export class GrappleSystem extends System {
       anchorEntityId,
       anchorLocalX,
       anchorLocalY,
-      anchorIsDynamicTarget
+      anchorIsDynamicTarget,
+      startsGrounded
     )
     runtime.active = true
 
-    this.applyTetherSwingImpulse(entity, grapple)
+    if (!startsGrounded) {
+      this.applyTetherSwingImpulse(entity, grapple)
+    }
 
     return true
   }
@@ -2573,18 +2913,21 @@ export class GrappleSystem extends System {
     anchorY: number,
     anchorLocalX: number,
     anchorLocalY: number,
-    initialLength: number
+    initialLength: number,
+    startsGrounded: boolean
   ): boolean {
-    if (!entity.transform) {
+    if (!entity.transform || !entity.physics) {
       return false
     }
 
     const playerX = entity.transform.x
     const playerY = entity.transform.y
-    const initialRopeLength = Math.max(
-      DEFAULT_GRAPPLE_TETHER_MIN_LENGTH,
-      initialLength
+    const anchorEntity = this.getEntityById(anchorEntityId)
+    const minRopeLength = this.getPlayerTetherMinLengthForTarget(
+      entity,
+      anchorEntity
     )
+    const initialRopeLength = Math.max(minRopeLength, initialLength)
     const maxLength = Math.max(DEFAULT_GRAPPLE_RANGE, initialRopeLength)
     const linkCount = Math.max(
       2,
@@ -2602,15 +2945,24 @@ export class GrappleSystem extends System {
     const initialSegmentCount = initialLinkCount - 1
     const renderLayer = entity.render?.renderLayer ?? 0
     const anchorBodyId = this.createKinematicAnchorBody(anchorX, anchorY)
-    const playerAnchorBodyId = this.createKinematicAnchorBody(playerX, playerY)
+    const playerAnchorBodyId = startsGrounded
+      ? this.createKinematicAnchorBody(playerX, playerY)
+      : null
 
     runtime.anchorBodyId = anchorBodyId
+    runtime.ownerEntityId = entity.id
     runtime.anchorBodyOwned = true
     runtime.anchorIsDynamicTarget = true
     runtime.anchorEntityId = anchorEntityId
     runtime.anchorLocalX = anchorLocalX
     runtime.anchorLocalY = anchorLocalY
     runtime.playerAnchorBodyId = playerAnchorBodyId
+    runtime.playerAttached = true
+    runtime.playerTetherState = startsGrounded
+      ? this.playerTetherStateGround
+      : this.playerTetherStateAir
+    runtime.playerGroundJumpActive = false
+    runtime.airJumpDetachArmed = entity.input?.jumpRequested !== true
     runtime.hitId = this.nextRopeHitId++
     runtime.health = this.getDefaultRopeHealth()
     this.resetRopeHitShake(runtime)
@@ -2674,9 +3026,15 @@ export class GrappleSystem extends System {
       runtime.attachIndex >= 0
         ? runtime.segmentBodies[runtime.attachIndex]
         : anchorBodyId
+    const playerBodyId = startsGrounded
+      ? playerAnchorBodyId
+      : entity.physics.bodyId
+    if (!this.isBodyId(playerBodyId)) {
+      return false
+    }
     runtime.playerJointId = this.createFixedDistanceJoint(
       attachBodyId,
-      playerAnchorBodyId,
+      playerBodyId,
       runtime.jointMaxLen
     )
     return true
@@ -2693,7 +3051,8 @@ export class GrappleSystem extends System {
     anchorEntityId: number,
     anchorLocalX: number,
     anchorLocalY: number,
-    anchorIsDynamicTarget: boolean
+    anchorIsDynamicTarget: boolean,
+    startsGrounded: boolean
   ): void {
     if (!entity.transform || !entity.physics) return
     const maxLength = DEFAULT_GRAPPLE_RANGE
@@ -2714,15 +3073,26 @@ export class GrappleSystem extends System {
     const initialSegmentCount = initialLinkCount - 1
 
     runtime.anchorBodyId = anchorBodyId
+    runtime.ownerEntityId = entity.id
     runtime.anchorBodyOwned = anchorBodyOwned
     runtime.anchorIsDynamicTarget = anchorIsDynamicTarget
     runtime.anchorEntityId = anchorEntityId
     runtime.anchorLocalX = anchorLocalX
     runtime.anchorLocalY = anchorLocalY
+    runtime.playerAttached = true
+    runtime.playerTetherState = startsGrounded
+      ? this.playerTetherStateGround
+      : this.playerTetherStateAir
+    runtime.playerGroundJumpActive = false
+    runtime.airJumpDetachArmed = entity.input?.jumpRequested !== true
     runtime.hitId = this.nextRopeHitId++
     runtime.health = this.getDefaultRopeHealth()
     this.resetRopeHitShake(runtime)
     runtime.renderLayer = entity.render?.renderLayer ?? 0
+    runtime.anchorFollowX = anchorX
+    runtime.anchorFollowY = anchorY
+    runtime.playerFollowX = entity.transform.x
+    runtime.playerFollowY = entity.transform.y
 
     const dx = entity.transform.x - anchorX
     const dy = entity.transform.y - anchorY
@@ -2771,13 +3141,244 @@ export class GrappleSystem extends System {
     const attachLocalY = runtime.attachIndex >= 0 ? 0 : runtime.anchorLocalY
     const initialRemainder = initialLength - initialSegmentCount * linkLength
     runtime.jointMaxLen = Math.max(0.01, Math.min(linkLength, initialRemainder))
+    const playerBodyId = startsGrounded
+      ? this.createPlayerTetherFollowBody(entity, runtime)
+      : entity.physics.bodyId
+    if (!this.isBodyId(playerBodyId)) {
+      return
+    }
     runtime.playerJointId = this.createFixedDistanceJoint(
       attachBodyId,
-      entity.physics.bodyId,
+      playerBodyId,
       runtime.jointMaxLen,
       attachLocalX,
       attachLocalY
     )
+  }
+
+  private createPlayerTetherFollowBody(
+    entity: Entity,
+    runtime: RopeRuntime
+  ): b2BodyId | null {
+    if (!entity.transform) {
+      return null
+    }
+
+    const bodyId = this.createKinematicAnchorBody(
+      entity.transform.x,
+      entity.transform.y
+    )
+    runtime.playerAnchorBodyId = bodyId
+    runtime.playerFollowX = entity.transform.x
+    runtime.playerFollowY = entity.transform.y
+    return bodyId
+  }
+
+  private switchPlayerTetherState(
+    entity: Entity,
+    runtime: RopeRuntime,
+    nextState: number
+  ): boolean {
+    if (runtime.playerTetherState === nextState) {
+      return true
+    }
+    if (!entity.physics) {
+      return false
+    }
+
+    this.destroyJointIfValid(runtime.playerJointId)
+    runtime.playerJointId = null
+
+    let playerBodyId: b2BodyId | null = entity.physics.bodyId
+    if (nextState === this.playerTetherStateGround) {
+      playerBodyId = this.createPlayerTetherFollowBody(entity, runtime)
+    } else {
+      this.destroyBodyIfValid(runtime.playerAnchorBodyId)
+      runtime.playerAnchorBodyId = null
+    }
+    if (!this.isBodyId(playerBodyId)) {
+      return false
+    }
+
+    runtime.playerTetherState = nextState
+    this.rebuildPlayerTetherJoint(
+      runtime,
+      playerBodyId,
+      !runtime.anchorIsDynamicTarget
+    )
+    return this.isJointId(runtime.playerJointId)
+  }
+
+  private updatePlayerTetherState(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime,
+    deltaMs: number
+  ): boolean {
+    if (!entity.input || !entity.movement || !entity.transform) {
+      return false
+    }
+
+    const jumpHeld = entity.input.jumpRequested
+    const jumpStartedByMovement = this.didMovementJumpStartThisTick(
+      entity,
+      deltaMs
+    )
+
+    if (!entity.input.jumpRequested) {
+      runtime.airJumpDetachArmed = true
+    }
+
+    if (jumpHeld && jumpStartedByMovement) {
+      runtime.playerGroundJumpActive = true
+      runtime.airJumpDetachArmed = false
+    }
+
+    if (entity.movement.isGrounded) {
+      runtime.playerGroundJumpActive = entity.movement.isJumping && jumpHeld
+      if (jumpHeld) {
+        runtime.airJumpDetachArmed = false
+      }
+      if (
+        !this.switchPlayerTetherState(
+          entity,
+          runtime,
+          this.playerTetherStateGround
+        )
+      ) {
+        return false
+      }
+    } else {
+      if (
+        runtime.playerGroundJumpActive &&
+        this.hasPlayerTetherSuspensionGeometry(entity, grapple, runtime)
+      ) {
+        runtime.playerGroundJumpActive = false
+      }
+
+      if (
+        runtime.playerTetherState === this.playerTetherStateGround &&
+        !runtime.playerGroundJumpActive
+      ) {
+        if (
+          !this.switchPlayerTetherState(
+            entity,
+            runtime,
+            this.playerTetherStateAir
+          )
+        ) {
+          return false
+        }
+      }
+    }
+
+    return this.syncPlayerTetherEndpointBody(entity, runtime, deltaMs)
+  }
+
+  private didMovementJumpStartThisTick(
+    entity: Entity,
+    deltaMs: number
+  ): boolean {
+    const movement = entity.movement
+    if (!movement?.isJumping) {
+      return false
+    }
+
+    const jumpElapsedMs = movement.jumpElapsedTime * 1000
+    return jumpElapsedMs <= deltaMs + 0.001
+  }
+
+  private shouldDetachTetherForSuspendedJump(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime
+  ): boolean {
+    if (!entity.input?.jumpRequested) {
+      return false
+    }
+    if (!runtime.airJumpDetachArmed || runtime.playerGroundJumpActive) {
+      return false
+    }
+    if (runtime.playerTetherState !== this.playerTetherStateAir) {
+      return false
+    }
+    if (!entity.input.inputBuffer.hasActiveAction('jump')) {
+      return false
+    }
+    return this.hasPlayerTetherSuspensionGeometry(entity, grapple, runtime)
+  }
+
+  private hasPlayerTetherSuspensionGeometry(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime
+  ): boolean {
+    if (!entity.transform || !entity.movement || entity.movement.isGrounded) {
+      return false
+    }
+
+    const dx = entity.transform.x - grapple.targetX
+    const dy = entity.transform.y - grapple.targetY
+    const minVerticalDrop = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    if (!(dy > minVerticalDrop)) {
+      return false
+    }
+
+    const distSq = dx * dx + dy * dy
+    if (distSq <= 0.0001) {
+      return false
+    }
+    if (dy * dy * 2 < distSq) {
+      return false
+    }
+
+    const ropeLength = Math.max(0.01, this.calculateCurrentRopeLength(runtime))
+    const slack = DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH * 2
+    const tautLength = Math.max(0.01, ropeLength - slack)
+    return distSq >= tautLength * tautLength
+  }
+
+  private syncPlayerTetherEndpointBody(
+    entity: Entity,
+    runtime: RopeRuntime,
+    deltaMs: number
+  ): boolean {
+    if (!entity.transform) {
+      return false
+    }
+
+    const x = entity.transform.x
+    const y = entity.transform.y
+    if (runtime.playerTetherState === this.playerTetherStateGround) {
+      const playerAnchorBodyId = runtime.playerAnchorBodyId
+      if (
+        !this.isBodyId(playerAnchorBodyId) ||
+        !this.box2d.b2Body_IsValid(playerAnchorBodyId)
+      ) {
+        return false
+      }
+      this.syncKinematicAnchorBody(
+        playerAnchorBodyId,
+        x,
+        y,
+        runtime.playerFollowX,
+        runtime.playerFollowY,
+        deltaMs
+      )
+    }
+    runtime.playerFollowX = x
+    runtime.playerFollowY = y
+    return true
+  }
+
+  private getPlayerTetherBodyId(
+    entity: Entity,
+    runtime: RopeRuntime
+  ): b2BodyId | null {
+    if (runtime.playerTetherState === this.playerTetherStateGround) {
+      return runtime.playerAnchorBodyId
+    }
+    return entity.physics?.bodyId ?? null
   }
 
   private updateAnchorTether(
@@ -2798,45 +3399,45 @@ export class GrappleSystem extends System {
 
     const isDynamicAnchor = runtime.anchorIsDynamicTarget
 
-    if (entity.input.jumpRequested && !entity.movement.isGrounded) {
-      if (!isDynamicAnchor) {
-        entity.input.jumpRequested = false
-        this.stopPull(entity, grapple, true)
-        this.performRopeJump(entity, grapple)
-        return
-      }
-    }
-
     if (!this.syncTetherAnchorTarget(runtime, grapple)) {
       this.stopPull(entity, grapple, false)
       return
     }
 
-    if (this.isPlayerTetherOverStretchLimit(entity, grapple, runtime)) {
+    if (!this.updatePlayerTetherState(entity, grapple, runtime, deltaMs)) {
       this.stopPull(entity, grapple, false)
       return
     }
 
+    if (this.shouldDetachTetherForSuspendedJump(entity, grapple, runtime)) {
+      this.detachPlayerFromTetherForJump(entity, grapple, runtime)
+      return
+    }
+
     entity.input.grappleLengthAdjustSteps = 0
+    const isRetractingTether = entity.input.grappleClimbHeld < 0
+    const playerBodyId = this.getPlayerTetherBodyId(entity, runtime)
+    if (!this.isBodyId(playerBodyId)) {
+      this.stopPull(entity, grapple, false)
+      return
+    }
+
+    if (runtime.playerTetherState === this.playerTetherStateAir) {
+      this.handleSwingInput(entity, grapple, deltaMs)
+    }
 
     if (isDynamicAnchor) {
       if (!this.syncDynamicTetherEndpointBodies(entity, runtime, deltaMs)) {
         this.stopPull(entity, grapple, false)
         return
       }
-      const playerAnchorBodyId = runtime.playerAnchorBodyId
-      if (!this.isBodyId(playerAnchorBodyId)) {
-        this.stopPull(entity, grapple, false)
-        return
-      }
-      this.adjustTetherLength(
+      this.adjustTetherLength(entity, runtime, deltaMs, playerBodyId, false)
+      this.applyPlayerTetherLimitTension(
         entity,
+        grapple,
         runtime,
-        deltaMs,
-        playerAnchorBodyId,
-        false
+        isRetractingTether
       )
-      this.applyDynamicTetherTension(entity, runtime)
       return
     }
 
@@ -2846,14 +3447,85 @@ export class GrappleSystem extends System {
       return
     }
 
-    this.handleSwingInput(entity, grapple, deltaMs)
-    this.adjustTetherLength(
+    this.adjustTetherLength(entity, runtime, deltaMs, playerBodyId, true)
+    this.applyPlayerTetherLimitTension(
       entity,
+      grapple,
       runtime,
-      deltaMs,
-      entity.physics.bodyId,
-      true
+      isRetractingTether
     )
+  }
+
+  private detachPlayerFromTetherForJump(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime
+  ): void {
+    if (!entity.input) {
+      return
+    }
+
+    entity.input.inputBuffer.clearAction('jump')
+    entity.input.jumpRequested = false
+    this.detachPlayerFromTether(entity, grapple, runtime, true)
+  }
+
+  private detachPlayerFromTether(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime,
+    applyJump: boolean,
+    forceDestroy = false
+  ): void {
+    if (!entity.input) {
+      return
+    }
+
+    entity.input.grappleLengthAdjustSteps = 0
+    const destroyOnDetach =
+      forceDestroy ||
+      applyJump ||
+      this.hasPlayerTetherSuspensionGeometry(entity, grapple, runtime)
+
+    this.destroyJointIfValid(runtime.playerJointId)
+    runtime.playerJointId = null
+    this.destroyBodyIfValid(runtime.playerAnchorBodyId)
+    runtime.playerAnchorBodyId = null
+    runtime.playerAttached = false
+    runtime.playerTetherState = this.playerTetherStateAir
+    runtime.playerGroundJumpActive = false
+    runtime.airJumpDetachArmed = true
+
+    if (this.ropeRuntimeByEntityId.get(runtime.ownerEntityId) === runtime) {
+      this.ropeRuntimeByEntityId.delete(runtime.ownerEntityId)
+    }
+
+    if (applyJump) {
+      this.performRopeJump(entity, grapple)
+    }
+
+    grapple.isPulling = false
+    grapple.isTethering = false
+    grapple.retainAirMomentum = true
+    grapple.pullMode = this.pullModeAnchor
+    grapple.targetEntityId = -1
+    grapple.desiredDistanceSq = 0
+    grapple.moveLockEndTime = 0
+
+    if (destroyOnDetach) {
+      this.destroyPlayerRopeRuntime(runtime)
+    } else {
+      this.addDetachedPlayerRope(runtime)
+    }
+  }
+
+  private addDetachedPlayerRope(runtime: RopeRuntime): void {
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      if (this.detachedPlayerRopes[i] === runtime) {
+        return
+      }
+    }
+    this.detachedPlayerRopes.push(runtime)
   }
 
   private adjustTetherLength(
@@ -2871,7 +3543,17 @@ export class GrappleSystem extends System {
     const delta = (GRAPPLE_CLIMB_SPEED * deltaMs) / 1000
 
     if (climbDir < 0) {
-      runtime.jointMaxLen -= delta
+      const currentTotalLength = this.calculateCurrentRopeLength(runtime)
+      const minTotalLength = this.getPlayerTetherMinLength(entity, runtime)
+      const retractDelta = Math.min(
+        delta,
+        Math.max(0, currentTotalLength - minTotalLength)
+      )
+      if (!(retractDelta > 0)) {
+        return
+      }
+
+      runtime.jointMaxLen -= retractDelta
 
       while (runtime.jointMaxLen <= 0 && runtime.attachIndex > -1) {
         runtime.attachIndex--
@@ -2904,6 +3586,35 @@ export class GrappleSystem extends System {
     }
 
     this.rebuildPlayerTetherJoint(runtime, playerBodyId, useAnchorLocal)
+  }
+
+  private getPlayerTetherMinLength(
+    entity: Entity,
+    runtime: RopeRuntime
+  ): number {
+    if (!runtime.anchorIsDynamicTarget || runtime.anchorEntityId < 0) {
+      return DEFAULT_GRAPPLE_TETHER_MIN_LENGTH
+    }
+
+    return this.getPlayerTetherMinLengthForTarget(
+      entity,
+      this.getEntityById(runtime.anchorEntityId)
+    )
+  }
+
+  private getPlayerTetherMinLengthForTarget(
+    entity: Entity,
+    target: Entity | null | undefined
+  ): number {
+    const playerRadius = Math.max(
+      DEFAULT_PLAYER_RADIUS,
+      entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    )
+    const targetRadius = Math.max(0, target?.render?.radius ?? 0)
+    return Math.max(
+      DEFAULT_GRAPPLE_TETHER_MIN_LENGTH,
+      playerRadius + targetRadius + DEFAULT_GRAPPLE_ROPE_SEGMENT_RADIUS
+    )
   }
 
   private rebuildPlayerTetherJoint(
@@ -2996,11 +3707,7 @@ export class GrappleSystem extends System {
       return false
     }
     const anchorEntity = this.getEntityById(runtime.anchorEntityId)
-    if (
-      !anchorEntity?.transform ||
-      !this.isBodyId(runtime.anchorBodyId) ||
-      !this.isBodyId(runtime.playerAnchorBodyId)
-    ) {
+    if (!anchorEntity?.transform || !this.isBodyId(runtime.anchorBodyId)) {
       return false
     }
 
@@ -3026,17 +3733,6 @@ export class GrappleSystem extends System {
     )
     runtime.anchorFollowX = this.tempTarget.x
     runtime.anchorFollowY = this.tempTarget.y
-
-    this.syncKinematicAnchorBody(
-      runtime.playerAnchorBodyId,
-      entity.transform.x,
-      entity.transform.y,
-      runtime.playerFollowX,
-      runtime.playerFollowY,
-      deltaMs
-    )
-    runtime.playerFollowX = entity.transform.x
-    runtime.playerFollowY = entity.transform.y
     return true
   }
 
@@ -3057,59 +3753,182 @@ export class GrappleSystem extends System {
     this.box2d.b2Body_SetTransform(bodyId, this.tempVec, this.tempRot)
   }
 
-  private applyDynamicTetherTension(
+  private applyPlayerTetherLimitTension(
     entity: Entity,
-    runtime: RopeRuntime
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime,
+    isRetractingTether: boolean
   ): void {
-    if (
-      !entity.transform ||
-      runtime.anchorEntityId < 0 ||
-      !runtime.anchorIsDynamicTarget
-    ) {
+    if (!entity.transform || !entity.physics) {
       return
     }
 
-    const anchorEntity = this.getEntityById(runtime.anchorEntityId)
-    if (!anchorEntity?.transform) {
-      return
-    }
-    const anchorBodyId = this.getValidBodyId(anchorEntity)
-    if (!anchorBodyId) {
-      return
-    }
-
-    const dx = runtime.playerFollowX - runtime.anchorFollowX
-    const dy = runtime.playerFollowY - runtime.anchorFollowY
+    const anchorX = grapple.targetX
+    const anchorY = grapple.targetY
+    const playerX = entity.transform.x
+    const playerY = entity.transform.y
+    const dx = playerX - anchorX
+    const dy = playerY - anchorY
     const distSq = dx * dx + dy * dy
     if (distSq <= 0.0001) {
       return
     }
 
+    const ropeLength = Math.max(0.01, this.calculateCurrentRopeLength(runtime))
     const dist = Math.sqrt(distSq)
-    const ropeLength = Math.max(
-      DEFAULT_GRAPPLE_TETHER_MIN_LENGTH,
-      this.calculateCurrentRopeLength(runtime)
+    const elasticLimit = this.getRopeElasticLimitLength(ropeLength)
+    const isAtElasticLimit = this.isDistanceAtRopeElasticLimit(
+      distSq,
+      ropeLength
     )
-    const stretch = dist - ropeLength
-    if (stretch <= 0) {
+    const retractTensionStretch = isRetractingTether
+      ? this.getRopeRetractTensionStretch(dist, ropeLength)
+      : 0
+    if (!isAtElasticLimit && !(retractTensionStretch > 0)) {
+      return
+    }
+
+    const stretch = Math.max(0, dist - elasticLimit)
+    const anchorBodyId = this.getPlayerTetherAnchorTensionBody(runtime)
+    const playerBodyId = entity.physics.bodyId
+    const anchorMovable = this.isTensionBodyMovable(anchorBodyId)
+    const playerMovable = this.isTensionBodyMovable(playerBodyId)
+    if (!anchorMovable && !playerMovable) {
       return
     }
 
     const invDist = 1 / dist
     const dirX = dx * invDist
     const dirY = dy * invDist
-    const targetAlong = Math.min(
-      this.dynamicTetherMaxSpeed,
-      this.dynamicTetherBaseSpeed + stretch * this.dynamicTetherStretchSpeed
+    const anchorSpeed = anchorMovable
+      ? this.getBodyVelocityAlong(anchorBodyId, dirX, dirY)
+      : 0
+    const playerSpeed = playerMovable
+      ? this.getBodyVelocityAlong(playerBodyId, dirX, dirY)
+      : 0
+    const relativeAwaySpeed = playerSpeed - anchorSpeed
+
+    const endpointCount = (anchorMovable ? 1 : 0) + (playerMovable ? 1 : 0)
+    const sharedLimitCorrectionSpeed = isAtElasticLimit
+      ? this.getRopeLimitTensionSpeed(stretch, relativeAwaySpeed, endpointCount)
+      : 0
+    const fullLimitCorrectionSpeed = isAtElasticLimit
+      ? this.getRopeLimitTensionSpeed(stretch, relativeAwaySpeed, 1)
+      : 0
+    const retractCorrectionSpeed = this.getRopeRetractTensionSpeed(
+      retractTensionStretch,
+      endpointCount
     )
-    this.applyBodyVelocityCorrectionAtPoint(
-      anchorBodyId,
-      runtime.anchorFollowX,
-      runtime.anchorFollowY,
-      dirX,
-      dirY,
-      targetAlong
+    const anchorCorrectionSpeed = Math.max(
+      playerMovable ? sharedLimitCorrectionSpeed : fullLimitCorrectionSpeed,
+      retractCorrectionSpeed
     )
+    const playerCorrectionSpeed = Math.max(
+      fullLimitCorrectionSpeed,
+      retractCorrectionSpeed
+    )
+    if (!(anchorCorrectionSpeed > 0) && !(playerCorrectionSpeed > 0)) {
+      return
+    }
+
+    if (anchorMovable) {
+      this.applyBodyVelocityCorrectionAtPoint(
+        anchorBodyId,
+        anchorX,
+        anchorY,
+        dirX,
+        dirY,
+        anchorSpeed + anchorCorrectionSpeed
+      )
+    }
+    if (playerMovable) {
+      this.applyBodyVelocityCorrectionAtPoint(
+        playerBodyId,
+        playerX,
+        playerY,
+        -dirX,
+        -dirY,
+        -playerSpeed + playerCorrectionSpeed
+      )
+    }
+  }
+
+  private getPlayerTetherAnchorTensionBody(
+    runtime: RopeRuntime
+  ): b2BodyId | null {
+    if (!runtime.anchorIsDynamicTarget) {
+      return runtime.anchorBodyId
+    }
+
+    if (runtime.anchorEntityId < 0) {
+      return null
+    }
+    const anchorEntity = this.getEntityById(runtime.anchorEntityId)
+    return anchorEntity ? this.getValidBodyId(anchorEntity) : null
+  }
+
+  private isTensionBodyMovable(bodyId: b2BodyId | null): bodyId is b2BodyId {
+    if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+      return false
+    }
+    return this.box2d.b2Body_GetMass(bodyId) > 0
+  }
+
+  private getRopeLimitTensionSpeed(
+    stretch: number,
+    relativeAwaySpeed: number,
+    endpointCount: number
+  ): number {
+    if (endpointCount <= 0) {
+      return 0
+    }
+
+    const pullbackSpeed =
+      stretch > 0
+        ? Math.min(
+            this.dynamicTetherMaxSpeed,
+            this.dynamicTetherBaseSpeed +
+              stretch * this.dynamicTetherStretchSpeed
+          )
+        : 0
+    const correctionSpeed = Math.max(0, relativeAwaySpeed + pullbackSpeed)
+    if (!(correctionSpeed > 0)) {
+      return 0
+    }
+
+    return correctionSpeed / endpointCount
+  }
+
+  private getRopeRetractTensionStretch(
+    dist: number,
+    ropeLength: number
+  ): number {
+    const stretch = dist - ropeLength - this.ropeRetractTensionSlack
+    return stretch > 0 ? stretch : 0
+  }
+
+  private getRopeRetractTensionSpeed(
+    stretch: number,
+    endpointCount: number
+  ): number {
+    if (endpointCount <= 0 || !(stretch > 0)) {
+      return 0
+    }
+    return (
+      Math.min(GRAPPLE_CLIMB_SPEED, stretch * this.dynamicTetherStretchSpeed) /
+      endpointCount
+    )
+  }
+
+  private getBodyVelocityAlong(
+    bodyId: b2BodyId,
+    dirX: number,
+    dirY: number
+  ): number {
+    const velocity = this.box2d.b2Body_GetLinearVelocity(bodyId)
+    const speed = velocity.x * dirX + velocity.y * dirY
+    velocity.delete()
+    return speed
   }
 
   private repositionSegment(
@@ -3180,6 +3999,32 @@ export class GrappleSystem extends System {
       return
     }
 
+    this.destroyPlayerRopeRuntime(runtime)
+    if (this.ropeRuntimeByEntityId.get(entity.id) === runtime) {
+      this.ropeRuntimeByEntityId.delete(entity.id)
+    }
+    grapple.isTethering = false
+  }
+
+  private destroyPlayerRopeRuntime(runtime: RopeRuntime): void {
+    this.stopRopeClimbersForPlayerRope(runtime)
+
+    const ownerEntityId = runtime.ownerEntityId
+    if (this.ropeRuntimeByEntityId.get(ownerEntityId) === runtime) {
+      const owner = this.getEntityById(ownerEntityId)
+      const grapple = owner?.grapple
+      if (grapple) {
+        grapple.isPulling = false
+        grapple.isTethering = false
+        grapple.retainAirMomentum = false
+        grapple.pullMode = this.pullModeAnchor
+        grapple.targetEntityId = -1
+        grapple.desiredDistanceSq = 0
+        grapple.moveLockEndTime = 0
+      }
+      this.ropeRuntimeByEntityId.delete(ownerEntityId)
+    }
+
     this.destroyJointIfValid(runtime.playerJointId)
     runtime.playerJointId = null
 
@@ -3202,6 +4047,7 @@ export class GrappleSystem extends System {
       this.destroyBodyIfValid(runtime.anchorBodyId)
     }
     runtime.anchorBodyId = null
+    runtime.ownerEntityId = -1
     runtime.anchorBodyOwned = false
     runtime.anchorIsDynamicTarget = false
     runtime.anchorEntityId = -1
@@ -3209,6 +4055,10 @@ export class GrappleSystem extends System {
     runtime.anchorLocalY = 0
     this.destroyBodyIfValid(runtime.playerAnchorBodyId)
     runtime.playerAnchorBodyId = null
+    runtime.playerAttached = false
+    runtime.playerTetherState = this.playerTetherStateAir
+    runtime.playerGroundJumpActive = false
+    runtime.airJumpDetachArmed = true
     runtime.anchorFollowX = 0
     runtime.anchorFollowY = 0
     runtime.playerFollowX = 0
@@ -3222,8 +4072,28 @@ export class GrappleSystem extends System {
     runtime.renderLayer = 0
     this.resetRopeHitShake(runtime)
     runtime.active = false
+  }
 
-    grapple.isTethering = false
+  private stopRopeClimbersForPlayerRope(runtime: RopeRuntime): void {
+    this.ropeClimbRuntimeByEntityId.forEach((climbRuntime, entityId) => {
+      if (
+        !climbRuntime.active ||
+        climbRuntime.sourceType !== this.ropeClimbSourcePlayer ||
+        climbRuntime.playerRuntime !== runtime
+      ) {
+        return
+      }
+
+      const entity = this.getEntityById(entityId)
+      const grapple = entity?.grapple
+      if (entity && grapple) {
+        this.stopRopeClimb(entity, grapple, false)
+        return
+      }
+
+      this.destroyRopeClimbJoint(climbRuntime)
+      this.resetRopeClimbRuntime(climbRuntime)
+    })
   }
 
   private transferTetherToSelectedTarget(
@@ -3248,7 +4118,7 @@ export class GrappleSystem extends System {
       return false
     }
 
-    if (!this.createBridgeRope(source, target)) {
+    if (!this.createBridgeRope(source, target, runtime)) {
       return false
     }
 
@@ -3295,7 +4165,11 @@ export class GrappleSystem extends System {
     )
   }
 
-  private createBridgeRope(source: Entity, target: Entity): boolean {
+  private createBridgeRope(
+    source: Entity,
+    target: Entity,
+    ignoredPlayerRuntime: RopeRuntime | null = null
+  ): boolean {
     if (source.id === target.id) {
       return false
     }
@@ -3331,6 +4205,21 @@ export class GrappleSystem extends System {
     }
 
     const existing = this.findBridgeRope(source.id, target.id)
+    if (
+      !this.canCreateRopeOnTarget(
+        endpointA.entityId,
+        ignoredPlayerRuntime,
+        existing
+      ) ||
+      !this.canCreateRopeOnTarget(
+        endpointB.entityId,
+        ignoredPlayerRuntime,
+        existing
+      )
+    ) {
+      return false
+    }
+
     if (existing) {
       this.destroyBridgeRope(existing)
     }
@@ -3560,10 +4449,74 @@ export class GrappleSystem extends System {
         this.destroyBridgeRope(runtime)
         continue
       }
-      if (!this.applyBridgeTension(runtime)) {
-        this.destroyBridgeRope(runtime)
-      }
+      this.applyBridgeLimitTension(runtime)
     }
+  }
+
+  private updateDetachedPlayerRopes(deltaMs: number): void {
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (!runtime.active || runtime.playerAttached) {
+        continue
+      }
+      if (this.syncDetachedPlayerRopeAnchor(runtime, deltaMs)) {
+        continue
+      }
+      this.destroyPlayerRopeRuntime(runtime)
+    }
+  }
+
+  private syncDetachedPlayerRopeAnchor(
+    runtime: RopeRuntime,
+    deltaMs: number
+  ): boolean {
+    const anchorBodyId = runtime.anchorBodyId
+    if (
+      !this.isBodyId(anchorBodyId) ||
+      !this.box2d.b2Body_IsValid(anchorBodyId)
+    ) {
+      return false
+    }
+    if (runtime.anchorEntityId < 0) {
+      return true
+    }
+
+    const anchorEntity = this.getEntityById(runtime.anchorEntityId)
+    if (!anchorEntity?.transform) {
+      return false
+    }
+
+    if (runtime.anchorIsDynamicTarget) {
+      const targetBodyId = this.getValidBodyId(anchorEntity)
+      if (!targetBodyId) {
+        return false
+      }
+      this.writeGrappleTargetWorldPoint(
+        anchorEntity,
+        targetBodyId,
+        runtime.anchorLocalX,
+        runtime.anchorLocalY,
+        this.tempTarget
+      )
+      this.syncKinematicAnchorBody(
+        anchorBodyId,
+        this.tempTarget.x,
+        this.tempTarget.y,
+        runtime.anchorFollowX,
+        runtime.anchorFollowY,
+        deltaMs
+      )
+      runtime.anchorFollowX = this.tempTarget.x
+      runtime.anchorFollowY = this.tempTarget.y
+      return true
+    }
+
+    this.tempVec.x = anchorEntity.transform.x
+    this.tempVec.y = anchorEntity.transform.y
+    this.box2d.b2Body_SetTransform(anchorBodyId, this.tempVec, this.tempRot)
+    runtime.anchorFollowX = anchorEntity.transform.x
+    runtime.anchorFollowY = anchorEntity.transform.y
+    return true
   }
 
   private syncBridgeEndpoint(
@@ -3645,67 +4598,76 @@ export class GrappleSystem extends System {
     return true
   }
 
-  private applyBridgeTension(runtime: RopeBridgeRuntime): boolean {
+  private applyBridgeLimitTension(runtime: RopeBridgeRuntime): void {
     const dx = runtime.followBX - runtime.followAX
     const dy = runtime.followBY - runtime.followAY
     const distSq = dx * dx + dy * dy
     if (distSq <= 0.0001) {
-      return true
+      return
     }
 
-    if (this.isDistanceOverRopeBreakLimit(distSq, runtime.maxRopeLength)) {
-      return false
+    if (!this.isDistanceAtRopeElasticLimit(distSq, runtime.maxRopeLength)) {
+      return
     }
 
     const dist = Math.sqrt(distSq)
-    const stretch = dist - runtime.maxRopeLength
-    if (stretch <= 0) {
-      return true
-    }
-
+    const elasticLimit = this.getRopeElasticLimitLength(runtime.maxRopeLength)
+    const stretch = Math.max(0, dist - elasticLimit)
     const invDist = 1 / dist
     const dirX = dx * invDist
     const dirY = dy * invDist
-    const dynamicEndpointCount =
-      (runtime.endpointAHasDynamicBody ? 1 : 0) +
-      (runtime.endpointBHasDynamicBody ? 1 : 0)
-    if (dynamicEndpointCount <= 0) {
-      return true
+    const bodyAId = runtime.targetABodyId
+    const bodyBId = runtime.targetBBodyId
+    const endpointAMovable =
+      runtime.endpointAHasDynamicBody && this.isTensionBodyMovable(bodyAId)
+    const endpointBMovable =
+      runtime.endpointBHasDynamicBody && this.isTensionBodyMovable(bodyBId)
+    if (!endpointAMovable && !endpointBMovable) {
+      return
     }
 
-    const targetAlong =
-      Math.min(
-        this.dynamicTetherMaxSpeed,
-        this.dynamicTetherBaseSpeed + stretch * this.dynamicTetherStretchSpeed
-      ) / dynamicEndpointCount
+    const speedA = endpointAMovable
+      ? this.getBodyVelocityAlong(bodyAId, dirX, dirY)
+      : 0
+    const speedB = endpointBMovable
+      ? this.getBodyVelocityAlong(bodyBId, dirX, dirY)
+      : 0
+    const relativeAwaySpeed = speedB - speedA
+    if (!(relativeAwaySpeed > 0) && !(stretch > 0)) {
+      return
+    }
 
-    if (
-      runtime.endpointAHasDynamicBody &&
-      this.isBodyId(runtime.targetABodyId)
-    ) {
+    const endpointCount =
+      (endpointAMovable ? 1 : 0) + (endpointBMovable ? 1 : 0)
+    const correctionSpeed = this.getRopeLimitTensionSpeed(
+      stretch,
+      relativeAwaySpeed,
+      endpointCount
+    )
+    if (!(correctionSpeed > 0)) {
+      return
+    }
+
+    if (endpointAMovable) {
       this.applyBridgeEndpointTension(
-        runtime.targetABodyId,
+        bodyAId,
         runtime.followAX,
         runtime.followAY,
         dirX,
         dirY,
-        targetAlong
+        speedA + correctionSpeed
       )
     }
-    if (
-      runtime.endpointBHasDynamicBody &&
-      this.isBodyId(runtime.targetBBodyId)
-    ) {
+    if (endpointBMovable) {
       this.applyBridgeEndpointTension(
-        runtime.targetBBodyId,
+        bodyBId,
         runtime.followBX,
         runtime.followBY,
         -dirX,
         -dirY,
-        targetAlong
+        -speedB + correctionSpeed
       )
     }
-    return true
   }
 
   private applyBridgeEndpointTension(
@@ -3825,8 +4787,15 @@ export class GrappleSystem extends System {
     }
 
     let hit = false
-    for (const [ownerEntityId, runtime] of this.ropeRuntimeByEntityId) {
-      if (this.tryHitPlayerRopeInOBB(ownerEntityId, runtime, request)) {
+    for (const runtime of this.ropeRuntimeByEntityId.values()) {
+      if (this.tryHitPlayerRopeInOBB(runtime, request)) {
+        hit = true
+      }
+    }
+
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (this.tryHitPlayerRopeInOBB(runtime, request)) {
         hit = true
       }
     }
@@ -3846,8 +4815,15 @@ export class GrappleSystem extends System {
     }
 
     let hit = false
-    for (const [ownerEntityId, runtime] of this.ropeRuntimeByEntityId) {
-      if (this.tryHitPlayerRopeInCircle(ownerEntityId, runtime, request)) {
+    for (const runtime of this.ropeRuntimeByEntityId.values()) {
+      if (this.tryHitPlayerRopeInCircle(runtime, request)) {
+        hit = true
+      }
+    }
+
+    for (let i = 0; i < this.detachedPlayerRopes.length; i++) {
+      const runtime = this.detachedPlayerRopes[i]
+      if (this.tryHitPlayerRopeInCircle(runtime, request)) {
         hit = true
       }
     }
@@ -3862,7 +4838,6 @@ export class GrappleSystem extends System {
   }
 
   private tryHitPlayerRopeInOBB(
-    ownerEntityId: number,
     runtime: RopeRuntime,
     request: RopeHitRequest
   ): boolean {
@@ -3870,10 +4845,7 @@ export class GrappleSystem extends System {
       return false
     }
 
-    const visibleSegmentCount = this.getVisiblePlayerRopeSegmentCount(
-      ownerEntityId,
-      runtime
-    )
+    const visibleSegmentCount = this.getVisiblePlayerRopeSegmentCount(runtime)
     if (
       !this.findHitRopeSegmentInOBB(
         runtime.segmentBodies,
@@ -3893,11 +4865,7 @@ export class GrappleSystem extends System {
     if (runtime.health <= 0) {
       runtime.health = 0
       this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
-      const owner = this.getEntityById(ownerEntityId)
-      const grapple = owner?.grapple
-      if (owner && grapple) {
-        this.stopPull(owner, grapple, false)
-      }
+      this.destroyPlayerRopeRuntime(runtime)
       return true
     }
 
@@ -3941,7 +4909,6 @@ export class GrappleSystem extends System {
   }
 
   private tryHitPlayerRopeInCircle(
-    ownerEntityId: number,
     runtime: RopeRuntime,
     request: RopeCircleHitRequest
   ): boolean {
@@ -3949,10 +4916,7 @@ export class GrappleSystem extends System {
       return false
     }
 
-    const visibleSegmentCount = this.getVisiblePlayerRopeSegmentCount(
-      ownerEntityId,
-      runtime
-    )
+    const visibleSegmentCount = this.getVisiblePlayerRopeSegmentCount(runtime)
     if (
       !this.findHitRopeSegmentInCircle(
         runtime.segmentBodies,
@@ -3972,11 +4936,7 @@ export class GrappleSystem extends System {
     if (runtime.health <= 0) {
       runtime.health = 0
       this.emitRopeHitSound(this.hitRopeSegmentX, this.hitRopeSegmentY)
-      const owner = this.getEntityById(ownerEntityId)
-      const grapple = owner?.grapple
-      if (owner && grapple) {
-        this.stopPull(owner, grapple, false)
-      }
+      this.destroyPlayerRopeRuntime(runtime)
       return true
     }
 
@@ -4316,7 +5276,7 @@ export class GrappleSystem extends System {
     jointDef.enableMotor = false
     jointDef.length = length
     jointDef.minLength = 0
-    jointDef.maxLength = length
+    jointDef.maxLength = this.getRopeElasticLimitLength(length)
 
     const jointId = this.box2d.b2CreateDistanceJoint(this.worldId, jointDef)
     jointDef.delete()
@@ -4355,11 +5315,8 @@ export class GrappleSystem extends System {
     return attachedSegments * runtime.linkLength + runtime.jointMaxLen
   }
 
-  private getVisiblePlayerRopeSegmentCount(
-    ownerEntityId: number,
-    runtime: RopeRuntime
-  ): number {
-    const climbRuntime = this.ropeClimbRuntimeByEntityId.get(ownerEntityId)
+  private getVisiblePlayerRopeSegmentCount(runtime: RopeRuntime): number {
+    const climbRuntime = this.findPlayerRopeClimbRuntime(runtime)
     if (
       climbRuntime?.active === true &&
       climbRuntime.sourceType === this.ropeClimbSourcePlayer
@@ -4369,23 +5326,22 @@ export class GrappleSystem extends System {
     return runtime.attachIndex + 1
   }
 
-  private isPlayerTetherOverStretchLimit(
-    entity: Entity,
-    grapple: NonNullable<Entity['grapple']>,
+  private findPlayerRopeClimbRuntime(
     runtime: RopeRuntime
-  ): boolean {
-    if (!entity.transform) {
-      return false
+  ): RopeClimbRuntime | null {
+    for (const climbRuntime of this.ropeClimbRuntimeByEntityId.values()) {
+      if (
+        climbRuntime.active &&
+        climbRuntime.sourceType === this.ropeClimbSourcePlayer &&
+        climbRuntime.playerRuntime === runtime
+      ) {
+        return climbRuntime
+      }
     }
-
-    const dx = entity.transform.x - grapple.targetX
-    const dy = entity.transform.y - grapple.targetY
-    const distSq = dx * dx + dy * dy
-    const ropeLength = Math.max(0.01, this.calculateCurrentRopeLength(runtime))
-    return this.isDistanceOverRopeBreakLimit(distSq, ropeLength)
+    return null
   }
 
-  private isDistanceOverRopeBreakLimit(
+  private isDistanceAtRopeElasticLimit(
     distSq: number,
     ropeLength: number
   ): boolean {
@@ -4394,10 +5350,17 @@ export class GrappleSystem extends System {
     }
 
     const denominatorSq =
-      GRAPPLE_ROPE_BREAK_STRETCH_DENOMINATOR *
-      GRAPPLE_ROPE_BREAK_STRETCH_DENOMINATOR
-    const numeratorLength = ropeLength * GRAPPLE_ROPE_BREAK_STRETCH_NUMERATOR
-    return distSq * denominatorSq > numeratorLength * numeratorLength
+      GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR *
+      GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR
+    const numeratorLength = ropeLength * GRAPPLE_ROPE_ELASTIC_LIMIT_NUMERATOR
+    return distSq * denominatorSq >= numeratorLength * numeratorLength
+  }
+
+  private getRopeElasticLimitLength(ropeLength: number): number {
+    return (
+      (ropeLength * GRAPPLE_ROPE_ELASTIC_LIMIT_NUMERATOR) /
+      GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR
+    )
   }
 
   private performRopeJump(
@@ -4517,7 +5480,7 @@ export class GrappleSystem extends System {
     entity: Entity,
     grapple: NonNullable<Entity['grapple']>
   ): void {
-    if (!entity.physics || !entity.transform) {
+    if (!entity.physics || !entity.transform || entity.movement?.isGrounded) {
       return
     }
 
