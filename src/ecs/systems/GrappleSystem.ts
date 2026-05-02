@@ -702,12 +702,19 @@ export class GrappleSystem extends System {
           entity.input.lockedTargetId !== null || grapple.hasAnchorNearby
         const runtime = this.ropeRuntimeByEntityId.get(entity.id)
         if (runtime?.active === true && runtime.playerAttached) {
+          // 这里的“地面状态”不是 movement.isGrounded，而是绳索还没有将角色悬空吊起。
+          // 它包含落地和从地面起跳后的跟随阶段；此时新拉取会快速移动身体，
+          // 旧绳索的跟随端可能追不上，因此启动新拉取前直接销毁旧绳索。
+          const shouldDestroyCurrentTether =
+            runtime.anchorIsDynamicTarget ||
+            (shouldStartPullAfterDetach &&
+              !this.isPlayerTetherSuspended(entity, grapple, runtime))
           this.detachPlayerFromTether(
             entity,
             grapple,
             runtime,
             false,
-            runtime.anchorIsDynamicTarget
+            shouldDestroyCurrentTether
           )
         }
         if (shouldStartPullAfterDetach) {
@@ -2134,7 +2141,11 @@ export class GrappleSystem extends System {
       return true
     }
 
+    const playerRuntime = climbRuntime.playerRuntime
     this.stopRopeClimb(entity, grapple, true)
+    if (playerRuntime?.active === true && !playerRuntime.playerAttached) {
+      this.destroyPlayerRopeRuntime(playerRuntime)
+    }
     this.performRopeJump(entity, grapple)
     return true
   }
@@ -3296,13 +3307,24 @@ export class GrappleSystem extends System {
     if (!entity.input?.jumpRequested) {
       return false
     }
-    if (!runtime.airJumpDetachArmed || runtime.playerGroundJumpActive) {
-      return false
-    }
-    if (runtime.playerTetherState !== this.playerTetherStateAir) {
+    if (!runtime.airJumpDetachArmed) {
       return false
     }
     if (!entity.input.inputBuffer.hasActiveAction('jump')) {
+      return false
+    }
+    return this.isPlayerTetherSuspended(entity, grapple, runtime)
+  }
+
+  private isPlayerTetherSuspended(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime
+  ): boolean {
+    if (
+      runtime.playerTetherState !== this.playerTetherStateAir ||
+      runtime.playerGroundJumpActive
+    ) {
       return false
     }
     return this.hasPlayerTetherSuspensionGeometry(entity, grapple, runtime)
@@ -3401,6 +3423,18 @@ export class GrappleSystem extends System {
 
     if (!this.syncTetherAnchorTarget(runtime, grapple)) {
       this.stopPull(entity, grapple, false)
+      return
+    }
+
+    // MovementSystem 会先于 GrappleSystem 消费跳跃输入，因此这里补偿本帧已起跳的情况。
+    // 只有角色处于“悬空吊起”的绳索状态时，跳跃才销毁绳索；落地状态必须保留绳索，
+    // 并继续在 updatePlayerTetherState() 中让绳索端点跟随角色身体。
+    if (
+      this.didMovementJumpStartThisTick(entity, deltaMs) &&
+      runtime.airJumpDetachArmed &&
+      this.isPlayerTetherSuspended(entity, grapple, runtime)
+    ) {
+      this.detachPlayerFromTether(entity, grapple, runtime, false, true)
       return
     }
 
