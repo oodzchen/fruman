@@ -465,14 +465,16 @@ async function initialize() {
   applyControls.forEach((apply) => apply())
 
   const editorManager = new EditorManager()
+  let previewRunToken = 0
   editorManager.setGameClient(game)
   editorManager.onBackToMenu(() => {
+    previewRunToken++
     game.setEditorPreview(false)
     game.clearMapPreview()
     game.showStartMenu()
   })
   editorManager.onPreview((_meta, data) => {
-    editorManager.hide()
+    const runToken = ++previewRunToken
     game.applyMapPreview(data)
 
     if (data.camera && data.camera.zoom) {
@@ -489,14 +491,22 @@ async function initialize() {
     }
 
     applyControls.forEach((apply) => apply())
+    game.setInputEnabled(false)
+    editorManager.hide()
     game.start()
-    game.setInputEnabled(true)
-    game.requestGameFocus()
+    void game.waitForPreviewPresentationReady().then(() => {
+      if (runToken !== previewRunToken || !game.isPreviewActive()) {
+        return
+      }
+      game.setInputEnabled(true)
+      game.requestGameFocus()
+    })
   })
   editorManager.onDefaultMapChanged(() => {
     game.reloadDefaultMap()
   })
   game.setPreviewExitHandler(() => {
+    previewRunToken++
     game.stop()
     game.setInputEnabled(false)
     game.setEditorPreview(true)
@@ -530,6 +540,7 @@ async function initialize() {
   const menuManager = game.getMenuManager()
 
   game.setOnEditorAction(() => {
+    previewRunToken++
     menuManager.hide()
     game.stop()
     game.setInputEnabled(false)

@@ -1,24 +1,34 @@
 import { localizer } from './Localizer'
 
+interface InitializationManagerOptions {
+  titleKey?: string
+  visible?: boolean
+}
+
 export class InitializationManager {
   private container: HTMLElement
+  private wrapper: HTMLDivElement
+  private titleEl: HTMLDivElement
   private barEl: HTMLDivElement
   private labelEl: HTMLDivElement
-  private progress = 0
+  private progressPercent = 0
   private currentStep = ''
   private steps: string[] = []
   private completedSteps = 0
 
-  constructor(container: HTMLElement) {
+  constructor(
+    container: HTMLElement,
+    options: InitializationManagerOptions = {}
+  ) {
     this.container = container
 
     const wrapper = document.createElement('div')
-    wrapper.style.cssText =
-      'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0b0c0e;z-index:100;font-family:monospace;color:#fff'
+    const display = options.visible === false ? 'none' : 'flex'
+    wrapper.style.cssText = `position:absolute;inset:0;display:${display};flex-direction:column;align-items:center;justify-content:center;background:#0b0c0e;z-index:100;font-family:monospace;color:#fff`
 
     const title = document.createElement('div')
     title.style.cssText = 'font-size:32px;margin-bottom:40px'
-    title.textContent = localizer.t('title')
+    title.textContent = localizer.t(options.titleKey ?? 'title')
 
     const barOuter = document.createElement('div')
     barOuter.style.cssText =
@@ -35,34 +45,58 @@ export class InitializationManager {
     wrapper.appendChild(barOuter)
     wrapper.appendChild(this.labelEl)
     this.container.appendChild(wrapper)
+    this.wrapper = wrapper
+    this.titleEl = title
   }
 
-  setSteps(steps: string[]) {
-    this.steps = steps
+  setTitle(titleKey: string) {
+    this.titleEl.textContent = localizer.t(titleKey)
+  }
+
+  setSteps(steps: readonly string[]) {
+    this.steps = [...steps]
     this.completedSteps = 0
-    this.progress = 0
+    this.progressPercent = 0
   }
 
   nextStep(stepName: string) {
     this.currentStep = stepName
     this.completedSteps++
-    this.progress = this.completedSteps / this.steps.length
+    this.progressPercent = Math.floor(
+      (this.completedSteps * 100) / Math.max(1, this.steps.length)
+    )
+    this.render()
+  }
+
+  setProgressPercent(stepName: string, progressPercent: number) {
+    this.currentStep = stepName
+    this.progressPercent = Math.min(100, Math.max(0, progressPercent | 0))
     this.render()
   }
 
   complete() {
-    this.progress = 1
+    this.progressPercent = 100
     this.render()
   }
 
+  show() {
+    this.wrapper.style.display = 'flex'
+  }
+
+  hide() {
+    this.wrapper.style.display = 'none'
+  }
+
+  isVisible(): boolean {
+    return this.wrapper.style.display !== 'none'
+  }
+
   remove() {
-    const wrapper = this.barEl.parentElement?.parentElement
-    wrapper?.remove()
+    this.wrapper.remove()
   }
 
   private render() {
-    this.barEl.style.width = `${this.progress * 100}%`
-    const pct = Math.floor(this.progress * 100)
-    this.labelEl.textContent = `${pct}% - ${localizer.t(this.currentStep)}`
+    this.barEl.style.width = `${this.progressPercent}%`
+    this.labelEl.textContent = `${this.progressPercent}% - ${localizer.t(this.currentStep)}`
   }
 }

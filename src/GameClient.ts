@@ -15,6 +15,7 @@ import { AudioManager } from './AudioManager'
 import { ClientRenderer } from './ClientRenderer'
 import { DialogManager } from './DialogManager'
 import type { DisplayManager } from './DisplayManager'
+import { InitializationManager } from './InitializationManager'
 import { LevelUpManager } from './LevelUpManager'
 import { localizer } from './Localizer'
 import { MenuAction, MenuManager, MenuMode } from './MenuManager'
@@ -143,6 +144,13 @@ export class GameClient {
   private static readonly DEFAULT_PIXELS_PER_METER = 50
   private static readonly PERF_DEBUG_QUERY_PARAM = 'perf'
   private static readonly STATIC_SCENE_BUILD_BUDGET_MS = 2
+  private static readonly PREVIEW_STATIC_SCENE_BUILD_BUDGET_MS = 8
+  private static readonly PREVIEW_LOADING_STEPS = [
+    'editor_preview_loading_runtime',
+    'editor_preview_loading_terrain',
+    'editor_preview_loading_environment',
+    'editor_preview_loading_frame',
+  ] as const
   private static readonly PERF_LOG_HEARTBEAT_WINDOWS = 12
   private static readonly PERF_LOG_FRAME_WARN_US = 18000
   private static readonly PERF_LOG_FRAME_MAX_WARN_US = 30000
@@ -352,6 +360,12 @@ export class GameClient {
   private previewTrackedCameraX = 0
   private previewTrackedCameraY = 0
   private previewTrackedZoom = 1000
+  private previewPresentationReady = true
+  private previewPresentationWaiters: Array<() => void> = []
+  private previewThumbnailWaiters: Array<() => void> = []
+  private previewLoadingManager: InitializationManager | null = null
+  private previewLoadingPercent = -1
+  private previewLoadingLabelKey = ''
   private onExitPreviewCallback?: () => void
   private cameraDebug: CameraDebugData & { enabled: boolean } = {
     topLimitRatio: 0.5,
@@ -682,6 +696,11 @@ export class GameClient {
     if (this.inputTarget.tabIndex < 0) {
       this.inputTarget.tabIndex = 0
     }
+    this.previewLoadingManager = new InitializationManager(this.inputTarget, {
+      titleKey: 'editor_preview_loading',
+      visible: false,
+    })
+    this.previewLoadingManager.setSteps(GameClient.PREVIEW_LOADING_STEPS)
     this.dialogManager = new DialogManager(this.inputTarget, this.inputTarget)
     this.levelUpManager = new LevelUpManager(this.inputTarget, this.inputTarget)
     this.levelUpManager.setSelectionHandler((stat) => {
@@ -814,6 +833,10 @@ export class GameClient {
   setEditorPreview(enabled: boolean) {
     this.editorPreview = enabled
     if (enabled) {
+      this.previewPresentationReady = true
+      this.resolvePreviewPresentationWaiters()
+      this.resolvePreviewThumbnailWaiters()
+      this.hidePreviewLoadingOverlay()
       this.camera.x = 0
       this.camera.y = 0
       this.targetZoom = 1
@@ -836,7 +859,11 @@ export class GameClient {
     this.previewTrackedCameraX = 0
     this.previewTrackedCameraY = 0
     this.previewTrackedZoom = 1000
-    this.setPreviewExitVisible(true)
+    this.previewPresentationReady = false
+    this.resolvePreviewPresentationWaiters()
+    this.resolvePreviewThumbnailWaiters()
+    this.setPreviewExitVisible(false)
+    this.showPreviewLoadingOverlay()
     this.currentMapData = normalizedMap
     this.syncSkyReferenceCamera(normalizedMap)
     this.applyMapInitialTimeCycle(normalizedMap)
@@ -1695,6 +1722,97 @@ export class GameClient {
     )
   }
 
+  private showPreviewLoadingOverlay(): void {
+    this.previewLoadingPercent = -1
+    this.previewLoadingLabelKey = ''
+    this.previewLoadingManager?.show()
+    this.updatePreviewLoadingOverlay()
+  }
+
+  private hidePreviewLoadingOverlay(): void {
+    this.previewLoadingManager?.hide()
+  }
+
+  private updatePreviewLoadingOverlay(): void {
+    const loadingManager = this.previewLoadingManager
+    if (!loadingManager || !loadingManager.isVisible()) {
+      return
+    }
+
+    const percent = this.getPreviewLoadingPercent()
+    const labelKey = this.getPreviewLoadingLabelKey()
+    if (
+      percent !== this.previewLoadingPercent ||
+      labelKey !== this.previewLoadingLabelKey
+    ) {
+      this.previewLoadingPercent = percent
+      this.previewLoadingLabelKey = labelKey
+      loadingManager.setProgressPercent(labelKey, percent)
+    }
+  }
+
+  private getPreviewLoadingPercent(): number {
+    if (this.previewPresentationReady) {
+      return 100
+    }
+
+    if (this.workerStateRevision < this.previewAwaitStateRevision) {
+      return 5
+    }
+
+    let percent = 20
+    percent += this.getWeightedPreviewQueueProgress(
+      this.staticTerrainReady,
+      this.pendingStaticTerrainTaskIndex,
+      this.pendingStaticTerrainTaskTotal,
+      30
+    )
+    percent += this.getWeightedPreviewQueueProgress(
+      this.staticEnvironmentReady,
+      this.pendingStaticEnvironmentIndex,
+      this.pendingStaticEnvironmentObjects?.length ?? 0,
+      35
+    )
+
+    if (!this.staticTerrainReady || !this.staticEnvironmentReady) {
+      return Math.min(percent, 85)
+    }
+
+    return 95
+  }
+
+  private getWeightedPreviewQueueProgress(
+    ready: boolean,
+    index: number,
+    total: number,
+    weight: number
+  ): number {
+    if (ready) {
+      return weight
+    }
+    if (total <= 0) {
+      return 0
+    }
+    const done = Math.min(Math.max(index, 0), total)
+    return Math.floor((done * weight) / total)
+  }
+
+  private getPreviewLoadingLabelKey(): string {
+    if (this.workerStateRevision < this.previewAwaitStateRevision) {
+      return 'editor_preview_loading_runtime'
+    }
+    if (!this.staticTerrainReady || this.pendingStaticTerrainLayers !== null) {
+      return 'editor_preview_loading_terrain'
+    }
+    if (
+      !this.staticEnvironmentReady ||
+      this.pendingStaticEnvironmentObjects !== null
+    ) {
+      return 'editor_preview_loading_environment'
+    }
+    return 'editor_preview_loading_frame'
+  }
+
   private renderLoopTick() {
     const frameStartMs = performance.now()
     const deltaMs = Math.min(this.app.ticker.deltaMS, 100)
@@ -1735,6 +1853,9 @@ export class GameClient {
     }
     this.renderFrameRevision++
     this.updatePreviewCaptureState()
+    this.updatePreviewPresentationState()
+    this.updatePreviewThumbnailWaiters()
+    this.updatePreviewLoadingOverlay()
     this.updateIntroSceneReady()
 
     if (this.pendingCheckpointCapture) {
@@ -2271,6 +2392,108 @@ export class GameClient {
     this.previewCameraStableFrames = 1
   }
 
+  private updatePreviewPresentationState(): void {
+    if (this.previewPresentationReady) {
+      return
+    }
+    if (!this.previewActive) {
+      this.previewPresentationReady = true
+      this.hidePreviewLoadingOverlay()
+      this.resolvePreviewPresentationWaiters()
+      return
+    }
+    if (!this.isPreviewPresentationStable()) {
+      return
+    }
+
+    this.previewPresentationReady = true
+    this.updatePreviewLoadingOverlay()
+    this.hidePreviewLoadingOverlay()
+    this.setPreviewExitVisible(true)
+    this.resolvePreviewPresentationWaiters()
+  }
+
+  private isPreviewPresentationStable(): boolean {
+    if (
+      this.rendererContextLost ||
+      this.workerStateRevision < this.previewAwaitStateRevision ||
+      this.previewFirstRenderRevision === 0 ||
+      this.renderer.getEntityCount() <= 0
+    ) {
+      return false
+    }
+
+    if (
+      !this.staticTerrainReady ||
+      !this.staticEnvironmentReady ||
+      this.pendingStaticTerrainLayers !== null ||
+      this.pendingStaticEnvironmentObjects !== null
+    ) {
+      return false
+    }
+
+    return true
+  }
+
+  private resolvePreviewPresentationWaiters(): void {
+    const waiters = this.previewPresentationWaiters
+    const count = waiters.length
+    if (count <= 0) {
+      return
+    }
+    for (let i = 0; i < count; i++) {
+      waiters[i]()
+    }
+    waiters.splice(0, count)
+  }
+
+  private updatePreviewThumbnailWaiters(): void {
+    if (this.previewThumbnailWaiters.length <= 0) {
+      return
+    }
+    if (!this.previewActive || this.isPreviewThumbnailReady()) {
+      this.resolvePreviewThumbnailWaiters()
+    }
+  }
+
+  private resolvePreviewThumbnailWaiters(): void {
+    const waiters = this.previewThumbnailWaiters
+    const count = waiters.length
+    if (count <= 0) {
+      return
+    }
+    for (let i = 0; i < count; i++) {
+      waiters[i]()
+    }
+    waiters.splice(0, count)
+  }
+
+  private isPreviewThumbnailReady(): boolean {
+    if (this.workerStateRevision < this.previewAwaitStateRevision) {
+      return false
+    }
+    if (this.previewFirstRenderRevision === 0) {
+      return false
+    }
+
+    const settledFrames =
+      this.renderFrameRevision - this.previewFirstRenderRevision
+    if (settledFrames >= GameClient.PREVIEW_CAPTURE_MAX_RENDER_FRAMES) {
+      return true
+    }
+
+    if (settledFrames >= GameClient.PREVIEW_CAPTURE_MIN_RENDER_FRAMES) {
+      return (
+        this.staticTerrainReady &&
+        this.staticEnvironmentReady &&
+        this.previewCameraStableFrames >=
+          GameClient.PREVIEW_CAPTURE_STABLE_FRAMES
+      )
+    }
+
+    return false
+  }
+
   private renderCameraDebug(): void {
     const ctx = this.hudRenderContext
     const canvasWidth = this.app.renderer.width
@@ -2313,6 +2536,10 @@ export class GameClient {
   }
   clearMapPreview() {
     this.previewActive = false
+    this.previewPresentationReady = true
+    this.resolvePreviewPresentationWaiters()
+    this.resolvePreviewThumbnailWaiters()
+    this.hidePreviewLoadingOverlay()
     this.setPreviewExitVisible(false)
     this.applySaveTimeCycle(this.currentSaveData)
     this.worker.postMessage({ type: 'control', action: 'clear_map_preview' })
@@ -2501,6 +2728,10 @@ export class GameClient {
       return
     }
     this.previewActive = false
+    this.previewPresentationReady = true
+    this.resolvePreviewPresentationWaiters()
+    this.resolvePreviewThumbnailWaiters()
+    this.hidePreviewLoadingOverlay()
     this.setPreviewExitVisible(false)
     this.applySaveTimeCycle(this.currentSaveData)
     this.menuManager.hide()
@@ -3168,12 +3399,19 @@ export class GameClient {
   }
 
   private pumpStaticSceneBuild(): void {
-    const deadline = performance.now() + GameClient.STATIC_SCENE_BUILD_BUDGET_MS
+    const deadline = performance.now() + this.getStaticSceneBuildBudgetMs()
     this.pumpStaticTerrainBuild(deadline)
     if (performance.now() >= deadline) {
       return
     }
     this.pumpStaticEnvironmentBuild(deadline)
+  }
+
+  private getStaticSceneBuildBudgetMs(): number {
+    if (this.previewActive && !this.previewPresentationReady) {
+      return GameClient.PREVIEW_STATIC_SCENE_BUILD_BUDGET_MS
+    }
+    return GameClient.STATIC_SCENE_BUILD_BUDGET_MS
   }
 
   private pumpStaticTerrainBuild(deadlineMs: number): void {
@@ -4077,6 +4315,11 @@ export class GameClient {
       return
     }
     this.destroyed = true
+    this.previewPresentationReady = true
+    this.resolvePreviewPresentationWaiters()
+    this.resolvePreviewThumbnailWaiters()
+    this.previewLoadingManager?.remove()
+    this.previewLoadingManager = null
 
     this.stop()
     this.worker.terminate()
@@ -4117,49 +4360,24 @@ export class GameClient {
   }
 
   waitForPreviewThumbnailReady(): Promise<void> {
-    if (!this.previewActive) {
+    if (!this.previewActive || this.isPreviewThumbnailReady()) {
       return Promise.resolve()
     }
 
-    const targetStateRevision = this.previewAwaitStateRevision
     return new Promise((resolve) => {
-      const poll = () => {
-        if (!this.previewActive) {
-          resolve()
-          return
-        }
-        if (this.workerStateRevision < targetStateRevision) {
-          requestAnimationFrame(poll)
-          return
-        }
-        if (this.previewFirstRenderRevision === 0) {
-          requestAnimationFrame(poll)
-          return
-        }
+      this.previewThumbnailWaiters.push(resolve)
+      this.updatePreviewThumbnailWaiters()
+    })
+  }
 
-        const settledFrames =
-          this.renderFrameRevision - this.previewFirstRenderRevision
-        const terrainReady =
-          this.staticTerrainReady || this.pendingStaticTerrainSignature === 0
-        const environmentReady =
-          this.staticEnvironmentReady ||
-          this.pendingStaticEnvironmentSignature === 0
-        if (
-          settledFrames >= GameClient.PREVIEW_CAPTURE_MAX_RENDER_FRAMES ||
-          (terrainReady &&
-            environmentReady &&
-            settledFrames >= GameClient.PREVIEW_CAPTURE_MIN_RENDER_FRAMES &&
-            this.previewCameraStableFrames >=
-              GameClient.PREVIEW_CAPTURE_STABLE_FRAMES)
-        ) {
-          resolve()
-          return
-        }
+  waitForPreviewPresentationReady(): Promise<void> {
+    if (!this.previewActive || this.previewPresentationReady) {
+      return Promise.resolve()
+    }
 
-        requestAnimationFrame(poll)
-      }
-
-      requestAnimationFrame(poll)
+    return new Promise((resolve) => {
+      this.previewPresentationWaiters.push(resolve)
+      this.updatePreviewPresentationState()
     })
   }
 
