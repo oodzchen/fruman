@@ -677,13 +677,22 @@ export class GrappleSystem extends System {
         continue
       }
 
+      const inputBuffer = entity.input.inputBuffer
+      const grappleActionActive = inputBuffer.hasActiveAction('grapple')
+
+      if (entity.input.grappleBreakRequested && grappleActionActive) {
+        this.destroyConnectedPlayerRope(entity, grapple)
+        entity.input.grappleBreakRequested = false
+        entity.input.grapplePersistentRequested = false
+        inputBuffer.clearAction('grapple')
+        continue
+      }
+      entity.input.grappleBreakRequested = false
+
       if (grapple.isRopeClimbing) {
         this.updateRopeClimb(entity, grapple, deltaMs)
         continue
       }
-
-      const inputBuffer = entity.input.inputBuffer
-      const grappleActionActive = inputBuffer.hasActiveAction('grapple')
 
       if (
         grapple.isPulling &&
@@ -3508,6 +3517,29 @@ export class GrappleSystem extends System {
     entity.input.inputBuffer.clearAction('jump')
     entity.input.jumpRequested = false
     this.detachPlayerFromTether(entity, grapple, runtime, true)
+  }
+
+  private destroyConnectedPlayerRope(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>
+  ): void {
+    if (grapple.isRopeClimbing) {
+      this.stopRopeClimb(entity, grapple, false)
+    }
+
+    const runtime = this.ropeRuntimeByEntityId.get(entity.id)
+    if (runtime?.active === true) {
+      if (runtime.playerAttached) {
+        this.detachPlayerFromTether(entity, grapple, runtime, false, true)
+      } else {
+        this.destroyPlayerRopeRuntime(runtime)
+      }
+      return
+    }
+
+    if (grapple.isTethering) {
+      this.stopPull(entity, grapple, false)
+    }
   }
 
   private detachPlayerFromTether(

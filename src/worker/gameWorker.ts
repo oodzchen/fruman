@@ -5700,6 +5700,7 @@ function handleInput(
       playerEntity.input.sprintRequested = false
       playerEntity.input.grappleHoldRequested = false
       playerEntity.input.grapplePersistentRequested = false
+      playerEntity.input.grappleBreakRequested = false
       playerEntity.input.freeAimToggleRequested = false
       playerEntity.input.inputBuffer.clearAll()
       lockCancelOnReleaseArmed = false
@@ -5885,6 +5886,7 @@ function handleInput(
     }
     playerEntity.input.grappleHoldRequested = shiftHeld && !isPlayerDead
     playerEntity.input.grapplePersistentRequested = false
+    playerEntity.input.grappleBreakRequested = false
 
     const rPressed = currKeys.has('r')
     const rJustPressed = rPressed && !prevKeys.has('r')
@@ -5905,13 +5907,17 @@ function handleInput(
     if (rJustReleased) {
       if (rHoldActive && !rHoldTriggered && !isPlayerDead) {
         const g = playerEntity.grapple
+        const shouldBreakGrapple = g && g.isTethering
         const shouldGrapple =
           g &&
           (g.isPulling ||
             g.isTethering ||
             g.hasAnchorNearby ||
             canGrappleLockedTarget(playerEntity))
-        if (shouldGrapple) {
+        if (shouldBreakGrapple) {
+          playerEntity.input.grappleBreakRequested = true
+          playerEntity.input.inputBuffer.bufferAction('grapple')
+        } else if (shouldGrapple) {
           playerEntity.input.inputBuffer.bufferAction('grapple')
         } else {
           const solar = playerEntity.solarEnergy
