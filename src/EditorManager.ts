@@ -225,6 +225,7 @@ export class EditorManager {
   private lastClientX = 0
   private lastClientY = 0
   private objectTreeAnchorId = -1
+  private suppressCanvasSelectionSync = false
   private dragSelectionIds: number[] = []
   private panelMenuSpawnX = 0
   private panelMenuSpawnY = 0
@@ -918,8 +919,12 @@ export class EditorManager {
         this.terrainBrushController.handlePointerUp(),
       clearSelection: () => this.clearEditorSelection(),
       restoreCanvasCursor: () => this.restoreEditorCanvasCursor(),
-      handleCanvasSelection: (objects) =>
-        this.objectManager.handleCanvasSelection(objects),
+      handleCanvasSelection: (objects) => {
+        if (this.suppressCanvasSelectionSync) {
+          return
+        }
+        this.objectManager.handleCanvasSelection(objects)
+      },
       onObjectMoving: (target) => this.handleObjectMoving(target),
       onObjectModified: (target) => this.handleObjectModified(target),
       onPolygonEdited: () => this.captureHistorySnapshot(),
@@ -1507,29 +1512,32 @@ export class EditorManager {
       : getDefaultShapeRenderLayer()
   }
 
-  private getGroupedObjectRenderLayer(ids: readonly number[]): number {
-    let firstLayer = this.getEditorObjectDefaultRenderLayer()
+  private getCommonObjectRenderLayer(ids: readonly number[]): number | null {
+    let commonLayer = 0
     let hasLayer = false
-    let isSameLayer = true
     for (let i = 0; i < ids.length; i++) {
       const data = this.objectManager.getEditorObjectById(ids[i])
       if (!data) {
-        continue
+        return null
       }
       const layer = this.getEditorObjectRenderLayer(data.object)
       if (!hasLayer) {
-        firstLayer = layer
+        commonLayer = layer
         hasLayer = true
         continue
       }
-      if (firstLayer !== layer) {
-        isSameLayer = false
+      if (commonLayer !== layer) {
+        return null
       }
     }
-    if (isSameLayer || typeof this.sceneDepthFilter !== 'number') {
-      return firstLayer
-    }
-    return this.sceneDepthFilter
+    return hasLayer ? commonLayer : null
+  }
+
+  private getGroupedObjectRenderLayer(ids: readonly number[]): number {
+    return (
+      this.getCommonObjectRenderLayer(ids) ??
+      this.getEditorObjectDefaultRenderLayer()
+    )
   }
 
   private getEnvironmentStampDefaultRenderLayer(): number {
@@ -1798,11 +1806,11 @@ export class EditorManager {
   }
 
   private collectRangeSelection(anchorId: number, targetId: number) {
-    const objects = this.getDepthFilteredEditorObjects()
+    const visibleIds = this.objectTreeManager.getVisibleObjectIdsInRenderOrder()
     let anchorIndex = -1
     let targetIndex = -1
-    for (let i = 0; i < objects.length; i++) {
-      const id = objects[i].id
+    for (let i = 0; i < visibleIds.length; i++) {
+      const id = visibleIds[i]
       if (id === anchorId) {
         anchorIndex = i
       }
@@ -1817,7 +1825,7 @@ export class EditorManager {
     const end = Math.max(anchorIndex, targetIndex)
     const result: number[] = []
     for (let i = start; i <= end; i++) {
-      result.push(objects[i].id)
+      result.push(visibleIds[i])
     }
     return result
   }
@@ -1828,38 +1836,71 @@ export class EditorManager {
       return
     }
     if (ids.length === 0) {
-      canvas.discardActiveObject()
+      this.suppressCanvasSelectionSync = true
+      try {
+        canvas.discardActiveObject()
+      } finally {
+        this.suppressCanvasSelectionSync = false
+      }
+      this.applyProgrammaticCanvasSelectionSideEffects(null)
       canvas.requestRenderAll()
       return
     }
     const objects: fabric.Object[] = []
     for (let i = 0; i < ids.length; i++) {
       const data = this.objectManager.getEditorObjectById(ids[i])
-      if (!data?.object || data.object.canvas !== canvas) {
+      if (!data?.object) {
         continue
       }
       const target = this.objectManager.getSelectionTarget(data.object)
+      if (target.canvas !== canvas) {
+        continue
+      }
       if (!objects.includes(target)) {
         objects.push(target)
       }
     }
     if (objects.length === 0) {
-      canvas.discardActiveObject()
+      this.suppressCanvasSelectionSync = true
+      try {
+        canvas.discardActiveObject()
+      } finally {
+        this.suppressCanvasSelectionSync = false
+      }
+      this.applyProgrammaticCanvasSelectionSideEffects(null)
       canvas.requestRenderAll()
       return
     }
     if (objects.length === 1) {
-      canvas.setActiveObject(objects[0])
-      this.objectManager.handleCanvasSelection(objects)
+      this.suppressCanvasSelectionSync = true
+      try {
+        canvas.setActiveObject(objects[0])
+      } finally {
+        this.suppressCanvasSelectionSync = false
+      }
+      this.applyProgrammaticCanvasSelectionSideEffects(objects[0])
       this.updateActiveSelectionLockVisual()
       canvas.requestRenderAll()
       return
     }
     const selection = new fabric.ActiveSelection(objects, { canvas })
-    canvas.setActiveObject(selection)
-    this.objectManager.handleCanvasSelection(objects)
+    this.suppressCanvasSelectionSync = true
+    try {
+      canvas.setActiveObject(selection)
+    } finally {
+      this.suppressCanvasSelectionSync = false
+    }
+    this.applyProgrammaticCanvasSelectionSideEffects(objects[0])
     this.updateActiveSelectionLockVisual()
     canvas.requestRenderAll()
+  }
+
+  private applyProgrammaticCanvasSelectionSideEffects(
+    focus: fabric.Object | null
+  ): void {
+    this.cameraManager.refreshCameraFocus(focus)
+    this.terrainManager.handleSelectionChanged(focus)
+    this.updateActiveSelectionLockVisual()
   }
 
   private selectionContainsLockedObject(
@@ -4230,8 +4271,10 @@ export class EditorManager {
   }
 
   private canGroupCurrentSelection(): boolean {
-    return this.objectManager.canGroupObjects(
-      this.objectManager.getSelectedEditorObjectIds()
+    const selectedIds = this.objectManager.getSelectedEditorObjectIds()
+    return (
+      this.objectManager.canGroupObjects(selectedIds) &&
+      this.getCommonObjectRenderLayer(selectedIds) !== null
     )
   }
 

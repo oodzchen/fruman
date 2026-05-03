@@ -35,6 +35,7 @@ export class EditorObjectTreeManager {
   private dragPreviewAfter = false
   private dragParentPreviewId = -1
   private collapsedPathSet = new Set<string>()
+  private readonly visibleObjectIdScratch: number[] = []
 
   constructor(context: EditorObjectTreeManagerContext) {
     this.context = context
@@ -244,6 +245,82 @@ export class EditorObjectTreeManager {
       }
     })
     return input
+  }
+
+  public getVisibleObjectIdsInRenderOrder(): readonly number[] {
+    const result = this.visibleObjectIdScratch
+    result.length = 0
+    this.collectVisibleObjectIds(this.editorObjectTree, result)
+    return result
+  }
+
+  private collectVisibleObjectIds(container: Element, result: number[]): void {
+    const children = container.children
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
+      if (
+        child instanceof HTMLDetailsElement &&
+        child.classList.contains('editor-object-group')
+      ) {
+        const summary = child.firstElementChild
+        if (summary instanceof HTMLElement) {
+          this.pushObjectIdFromContainer(summary, result)
+        }
+        if (child.open) {
+          this.collectVisibleGroupChildIds(child, result)
+        }
+        continue
+      }
+      if (child instanceof HTMLElement) {
+        this.pushObjectIdFromElement(child, result)
+      }
+    }
+  }
+
+  private collectVisibleGroupChildIds(
+    details: HTMLDetailsElement,
+    result: number[]
+  ): void {
+    const children = details.children
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
+      if (
+        child instanceof HTMLElement &&
+        child.classList.contains('editor-object-children')
+      ) {
+        this.collectVisibleObjectIds(child, result)
+        return
+      }
+    }
+  }
+
+  private pushObjectIdFromContainer(
+    container: HTMLElement,
+    result: number[]
+  ): void {
+    const children = container.children
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i]
+      if (child instanceof HTMLElement) {
+        this.pushObjectIdFromElement(child, result)
+      }
+    }
+  }
+
+  private pushObjectIdFromElement(
+    element: HTMLElement,
+    result: number[]
+  ): void {
+    if (
+      !element.classList.contains('editor-object-node') &&
+      !element.classList.contains('editor-object-rename-input')
+    ) {
+      return
+    }
+    const objectId = Number.parseInt(element.dataset.objectId ?? '', 10)
+    if (Number.isFinite(objectId)) {
+      result.push(objectId)
+    }
   }
 
   private renderObjectNode(
