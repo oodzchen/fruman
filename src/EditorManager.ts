@@ -847,6 +847,8 @@ export class EditorManager {
     this.environmentPalette = new EditorEnvironmentPalette({
       container: environmentPalette,
       getCustomEnvironmentAssets: () => this.customEnvironmentAssets,
+      getAvailableRenderLayers: () => this.getAvailableRenderLayers(),
+      getDefaultRenderLayer: () => this.getEnvironmentStampDefaultRenderLayer(),
       onSelected: (selection) => this.selectEnvironmentStamp(selection),
       onCreateCustomEnvironmentAsset: () =>
         this.handleCreateCustomEnvironmentAsset(),
@@ -1490,6 +1492,12 @@ export class EditorManager {
       layerSet.add(this.getEditorObjectRenderLayer(data.object))
     }
     return Array.from(layerSet).sort((a, b) => a - b)
+  }
+
+  private getEnvironmentStampDefaultRenderLayer(): number {
+    return typeof this.sceneDepthFilter === 'number'
+      ? this.sceneDepthFilter
+      : getDefaultShapeRenderLayer()
   }
 
   private registerEditorObjectWithDepth(
@@ -2188,8 +2196,8 @@ export class EditorManager {
     envObject.x = Math.round(pointer.x) * this.invPixelsPerMeter
     envObject.y = Math.round(pointer.y) * this.invPixelsPerMeter
     envObject.seed = this.createEnvironmentSeed()
-    envObject.cellStroke =
-      this.environmentPalette.getStampOptions(selection).cellStroke
+    const stampOptions = this.environmentPalette.getStampOptions(selection)
+    envObject.cellStroke = stampOptions.cellStroke
     envObject.flowerOptions =
       this.environmentPalette.writeFlowerOptionsForStamp(
         selection,
@@ -2197,12 +2205,16 @@ export class EditorManager {
       )
         ? this.environmentStampFlowerOptionsScratch
         : undefined
-    this.markerManager.spawnEnvironmentMarker(
+    const marker = this.markerManager.spawnEnvironmentMarker(
       selection.envType,
       envObject,
       { select: false },
       selection.envType === 'custom' ? selection.label : ''
     )
+    if (marker) {
+      this.setEditorObjectRenderLayer(marker, stampOptions.renderLayer)
+      this.applyDepthFilter()
+    }
     this.captureHistorySnapshot()
     return true
   }

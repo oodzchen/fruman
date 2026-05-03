@@ -29,6 +29,11 @@ import {
   ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MIN,
   clearEnvironmentFlowerOptions,
 } from '../environmentFlowerOptions'
+import {
+  formatRenderLayerLabel,
+  getDefaultShapeRenderLayer,
+  normalizeRenderLayer,
+} from '../renderLayers'
 import { isEnvironmentCellStrokeSupported } from '../renderer/ProceduralEnvironmentFactory'
 
 const BUILTIN_ENVIRONMENT_TYPES: readonly MapEnvironmentObjectType[] = [
@@ -207,25 +212,9 @@ interface EditorEnvironmentPaletteFlowerStampOptions {
 }
 
 export interface EditorEnvironmentPaletteStampOptions {
+  renderLayer: number
   cellStroke: boolean
   flower: EditorEnvironmentPaletteFlowerStampOptions
-}
-
-function createDefaultFlowerStampOptions(): EditorEnvironmentPaletteFlowerStampOptions {
-  return {
-    rootGrassCount: createRandomNumberOption(2),
-    clumpWidthPercent: createRandomNumberOption(44),
-    stemHeightPercent: createRandomNumberOption(98),
-    stemLeanPercent: createRandomNumberOption(0),
-    petalCount: createRandomNumberOption(7),
-    petalLengthPercent: createRandomNumberOption(21),
-    petalWidthPercent: createRandomNumberOption(12),
-    petalAngleOffsetDeg: createRandomNumberOption(0),
-    petalColor: createRandomColorOption(DEFAULT_FLOWER_PETAL_COLOR),
-    stamenEnabled: createRandomBooleanOption(true),
-    stamenRadiusPercent: createRandomNumberOption(6),
-    stamenColor: createRandomColorOption(DEFAULT_FLOWER_STAMEN_COLOR),
-  }
 }
 
 function createRandomNumberOption(value: number): EditorRandomNumberOption {
@@ -252,6 +241,8 @@ function createRandomColorOption(value: string): EditorRandomColorOption {
 interface EditorEnvironmentPaletteContext {
   container: HTMLDivElement
   getCustomEnvironmentAssets: () => MapEnvironmentAsset[]
+  getAvailableRenderLayers: () => number[]
+  getDefaultRenderLayer: () => number
   onSelected: (selection: EditorEnvironmentPaletteSelection) => void
   onCreateCustomEnvironmentAsset: () => Promise<MapEnvironmentAsset | null>
 }
@@ -265,17 +256,14 @@ export class EditorEnvironmentPalette {
     string,
     EditorEnvironmentPaletteStampOptions
   >()
-  private readonly stampOptionsFallback: EditorEnvironmentPaletteStampOptions =
-    {
-      cellStroke: false,
-      flower: createDefaultFlowerStampOptions(),
-    }
+  private readonly stampOptionsFallback: EditorEnvironmentPaletteStampOptions
   private selectedKey = ''
   private selection: EditorEnvironmentPaletteSelection | null = null
   private loadingAssetIds = new Set<string>()
 
   constructor(ctx: EditorEnvironmentPaletteContext) {
     this.ctx = ctx
+    this.stampOptionsFallback = this.createDefaultStampOptions()
     this.propertyPanel = document.createElement('div')
     this.propertyPanel.className = 'editor-environment-property-panel'
     this.propertyTitle = document.createElement('div')
@@ -297,8 +285,9 @@ export class EditorEnvironmentPalette {
   }
 
   show(): void {
-    this.render()
+    this.syncStampRenderLayersWithDefault()
     this.ctx.container.classList.add('is-visible')
+    this.render()
   }
 
   hide(): void {
@@ -540,11 +529,52 @@ export class EditorEnvironmentPalette {
       return existing
     }
     const options: EditorEnvironmentPaletteStampOptions = {
+      renderLayer: this.getDefaultRenderLayer(),
       cellStroke: false,
-      flower: createDefaultFlowerStampOptions(),
+      flower: this.createDefaultFlowerStampOptions(),
     }
     this.stampOptionsByKey.set(key, options)
     return options
+  }
+
+  private createDefaultStampOptions(): EditorEnvironmentPaletteStampOptions {
+    return {
+      renderLayer: this.getDefaultRenderLayer(),
+      cellStroke: false,
+      flower: this.createDefaultFlowerStampOptions(),
+    }
+  }
+
+  private syncStampRenderLayersWithDefault(): void {
+    const renderLayer = this.getDefaultRenderLayer()
+    this.stampOptionsFallback.renderLayer = renderLayer
+    this.stampOptionsByKey.forEach((options) => {
+      options.renderLayer = renderLayer
+    })
+  }
+
+  private getDefaultRenderLayer(): number {
+    return normalizeRenderLayer(
+      this.ctx.getDefaultRenderLayer(),
+      getDefaultShapeRenderLayer()
+    )
+  }
+
+  private createDefaultFlowerStampOptions(): EditorEnvironmentPaletteFlowerStampOptions {
+    return {
+      rootGrassCount: createRandomNumberOption(2),
+      clumpWidthPercent: createRandomNumberOption(44),
+      stemHeightPercent: createRandomNumberOption(98),
+      stemLeanPercent: createRandomNumberOption(0),
+      petalCount: createRandomNumberOption(7),
+      petalLengthPercent: createRandomNumberOption(21),
+      petalWidthPercent: createRandomNumberOption(12),
+      petalAngleOffsetDeg: createRandomNumberOption(0),
+      petalColor: createRandomColorOption(DEFAULT_FLOWER_PETAL_COLOR),
+      stamenEnabled: createRandomBooleanOption(true),
+      stamenRadiusPercent: createRandomNumberOption(6),
+      stamenColor: createRandomColorOption(DEFAULT_FLOWER_STAMEN_COLOR),
+    }
   }
 
   private refreshSelectionLabel(): void {
@@ -580,6 +610,7 @@ export class EditorEnvironmentPalette {
     if (selection.envType === 'flower') {
       this.renderFlowerPropertyRows(options.flower)
     }
+    this.renderCommonPropertyRows(options)
 
     this.propertyPanel.classList.add('is-visible')
   }
@@ -587,6 +618,121 @@ export class EditorEnvironmentPalette {
   private hidePropertyPanel(): void {
     this.propertyPanel.classList.remove('is-visible')
     this.propertyBody.textContent = ''
+  }
+
+  private renderCommonPropertyRows(
+    options: EditorEnvironmentPaletteStampOptions
+  ): void {
+    const section = document.createElement('div')
+    section.className =
+      'editor-environment-property-section editor-environment-property-common-section'
+    const sectionTitle = document.createElement('div')
+    sectionTitle.className = 'editor-environment-property-section-title'
+    sectionTitle.textContent = localizer.t('editor_common_properties_title')
+    section.appendChild(sectionTitle)
+    section.appendChild(this.createRenderLayerRow(options))
+    section.appendChild(this.createExistingRenderLayerRow(options))
+    this.propertyBody.appendChild(section)
+  }
+
+  private createRenderLayerRow(
+    options: EditorEnvironmentPaletteStampOptions
+  ): HTMLLabelElement {
+    const row = this.createFieldRow(
+      localizer.t('editor_common_properties_render_layer')
+    )
+    const input = document.createElement('input')
+    input.type = 'number'
+    input.step = '1'
+    input.value = `${normalizeRenderLayer(
+      options.renderLayer,
+      getDefaultShapeRenderLayer()
+    )}`
+    input.className =
+      'editor-environment-property-number editor-environment-property-layer-number'
+
+    const commitValue = (force: boolean) => {
+      const text = input.value.trim()
+      if (text.length === 0 || text === '-') {
+        if (force) {
+          input.value = `${options.renderLayer}`
+        }
+        return
+      }
+      const value = Number.parseInt(text, 10)
+      if (!Number.isFinite(value)) {
+        if (force) {
+          input.value = `${options.renderLayer}`
+        }
+        return
+      }
+      options.renderLayer = normalizeRenderLayer(
+        value,
+        getDefaultShapeRenderLayer()
+      )
+      input.value = `${options.renderLayer}`
+    }
+    input.addEventListener('input', () => commitValue(false))
+    input.addEventListener('change', () => commitValue(true))
+
+    row.appendChild(input)
+    return row
+  }
+
+  private createExistingRenderLayerRow(
+    options: EditorEnvironmentPaletteStampOptions
+  ): HTMLLabelElement {
+    const row = this.createFieldRow(
+      localizer.t('editor_common_properties_render_layer_existing')
+    )
+    const select = document.createElement('select')
+    select.className = 'editor-environment-property-select'
+    const placeholder = document.createElement('option')
+    placeholder.value = ''
+    placeholder.textContent = localizer.t(
+      'editor_common_properties_render_layer_existing_placeholder'
+    )
+    select.appendChild(placeholder)
+
+    const layers = this.ctx.getAvailableRenderLayers()
+    for (let i = 0; i < layers.length; i++) {
+      const layer = layers[i]
+      const option = document.createElement('option')
+      option.value = `${layer}`
+      option.textContent = formatRenderLayerLabel(layer)
+      select.appendChild(option)
+    }
+
+    const currentLayer = normalizeRenderLayer(
+      options.renderLayer,
+      getDefaultShapeRenderLayer()
+    )
+    select.value = layers.includes(currentLayer) ? `${currentLayer}` : ''
+    select.addEventListener('change', () => {
+      if (select.value.length === 0) {
+        return
+      }
+      options.renderLayer = normalizeRenderLayer(
+        Number.parseInt(select.value, 10),
+        getDefaultShapeRenderLayer()
+      )
+      this.renderPropertyPanel()
+    })
+
+    row.appendChild(select)
+    return row
+  }
+
+  private createFieldRow(label: string): HTMLLabelElement {
+    const row = document.createElement('label')
+    row.className =
+      'editor-environment-property-row editor-environment-property-field-row'
+
+    const text = document.createElement('span')
+    text.className = 'editor-environment-property-label'
+    text.textContent = label
+    row.appendChild(text)
+    return row
   }
 
   private createCheckboxRow(

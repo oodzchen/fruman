@@ -718,6 +718,22 @@
         flex-direction: column;
         gap: 4px;
       }
+      .editor-environment-property-section {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .editor-environment-property-common-section {
+        margin-top: 4px;
+        padding-top: 6px;
+        border-top: 1px dashed rgba(255, 255, 255, 0.22);
+      }
+      .editor-environment-property-section-title {
+        height: 16px;
+        line-height: 16px;
+        font-size: 11px;
+        color: var(--ui-color);
+      }
       .editor-environment-property-row {
         min-height: 22px;
         display: flex;
@@ -741,6 +757,12 @@
         gap: 6px;
         cursor: default;
       }
+      .editor-environment-property-field-row {
+        display: grid;
+        grid-template-columns: minmax(82px, 1fr) 118px;
+        gap: 6px;
+        cursor: default;
+      }
       .editor-environment-property-label {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -749,6 +771,20 @@
       .editor-environment-property-number {
         width: 54px !important;
         height: 20px !important;
+        padding: 0 4px;
+        color: var(--ui-color);
+        background: rgba(0, 0, 0, 0.32);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-family: var(--ui-font);
+        font-size: 11px;
+        box-sizing: border-box;
+      }
+      .editor-environment-property-layer-number {
+        width: 118px !important;
+      }
+      .editor-environment-property-select {
+        width: 118px;
+        height: 22px;
         padding: 0 4px;
         color: var(--ui-color);
         background: rgba(0, 0, 0, 0.32);

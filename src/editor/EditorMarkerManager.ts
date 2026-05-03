@@ -1431,9 +1431,9 @@ export class EditorMarkerManager {
     spawn?: MapEnvironmentObject,
     options: EditorMarkerSpawnOptions = {},
     preferredName = ''
-  ) {
+  ): EnvironmentMarker | null {
     const canvas = this.ctx.getCanvas()
-    if (!canvas) return
+    if (!canvas) return null
     const envSeed =
       spawn?.seed ?? (Math.floor(Math.random() * 0x7fffffff) | 1) >>> 0
     let centerX: number
@@ -1502,6 +1502,7 @@ export class EditorMarkerManager {
         this.ctx.requestRender()
       })
     }
+    return marker
   }
 
   private finalizeMarkerSpawn(
