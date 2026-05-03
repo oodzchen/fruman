@@ -27,6 +27,80 @@ import {
 export class GrappleRopeRuntimeSystem {
   constructor(private readonly runtime: GrappleSystemRuntime) {}
 
+  private getActivePlayerRopeSegmentCount(runtime: RopeRuntime): number {
+    const activeCount = runtime.attachIndex + 1
+    if (activeCount <= 0) {
+      return 0
+    }
+    return Math.min(activeCount, runtime.segmentBodies.length)
+  }
+
+  private setPlayerRopeSegmentEnabled(
+    bodyId: b2BodyId,
+    enabled: boolean
+  ): void {
+    if (
+      !this.runtime.isBodyId(bodyId) ||
+      !this.runtime.box2d.b2Body_IsValid(bodyId) ||
+      this.runtime.box2d.b2Body_IsEnabled(bodyId) === enabled
+    ) {
+      return
+    }
+
+    if (enabled) {
+      this.runtime.box2d.b2Body_Enable(bodyId)
+      this.runtime.box2d.b2Body_SetAwake(bodyId, true)
+      return
+    }
+
+    this.runtime.box2d.b2Body_Disable(bodyId)
+  }
+
+  private setPlayerRopeSegmentEnabledAt(
+    runtime: RopeRuntime,
+    segmentIndex: number,
+    enabled: boolean
+  ): void {
+    if (segmentIndex < 0 || segmentIndex >= runtime.segmentBodies.length) {
+      return
+    }
+    this.setPlayerRopeSegmentEnabled(
+      runtime.segmentBodies[segmentIndex],
+      enabled
+    )
+  }
+
+  private syncPlayerRopeSegmentActivity(runtime: RopeRuntime): void {
+    const activeCount = this.getActivePlayerRopeSegmentCount(runtime)
+    for (let i = 0; i < runtime.segmentBodies.length; i++) {
+      this.setPlayerRopeSegmentEnabled(
+        runtime.segmentBodies[i],
+        i < activeCount
+      )
+    }
+  }
+
+  private syncChangedPlayerRopeSegmentActivity(
+    runtime: RopeRuntime,
+    previousActiveCount: number
+  ): void {
+    const activeCount = this.getActivePlayerRopeSegmentCount(runtime)
+    if (activeCount === previousActiveCount) {
+      return
+    }
+
+    if (activeCount > previousActiveCount) {
+      for (let i = previousActiveCount; i < activeCount; i++) {
+        this.setPlayerRopeSegmentEnabledAt(runtime, i, true)
+      }
+      return
+    }
+
+    for (let i = activeCount; i < previousActiveCount; i++) {
+      this.setPlayerRopeSegmentEnabledAt(runtime, i, false)
+    }
+  }
+
   updateExistingRopeSegments(): void {
     this.runtime.ropeRuntimeByEntityId.forEach((runtime) => {
       if (!runtime.active) return
@@ -610,6 +684,7 @@ export class GrappleRopeRuntimeSystem {
       runtime.attachIndex >= 0
         ? runtime.segmentBodies[runtime.attachIndex]
         : anchorBodyId
+    this.syncPlayerRopeSegmentActivity(runtime)
     const playerBodyId = startsGrounded
       ? playerAnchorBodyId
       : entity.physics.bodyId
@@ -725,6 +800,7 @@ export class GrappleRopeRuntimeSystem {
     const attachLocalY = runtime.attachIndex >= 0 ? 0 : runtime.anchorLocalY
     const initialRemainder = initialLength - initialSegmentCount * linkLength
     runtime.jointMaxLen = Math.max(0.01, Math.min(linkLength, initialRemainder))
+    this.syncPlayerRopeSegmentActivity(runtime)
     const playerBodyId = startsGrounded
       ? this.runtime.createPlayerTetherFollowBody(entity, runtime)
       : entity.physics.bodyId
@@ -1202,6 +1278,7 @@ export class GrappleRopeRuntimeSystem {
 
     const linkLen = runtime.linkLength
     const delta = (GRAPPLE_CLIMB_SPEED * deltaMs) / 1000
+    const previousActiveCount = this.getActivePlayerRopeSegmentCount(runtime)
 
     if (climbDir < 0) {
       const currentTotalLength =
@@ -1242,6 +1319,7 @@ export class GrappleRopeRuntimeSystem {
         runtime.attachIndex < runtime.segmentCount - 1
       ) {
         const nextIdx = runtime.attachIndex + 1
+        this.setPlayerRopeSegmentEnabledAt(runtime, nextIdx, true)
         this.runtime.repositionSegment(entity, runtime, nextIdx)
         runtime.attachIndex = nextIdx
         runtime.jointMaxLen -= linkLen
@@ -1252,6 +1330,7 @@ export class GrappleRopeRuntimeSystem {
     }
 
     this.runtime.rebuildPlayerTetherJoint(runtime, playerBodyId, useAnchorLocal)
+    this.syncChangedPlayerRopeSegmentActivity(runtime, previousActiveCount)
   }
 
   getPlayerTetherMinLength(entity: Entity, runtime: RopeRuntime): number {
