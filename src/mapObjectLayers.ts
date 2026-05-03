@@ -2,6 +2,7 @@ import type {
   EditorMapData,
   EditorTreeNode,
   EditorTreeObjectType,
+  MapEnvironmentObject,
 } from './editorMapTypes'
 import {
   getDefaultShapeRenderLayer,
@@ -30,6 +31,12 @@ function getNodeLayer(node: EditorTreeNode | undefined): number {
   return normalizeRenderLayer(node?.renderLayer, getDefaultObjectLayer())
 }
 
+function getEnvironmentObjectLayer(
+  object: MapEnvironmentObject | undefined
+): number {
+  return normalizeRenderLayer(object?.renderLayer, getDefaultObjectLayer())
+}
+
 export function buildMapObjectLayerLookup(
   map: EditorMapData | null | undefined
 ): MapObjectLayerLookup {
@@ -43,6 +50,14 @@ export function buildMapObjectLayerLookup(
     sunPickupLargeLayers: [],
     expOrbLayers: [],
     environmentObjectLayers: [],
+  }
+  const environmentObjects = map?.environmentObjects
+  if (environmentObjects) {
+    for (let i = 0; i < environmentObjects.length; i++) {
+      lookup.environmentObjectLayers[i] = getEnvironmentObjectLayer(
+        environmentObjects[i]
+      )
+    }
   }
   const tree = map?.editorTree
   if (!tree) {
@@ -138,6 +153,20 @@ export function collectStaticRenderLayers(
       getDefaultTerrainRenderLayer(inferTerrainMaterialId(map.terrain!.chunks))
     )
   }
+  const environmentObjects = map.environmentObjects ?? []
+  const environmentLayers =
+    environmentObjects.length > 0
+      ? buildMapObjectLayerLookup(map).environmentObjectLayers
+      : null
+  for (let i = 0; i < environmentObjects.length; i++) {
+    pushUniqueLayer(
+      layers,
+      normalizeRenderLayer(
+        environmentLayers?.[i],
+        getEnvironmentObjectLayer(environmentObjects[i])
+      )
+    )
+  }
   return layers
 }
 
@@ -205,6 +234,19 @@ export function collectCollisionLayers(
     pushUniqueLayer(
       layers,
       normalizeRenderLayer(lookup.expOrbLayers[i], getDefaultObjectLayer())
+    )
+  }
+  const environmentObjects = map.environmentObjects ?? []
+  for (let i = 0; i < environmentObjects.length; i++) {
+    if (environmentObjects[i].type !== 'crate') {
+      continue
+    }
+    pushUniqueLayer(
+      layers,
+      normalizeRenderLayer(
+        lookup.environmentObjectLayers[i],
+        getEnvironmentObjectLayer(environmentObjects[i])
+      )
     )
   }
   return layers

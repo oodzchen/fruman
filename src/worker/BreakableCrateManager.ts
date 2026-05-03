@@ -184,7 +184,8 @@ export class BreakableCrateManager {
       }
       const renderLayer = getIndexedLayer(
         options.mapLayerLookup.environmentObjectLayers,
-        i
+        i,
+        env.renderLayer ?? 0
       )
       const layout = createEnvironmentCrateLayout(
         env.seed,
@@ -848,8 +849,12 @@ export class BreakableCrateManager {
   }
 }
 
-function getIndexedLayer(layers: readonly number[], index: number): number {
-  return layers[index] ?? 0
+function getIndexedLayer(
+  layers: readonly number[],
+  index: number,
+  fallback = 0
+): number {
+  return layers[index] ?? fallback
 }
 
 function hashTerrainDebrisSeed(a: number, b: number, c: number): number {

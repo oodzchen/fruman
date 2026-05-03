@@ -12,10 +12,12 @@ import {
 import type {
   EditorMapData,
   EditorMapMeta,
+  EditorTreeData,
   EditorTreeNode,
   EditorViewportState,
   MapCharacterBodyProfile,
   MapEnvironmentAsset,
+  MapEnvironmentObject,
   MapNpc,
   MapNpcTemplate,
   MapNpcWeapon,
@@ -1731,14 +1733,93 @@ function normalizeMapSettings(settings: MapSettings | undefined): MapSettings {
   }
 }
 
+function isEnvironmentTreeNode(node: EditorTreeNode): boolean {
+  return (
+    node.type === 'envTree' ||
+    node.type === 'envHill' ||
+    node.type === 'envHouse' ||
+    node.type === 'envCrate' ||
+    node.type === 'envGrass' ||
+    node.type === 'envFlower' ||
+    node.type === 'envCloud' ||
+    node.type === 'envCustom'
+  )
+}
+
+function normalizeEnvironmentObjectRenderLayers(
+  objects: MapEnvironmentObject[] | undefined,
+  editorTree: EditorTreeData | undefined
+): MapEnvironmentObject[] | undefined {
+  if (!objects || objects.length === 0) {
+    return objects
+  }
+  let normalizedObjects: MapEnvironmentObject[] | null = null
+  for (let i = 0; i < objects.length; i++) {
+    const layer = objects[i].renderLayer
+    if (typeof layer !== 'number' || !Number.isFinite(layer)) {
+      continue
+    }
+    const normalizedLayer = layer | 0
+    if (layer === normalizedLayer) {
+      continue
+    }
+    if (!normalizedObjects) {
+      normalizedObjects = objects.slice()
+    }
+    normalizedObjects[i] = {
+      ...normalizedObjects[i],
+      renderLayer: normalizedLayer,
+    }
+  }
+  const nodes = editorTree?.nodes
+  if (!nodes || nodes.length === 0) {
+    return normalizedObjects ?? objects
+  }
+  const targetObjects = normalizedObjects ?? objects
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    const index = node.index ?? -1
+    if (
+      index < 0 ||
+      index >= objects.length ||
+      !isEnvironmentTreeNode(node) ||
+      typeof node.renderLayer !== 'number' ||
+      !Number.isFinite(node.renderLayer)
+    ) {
+      continue
+    }
+    const normalizedLayer = node.renderLayer | 0
+    if (
+      typeof targetObjects[index].renderLayer === 'number' &&
+      Number.isFinite(targetObjects[index].renderLayer) &&
+      (targetObjects[index].renderLayer | 0) === normalizedLayer
+    ) {
+      continue
+    }
+    if (!normalizedObjects) {
+      normalizedObjects = objects.slice()
+    }
+    normalizedObjects[index] = {
+      ...normalizedObjects[index],
+      renderLayer: normalizedLayer,
+    }
+  }
+  return normalizedObjects ?? objects
+}
+
 function normalizeEditorMapData(data: EditorMapData): EditorMapData {
   const settings = normalizeMapSettings(data.settings)
   if (isMapDataFastNormalized(data)) {
     const normalizedTerrain = normalizeTerrainContourMetadata(
       normalizeTerrainGrassLayerMaterials(data.terrain)
     )
+    const normalizedEnvironmentObjects = normalizeEnvironmentObjectRenderLayers(
+      data.environmentObjects,
+      data.editorTree
+    )
     if (
       normalizedTerrain === data.terrain &&
+      normalizedEnvironmentObjects === data.environmentObjects &&
       data.settings?.initialTimePhase === settings.initialTimePhase
     ) {
       return data
@@ -1747,6 +1828,7 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
       ...data,
       settings,
       terrain: normalizedTerrain,
+      environmentObjects: normalizedEnvironmentObjects,
     }
   }
   const sourceVersion = data.version
@@ -1794,6 +1876,10 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
       migrateLegacyNpcDrops(normalizeMapNpc(npc), sourceVersion)
     ),
     terrain: normalizeTerrainContourMetadata(terrainNormalization.terrain),
+    environmentObjects: normalizeEnvironmentObjectRenderLayers(
+      data.environmentObjects,
+      editorTree
+    ),
     npcTemplates: (data.npcTemplates ?? []).map((template) =>
       migrateLegacyNpcDrops(normalizeMapNpcTemplate(template), sourceVersion)
     ),

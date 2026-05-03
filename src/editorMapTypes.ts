@@ -62,6 +62,7 @@ export interface MapEnvironmentObject {
   x: number
   y: number
   seed: number
+  renderLayer?: number
   assetId?: string
   hidden?: boolean
   rotationDeg?: number

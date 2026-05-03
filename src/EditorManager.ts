@@ -489,6 +489,9 @@ export class EditorManager {
       requestRenderAll: () => {
         this.fabricCanvas?.requestRenderAll()
       },
+      setObjectRenderLayer: (object, renderLayer) => {
+        this.setEditorObjectRenderLayer(object, renderLayer)
+      },
       getCameraViews: () => this.cameraManager.getCameraViews(),
       getPlayerMarkerData: () => this.markerManager.getPlayerMarkerData(),
       getEditorObjects: () => this.objectManager.getEditorObjects(),
@@ -3322,15 +3325,7 @@ export class EditorManager {
         sunPickupObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.ExpOrb) {
         expOrbObjects.push(dataItem)
-      } else if (
-        dataItem.type === ObjectType.EnvTree ||
-        dataItem.type === ObjectType.EnvHill ||
-        dataItem.type === ObjectType.EnvHouse ||
-        dataItem.type === ObjectType.EnvCrate ||
-        dataItem.type === ObjectType.EnvGrass ||
-        dataItem.type === ObjectType.EnvCloud ||
-        dataItem.type === ObjectType.EnvCustom
-      ) {
+      } else if (this.isEnvironmentStampObjectType(dataItem.type)) {
         environmentObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Player) {
         playerObject = dataItem

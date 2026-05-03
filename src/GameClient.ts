@@ -3605,7 +3605,7 @@ export class GameClient {
         isEnvironmentCellStrokeSupported(obj.type) && obj.cellStroke === true
       const flowerOptions =
         obj.type === 'flower' ? obj.flowerOptions : undefined
-      const rawLayer = envLayers?.[index] ?? 0
+      const rawLayer = envLayers?.[index] ?? obj.renderLayer ?? 0
       const resolvedLayer = this.resolveEnvironmentRenderLayer(rawLayer)
       const textureEntry = this.getEnvironmentTextureEntry(
         obj.type,
@@ -3908,7 +3908,9 @@ export class GameClient {
           )
         }
       }
-      const layerCode = this.resolveEnvironmentRenderLayer(envLayers?.[i] ?? 0)
+      const layerCode = this.resolveEnvironmentRenderLayer(
+        envLayers?.[i] ?? obj.renderLayer ?? 0
+      )
       hash = this.mixTerrainSignatureValue(
         hash ^ Math.imul(layerCode, 0x5bd1e995)
       )

@@ -71,6 +71,10 @@ interface EditorMapSerializerContext {
   endObjectBatchMutation: () => void
   renderObjectTree: () => void
   requestRenderAll: () => void
+  setObjectRenderLayer: (
+    object: fabric.Object,
+    renderLayer: number | undefined
+  ) => void
   getCameraViews: () => CameraViewLike[]
   getPlayerMarkerData: () => {
     radius: number
@@ -360,7 +364,14 @@ export class EditorMapSerializer {
     if (!envObjects) return
     for (let i = 0; i < envObjects.length; i++) {
       const obj = envObjects[i]
-      this.ctx.markerManager.spawnEnvironmentMarker(obj.type, obj, spawnOptions)
+      const marker = this.ctx.markerManager.spawnEnvironmentMarker(
+        obj.type,
+        obj,
+        spawnOptions
+      )
+      if (marker && typeof obj.renderLayer === 'number') {
+        this.ctx.setObjectRenderLayer(marker, obj.renderLayer)
+      }
     }
   }
 
@@ -522,6 +533,7 @@ export class EditorMapSerializer {
         x: anchorX,
         y: anchorY,
         seed: envSeed,
+        renderLayer: this.getObjectRenderLayer(marker),
       }
       if (envType === 'custom' && marker.envAssetId.length > 0) {
         envObject.assetId = marker.envAssetId

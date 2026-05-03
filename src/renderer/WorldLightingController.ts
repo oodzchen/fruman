@@ -355,7 +355,7 @@ export class WorldLightingController {
       environmentObject.x,
       environmentObject.y - HOUSE_LIGHT_OFFSET_Y_METERS,
       HOUSE_LIGHT_RADIUS_METERS,
-      0,
+      environmentObject.renderLayer ?? 0,
       LIGHT_COLOR_HOUSE,
       212,
       1,
