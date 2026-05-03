@@ -5,6 +5,7 @@ import {
   ColorMatrixFilter,
   Container,
   Graphics,
+  Rectangle,
   Sprite,
   Text,
   Texture,
@@ -169,11 +170,23 @@ const TERRAIN_COLLISION_DEBUG_COLOR_CSS = '#4f7cff'
 
 interface LayerBucket {
   container: Container
+  depthContainer: Container
   glowContainer: Container
   staticContainer: Container
   environmentContainer: Container
   dynamicContainer: Container
+  filterArea: Rectangle
+  depthFilterRuntime: LayerDepthFilterRuntime | null
   staticCacheDirty: boolean
+}
+
+interface LayerDepthFilterRuntime {
+  readonly toneFilter: ColorMatrixFilter
+  readonly blurFilter: BlurFilter
+  readonly filters: [ColorMatrixFilter, BlurFilter]
+  readonly toneMatrix: ColorMatrix
+  relativeLayer: number
+  intensityPermille: number
 }
 
 interface EntityView {
@@ -398,10 +411,8 @@ function drawProjectileDebugToContext(
 
 // 视差参数：每层级的缩放/移动倍率增量，|layer|=100 时缩放约 0.5x/1.5x
 const PARALLAX_FACTOR_PER_LAYER = 0.005
-// 每层级亮度衰减量，|layer|=100 时亮度约 40%
-const PARALLAX_BRIGHTNESS_PER_LAYER = 0.006
-const PARALLAX_MIN_BRIGHTNESS = 0.3
 const SKY_LAYER_BLUR_STRENGTH = 3
+const SKY_LAYER_FILTER_AREA_PADDING_PX = 96
 const SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE = 450
 const SKY_LAYER_BUCKET_TONE_ORIGINAL_PERMILLE =
   1000 - SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE
@@ -411,22 +422,30 @@ const SKY_LAYER_TONE_LUMA_R = 77
 const SKY_LAYER_TONE_LUMA_G = 150
 const SKY_LAYER_TONE_LUMA_B = 29
 const SKY_LAYER_TONE_MATRIX_DENOMINATOR = 255 * 1000 * 256
+const DEPTH_FILTER_PERMILLE = 1000
+const DEPTH_FILTER_DEFAULT_INTENSITY_PERMILLE = 1000
+const DEPTH_FILTER_MAX_INTENSITY_PERMILLE = 2000
+const DEPTH_FILTER_LAYER_DISTANCE_MAX = 100
+const DEPTH_FILTER_AREA_PADDING_PX = 64
+const DEPTH_FILTER_BASE_BLUR_PERMILLE = 1600
+const DEPTH_FILTER_BLUR_PER_LAYER_PERMILLE = 0
+const DEPTH_FILTER_BACKGROUND_TINT_BASE_PERMILLE = 320
+const DEPTH_FILTER_BACKGROUND_TINT_PER_LAYER_PERMILLE = 3
+const DEPTH_FILTER_BACKGROUND_TINT_MAX_PERMILLE = 620
+const DEPTH_FILTER_FOREGROUND_BRIGHTNESS_BASE_PERMILLE = 720
+const DEPTH_FILTER_FOREGROUND_BRIGHTNESS_PER_LAYER_PERMILLE = 4
+const DEPTH_FILTER_FOREGROUND_BRIGHTNESS_MIN_PERMILLE = 350
+const DEPTH_FILTER_FOREGROUND_RED_LOSS_PERMILLE = 60
+const DEPTH_FILTER_FOREGROUND_GREEN_LOSS_PERMILLE = 35
+const DEPTH_FILTER_FOREGROUND_BLUE_OFFSET_BASE_PERMILLE = 24
+const DEPTH_FILTER_FOREGROUND_BLUE_OFFSET_PER_LAYER_PERMILLE = 2
+const DEPTH_FILTER_FOREGROUND_BLUE_OFFSET_MAX_PERMILLE = 80
 
 function getParallaxScaleForLayer(layer: number): number {
   if (layer === RENDER_LAYER_SKY) {
     return 1
   }
   return Math.max(0.1, 1 + layer * PARALLAX_FACTOR_PER_LAYER)
-}
-
-function getParallaxBrightnessForLayer(layer: number): number {
-  if (layer === RENDER_LAYER_SKY) {
-    return 1
-  }
-  return Math.max(
-    PARALLAX_MIN_BRIGHTNESS,
-    1 - Math.abs(layer) * PARALLAX_BRIGHTNESS_PER_LAYER
-  )
 }
 
 function getSkyLayerToneTint(skyColor: number): number {
@@ -524,6 +543,8 @@ export class PixiWorldRenderer {
   private skyReferenceCamX = 0
   private skyReferenceCamY = 0
   private skyReferenceZoom = 1
+  private depthFilterFocusLayer = 0
+  private depthFilterIntensityPermille = DEPTH_FILTER_DEFAULT_INTENSITY_PERMILLE
 
   constructor(
     root: Container,
@@ -1037,40 +1058,41 @@ export class PixiWorldRenderer {
     const container = new Container()
     container.zIndex = layer * 10 + 5
     this.root.addChild(container)
-    if (layer === RENDER_LAYER_SKY) {
-      container.filters = this.skyLayerFilters
-    }
+
+    const depthContainer = new Container()
+    container.addChild(depthContainer)
 
     const glowContainer = new Container()
-    container.addChild(glowContainer)
+    depthContainer.addChild(glowContainer)
 
     const staticContainer = new Container()
-    container.addChild(staticContainer)
+    depthContainer.addChild(staticContainer)
 
     const environmentContainer = new Container()
     environmentContainer.sortableChildren = true
-    container.addChild(environmentContainer)
+    depthContainer.addChild(environmentContainer)
 
     const dynamicContainer = new Container()
     dynamicContainer.sortableChildren = true
-    container.addChild(dynamicContainer)
+    depthContainer.addChild(dynamicContainer)
 
-    // 计算亮度 tint：layer=0 最亮，越远越暗
-    const brightness = getParallaxBrightnessForLayer(layer)
-    const v = Math.round(brightness * 255)
     container.tint =
       layer === RENDER_LAYER_SKY && this.skyLayerToneColor >= 0
         ? getSkyLayerToneTint(this.skyLayerToneColor)
-        : (v << 16) | (v << 8) | v
+        : 0xffffff
 
-    const bucket = {
+    const bucket: LayerBucket = {
       container,
+      depthContainer,
       glowContainer,
       staticContainer,
       environmentContainer,
       dynamicContainer,
+      filterArea: new Rectangle(),
+      depthFilterRuntime: null,
       staticCacheDirty: false,
     }
+    this.applyLayerDepthFilter(layer, bucket)
     this.buckets.set(layer, bucket)
     this.insertBucketLayer(layer)
     return bucket
@@ -1128,6 +1150,205 @@ export class PixiWorldRenderer {
     this.skyReferenceCamX = camX
     this.skyReferenceCamY = camY
     this.skyReferenceZoom = zoom > 0 ? zoom : 1
+  }
+
+  setDepthFilterFocusLayer(layer: number): void {
+    const nextLayer = Number.isFinite(layer) ? layer | 0 : 0
+    if (this.depthFilterFocusLayer === nextLayer) {
+      return
+    }
+    this.depthFilterFocusLayer = nextLayer
+    this.refreshLayerDepthFilters()
+  }
+
+  setDepthFilterIntensityPermille(intensityPermille: number): void {
+    const nextIntensity = Number.isFinite(intensityPermille)
+      ? Math.max(
+          0,
+          Math.min(DEPTH_FILTER_MAX_INTENSITY_PERMILLE, intensityPermille | 0)
+        )
+      : DEPTH_FILTER_DEFAULT_INTENSITY_PERMILLE
+    if (this.depthFilterIntensityPermille === nextIntensity) {
+      return
+    }
+    this.depthFilterIntensityPermille = nextIntensity
+    this.refreshLayerDepthFilters()
+  }
+
+  private refreshLayerDepthFilters(): void {
+    for (const [layer, bucket] of this.buckets) {
+      this.applyLayerDepthFilter(layer, bucket)
+    }
+  }
+
+  private applyLayerDepthFilter(layer: number, bucket: LayerBucket): void {
+    if (layer === RENDER_LAYER_SKY) {
+      bucket.depthContainer.filters = this.skyLayerFilters
+      bucket.depthContainer.filterArea = bucket.filterArea
+      return
+    }
+
+    const relativeLayer = (layer - this.depthFilterFocusLayer) | 0
+    if (relativeLayer === 0 || this.depthFilterIntensityPermille <= 0) {
+      bucket.depthContainer.filters = null
+      bucket.depthContainer.filterArea = undefined
+      return
+    }
+
+    let runtime = bucket.depthFilterRuntime
+    if (!runtime) {
+      runtime = this.createLayerDepthFilterRuntime()
+      bucket.depthFilterRuntime = runtime
+    }
+    this.updateLayerDepthFilterRuntime(runtime, relativeLayer)
+    bucket.depthContainer.filters = runtime.filters
+    bucket.depthContainer.filterArea = bucket.filterArea
+  }
+
+  private createLayerDepthFilterRuntime(): LayerDepthFilterRuntime {
+    const toneFilter = new ColorMatrixFilter()
+    const blurFilter = new BlurFilter({
+      strength: 1,
+      quality: 1,
+      kernelSize: 5,
+    })
+    blurFilter.repeatEdgePixels = true
+    const toneMatrix: ColorMatrix = [
+      1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0,
+    ]
+    return {
+      toneFilter,
+      blurFilter,
+      filters: [toneFilter, blurFilter],
+      toneMatrix,
+      relativeLayer: 0,
+      intensityPermille: -1,
+    }
+  }
+
+  private updateLayerDepthFilterRuntime(
+    runtime: LayerDepthFilterRuntime,
+    relativeLayer: number
+  ): void {
+    const intensityPermille = this.depthFilterIntensityPermille
+    if (
+      runtime.relativeLayer === relativeLayer &&
+      runtime.intensityPermille === intensityPermille
+    ) {
+      return
+    }
+
+    runtime.relativeLayer = relativeLayer
+    runtime.intensityPermille = intensityPermille
+
+    const layerDistance = Math.min(
+      DEPTH_FILTER_LAYER_DISTANCE_MAX,
+      Math.abs(relativeLayer)
+    )
+    const scaledDistance = Math.min(
+      DEPTH_FILTER_LAYER_DISTANCE_MAX,
+      Math.round((layerDistance * intensityPermille) / DEPTH_FILTER_PERMILLE)
+    )
+    const blurPermille =
+      Math.round(
+        (DEPTH_FILTER_BASE_BLUR_PERMILLE * intensityPermille) /
+          DEPTH_FILTER_PERMILLE
+      ) +
+      scaledDistance * DEPTH_FILTER_BLUR_PER_LAYER_PERMILLE
+    runtime.blurFilter.strength = blurPermille / DEPTH_FILTER_PERMILLE
+
+    if (relativeLayer < 0) {
+      this.writeBackgroundDepthToneMatrix(runtime.toneMatrix, scaledDistance)
+    } else {
+      this.writeForegroundDepthToneMatrix(runtime.toneMatrix, scaledDistance)
+    }
+    runtime.toneFilter.matrix = runtime.toneMatrix
+    runtime.toneFilter.resources.colorMatrixUniforms.update()
+  }
+
+  private writeBackgroundDepthToneMatrix(
+    matrix: ColorMatrix,
+    scaledDistance: number
+  ): void {
+    const tintPermille = Math.min(
+      DEPTH_FILTER_BACKGROUND_TINT_MAX_PERMILLE,
+      DEPTH_FILTER_BACKGROUND_TINT_BASE_PERMILLE +
+        scaledDistance * DEPTH_FILTER_BACKGROUND_TINT_PER_LAYER_PERMILLE
+    )
+    const source =
+      (DEPTH_FILTER_PERMILLE - tintPermille) / DEPTH_FILTER_PERMILLE
+    const offset = tintPermille / DEPTH_FILTER_PERMILLE
+
+    matrix[0] = source
+    matrix[1] = 0
+    matrix[2] = 0
+    matrix[3] = 0
+    matrix[4] = offset
+    matrix[5] = 0
+    matrix[6] = source
+    matrix[7] = 0
+    matrix[8] = 0
+    matrix[9] = offset
+    matrix[10] = 0
+    matrix[11] = 0
+    matrix[12] = source
+    matrix[13] = 0
+    matrix[14] = offset
+    matrix[15] = 0
+    matrix[16] = 0
+    matrix[17] = 0
+    matrix[18] = 1
+    matrix[19] = 0
+  }
+
+  private writeForegroundDepthToneMatrix(
+    matrix: ColorMatrix,
+    scaledDistance: number
+  ): void {
+    const brightnessPermille = Math.max(
+      DEPTH_FILTER_FOREGROUND_BRIGHTNESS_MIN_PERMILLE,
+      DEPTH_FILTER_FOREGROUND_BRIGHTNESS_BASE_PERMILLE -
+        scaledDistance * DEPTH_FILTER_FOREGROUND_BRIGHTNESS_PER_LAYER_PERMILLE
+    )
+    const red =
+      Math.max(
+        0,
+        brightnessPermille - DEPTH_FILTER_FOREGROUND_RED_LOSS_PERMILLE
+      ) / DEPTH_FILTER_PERMILLE
+    const green =
+      Math.max(
+        0,
+        brightnessPermille - DEPTH_FILTER_FOREGROUND_GREEN_LOSS_PERMILLE
+      ) / DEPTH_FILTER_PERMILLE
+    const blue = brightnessPermille / DEPTH_FILTER_PERMILLE
+    const blueOffset =
+      Math.min(
+        DEPTH_FILTER_FOREGROUND_BLUE_OFFSET_MAX_PERMILLE,
+        DEPTH_FILTER_FOREGROUND_BLUE_OFFSET_BASE_PERMILLE +
+          scaledDistance *
+            DEPTH_FILTER_FOREGROUND_BLUE_OFFSET_PER_LAYER_PERMILLE
+      ) / DEPTH_FILTER_PERMILLE
+
+    matrix[0] = red
+    matrix[1] = 0
+    matrix[2] = 0
+    matrix[3] = 0
+    matrix[4] = 0
+    matrix[5] = 0
+    matrix[6] = green
+    matrix[7] = 0
+    matrix[8] = 0
+    matrix[9] = 0
+    matrix[10] = 0
+    matrix[11] = 0
+    matrix[12] = blue
+    matrix[13] = 0
+    matrix[14] = blueOffset
+    matrix[15] = 0
+    matrix[16] = 0
+    matrix[17] = 0
+    matrix[18] = 1
+    matrix[19] = 0
   }
 
   setSkyLayerTone(skyColor: number): void {
@@ -1203,7 +1424,12 @@ export class PixiWorldRenderer {
     const originX = parallaxCenterX + parallaxCamX / parallaxZoom
     const originY = parallaxBottomY + parallaxCamY / parallaxZoom
     for (const [layer, bucket] of this.buckets) {
-      if (layer === 0) continue
+      if (layer === 0) {
+        bucket.container.scale.set(1)
+        bucket.container.position.set(0, 0)
+        this.updateBucketFilterArea(bucket, 1, DEPTH_FILTER_AREA_PADDING_PX)
+        continue
+      }
       if (layer === RENDER_LAYER_SKY) {
         // 天空层级作为背景：抵消世界缩放，并按编辑器相机框中心对齐。
         const skyScale = parallaxZoom > 0 ? skyReferenceZoom / parallaxZoom : 1
@@ -1218,6 +1444,11 @@ export class PixiWorldRenderer {
             skyScale * skyReferenceCamY -
             parallaxShakeY
         )
+        this.updateBucketFilterArea(
+          bucket,
+          skyScale,
+          SKY_LAYER_FILTER_AREA_PADDING_PX
+        )
         continue
       }
       const factor = getParallaxScaleForLayer(layer)
@@ -1226,7 +1457,52 @@ export class PixiWorldRenderer {
         (1 - factor) * originX,
         (1 - factor) * originY
       )
+      this.updateBucketFilterArea(bucket, factor, DEPTH_FILTER_AREA_PADDING_PX)
     }
+  }
+
+  private updateBucketFilterArea(
+    bucket: LayerBucket,
+    bucketScale: number,
+    paddingPx: number
+  ): void {
+    if (!bucket.depthContainer.filters || this.parallaxZoom <= 0) {
+      return
+    }
+    const scale = bucketScale > 0 ? bucketScale : 1
+    const zoom = this.parallaxZoom
+    const centerX = this.parallaxCenterX
+    const bottomY = this.parallaxBottomY
+    const minScreenX = -paddingPx
+    const minScreenY = -paddingPx
+    const maxScreenX = centerX * 2 + paddingPx
+    const maxScreenY = bottomY + paddingPx
+    const minWorldX =
+      (minScreenX - centerX) / zoom +
+      centerX -
+      this.parallaxShakeX +
+      this.parallaxCamX
+    const maxWorldX =
+      (maxScreenX - centerX) / zoom +
+      centerX -
+      this.parallaxShakeX +
+      this.parallaxCamX
+    const minWorldY =
+      (minScreenY - bottomY) / zoom +
+      bottomY -
+      this.parallaxShakeY +
+      this.parallaxCamY
+    const maxWorldY =
+      (maxScreenY - bottomY) / zoom +
+      bottomY -
+      this.parallaxShakeY +
+      this.parallaxCamY
+    const invScale = 1 / scale
+    const area = bucket.filterArea
+    area.x = Math.floor((minWorldX - bucket.container.position.x) * invScale)
+    area.y = Math.floor((minWorldY - bucket.container.position.y) * invScale)
+    area.width = Math.ceil((maxWorldX - minWorldX) * invScale)
+    area.height = Math.ceil((maxWorldY - minWorldY) * invScale)
   }
 
   addStaticMesh(mesh: Container, layer: number): void {

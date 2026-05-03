@@ -1236,7 +1236,7 @@ export class EditorManager {
       )
       if (group) {
         this.fabricCanvas?.add(group)
-        this.objectManager.registerEditorObject(type, group)
+        this.registerEditorObjectWithDepth(type, group)
         this.fabricCanvas?.setActiveObject(group)
         this.objectManager.handleCanvasSelection([group])
         this.fabricCanvas?.requestRenderAll()
@@ -1491,16 +1491,44 @@ export class EditorManager {
     const layerSet = new Set<number>([RENDER_LAYER_SKY])
     for (let i = 0; i < all.length; i++) {
       const data = all[i]
-      if (data.type === ObjectType.Empty) continue
       layerSet.add(this.getEditorObjectRenderLayer(data.object))
     }
     return Array.from(layerSet).sort((a, b) => a - b)
   }
 
-  private getEnvironmentStampDefaultRenderLayer(): number {
+  private getEditorObjectDefaultRenderLayer(): number {
     return typeof this.sceneDepthFilter === 'number'
       ? this.sceneDepthFilter
       : getDefaultShapeRenderLayer()
+  }
+
+  private getGroupedObjectRenderLayer(ids: readonly number[]): number {
+    let firstLayer = this.getEditorObjectDefaultRenderLayer()
+    let hasLayer = false
+    let isSameLayer = true
+    for (let i = 0; i < ids.length; i++) {
+      const data = this.objectManager.getEditorObjectById(ids[i])
+      if (!data) {
+        continue
+      }
+      const layer = this.getEditorObjectRenderLayer(data.object)
+      if (!hasLayer) {
+        firstLayer = layer
+        hasLayer = true
+        continue
+      }
+      if (firstLayer !== layer) {
+        isSameLayer = false
+      }
+    }
+    if (isSameLayer || typeof this.sceneDepthFilter !== 'number') {
+      return firstLayer
+    }
+    return this.sceneDepthFilter
+  }
+
+  private getEnvironmentStampDefaultRenderLayer(): number {
+    return this.getEditorObjectDefaultRenderLayer()
   }
 
   private registerEditorObjectWithDepth(
@@ -1526,8 +1554,6 @@ export class EditorManager {
 
   private isObjectMatchingDepthFilter(data: EditorObjectData): boolean {
     if (this.sceneDepthFilter === 'all') return true
-    // 空容器（分组节点）始终显示，避免破坏树结构
-    if (data.type === ObjectType.Empty) return true
     const layer = this.getEditorObjectRenderLayer(data.object)
     return layer === this.sceneDepthFilter
   }
@@ -1675,7 +1701,7 @@ export class EditorManager {
   }
 
   private collectRangeSelection(anchorId: number, targetId: number) {
-    const objects = this.objectManager.getEditorObjects()
+    const objects = this.getDepthFilteredEditorObjects()
     let anchorIndex = -1
     let targetIndex = -1
     for (let i = 0; i < objects.length; i++) {
@@ -4011,7 +4037,7 @@ export class EditorManager {
     centerX: number,
     centerY: number,
     isGroupContainer = false
-  ): EditorEmptyObject {
+  ): EditorEmptyObject & EditorLayeredObject {
     const group = new fabric.Group([], {
       originX: 'center',
       originY: 'center',
@@ -4021,12 +4047,13 @@ export class EditorManager {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
-    }) as EditorEmptyObject
+    }) as EditorEmptyObject & EditorLayeredObject
     group.left = centerX
     group.top = centerY
     group.setCoords()
     group.editorShape = 'editor-empty'
     group.isGroupContainer = isGroupContainer
+    group.renderLayer = this.getEditorObjectDefaultRenderLayer()
     return group
   }
 
@@ -4381,6 +4408,7 @@ export class EditorManager {
         }
         this.fabricCanvas?.discardActiveObject()
         const group = this.createEmptyNode(0, 0, true)
+        group.renderLayer = this.getGroupedObjectRenderLayer(selectedIds)
         const groupData = this.objectManager.createGroupObject(
           selectedIds,
           group
