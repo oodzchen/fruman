@@ -74,8 +74,7 @@ const TERRAIN_BRUSHES: readonly TerrainBrushDefinition[] = [
     id: 'grass',
     labelKey: 'editor_terrain_brush_grass',
     mode: 'fill',
-    fillMaterialId: 'dirt',
-    exposedTopMaterialId: 'grass',
+    fillMaterialId: 'grass',
   },
   {
     id: 'dirt',

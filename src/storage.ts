@@ -1552,6 +1552,36 @@ function normalizeTerrainContourMetadata(
   }
 }
 
+function normalizeTerrainGrassLayerMaterials(
+  terrain: MapTerrainData | undefined
+): MapTerrainData | undefined {
+  if (!terrain || !terrain.layers || terrain.layers.length === 0) {
+    return terrain
+  }
+
+  let normalizedLayers: MapTerrainLayer[] | null = null
+  for (let layerIndex = 0; layerIndex < terrain.layers.length; layerIndex++) {
+    const layer = terrain.layers[layerIndex]
+    const normalizedLayer = normalizeGrassTerrainLayerMaterial(layer)
+    if (normalizedLayer === layer) {
+      continue
+    }
+    if (!normalizedLayers) {
+      normalizedLayers = terrain.layers.slice()
+    }
+    normalizedLayers[layerIndex] = normalizedLayer
+  }
+
+  if (!normalizedLayers) {
+    return terrain
+  }
+
+  return {
+    ...terrain,
+    layers: normalizedLayers,
+  }
+}
+
 function inferLegacyStraightEdgeContourMetadata(
   points: readonly number[]
 ): Pick<TerrainContourLike, 'shapeKind' | 'straightEdge'> | null {
@@ -1704,7 +1734,9 @@ function normalizeMapSettings(settings: MapSettings | undefined): MapSettings {
 function normalizeEditorMapData(data: EditorMapData): EditorMapData {
   const settings = normalizeMapSettings(data.settings)
   if (isMapDataFastNormalized(data)) {
-    const normalizedTerrain = normalizeTerrainContourMetadata(data.terrain)
+    const normalizedTerrain = normalizeTerrainContourMetadata(
+      normalizeTerrainGrassLayerMaterials(data.terrain)
+    )
     if (
       normalizedTerrain === data.terrain &&
       data.settings?.initialTimePhase === settings.initialTimePhase
@@ -1967,33 +1999,6 @@ function reduceLegacyTerrainCellCoord(cellCoord: number): number {
   return Math.floor(cellCoord / 2)
 }
 
-function recalculateGrassTerrainTopCells(
-  grid: TerrainChunkGrid,
-  chunkSize: number
-): void {
-  const fillCode = getTerrainMaterialCodeById('dirt')
-  const topCode = getTerrainMaterialCodeById('grass')
-  const chunks = grid.getChunks()
-  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-    const chunk = chunks[chunkIndex]
-    const chunkBaseX = chunk.chunkX * chunkSize
-    const chunkBaseY = chunk.chunkY * chunkSize
-    for (let localY = 0; localY < chunkSize; localY++) {
-      for (let localX = 0; localX < chunkSize; localX++) {
-        const cellIndex = localY * chunkSize + localX
-        const code = chunk.cells[cellIndex] | 0
-        if (code !== fillCode && code !== topCode) {
-          continue
-        }
-        const cellX = chunkBaseX + localX
-        const cellY = chunkBaseY + localY
-        const aboveSolid = grid.isCellSolid(cellX, cellY - 1)
-        grid.setCellMaterialCode(cellX, cellY, aboveSolid ? fillCode : topCode)
-      }
-    }
-  }
-}
-
 function upgradeLegacyTerrainLayerCellSize(
   layer: MapTerrainLayer,
   chunkSize: number,
@@ -2002,10 +2007,7 @@ function upgradeLegacyTerrainLayerCellSize(
   const nextOffsetCellX = reduceLegacyTerrainCellCoord(layer.offsetCellX)
   const nextOffsetCellY = reduceLegacyTerrainCellCoord(layer.offsetCellY)
   const grid = new TerrainChunkGrid(chunkSize, randomSeed)
-  const fillCode =
-    layer.materialId === 'grass'
-      ? getTerrainMaterialCodeById('dirt')
-      : getTerrainMaterialCodeById(layer.materialId)
+  const fillCode = getTerrainMaterialCodeById(layer.materialId)
   for (let chunkIndex = 0; chunkIndex < layer.chunks.length; chunkIndex++) {
     const chunk = layer.chunks[chunkIndex]
     const cells = chunk.materialCodes ?? chunk.cells
@@ -2028,9 +2030,6 @@ function upgradeLegacyTerrainLayerCellSize(
       }
     }
   }
-  if (layer.materialId === 'grass') {
-    recalculateGrassTerrainTopCells(grid, chunkSize)
-  }
   return {
     ...layer,
     offsetCellX: nextOffsetCellX,
@@ -2040,6 +2039,55 @@ function upgradeLegacyTerrainLayerCellSize(
         ? (layer.buildRevision | 0) + 1
         : undefined,
     chunks: grid.serializeChunks(),
+  }
+}
+
+function normalizeGrassTerrainLayerMaterial(
+  layer: MapTerrainLayer
+): MapTerrainLayer {
+  if (layer.materialId !== 'grass') {
+    return layer
+  }
+
+  const grassCode = getTerrainMaterialCodeById('grass')
+  let normalizedChunks: MapTerrainLayer['chunks'] | null = null
+  for (let chunkIndex = 0; chunkIndex < layer.chunks.length; chunkIndex++) {
+    const chunk = layer.chunks[chunkIndex]
+    const cells = chunk.materialCodes ?? chunk.cells
+    let normalizedCells: number[] | null = null
+    for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+      const code = cells[cellIndex] | 0
+      if (code <= 0 || code === grassCode) {
+        continue
+      }
+      if (!normalizedChunks) {
+        normalizedChunks = layer.chunks.slice()
+      }
+      if (!normalizedCells) {
+        normalizedCells = Array.from(cells)
+      }
+      normalizedCells[cellIndex] = grassCode
+    }
+    if (normalizedCells && normalizedChunks) {
+      normalizedChunks[chunkIndex] = {
+        ...chunk,
+        cells: normalizedCells,
+        materialCodes: normalizedCells.slice(),
+      }
+    }
+  }
+
+  if (!normalizedChunks) {
+    return layer
+  }
+
+  return {
+    ...layer,
+    buildRevision:
+      typeof layer.buildRevision === 'number'
+        ? (layer.buildRevision | 0) + 1
+        : undefined,
+    chunks: normalizedChunks,
   }
 }
 
@@ -2177,6 +2225,11 @@ function normalizeMapTerrain(
   if (shouldUpgradeCellSize && normalizedLayers.length > 0) {
     normalizedLayers = normalizedLayers.map((layer) =>
       upgradeLegacyTerrainLayerCellSize(layer, chunkSize, randomSeed)
+    )
+  }
+  if (normalizedLayers.length > 0) {
+    normalizedLayers = normalizedLayers.map((layer) =>
+      normalizeGrassTerrainLayerMaterial(layer)
     )
   }
   const normalizedContours =

@@ -443,7 +443,6 @@ export class EditorTerrainLayerManager {
   private strokeChanged = false
   private readonly strokeDirtyLayers = new Set<EditorTerrainLayer>()
   private readonly strokeDirtyContours = new Set<EditorTerrainContour>()
-  private readonly strokeCellKeys = new Set<number>()
   private movingProxyTarget: TerrainRegionProxy | null = null
   private movingProxyStartLeft = 0
   private movingProxyStartTop = 0
@@ -1224,12 +1223,10 @@ export class EditorTerrainLayerManager {
     this.strokeChanged = false
     this.strokeDirtyLayers.clear()
     this.strokeDirtyContours.clear()
-    this.strokeCellKeys.clear()
 
     const brush = getTerrainBrushById(brushId)
     if (brush.mode === 'fill') {
-      const layerMaterialId =
-        brush.exposedTopMaterialId ?? brush.fillMaterialId ?? 'dirt'
+      const layerMaterialId = brush.fillMaterialId ?? 'dirt'
       const targetContour = this.findContourTargetForStroke(
         layerMaterialId,
         cellX,
@@ -1293,7 +1290,6 @@ export class EditorTerrainLayerManager {
         }
         changed = true
       }
-      this.strokeCellKeys.add(this.packCellCoord(cellX, cellY))
     }
     if (changed) {
       this.strokeChanged = true
@@ -1306,31 +1302,8 @@ export class EditorTerrainLayerManager {
       return false
     }
     const brush = getTerrainBrushById(this.strokeBrushId)
-    if (
-      brush.mode === 'fill' &&
-      brush.fillMaterialId &&
-      brush.exposedTopMaterialId &&
-      this.strokeTargetLayer
-    ) {
-      this.recalculateExposedTopCells(
-        this.strokeTargetLayer,
-        getTerrainMaterialCodeById(brush.fillMaterialId),
-        getTerrainMaterialCodeById(brush.exposedTopMaterialId)
-      )
-    }
 
     if (brush.mode === 'erase') {
-      const dirtyLayers = Array.from(this.strokeDirtyLayers)
-      for (let i = 0; i < dirtyLayers.length; i++) {
-        const layer = dirtyLayers[i]
-        if (layer.materialId === 'grass') {
-          this.recalculateContourTopCells(
-            layer,
-            getTerrainMaterialCodeById('dirt'),
-            getTerrainMaterialCodeById('grass')
-          )
-        }
-      }
       if (this.strokeDirtyContours.size > 0) {
         const dirtyContours = Array.from(this.strokeDirtyContours)
         for (let i = 0; i < dirtyContours.length; i++) {
@@ -1361,7 +1334,6 @@ export class EditorTerrainLayerManager {
     this.strokeChanged = false
     this.strokeDirtyLayers.clear()
     this.strokeDirtyContours.clear()
-    this.strokeCellKeys.clear()
     return changed
   }
 
@@ -1371,7 +1343,6 @@ export class EditorTerrainLayerManager {
     this.strokeChanged = false
     this.strokeDirtyLayers.clear()
     this.strokeDirtyContours.clear()
-    this.strokeCellKeys.clear()
   }
 
   handleSelectionContourPointerDown(opt: fabric.TPointerEventInfo): boolean {
@@ -2563,45 +2534,6 @@ export class EditorTerrainLayerManager {
     return changed
   }
 
-  private recalculateExposedTopCells(
-    layer: EditorTerrainLayer,
-    fillCode: number,
-    topCode: number
-  ): void {
-    for (const packedCoord of this.strokeCellKeys) {
-      const cellX = this.unpackCellX(packedCoord)
-      const cellY = this.unpackCellY(packedCoord)
-      this.recalculateSingleTopCell(layer, cellX, cellY, fillCode, topCode)
-      this.recalculateSingleTopCell(layer, cellX, cellY + 1, fillCode, topCode)
-    }
-    this.strokeDirtyLayers.add(layer)
-  }
-
-  private recalculateSingleTopCell(
-    layer: EditorTerrainLayer,
-    worldCellX: number,
-    worldCellY: number,
-    fillCode: number,
-    topCode: number
-  ): void {
-    const localCellX = worldCellX - layer.offsetCellX
-    const localCellY = worldCellY - layer.offsetCellY
-    const currentCode = layer.grid.getCellMaterialCode(localCellX, localCellY)
-    if (currentCode !== fillCode && currentCode !== topCode) {
-      return
-    }
-    const aboveSolid = layer.grid.isCellSolid(localCellX, localCellY - 1)
-    if (
-      layer.grid.setCellMaterialCode(
-        localCellX,
-        localCellY,
-        aboveSolid ? fillCode : topCode
-      )
-    ) {
-      this.bumpLayerBuildRevision(layer)
-    }
-  }
-
   private refreshLayerProxy(layer: EditorTerrainLayer): void {
     if (!layer.grid.hasCells()) {
       return
@@ -3340,9 +3272,7 @@ export class EditorTerrainLayerManager {
       cellSizePx,
       contour.straightEdge
     )
-    const baseFillMaterialId =
-      contour.fillMaterialId === 'grass' ? 'dirt' : contour.fillMaterialId
-    const fillCode = getTerrainMaterialCodeById(baseFillMaterialId)
+    const fillCode = getTerrainMaterialCodeById(contour.fillMaterialId)
     const width = rasterBounds.endCellX - rasterBounds.startCellX + 1
     const height = rasterBounds.endCellY - rasterBounds.startCellY + 1
     if (width <= 0 || height <= 0) {
@@ -3377,13 +3307,6 @@ export class EditorTerrainLayerManager {
       }
     }
     this.bumpLayerBuildRevision(layer)
-    if (contour.fillMaterialId === 'grass') {
-      this.recalculateContourTopCells(
-        layer,
-        getTerrainMaterialCodeById('dirt'),
-        getTerrainMaterialCodeById('grass')
-      )
-    }
     if (!layer.grid.hasCells()) {
       this.removeLayer(layer)
       contour.fillLayer = null
@@ -3427,9 +3350,7 @@ export class EditorTerrainLayerManager {
       return false
     }
     const layer = this.ensureContourFillLayer(contour, contour.fillMaterialId)
-    const baseFillMaterialId =
-      contour.fillMaterialId === 'grass' ? 'dirt' : contour.fillMaterialId
-    const fillCode = getTerrainMaterialCodeById(baseFillMaterialId)
+    const fillCode = getTerrainMaterialCodeById(contour.fillMaterialId)
     const previousMask = new Uint8Array(width * height)
     const nextMask = new Uint8Array(width * height)
     this.rasterizeContourMask(
@@ -3479,13 +3400,6 @@ export class EditorTerrainLayerManager {
             this.setWorldCellMaterialCode(layer, cellX, cellY, 0) || changed
         }
       }
-    }
-    if (contour.fillMaterialId === 'grass') {
-      this.recalculateContourTopCells(
-        layer,
-        getTerrainMaterialCodeById('dirt'),
-        getTerrainMaterialCodeById('grass')
-      )
     }
     if (!layer.grid.hasCells()) {
       this.removeLayer(layer)
@@ -3739,36 +3653,6 @@ export class EditorTerrainLayerManager {
       }
     }
     return insideSamples >= requiredSamples
-  }
-
-  private recalculateContourTopCells(
-    layer: EditorTerrainLayer,
-    fillCode: number,
-    topCode: number
-  ): void {
-    const chunks = layer.grid.getChunks()
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      const chunk = chunks[chunkIndex]
-      const chunkBaseX = chunk.chunkX * this.chunkSize
-      const chunkBaseY = chunk.chunkY * this.chunkSize
-      for (let localY = 0; localY < this.chunkSize; localY++) {
-        for (let localX = 0; localX < this.chunkSize; localX++) {
-          const code = chunk.cells[localY * this.chunkSize + localX] | 0
-          if (code !== fillCode && code !== topCode) {
-            continue
-          }
-          const worldCellX = layer.offsetCellX + chunkBaseX + localX
-          const worldCellY = layer.offsetCellY + chunkBaseY + localY
-          this.recalculateSingleTopCell(
-            layer,
-            worldCellX,
-            worldCellY,
-            fillCode,
-            topCode
-          )
-        }
-      }
-    }
   }
 
   private syncContourFromFillLayer(contour: EditorTerrainContour): boolean {
@@ -4541,20 +4425,6 @@ export class EditorTerrainLayerManager {
       return Math.floor((deltaPx + halfCellSizePx) / cellSizePx)
     }
     return -Math.floor((-deltaPx + halfCellSizePx) / cellSizePx)
-  }
-
-  private packCellCoord(cellX: number, cellY: number): number {
-    const packedX = (cellX + 32768) & 0xffff
-    const packedY = (cellY + 32768) & 0xffff
-    return (packedX << 16) | packedY
-  }
-
-  private unpackCellX(packedCoord: number): number {
-    return ((packedCoord >>> 16) & 0xffff) - 32768
-  }
-
-  private unpackCellY(packedCoord: number): number {
-    return (packedCoord & 0xffff) - 32768
   }
 
   private nextBuildRevision(): number {

@@ -43,7 +43,6 @@ export interface TerrainBrushDefinition {
   labelKey: string
   mode: 'fill' | 'erase' | 'contour'
   fillMaterialId?: TerrainMaterialId
-  exposedTopMaterialId?: TerrainMaterialId
 }
 
 export interface TerrainContourLike {
