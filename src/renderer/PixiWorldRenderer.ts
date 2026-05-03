@@ -1,5 +1,14 @@
 import type { Spine } from '@esotericsoftware/spine-pixi-v8'
-import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
+import {
+  BlurFilter,
+  type ColorMatrix,
+  ColorMatrixFilter,
+  Container,
+  Graphics,
+  Sprite,
+  Text,
+  Texture,
+} from 'pixi.js'
 
 import type { ClientRenderer } from '../ClientRenderer'
 import {
@@ -392,6 +401,16 @@ const PARALLAX_FACTOR_PER_LAYER = 0.005
 // 每层级亮度衰减量，|layer|=100 时亮度约 40%
 const PARALLAX_BRIGHTNESS_PER_LAYER = 0.006
 const PARALLAX_MIN_BRIGHTNESS = 0.3
+const SKY_LAYER_BLUR_STRENGTH = 3
+const SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE = 450
+const SKY_LAYER_BUCKET_TONE_ORIGINAL_PERMILLE =
+  1000 - SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE
+const SKY_LAYER_TONE_BLEND_PERMILLE = 300
+const SKY_LAYER_TONE_ORIGINAL_PERMILLE = 1000 - SKY_LAYER_TONE_BLEND_PERMILLE
+const SKY_LAYER_TONE_LUMA_R = 77
+const SKY_LAYER_TONE_LUMA_G = 150
+const SKY_LAYER_TONE_LUMA_B = 29
+const SKY_LAYER_TONE_MATRIX_DENOMINATOR = 255 * 1000 * 256
 
 function getParallaxScaleForLayer(layer: number): number {
   if (layer === RENDER_LAYER_SKY) {
@@ -408,6 +427,22 @@ function getParallaxBrightnessForLayer(layer: number): number {
     PARALLAX_MIN_BRIGHTNESS,
     1 - Math.abs(layer) * PARALLAX_BRIGHTNESS_PER_LAYER
   )
+}
+
+function getSkyLayerToneTint(skyColor: number): number {
+  const r =
+    (255 * SKY_LAYER_BUCKET_TONE_ORIGINAL_PERMILLE +
+      ((skyColor >> 16) & 0xff) * SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE) /
+    1000
+  const g =
+    (255 * SKY_LAYER_BUCKET_TONE_ORIGINAL_PERMILLE +
+      ((skyColor >> 8) & 0xff) * SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE) /
+    1000
+  const b =
+    (255 * SKY_LAYER_BUCKET_TONE_ORIGINAL_PERMILLE +
+      (skyColor & 0xff) * SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE) /
+    1000
+  return ((r | 0) << 16) | ((g | 0) << 8) | (b | 0)
 }
 
 export class PixiWorldRenderer {
@@ -437,6 +472,20 @@ export class PixiWorldRenderer {
     CheckpointTextureEntry
   >()
   private readonly checkpointPulseTextureCache = new Map<string, Texture>()
+  private readonly skyToneFilter = new ColorMatrixFilter()
+  private readonly skyBlurFilter = new BlurFilter({
+    strength: SKY_LAYER_BLUR_STRENGTH,
+    quality: 1,
+    kernelSize: 5,
+  })
+  private readonly skyLayerFilters: [ColorMatrixFilter, BlurFilter] = [
+    this.skyToneFilter,
+    this.skyBlurFilter,
+  ]
+  private readonly skyToneMatrix: ColorMatrix = [
+    1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0,
+  ]
+  private skyLayerToneColor = -1
   private checkpointTexGenUs = 0
   private readonly damageTextPool: DamageTextView[] = []
   private readonly particleTexture: Texture
@@ -483,6 +532,7 @@ export class PixiWorldRenderer {
   ) {
     this.root = root
     this.pixelsPerMeter = pixelsPerMeter
+    this.skyBlurFilter.repeatEdgePixels = true
 
     this.overlayContainer = new Container()
     this.overlayContainer.zIndex = 900000
@@ -987,6 +1037,9 @@ export class PixiWorldRenderer {
     const container = new Container()
     container.zIndex = layer * 10 + 5
     this.root.addChild(container)
+    if (layer === RENDER_LAYER_SKY) {
+      container.filters = this.skyLayerFilters
+    }
 
     const glowContainer = new Container()
     container.addChild(glowContainer)
@@ -1005,7 +1058,10 @@ export class PixiWorldRenderer {
     // 计算亮度 tint：layer=0 最亮，越远越暗
     const brightness = getParallaxBrightnessForLayer(layer)
     const v = Math.round(brightness * 255)
-    container.tint = (v << 16) | (v << 8) | v
+    container.tint =
+      layer === RENDER_LAYER_SKY && this.skyLayerToneColor >= 0
+        ? getSkyLayerToneTint(this.skyLayerToneColor)
+        : (v << 16) | (v << 8) | v
 
     const bucket = {
       container,
@@ -1072,6 +1128,63 @@ export class PixiWorldRenderer {
     this.skyReferenceCamX = camX
     this.skyReferenceCamY = camY
     this.skyReferenceZoom = zoom > 0 ? zoom : 1
+  }
+
+  setSkyLayerTone(skyColor: number): void {
+    skyColor = skyColor & 0xffffff
+    if (this.skyLayerToneColor === skyColor) {
+      return
+    }
+    this.skyLayerToneColor = skyColor
+    const bucket = this.buckets.get(RENDER_LAYER_SKY)
+    if (bucket) {
+      bucket.container.tint = getSkyLayerToneTint(skyColor)
+    }
+
+    const toneWeight = SKY_LAYER_TONE_BLEND_PERMILLE
+    const originalWeight = SKY_LAYER_TONE_ORIGINAL_PERMILLE
+    const toneR = ((skyColor >> 16) & 0xff) * toneWeight
+    const toneG = ((skyColor >> 8) & 0xff) * toneWeight
+    const toneB = (skyColor & 0xff) * toneWeight
+    const matrix = this.skyToneMatrix
+
+    matrix[0] =
+      (originalWeight * 255 * 256 + toneR * SKY_LAYER_TONE_LUMA_R) /
+      SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[1] =
+      (toneR * SKY_LAYER_TONE_LUMA_G) / SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[2] =
+      (toneR * SKY_LAYER_TONE_LUMA_B) / SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[3] = 0
+    matrix[4] = 0
+
+    matrix[5] =
+      (toneG * SKY_LAYER_TONE_LUMA_R) / SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[6] =
+      (originalWeight * 255 * 256 + toneG * SKY_LAYER_TONE_LUMA_G) /
+      SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[7] =
+      (toneG * SKY_LAYER_TONE_LUMA_B) / SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[8] = 0
+    matrix[9] = 0
+
+    matrix[10] =
+      (toneB * SKY_LAYER_TONE_LUMA_R) / SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[11] =
+      (toneB * SKY_LAYER_TONE_LUMA_G) / SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[12] =
+      (originalWeight * 255 * 256 + toneB * SKY_LAYER_TONE_LUMA_B) /
+      SKY_LAYER_TONE_MATRIX_DENOMINATOR
+    matrix[13] = 0
+    matrix[14] = 0
+
+    matrix[15] = 0
+    matrix[16] = 0
+    matrix[17] = 0
+    matrix[18] = 1
+    matrix[19] = 0
+    this.skyToneFilter.matrix = matrix
+    this.skyToneFilter.resources.colorMatrixUniforms.update()
   }
 
   private updateBucketParallax(): void {

@@ -52,7 +52,7 @@ import {
 import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
 import { getPublicAssetUrl } from './publicAssetUrl'
-import { getDefaultTerrainRenderLayer } from './renderLayers'
+import { RENDER_LAYER_SKY, getDefaultTerrainRenderLayer } from './renderLayers'
 import {
   DayNightCycle,
   getMapTimePhaseElapsedMs,
@@ -60,6 +60,7 @@ import {
 import { InteractiveGrassDecoration } from './renderer/EnvironmentGrassRuntime'
 import { PixiWorldRenderer } from './renderer/PixiWorldRenderer'
 import {
+  type EnvironmentTextureSource,
   buildCustomEnvironmentTextureCacheKey,
   buildEnvironmentTextureCacheKey,
   clearEnvironmentTextureSourceCache,
@@ -118,6 +119,7 @@ type RendererPreference = 'webgpu' | 'webgl' | 'canvas'
 
 interface EnvironmentTextureEntry {
   key: string
+  sourceKey: string | null
   texture: Texture
   centerAnchorX: number
   centerAnchorY: number
@@ -168,6 +170,7 @@ export class GameClient {
   private static readonly SLEEP_MAX_BLUR_STRENGTH = 12
   private static readonly SLEEP_OVERLAY_BLUR_STRENGTH = 24
   private static readonly SLEEP_OVERLAY_OVERSCAN_PX = 96
+  private static readonly SKY_ENVIRONMENT_TEXTURE_BLUR_PX = 3
   private worker: Worker
   private app: Application
   private appCanvas: HTMLCanvasElement
@@ -690,6 +693,7 @@ export class GameClient {
       this.emissiveContainer,
       this.pixelsPerMeter
     )
+    this.worldRenderer.setSkyLayerTone(initLightingState.sky)
     this.audioManager = new AudioManager()
     this.menuManager = new MenuManager(this.appCanvas, menuOverlay, inputTarget)
     this.inputTarget = inputTarget
@@ -1516,6 +1520,7 @@ export class GameClient {
     if (this.backgroundSprite) {
       this.backgroundSprite.tint = colors.sky
     }
+    this.worldRenderer.setSkyLayerTone(colors.sky)
   }
 
   private applySaveTimeCycle(saveData: SaveData | null) {
@@ -3600,6 +3605,8 @@ export class GameClient {
         isEnvironmentCellStrokeSupported(obj.type) && obj.cellStroke === true
       const flowerOptions =
         obj.type === 'flower' ? obj.flowerOptions : undefined
+      const rawLayer = envLayers?.[index] ?? 0
+      const resolvedLayer = this.resolveEnvironmentRenderLayer(rawLayer)
       const textureEntry = this.getEnvironmentTextureEntry(
         obj.type,
         obj.assetId,
@@ -3608,9 +3615,13 @@ export class GameClient {
         scaleXPermille,
         scaleYPermille,
         cellStroke,
-        flowerOptions
+        flowerOptions,
+        resolvedLayer === RENDER_LAYER_SKY
       )
       this.pendingEnvironmentTextureKeys.add(textureEntry.key)
+      if (textureEntry.sourceKey) {
+        this.pendingEnvironmentTextureKeys.add(textureEntry.sourceKey)
+      }
       const rotationDeg = getEnvironmentRotationDeg(obj)
       writeEnvironmentTransformedOffset(
         textureEntry.anchorOffsetX,
@@ -3620,8 +3631,6 @@ export class GameClient {
         scaleYPermille,
         this.reusableEnvironmentAnchorOffset
       )
-      const rawLayer = envLayers?.[index] ?? 0
-      const resolvedLayer = this.resolveEnvironmentRenderLayer(rawLayer)
       const renderX = obj.x * ppm - this.reusableEnvironmentAnchorOffset.x
       const renderY = obj.y * ppm - this.reusableEnvironmentAnchorOffset.y
       if (obj.type === 'grass' || obj.type === 'flower') {
@@ -3698,9 +3707,10 @@ export class GameClient {
     scaleXPermille: number,
     scaleYPermille: number,
     cellStroke: boolean,
-    flowerOptions: MapEnvironmentObject['flowerOptions']
+    flowerOptions: MapEnvironmentObject['flowerOptions'],
+    applySkyDepthStyle: boolean
   ): EnvironmentTextureEntry {
-    const key =
+    const sourceKey =
       type === 'custom'
         ? buildCustomEnvironmentTextureCacheKey(
             assetId,
@@ -3717,6 +3727,9 @@ export class GameClient {
             cellStroke,
             flowerOptions
           )
+    const key = applySkyDepthStyle
+      ? `${sourceKey}_sky_depth_${GameClient.SKY_ENVIRONMENT_TEXTURE_BLUR_PX}`
+      : sourceKey
     const cached = this.environmentTextureCache.get(key)
     if (cached) {
       this.perfEnvironmentCacheHits++
@@ -3743,18 +3756,55 @@ export class GameClient {
             cellStroke,
             flowerOptions
           )
-    const centerOriginX = source.canvas.width >> 1
-    const centerOriginY = source.canvas.height >> 1
+    const renderSource = applySkyDepthStyle
+      ? this.createSkyDepthEnvironmentTextureSource(source)
+      : source
+    const centerOriginX = renderSource.canvas.width >> 1
+    const centerOriginY = renderSource.canvas.height >> 1
     const entry: EnvironmentTextureEntry = {
       key,
-      texture: Texture.from(source.canvas),
-      centerAnchorX: centerOriginX / source.canvas.width,
-      centerAnchorY: centerOriginY / source.canvas.height,
-      anchorOffsetX: source.originX - centerOriginX,
-      anchorOffsetY: source.originY - centerOriginY,
+      sourceKey: applySkyDepthStyle ? sourceKey : null,
+      texture: Texture.from(renderSource.canvas),
+      centerAnchorX: centerOriginX / renderSource.canvas.width,
+      centerAnchorY: centerOriginY / renderSource.canvas.height,
+      anchorOffsetX: renderSource.originX - centerOriginX,
+      anchorOffsetY: renderSource.originY - centerOriginY,
     }
     this.environmentTextureCache.set(key, entry)
     return entry
+  }
+
+  private createSkyDepthEnvironmentTextureSource(
+    source: EnvironmentTextureSource
+  ): EnvironmentTextureSource {
+    const blurPx = GameClient.SKY_ENVIRONMENT_TEXTURE_BLUR_PX
+    const padding = blurPx << 1
+    const canvas = document.createElement('canvas')
+    canvas.width = source.canvas.width + padding * 2
+    canvas.height = source.canvas.height + padding * 2
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.filter = `blur(${blurPx}px)`
+      ctx.drawImage(source.canvas, padding, padding)
+      ctx.filter = 'none'
+    }
+    const boundsX = Math.max(0, source.boundsX + padding - blurPx)
+    const boundsY = Math.max(0, source.boundsY + padding - blurPx)
+    return {
+      canvas,
+      originX: source.originX + padding,
+      originY: source.originY + padding,
+      boundsX,
+      boundsY,
+      boundsWidth: Math.min(
+        canvas.width - boundsX,
+        source.boundsWidth + blurPx * 2
+      ),
+      boundsHeight: Math.min(
+        canvas.height - boundsY,
+        source.boundsHeight + blurPx * 2
+      ),
+    }
   }
 
   private commitActiveEnvironmentTextureKeys(): void {
