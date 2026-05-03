@@ -411,8 +411,6 @@ function drawProjectileDebugToContext(
 
 // 视差参数：每层级的缩放/移动倍率增量，|layer|=100 时缩放约 0.5x/1.5x
 const PARALLAX_FACTOR_PER_LAYER = 0.005
-const SKY_LAYER_BLUR_STRENGTH = 3
-const SKY_LAYER_FILTER_AREA_PADDING_PX = 96
 const SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE = 450
 const SKY_LAYER_BUCKET_TONE_ORIGINAL_PERMILLE =
   1000 - SKY_LAYER_BUCKET_TONE_BLEND_PERMILLE
@@ -492,15 +490,7 @@ export class PixiWorldRenderer {
   >()
   private readonly checkpointPulseTextureCache = new Map<string, Texture>()
   private readonly skyToneFilter = new ColorMatrixFilter()
-  private readonly skyBlurFilter = new BlurFilter({
-    strength: SKY_LAYER_BLUR_STRENGTH,
-    quality: 1,
-    kernelSize: 5,
-  })
-  private readonly skyLayerFilters: [ColorMatrixFilter, BlurFilter] = [
-    this.skyToneFilter,
-    this.skyBlurFilter,
-  ]
+  private readonly skyLayerFilters: [ColorMatrixFilter] = [this.skyToneFilter]
   private readonly skyToneMatrix: ColorMatrix = [
     1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0,
   ]
@@ -553,7 +543,6 @@ export class PixiWorldRenderer {
   ) {
     this.root = root
     this.pixelsPerMeter = pixelsPerMeter
-    this.skyBlurFilter.repeatEdgePixels = true
 
     this.overlayContainer = new Container()
     this.overlayContainer.zIndex = 900000
@@ -1058,6 +1047,9 @@ export class PixiWorldRenderer {
     const container = new Container()
     container.zIndex = layer * 10 + 5
     this.root.addChild(container)
+    if (layer === RENDER_LAYER_SKY) {
+      container.filters = this.skyLayerFilters
+    }
 
     const depthContainer = new Container()
     container.addChild(depthContainer)
@@ -1121,6 +1113,9 @@ export class PixiWorldRenderer {
   }
 
   getLayerLightingContainer(layer: number): Container | null {
+    if (layer === RENDER_LAYER_SKY) {
+      return null
+    }
     return this.buckets.get(layer)?.container ?? null
   }
 
@@ -1183,8 +1178,9 @@ export class PixiWorldRenderer {
 
   private applyLayerDepthFilter(layer: number, bucket: LayerBucket): void {
     if (layer === RENDER_LAYER_SKY) {
-      bucket.depthContainer.filters = this.skyLayerFilters
-      bucket.depthContainer.filterArea = bucket.filterArea
+      bucket.container.filters = this.skyLayerFilters
+      bucket.depthContainer.filters = null
+      bucket.depthContainer.filterArea = undefined
       return
     }
 
@@ -1443,11 +1439,6 @@ export class PixiWorldRenderer {
             (1 - skyScale) * parallaxBottomY -
             skyScale * skyReferenceCamY -
             parallaxShakeY
-        )
-        this.updateBucketFilterArea(
-          bucket,
-          skyScale,
-          SKY_LAYER_FILTER_AREA_PADDING_PX
         )
         continue
       }
