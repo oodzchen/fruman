@@ -1,5 +1,6 @@
 import {
   DEBUG_ANIMATION_SLOWDOWN,
+  DEFAULT_PLAYER_RADIUS,
   SOUND_DB_BIG_HAMMER_HIT_ROCK,
   SOUND_DB_HEAVY_SWORD_HIT_GROUND,
   WEAPON_DROP_DURATION_MS,
@@ -21,8 +22,10 @@ import { System } from '../System'
 import {
   applyOffset,
   copyTransform,
+  getFrontTransform,
   getOffsetFromTransform,
   lerpRelativeTransform,
+  setWeaponBackTransform,
 } from '../WeaponPoseUtils'
 import type { World } from '../World'
 import type { RopeCircleHitRequest, RopeHitRequest } from './GrappleSystem'
@@ -39,6 +42,7 @@ import {
   BreakableObstacleHit,
   ObstacleCollider,
   WeaponDropData,
+  getBodyHalfHeight,
 } from './WeaponSystemShared'
 
 export abstract class WeaponSystemCore extends System {
@@ -230,6 +234,10 @@ export abstract class WeaponSystemCore extends System {
     playerPos: { x: number; y: number },
     facing: number
   ): void
+  protected abstract resetAssassinationState(
+    entity: Entity,
+    clearTargetId: boolean
+  ): void
   protected abstract handleWindupPhase(
     entity: Entity,
     weapon: Entity['weapon']
@@ -368,6 +376,164 @@ export abstract class WeaponSystemCore extends System {
   protected abstract getMoveKind(
     weapon: Entity['weapon']
   ): AttackMoveData['kind']
+
+  interruptForHitStun(entity: Entity): void {
+    const weapon = entity.weapon
+    if (!weapon) return
+
+    if (!entity.stats?.assassinationLocked) {
+      this.resetAssassinationState(entity, true)
+    }
+
+    weapon.width = weapon.baseWidth
+    const inputDirection = entity.input?.lastMoveDirection ?? 0
+    const facing =
+      inputDirection !== 0 ? inputDirection : weapon.attackFacing || 1
+    if (entity.transform) {
+      this.tempPlayerPos.x = entity.transform.x
+      this.tempPlayerPos.y = entity.transform.y
+      this.resetWeaponToCombatIdle(entity, this.tempPlayerPos, facing)
+    } else {
+      this.resetAttackStateForInterrupt(weapon)
+      weapon.attackPhase = 'idle'
+    }
+
+    weapon.attackElapsedMs = 0
+    weapon.attackQueued = false
+    weapon.isColliding = false
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
+    weapon.parryCounterActive = false
+    weapon.reboundLockedPause = false
+    weapon.isUnstoppable = false
+    weapon.hitEntityIds.clear()
+    weapon.parryHitWeaponIds.clear()
+    weapon.hitBreakableObstacleIds.clear()
+    weapon.hitRopeIds.clear()
+
+    weapon.bowIsDrawing = false
+    weapon.bowDrawElapsedMs = 0
+    weapon.bowDrawRatio = 0
+    weapon.bowForceRatio = 0
+    weapon.bowReleaseRatio = 0
+    weapon.bowReleasePending = false
+    weapon.bowReleaseDelayMs = 0
+    weapon.bowReleaseDelayTotalMs = 0
+    weapon.bowRecoverElapsedMs = 0
+    weapon.bowHasAim = false
+    weapon.bowFreeAim = false
+    weapon.bowFreeAimReticleX = 0
+    weapon.bowFreeAimReticleY = 0
+    weapon.bowFreeAimUseMouse = false
+    weapon.bowFreeAimUseReticle = false
+    weapon.bowFreeAimReticleOffsetX = 0
+    weapon.bowFreeAimReticleOffsetY = 0
+
+    if (weapon.bombState === 'throw_windup') {
+      weapon.bombState = 'lit'
+      weapon.bombThrowWindupElapsedMs = 0
+      weapon.bombThrowVelocityX = 0
+      weapon.bombThrowVelocityY = 0
+      weapon.bombThrowAimAngle = 0
+    }
+
+    weapon.ultimatePhase = null
+    weapon.ultimateElapsedMs = 0
+    weapon.ultimateGiantRise100 = 0
+    weapon.ultimateGiantAlpha100 = 0
+    weapon.ultimateDamageDealt = false
+    weapon.ultimateHammerJumpOffsetY = 0
+    weapon.ultimateHammerVisualDX = 0
+    weapon.ultimateHammerApexX = 0
+    weapon.ultimateHammerPhysicalFallStarted = false
+    weapon.ultimateHammerPhysicalFallStartY = 0
+    weapon.ultimateHammerImpact100 = 0
+    weapon.ultimateSpearAlpha100 = 0
+    weapon.skillPhase = null
+    weapon.skillElapsedMs = 0
+    weapon.assassinationPhase = null
+    weapon.assassinationElapsedMs = 0
+    weapon.assassinationTargetId = 0
+    weapon.assassinationImpactApplied = false
+    weapon.assassinationKillApplied = false
+    weapon.hitSoundPlaybackRate = 1
+
+    if (entity.stats) {
+      entity.stats.isInvincible = false
+    }
+    if (entity.input) {
+      entity.input.attackRequested = false
+      entity.input.blockRequested = false
+      entity.input.skillRequested = false
+      entity.input.ultimateRequested = false
+      entity.input.inputBuffer.clearAction('attack')
+      if (!entity.stats?.assassinationLocked) {
+        entity.input.facingOverride = null
+      }
+    }
+  }
+
+  protected isHitStunActive(entity: Entity): boolean {
+    const movement = entity.movement
+    if (!movement || movement.knockbackDuration <= 0) return false
+    return movement.knockbackElapsedTime * 1000 < movement.knockbackDuration
+  }
+
+  protected hasHitStunInterruptibleAction(weapon: WeaponComponent): boolean {
+    return (
+      weapon.attackPhase !== 'idle' ||
+      weapon.attackQueued ||
+      weapon.isColliding ||
+      weapon.isBlocking ||
+      weapon.isParrying ||
+      weapon.reboundLockedPause ||
+      weapon.bowIsDrawing ||
+      weapon.bowReleasePending ||
+      weapon.bowRecoverElapsedMs > 0 ||
+      weapon.bombState === 'throw_windup' ||
+      weapon.ultimatePhase !== null ||
+      weapon.skillPhase !== null ||
+      weapon.assassinationPhase !== null
+    )
+  }
+
+  protected syncHitStunIdlePose(
+    entity: Entity,
+    weapon: WeaponComponent,
+    playerPos: { x: number; y: number },
+    facing: number
+  ): void {
+    if (!weapon.isEquipped) {
+      weapon.visual.x = weapon.position.x
+      weapon.visual.y = weapon.position.y
+      weapon.visual.rotation = weapon.rotation
+      return
+    }
+
+    const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+    if (entity.stats?.isInCombat) {
+      getFrontTransform(
+        playerPos,
+        facing,
+        weapon.visual,
+        radius,
+        weapon.weaponType,
+        weapon.width
+      )
+    } else {
+      setWeaponBackTransform(
+        playerPos,
+        facing,
+        weapon.visual,
+        radius,
+        weapon.weaponType,
+        weapon.width,
+        getBodyHalfHeight(entity.render, radius)
+      )
+    }
+  }
+
   constructor(box2d?: MainModule, statsSystem?: StatsSystem) {
     super()
     this.box2d = box2d
@@ -606,6 +772,14 @@ export abstract class WeaponSystemCore extends System {
 
     if (weapon.attackPhase === 'idle') {
       weapon.attackFacing = inputFacing
+    }
+
+    if (!entity.stats?.isStaggered && this.isHitStunActive(entity)) {
+      if (this.hasHitStunInterruptibleAction(weapon)) {
+        this.interruptForHitStun(entity)
+      }
+      this.syncHitStunIdlePose(entity, weapon, playerPos, inputFacing)
+      return
     }
 
     // 绝招动画期间优先处理，不受装备/掉落/崩塌状态干扰

@@ -175,11 +175,13 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
   }
 
   handleUltimateRequest(entity: Entity, maxLandDist?: number): void {
+    if (entity.isStunned()) return
     this.ultimateHandler.handleUltimateRequest(entity, maxLandDist)
   }
 
   handleSkillRequest(entity: Entity): void {
     if (!entity.attackSlots || !entity.weapon) return
+    if (entity.isStunned()) return
     const skill = entity.attackSlots.skill
     if (!skill.skillId || skill.chargesRemaining <= 0) return
     skill.chargesRemaining--

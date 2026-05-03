@@ -174,6 +174,10 @@ export class GrappleTargetingSystem {
   applyNpcStun(entity: Entity, durationMs: number): void {
     if (!entity.movement) return
     if (durationMs <= 0) return
+    if (this.runtime.statsSystem) {
+      this.runtime.statsSystem.applyForcedHitStun(entity, 'light', durationMs)
+      return
+    }
     entity.movement.knockbackDuration = durationMs
     entity.movement.knockbackElapsedTime = 0
     entity.movement.knockbackEndTime = this.runtime.currentTimeMs + durationMs

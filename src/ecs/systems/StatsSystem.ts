@@ -543,11 +543,65 @@ export class StatsSystem extends System {
     const currentElapsedMs = entity.movement.knockbackElapsedTime * 1000
     const isActive = currentDuration > 0 && currentElapsedMs < currentDuration
     if (isActive && currentDuration > durationMs) {
+      this.interruptActionsForHitStun(entity)
       return
     }
     entity.movement.knockbackDuration = durationMs
     entity.movement.knockbackElapsedTime = 0
     entity.movement.knockbackEndTime = this.currentTimeMs + durationMs
+    this.interruptActionsForHitStun(entity)
+  }
+
+  private interruptActionsForHitStun(entity: Entity): void {
+    if (this.weaponSystem) {
+      this.weaponSystem.interruptForHitStun(entity)
+      return
+    }
+
+    const weapon = entity.weapon
+    if (!weapon) return
+
+    if (weapon.originalAttackDamage !== null) {
+      weapon.attackDamage = weapon.originalAttackDamage
+      weapon.originalAttackDamage = null
+    }
+    if (weapon.originalPostureDamage !== null) {
+      weapon.postureDamage = weapon.originalPostureDamage
+      weapon.originalPostureDamage = null
+    }
+    if (weapon.originalToughnessDamage !== null) {
+      weapon.toughnessDamage = weapon.originalToughnessDamage
+      weapon.originalToughnessDamage = null
+    }
+
+    weapon.attackPhase = 'idle'
+    weapon.attackElapsedMs = 0
+    weapon.attackQueued = false
+    weapon.isColliding = false
+    weapon.isBlocking = false
+    weapon.isParrying = false
+    weapon.parryElapsedTime = 0
+    weapon.reboundLockedPause = false
+    weapon.isUnstoppable = false
+    weapon.comboCount = 0
+    weapon.swingDirection = 'toFront'
+    weapon.nextSwingDirection = 'toFront'
+    weapon.hitEntityIds.clear()
+    weapon.parryHitWeaponIds.clear()
+    weapon.hitBreakableObstacleIds.clear()
+    weapon.hitRopeIds.clear()
+    weapon.bowIsDrawing = false
+    weapon.bowReleasePending = false
+    weapon.bowDrawElapsedMs = 0
+    weapon.bowDrawRatio = 0
+    weapon.bowForceRatio = 0
+    weapon.bowReleaseRatio = 0
+    weapon.skillPhase = null
+    weapon.skillElapsedMs = 0
+    weapon.ultimatePhase = null
+    weapon.ultimateElapsedMs = 0
+    weapon.assassinationPhase = null
+    weapon.assassinationElapsedMs = 0
   }
 
   applyParryDamage(defender: Entity, attacker: Entity): boolean {
@@ -650,14 +704,8 @@ export class StatsSystem extends System {
     entity.stats.staggerAnimationElapsed = 0
 
     // 崩塌时打断攻击并启动武器掉落
+    this.interruptActionsForHitStun(entity)
     if (entity.weapon && entity.transform) {
-      entity.weapon.attackPhase = 'idle'
-      entity.weapon.attackElapsedMs = 0
-      entity.weapon.attackQueued = false
-      entity.weapon.isBlocking = false
-      entity.weapon.isParrying = false
-      entity.weapon.parryElapsedTime = 0
-      entity.weapon.hitEntityIds.clear()
       this.weaponSystem?.startStaggerWeaponDrop(entity)
     }
   }
