@@ -160,7 +160,7 @@ export class EditorCameraManager {
     const focused = this.isCameraFrame(target) ? target : null
     for (let i = 0; i < this.cameraViews.length; i++) {
       const view = this.cameraViews[i]
-      const shouldShow = focused === view.frame
+      const shouldShow = focused === view.frame && view.frame.visible === true
       if (view.icon.visible !== shouldShow) {
         view.icon.visible = shouldShow
       }

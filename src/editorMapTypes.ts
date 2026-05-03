@@ -133,6 +133,7 @@ export interface EditorTreeNode {
   renderLayer?: number
   isGroupContainer?: boolean
   isLocked?: boolean
+  isVisible?: boolean
 }
 
 export interface EditorTreeData {

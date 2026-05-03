@@ -413,7 +413,10 @@ export class EditorManager {
       getFabricCanvas: () => this.fabricCanvas,
       requestRender: () => this.fabricCanvas?.requestRenderAll(),
       pixelsPerMeter: EDITOR_PIXELS_PER_METER,
-      onTerrainRenderObjectsChanged: () => this.reorderCanvasObjects(),
+      onTerrainRenderObjectsChanged: () => {
+        this.applyAllEditorObjectCanvasVisibility()
+        this.reorderCanvasObjects()
+      },
       registerEditorObject: (type, obj, preferredName) =>
         this.registerEditorObjectWithDepth(type, obj, preferredName),
       unregisterEditorObject: (obj) =>
@@ -670,6 +673,8 @@ export class EditorManager {
         this.resetDragState()
       },
       onObjectSelected: (id, mode) => this.handleObjectTreeSelection(id, mode),
+      onObjectVisibilityToggled: (id) =>
+        this.handleObjectTreeVisibilityToggle(id),
       onBlankAreaSelected: () => this.clearEditorSelection(),
       onObjectContextMenu: (id, clientX, clientY) =>
         this.handleObjectTreeContextMenu(id, clientX, clientY),
@@ -1544,7 +1549,7 @@ export class EditorManager {
     // 按当前选中层级自动设置 renderLayer，并确保对象立即可见
     if (typeof this.sceneDepthFilter === 'number') {
       this.setEditorObjectRenderLayer(obj, this.sceneDepthFilter)
-      obj.visible = true
+      this.applyEditorObjectCanvasVisibility(data)
     } else {
       // 默认层级也需要排序（新对象插入后可能破坏顺序）
       this.reorderCanvasObjects()
@@ -1556,6 +1561,88 @@ export class EditorManager {
     if (this.sceneDepthFilter === 'all') return true
     const layer = this.getEditorObjectRenderLayer(data.object)
     return layer === this.sceneDepthFilter
+  }
+
+  private shouldShowEditorObjectOnCanvas(data: EditorObjectData): boolean {
+    if (!data.isVisible || this.hasHiddenGroupAncestor(data)) {
+      return false
+    }
+    if (this.isObjectMatchingDepthFilter(data)) {
+      return true
+    }
+    return (
+      this.isGroupContainer(data.object) &&
+      this.hasVisibleDepthMatchedDescendant(data.id)
+    )
+  }
+
+  private applyEditorObjectCanvasVisibility(data: EditorObjectData): void {
+    const visible = this.shouldShowEditorObjectOnCanvas(data)
+    if (data.object.visible !== visible) {
+      data.object.visible = visible
+      this.markObjectVisibilityDirty(data.object)
+    }
+    this.terrainManager.setProxyRenderObjectVisible(data.object, visible)
+  }
+
+  private hasVisibleDepthMatchedDescendant(parentId: number): boolean {
+    const all = this.objectManager.getEditorObjects()
+    for (let i = 0; i < all.length; i++) {
+      const data = all[i]
+      if (
+        data.id === parentId ||
+        !data.isVisible ||
+        !this.isObjectMatchingDepthFilter(data)
+      ) {
+        continue
+      }
+      let current: EditorObjectData | null = data
+      while (current && current.parentId !== null) {
+        const parent = this.objectManager.getEditorObjectById(current.parentId)
+        if (!parent) {
+          break
+        }
+        if (parent.id === parentId) {
+          return true
+        }
+        if (this.isGroupContainer(parent.object) && !parent.isVisible) {
+          break
+        }
+        current = parent
+      }
+    }
+    return false
+  }
+
+  private hasHiddenGroupAncestor(data: EditorObjectData): boolean {
+    let current = data
+    while (current.parentId !== null) {
+      const parent = this.objectManager.getEditorObjectById(current.parentId)
+      if (!parent) {
+        return false
+      }
+      if (this.isGroupContainer(parent.object) && !parent.isVisible) {
+        return true
+      }
+      current = parent
+    }
+    return false
+  }
+
+  private markObjectVisibilityDirty(object: fabric.Object): void {
+    object.dirty = true
+    let parent = object.group
+    while (parent) {
+      parent.dirty = true
+      parent = parent.group
+    }
+  }
+
+  private applyAllEditorObjectCanvasVisibility(): void {
+    const all = this.objectManager.getEditorObjects()
+    for (let i = 0; i < all.length; i++) {
+      this.applyEditorObjectCanvasVisibility(all[i])
+    }
   }
 
   private getDepthFilteredEditorObjects(): EditorObjectData[] {
@@ -1587,17 +1674,27 @@ export class EditorManager {
       this.renderObjectTree()
       return
     }
-    const all = this.objectManager.getEditorObjects()
-    for (let i = 0; i < all.length; i++) {
-      const data = all[i]
-      const visible = this.isObjectMatchingDepthFilter(data)
-      if (data.object.visible !== visible) {
-        data.object.visible = visible
-      }
-    }
+    this.applyAllEditorObjectCanvasVisibility()
     // 切回“全部”时也要重排，避免保留单层模式下的临时前置顺序。
     this.reorderCanvasObjects()
     this.renderObjectTree()
+  }
+
+  private handleObjectTreeVisibilityToggle(id: number): void {
+    const data = this.objectManager.getEditorObjectById(id)
+    if (!data) {
+      return
+    }
+    const changed = this.objectManager.setObjectVisibleById(id, !data.isVisible)
+    if (!changed) {
+      return
+    }
+    this.applyDepthFilter()
+    this.cameraManager.refreshCameraFocus(
+      this.fabricCanvas?.getActiveObject() ?? null
+    )
+    this.fabricCanvas?.requestRenderAll()
+    this.captureHistorySnapshot()
   }
 
   private handleObjectTreeContextMenu(
@@ -3462,6 +3559,7 @@ export class EditorManager {
         typeof node.renderLayer === 'number' ? node.renderLayer : undefined
       )
       resolvedData.isLocked = node.isLocked === true
+      resolvedData.isVisible = node.isVisible !== false
       resolved.push(resolvedData)
       resolvedIdSet.add(resolvedData.id)
     }
@@ -3489,7 +3587,7 @@ export class EditorManager {
     this.objectManager.applyTreeSnapshot(order, parentIds)
     this.objectManager.applyObjectLockStates()
     this.syncAllManagedGroupTargets()
-    this.reorderCanvasObjects()
+    this.applyDepthFilter()
   }
 
   private nudgeSelectedObject(dx: number, dy: number) {

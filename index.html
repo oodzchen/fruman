@@ -963,6 +963,9 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .editor-object-node.is-hidden .editor-object-label {
+        opacity: 0.62;
+      }
       .editor-object-status {
         display: inline-flex;
         align-items: center;
@@ -996,6 +999,50 @@
         border: 1px solid rgba(255, 255, 255, 0.55);
         border-bottom: none;
         border-radius: 6px 6px 0 0;
+      }
+      .editor-object-visibility {
+        position: relative;
+        width: 16px;
+        height: 16px;
+        color: rgba(255, 255, 255, 0.62);
+        opacity: 0.95;
+      }
+      .editor-object-visibility::before {
+        content: '';
+        position: absolute;
+        left: 2px;
+        top: 5px;
+        width: 12px;
+        height: 7px;
+        box-sizing: border-box;
+        border: 1px solid currentColor;
+        border-radius: 50%;
+      }
+      .editor-object-visibility::after {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 7px;
+        width: 2px;
+        height: 2px;
+        background: currentColor;
+        border-radius: 50%;
+      }
+      .editor-object-visibility.is-hidden {
+        color: rgba(255, 255, 255, 0.38);
+      }
+      .editor-object-visibility.is-hidden::after {
+        left: 2px;
+        top: 7px;
+        width: 12px;
+        height: 1px;
+        border-radius: 0;
+        transform: rotate(-42deg);
+        transform-origin: center;
+      }
+      .editor-object-node:hover .editor-object-visibility,
+      .editor-object-node.is-selected .editor-object-visibility {
+        color: rgba(255, 255, 255, 0.86);
       }
       .editor-object-node:hover {
         color: var(--ui-color);

@@ -420,6 +420,15 @@ export class EditorObjectManager {
     return true
   }
 
+  setObjectVisibleById(id: number, visible: boolean): boolean {
+    const data = this.getEditorObjectById(id)
+    if (!data || data.isVisible === visible) {
+      return false
+    }
+    data.isVisible = visible
+    return true
+  }
+
   applyObjectLockStates(): void {
     for (let i = 0; i < this.editorObjects.length; i++) {
       this.applyObjectLockState(this.editorObjects[i])
@@ -1016,6 +1025,7 @@ export class EditorObjectManager {
       object,
       parentId: null,
       isLocked: false,
+      isVisible: true,
       hasControlsWhenUnlocked: object.hasControls === true,
       borderColorWhenUnlocked: object.borderColor ?? '',
       cornerColorWhenUnlocked: object.cornerColor ?? '',

@@ -397,6 +397,8 @@ export class EditorTerrainLayerManager {
     fabric.Object,
     EditorTerrainContour
   >()
+  private readonly hiddenRenderLayerIds = new Set<number>()
+  private readonly hiddenContourIds = new Set<number>()
   private readonly renderData = {
     version: TERRAIN_DATA_VERSION,
     cellSize: TERRAIN_CELL_SIZE_METERS,
@@ -2649,6 +2651,7 @@ export class EditorTerrainLayerManager {
 
   private removeLayer(layer: EditorTerrainLayer): void {
     this.removeTerrainRenderObject(layer)
+    this.hiddenRenderLayerIds.delete(layer.id)
     if (layer.proxy) {
       this.proxyToLayer.delete(layer.proxy)
       this.ctx.unregisterEditorObject(layer.proxy)
@@ -2670,6 +2673,7 @@ export class EditorTerrainLayerManager {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i]
       this.removeTerrainRenderObject(layer)
+      this.hiddenRenderLayerIds.delete(layer.id)
       if (layer.proxy) {
         this.proxyToLayer.delete(layer.proxy)
         this.ctx.unregisterEditorObject(layer.proxy)
@@ -2684,6 +2688,7 @@ export class EditorTerrainLayerManager {
   private removeAllContourObjects(): void {
     for (let i = 0; i < this.contours.length; i++) {
       const contour = this.contours[i]
+      this.hiddenContourIds.delete(contour.id)
       this.proxyToContour.delete(contour.proxy)
       this.ctx.unregisterEditorObject(contour.proxy)
       if (contour.proxy.canvas) {
@@ -3802,6 +3807,7 @@ export class EditorTerrainLayerManager {
   }
 
   private removeContour(contour: EditorTerrainContour): void {
+    this.hiddenContourIds.delete(contour.id)
     if (contour.fillLayer) {
       this.removeLayer(contour.fillLayer)
       contour.fillLayer = null
@@ -4461,6 +4467,57 @@ export class EditorTerrainLayerManager {
     this.ctx.requestRender()
   }
 
+  setProxyRenderObjectVisible(proxy: fabric.Object, visible: boolean): void {
+    if (this.isTerrainProxy(proxy)) {
+      const layer = this.proxyToLayer.get(proxy)
+      if (!layer) {
+        return
+      }
+      this.setLayerRenderObjectUserVisible(layer, visible)
+      return
+    }
+    if (!this.isTerrainContourProxy(proxy)) {
+      return
+    }
+    const contour = this.proxyToContour.get(proxy)
+    if (!contour) {
+      return
+    }
+    if (visible) {
+      this.hiddenContourIds.delete(contour.id)
+    } else {
+      this.hiddenContourIds.add(contour.id)
+    }
+    if (contour.fillLayer) {
+      this.setLayerRenderObjectUserVisible(contour.fillLayer, visible)
+    }
+  }
+
+  private setLayerRenderObjectUserVisible(
+    layer: EditorTerrainLayer,
+    visible: boolean
+  ): void {
+    if (visible) {
+      this.hiddenRenderLayerIds.delete(layer.id)
+    } else {
+      this.hiddenRenderLayerIds.add(layer.id)
+    }
+    this.syncLayerRenderObject(layer)
+  }
+
+  private shouldShowLayerRenderObject(layer: EditorTerrainLayer): boolean {
+    if (
+      this.hiddenRenderLayerIds.has(layer.id) ||
+      (layer.contourId > 0 && this.hiddenContourIds.has(layer.contourId))
+    ) {
+      return false
+    }
+    return (
+      this.activeDepthFilter === 'all' ||
+      this.getTerrainLayerRenderLayer(layer) === this.activeDepthFilter
+    )
+  }
+
   getTerrainRenderObjects(): readonly fabric.Object[] {
     const renderOrder = this.terrainRenderObjectScratch
     renderOrder.length = 0
@@ -4557,9 +4614,7 @@ export class EditorTerrainLayerManager {
       if (!object) {
         continue
       }
-      object.visible =
-        this.activeDepthFilter === 'all' ||
-        this.getTerrainLayerRenderLayer(layer) === this.activeDepthFilter
+      object.visible = this.shouldShowLayerRenderObject(layer)
     }
   }
 
@@ -4570,10 +4625,8 @@ export class EditorTerrainLayerManager {
     }
     ;(object as EditorLayeredObject).renderLayer =
       layer.serializedLayer.renderLayer
-    const visible =
-      this.activeDepthFilter === 'all' ||
-      this.getTerrainLayerRenderLayer(layer) === this.activeDepthFilter
-    object.visible = object.syncFromLayer() && visible
+    object.visible =
+      object.syncFromLayer() && this.shouldShowLayerRenderObject(layer)
   }
 
   private ensureTerrainRenderObject(
@@ -4603,10 +4656,9 @@ export class EditorTerrainLayerManager {
     }
     ;(layer.renderObject as EditorLayeredObject).renderLayer =
       layer.serializedLayer.renderLayer
-    const visible =
-      this.activeDepthFilter === 'all' ||
-      this.getTerrainLayerRenderLayer(layer) === this.activeDepthFilter
-    layer.renderObject.visible = layer.renderObject.syncFromLayer() && visible
+    layer.renderObject.visible =
+      layer.renderObject.syncFromLayer() &&
+      this.shouldShowLayerRenderObject(layer)
     return layer.renderObject
   }
 

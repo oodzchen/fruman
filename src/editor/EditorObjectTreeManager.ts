@@ -1,5 +1,6 @@
 import * as fabric from 'fabric'
 
+import { localizer } from '../Localizer'
 import { ObjectType } from './types'
 import type { EditorEmptyObject, EditorObjectData } from './types'
 
@@ -20,6 +21,7 @@ export interface EditorObjectTreeManagerContext {
   onDropToRoot: (dragId: number) => void
   onDragEnd: () => void
   onObjectSelected: (id: number, mode: 'replace' | 'toggle' | 'range') => void
+  onObjectVisibilityToggled: (id: number) => void
   onBlankAreaSelected: () => void
   onObjectContextMenu: (id: number, clientX: number, clientY: number) => void
   onCollapsedPathsChanged: (paths: readonly string[]) => void
@@ -49,6 +51,25 @@ export class EditorObjectTreeManager {
   private setupEventListeners() {
     this.editorObjectTree.addEventListener('click', (event) => {
       const target = event.target as HTMLElement | null
+      const visibilityButton = target?.closest<HTMLElement>(
+        '.editor-object-visibility'
+      )
+      if (visibilityButton) {
+        const node = visibilityButton.closest<HTMLButtonElement>(
+          '.editor-object-node'
+        )
+        if (!node?.dataset.objectId) {
+          return
+        }
+        const objectId = Number.parseInt(node.dataset.objectId, 10)
+        if (!Number.isFinite(objectId)) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        this.context.onObjectVisibilityToggled(objectId)
+        return
+      }
       const node = target?.closest<HTMLButtonElement>('.editor-object-node')
       if (!node?.dataset.objectId) {
         if (target?.closest('.editor-object-toggle')) {
@@ -328,6 +349,9 @@ export class EditorObjectTreeManager {
     if (data.isLocked) {
       node.classList.add('is-locked')
     }
+    if (!data.isVisible) {
+      node.classList.add('is-hidden')
+    }
     node.dataset.objectId = String(data.id)
     if (this.isGroupContainerData(data)) {
       const icon = document.createElement('span')
@@ -345,6 +369,7 @@ export class EditorObjectTreeManager {
       lockIcon.setAttribute('aria-hidden', 'true')
       node.appendChild(lockIcon)
     }
+    node.appendChild(this.createVisibilityToggle(data))
     node.addEventListener('dragstart', (event) => {
       if (data.isLocked) {
         event.preventDefault()
@@ -388,6 +413,23 @@ export class EditorObjectTreeManager {
       this.context.onDragEnd()
     })
     return node
+  }
+
+  private createVisibilityToggle(data: EditorObjectData) {
+    const toggle = document.createElement('span')
+    const visible = data.isVisible
+    toggle.className = visible
+      ? 'editor-object-status editor-object-visibility'
+      : 'editor-object-status editor-object-visibility is-hidden'
+    toggle.setAttribute('role', 'button')
+    toggle.setAttribute(
+      'aria-label',
+      localizer.t(visible ? 'editor_object_hide' : 'editor_object_show')
+    )
+    toggle.title = localizer.t(
+      visible ? 'editor_object_hide' : 'editor_object_show'
+    )
+    return toggle
   }
 
   private isGroupContainerData(data: EditorObjectData): boolean {

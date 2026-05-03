@@ -181,6 +181,8 @@
   "editor_object_menu_terrain_properties": "属性设置",
   "editor_object_menu_copy": "复制",
   "editor_object_menu_paste": "粘贴",
+  "editor_object_show": "显示对象",
+  "editor_object_hide": "隐藏对象",
   "editor_confirm_delete_shape": "确认删除该对象？",
   "editor_confirm_delete_multiple": "确认删除 {0} 个对象？",
   "editor_confirm_delete_with_children": "确认删除 {0} 个对象？这会同时删除 {1} 个子对象。",

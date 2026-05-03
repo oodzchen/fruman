@@ -181,6 +181,8 @@
   "editor_object_menu_terrain_properties": "Properties",
   "editor_object_menu_copy": "Copy",
   "editor_object_menu_paste": "Paste",
+  "editor_object_show": "Show Object",
+  "editor_object_hide": "Hide Object",
   "editor_confirm_delete_shape": "Delete this shape?",
   "editor_confirm_delete_multiple": "Delete {0} objects?",
   "editor_confirm_delete_with_children": "Delete {0} objects? This will also delete {1} child objects.",

@@ -44,6 +44,7 @@ interface EditorObjectLike {
   type: ObjectType
   object: fabric.Object
   isLocked: boolean
+  isVisible: boolean
 }
 
 interface CameraViewLike {
@@ -599,6 +600,9 @@ export class EditorMapSerializer {
         node.isGroupContainer =
           (dataItem.object as Partial<{ isGroupContainer: boolean }>)
             .isGroupContainer === true
+      }
+      if (!dataItem.isVisible) {
+        node.isVisible = false
       }
       node.isLocked = dataItem.isLocked === true
       if (dataItem.type === 'npc') {
