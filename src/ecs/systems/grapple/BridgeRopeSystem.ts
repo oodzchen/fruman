@@ -284,6 +284,12 @@ export class BridgeRopeSystem {
         this.runtime.destroyBridgeRope(runtime)
         continue
       }
+      this.runtime.applyRopeBendStiffnessToBodyChain(
+        runtime.bodyAId,
+        runtime.segmentBodies,
+        runtime.segmentBodies.length,
+        runtime.bodyBId
+      )
       this.runtime.applyBridgeLimitTension(runtime)
     }
   }

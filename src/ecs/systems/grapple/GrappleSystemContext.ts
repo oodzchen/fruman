@@ -1,6 +1,7 @@
 import {
   DEFAULT_GRAPPLE_PULL_STOP_DISTANCE,
   DEFAULT_GRAPPLE_RANGE,
+  DEFAULT_GRAPPLE_ROPE_BEND_STIFFNESS,
   DEFAULT_GRAPPLE_ROPE_CLIMB_DAMPING_RATIO,
   DEFAULT_GRAPPLE_ROPE_CLIMB_HERTZ,
   DEFAULT_GRAPPLE_ROPE_CLIMB_JUMP_RECOIL_SCALE,
@@ -8,16 +9,18 @@ import {
   DEFAULT_GRAPPLE_ROPE_CLIMB_WEIGHT_FORCE_SCALE,
   DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO,
   DEFAULT_GRAPPLE_ROPE_DENSITY,
+  DEFAULT_GRAPPLE_ROPE_ELASTIC_LIMIT_SCALE,
   DEFAULT_GRAPPLE_ROPE_HEALTH,
   DEFAULT_GRAPPLE_ROPE_HERTZ,
   DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING,
+  DEFAULT_GRAPPLE_ROPE_MAX_SEGMENTS,
+  DEFAULT_GRAPPLE_ROPE_MAX_STABLE_HERTZ,
+  DEFAULT_GRAPPLE_ROPE_MIN_HERTZ,
   DEFAULT_GRAPPLE_ROPE_SEGMENT_LENGTH,
   DEFAULT_GRAPPLE_ROPE_SEGMENT_RADIUS,
   DEFAULT_GRAPPLE_SWING_FORCE,
   DEFAULT_PLAYER_FOV_RAD,
   DEFAULT_PLAYER_RADIUS,
-  GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR,
-  GRAPPLE_ROPE_ELASTIC_LIMIT_NUMERATOR,
 } from '../../../constants'
 import {
   getRopeCollisionCategory,
@@ -140,10 +143,18 @@ export class GrappleSystemContext {
     renderLayer: 0,
     hasDynamicBody: false,
   }
+  readonly ropeBendPointXs = new Float32Array(
+    DEFAULT_GRAPPLE_ROPE_MAX_SEGMENTS + 2
+  )
+  readonly ropeBendPointYs = new Float32Array(
+    DEFAULT_GRAPPLE_ROPE_MAX_SEGMENTS + 2
+  )
   ropeDensity = DEFAULT_GRAPPLE_ROPE_DENSITY
   ropeLinearDamping = DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING
   ropeHertz = DEFAULT_GRAPPLE_ROPE_HERTZ
   ropeDampingRatio = DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO
+  ropeBendStiffness = DEFAULT_GRAPPLE_ROPE_BEND_STIFFNESS
+  ropeElasticLimitScale = DEFAULT_GRAPPLE_ROPE_ELASTIC_LIMIT_SCALE
   ropeClimbLinearDamping = DEFAULT_GRAPPLE_ROPE_CLIMB_LINEAR_DAMPING
   ropeClimbHertz = DEFAULT_GRAPPLE_ROPE_CLIMB_HERTZ
   ropeClimbDampingRatio = DEFAULT_GRAPPLE_ROPE_CLIMB_DAMPING_RATIO
@@ -183,12 +194,21 @@ export class GrappleSystemContext {
   }
 
   setRopeHertz(value: number): void {
-    this.ropeHertz = value
+    this.ropeHertz = this.clampRopeHertz(value)
     this.updateExistingRopeJoints()
   }
 
   setRopeDampingRatio(value: number): void {
     this.ropeDampingRatio = value
+    this.updateExistingRopeJoints()
+  }
+
+  setRopeBendStiffness(value: number): void {
+    this.ropeBendStiffness = Math.max(0, value)
+  }
+
+  setRopeElasticLimitScale(value: number): void {
+    this.ropeElasticLimitScale = Math.max(0, value)
     this.updateExistingRopeJoints()
   }
 
@@ -198,7 +218,7 @@ export class GrappleSystemContext {
   }
 
   setRopeClimbHertz(value: number): void {
-    this.ropeClimbHertz = Math.max(0, value)
+    this.ropeClimbHertz = this.clampRopeHertz(value)
     this.updateExistingRopeJoints()
   }
 
@@ -217,6 +237,13 @@ export class GrappleSystemContext {
 
   setSwingForce(value: number): void {
     this.swingForce = value
+  }
+
+  clampRopeHertz(value: number): number {
+    return Math.min(
+      DEFAULT_GRAPPLE_ROPE_MAX_STABLE_HERTZ,
+      Math.max(DEFAULT_GRAPPLE_ROPE_MIN_HERTZ, value)
+    )
   }
 
   resetRopeHitShake(runtime: RopeRuntime | RopeBridgeRuntime): void {
@@ -324,6 +351,108 @@ export class GrappleSystemContext {
       true
     )
     currentVel.delete()
+  }
+
+  applyRopeBendStiffnessToBodyChain(
+    startBodyId: b2BodyId | null,
+    segmentBodies: b2BodyId[],
+    segmentCount: number,
+    endBodyId: b2BodyId | null
+  ): void {
+    const stiffness = this.ropeBendStiffness
+    if (!(stiffness > 0)) {
+      return
+    }
+    if (
+      !this.isBodyId(startBodyId) ||
+      !this.box2d.b2Body_IsValid(startBodyId)
+    ) {
+      return
+    }
+
+    const clampedSegmentCount = Math.max(
+      0,
+      Math.min(
+        DEFAULT_GRAPPLE_ROPE_MAX_SEGMENTS,
+        segmentCount,
+        segmentBodies.length
+      )
+    )
+    const startPosition = this.box2d.b2Body_GetPosition(startBodyId)
+    this.ropeBendPointXs[0] = startPosition.x
+    this.ropeBendPointYs[0] = startPosition.y
+    startPosition.delete()
+
+    let pointCount = 1
+    for (let i = 0; i < clampedSegmentCount; i++) {
+      const bodyId = segmentBodies[i]
+      if (!this.isBodyId(bodyId) || !this.box2d.b2Body_IsValid(bodyId)) {
+        return
+      }
+      const position = this.box2d.b2Body_GetPosition(bodyId)
+      this.ropeBendPointXs[pointCount] = position.x
+      this.ropeBendPointYs[pointCount] = position.y
+      pointCount++
+      position.delete()
+    }
+
+    if (this.isBodyId(endBodyId) && this.box2d.b2Body_IsValid(endBodyId)) {
+      const endPosition = this.box2d.b2Body_GetPosition(endBodyId)
+      this.ropeBendPointXs[pointCount] = endPosition.x
+      this.ropeBendPointYs[pointCount] = endPosition.y
+      pointCount++
+      endPosition.delete()
+    }
+
+    if (pointCount < 3) {
+      return
+    }
+
+    const maxCorrectionSpeed = Math.min(80, Math.max(4, stiffness * 2))
+    const maxCorrectionSpeedSq = maxCorrectionSpeed * maxCorrectionSpeed
+    for (let i = 1; i < pointCount - 1; i++) {
+      const bodyId = segmentBodies[i - 1]
+      if (
+        !this.isBodyId(bodyId) ||
+        !this.box2d.b2Body_IsValid(bodyId) ||
+        this.box2d.b2Body_GetMass(bodyId) <= 0
+      ) {
+        continue
+      }
+
+      const targetX =
+        (this.ropeBendPointXs[i - 1] + this.ropeBendPointXs[i + 1]) * 0.5
+      const targetY =
+        (this.ropeBendPointYs[i - 1] + this.ropeBendPointYs[i + 1]) * 0.5
+      let addX = targetX - this.ropeBendPointXs[i]
+      let addY = targetY - this.ropeBendPointYs[i]
+      const spanX = this.ropeBendPointXs[i + 1] - this.ropeBendPointXs[i - 1]
+      const spanY = this.ropeBendPointYs[i + 1] - this.ropeBendPointYs[i - 1]
+      const spanSq = spanX * spanX + spanY * spanY
+      if (spanSq > 0.0001) {
+        const invSpan = 1 / Math.sqrt(spanSq)
+        const tangentX = spanX * invSpan
+        const tangentY = spanY * invSpan
+        const along = addX * tangentX + addY * tangentY
+        addX -= tangentX * along
+        addY -= tangentY * along
+      }
+      addX *= stiffness
+      addY *= stiffness
+      const addSpeedSq = addX * addX + addY * addY
+      if (addSpeedSq > maxCorrectionSpeedSq && addSpeedSq > 0) {
+        const scale = maxCorrectionSpeed / Math.sqrt(addSpeedSq)
+        addX *= scale
+        addY *= scale
+      }
+
+      const velocity = this.box2d.b2Body_GetLinearVelocity(bodyId)
+      this.tempVec.x = velocity.x + addX
+      this.tempVec.y = velocity.y + addY
+      this.box2d.b2Body_SetLinearVelocity(bodyId, this.tempVec)
+      this.box2d.b2Body_SetAwake(bodyId, true)
+      velocity.delete()
+    }
   }
 
   getEntityById(id: number): Entity | null {
@@ -434,6 +563,18 @@ export class GrappleSystemContext {
     return jointId
   }
 
+  updateRopeJointLengthRange(jointId: b2JointId): void {
+    if (!this.isJointId(jointId) || !this.box2d.b2Joint_IsValid(jointId)) {
+      return
+    }
+    const length = this.box2d.b2DistanceJoint_GetLength(jointId)
+    this.box2d.b2DistanceJoint_SetLengthRange(
+      jointId,
+      0,
+      this.getRopeElasticLimitLength(length)
+    )
+  }
+
   createBodyCollisionFilterJoint(
     bodyIdA: b2BodyId,
     bodyIdB: b2BodyId
@@ -494,18 +635,11 @@ export class GrappleSystemContext {
     if (!(ropeLength > 0)) {
       return false
     }
-
-    const denominatorSq =
-      GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR *
-      GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR
-    const numeratorLength = ropeLength * GRAPPLE_ROPE_ELASTIC_LIMIT_NUMERATOR
-    return distSq * denominatorSq >= numeratorLength * numeratorLength
+    const limitLength = ropeLength * this.ropeElasticLimitScale
+    return distSq >= limitLength * limitLength
   }
 
   getRopeElasticLimitLength(ropeLength: number): number {
-    return (
-      (ropeLength * GRAPPLE_ROPE_ELASTIC_LIMIT_NUMERATOR) /
-      GRAPPLE_ROPE_ELASTIC_LIMIT_DENOMINATOR
-    )
+    return ropeLength * this.ropeElasticLimitScale
   }
 }

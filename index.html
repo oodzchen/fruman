@@ -2668,7 +2668,7 @@
                 type="range"
                 id="ropeDensity"
                 min="1"
-                max="100"
+                max="300"
                 step="1"
                 value="30"
                 autocomplete="off"
@@ -2677,7 +2677,7 @@
                 type="number"
                 id="ropeDensityNum"
                 min="1"
-                max="200"
+                max="1000"
                 step="1"
                 value="30"
                 autocomplete="off"
@@ -2696,18 +2696,18 @@
                 type="range"
                 id="ropeLinearDamping"
                 min="0"
-                max="10"
-                step="0.1"
-                value="0.1"
+                max="50"
+                step="0.01"
+                value="0.2"
                 autocomplete="off"
               />
               <input
                 type="number"
                 id="ropeLinearDampingNum"
                 min="0"
-                max="20"
-                step="0.1"
-                value="0.1"
+                max="100"
+                step="0.01"
+                value="0.2"
                 autocomplete="off"
               />
             </div>
@@ -2716,26 +2716,26 @@
           <div class="control-group">
             <label
               for="ropeHertz"
-              title="绳索关节的弹簧刚度频率，数值越高绳索越硬"
-              >绳索关节刚度(Hz)</label
+              title="绳索关节的弹簧频率，过高会让多段绳链产生数值抖动"
+              >绳索弹簧频率(Hz)</label
             >
             <div class="control-inputs">
               <input
                 type="range"
                 id="ropeHertz"
-                min="10"
-                max="1000"
-                step="10"
-                value="110"
+                min="1"
+                max="300"
+                step="1"
+                value="80"
                 autocomplete="off"
               />
               <input
                 type="number"
                 id="ropeHertzNum"
-                min="10"
-                max="2000"
-                step="10"
-                value="110"
+                min="1"
+                max="300"
+                step="1"
+                value="80"
                 autocomplete="off"
               />
             </div>
@@ -2744,7 +2744,7 @@
           <div class="control-group">
             <label
               for="ropeDampingRatio"
-              title="绳索关节的阻尼比，控制振荡衰减速度(0-1)"
+              title="绳索弹簧的阻尼比，1附近接近临界阻尼，更高会更快压住回弹"
               >绳索关节阻尼比</label
             >
             <div class="control-inputs">
@@ -2752,18 +2752,74 @@
                 type="range"
                 id="ropeDampingRatio"
                 min="0"
-                max="1"
-                step="0.05"
-                value="0.5"
+                max="4"
+                step="0.01"
+                value="0.2"
                 autocomplete="off"
               />
               <input
                 type="number"
                 id="ropeDampingRatioNum"
                 min="0"
-                max="2"
-                step="0.05"
-                value="0.5"
+                max="8"
+                step="0.01"
+                value="0.2"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="ropeBendStiffness"
+              title="绳索折弯的法向修正强度，过高会让绳子更像硬杆并削弱摆荡"
+              >绳索弯曲刚度</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeBendStiffness"
+                min="0"
+                max="200"
+                step="1"
+                value="80"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeBendStiffnessNum"
+                min="0"
+                max="500"
+                step="1"
+                value="80"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label
+              for="ropeElasticLimitScale"
+              title="绳索达到拉伸限制前允许的长度比例，数值越低越早进入张力限制，越大越有弹性"
+              >绳索拉伸上限比例</label
+            >
+            <div class="control-inputs">
+              <input
+                type="range"
+                id="ropeElasticLimitScale"
+                min="0"
+                max="4"
+                step="0.01"
+                value="2.2"
+                autocomplete="off"
+              />
+              <input
+                type="number"
+                id="ropeElasticLimitScaleNum"
+                min="0"
+                max="10"
+                step="0.01"
+                value="2.2"
                 autocomplete="off"
               />
             </div>
@@ -2780,18 +2836,18 @@
                 type="range"
                 id="ropeClimbLinearDamping"
                 min="0"
-                max="30"
-                step="0.1"
-                value="10"
+                max="80"
+                step="0.01"
+                value="0.2"
                 autocomplete="off"
               />
               <input
                 type="number"
                 id="ropeClimbLinearDampingNum"
                 min="0"
-                max="60"
-                step="0.1"
-                value="10"
+                max="160"
+                step="0.01"
+                value="0.2"
                 autocomplete="off"
               />
             </div>
@@ -2800,25 +2856,25 @@
           <div class="control-group">
             <label
               for="ropeClimbHertz"
-              title="攀爬桥接绳时绳索关节的弹簧刚度频率"
-              >攀爬绳索关节刚度(Hz)</label
+              title="攀爬桥接绳时绳索关节的弹簧频率，过高会产生数值抖动"
+              >攀爬绳索弹簧频率(Hz)</label
             >
             <div class="control-inputs">
               <input
                 type="range"
                 id="ropeClimbHertz"
-                min="10"
-                max="1000"
-                step="10"
+                min="1"
+                max="300"
+                step="1"
                 value="160"
                 autocomplete="off"
               />
               <input
                 type="number"
                 id="ropeClimbHertzNum"
-                min="10"
-                max="2000"
-                step="10"
+                min="1"
+                max="300"
+                step="1"
                 value="160"
                 autocomplete="off"
               />
@@ -2828,7 +2884,7 @@
           <div class="control-group">
             <label
               for="ropeClimbDampingRatio"
-              title="攀爬桥接绳时绳索关节的阻尼比"
+              title="攀爬桥接绳时绳索弹簧的阻尼比，更高会更快压住回弹"
               >攀爬绳索关节阻尼比</label
             >
             <div class="control-inputs">
@@ -2836,18 +2892,18 @@
                 type="range"
                 id="ropeClimbDampingRatio"
                 min="0"
-                max="2"
-                step="0.05"
-                value="1"
+                max="4"
+                step="0.01"
+                value="0.2"
                 autocomplete="off"
               />
               <input
                 type="number"
                 id="ropeClimbDampingRatioNum"
                 min="0"
-                max="4"
-                step="0.05"
-                value="1"
+                max="8"
+                step="0.01"
+                value="0.2"
                 autocomplete="off"
               />
             </div>
@@ -2864,7 +2920,7 @@
                 type="range"
                 id="ropeClimbWeightForceScale"
                 min="0"
-                max="2"
+                max="10"
                 step="0.05"
                 value="0.1"
                 autocomplete="off"
@@ -2873,7 +2929,7 @@
                 type="number"
                 id="ropeClimbWeightForceScaleNum"
                 min="0"
-                max="5"
+                max="20"
                 step="0.05"
                 value="0.1"
                 autocomplete="off"
@@ -2882,35 +2938,7 @@
           </div>
 
           <div class="control-group">
-            <label
-              for="ropeClimbJumpRecoilScale"
-              title="攀爬跳跃脱离时施加给桥接绳的反向弹力比例"
-              >攀爬跳跃反冲比例</label
-            >
-            <div class="control-inputs">
-              <input
-                type="range"
-                id="ropeClimbJumpRecoilScale"
-                min="0"
-                max="2"
-                step="0.05"
-                value="0"
-                autocomplete="off"
-              />
-              <input
-                type="number"
-                id="ropeClimbJumpRecoilScaleNum"
-                min="0"
-                max="5"
-                step="0.05"
-                value="0"
-                autocomplete="off"
-              />
-            </div>
-          </div>
-
-          <div class="control-group">
-            <label for="swingForce" title="按方向键时施加的摆荡推力大小"
+            <label for="swingForce" title="按方向键时施加的切向摆荡速度"
               >摆荡推力</label
             >
             <div class="control-inputs">
@@ -2918,7 +2946,7 @@
                 type="range"
                 id="swingForce"
                 min="100"
-                max="3000"
+                max="8000"
                 step="50"
                 value="2000"
                 autocomplete="off"
@@ -2927,7 +2955,7 @@
                 type="number"
                 id="swingForceNum"
                 min="100"
-                max="5000"
+                max="20000"
                 step="50"
                 value="2000"
                 autocomplete="off"

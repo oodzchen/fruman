@@ -288,6 +288,7 @@ export class RopeClimbingSystem {
     if (sourceType === this.runtime.ropeClimbSourceBridge) {
       grapple.isPulling = false
       grapple.isTethering = false
+      grapple.isTetherSuspended = false
       grapple.pullMode = GrapplePullMode.Anchor
       grapple.targetEntityId = -1
       grapple.desiredDistanceSq = 0

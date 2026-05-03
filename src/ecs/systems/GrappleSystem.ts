@@ -164,8 +164,6 @@ export class GrappleSystem extends System {
     runtime.beginRopeJumpState = this.locomotion.beginRopeJumpState.bind(
       this.locomotion
     )
-    runtime.applyTetherSwingImpulse =
-      this.locomotion.applyTetherSwingImpulse.bind(this.locomotion)
     runtime.handleSwingInput = this.locomotion.handleSwingInput.bind(
       this.locomotion
     )
@@ -474,6 +472,14 @@ export class GrappleSystem extends System {
 
   setRopeDampingRatio(value: number): void {
     this.runtime.setRopeDampingRatio(value)
+  }
+
+  setRopeBendStiffness(value: number): void {
+    this.runtime.setRopeBendStiffness(value)
+  }
+
+  setRopeElasticLimitScale(value: number): void {
+    this.runtime.setRopeElasticLimitScale(value)
   }
 
   setRopeClimbLinearDamping(value: number): void {

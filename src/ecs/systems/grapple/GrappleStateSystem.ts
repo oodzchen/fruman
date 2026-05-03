@@ -364,6 +364,7 @@ export class GrappleStateSystem {
       }
       grapple.pullMode = GrapplePullMode.Anchor
       grapple.isTethering = false
+      grapple.isTetherSuspended = false
       this.runtime.applyGrappleImpulse(entity, grapple)
       return true
     }
@@ -421,6 +422,7 @@ export class GrappleStateSystem {
       return true
     }
     grapple.isTethering = false
+    grapple.isTetherSuspended = false
     this.runtime.applyGrappleImpulse(entity, grapple)
     return true
   }
@@ -461,6 +463,7 @@ export class GrappleStateSystem {
     if (this.runtime.startAnchorTether(entity, grapple, anchorTarget)) {
       grapple.pullMode = GrapplePullMode.AnchorTether
       grapple.isTethering = true
+      grapple.isTetherSuspended = false
     } else {
       this.runtime.stopPull(entity, grapple, false)
     }

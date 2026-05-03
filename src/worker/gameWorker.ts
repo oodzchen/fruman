@@ -3272,6 +3272,14 @@ function updateParam(id?: string, value?: number) {
     grappleSystem.setRopeDampingRatio(value)
   }
 
+  if (id === 'ropeBendStiffness') {
+    grappleSystem.setRopeBendStiffness(value)
+  }
+
+  if (id === 'ropeElasticLimitScale') {
+    grappleSystem.setRopeElasticLimitScale(value)
+  }
+
   if (id === 'ropeClimbLinearDamping') {
     grappleSystem.setRopeClimbLinearDamping(value)
   }

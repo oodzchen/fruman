@@ -5,7 +5,7 @@ import {
 } from '../../../constants'
 import type { Entity } from '../../Entity'
 import type { GrappleSystemRuntime } from './GrappleRuntime'
-import { GrapplePullMode } from './GrappleTypes'
+import { GrapplePullMode, type RopeRuntime } from './GrappleTypes'
 
 export class GrappleLocomotionSystem {
   constructor(private readonly runtime: GrappleSystemRuntime) {}
@@ -239,6 +239,7 @@ export class GrappleLocomotionSystem {
   ): void {
     grapple.isPulling = false
     grapple.isTethering = false
+    grapple.isTetherSuspended = false
     grapple.retainAirMomentum = retainAirMomentum
     grapple.pullMode = GrapplePullMode.Anchor
     grapple.targetEntityId = -1
@@ -437,9 +438,46 @@ export class GrappleLocomotionSystem {
     entity.movement.isGrounded = false
   }
 
-  applyTetherSwingImpulse(
+  handleSwingInput(
     entity: Entity,
-    grapple: NonNullable<Entity['grapple']>
+    grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime,
+    _deltaMs: number
+  ): void {
+    if (
+      !entity.physics ||
+      !entity.transform ||
+      !entity.input ||
+      !entity.movement
+    ) {
+      return
+    }
+
+    if (entity.movement.isGrounded) {
+      return
+    }
+
+    const moveDir = entity.input.moveDirection
+    if (moveDir === 0) {
+      runtime.lastSwingInputDirection = 0
+      return
+    }
+
+    entity.input.lastMoveDirection = moveDir
+    if (runtime.lastSwingInputDirection === moveDir) {
+      return
+    }
+
+    const inputSwingSpeed = this.runtime.swingForce / 500
+    this.applyTetherTangentialSpeed(entity, grapple, inputSwingSpeed, moveDir)
+    runtime.lastSwingInputDirection = moveDir
+  }
+
+  private applyTetherTangentialSpeed(
+    entity: Entity,
+    grapple: NonNullable<Entity['grapple']>,
+    swingSpeed: number,
+    preferredMoveDirection: number
   ): void {
     if (!entity.physics || !entity.transform || entity.movement?.isGrounded) {
       return
@@ -464,90 +502,44 @@ export class GrappleLocomotionSystem {
     const ropeY = dy / dist
     const tangentX = -ropeY
     const tangentY = ropeX
+    const swingDir = this.resolveTetherSwingDirection(
+      tangentX,
+      tangentY,
+      currentVx,
+      currentVy,
+      preferredMoveDirection,
+      entity.input?.lastMoveDirection ?? 1
+    )
 
-    const facingDir = entity.input?.lastMoveDirection ?? 1
-    const swingSpeed = 12
-    const addVx = tangentX * swingSpeed * facingDir
-    const addVy = tangentY * swingSpeed * facingDir
-
-    this.runtime.tempVec.x = currentVx + addVx
-    this.runtime.tempVec.y = currentVy + addVy
+    this.runtime.tempVec.x = currentVx + tangentX * swingSpeed * swingDir
+    this.runtime.tempVec.y = currentVy + tangentY * swingSpeed * swingDir
     this.runtime.box2d.b2Body_SetLinearVelocity(
       entity.physics.bodyId,
       this.runtime.tempVec
     )
   }
 
-  handleSwingInput(
-    entity: Entity,
-    grapple: NonNullable<Entity['grapple']>,
-    deltaMs: number
-  ): void {
-    if (
-      !entity.physics ||
-      !entity.transform ||
-      !entity.input ||
-      !entity.movement
-    ) {
-      return
+  private resolveTetherSwingDirection(
+    tangentX: number,
+    tangentY: number,
+    currentVx: number,
+    currentVy: number,
+    preferredMoveDirection: number,
+    fallbackMoveDirection: number
+  ): number {
+    if (preferredMoveDirection !== 0 && Math.abs(tangentX) > 0.001) {
+      return tangentX * preferredMoveDirection > 0 ? 1 : -1
     }
 
-    if (entity.movement.isGrounded) {
-      return
+    const tangentSpeed = currentVx * tangentX + currentVy * tangentY
+    if (Math.abs(tangentSpeed) >= 0.1) {
+      return tangentSpeed > 0 ? 1 : -1
     }
 
-    const moveDir = entity.input.moveDirection
-    if (moveDir === 0) {
-      return
+    if (Math.abs(tangentX) > 0.001) {
+      return tangentX * fallbackMoveDirection > 0 ? 1 : -1
     }
 
-    entity.input.lastMoveDirection = moveDir
-
-    const currentVel = this.runtime.box2d.b2Body_GetLinearVelocity(
-      entity.physics.bodyId
-    )
-    const currentVx = currentVel.x
-    const currentVy = currentVel.y
-    currentVel.delete()
-
-    const dx = grapple.targetX - entity.transform.x
-    const dy = grapple.targetY - entity.transform.y
-    const dist = Math.sqrt(dx * dx + dy * dy)
-
-    if (dist < 0.1) {
-      return
-    }
-
-    const ropeX = dx / dist
-    const ropeY = dy / dist
-    const tangentX = -ropeY
-    const tangentY = ropeX
-
-    const tangentVel = currentVx * tangentX + currentVy * tangentY
-
-    if (Math.abs(tangentVel) < 0.1) {
-      return
-    }
-
-    const swingDir = tangentVel > 0 ? 1 : -1
-    const horizontalSwingDir = tangentX * swingDir > 0 ? 1 : -1
-
-    const isSameDirection = moveDir === horizontalSwingDir
-    const mass = this.runtime.box2d.b2Body_GetMass(entity.physics.bodyId)
-    const swingForce = isSameDirection
-      ? this.runtime.swingForce
-      : -this.runtime.swingForce * 0.67
-    const deltaTime = deltaMs / 1000
-
-    const forceX = tangentX * swingDir * swingForce * mass * deltaTime
-    const forceY = tangentY * swingDir * swingForce * mass * deltaTime
-
-    this.runtime.tempVec.x = forceX
-    this.runtime.tempVec.y = forceY
-    this.runtime.box2d.b2Body_ApplyForceToCenter(
-      entity.physics.bodyId,
-      this.runtime.tempVec,
-      true
-    )
+    return tangentY < 0 ? -1 : 1
   }
 }

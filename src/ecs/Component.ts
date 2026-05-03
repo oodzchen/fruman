@@ -362,6 +362,7 @@ export class GrappleComponent extends Component {
   cooldownEndTime = 0
   moveLockEndTime = 0
   retainAirMomentum = false
+  isTetherSuspended = false
   isRopeClimbing = false
   ropeClimbSource = 0
   hasAnchorNearby = false
@@ -385,6 +386,7 @@ export class GrappleComponent extends Component {
     this.cooldownEndTime = 0
     this.moveLockEndTime = 0
     this.retainAirMomentum = false
+    this.isTetherSuspended = false
     this.isRopeClimbing = false
     this.ropeClimbSource = 0
     this.hasAnchorNearby = false

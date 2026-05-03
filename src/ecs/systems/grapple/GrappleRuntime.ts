@@ -170,13 +170,10 @@ export interface GrappleLocomotionApi {
   performRopeJump(entity: Entity, grapple: NonNullable<Entity['grapple']>): void
   startRopeJumpMotion(entity: Entity): void
   beginRopeJumpState(entity: Entity): void
-  applyTetherSwingImpulse(
-    entity: Entity,
-    grapple: NonNullable<Entity['grapple']>
-  ): void
   handleSwingInput(
     entity: Entity,
     grapple: NonNullable<Entity['grapple']>,
+    runtime: RopeRuntime,
     deltaMs: number
   ): void
 }

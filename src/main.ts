@@ -10,13 +10,14 @@ import {
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
   DEFAULT_CAMERA_ZOOM,
+  DEFAULT_GRAPPLE_ROPE_BEND_STIFFNESS,
   DEFAULT_GRAPPLE_ROPE_CLIMB_DAMPING_RATIO,
   DEFAULT_GRAPPLE_ROPE_CLIMB_HERTZ,
-  DEFAULT_GRAPPLE_ROPE_CLIMB_JUMP_RECOIL_SCALE,
   DEFAULT_GRAPPLE_ROPE_CLIMB_LINEAR_DAMPING,
   DEFAULT_GRAPPLE_ROPE_CLIMB_WEIGHT_FORCE_SCALE,
   DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO,
   DEFAULT_GRAPPLE_ROPE_DENSITY,
+  DEFAULT_GRAPPLE_ROPE_ELASTIC_LIMIT_SCALE,
   DEFAULT_GRAPPLE_ROPE_HERTZ,
   DEFAULT_GRAPPLE_ROPE_LINEAR_DAMPING,
   DEFAULT_GRAPPLE_SWING_FORCE,
@@ -181,6 +182,18 @@ const PARAM_CONFIGS: ParamConfig[] = [
     defaultValue: DEFAULT_GRAPPLE_ROPE_DAMPING_RATIO,
   },
   {
+    id: 'ropeBendStiffness',
+    numberId: 'ropeBendStiffnessNum',
+    label: 'param_rope_bend_stiffness',
+    defaultValue: DEFAULT_GRAPPLE_ROPE_BEND_STIFFNESS,
+  },
+  {
+    id: 'ropeElasticLimitScale',
+    numberId: 'ropeElasticLimitScaleNum',
+    label: 'param_rope_elastic_limit_scale',
+    defaultValue: DEFAULT_GRAPPLE_ROPE_ELASTIC_LIMIT_SCALE,
+  },
+  {
     id: 'ropeClimbLinearDamping',
     numberId: 'ropeClimbLinearDampingNum',
     label: 'param_rope_climb_linear_damping',
@@ -203,12 +216,6 @@ const PARAM_CONFIGS: ParamConfig[] = [
     numberId: 'ropeClimbWeightForceScaleNum',
     label: 'param_rope_climb_weight_force_scale',
     defaultValue: DEFAULT_GRAPPLE_ROPE_CLIMB_WEIGHT_FORCE_SCALE,
-  },
-  {
-    id: 'ropeClimbJumpRecoilScale',
-    numberId: 'ropeClimbJumpRecoilScaleNum',
-    label: 'param_rope_climb_jump_recoil_scale',
-    defaultValue: DEFAULT_GRAPPLE_ROPE_CLIMB_JUMP_RECOIL_SCALE,
   },
   {
     id: 'swingForce',
@@ -268,21 +275,32 @@ function syncInputs(
     return { apply: () => {} }
   }
 
-  const applyValue = (rawValue: string, shouldStore: boolean) => {
-    const value = Number.parseFloat(rawValue)
-    if (!Number.isFinite(value)) {
-      return
+  const clampValue = (value: number): number => {
+    let clampedValue = value
+    const min = Number.parseFloat(number.min)
+    if (Number.isFinite(min) && clampedValue < min) {
+      clampedValue = min
     }
-    callback(value)
-    if (shouldStore) {
-      updateStoredValue(rangeId, rawValue)
+    const max = Number.parseFloat(number.max)
+    if (Number.isFinite(max) && clampedValue > max) {
+      clampedValue = max
     }
+    return clampedValue
   }
 
   const setPairValue = (rawValue: string, shouldStore: boolean) => {
-    range.value = rawValue
-    number.value = rawValue
-    applyValue(rawValue, shouldStore)
+    const parsedValue = Number.parseFloat(rawValue)
+    if (!Number.isFinite(parsedValue)) {
+      return
+    }
+    const value = clampValue(parsedValue)
+    const nextRawValue = String(value)
+    range.value = nextRawValue
+    number.value = nextRawValue
+    callback(value)
+    if (shouldStore) {
+      updateStoredValue(rangeId, nextRawValue)
+    }
   }
 
   const applyRange = () => {
@@ -440,11 +458,12 @@ async function initialize() {
     ropeLinearDamping: (v) => game.setRopeLinearDamping(v),
     ropeHertz: (v) => game.setRopeHertz(v),
     ropeDampingRatio: (v) => game.setRopeDampingRatio(v),
+    ropeBendStiffness: (v) => game.setRopeBendStiffness(v),
+    ropeElasticLimitScale: (v) => game.setRopeElasticLimitScale(v),
     ropeClimbLinearDamping: (v) => game.setRopeClimbLinearDamping(v),
     ropeClimbHertz: (v) => game.setRopeClimbHertz(v),
     ropeClimbDampingRatio: (v) => game.setRopeClimbDampingRatio(v),
     ropeClimbWeightForceScale: (v) => game.setRopeClimbWeightForceScale(v),
-    ropeClimbJumpRecoilScale: (v) => game.setRopeClimbJumpRecoilScale(v),
     swingForce: (v) => game.setSwingForce(v),
   }
 

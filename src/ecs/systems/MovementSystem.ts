@@ -442,13 +442,15 @@ export class MovementSystem extends System {
     }
 
     const grapple = entity.grapple
-    const dynamicTetherActive =
-      grapple?.isTethering === true && grapple.targetEntityId >= 0
-    if (
-      grapple?.isPulling &&
-      !(grapple.isTethering && entity.movement.isGrounded) &&
-      !dynamicTetherActive
-    ) {
+    const suspendedTetherActive =
+      grapple?.isPulling === true &&
+      grapple.isTethering &&
+      grapple.isTetherSuspended
+    if (grapple?.isPulling && !grapple.isTethering) {
+      return
+    }
+    if (suspendedTetherActive) {
+      this.handleJump(entity)
       return
     }
     if (

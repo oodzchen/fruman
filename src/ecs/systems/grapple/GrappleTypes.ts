@@ -83,6 +83,8 @@ export type RopeRuntime = {
   playerTetherState: PlayerTetherState
   playerGroundJumpActive: boolean
   airJumpDetachArmed: boolean
+  pendingPlayerVelocityTransfer: boolean
+  lastSwingInputDirection: number
   anchorFollowX: number
   anchorFollowY: number
   playerFollowX: number

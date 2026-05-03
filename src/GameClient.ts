@@ -2667,6 +2667,14 @@ export class GameClient {
     this.updateParam('ropeDampingRatio', value)
   }
 
+  setRopeBendStiffness(value: number): void {
+    this.updateParam('ropeBendStiffness', value)
+  }
+
+  setRopeElasticLimitScale(value: number): void {
+    this.updateParam('ropeElasticLimitScale', value)
+  }
+
   setRopeClimbLinearDamping(value: number): void {
     this.updateParam('ropeClimbLinearDamping', value)
   }
