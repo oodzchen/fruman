@@ -1179,6 +1179,7 @@ export class PixiWorldRenderer {
   private applyLayerDepthFilter(layer: number, bucket: LayerBucket): void {
     if (layer === RENDER_LAYER_SKY) {
       bucket.container.filters = this.skyLayerFilters
+      bucket.container.filterArea = bucket.filterArea
       bucket.depthContainer.filters = null
       bucket.depthContainer.filterArea = undefined
       return
@@ -1440,6 +1441,12 @@ export class PixiWorldRenderer {
             skyScale * skyReferenceCamY -
             parallaxShakeY
         )
+        this.updateBucketFilterArea(
+          bucket,
+          skyScale,
+          DEPTH_FILTER_AREA_PADDING_PX,
+          true
+        )
         continue
       }
       const factor = getParallaxScaleForLayer(layer)
@@ -1455,9 +1462,13 @@ export class PixiWorldRenderer {
   private updateBucketFilterArea(
     bucket: LayerBucket,
     bucketScale: number,
-    paddingPx: number
+    paddingPx: number,
+    forceUpdate = false
   ): void {
-    if (!bucket.depthContainer.filters || this.parallaxZoom <= 0) {
+    if (
+      this.parallaxZoom <= 0 ||
+      (!forceUpdate && !bucket.depthContainer.filters)
+    ) {
       return
     }
     const scale = bucketScale > 0 ? bucketScale : 1
@@ -1510,8 +1521,11 @@ export class PixiWorldRenderer {
     bucket.environmentContainer.addChild(mesh)
   }
 
-  invalidateStaticMeshCaches(): void {
-    for (const bucket of this.buckets.values()) {
+  invalidateStaticMeshCaches(includeSkyLayer = true): void {
+    for (const [layer, bucket] of this.buckets) {
+      if (!includeSkyLayer && layer === RENDER_LAYER_SKY) {
+        continue
+      }
       if (bucket.staticContainer.isCachedAsTexture) {
         bucket.staticContainer.cacheAsTexture(false)
       }

@@ -983,7 +983,7 @@ export class GameClient {
       this.syncSkyReferenceCamera(normalizedMap)
       if (isRuntimeTerrainUpdate) {
         this.staticSceneTextureCacheDisabled = true
-        this.worldRenderer.invalidateStaticMeshCaches()
+        this.worldRenderer.invalidateStaticMeshCaches(false)
       } else {
         this.staticSceneTextureCacheDisabled = false
       }
@@ -3043,7 +3043,9 @@ export class GameClient {
       if (terrain && hasTerrainContent(terrain)) {
         this.preparePendingStaticTerrainBuild(terrain, nextTerrainSignature)
       } else {
-        this.worldRenderer.invalidateStaticMeshCaches()
+        this.worldRenderer.invalidateStaticMeshCaches(
+          !this.staticSceneTextureCacheDisabled
+        )
         this.destroyStaticGraphics(this.staticTerrainGraphics)
         this.staticTerrainGraphics.length = 0
         this.staticTerrainSignature = nextTerrainSignature
@@ -3164,7 +3166,7 @@ export class GameClient {
       return
     }
     if (this.staticSceneTextureCacheDisabled) {
-      this.worldRenderer.invalidateStaticMeshCaches()
+      this.worldRenderer.invalidateStaticMeshCaches(false)
       this.staticSceneCacheRefreshQueued = false
       this.staticSceneCacheWarmupFrames = 0
       return
@@ -3187,7 +3189,7 @@ export class GameClient {
       return
     }
     if (this.staticSceneTextureCacheDisabled) {
-      this.worldRenderer.invalidateStaticMeshCaches()
+      this.worldRenderer.invalidateStaticMeshCaches(false)
       this.staticSceneCacheRefreshQueued = false
       this.staticSceneCacheWarmupFrames = 0
       return
@@ -3486,7 +3488,9 @@ export class GameClient {
   }
 
   private commitPendingStaticTerrainGraphics(): void {
-    this.worldRenderer.invalidateStaticMeshCaches()
+    this.worldRenderer.invalidateStaticMeshCaches(
+      !this.staticSceneTextureCacheDisabled
+    )
     this.destroyStaticGraphics(this.staticTerrainGraphics)
     this.staticTerrainGraphics.length = 0
 
