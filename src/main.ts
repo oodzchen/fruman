@@ -43,7 +43,7 @@ interface ParamConfig {
 }
 
 const DEFAULT_BREAKABLE_CRATE_DENSITY = 3.6
-const DEFAULT_BREAKABLE_CRATE_FRICTION = 25.6
+const DEFAULT_BREAKABLE_CRATE_FRICTION = 1
 const DEFAULT_BREAKABLE_CRATE_LINEAR_DAMPING = 0.6
 const DEFAULT_BREAKABLE_CRATE_ANGULAR_DAMPING = 1.8
 const DEFAULT_BREAKABLE_CRATE_RESTITUTION = 0.02
@@ -225,6 +225,47 @@ const PARAM_CONFIGS: ParamConfig[] = [
   },
 ]
 
+function setupParamResetButton(config: ParamConfig, onReset: () => void): void {
+  const label = document.querySelector<HTMLLabelElement>(
+    `label[for="${config.id}"]`
+  )
+  if (!label) {
+    return
+  }
+
+  const controlGroup = label.closest('.control-group')
+  if (!(controlGroup instanceof HTMLDivElement)) {
+    return
+  }
+
+  const existingButton = controlGroup.querySelector<HTMLButtonElement>(
+    `.param-reset-button[data-param-id="${config.id}"]`
+  )
+  if (existingButton) {
+    return
+  }
+
+  let labelRow = label.parentElement
+  if (
+    !(labelRow instanceof HTMLDivElement) ||
+    !labelRow.classList.contains('control-label-row')
+  ) {
+    labelRow = document.createElement('div')
+    labelRow.className = 'control-label-row'
+    controlGroup.insertBefore(labelRow, label)
+    labelRow.appendChild(label)
+  }
+
+  const resetButton = document.createElement('button')
+  resetButton.type = 'button'
+  resetButton.className = 'param-reset-button'
+  resetButton.dataset.paramId = config.id
+  resetButton.textContent = localizer.t('ui_reset')
+  resetButton.title = `${localizer.t('ui_reset')} ${localizer.t(config.label)}`
+  resetButton.addEventListener('click', onReset)
+  labelRow.appendChild(resetButton)
+}
+
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
 const dialogManager = new DialogManager(gameViewport, gameViewport)
@@ -302,6 +343,10 @@ function syncInputs(
       updateStoredValue(rangeId, nextRawValue)
     }
   }
+
+  setupParamResetButton(config, () => {
+    setPairValue(String(defaultValue), true)
+  })
 
   const applyRange = () => {
     setPairValue(range.value, true)

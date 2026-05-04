@@ -1249,7 +1249,7 @@ export class GrappleRopeRuntimeSystem {
         false
       )
       this.applyPlayerRopeBendStiffness(runtime, playerBodyId)
-      if (isTetherSuspended) {
+      if (isTetherSuspended || isDynamicAnchor) {
         this.runtime.applyPlayerTetherLimitTension(
           entity,
           grapple,
