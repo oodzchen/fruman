@@ -2300,6 +2300,7 @@ export class PixiWorldRenderer {
       renderer.getColorHex(buf[offset + OFFSETS.COLOR] | 0)
     )
     const assetsReady = isBodyVisualAssetsReady(bodyProfile, bodyTexture)
+    const fallbackEyeStyle = flags & FLAGS.IS_PLAYER ? 'cute' : 'standard'
 
     let bodyHash = 0x811c9dc5
     bodyHash = fnvMix(bodyHash, bodyProfileIndex)
@@ -2310,6 +2311,7 @@ export class PixiWorldRenderer {
     bodyHash = fnvMix(bodyHash, outlineWidthPx)
     bodyHash = fnvMix(bodyHash, bodyProfile?.layers?.length ?? 0)
     bodyHash = fnvMix(bodyHash, assetsReady ? 1 : 0)
+    bodyHash = fnvMixStr(bodyHash, fallbackEyeStyle)
     bodyHash = bodyHash >>> 0
 
     if (view.bodyHash !== bodyHash) {
@@ -2331,7 +2333,8 @@ export class PixiWorldRenderer {
         true,
         '#000000',
         String(bodyProfileIndex),
-        textureKey
+        textureKey,
+        fallbackEyeStyle
       )
 
       if (!spriteSource) {

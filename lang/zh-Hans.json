@@ -269,7 +269,7 @@
   "editor_body_drawer_label": "外形绘制",
   "editor_body_drawer_open": "绘制",
   "editor_body_drawer_title": "角色身体绘制",
-  "editor_body_drawer_hint": "先用“轮廓”逐点闭合外缘；轮廓模式下可选中、拖动和删除节点调整形状，完成后再切到右侧图层继续绘制。碰撞体工具可拖拽绘制圆形或胶囊形，并会自动融合为最终碰撞边缘。",
+  "editor_body_drawer_hint": "先用“轮廓”逐点闭合外缘；轮廓模式下可选中、拖动和删除节点调整形状，完成后再切到右侧图层继续绘制。默认碰撞会沿身体边缘生成简化外轮廓，也可用碰撞体工具手动覆盖。",
   "editor_body_drawer_brush": "粗细",
   "editor_body_drawer_color": "颜色",
   "editor_body_drawer_blood_color": "血液颜色",

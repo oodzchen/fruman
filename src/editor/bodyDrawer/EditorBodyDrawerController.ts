@@ -1,6 +1,6 @@
 import { localizer } from '../../Localizer'
 import {
-  buildAutoCharacterBodyCollisionShapesFromLocalPoints,
+  buildCharacterBodyCollisionOutlineLoopsFromLocalPoints,
   buildCollisionOutlineLoopsFromShapes,
 } from '../../characterBodyCollision'
 import {
@@ -14,6 +14,7 @@ import {
   DEFAULT_CHARACTER_EYE_STYLE,
   DEFAULT_CHARACTER_EYE_X,
   DEFAULT_CHARACTER_EYE_Y,
+  clampCharacterEyeCenterToBodyPoints,
   clampCharacterEyeOffsetToCircle,
   clampCharacterEyeScale,
   getCharacterBrowBounds,
@@ -325,6 +326,9 @@ export class EditorBodyDrawerController {
       textureCtx
     )
 
+    const defaultEyeStyle =
+      options.defaultEyeStyle ?? DEFAULT_CHARACTER_EYE_STYLE
+
     let mode: BodyDrawMode = 'contour'
     let pointerActive = false
     let pointerChanged = false
@@ -336,7 +340,7 @@ export class EditorBodyDrawerController {
     let eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
     let eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
     let eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
-    let eyeStyle: MapCharacterBodyEyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+    let eyeStyle: MapCharacterBodyEyeStyle = defaultEyeStyle
     let browStyle: MapCharacterBodyBrowStyle = DEFAULT_CHARACTER_BROW_STYLE
     let browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
     let browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
@@ -1477,6 +1481,47 @@ export class EditorBodyDrawerController {
     const getSelectedCollisionShape = (): EditorCollisionShape | null =>
       getCollisionShapeById(selectedCollisionShapeId)
 
+    const buildContourLocalPoints = (
+      contourBounds: ReturnType<typeof getContourBounds>
+    ): number[] | null => {
+      if (!contourBounds || contourPoints.length < 6) {
+        return null
+      }
+      const localPoints = new Array<number>(contourPoints.length)
+      for (let i = 0; i < contourPoints.length; i += 2) {
+        localPoints[i] = contourPoints[i] - contourBounds.centerX
+        localPoints[i + 1] = contourPoints[i + 1] - contourBounds.centerY
+      }
+      return localPoints
+    }
+
+    const buildContourCollisionPreviewLoops = (): number[][] | null => {
+      if (!contourClosed) {
+        return null
+      }
+      const contourBounds = getContourBounds()
+      const localPoints = buildContourLocalPoints(contourBounds)
+      if (!contourBounds || !localPoints) {
+        return null
+      }
+      const localLoops =
+        buildCharacterBodyCollisionOutlineLoopsFromLocalPoints(localPoints)
+      if (!localLoops || localLoops.length === 0) {
+        return null
+      }
+      const previewLoops = new Array<number[]>(localLoops.length)
+      for (let i = 0; i < localLoops.length; i++) {
+        const localLoop = localLoops[i]
+        const previewLoop = new Array<number>(localLoop.length)
+        for (let j = 0; j < localLoop.length; j += 2) {
+          previewLoop[j] = localLoop[j] + contourBounds.centerX
+          previewLoop[j + 1] = localLoop[j + 1] + contourBounds.centerY
+        }
+        previewLoops[i] = previewLoop
+      }
+      return previewLoops
+    }
+
     const getCollisionPreviewLoops = (): number[][] | null => {
       if (
         pointerActive &&
@@ -1489,6 +1534,10 @@ export class EditorBodyDrawerController {
         return collisionPreviewLoops
       }
       collisionPreviewDirty = false
+      if (!collisionShapesCustomized) {
+        collisionPreviewLoops = buildContourCollisionPreviewLoops()
+        return collisionPreviewLoops
+      }
       if (collisionShapes.length === 0) {
         collisionPreviewLoops = null
         return collisionPreviewLoops
@@ -1591,23 +1640,7 @@ export class EditorBodyDrawerController {
         clearCollisionShapes()
         return false
       }
-      const localPoints = new Array<number>(contourPoints.length)
-      for (let i = 0; i < contourPoints.length; i += 2) {
-        localPoints[i] = contourPoints[i] - contourBounds.centerX
-        localPoints[i + 1] = contourPoints[i + 1] - contourBounds.centerY
-      }
-      const shapes =
-        buildAutoCharacterBodyCollisionShapesFromLocalPoints(localPoints)
-      if (!shapes || shapes.length === 0) {
-        clearCollisionShapes()
-        return false
-      }
-      setCollisionShapesFromMap(
-        shapes,
-        contourBounds.centerX,
-        contourBounds.centerY,
-        1
-      )
+      clearCollisionShapes()
       collisionShapesCustomized = false
       return true
     }
@@ -1619,10 +1652,15 @@ export class EditorBodyDrawerController {
       regenerateAutoCollisionShapesFromContour()
     }
 
+    const markCollisionShapesCustomized = () => {
+      collisionShapesCustomized = true
+      invalidatePresetSelection()
+    }
+
     const appendCollisionShape = (shape: EditorCollisionShape) => {
       collisionShapes.push(shape)
       selectedCollisionShapeId = shape.id
-      collisionShapesCustomized = true
+      markCollisionShapesCustomized()
       invalidateCollisionPreview()
     }
 
@@ -1668,7 +1706,7 @@ export class EditorBodyDrawerController {
             ? collisionShapes[collisionShapes.length - 1].id
             : -1
         collisionPointerShapeId = -1
-        collisionShapesCustomized = true
+        markCollisionShapesCustomized()
         invalidateCollisionPreview()
         return true
       }
@@ -2122,11 +2160,28 @@ export class EditorBodyDrawerController {
       if (!contourClosed) {
         return { x: targetEyeX, y: targetEyeY }
       }
-      return clampCharacterEyeOffsetToCircle(
+      const contourBounds = getContourBounds()
+      const circleClampedEye = clampCharacterEyeOffsetToCircle(
         targetEyeX,
         targetEyeY,
         getEyeMoveRangeRadius()
       )
+      if (!contourBounds || contourPoints.length < 6) {
+        return circleClampedEye
+      }
+      const bodyPoint = clampCharacterEyeCenterToBodyPoints(
+        contourBounds.centerX + circleClampedEye.x,
+        contourBounds.centerY + circleClampedEye.y,
+        contourPoints,
+        eyeScaleX,
+        eyeScaleY,
+        eyeStyle,
+        eyeRotationDeg
+      )
+      return {
+        x: bodyPoint.x - contourBounds.centerX,
+        y: bodyPoint.y - contourBounds.centerY,
+      }
     }
 
     const ensureEyeInsideBody = () => {
@@ -2645,6 +2700,7 @@ export class EditorBodyDrawerController {
         eyeRotationDeg = normalizeRotationDeg(
           session.eyeRotationDeg + rotationDeg
         )
+        ensureEyeInsideBody()
         return
       }
       if (layer.kind === 'brow' && browStyle !== 'custom') {
@@ -2944,7 +3000,7 @@ export class EditorBodyDrawerController {
       eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
       eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
       eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
-      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+      eyeStyle = defaultEyeStyle
       browStyle = DEFAULT_CHARACTER_BROW_STYLE
       browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
       browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
@@ -3351,7 +3407,7 @@ export class EditorBodyDrawerController {
       eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
       eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
       eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
-      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+      eyeStyle = defaultEyeStyle
       browStyle = DEFAULT_CHARACTER_BROW_STYLE
       browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
       browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
@@ -3388,7 +3444,7 @@ export class EditorBodyDrawerController {
           ? clampCharacterEyeScale(profile.eyeScaleY)
           : DEFAULT_CHARACTER_EYE_SCALE
       eyeRotationDeg = getCharacterEyeRotationDeg(profile) * editorFacing
-      eyeStyle = getCharacterEyeStyle(profile)
+      eyeStyle = getCharacterEyeStyle(profile, defaultEyeStyle)
       browStyle = getCharacterBrowStyle(profile)
       browOffsetX = getCharacterBrowOffsetX(profile) * editorFacing
       browOffsetY = getCharacterBrowOffsetY(profile)
@@ -3500,7 +3556,11 @@ export class EditorBodyDrawerController {
         if (profile.layerOrder && profile.layerOrder.length > 0) {
           applyLayerOrder(profile.layerOrder)
         }
-        if (profile.collisionShapes && profile.collisionShapes.length > 0) {
+        if (
+          initialPresetId === CUSTOM_BODY_PRESET_ID &&
+          profile.collisionShapes &&
+          profile.collisionShapes.length > 0
+        ) {
           const contourBounds = getContourBounds()
           if (contourBounds) {
             setCollisionShapesFromMap(
@@ -3566,7 +3626,7 @@ export class EditorBodyDrawerController {
       eyeScaleX = DEFAULT_CHARACTER_EYE_SCALE
       eyeScaleY = DEFAULT_CHARACTER_EYE_SCALE
       eyeRotationDeg = DEFAULT_CHARACTER_EYE_ROTATION_DEG
-      eyeStyle = DEFAULT_CHARACTER_EYE_STYLE
+      eyeStyle = defaultEyeStyle
       browStyle = DEFAULT_CHARACTER_BROW_STYLE
       browOffsetX = DEFAULT_CHARACTER_BROW_OFFSET_X
       browOffsetY = DEFAULT_CHARACTER_BROW_OFFSET_Y
@@ -3920,6 +3980,7 @@ export class EditorBodyDrawerController {
           return
         }
         eyeStyle = nextStyle as MapCharacterBodyEyeStyle
+        ensureEyeInsideBody()
       } else if (targetLayer.kind === 'brow') {
         if (browStyle === nextStyle) {
           return
@@ -4506,7 +4567,7 @@ export class EditorBodyDrawerController {
                 point.y
               )
               pointerChanged = true
-              collisionShapesCustomized = true
+              markCollisionShapesCustomized()
               lastX = point.x
               lastY = point.y
               invalidateCollisionPreview()
@@ -4520,7 +4581,7 @@ export class EditorBodyDrawerController {
             if (point.x !== lastX || point.y !== lastY) {
               applyCollisionShapeScale(collisionScaleSession, point.x, point.y)
               pointerChanged = true
-              collisionShapesCustomized = true
+              markCollisionShapesCustomized()
               lastX = point.x
               lastY = point.y
               invalidateCollisionPreview()
@@ -4539,7 +4600,7 @@ export class EditorBodyDrawerController {
               lastDragWorldX = point.x
               lastDragWorldY = point.y
               pointerChanged = true
-              collisionShapesCustomized = true
+              markCollisionShapesCustomized()
               invalidateCollisionPreview()
               renderComposite()
             }
@@ -4557,7 +4618,7 @@ export class EditorBodyDrawerController {
             )
             assignCollisionShape(activeShape, nextShape)
             pointerChanged = true
-            collisionShapesCustomized = true
+            markCollisionShapesCustomized()
             invalidateCollisionPreview()
             renderComposite()
           }
@@ -4782,10 +4843,12 @@ export class EditorBodyDrawerController {
             ? (() => {
                 const contourBounds = getContourBounds()
                 const serializedCollisionShapes = contourBounds
-                  ? serializeCollisionShapes(
-                      contourBounds.centerX,
-                      contourBounds.centerY
-                    )
+                  ? collisionShapesCustomized
+                    ? serializeCollisionShapes(
+                        contourBounds.centerX,
+                        contourBounds.centerY
+                      )
+                    : []
                   : []
                 return buildProfile(
                   this._workCanvas,
@@ -4802,6 +4865,7 @@ export class EditorBodyDrawerController {
                   eyeScaleY,
                   eyeRotationDeg,
                   eyeStyle,
+                  defaultEyeStyle,
                   browStyle,
                   editorFacing,
                   browOffsetX,

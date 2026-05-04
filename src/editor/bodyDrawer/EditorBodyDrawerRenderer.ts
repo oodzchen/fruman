@@ -216,7 +216,11 @@ export class EditorBodyDrawerRenderer {
     ctx: CanvasRenderingContext2D,
     viewportScale: number
   ) {
-    if (this._options.collisionShapes.length === 0) {
+    const hasCollisionShapes = this._options.collisionShapes.length > 0
+    if (!hasCollisionShapes) {
+      ctx.save()
+      this._drawCollisionPreviewLoops(ctx, viewportScale)
+      ctx.restore()
       return
     }
     const selectedCollisionShapeId = this._options.getSelectedCollisionShapeId()

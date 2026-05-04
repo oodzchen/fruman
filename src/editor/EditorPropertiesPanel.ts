@@ -1222,6 +1222,8 @@ export class EditorPropertiesPanel {
           resetBodyColor: options.resetBodyColor ?? options.data.color,
           resetBodyWidth: defaultDiameter,
           resetBodyHeight: defaultDiameter,
+          defaultEyeStyle:
+            options.attackMovesetOwner === 'player' ? 'cute' : undefined,
           initialFacing:
             Number.isFinite(currentFacingValue) && currentFacingValue < 0
               ? -1
@@ -1817,7 +1819,8 @@ export class EditorPropertiesPanel {
           previewPixelsPerMeter,
           facing,
           bodyProfile ?? null,
-          bodyTextureImage
+          bodyTextureImage,
+          options.attackMovesetOwner === 'player' ? 'cute' : 'standard'
         )
         if (facing >= 0) {
           renderMainWeapon()

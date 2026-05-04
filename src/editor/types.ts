@@ -1,6 +1,7 @@
 import * as fabric from 'fabric'
 
 import type {
+  MapCharacterBodyEyeStyle,
   MapCharacterBodyProfile,
   MapEnvironmentFlowerOptions,
   MapEnvironmentObjectType,
@@ -184,6 +185,7 @@ export type CharacterBodyShapeObject = fabric.Object & {
   bodyColor: string
   bodyFacing: number
   eyeColor: string
+  defaultEyeStyle: MapCharacterBodyEyeStyle
   bodyProfile: MapCharacterBodyProfile | null
   bodyTextureImage: HTMLImageElement | null
 }

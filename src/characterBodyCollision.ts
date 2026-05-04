@@ -1100,6 +1100,28 @@ function extractCollisionOutlineLoopsFromRaster(
   return result
 }
 
+export function buildCharacterBodyCollisionOutlineLoopsFromLocalPoints(
+  localPoints: readonly number[]
+): number[][] | null {
+  const rasterized = rasterizeCollisionPolygon(localPoints)
+  if (!rasterized) {
+    return null
+  }
+  const filled = readFilledPixels(
+    rasterized.ctx,
+    rasterized.mapping.width,
+    rasterized.mapping.height
+  )
+  const loops = extractCollisionOutlineLoopsFromRaster(
+    filled,
+    rasterized.mapping
+  )
+  if (!loops || loops.length === 0) {
+    return null
+  }
+  return [loops[0]]
+}
+
 export function buildCollisionOutlineLoopsFromShapes(
   shapes: readonly MapCharacterBodyCollisionShape[]
 ): number[][] | null {
@@ -1175,8 +1197,13 @@ function buildCollisionOutlineLoopsFromProfile(
   radius: number,
   bodyHeight: number
 ): number[][] | null {
+  const localPoints = buildCharacterBodyLocalPoints(profile, radius, bodyHeight)
+  if (!localPoints || localPoints.length < 6) {
+    return null
+  }
+
   const scaledShapes = buildScaledProfileCollisionShapes(profile)
-  if (scaledShapes && scaledShapes.length > 0) {
+  if (scaledShapes && scaledShapes.length > 0 && !profile.presetId) {
     const bodyWidth = getCharacterBodyProfileWidth(profile) || radius * 2
     const resolvedBodyHeight =
       getCharacterBodyProfileHeight(profile) ||
@@ -1200,16 +1227,7 @@ function buildCollisionOutlineLoopsFromProfile(
     return extractCollisionOutlineLoopsFromRaster(filled, rasterized.mapping)
   }
 
-  const localPoints = buildCharacterBodyLocalPoints(profile, radius, bodyHeight)
-  if (!localPoints || localPoints.length < 6) {
-    return null
-  }
-  const autoShapes =
-    buildAutoCharacterBodyCollisionShapesFromLocalPoints(localPoints)
-  if (!autoShapes || autoShapes.length === 0) {
-    return null
-  }
-  return buildCollisionOutlineLoopsFromShapes(autoShapes)
+  return buildCharacterBodyCollisionOutlineLoopsFromLocalPoints(localPoints)
 }
 
 export function buildCharacterBodyCollisionPolygons(

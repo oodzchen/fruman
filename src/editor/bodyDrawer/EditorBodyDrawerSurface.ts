@@ -14,7 +14,6 @@ import {
   DEFAULT_CHARACTER_BROW_STYLE,
   DEFAULT_CHARACTER_EYE_ROTATION_DEG,
   DEFAULT_CHARACTER_EYE_SCALE,
-  DEFAULT_CHARACTER_EYE_STYLE,
 } from '../../characterBodyProfile'
 import type {
   BoneSegment,
@@ -426,6 +425,7 @@ export function buildProfile(
   eyeScaleY: number,
   eyeRotationDeg: number,
   eyeStyle: MapCharacterBodyEyeStyle,
+  defaultEyeStyle: MapCharacterBodyEyeStyle,
   browStyle: MapCharacterBodyBrowStyle,
   editorFacing: number,
   browOffsetX: number,
@@ -578,7 +578,7 @@ export function buildProfile(
       eyeRotationDeg !== DEFAULT_CHARACTER_EYE_ROTATION_DEG
         ? eyeRotationDeg * editorFacing
         : undefined,
-    eyeStyle: eyeStyle !== DEFAULT_CHARACTER_EYE_STYLE ? eyeStyle : undefined,
+    eyeStyle: eyeStyle !== defaultEyeStyle ? eyeStyle : undefined,
     browStyle:
       browStyle !== DEFAULT_CHARACTER_BROW_STYLE ? browStyle : undefined,
     browOffsetX:

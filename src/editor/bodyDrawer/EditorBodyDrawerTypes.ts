@@ -168,6 +168,7 @@ export interface EditorCharacterBodyDrawerOptions {
   resetBodyWidth?: number
   resetBodyHeight?: number
   initialFacing?: number
+  defaultEyeStyle?: MapCharacterBodyEyeStyle
 }
 
 export type EditorCharacterBodyPresetId = MapCharacterBodyPresetId | 'custom'

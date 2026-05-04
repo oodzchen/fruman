@@ -1704,7 +1704,8 @@ export class ClientRenderer {
         [
           getCharacterBodyTextureDataUrl(bodyProfile),
           bodyProfile?.layers?.length ?? 0,
-        ].join('|')
+        ].join('|'),
+        (flags & FLAGS.IS_PLAYER) !== 0 ? 'cute' : 'standard'
       )
       if (
         DEBUG_DRAW_PLAYER_COLLISION_SHAPE &&

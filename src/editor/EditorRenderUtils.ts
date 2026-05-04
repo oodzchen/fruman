@@ -1,6 +1,9 @@
 import { WEAPON_DEFAULT_DATA } from '../constants'
 import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
-import type { MapCharacterBodyProfile } from '../editorMapTypes'
+import type {
+  MapCharacterBodyEyeStyle,
+  MapCharacterBodyProfile,
+} from '../editorMapTypes'
 import { renderBody } from '../renderer/BodyRenderer'
 import type { WeaponType } from '../types'
 
@@ -45,7 +48,8 @@ export function renderNpcPreviewToContext(
   pixelsPerMeter: number,
   facing = 1,
   bodyProfile: MapCharacterBodyProfile | null = null,
-  bodyTexture: CanvasImageSource | null = null
+  bodyTexture: CanvasImageSource | null = null,
+  fallbackEyeStyle: MapCharacterBodyEyeStyle = 'standard'
 ): void {
   const bodyRadius = computeNpcBodyRadiusPx(radiusMeters, pixelsPerMeter)
   const bodyHeightPx =
@@ -62,7 +66,10 @@ export function renderNpcPreviewToContext(
     '',
     0,
     bodyProfile,
-    bodyTexture
+    bodyTexture,
+    true,
+    '#000000',
+    fallbackEyeStyle
   )
   ctx.restore()
 }

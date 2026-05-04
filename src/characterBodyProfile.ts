@@ -27,6 +27,10 @@ const MAX_CHARACTER_EYE_SCALE = 8
 const CHARACTER_EYE_OUTER_RADIUS = 8
 const CHARACTER_EYE_WHITE_RADIUS = 6
 const CHARACTER_EYE_PUPIL_RADIUS = 5
+const CHARACTER_EYE_BODY_MARGIN = 2
+const CHARACTER_EYE_FIT_SAMPLE_COUNT = 24
+const CHARACTER_EYE_FIT_GRID_STEP = 2
+const CHARACTER_CUTE_EYE_SIZE_MULTIPLIER = 2
 
 type CharacterBodyFeatureDrawStyle = string | CanvasGradient | CanvasPattern
 
@@ -103,6 +107,24 @@ export interface CharacterFeatureBounds {
   maxX: number
   maxY: number
 }
+
+interface CharacterEyeBodyPointCache {
+  points: number[]
+  pointCount: number
+  sourceX: number
+  sourceY: number
+  eyeScaleX: number
+  eyeScaleY: number
+  eyeStyle: MapCharacterBodyEyeStyle
+  rotationDeg: number
+  x: number
+  y: number
+}
+
+const characterEyeBodyPointCache = new WeakMap<
+  MapCharacterBodyProfile,
+  CharacterEyeBodyPointCache
+>()
 
 function getCharacterRotationRad(rotationDeg: number): number {
   return (rotationDeg * Math.PI) / 180
@@ -399,7 +421,8 @@ export function getCharacterEyeScaleY(
 }
 
 export function getCharacterEyeStyle(
-  profile: MapCharacterBodyProfile | null | undefined
+  profile: MapCharacterBodyProfile | null | undefined,
+  fallbackStyle: MapCharacterBodyEyeStyle = DEFAULT_CHARACTER_EYE_STYLE
 ): MapCharacterBodyEyeStyle {
   const style = profile?.eyeStyle
   return style === 'noOutline' ||
@@ -408,7 +431,7 @@ export function getCharacterEyeStyle(
     style === 'transparent' ||
     style === 'standard'
     ? style
-    : DEFAULT_CHARACTER_EYE_STYLE
+    : fallbackStyle
 }
 
 export function getCharacterEyeRotationDeg(
@@ -502,6 +525,529 @@ export function clampCharacterEyeOffsetToCircle(
   }
 }
 
+function isPointInsideCharacterBodyPoints(
+  points: readonly number[],
+  pointX: number,
+  pointY: number
+): boolean {
+  if (points.length < 6) {
+    return false
+  }
+  let inside = false
+  let previousIndex = points.length - 2
+  for (let currentIndex = 0; currentIndex < points.length; currentIndex += 2) {
+    const currentX = points[currentIndex]
+    const currentY = points[currentIndex + 1]
+    const previousX = points[previousIndex]
+    const previousY = points[previousIndex + 1]
+    const currentAbove = currentY > pointY
+    const previousAbove = previousY > pointY
+    if (
+      currentAbove !== previousAbove &&
+      pointX <
+        ((previousX - currentX) * (pointY - currentY)) /
+          (previousY - currentY) +
+          currentX
+    ) {
+      inside = !inside
+    }
+    previousIndex = currentIndex
+  }
+  return inside
+}
+
+function getCharacterBodyPointCentroid(points: readonly number[]): {
+  x: number
+  y: number
+} | null {
+  if (points.length < 6) {
+    return null
+  }
+  let areaTwice = 0
+  let centroidX = 0
+  let centroidY = 0
+  const pointCount = points.length / 2
+  for (let i = 0; i < pointCount; i++) {
+    const currentOffset = i * 2
+    const nextOffset = ((i + 1) % pointCount) * 2
+    const currentX = points[currentOffset]
+    const currentY = points[currentOffset + 1]
+    const nextX = points[nextOffset]
+    const nextY = points[nextOffset + 1]
+    const cross = currentX * nextY - nextX * currentY
+    areaTwice += cross
+    centroidX += (currentX + nextX) * cross
+    centroidY += (currentY + nextY) * cross
+  }
+  if (Math.abs(areaTwice) <= 0.0001) {
+    return null
+  }
+  return {
+    x: centroidX / (areaTwice * 3),
+    y: centroidY / (areaTwice * 3),
+  }
+}
+
+function getCharacterBodyPointAverage(points: readonly number[]): {
+  x: number
+  y: number
+} | null {
+  if (points.length < 6) {
+    return null
+  }
+  let totalX = 0
+  let totalY = 0
+  const pointCount = points.length / 2
+  for (let i = 0; i < points.length; i += 2) {
+    totalX += points[i]
+    totalY += points[i + 1]
+  }
+  return {
+    x: totalX / pointCount,
+    y: totalY / pointCount,
+  }
+}
+
+function getCharacterBodyInteriorAnchor(points: readonly number[]): {
+  x: number
+  y: number
+} | null {
+  const centroid = getCharacterBodyPointCentroid(points)
+  if (
+    centroid &&
+    isPointInsideCharacterBodyPoints(points, centroid.x, centroid.y)
+  ) {
+    return centroid
+  }
+  const average = getCharacterBodyPointAverage(points)
+  if (
+    average &&
+    isPointInsideCharacterBodyPoints(points, average.x, average.y)
+  ) {
+    return average
+  }
+  for (let i = 0; i < points.length; i += 2) {
+    const nextOffset = (i + 2) % points.length
+    const edgeCenterX = (points[i] + points[nextOffset]) * 0.5
+    const edgeCenterY = (points[i + 1] + points[nextOffset + 1]) * 0.5
+    if (isPointInsideCharacterBodyPoints(points, edgeCenterX, edgeCenterY)) {
+      return {
+        x: edgeCenterX,
+        y: edgeCenterY,
+      }
+    }
+  }
+  return null
+}
+
+export function clampCharacterPointToBodyPoints(
+  pointX: number,
+  pointY: number,
+  points: readonly number[]
+): { x: number; y: number } {
+  const roundedX = Math.round(pointX)
+  const roundedY = Math.round(pointY)
+  if (
+    points.length < 6 ||
+    isPointInsideCharacterBodyPoints(points, roundedX, roundedY)
+  ) {
+    return { x: roundedX, y: roundedY }
+  }
+  const anchor = getCharacterBodyInteriorAnchor(points)
+  if (!anchor) {
+    return { x: roundedX, y: roundedY }
+  }
+  let lowX = anchor.x
+  let lowY = anchor.y
+  let highX = pointX
+  let highY = pointY
+  for (let i = 0; i < 8; i++) {
+    const midX = (lowX + highX) * 0.5
+    const midY = (lowY + highY) * 0.5
+    if (isPointInsideCharacterBodyPoints(points, midX, midY)) {
+      lowX = midX
+      lowY = midY
+    } else {
+      highX = midX
+      highY = midY
+    }
+  }
+  let resolvedX = Math.round(lowX)
+  let resolvedY = Math.round(lowY)
+  for (let i = 0; i < 16; i++) {
+    if (isPointInsideCharacterBodyPoints(points, resolvedX, resolvedY)) {
+      return { x: resolvedX, y: resolvedY }
+    }
+    resolvedX += Math.sign(Math.round(anchor.x) - resolvedX)
+    resolvedY += Math.sign(Math.round(anchor.y) - resolvedY)
+  }
+  return {
+    x: Math.round(anchor.x),
+    y: Math.round(anchor.y),
+  }
+}
+
+function getCharacterCuteEyeRadiusX(
+  unitScaleX: number,
+  resolvedEyeScaleX: number
+): number {
+  return Math.max(
+    unitScaleX,
+    (CHARACTER_EYE_WHITE_RADIUS * unitScaleX * resolvedEyeScaleX + unitScaleX) *
+      CHARACTER_CUTE_EYE_SIZE_MULTIPLIER
+  )
+}
+
+function getCharacterCuteEyeRadiusY(
+  unitScaleY: number,
+  resolvedEyeScaleY: number
+): number {
+  return Math.max(
+    unitScaleY,
+    (CHARACTER_EYE_OUTER_RADIUS * unitScaleY * resolvedEyeScaleY + unitScaleY) *
+      CHARACTER_CUTE_EYE_SIZE_MULTIPLIER
+  )
+}
+
+function getCharacterEyeFitRadii(
+  eyeScaleX: number,
+  eyeScaleY: number,
+  style: MapCharacterBodyEyeStyle
+): { x: number; y: number } {
+  const resolvedScaleX = clampCharacterEyeScale(eyeScaleX)
+  const resolvedScaleY = clampCharacterEyeScale(eyeScaleY)
+  const outerRadiusX = CHARACTER_EYE_OUTER_RADIUS * resolvedScaleX
+  const outerRadiusY = CHARACTER_EYE_OUTER_RADIUS * resolvedScaleY
+  if (style !== 'cute') {
+    return {
+      x: outerRadiusX,
+      y: outerRadiusY,
+    }
+  }
+  return {
+    x: getCharacterCuteEyeRadiusX(1, resolvedScaleX),
+    y: getCharacterCuteEyeRadiusY(1, resolvedScaleY),
+  }
+}
+
+function isEyeFitInsideCharacterBodyPoints(
+  points: readonly number[],
+  centerX: number,
+  centerY: number,
+  radiusX: number,
+  radiusY: number,
+  rotationDeg: number
+): boolean {
+  if (!isPointInsideCharacterBodyPoints(points, centerX, centerY)) {
+    return false
+  }
+  const fitRadiusX = radiusX + CHARACTER_EYE_BODY_MARGIN
+  const fitRadiusY = radiusY + CHARACTER_EYE_BODY_MARGIN
+  const rotationRad = getCharacterRotationRad(rotationDeg)
+  const cosRotation = Math.cos(rotationRad)
+  const sinRotation = Math.sin(rotationRad)
+  for (let i = 0; i < CHARACTER_EYE_FIT_SAMPLE_COUNT; i++) {
+    const angle = (Math.PI * 2 * i) / CHARACTER_EYE_FIT_SAMPLE_COUNT
+    const localX = Math.cos(angle) * fitRadiusX
+    const localY = Math.sin(angle) * fitRadiusY
+    const sampleX = centerX + localX * cosRotation - localY * sinRotation
+    const sampleY = centerY + localX * sinRotation + localY * cosRotation
+    if (!isPointInsideCharacterBodyPoints(points, sampleX, sampleY)) {
+      return false
+    }
+  }
+  return true
+}
+
+function getCharacterBodyPointBounds(points: readonly number[]): {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+  width: number
+  height: number
+} | null {
+  if (points.length < 6) {
+    return null
+  }
+  let minX = points[0]
+  let minY = points[1]
+  let maxX = minX
+  let maxY = minY
+  for (let i = 2; i < points.length; i += 2) {
+    const x = points[i]
+    const y = points[i + 1]
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+  }
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  }
+}
+
+function findNearestFittingEyeCenter(
+  points: readonly number[],
+  targetX: number,
+  targetY: number,
+  radiusX: number,
+  radiusY: number,
+  rotationDeg: number
+): { x: number; y: number } | null {
+  const roundedTargetX = Math.round(targetX)
+  const roundedTargetY = Math.round(targetY)
+  if (
+    isEyeFitInsideCharacterBodyPoints(
+      points,
+      roundedTargetX,
+      roundedTargetY,
+      radiusX,
+      radiusY,
+      rotationDeg
+    )
+  ) {
+    return {
+      x: roundedTargetX,
+      y: roundedTargetY,
+    }
+  }
+
+  const bounds = getCharacterBodyPointBounds(points)
+  if (!bounds) {
+    return null
+  }
+  const maxSearchRadius = Math.ceil(Math.max(bounds.width, bounds.height))
+  for (
+    let radius = CHARACTER_EYE_FIT_GRID_STEP;
+    radius <= maxSearchRadius;
+    radius += CHARACTER_EYE_FIT_GRID_STEP
+  ) {
+    const minY = roundedTargetY - radius
+    const maxY = roundedTargetY + radius
+    const minX = roundedTargetX - radius
+    const maxX = roundedTargetX + radius
+    for (let y = minY; y <= maxY; y += CHARACTER_EYE_FIT_GRID_STEP) {
+      if (
+        isEyeFitInsideCharacterBodyPoints(
+          points,
+          minX,
+          y,
+          radiusX,
+          radiusY,
+          rotationDeg
+        )
+      ) {
+        return { x: minX, y }
+      }
+      if (
+        isEyeFitInsideCharacterBodyPoints(
+          points,
+          maxX,
+          y,
+          radiusX,
+          radiusY,
+          rotationDeg
+        )
+      ) {
+        return { x: maxX, y }
+      }
+    }
+    for (
+      let x = minX + CHARACTER_EYE_FIT_GRID_STEP;
+      x < maxX;
+      x += CHARACTER_EYE_FIT_GRID_STEP
+    ) {
+      if (
+        isEyeFitInsideCharacterBodyPoints(
+          points,
+          x,
+          minY,
+          radiusX,
+          radiusY,
+          rotationDeg
+        )
+      ) {
+        return { x, y: minY }
+      }
+      if (
+        isEyeFitInsideCharacterBodyPoints(
+          points,
+          x,
+          maxY,
+          radiusX,
+          radiusY,
+          rotationDeg
+        )
+      ) {
+        return { x, y: maxY }
+      }
+    }
+  }
+
+  const anchor = getCharacterBodyInteriorAnchor(points)
+  if (
+    anchor &&
+    isEyeFitInsideCharacterBodyPoints(
+      points,
+      anchor.x,
+      anchor.y,
+      radiusX,
+      radiusY,
+      rotationDeg
+    )
+  ) {
+    return anchor
+  }
+  return null
+}
+
+function moveFittingEyeCenterTowardTarget(
+  points: readonly number[],
+  startX: number,
+  startY: number,
+  targetX: number,
+  targetY: number,
+  radiusX: number,
+  radiusY: number,
+  rotationDeg: number
+): { x: number; y: number } {
+  let lowX = startX
+  let lowY = startY
+  let highX = targetX
+  let highY = targetY
+  for (let i = 0; i < 8; i++) {
+    const midX = (lowX + highX) * 0.5
+    const midY = (lowY + highY) * 0.5
+    if (
+      isEyeFitInsideCharacterBodyPoints(
+        points,
+        midX,
+        midY,
+        radiusX,
+        radiusY,
+        rotationDeg
+      )
+    ) {
+      lowX = midX
+      lowY = midY
+    } else {
+      highX = midX
+      highY = midY
+    }
+  }
+  const roundedX = Math.round(lowX)
+  const roundedY = Math.round(lowY)
+  if (
+    isEyeFitInsideCharacterBodyPoints(
+      points,
+      roundedX,
+      roundedY,
+      radiusX,
+      radiusY,
+      rotationDeg
+    )
+  ) {
+    return { x: roundedX, y: roundedY }
+  }
+  return { x: lowX, y: lowY }
+}
+
+export function clampCharacterEyeCenterToBodyPoints(
+  centerX: number,
+  centerY: number,
+  points: readonly number[],
+  eyeScaleX: number,
+  eyeScaleY: number,
+  style: MapCharacterBodyEyeStyle,
+  rotationDeg: number
+): { x: number; y: number } {
+  if (points.length < 6) {
+    return {
+      x: Math.round(centerX),
+      y: Math.round(centerY),
+    }
+  }
+  const fitRadii = getCharacterEyeFitRadii(eyeScaleX, eyeScaleY, style)
+  const nearest = findNearestFittingEyeCenter(
+    points,
+    centerX,
+    centerY,
+    fitRadii.x,
+    fitRadii.y,
+    rotationDeg
+  )
+  if (!nearest) {
+    return clampCharacterPointToBodyPoints(centerX, centerY, points)
+  }
+  return moveFittingEyeCenterTowardTarget(
+    points,
+    nearest.x,
+    nearest.y,
+    centerX,
+    centerY,
+    fitRadii.x,
+    fitRadii.y,
+    rotationDeg
+  )
+}
+
+function clampCharacterEyeOffsetToBodyProfile(
+  profile: MapCharacterBodyProfile | null | undefined,
+  offsetX: number,
+  offsetY: number,
+  eyeScaleX: number,
+  eyeScaleY: number,
+  eyeStyle: MapCharacterBodyEyeStyle,
+  rotationDeg: number
+): { x: number; y: number } {
+  if (!profile || profile.points.length < 6) {
+    return { x: offsetX, y: offsetY }
+  }
+  const points = profile.points
+  const cached = characterEyeBodyPointCache.get(profile)
+  if (
+    cached &&
+    cached.points === points &&
+    cached.pointCount === points.length &&
+    cached.sourceX === offsetX &&
+    cached.sourceY === offsetY &&
+    cached.eyeScaleX === eyeScaleX &&
+    cached.eyeScaleY === eyeScaleY &&
+    cached.eyeStyle === eyeStyle &&
+    cached.rotationDeg === rotationDeg
+  ) {
+    return { x: cached.x, y: cached.y }
+  }
+  const resolved = clampCharacterEyeCenterToBodyPoints(
+    offsetX,
+    offsetY,
+    points,
+    eyeScaleX,
+    eyeScaleY,
+    eyeStyle,
+    rotationDeg
+  )
+  characterEyeBodyPointCache.set(profile, {
+    points,
+    pointCount: points.length,
+    sourceX: offsetX,
+    sourceY: offsetY,
+    eyeScaleX,
+    eyeScaleY,
+    eyeStyle,
+    rotationDeg,
+    x: resolved.x,
+    y: resolved.y,
+  })
+  return resolved
+}
+
 export function getCharacterBrowScaleY(
   profile: MapCharacterBodyProfile | null | undefined
 ): number {
@@ -535,15 +1081,44 @@ export function getCharacterEyeGeometry(
   const safeScaleY = Math.max(Math.abs(scaleY), 0.001)
   const resolvedEyeScaleX = clampCharacterEyeScale(eyeScaleX)
   const resolvedEyeScaleY = clampCharacterEyeScale(eyeScaleY)
-  const pupilRadiusX = Math.max(
+  const basePupilRadiusX = Math.max(
     safeScaleX,
     CHARACTER_EYE_PUPIL_RADIUS * safeScaleX * resolvedEyeScaleX
   )
-  const pupilRadiusY = Math.max(
+  const basePupilRadiusY = Math.max(
     safeScaleY,
     CHARACTER_EYE_PUPIL_RADIUS * safeScaleY * resolvedEyeScaleY
   )
-  const pupilOffsetXBase = Math.max(safeScaleX, pupilRadiusX * 0.5)
+  const outerRadiusX = Math.max(
+    safeScaleX,
+    CHARACTER_EYE_OUTER_RADIUS * safeScaleX * resolvedEyeScaleX
+  )
+  const outerRadiusY = Math.max(
+    safeScaleY,
+    CHARACTER_EYE_OUTER_RADIUS * safeScaleY * resolvedEyeScaleY
+  )
+  const whiteRadiusX = Math.max(
+    safeScaleX,
+    CHARACTER_EYE_WHITE_RADIUS * safeScaleX * resolvedEyeScaleX
+  )
+  const whiteRadiusY = Math.max(
+    safeScaleY,
+    CHARACTER_EYE_WHITE_RADIUS * safeScaleY * resolvedEyeScaleY
+  )
+  const cuteRadiusX = getCharacterCuteEyeRadiusX(safeScaleX, resolvedEyeScaleX)
+  const cuteRadiusY = getCharacterCuteEyeRadiusY(safeScaleY, resolvedEyeScaleY)
+  const pupilRadiusX =
+    style === 'cute'
+      ? Math.max(basePupilRadiusX, (cuteRadiusX * 9) / 10)
+      : basePupilRadiusX
+  const pupilRadiusY =
+    style === 'cute'
+      ? Math.max(basePupilRadiusY, (cuteRadiusY * 8) / 9)
+      : basePupilRadiusY
+  const pupilOffsetXBase =
+    style === 'cute'
+      ? Math.max(safeScaleX, (cuteRadiusX * 2) / 5)
+      : Math.max(safeScaleX, pupilRadiusX * 0.5)
   const highlightRadiusX = Math.max(safeScaleX, pupilRadiusX * 0.4)
   const highlightRadiusY = Math.max(safeScaleY, pupilRadiusY * 0.4)
   const cuteHighlightOffsetX = -Math.max(safeScaleX, pupilRadiusX * 0.4)
@@ -553,22 +1128,10 @@ export function getCharacterEyeGeometry(
     centerX,
     centerY,
     rotationRad: getCharacterRotationRad(rotationDeg),
-    outerRadiusX: Math.max(
-      safeScaleX,
-      CHARACTER_EYE_OUTER_RADIUS * safeScaleX * resolvedEyeScaleX
-    ),
-    outerRadiusY: Math.max(
-      safeScaleY,
-      CHARACTER_EYE_OUTER_RADIUS * safeScaleY * resolvedEyeScaleY
-    ),
-    whiteRadiusX: Math.max(
-      safeScaleX,
-      CHARACTER_EYE_WHITE_RADIUS * safeScaleX * resolvedEyeScaleX
-    ),
-    whiteRadiusY: Math.max(
-      safeScaleY,
-      CHARACTER_EYE_WHITE_RADIUS * safeScaleY * resolvedEyeScaleY
-    ),
+    outerRadiusX,
+    outerRadiusY,
+    whiteRadiusX,
+    whiteRadiusY,
     pupilRadiusX,
     pupilRadiusY,
     pupilOffsetX: facingDirection < 0 ? -pupilOffsetXBase : pupilOffsetXBase,
@@ -582,14 +1145,8 @@ export function getCharacterEyeGeometry(
         : -Math.max(safeScaleY, pupilRadiusY * 0.3),
     highlightRadiusX,
     highlightRadiusY,
-    cuteRadiusX: Math.max(
-      safeScaleX,
-      CHARACTER_EYE_OUTER_RADIUS * safeScaleX * resolvedEyeScaleX + safeScaleX
-    ),
-    cuteRadiusY: Math.max(
-      safeScaleY,
-      CHARACTER_EYE_WHITE_RADIUS * safeScaleY * resolvedEyeScaleY + safeScaleY
-    ),
+    cuteRadiusX,
+    cuteRadiusY,
   }
 }
 
@@ -597,10 +1154,15 @@ export function getCharacterEyeGeometryFromProfile(
   profile: MapCharacterBodyProfile | null | undefined,
   facingDirection: number,
   scaleX = 1,
-  scaleY = 1
+  scaleY = 1,
+  fallbackStyle: MapCharacterBodyEyeStyle = DEFAULT_CHARACTER_EYE_STYLE
 ): CharacterEyeGeometry {
   const facing = facingDirection < 0 ? -1 : 1
-  const clampedOffset = clampCharacterEyeOffsetToCircle(
+  const eyeScaleX = getCharacterEyeScaleX(profile)
+  const eyeScaleY = getCharacterEyeScaleY(profile)
+  const eyeStyle = getCharacterEyeStyle(profile, fallbackStyle)
+  const eyeRotationDeg = getCharacterEyeRotationDeg(profile) * facing
+  const circleClampedOffset = clampCharacterEyeOffsetToCircle(
     getCharacterEyeDrawX(profile),
     getCharacterEyeDrawY(profile),
     getCharacterEyeMoveCircleRadius(
@@ -608,14 +1170,23 @@ export function getCharacterEyeGeometryFromProfile(
       getProfileReferenceHeight(profile)
     )
   )
+  const clampedOffset = clampCharacterEyeOffsetToBodyProfile(
+    profile,
+    circleClampedOffset.x,
+    circleClampedOffset.y,
+    eyeScaleX,
+    eyeScaleY,
+    eyeStyle,
+    eyeRotationDeg
+  )
   return getCharacterEyeGeometry(
     clampedOffset.x * scaleX * facing,
     clampedOffset.y * scaleY,
     facingDirection,
-    getCharacterEyeScaleX(profile),
-    getCharacterEyeScaleY(profile),
-    getCharacterEyeStyle(profile),
-    getCharacterEyeRotationDeg(profile) * facing,
+    eyeScaleX,
+    eyeScaleY,
+    eyeStyle,
+    eyeRotationDeg,
     scaleX,
     scaleY
   )
@@ -807,7 +1378,6 @@ export function drawCharacterEyeGeometry(
       Math.PI * 2
     )
     ctx.fill()
-    ctx.restore()
   } else {
     ctx.fillStyle = '#f4ecdc'
     ctx.beginPath()
@@ -849,6 +1419,9 @@ export function drawCharacterEyeGeometry(
     Math.PI * 2
   )
   ctx.fill()
+  if (geometry.style === 'cute') {
+    ctx.restore()
+  }
   ctx.restore()
 }
 
@@ -880,14 +1453,18 @@ export function drawCharacterBrowGeometry(
 export function getCharacterEyeBounds(
   geometry: CharacterEyeGeometry
 ): CharacterFeatureBounds {
-  if (geometry.style === 'transparent') {
+  if (geometry.style === 'transparent' || geometry.style === 'cute') {
+    const radiusX =
+      geometry.style === 'cute' ? geometry.cuteRadiusX : geometry.outerRadiusX
+    const radiusY =
+      geometry.style === 'cute' ? geometry.cuteRadiusY : geometry.outerRadiusY
     return getRotatedBounds(
       geometry.centerX,
       geometry.centerY,
-      -geometry.outerRadiusX,
-      -geometry.outerRadiusY,
-      geometry.outerRadiusX,
-      geometry.outerRadiusY,
+      -radiusX,
+      -radiusY,
+      radiusX,
+      radiusY,
       geometry.rotationRad
     )
   }

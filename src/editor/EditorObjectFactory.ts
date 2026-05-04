@@ -5,6 +5,7 @@ import {
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
 } from '../constants'
 import type {
+  MapCharacterBodyEyeStyle,
   MapEnvironmentFlowerOptions,
   MapEnvironmentObjectType,
   MapNpcWeapon,
@@ -114,6 +115,7 @@ class CharacterBodyRenderObject extends fabric.FabricObject {
   declare bodyColor: string
   declare bodyFacing: number
   declare eyeColor: string
+  declare defaultEyeStyle: MapCharacterBodyEyeStyle
   declare bodyProfile: CharacterBodyShapeObject['bodyProfile']
   declare bodyTextureImage: CharacterBodyShapeObject['bodyTextureImage']
 
@@ -131,6 +133,7 @@ class CharacterBodyRenderObject extends fabric.FabricObject {
     this.bodyColor = color
     this.bodyFacing = 1
     this.eyeColor = '#000000'
+    this.defaultEyeStyle = 'standard'
     this.bodyProfile = null
     this.bodyTextureImage = null
   }
@@ -148,7 +151,8 @@ class CharacterBodyRenderObject extends fabric.FabricObject {
       this.bodyProfile,
       this.bodyTextureImage,
       true,
-      this.eyeColor
+      this.eyeColor,
+      this.defaultEyeStyle
     )
   }
 }
@@ -546,6 +550,7 @@ export class EditorObjectFactory {
     body.bodyColor = this.playerBodyColor
     body.bodyFacing = 1
     body.eyeColor = this.playerEyeColor
+    body.defaultEyeStyle = 'cute'
     body.width = radius * 2
     body.height = radius * 2
     const weaponBackShape = new WeaponRenderObject(

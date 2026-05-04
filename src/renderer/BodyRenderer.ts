@@ -10,6 +10,7 @@ import {
 } from '../characterBodyProfile'
 import type {
   MapCharacterBodyCollisionShape,
+  MapCharacterBodyEyeStyle,
   MapCharacterBodyProfile,
   MapCharacterBodyVisualLayer,
 } from '../editorMapTypes'
@@ -139,7 +140,8 @@ function buildBodyCacheKey(
   bodyProfileCacheKey: string,
   textureSourceKey: string,
   showEye: boolean,
-  eyeColor: string
+  eyeColor: string,
+  fallbackEyeStyle: MapCharacterBodyEyeStyle
 ): string {
   return [
     radiusPx | 0,
@@ -151,6 +153,7 @@ function buildBodyCacheKey(
     bodyColor,
     outlineColor,
     eyeColor,
+    fallbackEyeStyle,
     bodyProfileCacheKey,
     textureSourceKey,
   ].join('|')
@@ -414,7 +417,8 @@ function extendBoundsWithBrowStyle(
   bodyHalfWidthPx: number,
   bodyHalfHeightPx: number,
   bodyProfile: MapCharacterBodyProfile | null,
-  facingDirection: number
+  facingDirection: number,
+  fallbackEyeStyle: MapCharacterBodyEyeStyle
 ): void {
   const scaleX = getBodyLayerScaleX(bodyHalfWidthPx, bodyProfile)
   const scaleY = getBodyLayerScaleY(bodyHalfHeightPx, bodyProfile)
@@ -422,7 +426,8 @@ function extendBoundsWithBrowStyle(
     bodyProfile,
     facingDirection,
     scaleX,
-    scaleY
+    scaleY,
+    fallbackEyeStyle
   )
   const browGeometry = getCharacterBrowGeometryFromProfile(
     bodyProfile,
@@ -450,7 +455,8 @@ function drawBodyBrow(
   bodyHalfWidthPx: number,
   bodyHalfHeightPx: number,
   facingDirection: number,
-  bodyProfile: MapCharacterBodyProfile | null
+  bodyProfile: MapCharacterBodyProfile | null,
+  fallbackEyeStyle: MapCharacterBodyEyeStyle
 ): void {
   const scaleX = getBodyLayerScaleX(bodyHalfWidthPx, bodyProfile)
   const scaleY = getBodyLayerScaleY(bodyHalfHeightPx, bodyProfile)
@@ -458,7 +464,8 @@ function drawBodyBrow(
     bodyProfile,
     facingDirection,
     scaleX,
-    scaleY
+    scaleY,
+    fallbackEyeStyle
   )
   const browGeometry = getCharacterBrowGeometryFromProfile(
     bodyProfile,
@@ -556,7 +563,8 @@ function getBodyContentBounds(
   outlineWidthPx: number,
   bodyProfile: MapCharacterBodyProfile | null,
   textureImage: CanvasImageSource | null,
-  showEye: boolean
+  showEye: boolean,
+  fallbackEyeStyle: MapCharacterBodyEyeStyle
 ): BodyContentBounds {
   const bodyWidthPx =
     getCharacterBodyProfileWidth(bodyProfile) > 0
@@ -690,7 +698,8 @@ function getBodyContentBounds(
     bodyHalfWidthPx,
     bodyHalfHeightPx,
     bodyProfile,
-    facingDirection
+    facingDirection,
+    fallbackEyeStyle
   )
 
   if (shouldRenderProceduralEye(bodyProfile, showEye)) {
@@ -698,7 +707,8 @@ function getBodyContentBounds(
       bodyProfile,
       facingDirection,
       scaleX,
-      scaleY
+      scaleY,
+      fallbackEyeStyle
     )
     const eyeBounds = getCharacterEyeBounds(eyeGeometry)
     const eyeMinX = eyeBounds.minX
@@ -736,7 +746,8 @@ function drawBodyInternal(
   bodyProfile: MapCharacterBodyProfile | null,
   textureImage: CanvasImageSource | null,
   showEye: boolean,
-  eyeColor: string
+  eyeColor: string,
+  fallbackEyeStyle: MapCharacterBodyEyeStyle
 ): void {
   const bodyWidthPx =
     getCharacterBodyProfileWidth(bodyProfile) > 0
@@ -879,7 +890,8 @@ function drawBodyInternal(
     bodyHalfWidthPx,
     bodyHalfHeightPx,
     featureFacingDirection,
-    bodyProfile
+    bodyProfile,
+    fallbackEyeStyle
   )
 
   if (!hasLegacySurfaceTexture) {
@@ -897,7 +909,8 @@ function drawBodyInternal(
       pixelsPerMeter,
       featureFacingDirection,
       bodyProfile,
-      eyeColor
+      eyeColor,
+      fallbackEyeStyle
     )
   }
 
@@ -923,6 +936,7 @@ function getCachedBodySprite(
   textureImage: CanvasImageSource | null,
   showEye: boolean,
   eyeColor: string,
+  fallbackEyeStyle: MapCharacterBodyEyeStyle,
   bodyProfileCacheKey: string,
   textureSourceKey: string
 ): CachedBodySprite | null {
@@ -937,7 +951,8 @@ function getCachedBodySprite(
     bodyProfileCacheKey,
     textureSourceKey,
     showEye,
-    eyeColor
+    eyeColor,
+    fallbackEyeStyle
   )
   const cached = bodySpriteCache.get(cacheKey)
   if (cached) {
@@ -952,7 +967,8 @@ function getCachedBodySprite(
     outlineWidthPx,
     bodyProfile,
     textureImage,
-    showEye
+    showEye,
+    fallbackEyeStyle
   )
   const drawX = bounds.minX | 0
   const drawY = bounds.minY | 0
@@ -976,7 +992,8 @@ function getCachedBodySprite(
     bodyProfile,
     textureImage,
     showEye,
-    eyeColor
+    eyeColor,
+    fallbackEyeStyle
   )
 
   const bodySprite = {
@@ -1004,7 +1021,8 @@ export function getBodySpriteSource(
   showEye = true,
   eyeColor = '#000000',
   bodyProfileCacheKey = '',
-  textureSourceKey = ''
+  textureSourceKey = '',
+  fallbackEyeStyle: MapCharacterBodyEyeStyle = 'standard'
 ): BodySpriteSource | null {
   if (!Number.isFinite(radiusPx) || radiusPx <= 0) {
     return null
@@ -1022,6 +1040,7 @@ export function getBodySpriteSource(
     textureImage,
     showEye,
     eyeColor,
+    fallbackEyeStyle,
     bodyProfileCacheKey,
     textureSourceKey
   )
@@ -1039,7 +1058,8 @@ export function renderBody(
   bodyProfile: MapCharacterBodyProfile | null = null,
   textureImage: CanvasImageSource | null = null,
   showEye = true,
-  eyeColor = '#000000'
+  eyeColor = '#000000',
+  fallbackEyeStyle: MapCharacterBodyEyeStyle = 'standard'
 ): void {
   if (!Number.isFinite(radiusPx) || radiusPx <= 0) {
     return
@@ -1056,7 +1076,8 @@ export function renderBody(
     bodyProfile,
     textureImage,
     showEye,
-    eyeColor
+    eyeColor,
+    fallbackEyeStyle
   )
 }
 
@@ -1074,7 +1095,8 @@ export function renderBodyCached(
   showEye = true,
   eyeColor = '#000000',
   bodyProfileCacheKey = '',
-  textureSourceKey = ''
+  textureSourceKey = '',
+  fallbackEyeStyle: MapCharacterBodyEyeStyle = 'standard'
 ): void {
   if (!Number.isFinite(radiusPx) || radiusPx <= 0) {
     return
@@ -1093,7 +1115,8 @@ export function renderBodyCached(
       bodyProfile,
       textureImage,
       showEye,
-      eyeColor
+      eyeColor,
+      fallbackEyeStyle
     )
     return
   }
@@ -1110,6 +1133,7 @@ export function renderBodyCached(
     textureImage,
     showEye,
     eyeColor,
+    fallbackEyeStyle,
     bodyProfileCacheKey,
     textureSourceKey
   )
@@ -1126,7 +1150,8 @@ export function renderBodyCached(
       bodyProfile,
       textureImage,
       showEye,
-      eyeColor
+      eyeColor,
+      fallbackEyeStyle
     )
     return
   }
@@ -1147,7 +1172,8 @@ export function renderBodyEye(
   _pixelsPerMeter: number,
   facingDirection: number,
   bodyProfile: MapCharacterBodyProfile | null = null,
-  pupilColor = '#14110d'
+  pupilColor = '#14110d',
+  fallbackEyeStyle: MapCharacterBodyEyeStyle = 'standard'
 ): void {
   const scaleX = (radiusPx * 2) / getBodyPointReferenceSize(bodyProfile, 'x')
   const scaleY = (radiusYPx * 2) / getBodyPointReferenceSize(bodyProfile, 'y')
@@ -1157,7 +1183,8 @@ export function renderBodyEye(
       bodyProfile,
       facingDirection,
       scaleX,
-      scaleY
+      scaleY,
+      fallbackEyeStyle
     ),
     pupilColor
   )
