@@ -60,16 +60,22 @@ import {
   inferTerrainMaterialId,
 } from './terrain/TerrainDataUtils'
 import { migrateLegacyShapesToTerrain } from './terrain/TerrainLegacyShapeMigration'
-import { getTerrainMaterialCodeById } from './terrain/TerrainMaterialRegistry'
+import {
+  getTerrainMaterialByCode,
+  getTerrainMaterialCodeById,
+  isTerrainMaterialId,
+} from './terrain/TerrainMaterialRegistry'
 import {
   DEFAULT_TERRAIN_RANDOM_SEED,
   LEGACY_TERRAIN_CELL_SIZE_METERS,
+  type MapTerrainChunk,
   type MapTerrainData,
   type MapTerrainLayer,
   TERRAIN_CELL_SIZE_METERS,
   TERRAIN_CHUNK_SIZE,
   TERRAIN_DATA_VERSION,
   type TerrainContourLike,
+  type TerrainMaterialId,
 } from './terrain/TerrainTypes'
 import type { NpcType } from './types'
 import {
@@ -870,11 +876,15 @@ export async function loadEditorMapData(
           resolve(null)
           return
         }
-        const normalized = normalizeEditorMapData(result.data)
-        if (normalized !== result.data) {
-          void persistNormalizedEditorMapData(mapId, normalized)
+        try {
+          const normalized = normalizeEditorMapData(result.data)
+          if (normalized !== result.data) {
+            void persistNormalizedEditorMapData(mapId, normalized)
+          }
+          resolve(normalized)
+        } catch {
+          resolve(null)
         }
-        resolve(normalized)
       }
 
       request.onerror = () => resolve(null)
@@ -1584,6 +1594,392 @@ function normalizeTerrainGrassLayerMaterials(
   }
 }
 
+interface TerrainMaterialSanitizationResult {
+  terrain: MapTerrainData | undefined
+  terrainObjectIndexRemap: number[] | null
+}
+
+function isStoredTerrainMaterialId(
+  materialId: TerrainMaterialId | undefined
+): materialId is TerrainMaterialId {
+  return typeof materialId === 'string' && isTerrainMaterialId(materialId)
+}
+
+function resolveStoredTerrainLayerMaterialId(
+  layer: MapTerrainLayer
+): TerrainMaterialId | null {
+  const materialId: TerrainMaterialId | undefined = layer.materialId
+  if (materialId === undefined) {
+    return inferTerrainMaterialId(layer.chunks)
+  }
+  if (isStoredTerrainMaterialId(materialId)) {
+    return materialId
+  }
+  return null
+}
+
+function isKnownTerrainMaterialCode(code: number): boolean {
+  return code <= 0 || getTerrainMaterialByCode(code) !== null
+}
+
+function getTerrainChunkSourceLength(
+  source: NumericArraySource,
+  fallbackLength: number
+): number {
+  if (isArrayLikeNumberSource(source)) {
+    return source.length
+  }
+  return hasNumericArraySourceLength(source, fallbackLength)
+    ? fallbackLength
+    : 0
+}
+
+function sanitizeTerrainChunkMaterialCodes(
+  chunk: MapTerrainChunk,
+  cellCount: number
+): MapTerrainChunk | null {
+  const sourceCells = chunk.materialCodes ?? chunk.cells
+  const sourceLength = getTerrainChunkSourceLength(sourceCells, cellCount)
+  let normalizedCells: number[] | null = null
+  let hasContent = false
+
+  for (let i = 0; i < sourceLength; i++) {
+    const sourceCode = readNumericArraySource(sourceCells, i) | 0
+    const code = isKnownTerrainMaterialCode(sourceCode) ? sourceCode : 0
+    if (code > 0) {
+      hasContent = true
+    }
+    if (code === sourceCode) {
+      continue
+    }
+    if (!normalizedCells) {
+      normalizedCells = createNormalizedNumberArray(sourceCells, sourceLength)
+    }
+    normalizedCells[i] = code
+  }
+
+  if (!hasContent) {
+    return null
+  }
+  if (!normalizedCells) {
+    return chunk
+  }
+  return {
+    ...chunk,
+    cells: normalizedCells,
+    materialCodes: normalizedCells.slice(),
+  }
+}
+
+function sanitizeTerrainChunksMaterialCodes(
+  chunks: MapTerrainChunk[],
+  cellCount: number
+): MapTerrainChunk[] {
+  let normalizedChunks: MapTerrainChunk[] | null = null
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = sanitizeTerrainChunkMaterialCodes(chunks[i], cellCount)
+    if (!chunk) {
+      if (!normalizedChunks) {
+        normalizedChunks = chunks.slice(0, i)
+      }
+      continue
+    }
+    if (normalizedChunks) {
+      normalizedChunks.push(chunk)
+    } else if (chunk !== chunks[i]) {
+      normalizedChunks = chunks.slice(0, i)
+      normalizedChunks.push(chunk)
+    }
+  }
+  return normalizedChunks ?? chunks
+}
+
+function collectInvalidContourFillIds(
+  contours: readonly TerrainContourLike[] | undefined
+): Set<number> | null {
+  if (!contours || contours.length === 0) {
+    return null
+  }
+
+  let invalidIds: Set<number> | null = null
+  for (let i = 0; i < contours.length; i++) {
+    const contour = contours[i]
+    const fillMaterialId = contour.fillMaterialId
+    if (
+      fillMaterialId === undefined ||
+      isStoredTerrainMaterialId(fillMaterialId)
+    ) {
+      continue
+    }
+    if (!invalidIds) {
+      invalidIds = new Set<number>()
+    }
+    invalidIds.add(contour.id | 0)
+  }
+  return invalidIds
+}
+
+function sanitizeTerrainContourMaterialReferences(
+  contours: TerrainContourLike[] | undefined
+): TerrainContourLike[] | undefined {
+  if (!contours || contours.length === 0) {
+    return contours
+  }
+
+  let normalizedContours: TerrainContourLike[] | null = null
+  for (let i = 0; i < contours.length; i++) {
+    const contour = contours[i]
+    const fillMaterialId = contour.fillMaterialId
+    if (
+      fillMaterialId === undefined ||
+      isStoredTerrainMaterialId(fillMaterialId)
+    ) {
+      continue
+    }
+    if (!normalizedContours) {
+      normalizedContours = contours.slice()
+    }
+    const normalizedContour: TerrainContourLike = { ...contour }
+    delete normalizedContour.fillMaterialId
+    normalizedContours[i] = normalizedContour
+  }
+  return normalizedContours ?? contours
+}
+
+function sanitizeTerrainLayerMaterialReferences(
+  layer: MapTerrainLayer,
+  invalidContourFillIds: ReadonlySet<number> | null,
+  cellCount: number
+): MapTerrainLayer | null {
+  const contourId =
+    typeof layer.contourId === 'number' && Number.isFinite(layer.contourId)
+      ? layer.contourId | 0
+      : 0
+  if (contourId > 0 && invalidContourFillIds?.has(contourId)) {
+    return null
+  }
+
+  const materialId = resolveStoredTerrainLayerMaterialId(layer)
+  if (!materialId) {
+    return null
+  }
+
+  const chunks = sanitizeTerrainChunksMaterialCodes(layer.chunks, cellCount)
+  if (chunks.length === 0) {
+    return null
+  }
+
+  if (materialId === layer.materialId && chunks === layer.chunks) {
+    return layer
+  }
+
+  return {
+    ...layer,
+    materialId,
+    renderLayer:
+      typeof layer.renderLayer === 'number'
+        ? layer.renderLayer | 0
+        : getDefaultTerrainRenderLayer(materialId),
+    chunks,
+  }
+}
+
+function sanitizeTerrainLayersMaterialReferences(
+  layers: MapTerrainLayer[] | undefined,
+  invalidContourFillIds: ReadonlySet<number> | null,
+  terrainObjectIndexRemap: number[],
+  cellCount: number
+): MapTerrainLayer[] | undefined {
+  if (!layers || layers.length === 0) {
+    return layers
+  }
+
+  let normalizedLayers: MapTerrainLayer[] | null = null
+  let visibleLayerIndex = 0
+  let nextVisibleLayerIndex = 0
+
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i]
+    const isVisibleLayer = (layer.contourId ?? 0) <= 0
+    const normalizedLayer = sanitizeTerrainLayerMaterialReferences(
+      layer,
+      invalidContourFillIds,
+      cellCount
+    )
+
+    if (!normalizedLayer) {
+      if (isVisibleLayer) {
+        terrainObjectIndexRemap[visibleLayerIndex] = -1
+        visibleLayerIndex += 1
+      }
+      if (!normalizedLayers) {
+        normalizedLayers = layers.slice(0, i)
+      }
+      continue
+    }
+
+    if (isVisibleLayer) {
+      terrainObjectIndexRemap[visibleLayerIndex] = nextVisibleLayerIndex
+      visibleLayerIndex += 1
+      nextVisibleLayerIndex += 1
+    }
+
+    if (normalizedLayers) {
+      normalizedLayers.push(normalizedLayer)
+    } else if (normalizedLayer !== layer) {
+      normalizedLayers = layers.slice(0, i)
+      normalizedLayers.push(normalizedLayer)
+    }
+  }
+
+  return normalizedLayers ?? layers
+}
+
+function hasTerrainChunksContent(
+  chunks: readonly MapTerrainChunk[],
+  cellCount: number
+): boolean {
+  for (let i = 0; i < chunks.length; i++) {
+    const cells = chunks[i].materialCodes ?? chunks[i].cells
+    const sourceLength = getTerrainChunkSourceLength(cells, cellCount)
+    for (let cellIndex = 0; cellIndex < sourceLength; cellIndex++) {
+      if ((readNumericArraySource(cells, cellIndex) | 0) > 0) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function countVisibleTerrainLayers(
+  layers: readonly MapTerrainLayer[] | undefined
+): number {
+  if (!layers || layers.length === 0) {
+    return 0
+  }
+  let count = 0
+  for (let i = 0; i < layers.length; i++) {
+    if ((layers[i].contourId ?? 0) <= 0) {
+      count += 1
+    }
+  }
+  return count
+}
+
+function sanitizeTerrainMaterialReferences(
+  terrain: MapTerrainData | undefined
+): TerrainMaterialSanitizationResult {
+  if (!terrain) {
+    return {
+      terrain,
+      terrainObjectIndexRemap: null,
+    }
+  }
+
+  const invalidContourFillIds = collectInvalidContourFillIds(terrain.contours)
+  const chunkSize =
+    terrain.chunkSize > 0 ? Math.floor(terrain.chunkSize) : TERRAIN_CHUNK_SIZE
+  const cellCount = chunkSize * chunkSize
+  const terrainObjectIndexRemap: number[] = []
+  const layers = sanitizeTerrainLayersMaterialReferences(
+    terrain.layers,
+    invalidContourFillIds,
+    terrainObjectIndexRemap,
+    cellCount
+  )
+  const contours = sanitizeTerrainContourMaterialReferences(terrain.contours)
+  const chunks = sanitizeTerrainChunksMaterialCodes(terrain.chunks, cellCount)
+  const oldVisibleLayerCount =
+    terrain.layers && terrain.layers.length > 0
+      ? countVisibleTerrainLayers(terrain.layers)
+      : terrain.chunks.length > 0
+        ? 1
+        : 0
+  const nextVisibleLayerCount =
+    layers && layers.length > 0
+      ? countVisibleTerrainLayers(layers)
+      : chunks.length > 0
+        ? 1
+        : 0
+
+  if (oldVisibleLayerCount === 1 && !terrain.layers?.length) {
+    terrainObjectIndexRemap[0] = hasTerrainChunksContent(chunks, cellCount)
+      ? 0
+      : -1
+  }
+
+  if (terrain.contours && terrain.contours.length > 0) {
+    for (let i = 0; i < terrain.contours.length; i++) {
+      terrainObjectIndexRemap[oldVisibleLayerCount + i] =
+        nextVisibleLayerCount + i
+    }
+  }
+
+  const hasRemapChange = terrainObjectIndexRemap.some(
+    (nextIndex, index) => nextIndex !== index
+  )
+  const normalizedTerrain =
+    layers === terrain.layers &&
+    contours === terrain.contours &&
+    chunks === terrain.chunks
+      ? terrain
+      : {
+          ...terrain,
+          chunks,
+          layers,
+          contours,
+        }
+
+  return {
+    terrain: normalizedTerrain,
+    terrainObjectIndexRemap: hasRemapChange ? terrainObjectIndexRemap : null,
+  }
+}
+
+function normalizeEditorTreeTerrainObjectIndexes(
+  editorTree: EditorTreeData | undefined,
+  terrainObjectIndexRemap: readonly number[] | null
+): EditorTreeData | undefined {
+  if (!editorTree || !terrainObjectIndexRemap) {
+    return editorTree
+  }
+
+  let normalizedNodes: EditorTreeNode[] | null = null
+  for (let i = 0; i < editorTree.nodes.length; i++) {
+    const node = editorTree.nodes[i]
+    if (node.type !== 'terrain') {
+      continue
+    }
+    const index = node.index ?? -1
+    if (index < 0 || index >= terrainObjectIndexRemap.length) {
+      continue
+    }
+    const nextIndex = terrainObjectIndexRemap[index]
+    if (nextIndex === index) {
+      continue
+    }
+    if (!normalizedNodes) {
+      normalizedNodes = editorTree.nodes.slice()
+    }
+    const normalizedNode: EditorTreeNode = { ...node }
+    if (nextIndex >= 0) {
+      normalizedNode.index = nextIndex
+    } else {
+      delete normalizedNode.index
+    }
+    normalizedNodes[i] = normalizedNode
+  }
+
+  if (!normalizedNodes) {
+    return editorTree
+  }
+
+  return {
+    ...editorTree,
+    nodes: normalizedNodes,
+  }
+}
+
 function inferLegacyStraightEdgeContourMetadata(
   points: readonly number[]
 ): Pick<TerrainContourLike, 'shapeKind' | 'straightEdge'> | null {
@@ -1809,40 +2205,55 @@ function normalizeEnvironmentObjectRenderLayers(
 
 function normalizeEditorMapData(data: EditorMapData): EditorMapData {
   const settings = normalizeMapSettings(data.settings)
-  if (isMapDataFastNormalized(data)) {
+  const terrainSanitization = sanitizeTerrainMaterialReferences(data.terrain)
+  const sourceData =
+    terrainSanitization.terrain === data.terrain
+      ? data
+      : {
+          ...data,
+          terrain: terrainSanitization.terrain,
+        }
+  const sanitizedEditorTree = normalizeEditorTreeTerrainObjectIndexes(
+    sourceData.editorTree,
+    terrainSanitization.terrainObjectIndexRemap
+  )
+
+  if (isMapDataFastNormalized(sourceData)) {
     const normalizedTerrain = normalizeTerrainContourMetadata(
-      normalizeTerrainGrassLayerMaterials(data.terrain)
+      normalizeTerrainGrassLayerMaterials(sourceData.terrain)
     )
     const normalizedEnvironmentObjects = normalizeEnvironmentObjectRenderLayers(
-      data.environmentObjects,
-      data.editorTree
+      sourceData.environmentObjects,
+      sanitizedEditorTree
     )
     if (
-      normalizedTerrain === data.terrain &&
-      normalizedEnvironmentObjects === data.environmentObjects &&
-      data.settings?.initialTimePhase === settings.initialTimePhase
+      normalizedTerrain === sourceData.terrain &&
+      normalizedEnvironmentObjects === sourceData.environmentObjects &&
+      sanitizedEditorTree === sourceData.editorTree &&
+      sourceData.settings?.initialTimePhase === settings.initialTimePhase
     ) {
-      return data
+      return sourceData
     }
     return {
-      ...data,
+      ...sourceData,
       settings,
       terrain: normalizedTerrain,
       environmentObjects: normalizedEnvironmentObjects,
+      editorTree: sanitizedEditorTree,
     }
   }
-  const sourceVersion = data.version
-  const shapes = Array.isArray(data.shapes) ? data.shapes : []
-  const rawNpcs = data.npcs ?? data.enemies ?? []
+  const sourceVersion = sourceData.version
+  const shapes = Array.isArray(sourceData.shapes) ? sourceData.shapes : []
+  const rawNpcs = sourceData.npcs ?? sourceData.enemies ?? []
   const terrainNormalization = normalizeMapTerrain(
-    data.terrain,
+    sourceData.terrain,
     shapes,
-    data.pixelsPerMeter
+    sourceData.pixelsPerMeter
   )
-  const editorTree = data.editorTree
+  const editorTree = sanitizedEditorTree
     ? {
-        ...data.editorTree,
-        nodes: data.editorTree.nodes.map<EditorTreeNode>((node) => {
+        ...sanitizedEditorTree,
+        nodes: sanitizedEditorTree.nodes.map<EditorTreeNode>((node) => {
           if (node.type === 'enemy') {
             return { ...node, type: 'npc' }
           }
@@ -1867,20 +2278,20 @@ function normalizeEditorMapData(data: EditorMapData): EditorMapData {
     : undefined
 
   return {
-    ...data,
+    ...sourceData,
     version: 3,
     settings,
-    player: normalizeMapPlayer(data.player),
+    player: normalizeMapPlayer(sourceData.player),
     shapes: [],
     npcs: rawNpcs.map((npc) =>
       migrateLegacyNpcDrops(normalizeMapNpc(npc), sourceVersion)
     ),
     terrain: normalizeTerrainContourMetadata(terrainNormalization.terrain),
     environmentObjects: normalizeEnvironmentObjectRenderLayers(
-      data.environmentObjects,
+      sourceData.environmentObjects,
       editorTree
     ),
-    npcTemplates: (data.npcTemplates ?? []).map((template) =>
+    npcTemplates: (sourceData.npcTemplates ?? []).map((template) =>
       migrateLegacyNpcDrops(normalizeMapNpcTemplate(template), sourceVersion)
     ),
     editorTree,

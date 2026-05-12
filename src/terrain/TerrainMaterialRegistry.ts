@@ -151,6 +151,10 @@ export function getTerrainMaterialById(
   return material
 }
 
+export function isTerrainMaterialId(id: string): id is TerrainMaterialId {
+  return MATERIAL_BY_ID.has(id as TerrainMaterialId)
+}
+
 export function getTerrainMaterialByCode(
   code: number
 ): TerrainMaterialDefinition | null {
