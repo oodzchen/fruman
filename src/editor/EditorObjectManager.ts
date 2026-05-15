@@ -3,6 +3,7 @@ import * as fabric from 'fabric'
 import { localizer } from '../Localizer'
 import { ObjectType } from './types'
 import type {
+  AttackPickupMarker,
   EditorEmptyObject,
   EditorLayeredObject,
   EditorObjectData,
@@ -958,7 +959,17 @@ export class EditorObjectManager {
         return weaponName
       }
     }
+    if (type === ObjectType.AttackPickup) {
+      return this.getAttackPickupObjectName(object)
+    }
     return localizer.t(`editor_object_${type}`)
+  }
+
+  private getAttackPickupObjectName(object: fabric.Object): string {
+    const marker = object as AttackPickupMarker
+    const weaponName = localizer.t(`editor_weapon_${marker.weaponType}`)
+    const kindName = localizer.t(`editor_attack_pickup_${marker.pickupKind}`)
+    return `${weaponName}-${kindName}`
   }
 
   private getWeaponObjectName(object: fabric.Object): string {

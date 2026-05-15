@@ -15,6 +15,8 @@ export function applyWeaponSlotState(
   if (!state) {
     slot.hasWeapon = false
     slot.movesetId = ''
+    slot.skillId = ''
+    slot.skillCharges = 0
     return
   }
 
@@ -22,12 +24,16 @@ export function applyWeaponSlotState(
   if (!normalizedWeaponType) {
     slot.hasWeapon = false
     slot.movesetId = ''
+    slot.skillId = ''
+    slot.skillCharges = 0
     return
   }
 
   slot.hasWeapon = true
   slot.weaponType = normalizedWeaponType
   slot.movesetId = getDefaultAttackMovesetIdForWeaponType(normalizedWeaponType)
+  slot.skillId = ''
+  slot.skillCharges = 0
   slot.sizeLevel = state.sizeLevel
   if (state.width !== undefined) slot.width = state.width
   if (state.height !== undefined) slot.height = state.height
@@ -54,6 +60,8 @@ export function syncActiveSlotFromWeapon(
   targetSlot.movesetId =
     weapon.movesetId ||
     getDefaultAttackMovesetIdForWeaponType(weapon.weaponType)
+  targetSlot.skillId = ''
+  targetSlot.skillCharges = 0
   targetSlot.width = weapon.baseWidth
   targetSlot.height = weapon.height
   targetSlot.baseWidth = weapon.baseWidth
@@ -74,6 +82,8 @@ export function applyWeaponFromSlot(
 ): void {
   if (!slot.hasWeapon) {
     weapon.movesetId = ''
+    weapon.skillId = ''
+    weapon.skillCharges = 0
     weapon.isEquipped = false
     return
   }
@@ -82,6 +92,8 @@ export function applyWeaponFromSlot(
   weapon.weaponType = weaponType
   weapon.movesetId =
     slot.movesetId || getDefaultAttackMovesetIdForWeaponType(weaponType)
+  weapon.skillId = ''
+  weapon.skillCharges = 0
   weapon.sizeLevel = slot.sizeLevel
   weapon.attackDamage = slot.attackDamage
   weapon.postureDamage = slot.postureDamage
@@ -119,6 +131,8 @@ export function applyGroundWeaponState(
   weapon.weaponType = normalizedWeaponType
   weapon.movesetId =
     getDefaultAttackMovesetIdForWeaponType(normalizedWeaponType)
+  weapon.skillId = ''
+  weapon.skillCharges = 0
   weapon.sizeLevel = state.sizeLevel
   weapon.attackDamage = state.attackDamage
   weapon.postureDamage = state.postureDamage

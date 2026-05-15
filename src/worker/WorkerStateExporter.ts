@@ -1,4 +1,9 @@
 import {
+  getAttackPickupKindId,
+  hasUnlockedAttackPickup,
+  syncAttackSlotsForWeaponType,
+} from '../attackPickupUtils'
+import {
   getCharacterEyeOffsetX,
   getCharacterEyeOffsetY,
   getNpcBodyProfileIndex,
@@ -363,7 +368,8 @@ export class WorkerFrameStateExporter {
         !isTerrainDebris &&
         !e.render &&
         !e.sunPickup &&
-        !e.expOrb
+        !e.expOrb &&
+        !e.attackPickup
       ) {
         continue
       }
@@ -392,7 +398,12 @@ export class WorkerFrameStateExporter {
       )
 
       let flags = 0
-      if ((e.render?.visible ?? isStandaloneWeapon) || e.sunPickup || e.expOrb)
+      if (
+        (e.render?.visible ?? isStandaloneWeapon) ||
+        e.sunPickup ||
+        e.expOrb ||
+        e.attackPickup
+      )
         flags |= FLAGS.VISIBLE
       if (e.stats?.isDead) flags |= FLAGS.DEAD
       if (e.stats?.isVanished) flags |= FLAGS.VANISHED
@@ -430,6 +441,9 @@ export class WorkerFrameStateExporter {
       }
       if (e.expOrb) {
         flags |= FLAGS.EXP_ORB
+      }
+      if (e.attackPickup) {
+        flags |= FLAGS.ATTACK_PICKUP
       }
       if (isTerrainDebris) {
         flags |= FLAGS.TERRAIN_DEBRIS
@@ -650,6 +664,15 @@ export class WorkerFrameStateExporter {
         stateBuffer[offset + OFFSETS.WEAPON_TYPE] = debris.variant
       }
 
+      if (e.attackPickup) {
+        stateBuffer[offset + OFFSETS.WEAPON_TYPE] = getWeaponTypeId(
+          e.attackPickup.weaponType
+        )
+        stateBuffer[offset + OFFSETS.WEAPON_DRAW] = getAttackPickupKindId(
+          e.attackPickup.kind
+        )
+      }
+
       if (e.weaponSlots) {
         const weaponSlots = e.weaponSlots
         const mainSlot = weaponSlots.main
@@ -733,13 +756,14 @@ export class WorkerFrameStateExporter {
             : 0
         const ultimateAnimating = e.weapon?.ultimatePhase != null
         stateBuffer[offset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] = cooldownRatio
-        stateBuffer[offset + OFFSETS.ULTIMATE_READY] =
-          ultimateSlot.hasMoveset && cooldownRatio === 0 && !ultimateAnimating
+        stateBuffer[offset + OFFSETS.ULTIMATE_READY] = !ultimateSlot.hasMoveset
+          ? -1
+          : cooldownRatio === 0 && !ultimateAnimating
             ? 1
             : 0
       } else {
         stateBuffer[offset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] = 0
-        stateBuffer[offset + OFFSETS.ULTIMATE_READY] = 0
+        stateBuffer[offset + OFFSETS.ULTIMATE_READY] = -1
       }
 
       if (e.weapon) {
@@ -1180,6 +1204,7 @@ export function restoreWorkerGameState(
   context: WorkerStateRestoreContext
 ): void {
   restorePlayerState(saveData.player, context)
+  removeUnlockedAttackPickups(context)
 
   if (saveData.worldStateReady !== false) {
     restoreNpcsState(saveData.npcs, context)
@@ -1247,7 +1272,70 @@ function restorePlayerState(
     playerEntity.grapple.moveLockEndTime = 0
   }
 
+  restorePlayerAttackUnlocks(playerState, playerEntity)
   restorePlayerWeapons(playerState, context)
+}
+
+function restorePlayerAttackUnlocks(
+  playerState: SaveData['player'],
+  playerEntity: Entity
+): void {
+  const attackSlots = playerEntity.attackSlots
+  if (!attackSlots) return
+  attackSlots.unlockedUltimateMask = normalizeSavedMask(
+    playerState.unlockedUltimateMask
+  )
+  attackSlots.unlockedSkillMask = normalizeSavedMask(
+    playerState.unlockedSkillMask
+  )
+  attackSlots.swordSkillCharges = normalizeSavedCharges(
+    playerState.swordSkillCharges
+  )
+  attackSlots.spearSkillCharges = normalizeSavedCharges(
+    playerState.spearSkillCharges
+  )
+  attackSlots.hammerSkillCharges = normalizeSavedCharges(
+    playerState.hammerSkillCharges
+  )
+  attackSlots.bowSkillCharges = normalizeSavedCharges(
+    playerState.bowSkillCharges
+  )
+}
+
+function normalizeSavedMask(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : 0
+}
+
+function normalizeSavedCharges(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : 0
+}
+
+function removeUnlockedAttackPickups(context: WorkerStateRestoreContext): void {
+  const attackSlots = context.playerEntity?.attackSlots
+  if (!attackSlots || !context.world) return
+
+  const entities = context.world.getEntities()
+  for (let i = 0; i < entities.length; i++) {
+    const entity = entities[i]
+    const attackPickup = entity.attackPickup
+    if (!attackPickup) continue
+
+    const weaponType = normalizeWeaponType(attackPickup.weaponType)
+    if (
+      !weaponType ||
+      !hasUnlockedAttackPickup(attackSlots, weaponType, attackPickup.kind)
+    ) {
+      continue
+    }
+
+    context.spatialHash.removeEntity(entity)
+    context.destroyEntityPhysicsBody(entity)
+    context.world.destroyEntity(entity)
+  }
 }
 
 function restoreActiveCheckpointFromSave(
@@ -1304,6 +1392,13 @@ function restorePlayerWeapons(
       playerEntity.attackSlots.normal.hasMoveset =
         playerEntity.weapon.movesetId.length > 0
       playerEntity.attackSlots.normal.movesetId = playerEntity.weapon.movesetId
+      syncAttackSlotsForWeaponType(
+        playerEntity.attackSlots,
+        playerEntity.weapon.weaponType
+      )
+      playerEntity.weapon.skillId = playerEntity.attackSlots.skill.skillId
+      playerEntity.weapon.skillCharges =
+        playerEntity.attackSlots.skill.chargesRemaining
     }
   } else {
     playerEntity.weapon.isEquipped = false
@@ -1616,6 +1711,7 @@ function extractPlayerState(
   const level = playerEntity.level
   const weaponSlots = playerEntity.weaponSlots
   const weapon = playerEntity.weapon
+  const attackSlots = playerEntity.attackSlots
   const grapple = playerEntity.grapple
 
   if (weaponSlots && weapon) {
@@ -1640,6 +1736,12 @@ function extractPlayerState(
     toughness: stats?.toughness ?? 100,
     maxToughness: stats?.maxToughness ?? 100,
     hasGrapple: grapple?.hasGrapple ?? false,
+    unlockedUltimateMask: attackSlots?.unlockedUltimateMask ?? 0,
+    unlockedSkillMask: attackSlots?.unlockedSkillMask ?? 0,
+    swordSkillCharges: attackSlots?.swordSkillCharges ?? 0,
+    spearSkillCharges: attackSlots?.spearSkillCharges ?? 0,
+    hammerSkillCharges: attackSlots?.hammerSkillCharges ?? 0,
+    bowSkillCharges: attackSlots?.bowSkillCharges ?? 0,
     mainWeapon: weaponSlots ? extractWeaponSlotState(weaponSlots.main) : null,
     secondaryWeapon: weaponSlots
       ? extractWeaponSlotState(weaponSlots.secondary)

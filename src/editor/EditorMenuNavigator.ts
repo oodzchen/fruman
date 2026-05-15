@@ -5,6 +5,7 @@ export enum EditorSubmenuMode {
   TerrainContour = 'terrainContour',
   TerrainFill = 'terrainFill',
   Weapon = 'weapon',
+  Skill = 'skill',
   Npc = 'npc',
   Prop = 'prop',
   Environment = 'environment',

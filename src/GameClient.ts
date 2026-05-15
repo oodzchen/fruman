@@ -4318,6 +4318,7 @@ export class GameClient {
       (flags & FLAGS.EXP_ORB) !== 0 ||
       (flags & FLAGS.SUN_PICKUP_SMALL) !== 0 ||
       (flags & FLAGS.SUN_PICKUP_LARGE) !== 0 ||
+      (flags & FLAGS.ATTACK_PICKUP) !== 0 ||
       (flags & FLAGS.GRAPPLE_ANCHOR) !== 0 ||
       (flags & FLAGS.CHECKPOINT) !== 0 ||
       (flags & FLAGS.TERRAIN_DEBRIS) !== 0

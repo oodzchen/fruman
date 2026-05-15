@@ -1,5 +1,6 @@
 import type { AudioManager } from './AudioManager'
 import { BowTrajectoryCalculator } from './BowTrajectory'
+import { getAttackPickupKindFromId } from './attackPickupUtils'
 import { buildCharacterBodyCollisionPolygons } from './characterBodyCollision'
 import {
   getCharacterBodyColor,
@@ -52,6 +53,7 @@ import {
   HUD_SLOT_SIZE,
   HUD_SLOT_SPACING,
   HUD_ULTIMATE_SIZE,
+  drawAttackPickupIcon as drawAttackPickupIconShape,
   drawHudSkillSlot,
   drawHudUltimateSlot,
   drawHudWeaponSlot,
@@ -1591,6 +1593,15 @@ export class ClientRenderer {
       this.drawExpOrbIcon(buf[offset + OFFSETS.X], buf[offset + OFFSETS.Y])
       return
     }
+    if (flags & FLAGS.ATTACK_PICKUP) {
+      this.drawAttackPickupIcon(
+        buf[offset + OFFSETS.X],
+        buf[offset + OFFSETS.Y],
+        buf[offset + OFFSETS.WEAPON_TYPE] | 0,
+        buf[offset + OFFSETS.WEAPON_DRAW] | 0
+      )
+      return
+    }
     if (flags & FLAGS.SUN_PICKUP_SMALL) {
       this.drawSunPickupIcon(
         buf[offset + OFFSETS.X],
@@ -2328,6 +2339,36 @@ export class ClientRenderer {
     ctx.restore()
   }
 
+  private drawAttackPickupIcon(
+    worldX: number,
+    worldY: number,
+    weaponTypeId: number,
+    kindId: number
+  ): void {
+    const ppm = this.pixelsPerMeter
+    const cx = worldX * ppm
+    const cy = worldY * ppm
+    const size = (ppm * 80) / PICKUP_SIZE_DENOMINATOR
+    const outerRadius = Math.round((size * 58) / 100)
+    this.ctx.save()
+    this.ctx.beginPath()
+    this.ctx.arc(cx, cy, outerRadius, 0, Math.PI * 2)
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+    this.ctx.fill()
+    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'
+    this.ctx.lineWidth = Math.max(1, Math.round((ppm * 2) / 100))
+    this.ctx.stroke()
+    this.ctx.restore()
+    drawAttackPickupIconShape(
+      this.ctx,
+      cx,
+      cy,
+      size,
+      this.getWeaponRenderTypeFromId(weaponTypeId),
+      getAttackPickupKindFromId(kindId)
+    )
+  }
+
   // 血条增长区域向外飞溅白色粒子特效（屏幕坐标空间）
   // 粒子从血条增长区域的上边、右边、下边向外飞出，突出血条矩形轮廓
   private drawHealthBarGrowEffect(
@@ -2558,6 +2599,8 @@ export class ClientRenderer {
       activeSlot === 0
         ? buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_TYPE] | 0
         : buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_TYPE] | 0
+    const activeSlotHasWeapon =
+      activeSlot === 0 ? mainHasWeapon : secondaryHasWeapon
     const currentWeaponIsHammer =
       ultimateActiveWeaponType === WEAPON_TYPES.HAMMER ||
       ultimateActiveWeaponType === WEAPON_TYPES.BIG_HAMMER
@@ -2566,7 +2609,10 @@ export class ClientRenderer {
       ultimateActiveWeaponType === WEAPON_TYPES.SWORD ||
       ultimateActiveWeaponType === WEAPON_TYPES.SHORT_SWORD ||
       ultimateActiveWeaponType === WEAPON_TYPES.LONG_SWORD
-    if (currentWeaponIsSword || currentWeaponIsHammer || currentWeaponIsSpear) {
+    if (
+      activeSlotHasWeapon &&
+      (currentWeaponIsSword || currentWeaponIsHammer || currentWeaponIsSpear)
+    ) {
       const cooldownRatio =
         buf[playerOffset + OFFSETS.ULTIMATE_COOLDOWN_RATIO] | 0
       // 绝招动画进行中时立即显示满蒙层
@@ -2579,6 +2625,7 @@ export class ClientRenderer {
       const ultimateReady =
         displayCooldownRatio === 0 &&
         buf[playerOffset + OFFSETS.ULTIMATE_READY] === 1
+      const ultimateHas = buf[playerOffset + OFFSETS.ULTIMATE_READY] >= 0
       const flashTimer100 =
         buf[playerOffset + OFFSETS.ULTIMATE_FLASH_TIMER100] | 0
       const ultimateCx = canvasWidth >> 1
@@ -2594,7 +2641,8 @@ export class ClientRenderer {
           ? 'hammer'
           : currentWeaponIsSpear
             ? 'spear'
-            : 'sword'
+            : 'sword',
+        ultimateHas
       )
     }
 

@@ -11,6 +11,7 @@ import type {
 } from '../editorMapTypes'
 import type { TerrainMaterialId } from '../terrain/TerrainTypes'
 import type {
+  AttackPickupKind,
   NormalAttackMovesetId,
   NpcAttackMove,
   NpcDetectionRangeLevel,
@@ -34,6 +35,7 @@ export enum ObjectType {
   SunPickupSmall = 'sunPickupSmall',
   SunPickupLarge = 'sunPickupLarge',
   ExpOrb = 'expOrb',
+  AttackPickup = 'attackPickup',
   EnvTree = 'envTree',
   EnvHill = 'envHill',
   EnvHouse = 'envHouse',
@@ -302,6 +304,18 @@ export type ExpOrbMarker = fabric.Group & {
 
 export interface ExpOrbMarkerData {
   marker: ExpOrbMarker
+}
+
+export type AttackPickupMarker = fabric.Object & {
+  editorShape: 'attack-pickup-marker'
+  weaponType: WeaponType
+  pickupKind: AttackPickupKind
+}
+
+export interface AttackPickupMarkerData {
+  marker: AttackPickupMarker
+  weaponType: WeaponType
+  kind: AttackPickupKind
 }
 
 export type EnvironmentMarker = fabric.Object & {

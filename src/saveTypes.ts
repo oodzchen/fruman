@@ -58,6 +58,12 @@ export interface SavePlayerState {
   toughness: number
   maxToughness: number
   hasGrapple?: boolean
+  unlockedUltimateMask?: number
+  unlockedSkillMask?: number
+  swordSkillCharges?: number
+  spearSkillCharges?: number
+  hammerSkillCharges?: number
+  bowSkillCharges?: number
   mainWeapon: SaveWeaponSlotState | null
   secondaryWeapon: SaveWeaponSlotState | null
   activeSlot: 'main' | 'secondary'

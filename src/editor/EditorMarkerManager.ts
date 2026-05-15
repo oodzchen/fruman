@@ -43,6 +43,7 @@ import { isEnvironmentCellStrokeSupported } from '../renderer/ProceduralEnvironm
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
 import type {
+  AttackPickupKind,
   NormalAttackMovesetId,
   NpcAttackMove,
   NpcDetectionRangeLevel,
@@ -63,7 +64,10 @@ import {
   PLAYER_BODY_COLOR,
 } from './EditorConstants'
 import type { EditorObjectFactory } from './EditorObjectFactory'
+import { ObjectType } from './types'
 import type {
+  AttackPickupMarker,
+  AttackPickupMarkerData,
   CharacterBodyShapeObject,
   CheckpointMarker,
   CheckpointMarkerData,
@@ -75,7 +79,6 @@ import type {
   HookAnchorMarkerData,
   NpcMarker,
   NpcMarkerData,
-  ObjectType,
   PlayerMarker,
   PlayerMarkerData,
   SunPickupMarker,
@@ -130,6 +133,7 @@ export class EditorMarkerManager {
   private hookAnchorMarkers: HookAnchorMarkerData[] = []
   private sunPickupMarkers: SunPickupMarkerData[] = []
   private expOrbMarkers: ExpOrbMarkerData[] = []
+  private attackPickupMarkers: AttackPickupMarkerData[] = []
   private environmentMarkers: EnvironmentMarkerData[] = []
   private npcMarkerMap = new Map<fabric.Object, NpcMarkerData>()
   private weaponMarkerMap = new Map<fabric.Object, WeaponMarkerData>()
@@ -137,6 +141,10 @@ export class EditorMarkerManager {
   private hookAnchorMarkerMap = new Map<fabric.Object, HookAnchorMarkerData>()
   private sunPickupMarkerMap = new Map<fabric.Object, SunPickupMarkerData>()
   private expOrbMarkerMap = new Map<fabric.Object, ExpOrbMarkerData>()
+  private attackPickupMarkerMap = new Map<
+    fabric.Object,
+    AttackPickupMarkerData
+  >()
   private environmentMarkerMap = new Map<fabric.Object, EnvironmentMarkerData>()
   private bodyTextureCache = new Map<string, HTMLImageElement>()
   private pendingBodyTextureImages = new WeakSet<HTMLImageElement>()
@@ -170,6 +178,8 @@ export class EditorMarkerManager {
     this.sunPickupMarkerMap.clear()
     this.expOrbMarkers.length = 0
     this.expOrbMarkerMap.clear()
+    this.attackPickupMarkers.length = 0
+    this.attackPickupMarkerMap.clear()
     this.environmentMarkers.length = 0
     this.environmentMarkerMap.clear()
     this.bodyTextureCache.clear()
@@ -356,6 +366,10 @@ export class EditorMarkerManager {
     return this.expOrbMarkers
   }
 
+  getAttackPickupMarkers() {
+    return this.attackPickupMarkers
+  }
+
   getWeaponMarkerMap() {
     return this.weaponMarkerMap
   }
@@ -405,6 +419,10 @@ export class EditorMarkerManager {
 
   getExpOrbMarkerMap() {
     return this.expOrbMarkerMap
+  }
+
+  getAttackPickupMarkerMap() {
+    return this.attackPickupMarkerMap
   }
 
   getEnvironmentMarkers() {
@@ -458,6 +476,15 @@ export class EditorMarkerManager {
     return (
       object instanceof fabric.Group &&
       (object as WeaponMarker).editorShape === 'weapon-marker'
+    )
+  }
+
+  isAttackPickupMarker(
+    object: fabric.Object | null
+  ): object is AttackPickupMarker {
+    return (
+      !!object &&
+      (object as AttackPickupMarker).editorShape === 'attack-pickup-marker'
     )
   }
 
@@ -661,6 +688,17 @@ export class EditorMarkerManager {
         this.expOrbMarkers.splice(index, 1)
       }
       this.expOrbMarkerMap.delete(marker)
+    }
+  }
+
+  removeAttackPickupMarker(marker: fabric.Object) {
+    const data = this.attackPickupMarkerMap.get(marker)
+    if (data) {
+      const index = this.attackPickupMarkers.indexOf(data)
+      if (index !== -1) {
+        this.attackPickupMarkers.splice(index, 1)
+      }
+      this.attackPickupMarkerMap.delete(marker)
     }
   }
 
@@ -1423,6 +1461,36 @@ export class EditorMarkerManager {
     const data: ExpOrbMarkerData = { marker }
     this.expOrbMarkers.push(data)
     this.expOrbMarkerMap.set(marker, data)
+    this.finalizeMarkerSpawn(canvas, marker, options)
+  }
+
+  spawnAttackPickupMarker(
+    weaponType: WeaponType,
+    kind: AttackPickupKind,
+    spawn?: { x: number; y: number },
+    options: EditorMarkerSpawnOptions = {}
+  ) {
+    const canvas = this.ctx.getCanvas()
+    if (!canvas) return
+    let centerX: number
+    let centerY: number
+    if (spawn && spawn.x !== undefined && spawn.y !== undefined) {
+      centerX = spawn.x * EDITOR_PIXELS_PER_METER
+      centerY = spawn.y * EDITOR_PIXELS_PER_METER
+    } else {
+      const center = this.ctx.getViewportCenter()
+      centerX = center.x
+      centerY = center.y
+    }
+    const marker = this.objectFactory.createAttackPickupMarker(weaponType, kind)
+    marker.left = centerX
+    marker.top = centerY
+    marker.setCoords()
+    canvas.add(marker)
+    this.ctx.registerEditorObject(ObjectType.AttackPickup, marker)
+    const data: AttackPickupMarkerData = { marker, weaponType, kind }
+    this.attackPickupMarkers.push(data)
+    this.attackPickupMarkerMap.set(marker, data)
     this.finalizeMarkerSpawn(canvas, marker, options)
   }
 

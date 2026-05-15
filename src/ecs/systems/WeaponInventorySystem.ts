@@ -1,4 +1,10 @@
 import {
+  getSkillChargesForWeaponType,
+  getUnlockedSkillId,
+  getUnlockedUltimateMovesetId,
+  setSkillChargesForWeaponType,
+} from '../../attackPickupUtils'
+import {
   DEFAULT_PLAYER_RADIUS,
   DEFAULT_WEAPON_ATTACK_RADIUS,
   DEFAULT_WEAPON_PICKUP_DISTANCE,
@@ -15,7 +21,6 @@ import {
   ATTACK_MOVES,
   ATTACK_MOVESETS,
   getDefaultAttackMovesetIdForWeaponType,
-  getUltimateMovesetIdForWeaponType,
   isMovesetCompatibleWithWeaponType,
 } from '../AttackMoveRegistry'
 import type { WeaponSlotData, WeaponSlotId } from '../Component'
@@ -157,8 +162,9 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
 
   protected applyUltimateMoveset(entity: Entity, weaponType: string): void {
     if (!entity.attackSlots) return
-    const movesetId = getUltimateMovesetIdForWeaponType(
-      weaponType as Parameters<typeof getUltimateMovesetIdForWeaponType>[0]
+    const movesetId = getUnlockedUltimateMovesetId(
+      entity.attackSlots,
+      weaponType as WeaponVisualType
     )
     entity.attackSlots.ultimate.hasMoveset = movesetId.length > 0
     entity.attackSlots.ultimate.movesetId = movesetId
@@ -167,11 +173,20 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
   protected applySkillMoveset(entity: Entity): void {
     if (!entity.attackSlots || !entity.weapon) return
     const skill = entity.attackSlots.skill
-    const skillId = entity.weapon.skillId
+    const skillId = getUnlockedSkillId(
+      entity.attackSlots,
+      entity.weapon.weaponType
+    )
     skill.skillId = skillId
     skill.maxCharges = skillId ? DEFAULT_SKILL_MAX_CHARGES : 0
-    // 切换武器时，从 weapon.skillCharges 恢复次数
-    skill.chargesRemaining = skillId ? entity.weapon.skillCharges : 0
+    skill.chargesRemaining = skillId
+      ? getSkillChargesForWeaponType(
+          entity.attackSlots,
+          entity.weapon.weaponType
+        )
+      : 0
+    entity.weapon.skillId = skillId
+    entity.weapon.skillCharges = skill.chargesRemaining
   }
 
   handleUltimateRequest(entity: Entity, maxLandDist?: number): void {
@@ -186,13 +201,19 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
     if (!skill.skillId || skill.chargesRemaining <= 0) return
     skill.chargesRemaining--
     entity.weapon.skillCharges = skill.chargesRemaining
+    setSkillChargesForWeaponType(
+      entity.attackSlots,
+      entity.weapon.weaponType,
+      skill.chargesRemaining
+    )
     // 同步到当前武器槽
     if (entity.weaponSlots) {
       const activeSlotData =
         entity.weaponSlots.activeSlot === 'main'
           ? entity.weaponSlots.main
           : entity.weaponSlots.secondary
-      activeSlotData.skillCharges = skill.chargesRemaining
+      activeSlotData.skillId = ''
+      activeSlotData.skillCharges = 0
     }
     this.skillHandler.handleSkillRequest(entity)
   }
@@ -257,8 +278,8 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
     slot.toughnessDamage = weapon.toughnessDamage
     slot.bowAmmo = weapon.bowAmmo
     slot.bowAmmoMax = weapon.bowAmmoMax
-    slot.skillId = weapon.skillId
-    slot.skillCharges = weapon.skillCharges
+    slot.skillId = ''
+    slot.skillCharges = 0
   }
 
   protected copySlotToWeapon(
@@ -281,8 +302,8 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
     weapon.toughnessDamage = slot.toughnessDamage
     weapon.bowAmmo = slot.bowAmmo
     weapon.bowAmmoMax = slot.bowAmmoMax
-    weapon.skillId = slot.skillId
-    weapon.skillCharges = slot.skillCharges
+    weapon.skillId = ''
+    weapon.skillCharges = 0
   }
 
   protected fillWeaponDropDataFromWeapon(
@@ -303,7 +324,7 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
     out.toughnessDamage = weapon.toughnessDamage
     out.bowAmmo = weapon.bowAmmo
     out.bowAmmoMax = weapon.bowAmmoMax
-    out.skillId = weapon.skillId
+    out.skillId = ''
   }
 
   protected fillWeaponDropDataFromSlot(
@@ -324,7 +345,7 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
     out.toughnessDamage = slot.toughnessDamage
     out.bowAmmo = slot.bowAmmo
     out.bowAmmoMax = slot.bowAmmoMax
-    out.skillId = slot.skillId
+    out.skillId = ''
   }
 
   protected resetWeaponForSwap(entity: Entity): void {

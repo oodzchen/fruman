@@ -7,6 +7,7 @@ import type {
   EditorTreeData,
   EditorTreeNode,
   EditorTreeObjectType,
+  MapAttackPickup,
   MapCharacterBodyProfile,
   MapEnvironmentObject,
   MapExpOrb,
@@ -143,6 +144,7 @@ export class EditorMapSerializer {
       weapons: [],
       checkpoints: [],
       hookAnchors: [],
+      attackPickups: [],
       npcTemplates: [],
     }
   }
@@ -164,6 +166,8 @@ export class EditorMapSerializer {
     const sunPickups = this.serializeSunPickups(sunPickupIndexMap)
     const expOrbIndexMap = new Map<fabric.Object, number>()
     const expOrbs = this.serializeExpOrbs(expOrbIndexMap)
+    const attackPickupIndexMap = new Map<fabric.Object, number>()
+    const attackPickups = this.serializeAttackPickups(attackPickupIndexMap)
     const environmentIndexMap = new Map<fabric.Object, number>()
     const environmentObjects =
       this.serializeEnvironmentObjects(environmentIndexMap)
@@ -185,6 +189,7 @@ export class EditorMapSerializer {
       hookAnchorIndexMap,
       sunPickupIndexMap,
       expOrbIndexMap,
+      attackPickupIndexMap,
       environmentIndexMap,
       terrainIndexMap,
       referenceLineIndexMap,
@@ -207,6 +212,7 @@ export class EditorMapSerializer {
       hookAnchors,
       sunPickups,
       expOrbs,
+      attackPickups,
       environmentObjects,
       npcTemplates: this.ctx.getCustomNpcTemplates(),
       editorTree: editorTree ?? undefined,
@@ -247,6 +253,7 @@ export class EditorMapSerializer {
       this.applyHookAnchors(data.hookAnchors, batchSpawnOptions)
       this.applySunPickups(data.sunPickups, batchSpawnOptions)
       this.applyExpOrbs(data.expOrbs, batchSpawnOptions)
+      this.applyAttackPickups(data.attackPickups, batchSpawnOptions)
       this.applyEnvironmentObjects(data.environmentObjects, batchSpawnOptions)
     } finally {
       this.ctx.endObjectBatchMutation()
@@ -353,6 +360,29 @@ export class EditorMapSerializer {
       const expOrb = expOrbs[i]
       this.ctx.markerManager.spawnExpOrbMarker(
         { x: expOrb.x, y: expOrb.y },
+        spawnOptions
+      )
+    }
+  }
+
+  private applyAttackPickups(
+    attackPickups: EditorMapData['attackPickups'],
+    spawnOptions?: { select?: boolean; render?: boolean }
+  ) {
+    if (!attackPickups) return
+    for (let i = 0; i < attackPickups.length; i++) {
+      const pickup = attackPickups[i]
+      const normalizedWeapon = normalizeWeaponTypeAndSizeLevel(
+        pickup.weaponType,
+        undefined
+      )
+      if (!normalizedWeapon) {
+        continue
+      }
+      this.ctx.markerManager.spawnAttackPickupMarker(
+        normalizedWeapon.weaponType,
+        pickup.kind,
+        { x: pickup.x, y: pickup.y },
         spawnOptions
       )
     }
@@ -497,6 +527,24 @@ export class EditorMapSerializer {
     return expOrbs
   }
 
+  private serializeAttackPickups(
+    indexMap?: Map<fabric.Object, number>
+  ): MapAttackPickup[] {
+    const markers = this.ctx.markerManager.getAttackPickupMarkers()
+    if (markers.length === 0) return []
+    const invPixelsPerMeter = this.ctx.getInvPixelsPerMeter()
+    const attackPickups: MapAttackPickup[] = []
+    for (let i = 0; i < markers.length; i++) {
+      const { marker, weaponType, kind } = markers[i]
+      const center = marker.getCenterPoint()
+      const x = center.x * invPixelsPerMeter
+      const y = center.y * invPixelsPerMeter
+      if (indexMap) indexMap.set(marker, attackPickups.length)
+      attackPickups.push({ x, y, weaponType, kind })
+    }
+    return attackPickups
+  }
+
   private serializeEnvironmentObjects(
     indexMap?: Map<fabric.Object, number>
   ): MapEnvironmentObject[] {
@@ -574,6 +622,7 @@ export class EditorMapSerializer {
     hookAnchorIndexMap: Map<fabric.Object, number>
     sunPickupIndexMap: Map<fabric.Object, number>
     expOrbIndexMap: Map<fabric.Object, number>
+    attackPickupIndexMap: Map<fabric.Object, number>
     environmentIndexMap: Map<fabric.Object, number>
     terrainIndexMap: Map<fabric.Object, number>
     referenceLineIndexMap: Map<fabric.Object, number>
@@ -640,6 +689,12 @@ export class EditorMapSerializer {
         node.index = index
       } else if (dataItem.type === 'expOrb') {
         const index = data.expOrbIndexMap.get(dataItem.object)
+        if (index === undefined) {
+          return null
+        }
+        node.index = index
+      } else if (dataItem.type === 'attackPickup') {
+        const index = data.attackPickupIndexMap.get(dataItem.object)
         if (index === undefined) {
           return null
         }

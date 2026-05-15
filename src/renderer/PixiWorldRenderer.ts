@@ -12,6 +12,7 @@ import {
 } from 'pixi.js'
 
 import type { ClientRenderer } from '../ClientRenderer'
+import { getAttackPickupKindFromId } from '../attackPickupUtils'
 import {
   getCharacterBodyColor,
   getCharacterBodyProfileHeight,
@@ -48,6 +49,7 @@ import {
   resolveSkeletalMoveDirection,
 } from '../skeletalAnimation'
 import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
+import type { WeaponType } from '../types'
 import {
   ENTITY_STRIDE,
   FLAGS,
@@ -58,7 +60,11 @@ import { ROPE_POINT_STRIDE } from '../worker/effectsProtocol'
 import { getBodySpriteSource, isBodyVisualAssetsReady } from './BodyRenderer'
 import { BombExplosionEmitterPool } from './BombExplosionEmitterPool'
 import { createCheckpointTreeTextureSource } from './CheckpointTreeTextureFactory'
-import { HUD_ICON_ALPHA, HUD_ICON_COLOR } from './HudWeaponSlotRenderer'
+import {
+  HUD_ICON_ALPHA,
+  HUD_ICON_COLOR,
+  drawAttackPickupIcon as drawAttackPickupIconShape,
+} from './HudWeaponSlotRenderer'
 import { ParrySparkEmitterPool } from './ParrySparkEmitterPool'
 import {
   FOLIAGE_DEBRIS_VARIANT_FLOWER,
@@ -157,6 +163,7 @@ const SKELETAL_EDITOR_PPM = 128
 const STANDALONE_WEAPON_SORT_OFFSET = -1
 const CHECKPOINT_SORT_OFFSET = -10000
 const SUN_PICKUP_SORT_OFFSET = -5000
+const ATTACK_PICKUP_SORT_OFFSET = SUN_PICKUP_SORT_OFFSET
 const TERRAIN_DEBRIS_SORT_OFFSET = -2
 const PIXI_WORLD_PERF_SECTION_COUNT = 12
 const PIXI_WORLD_PERF_PARALLAX = 0
@@ -312,6 +319,22 @@ function getWeaponRenderType(weaponType: number): WeaponRenderType {
   }
   if (weaponType === WEAPON_TYPES.GRAPE_SHOT) {
     return 'grapeShot'
+  }
+  return 'sword'
+}
+
+function getAttackPickupWeaponType(weaponType: number): WeaponType {
+  if (weaponType === WEAPON_TYPES.SPEAR) {
+    return 'spear'
+  }
+  if (
+    weaponType === WEAPON_TYPES.HAMMER ||
+    weaponType === WEAPON_TYPES.BIG_HAMMER
+  ) {
+    return 'hammer'
+  }
+  if (weaponType === WEAPON_TYPES.BOW) {
+    return 'bow'
   }
   return 'sword'
 }
@@ -1675,6 +1698,8 @@ export class PixiWorldRenderer {
       sortOffset += CHECKPOINT_SORT_OFFSET
     } else if (flags & (FLAGS.SUN_PICKUP_SMALL | FLAGS.SUN_PICKUP_LARGE)) {
       sortOffset += SUN_PICKUP_SORT_OFFSET
+    } else if (flags & FLAGS.ATTACK_PICKUP) {
+      sortOffset += ATTACK_PICKUP_SORT_OFFSET
     } else if (flags & FLAGS.TERRAIN_DEBRIS) {
       sortOffset += TERRAIN_DEBRIS_SORT_OFFSET
     }
@@ -1719,6 +1744,10 @@ export class PixiWorldRenderer {
     }
     if (flags & FLAGS.EXP_ORB) {
       this.updateExpOrb(view)
+      return
+    }
+    if (flags & FLAGS.ATTACK_PICKUP) {
+      this.updateAttackPickup(view, buf, offset)
       return
     }
     if (flags & FLAGS.SUN_PICKUP_SMALL) {
@@ -1967,6 +1996,21 @@ export class PixiWorldRenderer {
   private updateExpOrb(view: EntityView): void {
     view.specialSprite.visible = true
     view.specialSprite.texture = this.getExpOrbTexture()
+    view.specialSprite.alpha = 1
+    hideSprite(view.bodySprite)
+    hideSprite(view.weaponSprite)
+  }
+
+  private updateAttackPickup(
+    view: EntityView,
+    buf: Float32Array,
+    offset: number
+  ): void {
+    view.specialSprite.visible = true
+    view.specialSprite.texture = this.getAttackPickupTexture(
+      buf[offset + OFFSETS.WEAPON_TYPE] | 0,
+      buf[offset + OFFSETS.WEAPON_DRAW] | 0
+    )
     view.specialSprite.alpha = 1
     hideSprite(view.bodySprite)
     hideSprite(view.weaponSprite)
@@ -3673,6 +3717,49 @@ export class PixiWorldRenderer {
     const diameter =
       (this.pixelsPerMeter * EXP_ORB_SIZE_NUMERATOR) / PICKUP_SIZE_DENOMINATOR
     const texture = this.createGlowingCircleTexture(diameter, EXP_COLOR)
+    this.iconTextureCache.set(key, texture)
+    return texture
+  }
+
+  private getAttackPickupTexture(
+    weaponTypeId: number,
+    kindId: number
+  ): Texture {
+    const key = `attack-pickup|${this.pixelsPerMeter}|${weaponTypeId}|${kindId}`
+    const cached = this.iconTextureCache.get(key)
+    if (cached) {
+      return cached
+    }
+
+    const size = (this.pixelsPerMeter * 80) / PICKUP_SIZE_DENOMINATOR
+    const outerRadius = (size * 58) / 100
+    const padding = Math.ceil(outerRadius - size * 0.5 + 2)
+    const created = createCanvas2D(size + padding * 2, size + padding * 2)
+    if (!created) {
+      return Texture.WHITE
+    }
+
+    const { canvas, ctx } = created
+    const cx = canvas.width / 2
+    const cy = canvas.height / 2
+    ctx.beginPath()
+    ctx.arc(cx, cy, outerRadius, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'
+    ctx.lineWidth = Math.max(1, Math.round((this.pixelsPerMeter * 2) / 100))
+    ctx.stroke()
+
+    drawAttackPickupIconShape(
+      ctx,
+      cx,
+      cy,
+      size,
+      getAttackPickupWeaponType(weaponTypeId),
+      getAttackPickupKindFromId(kindId)
+    )
+
+    const texture = Texture.from(canvas)
     this.iconTextureCache.set(key, texture)
     return texture
   }

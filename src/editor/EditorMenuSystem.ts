@@ -11,7 +11,7 @@ import {
   renderWeapon,
 } from '../renderer/WeaponRenderer'
 import type { TerrainBrushId, TerrainMaterialId } from '../terrain/TerrainTypes'
-import type { NpcType, WeaponType } from '../types'
+import type { AttackPickupKind, NpcType, WeaponType } from '../types'
 import { getWeaponGroundRotationRad } from '../weaponTypeUtils'
 import { DEBUG_EDITOR_MENU } from './EditorConstants'
 import { EditorMenuNavigator, EditorSubmenuMode } from './EditorMenuNavigator'
@@ -24,6 +24,7 @@ export type EditorObjectMenuType =
   | 'terrainMaterial'
   | 'terrainContour'
   | 'prop'
+  | 'skill'
   | 'environment'
 
 export interface EditorMenuSystemContext {
@@ -39,6 +40,10 @@ export interface EditorMenuSystemContext {
     weaponType: WeaponType,
     category: WeaponCategory,
     size?: number
+  ) => void
+  onAttackPickupSelected: (
+    weaponType: WeaponType,
+    kind: AttackPickupKind
   ) => void
   onNpcSelected: (npcType: NpcType) => void
   getCustomNpcTemplates: () => MapNpcTemplate[]
@@ -70,6 +75,7 @@ export class EditorMenuSystem {
   private terrainContourSubmenu: HTMLDivElement
   private terrainFillSubmenu: HTMLDivElement
   private weaponMenu: HTMLDivElement
+  private skillMenu: HTMLDivElement
   private npcSubmenu: HTMLDivElement
   private npcCustomTemplateList: HTMLDivElement
   private npcCustomTemplateTitle: HTMLDivElement
@@ -82,6 +88,7 @@ export class EditorMenuSystem {
   private terrainMenuItem: HTMLButtonElement
   private terrainContourMenuItem: HTMLButtonElement
   private weaponMenuItem: HTMLButtonElement
+  private skillMenuItem: HTMLButtonElement
   private npcMenuItem: HTMLButtonElement
   private propMenuItem: HTMLButtonElement
   private environmentMenuItem: HTMLButtonElement
@@ -91,6 +98,8 @@ export class EditorMenuSystem {
   private terrainFillSubmenuItems: NodeListOf<HTMLButtonElement>
   private weaponItems: NodeListOf<HTMLButtonElement>
   private weaponGroupTitles: NodeListOf<HTMLDivElement>
+  private skillItems: NodeListOf<HTMLButtonElement>
+  private skillGroupTitles: NodeListOf<HTMLDivElement>
   private npcSubmenuItems: HTMLButtonElement[] = []
   private propSubmenuItems: NodeListOf<HTMLButtonElement>
   private environmentSubmenuItems: HTMLButtonElement[] = []
@@ -101,6 +110,7 @@ export class EditorMenuSystem {
   private terrainContourSubmenuBackBtn: HTMLButtonElement
   private terrainFillSubmenuBackBtn: HTMLButtonElement
   private weaponMenuBackBtn: HTMLButtonElement
+  private skillMenuBackBtn: HTMLButtonElement
   private npcSubmenuBackBtn: HTMLButtonElement
   private readonly weaponPreviewPixelsPerMeter = 16
 
@@ -135,6 +145,7 @@ export class EditorMenuSystem {
       'editorTerrainContourSubmenu'
     )
     const weaponMenu = document.getElementById('editorWeaponMenu')
+    const skillMenu = document.getElementById('editorSkillMenu')
     const npcSubmenu = document.getElementById('editorNpcSubmenu')
     const npcCustomTemplateList = document.getElementById(
       'editorNpcCustomTemplateList'
@@ -166,6 +177,9 @@ export class EditorMenuSystem {
     const weaponMenuItem = document.querySelector<HTMLButtonElement>(
       '.editor-object-item[data-type="weapon"]'
     )
+    const skillMenuItem = document.querySelector<HTMLButtonElement>(
+      '.editor-object-item[data-type="skill"]'
+    )
     const npcMenuItem = document.querySelector<HTMLButtonElement>(
       '.editor-object-item[data-type="npc"]'
     )
@@ -196,6 +210,12 @@ export class EditorMenuSystem {
     const weaponGroupTitles = document.querySelectorAll<HTMLDivElement>(
       '#editorWeaponMenu .editor-submenu-group-title'
     )
+    const skillItems = document.querySelectorAll<HTMLButtonElement>(
+      '#editorSkillMenu .editor-submenu-item'
+    )
+    const skillGroupTitles = document.querySelectorAll<HTMLDivElement>(
+      '#editorSkillMenu .editor-submenu-group-title'
+    )
     const propSubmenuItems = document.querySelectorAll<HTMLButtonElement>(
       '#editorPropSubmenu .editor-submenu-item'
     )
@@ -220,6 +240,9 @@ export class EditorMenuSystem {
     const weaponMenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorWeaponMenu .editor-submenu-item[data-action="back"]'
     )
+    const skillMenuBackBtn = document.querySelector<HTMLButtonElement>(
+      '#editorSkillMenu .editor-submenu-item[data-action="back"]'
+    )
     const npcSubmenuBackBtn = document.querySelector<HTMLButtonElement>(
       '#editorNpcSubmenu .editor-submenu-item[data-action="back"]'
     )
@@ -241,6 +264,7 @@ export class EditorMenuSystem {
       !(terrainFillSubmenu instanceof HTMLDivElement) ||
       !(terrainContourSubmenu instanceof HTMLDivElement) ||
       !(weaponMenu instanceof HTMLDivElement) ||
+      !(skillMenu instanceof HTMLDivElement) ||
       !(npcSubmenu instanceof HTMLDivElement) ||
       !(npcCustomTemplateList instanceof HTMLDivElement) ||
       !(npcCustomTemplateTitle instanceof HTMLDivElement) ||
@@ -253,6 +277,7 @@ export class EditorMenuSystem {
       !(terrainMenuItem instanceof HTMLButtonElement) ||
       !(terrainContourMenuItem instanceof HTMLButtonElement) ||
       !(weaponMenuItem instanceof HTMLButtonElement) ||
+      !(skillMenuItem instanceof HTMLButtonElement) ||
       !(npcMenuItem instanceof HTMLButtonElement) ||
       !(propMenuItem instanceof HTMLButtonElement) ||
       !(environmentMenuItem instanceof HTMLButtonElement) ||
@@ -261,6 +286,7 @@ export class EditorMenuSystem {
       !(terrainFillSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(terrainContourSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(weaponMenuBackBtn instanceof HTMLButtonElement) ||
+      !(skillMenuBackBtn instanceof HTMLButtonElement) ||
       !(npcSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(propSubmenuBackBtn instanceof HTMLButtonElement) ||
       !(environmentSubmenuBackBtn instanceof HTMLButtonElement)
@@ -278,6 +304,7 @@ export class EditorMenuSystem {
     this.terrainContourSubmenu = terrainContourSubmenu
     this.terrainFillSubmenu = terrainFillSubmenu
     this.weaponMenu = weaponMenu
+    this.skillMenu = skillMenu
     this.npcSubmenu = npcSubmenu
     this.npcCustomTemplateList = npcCustomTemplateList
     this.npcCustomTemplateTitle = npcCustomTemplateTitle
@@ -290,6 +317,7 @@ export class EditorMenuSystem {
     this.terrainMenuItem = terrainMenuItem
     this.terrainContourMenuItem = terrainContourMenuItem
     this.weaponMenuItem = weaponMenuItem
+    this.skillMenuItem = skillMenuItem
     this.npcMenuItem = npcMenuItem
     this.propMenuItem = propMenuItem
     this.environmentMenuItem = environmentMenuItem
@@ -299,6 +327,8 @@ export class EditorMenuSystem {
     this.terrainFillSubmenuItems = terrainFillSubmenuItems
     this.weaponItems = weaponItems
     this.weaponGroupTitles = weaponGroupTitles
+    this.skillItems = skillItems
+    this.skillGroupTitles = skillGroupTitles
     this.propSubmenuItems = propSubmenuItems
     this.environmentSubmenuItems = Array.from(environmentSubmenuItems)
     this.objectTypeMenuBackBtn = objectTypeMenuBackBtn
@@ -306,6 +336,7 @@ export class EditorMenuSystem {
     this.terrainContourSubmenuBackBtn = terrainContourSubmenuBackBtn
     this.terrainFillSubmenuBackBtn = terrainFillSubmenuBackBtn
     this.weaponMenuBackBtn = weaponMenuBackBtn
+    this.skillMenuBackBtn = skillMenuBackBtn
     this.npcSubmenuBackBtn = npcSubmenuBackBtn
     this.propSubmenuBackBtn = propSubmenuBackBtn
     this.environmentSubmenuBackBtn = environmentSubmenuBackBtn
@@ -341,6 +372,8 @@ export class EditorMenuSystem {
         return this.terrainFillSubmenuItems
       case EditorSubmenuMode.Weapon:
         return this.weaponItems
+      case EditorSubmenuMode.Skill:
+        return this.skillItems
       case EditorSubmenuMode.Npc:
         return this.npcSubmenuItems
       case EditorSubmenuMode.Prop:
@@ -371,6 +404,10 @@ export class EditorMenuSystem {
         }
         if (type === 'prop') {
           this.showPropSubmenu()
+          return
+        }
+        if (type === 'skill') {
+          this.showSkillMenu()
           return
         }
         if (type === 'environment') {
@@ -465,6 +502,25 @@ export class EditorMenuSystem {
       })
     })
     this.bindMenuItems(this.weaponItems, EditorSubmenuMode.Weapon)
+
+    this.skillItems.forEach((item) => {
+      item.addEventListener('click', () => {
+        const action = item.dataset.action
+        if (action === 'back') {
+          this.handleMenuBack()
+          return
+        }
+        const weaponType = item.dataset.weapon as WeaponType | undefined
+        const kind = item.dataset.attackPickupKind as
+          | AttackPickupKind
+          | undefined
+        if (weaponType && kind) {
+          this.ctx.onAttackPickupSelected(weaponType, kind)
+          this.hideObjectTypeMenu()
+        }
+      })
+    })
+    this.bindMenuItems(this.skillItems, EditorSubmenuMode.Skill)
 
     this.npcSubmenu.addEventListener('click', (event) => {
       const target = event.target
@@ -633,6 +689,9 @@ export class EditorMenuSystem {
     this.weaponMenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
+    this.skillMenu.addEventListener('pointerdown', (event) => {
+      event.stopPropagation()
+    })
     this.npcSubmenu.addEventListener('pointerdown', (event) => {
       event.stopPropagation()
     })
@@ -693,6 +752,13 @@ export class EditorMenuSystem {
     }
     if (this.menuMode === EditorSubmenuMode.Weapon) {
       this.hideWeaponMenu()
+      if (this.isObjectTypeMenuVisible()) {
+        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
+      }
+      return
+    }
+    if (this.menuMode === EditorSubmenuMode.Skill) {
+      this.hideSkillMenu()
       if (this.isObjectTypeMenuVisible()) {
         this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
       }
@@ -807,6 +873,23 @@ export class EditorMenuSystem {
       }
     })
 
+    this.skillGroupTitles.forEach((title) => {
+      const kind = title.dataset.attackPickupGroup
+      if (kind) {
+        title.textContent = localizer.t(`editor_attack_pickup_group_${kind}`)
+      }
+    })
+
+    this.skillItems.forEach((item) => {
+      const weapon = item.dataset.weapon
+      const kind = item.dataset.attackPickupKind
+      if (weapon && kind) {
+        item.textContent = `${localizer.t(`editor_weapon_${weapon}`)}-${localizer.t(
+          `editor_attack_pickup_${kind}`
+        )}`
+      }
+    })
+
     this.npcCustomTemplateTitle.textContent = localizer.t(
       'editor_npc_template_group'
     )
@@ -847,6 +930,7 @@ export class EditorMenuSystem {
     this.terrainContourSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.terrainFillSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.weaponMenuBackBtn.textContent = localizer.t('menu_back')
+    this.skillMenuBackBtn.textContent = localizer.t('menu_back')
     this.npcSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.propSubmenuBackBtn.textContent = localizer.t('menu_back')
     this.environmentSubmenuBackBtn.textContent = localizer.t('menu_back')
@@ -1016,6 +1100,7 @@ export class EditorMenuSystem {
     this.hideTerrainContourSubmenu()
     this.hideTerrainFillSubmenu()
     this.hideWeaponMenu()
+    this.hideSkillMenu()
     this.hideNpcSubmenu()
     this.hidePropSubmenu()
     this.hideEnvironmentSubmenu()
@@ -1026,6 +1111,7 @@ export class EditorMenuSystem {
     this.hideTerrainContourSubmenu()
     this.hideTerrainFillSubmenu()
     this.hideWeaponMenu()
+    this.hideSkillMenu()
     this.hideNpcSubmenu()
     this.hidePropSubmenu()
     this.hideEnvironmentSubmenu()
@@ -1039,6 +1125,7 @@ export class EditorMenuSystem {
       this.terrainContourSubmenu.classList.contains('is-visible') ||
       this.terrainFillSubmenu.classList.contains('is-visible') ||
       this.weaponMenu.classList.contains('is-visible') ||
+      this.skillMenu.classList.contains('is-visible') ||
       this.npcSubmenu.classList.contains('is-visible') ||
       this.propSubmenu.classList.contains('is-visible') ||
       this.environmentSubmenu.classList.contains('is-visible')
@@ -1053,6 +1140,7 @@ export class EditorMenuSystem {
       this.terrainContourSubmenu.contains(target) ||
       this.terrainFillSubmenu.contains(target) ||
       this.weaponMenu.contains(target) ||
+      this.skillMenu.contains(target) ||
       this.npcSubmenu.contains(target) ||
       this.propSubmenu.contains(target) ||
       this.environmentSubmenu.contains(target)
@@ -1128,6 +1216,7 @@ export class EditorMenuSystem {
     this.hideTerrainContourSubmenu()
     this.hideTerrainFillSubmenu()
     this.hideWeaponMenu()
+    this.hideSkillMenu()
     this.hideNpcSubmenu()
     this.hidePropSubmenu()
     this.hideEnvironmentSubmenu()
@@ -1198,9 +1287,28 @@ export class EditorMenuSystem {
     this.setObjectTypeHighlight(ObjectType.Weapon)
   }
 
+  showSkillMenu() {
+    this.hideSiblingSubmenus(EditorSubmenuMode.Skill)
+    this.positionSkillMenu()
+    this.skillMenu.classList.add('is-visible')
+    this.menuNavigator.setMode(EditorSubmenuMode.Skill, true)
+    this.setObjectTypeHighlight('skill')
+  }
+
   hideWeaponMenu() {
     this.weaponMenu.classList.remove('is-visible')
     if (this.menuMode === EditorSubmenuMode.Weapon) {
+      if (this.objectTypeMenu.classList.contains('is-visible')) {
+        this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
+      } else {
+        this.menuNavigator.setMode(EditorSubmenuMode.None, false)
+      }
+    }
+  }
+
+  hideSkillMenu() {
+    this.skillMenu.classList.remove('is-visible')
+    if (this.menuMode === EditorSubmenuMode.Skill) {
       if (this.objectTypeMenu.classList.contains('is-visible')) {
         this.menuNavigator.setMode(EditorSubmenuMode.Object, true)
       } else {
@@ -1303,6 +1411,10 @@ export class EditorMenuSystem {
     this.positionShapeSubmenu(this.weaponMenuItem, this.weaponMenu)
   }
 
+  positionSkillMenu() {
+    this.positionShapeSubmenu(this.skillMenuItem, this.skillMenu)
+  }
+
   positionNpcSubmenu() {
     this.positionShapeSubmenu(this.npcMenuItem, this.npcSubmenu)
   }
@@ -1319,6 +1431,12 @@ export class EditorMenuSystem {
       this.terrainContourSubmenu.classList.contains('is-visible')
     ) {
       this.positionTerrainContourSubmenu()
+    }
+    if (
+      this.objectTypeMenu.classList.contains('is-visible') &&
+      this.skillMenu.classList.contains('is-visible')
+    ) {
+      this.positionSkillMenu()
     }
   }
 
@@ -1383,6 +1501,9 @@ export class EditorMenuSystem {
     }
     if (exclude !== EditorSubmenuMode.Weapon) {
       this.hideWeaponMenu()
+    }
+    if (exclude !== EditorSubmenuMode.Skill) {
+      this.hideSkillMenu()
     }
     if (exclude !== EditorSubmenuMode.Npc) {
       this.hideNpcSubmenu()

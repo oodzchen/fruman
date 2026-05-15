@@ -31,6 +31,7 @@ import {
 } from '../constants'
 import type { MapCharacterBodyProfile, MapNpcDropItem } from '../editorMapTypes'
 import type {
+  AttackPickupKind,
   NpcAttackMove,
   NpcAttackMoveId,
   NpcPatrolMode,
@@ -1026,11 +1027,23 @@ export class AttackSlotsComponent extends Component {
   normal = createAttackSlotData()
   ultimate = createUltimateSlotData()
   skill = createSkillSlotData()
+  unlockedUltimateMask = 0
+  unlockedSkillMask = 0
+  swordSkillCharges = 0
+  spearSkillCharges = 0
+  hammerSkillCharges = 0
+  bowSkillCharges = 0
 
   reset(): void {
     this.normal = createAttackSlotData()
     this.ultimate = createUltimateSlotData()
     this.skill = createSkillSlotData()
+    this.unlockedUltimateMask = 0
+    this.unlockedSkillMask = 0
+    this.swordSkillCharges = 0
+    this.spearSkillCharges = 0
+    this.hammerSkillCharges = 0
+    this.bowSkillCharges = 0
   }
 
   getName(): string {
@@ -1446,6 +1459,26 @@ export class ExpOrbComponent extends Component {
 
   getName(): string {
     return 'ExpOrb'
+  }
+}
+
+export class AttackPickupComponent extends Component {
+  weaponType: WeaponVisualType = 'sword'
+  kind: AttackPickupKind = 'ultimate'
+  dropElapsedTime = 0
+  pickupRadiusSq = 1
+  mapSpawnIndex = -1
+
+  reset(): void {
+    this.weaponType = 'sword'
+    this.kind = 'ultimate'
+    this.dropElapsedTime = 0
+    this.pickupRadiusSq = 1
+    this.mapSpawnIndex = -1
+  }
+
+  getName(): string {
+    return 'AttackPickup'
   }
 }
 

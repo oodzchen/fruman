@@ -72,12 +72,10 @@ import {
 import {
   buildDefaultNpcAttackMoves,
   getDefaultAttackMovesetIdForWeaponType,
-  getUltimateMovesetIdForWeaponType,
 } from '../AttackMoveRegistry'
 import { createCharacterPhysicsBody } from '../CharacterBodyPhysics'
 import {
   AttackSlotsComponent,
-  DEFAULT_SKILL_MAX_CHARGES,
   Faction,
   FactionComponent,
   FollowComponent,
@@ -271,11 +269,6 @@ export function createPlayer(
   entity.addComponent(weaponSlots)
 
   const attackSlots = new AttackSlotsComponent()
-  attackSlots.normal.hasMoveset = true
-  attackSlots.normal.movesetId = getDefaultAttackMovesetIdForWeaponType('sword')
-  const defaultUltimateMovesetId = getUltimateMovesetIdForWeaponType('sword')
-  attackSlots.ultimate.hasMoveset = defaultUltimateMovesetId.length > 0
-  attackSlots.ultimate.movesetId = defaultUltimateMovesetId
   entity.addComponent(attackSlots)
 
   return entity
@@ -885,11 +878,6 @@ export function createWeapon(
   if (isAmmoLimitedWeaponType(weaponType)) {
     weapon.bowAmmoMax = getDefaultPlayerAmmoForWeaponType(weaponType)
     weapon.bowAmmo = getDefaultPlayerAmmoForWeaponType(weaponType)
-  }
-
-  if (weaponType === 'hammer') {
-    weapon.skillId = 'hammer_crit'
-    weapon.skillCharges = DEFAULT_SKILL_MAX_CHARGES
   }
 
   // Set initial position to spawn point

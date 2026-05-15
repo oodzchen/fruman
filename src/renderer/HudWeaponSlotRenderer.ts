@@ -1,5 +1,6 @@
+import { getUltimateIconTypeForWeaponType } from '../attackPickupUtils'
 import { DEFAULT_WEAPON_HEIGHT, DEFAULT_WEAPON_WIDTH } from '../constants'
-import type { WeaponType } from '../types'
+import type { AttackPickupKind, WeaponType } from '../types'
 import {
   getWeaponGroundRotationRad,
   isAmmoLimitedWeaponType,
@@ -390,14 +391,15 @@ export function drawHudUltimateSlot(
   cooldownRatio: number,
   isReady: boolean,
   flashTimer100: number = 0,
-  iconType: 'sword' | 'hammer' | 'spear' = 'sword'
+  iconType: 'sword' | 'hammer' | 'spear' = 'sword',
+  hasUltimate: boolean = true
 ): void {
   const radius = HUD_ULTIMATE_SIZE / 2
   ctx.save()
   ctx.globalAlpha = 1
 
   // 光晕：绝招可用时在圆圈外侧绘制渐变光晕
-  if (isReady) {
+  if (hasUltimate && isReady) {
     const glow = ctx.createRadialGradient(
       cx,
       cy,
@@ -419,16 +421,18 @@ export function drawHudUltimateSlot(
   ctx.fillStyle = HUD_ULTIMATE_FILL
   ctx.fill()
 
-  if (iconType === 'hammer') {
-    drawHudUltimateHammerTip(ctx, cx, cy, radius, isReady)
-  } else if (iconType === 'spear') {
-    drawHudUltimateSpearTips(ctx, cx, cy, radius, isReady)
-  } else {
-    drawHudUltimateSwordTip(ctx, cx, cy, radius, isReady)
+  if (hasUltimate) {
+    if (iconType === 'hammer') {
+      drawHudUltimateHammerTip(ctx, cx, cy, radius, isReady)
+    } else if (iconType === 'spear') {
+      drawHudUltimateSpearTips(ctx, cx, cy, radius, isReady)
+    } else {
+      drawHudUltimateSwordTip(ctx, cx, cy, radius, isReady)
+    }
   }
 
   // 冷却蒙层：从顶部向下覆盖，随时间从底部向上减少
-  if (cooldownRatio > 0) {
+  if (hasUltimate && cooldownRatio > 0) {
     const overlayH = Math.ceil((cooldownRatio * (radius * 2)) / 100)
     ctx.save()
     ctx.beginPath()
@@ -446,7 +450,7 @@ export function drawHudUltimateSlot(
   ctx.strokeStyle =
     flashAlpha > 0
       ? `rgba(255, 255, 255, ${(0.35 + flashAlpha * 0.65).toFixed(2)})`
-      : isReady
+      : hasUltimate && isReady
         ? HUD_ULTIMATE_READY_BORDER
         : HUD_ULTIMATE_COOLDOWN_BORDER
   ctx.lineWidth = flashAlpha > 0 ? 2 + Math.round(flashAlpha * 2) : 2
@@ -454,6 +458,49 @@ export function drawHudUltimateSlot(
 
   ctx.restore()
 }
+
+export function drawAttackPickupIcon(
+  ctx: RenderContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  weaponType: WeaponType,
+  kind: AttackPickupKind
+): void {
+  if (kind === 'skill') {
+    const scale = size / HUD_SKILL_SIZE
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.scale(scale, scale)
+    drawHudSkillSlot(
+      ctx,
+      0,
+      0,
+      true,
+      DEFAULT_SKILL_PICKUP_CHARGES,
+      DEFAULT_SKILL_PICKUP_CHARGES,
+      weaponType === 'hammer' ? 'hammer_crit' : ''
+    )
+    ctx.restore()
+    return
+  }
+  const scale = size / HUD_ULTIMATE_SIZE
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.scale(scale, scale)
+  drawHudUltimateSlot(
+    ctx,
+    0,
+    0,
+    0,
+    true,
+    0,
+    getUltimateIconTypeForWeaponType(weaponType)
+  )
+  ctx.restore()
+}
+
+const DEFAULT_SKILL_PICKUP_CHARGES = 1
 
 function drawHudUltimateSwordTip(
   ctx: RenderContext2D,

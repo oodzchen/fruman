@@ -1,6 +1,10 @@
 import Box2DFactory from 'box2d3-wasm'
 
 import {
+  refillUnlockedSkills,
+  syncAttackSlotsForWeaponType,
+} from '../attackPickupUtils'
+import {
   PLAYER_BODY_PROFILE_INDEX,
   getCharacterBloodColor,
   getCharacterBodyColor,
@@ -29,13 +33,12 @@ import { ArrowPools } from '../ecs/ArrowPools'
 import {
   getDefaultAttackMovesetIdForWeaponType,
   getDefaultNormalAttackMovesetId,
-  getUltimateMovesetIdForWeaponType,
   isNormalAttackMovesetId,
   normalizeNpcAttackMoves,
 } from '../ecs/AttackMoveRegistry'
 import {
+  AttackPickupComponent,
   CheckpointComponent,
-  DEFAULT_SKILL_MAX_CHARGES,
   ExpOrbComponent,
   Faction,
   GrappleAnchorComponent,
@@ -58,6 +61,7 @@ import {
   createWeapon,
 } from '../ecs/factories/PlayerFactory'
 import { ArrowSystem } from '../ecs/systems/ArrowSystem'
+import { AttackPickupSystem } from '../ecs/systems/AttackPickupSystem'
 import { CheckpointSystem } from '../ecs/systems/CheckpointSystem'
 import { ExpOrbSystem } from '../ecs/systems/ExpOrbSystem'
 import { FollowSystem } from '../ecs/systems/FollowSystem'
@@ -122,6 +126,7 @@ import type {
 } from '../terrain/TerrainTypes'
 import { VoronoiCollisionBuilder } from '../terrain/VoronoiCollisionBuilder'
 import type {
+  AttackPickupKind,
   MainModule,
   NpcType,
   WeaponType,
@@ -199,6 +204,7 @@ let grappleSystem: GrappleSystem
 let arrowPools: ArrowPools
 let sunPickupSystem: SunPickupSystem
 let expOrbSystem: ExpOrbSystem
+let attackPickupSystem: AttackPickupSystem
 let spineSegmentManager: SpineSegmentManager
 let skeletalSegmentManager: SkeletalSegmentManager
 
@@ -345,6 +351,10 @@ function getExpOrbRenderLayer(index: number): number {
   return getIndexedLayer(activeMapLayerLookup.expOrbLayers, index)
 }
 
+function getAttackPickupRenderLayer(index: number): number {
+  return getIndexedLayer(activeMapLayerLookup.attackPickupLayers, index)
+}
+
 function buildRuntimeMapData(
   map: EditorMapData | null | undefined
 ): EditorMapData | null {
@@ -472,6 +482,7 @@ const inputController = new WorkerInputController(FIXED_STEP_MS)
 const playerEntityView: Entity[] = []
 const sunPickupEntityBuffer: Entity[] = []
 const expOrbEntityBuffer: Entity[] = []
+const attackPickupEntityBuffer: Entity[] = []
 const workerPerfSystemNames: string[] = []
 const workerPerfSystemTotalsUs: number[] = []
 const workerPerfSystemMaxUs: number[] = []
@@ -787,6 +798,7 @@ function registerComponents() {
   componentRegistry.registerComponent('SolarEnergy')
   componentRegistry.registerComponent('SunPickup')
   componentRegistry.registerComponent('ExpOrb')
+  componentRegistry.registerComponent('AttackPickup')
   componentRegistry.registerComponent('TerrainDebris')
   componentRegistry.registerComponent('Level')
   componentRegistry.registerComponent('Follow')
@@ -838,19 +850,15 @@ function initializeSystems() {
     }
     // 技能次数回满
     if (playerEntity?.attackSlots) {
-      const skill = playerEntity.attackSlots.skill
-      if (skill.skillId) {
-        skill.chargesRemaining = skill.maxCharges
-        if (playerEntity.weapon) {
-          playerEntity.weapon.skillCharges = skill.maxCharges
-        }
-        if (playerEntity.weaponSlots) {
-          const main = playerEntity.weaponSlots.main
-          const secondary = playerEntity.weaponSlots.secondary
-          if (main.skillId) main.skillCharges = DEFAULT_SKILL_MAX_CHARGES
-          if (secondary.skillId)
-            secondary.skillCharges = DEFAULT_SKILL_MAX_CHARGES
-        }
+      refillUnlockedSkills(playerEntity.attackSlots)
+      if (playerEntity.weapon) {
+        syncAttackSlotsForWeaponType(
+          playerEntity.attackSlots,
+          playerEntity.weapon.weaponType
+        )
+        playerEntity.weapon.skillId = playerEntity.attackSlots.skill.skillId
+        playerEntity.weapon.skillCharges =
+          playerEntity.attackSlots.skill.chargesRemaining
       }
     }
   })
@@ -913,6 +921,8 @@ function initializeSystems() {
     syncPlayerUpgradeState(player, true, false, true)
     emitPlayerLevelUpPrompt(previousMaxHealth, previousLevel)
   })
+  attackPickupSystem = new AttackPickupSystem()
+  attackPickupSystem.setEffectsEmitter(effectsEmitter)
   lootSpawner.setFactories(
     createSunPickupEntity,
     createExpOrbEntity,
@@ -1434,6 +1444,7 @@ function createEnvironment(): void {
     createGrappleAnchorsFromMap(activeMapData)
     createSunPickupsFromMap(activeMapData)
     createExpOrbsFromMap(activeMapData)
+    createAttackPickupsFromMap(activeMapData)
   } else {
     createGround()
     createObstacles()
@@ -1783,6 +1794,24 @@ function createExpOrbsFromMap(map: EditorMapData): void {
   }
 }
 
+function createAttackPickupsFromMap(map: EditorMapData): void {
+  if (!world) return
+  const pickups = map.attackPickups ?? []
+  for (let i = 0; i < pickups.length; i++) {
+    const pickup = pickups[i]
+    createAttackPickupEntity(
+      pickup.x,
+      pickup.y,
+      normalizeWeaponType(pickup.weaponType) ?? 'sword',
+      pickup.kind,
+      getAttackPickupRenderLayer(i),
+      0,
+      0,
+      i
+    )
+  }
+}
+
 function createSunPickupEntity(
   x: number,
   y: number,
@@ -1914,6 +1943,73 @@ function createExpOrbEntity(
   const expOrb = new ExpOrbComponent()
   expOrb.pickupRadiusSq = 1
   entity.addComponent(expOrb)
+
+  setBodyLinearVelocity(bodyId, velocityX, velocityY)
+  return entity
+}
+
+function createAttackPickupEntity(
+  x: number,
+  y: number,
+  weaponType: WeaponType,
+  kind: AttackPickupKind,
+  renderLayer: number,
+  velocityX = 0,
+  velocityY = 0,
+  mapSpawnIndex = -1
+): Entity | null {
+  if (!world) return null
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2BodyType,
+    b2DefaultShapeDef,
+    b2CreateCircleShape,
+    b2Circle,
+  } = box2d
+  const entity = world.createEntity()
+  const transform = new TransformComponent()
+  transform.x = x
+  transform.y = y
+  entity.addComponent(transform)
+
+  const bodyDef = b2DefaultBodyDef()
+  bodyDef.type = b2BodyType.b2_dynamicBody
+  bodyDef.position.Set(x, y)
+  bodyDef.linearDamping = 1.0
+  bodyDef.motionLocks.angularZ = true
+  const bodyId = b2CreateBody(worldId, bodyDef)
+
+  const shapeDef = b2DefaultShapeDef()
+  shapeDef.density = 0.3
+  shapeDef.material.friction = 0.3
+  shapeDef.material.restitution = 0.1
+  shapeDef.filter.categoryBits = getWeaponCollisionCategory(renderLayer)
+  shapeDef.filter.maskBits = getWeaponCollisionMask(renderLayer)
+
+  const circle = new b2Circle()
+  circle.center.Set(0, 0)
+  circle.radius = 0.22
+  b2CreateCircleShape(bodyId, shapeDef, circle)
+  bodyDef.delete()
+  shapeDef.delete()
+  circle.delete()
+
+  const physics = new PhysicsComponent()
+  physics.bodyId = bodyId
+  entity.addComponent(physics)
+
+  const render = new RenderComponent()
+  render.visible = true
+  render.renderLayer = renderLayer
+  entity.addComponent(render)
+
+  const attackPickup = new AttackPickupComponent()
+  attackPickup.weaponType = weaponType
+  attackPickup.kind = kind
+  attackPickup.pickupRadiusSq = 1
+  attackPickup.mapSpawnIndex = mapSpawnIndex
+  entity.addComponent(attackPickup)
 
   setBodyLinearVelocity(bodyId, velocityX, velocityY)
   return entity
@@ -2307,8 +2403,8 @@ function applyWeaponSlotConfig(
     slot.bowAmmoMax = 0
     slot.bowAmmo = 0
   }
-  slot.skillId = normalizedConfig.weaponType === 'hammer' ? 'hammer_crit' : ''
-  slot.skillCharges = slot.skillId ? DEFAULT_SKILL_MAX_CHARGES : 0
+  slot.skillId = ''
+  slot.skillCharges = 0
 }
 
 function createPlayerAndWeapon(
@@ -2478,25 +2574,18 @@ function createPlayerAndWeapon(
       playerEntity.weapon.toughnessDamage = activeSlot.toughnessDamage
       playerEntity.weapon.bowAmmo = activeSlot.bowAmmo
       playerEntity.weapon.bowAmmoMax = activeSlot.bowAmmoMax
-      playerEntity.weapon.skillId = activeSlot.skillId
-      playerEntity.weapon.skillCharges = activeSlot.skillCharges
+      playerEntity.weapon.skillId = ''
+      playerEntity.weapon.skillCharges = 0
       playerEntity.weapon.isEquipped = true
       if (playerEntity.attackSlots) {
         playerEntity.attackSlots.normal.hasMoveset =
           playerEntity.weapon.movesetId.length > 0
         playerEntity.attackSlots.normal.movesetId =
           playerEntity.weapon.movesetId
-        const ultimateMovesetId = getUltimateMovesetIdForWeaponType(weaponType)
-        playerEntity.attackSlots.ultimate.hasMoveset =
-          ultimateMovesetId.length > 0
-        playerEntity.attackSlots.ultimate.movesetId = ultimateMovesetId
-        // 初始化技能槽（applySkillMoveset 只在武器切换时调用，此处手动初始化）
-        const skill = playerEntity.attackSlots.skill
-        skill.skillId = activeSlot.skillId
-        skill.maxCharges = activeSlot.skillId ? DEFAULT_SKILL_MAX_CHARGES : 0
-        skill.chargesRemaining = activeSlot.skillId
-          ? activeSlot.skillCharges
-          : 0
+        syncAttackSlotsForWeaponType(playerEntity.attackSlots, weaponType)
+        playerEntity.weapon.skillId = playerEntity.attackSlots.skill.skillId
+        playerEntity.weapon.skillCharges =
+          playerEntity.attackSlots.skill.chargesRemaining
       }
     } else {
       playerEntity.weapon.isEquipped = false
@@ -2843,6 +2932,16 @@ function fixedUpdate() {
     destroyEntityPhysicsBody(e)
     world.destroyEntity(e)
   }
+
+  attackPickupSystem.update(
+    attackPickupEntityBuffer,
+    playerEntityView,
+    TIME_STEP
+  )
+  for (const e of attackPickupSystem.getPendingRemove()) {
+    destroyEntityPhysicsBody(e)
+    world.destroyEntity(e)
+  }
   workerPerfPickupUpdateTotalUs += Math.round(
     (performance.now() - pickupUpdateStartMs) * 1000
   )
@@ -2922,6 +3021,7 @@ function update() {
 function collectPickupEntities(entities: Entity[]): void {
   sunPickupEntityBuffer.length = 0
   expOrbEntityBuffer.length = 0
+  attackPickupEntityBuffer.length = 0
 
   for (let i = 0; i < entities.length; i++) {
     const entity = entities[i]
@@ -2930,6 +3030,9 @@ function collectPickupEntities(entities: Entity[]): void {
     }
     if (entity.expOrb) {
       expOrbEntityBuffer.push(entity)
+    }
+    if (entity.attackPickup) {
+      attackPickupEntityBuffer.push(entity)
     }
   }
 }

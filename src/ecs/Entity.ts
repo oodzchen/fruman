@@ -1,6 +1,7 @@
 import type { Component } from './Component'
 import {
   ArrowComponent,
+  AttackPickupComponent,
   AttackSlotsComponent,
   CheckpointComponent,
   ExpOrbComponent,
@@ -54,6 +55,7 @@ export class Entity {
   solarEnergy?: SolarEnergyComponent
   sunPickup?: SunPickupComponent
   expOrb?: ExpOrbComponent
+  attackPickup?: AttackPickupComponent
   terrainDebris?: TerrainDebrisComponent
   level?: LevelComponent
   follow?: FollowComponent
@@ -142,6 +144,7 @@ export class Entity {
     this.solarEnergy = undefined
     this.sunPickup = undefined
     this.expOrb = undefined
+    this.attackPickup = undefined
     this.terrainDebris = undefined
     this.level = undefined
     this.follow = undefined
@@ -211,6 +214,9 @@ export class Entity {
         break
       case 'ExpOrb':
         this.expOrb = component as ExpOrbComponent
+        break
+      case 'AttackPickup':
+        this.attackPickup = component as AttackPickupComponent
         break
       case 'TerrainDebris':
         this.terrainDebris = component as TerrainDebrisComponent
@@ -288,6 +294,9 @@ export class Entity {
         break
       case 'ExpOrb':
         this.expOrb = undefined
+        break
+      case 'AttackPickup':
+        this.attackPickup = undefined
         break
       case 'TerrainDebris':
         this.terrainDebris = undefined

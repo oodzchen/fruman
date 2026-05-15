@@ -17,6 +17,7 @@ import {
   type CheckpointTreeTextureSource,
   createCheckpointTreeTextureSource,
 } from '../renderer/CheckpointTreeTextureFactory'
+import { drawAttackPickupIcon } from '../renderer/HudWeaponSlotRenderer'
 import {
   createCustomEnvironmentTextureSource,
   createEnvironmentTextureSource,
@@ -27,7 +28,7 @@ import {
   type WeaponRenderPalette,
   getRuntimeWeaponPalette,
 } from '../renderer/WeaponRenderer'
-import type { NpcType, WeaponType } from '../types'
+import type { AttackPickupKind, NpcType, WeaponType } from '../types'
 import {
   getWeaponGroundRotationRad,
   isSecondaryWeaponType,
@@ -35,6 +36,7 @@ import {
 } from '../weaponTypeUtils'
 import { HOOK_ANCHOR_BORDER_COLOR, HOOK_ANCHOR_COLOR } from './EditorConstants'
 import type {
+  AttackPickupMarker,
   CharacterBodyShapeObject,
   CheckpointMarker,
   EnvironmentMarker,
@@ -206,6 +208,32 @@ class WeaponRenderObject extends fabric.FabricObject {
       undefined,
       undefined,
       getRuntimeWeaponPalette(this.weaponRenderType)
+    )
+  }
+}
+
+class AttackPickupMarkerRenderObject extends fabric.FabricObject {
+  static override type = 'customAttackPickupMarker'
+
+  declare editorShape: 'attack-pickup-marker'
+  declare weaponType: WeaponType
+  declare pickupKind: AttackPickupKind
+
+  constructor(options?: FabricObjectOptions) {
+    super(options)
+    this.editorShape = 'attack-pickup-marker'
+    this.weaponType = 'sword'
+    this.pickupKind = 'ultimate'
+  }
+
+  override _render(ctx: CanvasRenderingContext2D): void {
+    drawAttackPickupIcon(
+      ctx,
+      0,
+      0,
+      this.width,
+      this.weaponType,
+      this.pickupKind
     )
   }
 }
@@ -874,6 +902,28 @@ export class EditorObjectFactory {
     group.toughnessDamage = toughnessDamage
     group.bowAmmo = bowAmmo
     return group
+  }
+
+  createAttackPickupMarker(
+    weaponType: WeaponType,
+    kind: AttackPickupKind
+  ): AttackPickupMarker {
+    const markerSizePx = Math.round(this.pixelsPerMeter * 0.8)
+    const marker = new AttackPickupMarkerRenderObject({
+      width: markerSizePx,
+      height: markerSizePx,
+      originX: 'center',
+      originY: 'center',
+      selectable: true,
+      hasControls: false,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      objectCaching: true,
+    }) as AttackPickupMarker
+    marker.weaponType = weaponType
+    marker.pickupKind = kind
+    return marker
   }
 
   createNpcWeaponMarkerFromConfig(

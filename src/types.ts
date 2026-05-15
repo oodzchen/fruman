@@ -72,6 +72,7 @@ export type WeaponType =
   | 'hook'
   | 'bomb'
 export type WeaponVisualType = WeaponType | 'arrow' | 'grapeShot'
+export type AttackPickupKind = 'ultimate' | 'skill'
 export type NpcDropItemType =
   | WeaponType
   | 'sunPickupSmall'

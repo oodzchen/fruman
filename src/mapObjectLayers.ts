@@ -20,6 +20,7 @@ export interface MapObjectLayerLookup {
   sunPickupSmallLayers: number[]
   sunPickupLargeLayers: number[]
   expOrbLayers: number[]
+  attackPickupLayers: number[]
   environmentObjectLayers: number[]
 }
 
@@ -49,6 +50,7 @@ export function buildMapObjectLayerLookup(
     sunPickupSmallLayers: [],
     sunPickupLargeLayers: [],
     expOrbLayers: [],
+    attackPickupLayers: [],
     environmentObjectLayers: [],
   }
   const environmentObjects = map?.environmentObjects
@@ -93,6 +95,8 @@ export function buildMapObjectLayerLookup(
       lookup.sunPickupLargeLayers[index] = layer
     } else if (type === 'expOrb') {
       lookup.expOrbLayers[index] = layer
+    } else if (type === 'attackPickup') {
+      lookup.attackPickupLayers[index] = layer
     } else if (
       type === 'envTree' ||
       type === 'envHill' ||
@@ -234,6 +238,16 @@ export function collectCollisionLayers(
     pushUniqueLayer(
       layers,
       normalizeRenderLayer(lookup.expOrbLayers[i], getDefaultObjectLayer())
+    )
+  }
+  const attackPickups = map.attackPickups ?? []
+  for (let i = 0; i < attackPickups.length; i++) {
+    pushUniqueLayer(
+      layers,
+      normalizeRenderLayer(
+        lookup.attackPickupLayers[i],
+        getDefaultObjectLayer()
+      )
     )
   }
   const environmentObjects = map.environmentObjects ?? []

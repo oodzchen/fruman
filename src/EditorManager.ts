@@ -135,7 +135,12 @@ import {
   saveEditorSetting,
 } from './storage'
 import type { TerrainBrushId, TerrainMaterialId } from './terrain/TerrainTypes'
-import type { NpcPatrolMode, NpcType, WeaponType } from './types'
+import type {
+  AttackPickupKind,
+  NpcPatrolMode,
+  NpcType,
+  WeaponType,
+} from './types'
 
 type WeaponTemplate = (typeof WEAPON_DEFAULT_DATA)[WeaponType]
 
@@ -344,6 +349,9 @@ export class EditorManager {
         }
         if (this.markerManager.isExpOrbMarker(obj)) {
           this.markerManager.removeExpOrbMarker(obj)
+        }
+        if (this.markerManager.isAttackPickupMarker(obj)) {
+          this.markerManager.removeAttackPickupMarker(obj)
         }
         if (this.markerManager.isHookAnchorMarker(obj)) {
           this.markerManager.removeHookAnchorMarker(obj)
@@ -803,6 +811,21 @@ export class EditorManager {
           })
         } else {
           this.markerManager.spawnExpOrbMarker()
+        }
+        this.captureHistorySnapshot()
+      },
+      onAttackPickupSelected: (
+        weaponType: WeaponType,
+        kind: AttackPickupKind
+      ) => {
+        const spawn = this.consumePanelMenuSpawn()
+        if (spawn) {
+          this.markerManager.spawnAttackPickupMarker(weaponType, kind, {
+            x: spawn.x * this.invPixelsPerMeter,
+            y: spawn.y * this.invPixelsPerMeter,
+          })
+        } else {
+          this.markerManager.spawnAttackPickupMarker(weaponType, kind)
         }
         this.captureHistorySnapshot()
       },
@@ -1279,6 +1302,13 @@ export class EditorManager {
       this.setActiveObjectType(ObjectType.Weapon)
       this.hideAllSubmenus()
       this.menuSystem.showWeaponMenu()
+      return
+    }
+
+    if (type === 'skill') {
+      this.setActiveObjectType(ObjectType.AttackPickup)
+      this.hideAllSubmenus()
+      this.menuSystem.showSkillMenu()
       return
     }
 
@@ -3464,6 +3494,7 @@ export class EditorManager {
     const hookAnchorObjects: EditorObjectData[] = []
     const sunPickupObjects: EditorObjectData[] = []
     const expOrbObjects: EditorObjectData[] = []
+    const attackPickupObjects: EditorObjectData[] = []
     const environmentObjects: EditorObjectData[] = []
     let playerObject: EditorObjectData | null = null
     let cameraObject: EditorObjectData | null = null
@@ -3489,6 +3520,8 @@ export class EditorManager {
         sunPickupObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.ExpOrb) {
         expOrbObjects.push(dataItem)
+      } else if (dataItem.type === ObjectType.AttackPickup) {
+        attackPickupObjects.push(dataItem)
       } else if (this.isEnvironmentStampObjectType(dataItem.type)) {
         environmentObjects.push(dataItem)
       } else if (dataItem.type === ObjectType.Player) {
@@ -3560,6 +3593,12 @@ export class EditorManager {
         resolvedData =
           index >= 0 && index < expOrbObjects.length
             ? expOrbObjects[index]
+            : null
+      } else if (node.type === 'attackPickup') {
+        const index = node.index ?? -1
+        resolvedData =
+          index >= 0 && index < attackPickupObjects.length
+            ? attackPickupObjects[index]
             : null
       } else if (
         node.type === 'envTree' ||
@@ -4484,6 +4523,9 @@ export class EditorManager {
       }
       if (this.markerManager.isExpOrbMarker(target)) {
         this.markerManager.removeExpOrbMarker(target)
+      }
+      if (this.markerManager.isAttackPickupMarker(target)) {
+        this.markerManager.removeAttackPickupMarker(target)
       }
       if (this.markerManager.isHookAnchorMarker(target)) {
         this.markerManager.removeHookAnchorMarker(target)

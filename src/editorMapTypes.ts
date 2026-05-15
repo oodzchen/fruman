@@ -1,5 +1,6 @@
 import type { MapTerrainData } from './terrain/TerrainTypes'
 import type {
+  AttackPickupKind,
   NormalAttackMovesetId,
   NpcAttackMove,
   NpcDetectionRangeLevel,
@@ -116,6 +117,7 @@ export type EditorTreeObjectType =
   | 'sunPickupSmall'
   | 'sunPickupLarge'
   | 'expOrb'
+  | 'attackPickup'
   | 'envTree'
   | 'envHill'
   | 'envHouse'
@@ -404,6 +406,13 @@ export interface MapExpOrb {
   y: number
 }
 
+export interface MapAttackPickup {
+  x: number
+  y: number
+  weaponType: MapWeaponType
+  kind: AttackPickupKind
+}
+
 export interface MapWeapon {
   x: number
   y: number
@@ -466,6 +475,7 @@ export interface EditorMapData {
   hookAnchors?: MapHookAnchor[]
   sunPickups?: MapSunPickup[]
   expOrbs?: MapExpOrb[]
+  attackPickups?: MapAttackPickup[]
   terrain?: MapTerrainData
   referenceLines?: MapReferenceLine[]
   npcTemplates?: MapNpcTemplate[]
