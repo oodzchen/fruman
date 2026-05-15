@@ -5,7 +5,11 @@ import {
   isAmmoLimitedWeaponType,
 } from '../weaponTypeUtils'
 import type { RenderContext2D } from './RenderContext2D'
-import { renderWeapon as renderWeaponShape } from './WeaponRenderer'
+import {
+  type WeaponRenderPalette,
+  getRuntimeWeaponPalette,
+  renderWeapon as renderWeaponShape,
+} from './WeaponRenderer'
 
 export const HUD_SLOT_SIZE = 46
 export const HUD_SLOT_SPACING = 14
@@ -35,7 +39,8 @@ export function drawHudWeaponSlot(
   sizeLevel: number,
   sizeMaxLevel: number,
   ammo: number,
-  ammoText: string
+  ammoText: string,
+  useRuntimePalette: boolean = false
 ): void {
   const indicator = getHudWeaponIndicatorLevel(
     weaponType,
@@ -43,6 +48,8 @@ export function drawHudWeaponSlot(
     hasWeapon ? sizeMaxLevel : 0
   )
   const renderType = getHudWeaponRenderType(weaponType)
+  const palette =
+    useRuntimePalette && hasWeapon ? getRuntimeWeaponPalette(renderType) : null
 
   ctx.save()
   ctx.globalAlpha = 1
@@ -93,7 +100,8 @@ export function drawHudWeaponSlot(
         false,
         0,
         2,
-        bowLineWidthBase
+        bowLineWidthBase,
+        palette ?? undefined
       )
 
       ctx.save()
@@ -105,7 +113,8 @@ export function drawHudWeaponSlot(
         iconHeight * 0.2,
         false,
         HUD_ICON_COLOR,
-        arrowLength * 0.5
+        arrowLength * 0.5,
+        useRuntimePalette ? getRuntimeWeaponPalette('arrow') : undefined
       )
       ctx.restore()
       ctx.restore()
@@ -124,7 +133,10 @@ export function drawHudWeaponSlot(
         iconHeight,
         HUD_ICON_COLOR,
         false,
-        0
+        0,
+        undefined,
+        undefined,
+        palette ?? undefined
       )
       ctx.restore()
     } else if (renderType === 'hook') {
@@ -141,7 +153,10 @@ export function drawHudWeaponSlot(
         iconHeight,
         HUD_ICON_COLOR,
         false,
-        0
+        0,
+        undefined,
+        undefined,
+        palette ?? undefined
       )
       ctx.restore()
     } else if (renderType === 'bomb') {
@@ -158,7 +173,10 @@ export function drawHudWeaponSlot(
         iconHeight,
         HUD_ICON_COLOR,
         false,
-        0
+        0,
+        undefined,
+        undefined,
+        palette ?? undefined
       )
       ctx.restore()
     } else if (renderType === 'hammer') {
@@ -175,7 +193,10 @@ export function drawHudWeaponSlot(
         iconHeight,
         HUD_ICON_COLOR,
         false,
-        0
+        0,
+        undefined,
+        undefined,
+        palette ?? undefined
       )
       ctx.restore()
     } else if (renderType === 'spear') {
@@ -205,7 +226,10 @@ export function drawHudWeaponSlot(
         spearIconHeight,
         HUD_ICON_COLOR,
         false,
-        0
+        0,
+        undefined,
+        undefined,
+        palette ?? undefined
       )
       ctx.restore()
     } else {
@@ -215,7 +239,18 @@ export function drawHudWeaponSlot(
       ctx.globalAlpha = isActive ? HUD_ICON_ALPHA_ACTIVE : HUD_ICON_ALPHA
       ctx.fillStyle = HUD_ICON_COLOR
       ctx.strokeStyle = HUD_ICON_COLOR
-      renderWeaponShape(ctx, 'sword', iconWidth, iconHeight, HUD_ICON_COLOR)
+      renderWeaponShape(
+        ctx,
+        'sword',
+        iconWidth,
+        iconHeight,
+        HUD_ICON_COLOR,
+        false,
+        0,
+        undefined,
+        undefined,
+        palette ?? undefined
+      )
       ctx.restore()
     }
 
@@ -625,15 +660,34 @@ function drawHudArrowShape(
   thicknessPx: number,
   isAttacking: boolean,
   bodyColor: string,
-  baseOffsetY: number
+  baseOffsetY: number,
+  palette?: WeaponRenderPalette
 ): void {
   const lineWidth = Math.max(1, thicknessPx * 0.9)
   const headLen = Math.max(4, lengthPx * 0.18)
   const headWidth = Math.max(4, thicknessPx * 1.6)
   const tipY = baseOffsetY - lengthPx
 
-  ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
   ctx.lineWidth = lineWidth
+
+  if (palette) {
+    ctx.strokeStyle = isAttacking ? '#FFFFFF' : palette.wood
+    ctx.beginPath()
+    ctx.moveTo(0, baseOffsetY)
+    ctx.lineTo(0, tipY)
+    ctx.stroke()
+
+    ctx.strokeStyle = isAttacking ? '#FFFFFF' : palette.metal
+    ctx.beginPath()
+    ctx.moveTo(0, tipY)
+    ctx.lineTo(-headWidth / 2, tipY + headLen)
+    ctx.moveTo(0, tipY)
+    ctx.lineTo(headWidth / 2, tipY + headLen)
+    ctx.stroke()
+    return
+  }
+
+  ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
 
   ctx.beginPath()
   ctx.moveTo(0, baseOffsetY)

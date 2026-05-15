@@ -45,7 +45,10 @@ import {
   HUD_SLOT_SPACING,
   drawHudWeaponSlot,
 } from '../renderer/HudWeaponSlotRenderer'
-import { renderWeapon } from '../renderer/WeaponRenderer'
+import {
+  getRuntimeWeaponPalette,
+  renderWeapon,
+} from '../renderer/WeaponRenderer'
 import {
   buildSkeletalSurfaceSnapshot,
   createDefaultSkeletalBoneSegments,
@@ -1681,7 +1684,8 @@ export class EditorPropertiesPanel {
           mainAmmoValue,
           isAmmoLimitedWeaponType(mainSlotPreview.weaponType)
             ? getAmmoText(mainAmmoValue)
-            : ''
+            : '',
+          true
         )
         drawHudWeaponSlot(
           weaponSlotsCtx,
@@ -1698,7 +1702,8 @@ export class EditorPropertiesPanel {
           secondaryAmmoValue,
           isAmmoLimitedWeaponType(secondarySlotPreview.weaponType)
             ? getAmmoText(secondaryAmmoValue)
-            : ''
+            : '',
+          true
         )
       }
 
@@ -1794,14 +1799,20 @@ export class EditorPropertiesPanel {
           previewCtx.save()
           previewCtx.translate(weaponX, weaponY)
           previewCtx.rotate(previewWeaponTransform.rotation)
+          const renderType = this.getWeaponRenderType(
+            mainSlotPreview.weaponType
+          )
           renderWeapon(
             previewCtx,
-            this.getWeaponRenderType(mainSlotPreview.weaponType),
+            renderType,
             weaponWidth,
             weaponHeight,
             previewWeaponColor,
             false,
-            0
+            0,
+            undefined,
+            undefined,
+            getRuntimeWeaponPalette(renderType)
           )
           previewCtx.restore()
         }
@@ -2808,7 +2819,12 @@ export class EditorPropertiesPanel {
         previewType,
         dims.widthPx,
         dims.heightPx,
-        previewColor
+        previewColor,
+        false,
+        0,
+        undefined,
+        undefined,
+        getRuntimeWeaponPalette(previewType)
       )
       previewCtx.restore()
     }

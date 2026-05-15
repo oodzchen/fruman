@@ -484,6 +484,9 @@ export abstract class WeaponProjectileSystem extends WeaponAttackPhaseSystem {
     if (!this.world) {
       return
     }
+    if (entity.render) {
+      entity.render.visible = false
+    }
     if (entity.physics && this.box2d) {
       this.box2d.b2DestroyBody(entity.physics.bodyId)
       entity.removeComponent('Physics')

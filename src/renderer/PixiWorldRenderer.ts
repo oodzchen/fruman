@@ -87,7 +87,12 @@ import {
   isSpineLoaded,
   releaseSpine,
 } from './SpineBodyManager'
-import { type WeaponRenderType, renderWeapon } from './WeaponRenderer'
+import {
+  type WeaponRenderPalette,
+  type WeaponRenderType,
+  getRuntimeWeaponPalette,
+  renderWeapon,
+} from './WeaponRenderer'
 
 const FOLLOW_BOUND_BORDER_COLOR = '#ffee58'
 const GRAPPLE_LINE_COLOR = '#d9c896'
@@ -340,16 +345,34 @@ function drawArrowToContext(
   thicknessPx: number,
   color: string,
   isAttacking: boolean,
-  baseOffsetY: number
+  baseOffsetY: number,
+  palette?: WeaponRenderPalette
 ): void {
   const lineWidth = Math.max(1, thicknessPx * 0.9)
   const headLen = Math.max(4, lengthPx * 0.18)
   const headWidth = Math.max(4, thicknessPx * 1.6)
   const tipY = baseOffsetY - lengthPx
 
-  ctx.strokeStyle = isAttacking ? '#ffffff' : color
   ctx.lineWidth = lineWidth
   ctx.lineCap = 'round'
+
+  if (palette) {
+    ctx.strokeStyle = isAttacking ? '#ffffff' : palette.wood
+    ctx.beginPath()
+    ctx.moveTo(0, baseOffsetY)
+    ctx.lineTo(0, tipY)
+    ctx.stroke()
+    ctx.strokeStyle = isAttacking ? '#ffffff' : palette.metal
+    ctx.beginPath()
+    ctx.moveTo(0, tipY)
+    ctx.lineTo(-headWidth / 2, tipY + headLen)
+    ctx.moveTo(0, tipY)
+    ctx.lineTo(headWidth / 2, tipY + headLen)
+    ctx.stroke()
+    return
+  }
+
+  ctx.strokeStyle = isAttacking ? '#ffffff' : color
   ctx.beginPath()
   ctx.moveTo(0, baseOffsetY)
   ctx.lineTo(0, tipY)
@@ -2547,6 +2570,8 @@ export class PixiWorldRenderer {
     const isAttacking = !!(flags & FLAGS.WEAPON_ATTACKING)
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const color = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
+    const renderType = getWeaponRenderType(weaponType)
+    const runtimePalette = getRuntimeWeaponPalette(renderType)
     const weaponLocalX = (weaponX - entityX) * this.pixelsPerMeter
     const weaponLocalY = (weaponY - entityY) * this.pixelsPerMeter
     const projectileRadiusPx =
@@ -2590,7 +2615,8 @@ export class PixiWorldRenderer {
         isAttacking,
         quantizedBowDraw,
         arrowVisible,
-        projectileRadiusPx
+        projectileRadiusPx,
+        runtimePalette
       )
       view.weaponHash = weaponHash
     }
@@ -3478,7 +3504,8 @@ export class PixiWorldRenderer {
     isAttacking: boolean,
     bowDraw: number,
     arrowVisible: boolean,
-    projectileRadius: number = 0
+    projectileRadius: number = 0,
+    palette?: WeaponRenderPalette
   ): Texture {
     const quantizedBowDraw =
       weaponType === WEAPON_TYPES.BOW || weaponType === WEAPON_TYPES.BOMB
@@ -3493,6 +3520,7 @@ export class PixiWorldRenderer {
       Math.round(quantizedBowDraw * BOW_DRAW_TEXTURE_STEPS),
       arrowVisible ? 1 : 0,
       projectileRadius > 0 ? Math.round(projectileRadius) : 0,
+      palette ? 1 : 0,
     ].join('|')
     const cached = this.weaponTextureCache.get(key)
     if (cached) {
@@ -3548,7 +3576,10 @@ export class PixiWorldRenderer {
       height,
       color,
       isAttacking,
-      quantizedBowDraw
+      quantizedBowDraw,
+      undefined,
+      undefined,
+      palette
     )
     if (
       DEBUG_DRAW_TERRAIN_COLLISION_SHAPE &&
@@ -3583,7 +3614,8 @@ export class PixiWorldRenderer {
         arrowThickness,
         color,
         isAttacking,
-        baseOffsetY
+        baseOffsetY,
+        palette ? getRuntimeWeaponPalette('arrow') : undefined
       )
     }
 

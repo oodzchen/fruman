@@ -63,7 +63,12 @@ import {
   getSpineBoundsAtScale,
   getSpinePreviewMatchedScale,
 } from './renderer/SpineBodyManager'
-import { renderWeapon as renderWeaponShape } from './renderer/WeaponRenderer'
+import {
+  type WeaponRenderPalette,
+  type WeaponRenderType,
+  getRuntimeWeaponPalette,
+  renderWeapon as renderWeaponShape,
+} from './renderer/WeaponRenderer'
 import { getCharacterBodyTextureDataUrl } from './skeletalBodyProfile'
 import { getGrapeChargeRangeScale } from './weaponTypeUtils'
 import {
@@ -2694,6 +2699,18 @@ export class ClientRenderer {
     return 'sword'
   }
 
+  private getWeaponVisualRenderTypeFromId(
+    weaponType: number
+  ): WeaponRenderType {
+    if (weaponType === WEAPON_TYPES.ARROW) {
+      return 'arrow'
+    }
+    if (weaponType === WEAPON_TYPES.GRAPE_SHOT) {
+      return 'grapeShot'
+    }
+    return this.getWeaponRenderTypeFromId(weaponType)
+  }
+
   private renderWeapon(buf: Float32Array, offset: number, flags: number): void {
     if (flags & FLAGS.DEAD) return
     if (flags & FLAGS.VANISHED) return
@@ -2717,6 +2734,8 @@ export class ClientRenderer {
     const isStandaloneWeapon =
       buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0 && !isProjectileWeapon
     const bodyColor = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
+    const renderType = this.getWeaponVisualRenderTypeFromId(weaponType)
+    const runtimePalette = getRuntimeWeaponPalette(renderType)
 
     if (isStandaloneWeapon) {
       const maxSizePx = Math.round(
@@ -2735,7 +2754,14 @@ export class ClientRenderer {
     this.ctx.rotate(wRot)
 
     if (weaponType === WEAPON_TYPES.ARROW) {
-      this.drawArrowShape(wWidth, wHeight, isAttacking, bodyColor)
+      this.drawArrowShape(
+        wWidth,
+        wHeight,
+        isAttacking,
+        bodyColor,
+        0,
+        runtimePalette
+      )
     } else if (weaponType === WEAPON_TYPES.GRAPE_SHOT) {
       renderWeaponShape(
         this.ctx,
@@ -2743,7 +2769,11 @@ export class ClientRenderer {
         wWidth,
         wHeight,
         bodyColor,
-        isAttacking
+        isAttacking,
+        0,
+        undefined,
+        undefined,
+        runtimePalette
       )
     } else if (weaponType === WEAPON_TYPES.BOW) {
       renderWeaponShape(
@@ -2753,7 +2783,10 @@ export class ClientRenderer {
         wHeight,
         bodyColor,
         isAttacking,
-        bowDraw
+        bowDraw,
+        undefined,
+        undefined,
+        runtimePalette
       )
 
       const drawRatio = Math.max(0, Math.min(1, bowDraw))
@@ -2775,7 +2808,8 @@ export class ClientRenderer {
           arrowThickness,
           isAttacking,
           bodyColor,
-          arrowBase
+          arrowBase,
+          getRuntimeWeaponPalette('arrow')
         )
       }
     } else if (weaponType === WEAPON_TYPES.GRAPE) {
@@ -2785,7 +2819,11 @@ export class ClientRenderer {
         wWidth,
         wHeight,
         bodyColor,
-        isAttacking
+        isAttacking,
+        0,
+        undefined,
+        undefined,
+        runtimePalette
       )
     } else if (weaponType === WEAPON_TYPES.HOOK) {
       renderWeaponShape(
@@ -2794,7 +2832,11 @@ export class ClientRenderer {
         wWidth,
         wHeight,
         bodyColor,
-        isAttacking
+        isAttacking,
+        0,
+        undefined,
+        undefined,
+        runtimePalette
       )
     } else if (weaponType === WEAPON_TYPES.BOMB) {
       renderWeaponShape(
@@ -2804,7 +2846,10 @@ export class ClientRenderer {
         wHeight,
         bodyColor,
         isAttacking,
-        bowDraw
+        bowDraw,
+        undefined,
+        undefined,
+        runtimePalette
       )
     } else if (weaponType === WEAPON_TYPES.SPEAR) {
       renderWeaponShape(
@@ -2813,7 +2858,11 @@ export class ClientRenderer {
         wWidth,
         wHeight,
         bodyColor,
-        isAttacking
+        isAttacking,
+        0,
+        undefined,
+        undefined,
+        runtimePalette
       )
     } else if (
       weaponType === WEAPON_TYPES.HAMMER ||
@@ -2825,7 +2874,11 @@ export class ClientRenderer {
         wWidth,
         wHeight,
         bodyColor,
-        isAttacking
+        isAttacking,
+        0,
+        undefined,
+        undefined,
+        runtimePalette
       )
     } else {
       renderWeaponShape(
@@ -2834,7 +2887,11 @@ export class ClientRenderer {
         wWidth,
         wHeight,
         bodyColor,
-        isAttacking
+        isAttacking,
+        0,
+        undefined,
+        undefined,
+        runtimePalette
       )
     }
     this.ctx.restore()
@@ -2992,15 +3049,34 @@ export class ClientRenderer {
     thicknessPx: number,
     isAttacking: boolean,
     bodyColor: string,
-    baseOffsetY: number = 0
+    baseOffsetY: number = 0,
+    palette?: WeaponRenderPalette
   ): void {
     const lineWidth = Math.max(1, thicknessPx * 0.9)
     const headLen = Math.max(4, lengthPx * 0.18)
     const headWidth = Math.max(4, thicknessPx * 1.6)
     const tipY = baseOffsetY - lengthPx
 
-    this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
     this.ctx.lineWidth = lineWidth
+
+    if (palette) {
+      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : palette.wood
+      this.ctx.beginPath()
+      this.ctx.moveTo(0, baseOffsetY)
+      this.ctx.lineTo(0, tipY)
+      this.ctx.stroke()
+
+      this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : palette.metal
+      this.ctx.beginPath()
+      this.ctx.moveTo(0, tipY)
+      this.ctx.lineTo(-headWidth / 2, tipY + headLen)
+      this.ctx.moveTo(0, tipY)
+      this.ctx.lineTo(headWidth / 2, tipY + headLen)
+      this.ctx.stroke()
+      return
+    }
+
+    this.ctx.strokeStyle = isAttacking ? '#FFFFFF' : bodyColor
 
     this.ctx.beginPath()
     this.ctx.moveTo(0, baseOffsetY)

@@ -6,7 +6,10 @@ import type {
   MapNpcTemplate,
   WeaponCategory,
 } from '../editorMapTypes'
-import { renderWeapon } from '../renderer/WeaponRenderer'
+import {
+  getRuntimeWeaponPalette,
+  renderWeapon,
+} from '../renderer/WeaponRenderer'
 import type { TerrainBrushId, TerrainMaterialId } from '../terrain/TerrainTypes'
 import type { NpcType, WeaponType } from '../types'
 import { getWeaponGroundRotationRad } from '../weaponTypeUtils'
@@ -922,7 +925,18 @@ export class EditorMenuSystem {
     const drawWidth = Math.max(1, Math.floor((dims.widthPx * scale) / 1000))
     const drawHeight = Math.max(1, Math.floor((dims.heightPx * scale) / 1000))
 
-    renderWeapon(ctx, renderType, drawWidth, drawHeight, '#b4bdc7')
+    renderWeapon(
+      ctx,
+      renderType,
+      drawWidth,
+      drawHeight,
+      '#b4bdc7',
+      false,
+      0,
+      undefined,
+      undefined,
+      getRuntimeWeaponPalette(renderType)
+    )
     ctx.restore()
   }
 

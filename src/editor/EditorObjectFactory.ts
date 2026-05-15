@@ -23,6 +23,10 @@ import {
   isEnvironmentCellStrokeSupported,
 } from '../renderer/ProceduralEnvironmentFactory'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
+import {
+  type WeaponRenderPalette,
+  getRuntimeWeaponPalette,
+} from '../renderer/WeaponRenderer'
 import type { NpcType, WeaponType } from '../types'
 import {
   getWeaponGroundRotationRad,
@@ -74,7 +78,11 @@ interface EditorObjectFactoryOptions {
     width: number,
     height: number,
     color: string,
-    flip?: boolean
+    isAttacking?: boolean,
+    drawRatio?: number,
+    bowLineWidthOverride?: number,
+    stringLineWidthOverride?: number,
+    palette?: WeaponRenderPalette
   ) => void
 }
 
@@ -193,7 +201,11 @@ class WeaponRenderObject extends fabric.FabricObject {
       this.weaponWidthPx,
       this.weaponHeightPx,
       this.color,
-      false
+      false,
+      0,
+      undefined,
+      undefined,
+      getRuntimeWeaponPalette(this.weaponRenderType)
     )
   }
 }
@@ -465,7 +477,11 @@ class NpcMarkerRenderObject extends fabric.FabricObject {
       this.weaponWidthPx,
       this.weaponHeightPx,
       '#b4bdc7',
-      false
+      false,
+      0,
+      undefined,
+      undefined,
+      getRuntimeWeaponPalette(this.weaponRenderType)
     )
     ctx.restore()
   }
