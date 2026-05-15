@@ -5,14 +5,18 @@ import {
   isRenderLayerMatch,
 } from '../renderLayers'
 import type { TerrainResolvedLayerView } from './TerrainDataUtils'
-import { getTerrainLayerViews } from './TerrainDataUtils'
+import {
+  getTerrainChunkMaterialCodes,
+  getTerrainLayerViews,
+} from './TerrainDataUtils'
 import {
   appendTerrainCellPath,
   getTerrainPaletteIndex,
 } from './TerrainGeometry'
 import { getTerrainMaterialByCode } from './TerrainMaterialRegistry'
-import type { TerrainDataLike } from './TerrainTypes'
+import type { TerrainDataLike, TerrainMaterialDefinition } from './TerrainTypes'
 import { getVoronoiLayerBuild } from './VoronoiBuilder'
+import type { VoronoiRenderCell } from './VoronoiTypes'
 
 export interface TerrainDrawOptions {
   drawStroke?: boolean
@@ -43,6 +47,9 @@ interface TerrainPixelBounds {
   maxX: number
   maxY: number
 }
+
+type TerrainChunkView = TerrainResolvedLayerView['chunks'][number]
+type TerrainChunkLookup = Map<number, Map<number, TerrainChunkView>>
 
 export class TerrainRenderer {
   private static readonly TERRAIN_SPRITE_PADDING_PX = 4
@@ -131,7 +138,7 @@ export class TerrainRenderer {
       return this.createPixiTerrainLayerGraphic(layer, cellSizeUnits, options)
     }
     const chunk = layer.chunks[chunkIndex]
-    if (!chunk || !this.hasChunkContent(chunk.cells)) {
+    if (!chunk || !this.hasChunkContent(getTerrainChunkMaterialCodes(chunk))) {
       return null
     }
     const bounds = this.getGridChunkPixelBounds(
@@ -165,7 +172,10 @@ export class TerrainRenderer {
       layer,
       chunkIndex,
       cellSizeUnits,
-      this.shouldDrawCellStroke(layer, options.drawStroke)
+      this.shouldDrawCellStroke(layer, options.drawStroke),
+      null,
+      undefined,
+      this.createGridChunkLookup(layer)
     )
     ctx.restore()
     const sprite = new Sprite(Texture.from(canvas))
@@ -497,6 +507,9 @@ export class TerrainRenderer {
     }
     const randomSeed = terrain.randomSeed | 0
     const visibleBounds = this.getVisibleCellBounds(ctx, cellSizeUnits)
+    const chunkLookup = this.createGridChunkLookup(
+      terrain as TerrainResolvedLayerView
+    )
     for (let chunkIndex = 0; chunkIndex < terrain.chunks.length; chunkIndex++) {
       this.drawGridChunk(
         ctx,
@@ -505,7 +518,8 @@ export class TerrainRenderer {
         cellSizeUnits,
         drawStroke,
         visibleBounds,
-        randomSeed
+        randomSeed,
+        chunkLookup
       )
     }
   }
@@ -524,7 +538,8 @@ export class TerrainRenderer {
     cellSizeUnits: number,
     drawStroke: boolean,
     visibleBounds?: TerrainVisibleCellBounds | null,
-    randomSeedValue?: number
+    randomSeedValue?: number,
+    chunkLookup?: TerrainChunkLookup | null
   ): void {
     const chunk = terrain.chunks[chunkIndex]
     const chunkSize = terrain.chunkSize | 0
@@ -543,7 +558,7 @@ export class TerrainRenderer {
       return
     }
 
-    const cells = chunk.cells
+    const cells = getTerrainChunkMaterialCodes(chunk)
     const localStartX = visibleBounds
       ? Math.max(0, visibleBounds.minCellX - chunkBaseX)
       : 0
@@ -572,23 +587,318 @@ export class TerrainRenderer {
         }
         const cellX = chunkBaseX + localX
         const cellY = chunkBaseY + localY
+        const fillPalette = this.getMaterialFillPalette(material)
         const paletteIndex = getTerrainPaletteIndex(
           randomSeed,
           cellX,
           cellY,
           materialCode,
-          material.fillPalette.length
+          fillPalette.length
         )
         ctx.beginPath()
         appendTerrainCellPath(ctx, cellX, cellY, cellSizeUnits, randomSeed)
-        ctx.fillStyle = material.fillPalette[paletteIndex]
+        ctx.fillStyle = fillPalette[paletteIndex]
         ctx.fill()
+        if (this.shouldDrawMaterialSurface(material)) {
+          const aboveMaterialCode = this.getGridAboveMaterialCode(
+            chunk,
+            cells,
+            localX,
+            localY,
+            cellIndex,
+            chunkSize,
+            chunkLookup
+          )
+          if (aboveMaterialCode <= 0) {
+            this.fillCurrentTerrainPathSurface(ctx, material, paletteIndex)
+          }
+        }
         if (drawStroke) {
-          ctx.strokeStyle = material.strokeColor
+          ctx.strokeStyle = this.getMaterialStrokeColor(material)
           ctx.stroke()
         }
       }
     }
+  }
+
+  private static getMaterialFillPalette(
+    material: TerrainMaterialDefinition
+  ): TerrainMaterialDefinition['fillPalette'] {
+    return material.subsurfacePalette ?? material.fillPalette
+  }
+
+  private static getMaterialStrokeColor(
+    material: TerrainMaterialDefinition
+  ): string {
+    return material.subsurfaceStrokeColor ?? material.strokeColor
+  }
+
+  private static shouldDrawMaterialSurface(
+    material: TerrainMaterialDefinition
+  ): boolean {
+    return material.subsurfacePalette !== undefined
+  }
+
+  private static fillCurrentTerrainPathSurface(
+    ctx: CanvasRenderingContext2D,
+    material: TerrainMaterialDefinition,
+    paletteIndex: number
+  ): void {
+    ctx.fillStyle = material.fillPalette[paletteIndex]
+    ctx.fill()
+  }
+
+  private static getGridAboveMaterialCode(
+    chunk: TerrainChunkView,
+    cells: ArrayLike<number>,
+    localX: number,
+    localY: number,
+    cellIndex: number,
+    chunkSize: number,
+    chunkLookup: TerrainChunkLookup | null | undefined
+  ): number {
+    if (localY > 0) {
+      return cells[cellIndex - chunkSize] | 0
+    }
+    const aboveChunk = chunkLookup
+      ? this.getChunkLookupValue(
+          chunkLookup,
+          chunk.chunkX | 0,
+          chunk.chunkY - 1
+        )
+      : undefined
+    if (!aboveChunk) {
+      return 0
+    }
+    const aboveCells = getTerrainChunkMaterialCodes(aboveChunk)
+    return aboveCells[(chunkSize - 1) * chunkSize + localX] | 0
+  }
+
+  private static createGridChunkLookup(
+    layer: TerrainResolvedLayerView
+  ): TerrainChunkLookup | null {
+    if (layer.chunks.length === 0) {
+      return null
+    }
+    const lookup: TerrainChunkLookup = new Map()
+    for (let i = 0; i < layer.chunks.length; i++) {
+      const chunk = layer.chunks[i]
+      this.setChunkLookupValue(
+        lookup,
+        chunk.chunkX | 0,
+        chunk.chunkY | 0,
+        chunk
+      )
+    }
+    return lookup
+  }
+
+  private static setChunkLookupValue(
+    lookup: TerrainChunkLookup,
+    chunkX: number,
+    chunkY: number,
+    chunk: TerrainChunkView
+  ): void {
+    let row = lookup.get(chunkX)
+    if (!row) {
+      row = new Map<number, TerrainChunkView>()
+      lookup.set(chunkX, row)
+    }
+    row.set(chunkY, chunk)
+  }
+
+  private static getChunkLookupValue(
+    lookup: TerrainChunkLookup,
+    chunkX: number,
+    chunkY: number
+  ): TerrainChunkView | undefined {
+    return lookup.get(chunkX)?.get(chunkY)
+  }
+
+  private static shouldDrawVoronoiCellSurface(
+    cell: VoronoiRenderCell,
+    contourClipPoints: readonly number[] | undefined
+  ): boolean {
+    return (
+      cell.aboveMaterialCode <= 0 ||
+      (!!contourClipPoints &&
+        this.doesCellTouchTopFacingContourEdge(cell, contourClipPoints))
+    )
+  }
+
+  private static doesCellTouchTopFacingContourEdge(
+    cell: VoronoiRenderCell,
+    contourPoints: readonly number[]
+  ): boolean {
+    if (contourPoints.length < 6) {
+      return false
+    }
+
+    let x0 = contourPoints[contourPoints.length - 2]
+    let y0 = contourPoints[contourPoints.length - 1]
+    for (
+      let pointIndex = 0;
+      pointIndex < contourPoints.length;
+      pointIndex += 2
+    ) {
+      const x1 = contourPoints[pointIndex]
+      const y1 = contourPoints[pointIndex + 1]
+      if (
+        this.isTopFacingContourEdge(x0, y0, x1, y1, contourPoints) &&
+        this.doSegmentBoundsTouchCell(x0, y0, x1, y1, cell) &&
+        this.doesSegmentTouchFlatPolygon(x0, y0, x1, y1, cell.points)
+      ) {
+        return true
+      }
+      x0 = x1
+      y0 = y1
+    }
+    return false
+  }
+
+  private static isTopFacingContourEdge(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    contourPoints: readonly number[]
+  ): boolean {
+    if (x0 === x1) {
+      return false
+    }
+    const midX = (x0 + x1) / 2
+    const midY = (y0 + y1) / 2
+    return (
+      this.isPointInFlatPolygon(midX, midY + 1, contourPoints) &&
+      !this.isPointInFlatPolygon(midX, midY - 1, contourPoints)
+    )
+  }
+
+  private static isPointInFlatPolygon(
+    x: number,
+    y: number,
+    points: readonly number[]
+  ): boolean {
+    let inside = false
+    let previousX = points[points.length - 2]
+    let previousY = points[points.length - 1]
+    for (let pointIndex = 0; pointIndex < points.length; pointIndex += 2) {
+      const nextX = points[pointIndex]
+      const nextY = points[pointIndex + 1]
+      const intersects = nextY > y !== previousY > y
+      if (
+        intersects &&
+        x < ((previousX - nextX) * (y - nextY)) / (previousY - nextY) + nextX
+      ) {
+        inside = !inside
+      }
+      previousX = nextX
+      previousY = nextY
+    }
+    return inside
+  }
+
+  private static doSegmentBoundsTouchCell(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    cell: VoronoiRenderCell
+  ): boolean {
+    const minX = Math.min(x0, x1)
+    const maxX = Math.max(x0, x1)
+    const minY = Math.min(y0, y1)
+    const maxY = Math.max(y0, y1)
+    return !(
+      maxX < cell.minX ||
+      minX > cell.maxX ||
+      maxY < cell.minY ||
+      minY > cell.maxY
+    )
+  }
+
+  private static doesSegmentTouchFlatPolygon(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    points: readonly number[]
+  ): boolean {
+    if (points.length < 6) {
+      return false
+    }
+    let px0 = points[points.length - 2]
+    let py0 = points[points.length - 1]
+    for (let pointIndex = 0; pointIndex < points.length; pointIndex += 2) {
+      const px1 = points[pointIndex]
+      const py1 = points[pointIndex + 1]
+      if (this.doLineSegmentsTouch(x0, y0, x1, y1, px0, py0, px1, py1)) {
+        return true
+      }
+      px0 = px1
+      py0 = py1
+    }
+    return (
+      this.isPointInFlatPolygon(x0, y0, points) ||
+      this.isPointInFlatPolygon(x1, y1, points)
+    )
+  }
+
+  private static doLineSegmentsTouch(
+    ax0: number,
+    ay0: number,
+    ax1: number,
+    ay1: number,
+    bx0: number,
+    by0: number,
+    bx1: number,
+    by1: number
+  ): boolean {
+    const a0 = this.computeOrientation(ax0, ay0, ax1, ay1, bx0, by0)
+    const a1 = this.computeOrientation(ax0, ay0, ax1, ay1, bx1, by1)
+    const b0 = this.computeOrientation(bx0, by0, bx1, by1, ax0, ay0)
+    const b1 = this.computeOrientation(bx0, by0, bx1, by1, ax1, ay1)
+    return (
+      this.areOrientationSignsOppositeOrZero(a0, a1) &&
+      this.areOrientationSignsOppositeOrZero(b0, b1) &&
+      this.doSegmentBoundsTouch(ax0, ay0, ax1, ay1, bx0, by0, bx1, by1)
+    )
+  }
+
+  private static areOrientationSignsOppositeOrZero(
+    a: number,
+    b: number
+  ): boolean {
+    return a === 0 || b === 0 || a < 0 !== b < 0
+  }
+
+  private static doSegmentBoundsTouch(
+    ax0: number,
+    ay0: number,
+    ax1: number,
+    ay1: number,
+    bx0: number,
+    by0: number,
+    bx1: number,
+    by1: number
+  ): boolean {
+    return !(
+      Math.max(ax0, ax1) < Math.min(bx0, bx1) ||
+      Math.min(ax0, ax1) > Math.max(bx0, bx1) ||
+      Math.max(ay0, ay1) < Math.min(by0, by1) ||
+      Math.min(ay0, ay1) > Math.max(by0, by1)
+    )
+  }
+
+  private static computeOrientation(
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    cx: number,
+    cy: number
+  ): number {
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
   }
 
   private static drawVoronoiLayer(
@@ -627,12 +937,13 @@ export class TerrainRenderer {
       if (!material) {
         continue
       }
+      const fillPalette = this.getMaterialFillPalette(material)
       const paletteIndex = getTerrainPaletteIndex(
         randomSeed,
         cell.localCellX,
         cell.localCellY,
         cell.materialCode,
-        material.fillPalette.length
+        fillPalette.length
       )
       const points = cell.points
       if (points.length < 6) {
@@ -644,10 +955,17 @@ export class TerrainRenderer {
         ctx.lineTo(points[pointIndex], points[pointIndex + 1])
       }
       ctx.closePath()
-      ctx.fillStyle = material.fillPalette[paletteIndex]
+      ctx.fillStyle = fillPalette[paletteIndex]
       ctx.fill()
+      if (this.shouldDrawMaterialSurface(material)) {
+        if (
+          this.shouldDrawVoronoiCellSurface(cell, terrain.contourClipPoints)
+        ) {
+          this.fillCurrentTerrainPathSurface(ctx, material, paletteIndex)
+        }
+      }
       if (drawStroke) {
-        ctx.strokeStyle = material.strokeColor
+        ctx.strokeStyle = this.getMaterialStrokeColor(material)
         ctx.stroke()
       }
     }

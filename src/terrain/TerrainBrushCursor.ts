@@ -13,16 +13,30 @@ const CURSOR_HOTSPOT = 9
 const CURSOR_CACHE = new Map<TerrainBrushId, string>()
 
 function buildFillCursorSvg(fillMaterial: TerrainMaterialDefinition): string {
-  return `<svg xmlns='http://www.w3.org/2000/svg' width='${CURSOR_SIZE}' height='${CURSOR_SIZE}' viewBox='0 0 ${CURSOR_SIZE} ${CURSOR_SIZE}' shape-rendering='crispEdges'>
-<rect x='1' y='1' width='16' height='16' rx='1' ry='1' fill='${fillMaterial.fillPalette[0]}' stroke='${fillMaterial.strokeColor}' stroke-width='1'/>
-<rect x='2' y='2' width='14' height='4' fill='${fillMaterial.fillPalette[1]}'/>
-<rect x='2' y='6' width='7' height='5' fill='${fillMaterial.fillPalette[1]}'/>
-<rect x='9' y='6' width='7' height='5' fill='${fillMaterial.fillPalette[2]}'/>
-<rect x='2' y='11' width='5' height='5' fill='${fillMaterial.fillPalette[2]}'/>
-<rect x='7' y='11' width='5' height='5' fill='${fillMaterial.fillPalette[0]}'/>
-<rect x='12' y='11' width='4' height='5' fill='${fillMaterial.fillPalette[1]}'/>
+  const bodyPalette = fillMaterial.subsurfacePalette ?? fillMaterial.fillPalette
+  const strokeColor =
+    fillMaterial.subsurfaceStrokeColor ?? fillMaterial.strokeColor
+  if (fillMaterial.subsurfacePalette) {
+    return `<svg xmlns='http://www.w3.org/2000/svg' width='${CURSOR_SIZE}' height='${CURSOR_SIZE}' viewBox='0 0 ${CURSOR_SIZE} ${CURSOR_SIZE}' shape-rendering='crispEdges'>
+<rect x='1' y='1' width='16' height='16' rx='1' ry='1' fill='${bodyPalette[0]}' stroke='${strokeColor}' stroke-width='1'/>
+<rect x='2' y='2' width='14' height='8' fill='${fillMaterial.fillPalette[1]}'/>
+<rect x='2' y='10' width='5' height='6' fill='${bodyPalette[2]}'/>
+<rect x='7' y='10' width='5' height='6' fill='${bodyPalette[0]}'/>
+<rect x='12' y='10' width='4' height='6' fill='${bodyPalette[1]}'/>
 <path d='M9 0V18M0 9H18' stroke='rgba(255,255,255,0.92)' stroke-width='1'/>
-<rect x='8' y='8' width='2' height='2' fill='${fillMaterial.strokeColor}'/>
+<rect x='8' y='8' width='2' height='2' fill='${strokeColor}'/>
+</svg>`
+  }
+  return `<svg xmlns='http://www.w3.org/2000/svg' width='${CURSOR_SIZE}' height='${CURSOR_SIZE}' viewBox='0 0 ${CURSOR_SIZE} ${CURSOR_SIZE}' shape-rendering='crispEdges'>
+<rect x='1' y='1' width='16' height='16' rx='1' ry='1' fill='${bodyPalette[0]}' stroke='${strokeColor}' stroke-width='1'/>
+<rect x='2' y='2' width='14' height='4' fill='${bodyPalette[1]}'/>
+<rect x='2' y='6' width='7' height='5' fill='${bodyPalette[1]}'/>
+<rect x='9' y='6' width='7' height='5' fill='${bodyPalette[2]}'/>
+<rect x='2' y='11' width='5' height='5' fill='${bodyPalette[2]}'/>
+<rect x='7' y='11' width='5' height='5' fill='${bodyPalette[0]}'/>
+<rect x='12' y='11' width='4' height='5' fill='${bodyPalette[1]}'/>
+<path d='M9 0V18M0 9H18' stroke='rgba(255,255,255,0.92)' stroke-width='1'/>
+<rect x='8' y='8' width='2' height='2' fill='${strokeColor}'/>
 </svg>`
 }
 

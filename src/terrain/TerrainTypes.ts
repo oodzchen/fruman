@@ -26,6 +26,7 @@ export type TerrainBrushId =
   | 'erase'
 
 export type TerrainContourShapeKind = 'rect' | 'triangle' | 'circle' | 'polygon'
+export type TerrainMaterialPalette = readonly [string, string, string]
 
 export interface TerrainMaterialDefinition {
   id: TerrainMaterialId
@@ -34,8 +35,10 @@ export interface TerrainMaterialDefinition {
   labelKey: string
   breakable: boolean
   hardness: number
-  fillPalette: readonly [string, string, string]
+  fillPalette: TerrainMaterialPalette
   strokeColor: string
+  subsurfacePalette?: TerrainMaterialPalette
+  subsurfaceStrokeColor?: string
 }
 
 export interface TerrainBrushDefinition {

@@ -26,6 +26,8 @@ const TERRAIN_MATERIALS: readonly TerrainMaterialDefinition[] = [
     hardness: 14,
     fillPalette: ['#6f9638', '#7eab42', '#5e7f30'],
     strokeColor: '#32451a',
+    subsurfacePalette: ['#6f4c2d', '#7a5633', '#5f4024'],
+    subsurfaceStrokeColor: '#382516',
   },
   {
     id: 'stone',

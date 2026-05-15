@@ -6,7 +6,12 @@ export interface VoronoiRenderCell {
   localCellX: number
   localCellY: number
   materialCode: number
+  aboveMaterialCode: number
   points: number[]
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
   minCellX: number
   minCellY: number
   maxCellX: number

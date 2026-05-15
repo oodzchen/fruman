@@ -165,6 +165,7 @@ function buildVoronoiLayer(
   const siteCellX = new Int32Array(siteCount)
   const siteCellY = new Int32Array(siteCount)
   const siteMaterialCode = new Int16Array(siteCount)
+  const siteAboveMaterialCode = new Int16Array(siteCount)
 
   let siteIndex = 0
   for (
@@ -219,9 +220,20 @@ function buildVoronoiLayer(
           layer.offsetYUnits
         siteCellX[siteIndex] = worldCellX
         siteCellY[siteIndex] = worldCellY
-        siteMaterialCode[siteIndex] = sourceCells
-          ? sourceCells[cellIndex] | 0
-          : 0
+        const materialCode = sourceCells ? sourceCells[cellIndex] | 0 : 0
+        siteMaterialCode[siteIndex] = materialCode
+        siteAboveMaterialCode[siteIndex] =
+          sourceCells && materialCode > 0
+            ? getAboveSourceMaterialCode(
+                chunkMap,
+                sourceCells,
+                chunkX,
+                chunkY,
+                localX,
+                localY,
+                chunkSize
+              )
+            : 0
         siteIndex += 1
       }
     }
@@ -293,6 +305,7 @@ function buildVoronoiLayer(
         siteCellX[i],
         siteCellY[i],
         materialCode,
+        siteAboveMaterialCode[i],
         flattenedPoints,
         unclippedBounds,
         cellSizeUnits
@@ -325,6 +338,7 @@ function buildVoronoiLayer(
         siteCellX[i],
         siteCellY[i],
         materialCode,
+        siteAboveMaterialCode[i],
         flattenedPoints,
         unclippedBounds,
         cellSizeUnits
@@ -363,6 +377,7 @@ function buildVoronoiLayer(
         siteCellX[i],
         siteCellY[i],
         materialCode,
+        siteAboveMaterialCode[i],
         clippedPolygon,
         clippedBounds,
         cellSizeUnits
@@ -417,6 +432,7 @@ function appendVoronoiRenderCell(
   cellX: number,
   cellY: number,
   materialCode: number,
+  aboveMaterialCode: number,
   points: number[],
   bounds: FlatPolygonBoundsValues,
   cellSizeUnits: number
@@ -427,6 +443,7 @@ function appendVoronoiRenderCell(
       cellX,
       cellY,
       materialCode,
+      aboveMaterialCode,
       points,
       bounds,
       cellSizeUnits
@@ -439,6 +456,7 @@ function createVoronoiRenderCellFromBounds(
   cellX: number,
   cellY: number,
   materialCode: number,
+  aboveMaterialCode: number,
   points: number[],
   bounds: FlatPolygonBoundsValues,
   cellSizeUnits: number
@@ -449,12 +467,37 @@ function createVoronoiRenderCellFromBounds(
     localCellX: cellX - layer.offsetCellX,
     localCellY: cellY - layer.offsetCellY,
     materialCode,
+    aboveMaterialCode,
     points,
+    minX: bounds.minX,
+    minY: bounds.minY,
+    maxX: bounds.maxX,
+    maxY: bounds.maxY,
     minCellX: Math.floor(bounds.minX / cellSizeUnits),
     minCellY: Math.floor(bounds.minY / cellSizeUnits),
     maxCellX: Math.ceil(bounds.maxX / cellSizeUnits),
     maxCellY: Math.ceil(bounds.maxY / cellSizeUnits),
   }
+}
+
+function getAboveSourceMaterialCode(
+  chunkMap: ChunkLookup<TerrainChunkView>,
+  sourceCells: ArrayLike<number>,
+  chunkX: number,
+  chunkY: number,
+  localX: number,
+  localY: number,
+  chunkSize: number
+): number {
+  if (localY > 0) {
+    return sourceCells[(localY - 1) * chunkSize + localX] | 0
+  }
+  const aboveChunk = getChunkLookupValue(chunkMap, chunkX, chunkY - 1)
+  if (!aboveChunk) {
+    return 0
+  }
+  const aboveCells = getTerrainChunkMaterialCodes(aboveChunk)
+  return aboveCells[(chunkSize - 1) * chunkSize + localX] | 0
 }
 
 function setChunkLookupValue<T>(
