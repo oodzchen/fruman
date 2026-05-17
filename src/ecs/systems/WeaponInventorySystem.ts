@@ -1002,6 +1002,18 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
         weapon.swingEndTransform
       )
 
+      if (entity.movement?.isGrounded === false) {
+        const radius = entity.render?.radius || DEFAULT_PLAYER_RADIUS
+        getFrontTransform(
+          playerPos,
+          facing,
+          weapon.visual,
+          radius,
+          weapon.weaponType,
+          weapon.width
+        )
+      }
+
       getOffsetFromTransform(weapon.visual, playerPos, weapon.attackStartOffset)
       getOffsetFromTransform(
         weapon.swingStartTransform,
