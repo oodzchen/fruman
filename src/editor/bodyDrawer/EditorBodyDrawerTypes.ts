@@ -213,6 +213,7 @@ export const MIN_COLLISION_HALF_EXTENT = 4
 export const CUSTOM_BODY_PRESET_ID = 'custom'
 export const BODY_PRESET_IDS: MapCharacterBodyPresetId[] = [
   'banana',
+  'durian',
   'kiwano',
   'pandaAnt',
   'pineapple',
@@ -223,11 +224,17 @@ export const PINEAPPLE_PRESET_IMAGE_SRC = '/images/presets/pineapple.png'
 export const TOMATO_PRESET_IMAGE_SRC = '/images/presets/tomato.png'
 export const WATERMELON_PRESET_IMAGE_SRC = '/images/presets/watermelon.png'
 export const BANANA_PRESET_IMAGE_SRC = '/images/presets/banana.png'
+export const DURIAN_PRESET_IMAGE_SRC = '/images/presets/durian.png'
 export const KIWANO_PRESET_IMAGE_SRC = '/images/presets/kiwano.png'
 export const PANDA_ANT_PRESET_IMAGE_SRC = '/images/presets/panda_ant.png'
 export const BANANA_PRESET_POINTS = [
   3, -47, -5, -39, -17, -32, -23, -21, -27, -6, -25, 10, -19, 23, -11, 32, -2,
   41, 10, 47, 26, 47, 21, 36, 11, 27, 3, 17, -3, 7, -5, -9, -3, -25, 3, -38,
+] as const
+export const DURIAN_PRESET_POINTS = [
+  -88, 8, -72, -10, -82, -28, -60, -32, -58, -54, -36, -48, -20, -68, -4, -54,
+  10, -72, 24, -52, 46, -62, 52, -40, 76, -36, 68, -14, 90, 4, 68, 20, 76, 40,
+  52, 42, 42, 62, 22, 50, 4, 70, -14, 52, -34, 64, -44, 42, -66, 38, -62, 20,
 ] as const
 export const KIWANO_PRESET_POINTS = [
   -58, -6, -54, -20, -42, -30, -24, -37, 0, -40, 24, -37, 42, -30, 54, -18, 58,

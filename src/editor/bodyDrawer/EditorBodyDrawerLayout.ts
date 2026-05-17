@@ -665,6 +665,10 @@ function createPresetSelect(): HTMLSelectElement {
         label: localizer.t('editor_body_drawer_preset_banana'),
       },
       {
+        value: 'durian',
+        label: localizer.t('editor_body_drawer_preset_durian'),
+      },
+      {
         value: 'kiwano',
         label: localizer.t('editor_body_drawer_preset_kiwano'),
       },

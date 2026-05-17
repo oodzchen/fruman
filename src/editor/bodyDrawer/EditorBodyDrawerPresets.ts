@@ -10,6 +10,8 @@ import {
   BODY_PRESET_IDS,
   CUSTOM_BODY_PRESET_ID,
   DRAW_WORLD_HALF,
+  DURIAN_PRESET_IMAGE_SRC,
+  DURIAN_PRESET_POINTS,
   KIWANO_PRESET_IMAGE_SRC,
   KIWANO_PRESET_POINTS,
   PANDA_ANT_PRESET_IMAGE_SRC,
@@ -49,6 +51,16 @@ export function getBodyPresetConfig(
       points: BANANA_PRESET_POINTS,
       imageSrc: BANANA_PRESET_IMAGE_SRC,
       mirrorImageX: true,
+    }
+  }
+  if (presetId === 'durian') {
+    return {
+      color: TRANSPARENT_BODY_COLOR,
+      bloodColor: '#8a7a12',
+      eyeX: 32,
+      eyeY: -5,
+      points: DURIAN_PRESET_POINTS,
+      imageSrc: DURIAN_PRESET_IMAGE_SRC,
     }
   }
   if (presetId === 'kiwano') {

@@ -286,6 +286,7 @@ export interface BoneSegment {
 
 export type MapCharacterBodyPresetId =
   | 'banana'
+  | 'durian'
   | 'kiwano'
   | 'pandaAnt'
   | 'pineapple'
