@@ -156,6 +156,7 @@ export class MovementComponent extends Component {
   footstepIntervalMs = FOOTSTEP_INTERVAL_MS
   footstepTimerMs = 0
   wasGrounded = false
+  fallTrackingActive = false
   maxFallVelocity = 0
   fallStartY = 0
 
@@ -210,6 +211,7 @@ export class MovementComponent extends Component {
     this.footstepIntervalMs = FOOTSTEP_INTERVAL_MS
     this.footstepTimerMs = 0
     this.wasGrounded = false
+    this.fallTrackingActive = false
     this.maxFallVelocity = 0
     this.fallStartY = 0
   }

@@ -742,6 +742,7 @@ export class UltimateHandler {
     if (entity.movement) {
       entity.movement.isGrounded = false
       entity.movement.wasGrounded = false
+      entity.movement.fallTrackingActive = true
       entity.movement.maxFallVelocity = 0
       entity.movement.fallStartY = weapon.ultimateHammerPhysicalFallStartY
     }

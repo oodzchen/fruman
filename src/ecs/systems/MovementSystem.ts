@@ -141,7 +141,6 @@ export class MovementSystem extends System {
       b2Body_GetContactData,
       b2Body_GetContactCapacity,
       b2Body_GetLinearVelocity,
-      b2Body_SetBullet,
       b2Shape_GetBody,
       b2Shape_GetFilter,
       b2Shape_GetFriction,
@@ -310,25 +309,19 @@ export class MovementSystem extends System {
 
     this.updateBodyFriction(entity, grounded, touchingWall)
 
-    if (!hasGroundOrFallImpactContact && velY < -0.1) {
-      if (entity.movement.maxFallVelocity > 0) {
-        b2Body_SetBullet(entity.physics.bodyId, false)
-      }
-      entity.movement.maxFallVelocity = 0
-      entity.movement.fallStartY = 0
-    } else if (!grounded && velY > 0) {
-      if (entity.movement.maxFallVelocity === 0) {
-        entity.movement.fallStartY = entity.transform?.y ?? 0
-        b2Body_SetBullet(entity.physics.bodyId, true)
-      }
-      entity.movement.maxFallVelocity = Math.max(
-        entity.movement.maxFallVelocity,
-        velY
-      )
-      this.applyFatalFallDamageDuringFall(entity)
+    if (!hasGroundOrFallImpactContact) {
+      this.updateAirborneFallTracking(entity, velY)
     }
 
-    if (!wasGrounded && hasGroundOrFallImpactContact) {
+    const fallDistance1000 = hasGroundOrFallImpactContact
+      ? this.getFallDistance1000(entity)
+      : 0
+    const shouldResolveFallImpact =
+      hasGroundOrFallImpactContact &&
+      (!wasGrounded ||
+        (entity.movement.fallTrackingActive && fallDistance1000 > 0))
+
+    if (shouldResolveFallImpact) {
       if (grounded && this.soundSystem && entity.render) {
         const radius = entity.render.radius || DEFAULT_PLAYER_RADIUS
         this.soundSystem.emitSoundAt(
@@ -341,21 +334,67 @@ export class MovementSystem extends System {
         )
       }
 
-      const fallDistance1000 = this.getFallDistance1000(entity)
-      const hasRecordedFall = entity.movement.maxFallVelocity > 0
-      const fallDamage = this.applyFallDamage(entity)
+      const hasRecordedFall =
+        entity.movement.fallTrackingActive && fallDistance1000 > 0
+      const hasRecordedFallVelocity = entity.movement.maxFallVelocity > 0
+      const fallDamage = this.applyFallDamage(entity, fallDistance1000)
       if (
         fallDamage > 0 ||
-        (hasRecordedFall && fallDistance1000 > 0 && hasFallImpactTargetContact)
+        (hasRecordedFallVelocity &&
+          fallDistance1000 > 0 &&
+          hasFallImpactTargetContact)
       ) {
         this.onFallImpact?.(entity, fallDamage, fallDistance1000)
       }
       if (hasRecordedFall) {
-        b2Body_SetBullet(entity.physics.bodyId, false)
+        this.box2d.b2Body_SetBullet(entity.physics.bodyId, false)
       }
+      entity.movement.fallTrackingActive = false
+      entity.movement.maxFallVelocity = 0
+      entity.movement.fallStartY = 0
+    } else if (
+      hasGroundOrFallImpactContact &&
+      entity.movement.fallTrackingActive
+    ) {
+      if (entity.movement.maxFallVelocity > 0) {
+        this.box2d.b2Body_SetBullet(entity.physics.bodyId, false)
+      }
+      entity.movement.fallTrackingActive = false
       entity.movement.maxFallVelocity = 0
       entity.movement.fallStartY = 0
     }
+  }
+
+  private updateAirborneFallTracking(entity: Entity, velY: number): void {
+    if (!entity.movement || !entity.physics || !entity.transform) return
+
+    if (!entity.movement.fallTrackingActive) {
+      entity.movement.fallTrackingActive = true
+      entity.movement.fallStartY = entity.transform.y
+    } else if (velY < -0.1 && entity.transform.y < entity.movement.fallStartY) {
+      entity.movement.fallStartY = entity.transform.y
+    }
+
+    if (velY < -0.1) {
+      if (entity.movement.maxFallVelocity > 0) {
+        this.box2d.b2Body_SetBullet(entity.physics.bodyId, false)
+      }
+      entity.movement.maxFallVelocity = 0
+      return
+    }
+
+    if (velY <= 0) {
+      return
+    }
+
+    if (entity.movement.maxFallVelocity === 0) {
+      this.box2d.b2Body_SetBullet(entity.physics.bodyId, true)
+    }
+    entity.movement.maxFallVelocity = Math.max(
+      entity.movement.maxFallVelocity,
+      velY
+    )
+    this.applyFatalFallDamageDuringFall(entity)
   }
 
   private updateBodyFriction(
@@ -922,8 +961,9 @@ export class MovementSystem extends System {
     entity.movement.isJumping = true
     entity.movement.jumpStartTime = this.currentTimeMs
     entity.movement.jumpElapsedTime = 0
+    entity.movement.fallTrackingActive = true
     entity.movement.maxFallVelocity = 0
-    entity.movement.fallStartY = 0
+    entity.movement.fallStartY = entity.transform?.y ?? 0
 
     const isDifferentWall =
       entity.movement.isTouchingWall &&
@@ -1047,16 +1087,13 @@ export class MovementSystem extends System {
     return false
   }
 
-  private applyFallDamage(entity: Entity): number {
+  private applyFallDamage(entity: Entity, fallDistance1000: number): number {
     if (!entity.movement || !entity.stats || !this.statsSystem) return 0
     if (entity.stats.isDead) return 0
+    if (!entity.movement.fallTrackingActive) return 0
 
-    const fallVelocity = entity.movement.maxFallVelocity
-    if (fallVelocity <= 0) return 0
-
-    const effectiveWeight = this.getEffectiveWeight(entity)
-
-    const kineticEnergy = 0.5 * effectiveWeight * fallVelocity * fallVelocity
+    const kineticEnergy = this.getFallKineticEnergy(entity, fallDistance1000)
+    if (kineticEnergy <= 0) return 0
 
     if (kineticEnergy >= FALL_DAMAGE_KINETIC_FATAL) {
       const fatalDamage = entity.stats.maxHealth
@@ -1086,11 +1123,10 @@ export class MovementSystem extends System {
     if (entity.stats.isDead) return
     if (!entity.transform) return
 
-    const fallHeight = entity.transform.y - entity.movement.fallStartY
-    if (fallHeight <= 0) return
+    const fallDistance1000 = this.getFallDistance1000(entity)
+    if (fallDistance1000 <= 0) return
 
-    const effectiveWeight = this.getEffectiveWeight(entity)
-    const kineticEnergy = effectiveWeight * DEFAULT_GRAVITY * fallHeight
+    const kineticEnergy = this.getFallHeightEnergy(entity, fallDistance1000)
     if (kineticEnergy < FALL_DAMAGE_KINETIC_FATAL) return
 
     const fatalDamage = entity.stats.maxHealth
@@ -1110,6 +1146,42 @@ export class MovementSystem extends System {
       (entity.transform.y - entity.movement.fallStartY) * 1000
     )
     return fallDistance1000 > 0 ? fallDistance1000 : 0
+  }
+
+  private getFallKineticEnergy(
+    entity: Entity,
+    fallDistance1000: number
+  ): number {
+    const velocityEnergy = this.getFallVelocityEnergy(entity)
+    const heightEnergy = this.getFallHeightEnergy(entity, fallDistance1000)
+    return velocityEnergy > heightEnergy ? velocityEnergy : heightEnergy
+  }
+
+  private getFallVelocityEnergy(entity: Entity): number {
+    if (!entity.movement || entity.movement.maxFallVelocity <= 0) {
+      return 0
+    }
+    const fallVelocity1000 = Math.round(entity.movement.maxFallVelocity * 1000)
+    if (fallVelocity1000 <= 0) {
+      return 0
+    }
+    return Math.trunc(
+      (this.getEffectiveWeight(entity) * fallVelocity1000 * fallVelocity1000) /
+        2000000
+    )
+  }
+
+  private getFallHeightEnergy(
+    entity: Entity,
+    fallDistance1000: number
+  ): number {
+    if (fallDistance1000 <= 0) {
+      return 0
+    }
+    return Math.trunc(
+      (this.getEffectiveWeight(entity) * DEFAULT_GRAVITY * fallDistance1000) /
+        1000
+    )
   }
 
   private getEffectiveWeight(entity: Entity): number {

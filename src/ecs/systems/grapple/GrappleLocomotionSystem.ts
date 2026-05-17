@@ -433,8 +433,9 @@ export class GrappleLocomotionSystem {
     entity.movement.isJumping = true
     entity.movement.jumpStartTime = this.runtime.currentTimeMs
     entity.movement.jumpElapsedTime = 0
+    entity.movement.fallTrackingActive = true
     entity.movement.maxFallVelocity = 0
-    entity.movement.fallStartY = 0
+    entity.movement.fallStartY = entity.transform?.y ?? 0
     entity.movement.isGrounded = false
   }
 

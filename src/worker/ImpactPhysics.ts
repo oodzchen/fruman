@@ -484,10 +484,10 @@ export class ImpactPhysics {
       }
       if (
         otherCategory !== 0 &&
+        absNormalY > FALL_IMPACT_CONTACT_NORMAL_Y_MIN &&
         (isGroundCollisionCategory(otherCategory) ||
           isObstacleCollisionCategory(otherCategory) ||
-          (isCharacterCollisionCategory(otherCategory) &&
-            absNormalY > FALL_IMPACT_CONTACT_NORMAL_Y_MIN))
+          isCharacterCollisionCategory(otherCategory))
       ) {
         crate.fallSolidContactCount += 1
         grounded = true
