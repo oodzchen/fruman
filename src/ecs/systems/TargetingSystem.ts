@@ -293,6 +293,17 @@ export class TargetingSystem extends System {
     if (!player.input || !player.transform || !target.transform) {
       return
     }
+    if (
+      player.weapon &&
+      (player.weapon.attackPhase === 'windup' ||
+        player.weapon.attackPhase === 'finalWindup' ||
+        player.weapon.attackPhase === 'swing' ||
+        player.weapon.attackPhase === 'rebound' ||
+        player.weapon.attackPhase === 'pause' ||
+        player.weapon.attackPhase === 'recover')
+    ) {
+      return
+    }
 
     const dx = target.transform.x - player.transform.x
     if (dx !== 0) {

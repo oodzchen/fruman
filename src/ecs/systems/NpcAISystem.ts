@@ -321,6 +321,12 @@ export class NpcAISystem extends System {
       const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
       const weaponRange = weaponAttackRadius + targetRadius
 
+      if (
+        this.handleComboState(entity, ai, stableFacing, distance, weaponRange)
+      ) {
+        continue
+      }
+
       // 使用传感器结果判断视线
       const hasSensorContact =
         entity.sensor && entity.sensor.detectedTargetId === target.id
@@ -430,24 +436,35 @@ export class NpcAISystem extends System {
                 entity.movement.moveSpeed = ai.moveSpeed
               }
             }
-            entity.input.attackRequested = false
             entity.input.lockedTargetId = target.id
             entity.input.lockLostTimer = 0
             entity.input.facingOverride = forcedChaseDirection
-            if (entity.weapon) {
-              entity.weapon.attackQueued = false
+
+            const isWeaponBusy =
+              (entity.weapon !== undefined &&
+                entity.weapon.attackPhase !== 'idle') ||
+              (ai.state === 'combo' && ai.comboSwingsDone < ai.comboSwingTarget)
+            if (!isWeaponBusy) {
+              entity.input.attackRequested = false
+              if (entity.weapon) {
+                entity.weapon.attackQueued = false
+              }
+              continue
             }
-            continue
           }
         }
         ai.forcedChaseDistanceRemaining = 0
       }
 
+      const isWeaponBusyForPatrol =
+        (entity.weapon !== undefined && entity.weapon.attackPhase !== 'idle') ||
+        (ai.state === 'combo' && ai.comboSwingsDone < ai.comboSwingTarget)
       if (
         wasForcedChasing &&
         ai.forcedChaseDistanceRemaining === 0 &&
         !hasCombatLineOfSight &&
-        entity.input.lockedTargetId === null
+        entity.input.lockedTargetId === null &&
+        !isWeaponBusyForPatrol
       ) {
         ai.arrowDefenseActive = false
         ai.arrowDefenseTimeRemainingMs = 0
@@ -498,10 +515,18 @@ export class NpcAISystem extends System {
         ai.targetLostTimer += deltaMs
       }
 
-      if (now - ai.lastDecisionTimestamp < ai.decisionCooldownMs) {
+      const isWeaponBusyForDecision =
+        (entity.weapon !== undefined && entity.weapon.attackPhase !== 'idle') ||
+        (ai.state === 'combo' && ai.comboSwingsDone < ai.comboSwingTarget)
+      if (
+        !isWeaponBusyForDecision &&
+        now - ai.lastDecisionTimestamp < ai.decisionCooldownMs
+      ) {
         continue
       }
-      ai.lastDecisionTimestamp = now
+      if (!isWeaponBusyForDecision) {
+        ai.lastDecisionTimestamp = now
+      }
 
       entity.input.facingOverride = stableFacing
 
@@ -535,11 +560,15 @@ export class NpcAISystem extends System {
       // 无战斗接触时（无视线、未进入战斗、无警戒追击、无强制追击余量、或者盲视卡死）恢复巡逻
       const notEngaged =
         retreatConditionMet && ai.forcedChaseDistanceRemaining <= 0
+      const isWeaponBusy =
+        (entity.weapon !== undefined && entity.weapon.attackPhase !== 'idle') ||
+        (ai.state === 'combo' && ai.comboSwingsDone < ai.comboSwingTarget)
       const shouldGoPatrol =
-        effectiveAttackDesire <= 0 ||
-        retreatByTimer ||
-        notEngaged ||
-        isStuckAndBlind
+        !isWeaponBusy &&
+        (effectiveAttackDesire <= 0 ||
+          retreatByTimer ||
+          notEngaged ||
+          isStuckAndBlind)
 
       if (shouldGoPatrol) {
         // 巡逻逻辑
@@ -646,11 +675,17 @@ export class NpcAISystem extends System {
             }
             continue
           } else {
-            // 无视野且距离较远：放弃追击，回巡逻
-            entity.input.attackRequested = false
-            entity.input.lockedTargetId = null
-            this.handlePatrol(entity, ai, now)
-            continue
+            const isWeaponBusyForRanged =
+              (entity.weapon !== undefined &&
+                entity.weapon.attackPhase !== 'idle') ||
+              (ai.state === 'combo' && ai.comboSwingsDone < ai.comboSwingTarget)
+            if (!isWeaponBusyForRanged) {
+              // 无视野且距离较远：放弃追击，回巡逻
+              entity.input.attackRequested = false
+              entity.input.lockedTargetId = null
+              this.handlePatrol(entity, ai, now)
+              continue
+            }
           }
         } else if (meleeSlotId !== null) {
           // 近战逻辑 (<= meleeSwitchDistance)
@@ -812,56 +847,6 @@ export class NpcAISystem extends System {
         continue
       }
 
-      if (ai.state === 'combo') {
-        ai.lastFacing = stableFacing
-        entity.input.moveDirection = 0
-        entity.input.sprintRequested = false
-
-        // For skilled npcs, check distance between attacks
-        if (
-          ai.parryProficiency >= 50 &&
-          entity.weapon &&
-          (entity.weapon.attackPhase === 'idle' ||
-            entity.weapon.attackPhase === 'pause' ||
-            entity.weapon.attackPhase === 'rebound')
-        ) {
-          if (distance > weaponRange + 0.5) {
-            ai.state = 'approach'
-            ai.comboSwingsDone = 0
-            continue
-          }
-        }
-
-        this.queueAttack(entity, stableFacing, ai)
-        const weapon = entity.weapon
-        const comboFinished =
-          weapon &&
-          ai.comboSwingsDone >= ai.comboSwingTarget &&
-          weapon.attackPhase === 'idle' &&
-          !weapon.attackQueued
-        if (comboFinished) {
-          let shouldRetreatForLeap = false
-          if (this.hasConfiguredAttackMoves(ai)) {
-            ai.pendingAttackMoveId = this.pickConfiguredAttackIntent(ai)
-            shouldRetreatForLeap = ai.pendingAttackMoveId === 'leap_attack'
-          } else {
-            ai.pendingAttackMoveId = ''
-          }
-          if (shouldRetreatForLeap) {
-            ai.state = 'retreat'
-            ai.retreatDirection = (ai.lastFacing === 1 ? -1 : 1) as -1 | 1
-            ai.retreatTargetDistance =
-              weaponRange + ENEMY_RETREAT_EXTRA_DISTANCE
-            entity.input.moveDirection = ai.retreatDirection
-          } else {
-            ai.state = 'approach'
-            ai.comboSwingsDone = 0
-            entity.input.moveDirection = 0
-          }
-        }
-        continue
-      }
-
       if (ai.state === 'retreat') {
         if (
           this.handlePendingLeapAttackIntent(
@@ -1007,6 +992,18 @@ export class NpcAISystem extends System {
     isTargetAirborne: boolean
   ): void {
     if (!entity.input || !entity.weapon) return
+
+    if (entity.weapon.attackPhase !== 'idle') {
+      entity.input.blockRequested = false
+      if (isPlayerSwinging) {
+        ai.playerSwingActive = true
+        ai.parryAttemptedThisSwing = true
+      } else {
+        ai.playerSwingActive = false
+        ai.parryAttemptedThisSwing = false
+      }
+      return
+    }
 
     if (ai.arrowDefenseActive) {
       entity.input.blockRequested = true
@@ -1989,6 +1986,95 @@ export class NpcAISystem extends System {
     return Math.max(1, Math.min(seq.moves.length, maxComboCount))
   }
 
+  private handleComboState(
+    entity: Entity,
+    ai: NpcAIComponent,
+    stableFacing: number,
+    distance: number,
+    weaponRange: number
+  ): boolean {
+    if (ai.state !== 'combo' || !entity.input) {
+      return false
+    }
+
+    ai.lastFacing = stableFacing as -1 | 1
+    entity.input.moveDirection = 0
+    entity.input.sprintRequested = false
+    entity.input.blockRequested = false
+    this.clearBackstepIntent(entity, ai)
+
+    const weapon = entity.weapon
+    if (!weapon) {
+      return true
+    }
+
+    if (ai.comboSwingsDone < ai.comboSwingTarget) {
+      if (
+        this.shouldCancelComboForHighProficiency(
+          ai,
+          weapon,
+          stableFacing,
+          distance,
+          weaponRange
+        )
+      ) {
+        weapon.attackQueued = false
+        ai.state = 'approach'
+        ai.comboSwingsDone = 0
+        return true
+      }
+
+      this.queueAttack(entity, weapon.attackFacing || stableFacing, ai)
+      return true
+    }
+
+    if (weapon.attackPhase !== 'idle' || weapon.attackQueued) {
+      return true
+    }
+
+    let shouldRetreatForLeap = false
+    if (this.hasConfiguredAttackMoves(ai)) {
+      ai.pendingAttackMoveId = this.pickConfiguredAttackIntent(ai)
+      shouldRetreatForLeap = ai.pendingAttackMoveId === 'leap_attack'
+    } else {
+      ai.pendingAttackMoveId = ''
+    }
+
+    if (shouldRetreatForLeap) {
+      ai.state = 'retreat'
+      ai.retreatDirection = (ai.lastFacing === 1 ? -1 : 1) as -1 | 1
+      ai.retreatTargetDistance = weaponRange + ENEMY_RETREAT_EXTRA_DISTANCE
+      entity.input.moveDirection = ai.retreatDirection
+      return true
+    }
+
+    ai.state = 'approach'
+    ai.comboSwingsDone = 0
+    entity.input.moveDirection = 0
+    return true
+  }
+
+  private shouldCancelComboForHighProficiency(
+    ai: NpcAIComponent,
+    weapon: NonNullable<Entity['weapon']>,
+    stableFacing: number,
+    distance: number,
+    weaponRange: number
+  ): boolean {
+    if (ai.parryProficiency <= 50 || weapon.attackPhase !== 'pause') {
+      return false
+    }
+
+    const facingChanged =
+      weapon.attackFacing !== 0 && stableFacing !== weapon.attackFacing
+    return distance > weaponRange + 0.5 || facingChanged
+  }
+
+  private clearBackstepIntent(entity: Entity, ai: NpcAIComponent): void {
+    ai.backstepRemaining = 0
+    entity.input?.inputBuffer.clearAction('roll')
+  }
+
   private enterComboState(
     entity: Entity,
     ai: NpcAIComponent,
@@ -1998,6 +2084,12 @@ export class NpcAISystem extends System {
     now = this.currentTimeMs
   ): void {
     if (!entity.input) return
+    if (entity.movement?.isRolling || entity.movement?.isBackstepping) {
+      entity.input.moveDirection = 0
+      entity.input.sprintRequested = false
+      return
+    }
+    this.clearBackstepIntent(entity, ai)
     if (entity.weapon) {
       const movesetId = this.resolveComboMovesetId(entity, ai)
       if (!movesetId) {
@@ -2136,6 +2228,8 @@ export class NpcAISystem extends System {
     if (!this.weaponSystem) return
     if (ai.comboSwingsDone >= ai.comboSwingTarget) return
 
+    entity.input.blockRequested = false
+
     const weapon = entity.weapon
     const canQueue =
       weapon.attackPhase === 'idle' ||
@@ -2217,6 +2311,7 @@ export class NpcAISystem extends System {
     if (entity.movement.isRolling || entity.movement.isBackstepping) return
     if (entity.stats?.isDead || entity.stats?.isStaggered) return
     if (ai.state === 'leapAttack') return
+    if (entity.weapon && entity.weapon.attackPhase !== 'idle') return
 
     // 计算玩家的攻击范围
     const targetAttackRadius = this.getWeaponAttackRadius(target)

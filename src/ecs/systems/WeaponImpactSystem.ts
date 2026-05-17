@@ -1156,7 +1156,7 @@ export abstract class WeaponImpactSystem extends WeaponCollisionSystem {
     if (!weapon) return
 
     // Allow canceling rebound with block
-    if (entity.input && entity.input.blockRequested) {
+    if (entity.input && entity.input.blockRequested && !entity.npcAI) {
       if (entity.movement) {
         entity.movement.knockbackDuration = 0
       }

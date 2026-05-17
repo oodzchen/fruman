@@ -749,10 +749,11 @@ export class MovementSystem extends System {
       (entity.weapon.attackPhase === 'windup' ||
         entity.weapon.attackPhase === 'finalWindup' ||
         entity.weapon.attackPhase === 'swing' ||
+        entity.weapon.attackPhase === 'rebound' ||
         entity.weapon.attackPhase === 'pause' ||
         entity.weapon.attackPhase === 'recover')
 
-    if (entity.input.lockedTargetId !== null) {
+    if (entity.input.lockedTargetId !== null && !isInAttackAction) {
       this.faceLockedTarget(entity)
     } else if (!isInAttackAction) {
       if (entity.input.facingOverride !== null) {

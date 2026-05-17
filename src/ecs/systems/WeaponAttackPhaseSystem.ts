@@ -641,7 +641,12 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
     this.tempPlayerPos.y = entity.transform.y
     applyOffset(this.tempRelativeTransform, this.tempPlayerPos, weapon.visual)
 
-    if (entity.input && entity.input.blockRequested && !entity.isStunned()) {
+    if (
+      entity.input &&
+      entity.input.blockRequested &&
+      !entity.isStunned() &&
+      !entity.npcAI
+    ) {
       const facing =
         entity.input.lastMoveDirection !== 0
           ? entity.input.lastMoveDirection
@@ -745,16 +750,13 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
       entity.input && entity.input.lastMoveDirection !== 0
         ? entity.input.lastMoveDirection
         : attackFacing
-    if (currentFacing !== weapon.attackFacing) {
-      this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
-      return
-    }
 
     // Allow interrupting pause/recovery with block
     // Allow blocking even if stunned IF we are in a locked pause (rebound recovery)
     if (
       entity.input &&
       entity.input.blockRequested &&
+      !entity.npcAI &&
       (!entity.isStunned() || weapon.reboundLockedPause)
     ) {
       if (entity.isStunned() && entity.movement) {
@@ -907,13 +909,7 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
     if (!entity.input || !entity.weapon) return
 
     const weapon = entity.weapon
-    const facing =
-      entity.input.lastMoveDirection !== 0 ? entity.input.lastMoveDirection : 1
-
-    if (facing !== weapon.attackFacing) {
-      this.retractWeaponOnDirectionChange(entity, weapon, playerPos)
-      return
-    }
+    const facing = weapon.attackFacing !== 0 ? weapon.attackFacing : 1
 
     const t = clamp01(weapon.attackElapsedMs / this.getRecoverMs(weapon))
 
