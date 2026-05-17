@@ -942,7 +942,7 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
       const seq = moveset?.sequences.find(
         (sequence) => sequence.id === weapon.activeSequenceId
       )
-      if (seq && !seq.loop && weapon.activeMoveIndex + 1 >= seq.moves.length) {
+      if (seq && this.getNextComboMoveIndex(seq, weapon) < 0) {
         return
       }
     }
@@ -962,7 +962,17 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
             (sequence) => sequence.id === weapon.activeSequenceId
           )
           if (seq && seq.moves.length > 0) {
-            const firstMoveId = seq.moves[0]
+            const firstMoveIndex = this.getSequenceMoveIndexForComboCount(
+              seq,
+              weapon,
+              1
+            )
+            if (firstMoveIndex < 0) {
+              weapon.attackQueued = false
+              return
+            }
+            weapon.activeMoveIndex = firstMoveIndex
+            const firstMoveId = seq.moves[firstMoveIndex]
             const move = ATTACK_MOVES[firstMoveId]
             if (move) {
               if (!this.isMoveCompatibleWithWeapon(move, weapon.weaponType)) {

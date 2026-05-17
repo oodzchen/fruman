@@ -1,4 +1,8 @@
 import {
+  normalizeCharacterAttackSpeedLevel,
+  normalizeCharacterMaxComboCount,
+} from '../../characterActionConfig'
+import {
   getCharacterBloodColor,
   getCharacterBodyColor,
 } from '../../characterBodyProfile'
@@ -50,6 +54,7 @@ import {
 } from '../../physicsLayers'
 import { normalizeSkeletalBodyProfile } from '../../skeletalBodyProfile'
 import type {
+  CharacterAttackSpeedLevel,
   MainModule,
   NormalAttackMovesetId,
   NpcAttackMove,
@@ -309,6 +314,8 @@ export interface NpcSpawnConfig {
   drops?: MapNpcDropItem[]
   initialNormalMovesetId?: NormalAttackMovesetId
   attackMoves?: NpcAttackMove[]
+  attackSpeedLevel?: CharacterAttackSpeedLevel
+  maxComboCount?: number
   factionId?: string
   npcFactions?: string[]
   enemyFactions?: string[]
@@ -354,6 +361,10 @@ export function createNpc(
   const debugNoDamage = options?.debugNoDamage === true
   const debugNoDeath = options?.debugNoDeath === true
   const initialNormalMovesetId = options?.initialNormalMovesetId ?? ''
+  const attackSpeedLevel = normalizeCharacterAttackSpeedLevel(
+    options?.attackSpeedLevel
+  )
+  const maxComboCount = normalizeCharacterMaxComboCount(options?.maxComboCount)
   const renderLayer = options?.renderLayer ?? 0
   const resolvedBodyProfile: MapCharacterBodyProfile | undefined =
     resolveNpcBodyProfile(npcType, options?.bodyProfile)
@@ -379,6 +390,11 @@ export function createNpc(
     options?.segmentedProxyHalfHeight ?? 0,
     options?.segmentedProxyOffsetY ?? 0
   )
+
+  if (npc.weapon) {
+    npc.weapon.attackSpeedLevel = attackSpeedLevel
+    npc.weapon.maxComboCount = maxComboCount
+  }
 
   // 重置 NPC 的脱战超时为10秒
   if (npc.stats) {

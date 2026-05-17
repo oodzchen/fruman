@@ -1,3 +1,4 @@
+import { normalizeCharacterMaxComboCount } from '../../characterActionConfig'
 import {
   BOW_MIN_WINDUP_MS,
   DEFAULT_PLAYER_RADIUS,
@@ -1953,6 +1954,20 @@ export class NpcAISystem extends System {
     return ai.movesetId || ''
   }
 
+  private resolveComboSwingTarget(entity: Entity, movesetId: string): number {
+    const maxComboCount = normalizeCharacterMaxComboCount(
+      entity.weapon?.maxComboCount
+    )
+    const moveset = ATTACK_MOVESETS[movesetId]
+    const seq = moveset?.sequences.find(
+      (sequence) => sequence.id === moveset.defaultSequenceId
+    )
+    if (!seq || seq.moves.length === 0) {
+      return maxComboCount
+    }
+    return Math.max(1, Math.min(seq.moves.length, maxComboCount))
+  }
+
   private enterComboState(
     entity: Entity,
     ai: NpcAIComponent,
@@ -1972,17 +1987,8 @@ export class NpcAISystem extends System {
         return
       }
       ai.state = 'combo'
-      ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+      ai.comboSwingTarget = this.resolveComboSwingTarget(entity, movesetId)
       ai.lastFacing = facing as -1 | 1
-      const moveset = ATTACK_MOVESETS[movesetId]
-      if (moveset) {
-        const seq = moveset.sequences.find(
-          (s: any) => s.id === moveset.defaultSequenceId
-        )
-        if (seq) {
-          ai.comboSwingTarget = seq.moves.length
-        }
-      }
       entity.weapon.movesetId = movesetId
       if (entity.attackSlots?.normal) {
         entity.attackSlots.normal.movesetId = movesetId
@@ -1998,7 +2004,7 @@ export class NpcAISystem extends System {
       }
     } else {
       ai.state = 'combo'
-      ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+      ai.comboSwingTarget = normalizeCharacterMaxComboCount(undefined)
       ai.lastFacing = facing as -1 | 1
       ai.comboSwingsDone = 0
     }
@@ -2070,7 +2076,11 @@ export class NpcAISystem extends System {
       ai.lastFacing = facing as -1 | 1
       if (nextState === 'combo') {
         ai.comboSwingsDone = entity.weapon?.comboCount ?? 1
-        ai.comboSwingTarget = Math.max(ai.comboSwingTarget, 3)
+        const movesetId =
+          entity.weapon?.movesetId || entity.attackSlots?.normal.movesetId || ''
+        ai.comboSwingTarget = movesetId
+          ? this.resolveComboSwingTarget(entity, movesetId)
+          : normalizeCharacterMaxComboCount(entity.weapon?.maxComboCount)
       } else {
         ai.comboSwingsDone = 0
       }

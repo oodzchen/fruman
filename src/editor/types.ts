@@ -12,6 +12,7 @@ import type {
 import type { TerrainMaterialId } from '../terrain/TerrainTypes'
 import type {
   AttackPickupKind,
+  CharacterAttackSpeedLevel,
   NormalAttackMovesetId,
   NpcAttackMove,
   NpcDetectionRangeLevel,
@@ -68,6 +69,8 @@ export type PlayerMarker = fabric.Group & {
   color: string
   facing: number
   initialNormalMovesetId: NormalAttackMovesetId
+  attackSpeedLevel: CharacterAttackSpeedLevel
+  maxComboCount: number
   debugNoDamage: boolean
   debugNoDeath: boolean
   factionId: string
@@ -95,6 +98,8 @@ export type NpcMarker = fabric.Object & {
   facing: number // 1 for right, -1 for left
   initialNormalMovesetId: NormalAttackMovesetId
   attackMoves: NpcAttackMove[]
+  attackSpeedLevel: CharacterAttackSpeedLevel
+  maxComboCount: number
   debugNoDamage: boolean
   debugNoDeath: boolean
   redTapeEnabled: boolean
@@ -224,6 +229,8 @@ export interface NpcMarkerData {
   facing: number
   initialNormalMovesetId: NormalAttackMovesetId
   attackMoves: NpcAttackMove[]
+  attackSpeedLevel: CharacterAttackSpeedLevel
+  maxComboCount: number
   debugNoDamage: boolean
   debugNoDeath: boolean
   redTapeEnabled: boolean
@@ -255,6 +262,8 @@ export interface PlayerMarkerData {
   color: string
   facing: number
   initialNormalMovesetId: NormalAttackMovesetId
+  attackSpeedLevel: CharacterAttackSpeedLevel
+  maxComboCount: number
   debugNoDamage: boolean
   debugNoDeath: boolean
   factionId: string

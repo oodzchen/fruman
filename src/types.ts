@@ -14,6 +14,12 @@ export type b2Rot = InstanceType<MainModule['b2Rot']>
 
 export type NpcPatrolMode = 'guard' | 'patrol'
 export type NpcDetectionRangeLevel = 'near' | 'medium' | 'far'
+export type CharacterAttackSpeedLevel =
+  | 'normal'
+  | 'fast'
+  | 'very_fast'
+  | 'slow'
+  | 'very_slow'
 
 // 攻击招式触发条件
 export type NpcAttackCondition =

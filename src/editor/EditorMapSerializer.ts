@@ -31,7 +31,11 @@ import {
 } from '../renderLayers'
 import { isEnvironmentCellStrokeSupported } from '../renderer/ProceduralEnvironmentFactory'
 import { normalizeSkeletalBodyProfile } from '../skeletalBodyProfile'
-import type { NormalAttackMovesetId, WeaponType } from '../types'
+import type {
+  CharacterAttackSpeedLevel,
+  NormalAttackMovesetId,
+  WeaponType,
+} from '../types'
 import { normalizeWeaponTypeAndSizeLevel } from '../weaponTypeUtils'
 import { computeCameraOffsetFromCenter } from './EditorCoordinateUtils'
 import type { EditorMarkerManager } from './EditorMarkerManager'
@@ -89,6 +93,8 @@ interface EditorMapSerializerContext {
     color: string
     facing: number
     initialNormalMovesetId?: NormalAttackMovesetId
+    attackSpeedLevel: CharacterAttackSpeedLevel
+    maxComboCount: number
     debugNoDamage: boolean
     debugNoDeath: boolean
     mainWeapon?: WeaponType
@@ -783,6 +789,8 @@ export class EditorMapSerializer {
       color: data.color,
       facing: data.facing,
       initialNormalMovesetId: data.initialNormalMovesetId,
+      attackSpeedLevel: data.attackSpeedLevel,
+      maxComboCount: data.maxComboCount,
       debugNoDamage: data.debugNoDamage,
       debugNoDeath: data.debugNoDeath,
       mainWeapon,
@@ -830,6 +838,8 @@ export class EditorMapSerializer {
         facing: data.facing,
         initialNormalMovesetId: data.initialNormalMovesetId,
         attackMoves: data.attackMoves,
+        attackSpeedLevel: data.attackSpeedLevel,
+        maxComboCount: data.maxComboCount,
         debugNoDamage: data.debugNoDamage,
         debugNoDeath: data.debugNoDeath,
         redTapeEnabled: data.redTapeEnabled,

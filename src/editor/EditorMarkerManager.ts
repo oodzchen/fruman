@@ -1,5 +1,9 @@
 import * as fabric from 'fabric'
 
+import {
+  normalizeCharacterAttackSpeedLevel,
+  normalizeCharacterMaxComboCount,
+} from '../characterActionConfig'
 import { getCharacterBodyColor } from '../characterBodyProfile'
 import {
   CHARACTER_DEFAULT_DATA,
@@ -44,6 +48,7 @@ import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
 import type {
   AttackPickupKind,
+  CharacterAttackSpeedLevel,
   NormalAttackMovesetId,
   NpcAttackMove,
   NpcDetectionRangeLevel,
@@ -766,6 +771,12 @@ export class EditorMarkerManager {
     const nextDebugNoDeath = data?.debugNoDeath === true
     const nextInitialNormalMovesetId =
       data?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('player')
+    const nextAttackSpeedLevel = normalizeCharacterAttackSpeedLevel(
+      data?.attackSpeedLevel
+    )
+    const nextMaxComboCount = normalizeCharacterMaxComboCount(
+      data?.maxComboCount
+    )
     const nextBodyHeight =
       typeof data?.bodyHeight === 'number' && data.bodyHeight > 0
         ? data.bodyHeight
@@ -816,6 +827,8 @@ export class EditorMarkerManager {
         this.playerMarkerData.facing = nextFacing
         this.playerMarkerData.initialNormalMovesetId =
           nextInitialNormalMovesetId
+        this.playerMarkerData.attackSpeedLevel = nextAttackSpeedLevel
+        this.playerMarkerData.maxComboCount = nextMaxComboCount
         this.playerMarkerData.debugNoDamage = nextDebugNoDamage
         this.playerMarkerData.debugNoDeath = nextDebugNoDeath
         this.playerMarkerData.factionId = nextFactionId
@@ -827,6 +840,8 @@ export class EditorMarkerManager {
         this.playerMarkerData.secondaryWeaponConfig = nextSecondaryWeaponConfig
       }
       this.playerMarker.initialNormalMovesetId = nextInitialNormalMovesetId
+      this.playerMarker.attackSpeedLevel = nextAttackSpeedLevel
+      this.playerMarker.maxComboCount = nextMaxComboCount
       this.playerMarker.bodyProfile = nextBodyProfile
       this.playerMarker.debugNoDamage = nextDebugNoDamage
       this.playerMarker.debugNoDeath = nextDebugNoDeath
@@ -851,6 +866,8 @@ export class EditorMarkerManager {
     marker.color = getCharacterBodyColor(marker.bodyProfile, nextColor)
     marker.facing = nextFacing
     marker.initialNormalMovesetId = nextInitialNormalMovesetId
+    marker.attackSpeedLevel = nextAttackSpeedLevel
+    marker.maxComboCount = nextMaxComboCount
     marker.debugNoDamage = nextDebugNoDamage
     marker.debugNoDeath = nextDebugNoDeath
     marker.factionId = nextFactionId
@@ -869,6 +886,8 @@ export class EditorMarkerManager {
       color: nextColor,
       facing: nextFacing,
       initialNormalMovesetId: nextInitialNormalMovesetId,
+      attackSpeedLevel: nextAttackSpeedLevel,
+      maxComboCount: nextMaxComboCount,
       debugNoDamage: nextDebugNoDamage,
       debugNoDeath: nextDebugNoDeath,
       factionId: nextFactionId,
@@ -1071,6 +1090,8 @@ export class EditorMarkerManager {
       facing?: number
       initialNormalMovesetId?: NormalAttackMovesetId
       attackMoves?: NpcAttackMove[]
+      attackSpeedLevel?: CharacterAttackSpeedLevel
+      maxComboCount?: number
       debugNoDamage?: boolean
       debugNoDeath?: boolean
       redTapeEnabled?: boolean
@@ -1114,6 +1135,10 @@ export class EditorMarkerManager {
     const facing = spawn?.facing ?? 1
     const initialNormalMovesetId =
       spawn?.initialNormalMovesetId ?? getDefaultNormalAttackMovesetId('npc')
+    const attackSpeedLevel = normalizeCharacterAttackSpeedLevel(
+      spawn?.attackSpeedLevel
+    )
+    const maxComboCount = normalizeCharacterMaxComboCount(spawn?.maxComboCount)
     const mainWeaponType = normalizeWeaponTypeAndSizeLevel(
       spawn?.mainWeapon?.weaponType,
       spawn?.mainWeapon?.sizeLevel
@@ -1184,6 +1209,8 @@ export class EditorMarkerManager {
     marker.facing = facing
     marker.initialNormalMovesetId = initialNormalMovesetId
     marker.attackMoves = attackMoves
+    marker.attackSpeedLevel = attackSpeedLevel
+    marker.maxComboCount = maxComboCount
     marker.debugNoDamage = debugNoDamage
     marker.debugNoDeath = debugNoDeath
     marker.redTapeEnabled = redTapeEnabled
@@ -1217,6 +1244,8 @@ export class EditorMarkerManager {
       facing,
       initialNormalMovesetId,
       attackMoves,
+      attackSpeedLevel,
+      maxComboCount,
       debugNoDamage,
       debugNoDeath,
       redTapeEnabled,

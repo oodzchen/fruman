@@ -1,5 +1,9 @@
 import { InputBuffer } from '../InputBuffer'
 import {
+  DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL,
+  DEFAULT_CHARACTER_MAX_COMBO_COUNT,
+} from '../characterActionConfig'
+import {
   DEFAULT_BODY_FRICTION,
   DEFAULT_CHECKPOINT_ACTIVATION_RADIUS,
   DEFAULT_DEATH_FLASH_DURATION,
@@ -32,6 +36,7 @@ import {
 import type { MapCharacterBodyProfile, MapNpcDropItem } from '../editorMapTypes'
 import type {
   AttackPickupKind,
+  CharacterAttackSpeedLevel,
   NpcAttackMove,
   NpcAttackMoveId,
   NpcPatrolMode,
@@ -648,6 +653,9 @@ export class WeaponComponent extends Component {
   attackStartTransform: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   visual: WeaponTransform = { x: 0, y: 0, rotation: 0 }
   attackQueued = false
+  attackSpeedLevel: CharacterAttackSpeedLevel =
+    DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL
+  maxComboCount = DEFAULT_CHARACTER_MAX_COMBO_COUNT
   comboCount = 0
   swingDirection: 'toFront' | 'toHead' = 'toFront'
   nextSwingDirection: 'toFront' | 'toHead' = 'toFront'
@@ -842,6 +850,8 @@ export class WeaponComponent extends Component {
     this.visual.y = 0
     this.visual.rotation = 0
     this.attackQueued = false
+    this.attackSpeedLevel = DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL
+    this.maxComboCount = DEFAULT_CHARACTER_MAX_COMBO_COUNT
     this.comboCount = 0
     this.swingDirection = 'toFront'
     this.nextSwingDirection = 'toFront'

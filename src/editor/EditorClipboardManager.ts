@@ -21,6 +21,7 @@ import type {
   TerrainMaterialId,
 } from '../terrain/TerrainTypes'
 import type {
+  CharacterAttackSpeedLevel,
   NormalAttackMovesetId,
   NpcDetectionRangeLevel,
   NpcPatrolMode,
@@ -177,6 +178,8 @@ interface ClipboardNpcTreeNode extends ClipboardTreeNodeBase {
   color: string
   facing: number
   initialNormalMovesetId: NormalAttackMovesetId
+  attackSpeedLevel: CharacterAttackSpeedLevel
+  maxComboCount: number
   debugNoDamage: boolean
   debugNoDeath: boolean
   redTapeEnabled: boolean
@@ -303,6 +306,8 @@ export class EditorClipboardManager {
   private npcColor = ''
   private npcFacing = 1
   private npcInitialNormalMovesetId: NormalAttackMovesetId = 'sword_default'
+  private npcAttackSpeedLevel: CharacterAttackSpeedLevel = 'fast'
+  private npcMaxComboCount = 5
   private npcDebugNoDamage = false
   private npcDebugNoDeath = false
   private npcRedTapeEnabled = false
@@ -345,6 +350,8 @@ export class EditorClipboardManager {
     color: '',
     facing: 1,
     initialNormalMovesetId: 'sword_default' as NormalAttackMovesetId,
+    attackSpeedLevel: 'fast' as CharacterAttackSpeedLevel,
+    maxComboCount: 5,
     debugNoDamage: false,
     debugNoDeath: false,
     redTapeEnabled: false,
@@ -368,6 +375,8 @@ export class EditorClipboardManager {
   private playerColor = ''
   private playerFacing = 1
   private playerInitialNormalMovesetId: NormalAttackMovesetId = 'sword_thrust'
+  private playerAttackSpeedLevel: CharacterAttackSpeedLevel = 'fast'
+  private playerMaxComboCount = 5
   private playerDebugNoDamage = false
   private playerDebugNoDeath = false
   private playerFactionId = ''
@@ -861,6 +870,8 @@ export class EditorClipboardManager {
         color: npcData.color,
         facing: npcData.facing,
         initialNormalMovesetId: npcData.initialNormalMovesetId,
+        attackSpeedLevel: npcData.attackSpeedLevel,
+        maxComboCount: npcData.maxComboCount,
         debugNoDamage: npcData.debugNoDamage,
         debugNoDeath: npcData.debugNoDeath,
         redTapeEnabled: npcData.redTapeEnabled,
@@ -1429,6 +1440,8 @@ export class EditorClipboardManager {
     this.npcSpawnConfig.color = node.color
     this.npcSpawnConfig.facing = node.facing
     this.npcSpawnConfig.initialNormalMovesetId = node.initialNormalMovesetId
+    this.npcSpawnConfig.attackSpeedLevel = node.attackSpeedLevel
+    this.npcSpawnConfig.maxComboCount = node.maxComboCount
     this.npcSpawnConfig.debugNoDamage = node.debugNoDamage
     this.npcSpawnConfig.debugNoDeath = node.debugNoDeath
     this.npcSpawnConfig.redTapeEnabled = node.redTapeEnabled
@@ -1944,6 +1957,8 @@ export class EditorClipboardManager {
     this.npcColor = npcData.color
     this.npcFacing = npcData.facing
     this.npcInitialNormalMovesetId = npcData.initialNormalMovesetId
+    this.npcAttackSpeedLevel = npcData.attackSpeedLevel
+    this.npcMaxComboCount = npcData.maxComboCount
     this.npcDebugNoDamage = npcData.debugNoDamage
     this.npcDebugNoDeath = npcData.debugNoDeath
     this.npcRedTapeEnabled = npcData.redTapeEnabled
@@ -2015,6 +2030,8 @@ export class EditorClipboardManager {
     this.npcSpawnConfig.color = this.npcColor
     this.npcSpawnConfig.facing = this.npcFacing
     this.npcSpawnConfig.initialNormalMovesetId = this.npcInitialNormalMovesetId
+    this.npcSpawnConfig.attackSpeedLevel = this.npcAttackSpeedLevel
+    this.npcSpawnConfig.maxComboCount = this.npcMaxComboCount
     this.npcSpawnConfig.debugNoDamage = this.npcDebugNoDamage
     this.npcSpawnConfig.debugNoDeath = this.npcDebugNoDeath
     this.npcSpawnConfig.redTapeEnabled = this.npcRedTapeEnabled
@@ -2052,6 +2069,8 @@ export class EditorClipboardManager {
     this.playerColor = playerData.color
     this.playerFacing = playerData.facing
     this.playerInitialNormalMovesetId = playerData.initialNormalMovesetId
+    this.playerAttackSpeedLevel = playerData.attackSpeedLevel
+    this.playerMaxComboCount = playerData.maxComboCount
     this.playerDebugNoDamage = playerData.debugNoDamage
     this.playerDebugNoDeath = playerData.debugNoDeath
     this.playerFactionId = playerData.factionId
@@ -2118,6 +2137,8 @@ export class EditorClipboardManager {
     this.playerProperties.facing = this.playerFacing
     this.playerProperties.initialNormalMovesetId =
       this.playerInitialNormalMovesetId
+    this.playerProperties.attackSpeedLevel = this.playerAttackSpeedLevel
+    this.playerProperties.maxComboCount = this.playerMaxComboCount
     this.playerProperties.debugNoDamage = this.playerDebugNoDamage
     this.playerProperties.debugNoDeath = this.playerDebugNoDeath
     this.playerProperties.mainWeapon = this.playerHasMainWeapon

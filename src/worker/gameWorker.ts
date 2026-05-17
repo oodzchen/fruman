@@ -5,6 +5,10 @@ import {
   syncAttackSlotsForWeaponType,
 } from '../attackPickupUtils'
 import {
+  normalizeCharacterAttackSpeedLevel,
+  normalizeCharacterMaxComboCount,
+} from '../characterActionConfig'
+import {
   PLAYER_BODY_PROFILE_INDEX,
   getCharacterBloodColor,
   getCharacterBodyColor,
@@ -2437,6 +2441,14 @@ function createPlayerAndWeapon(
     playerBodyProfile,
     getPlayerRenderLayer()
   )
+  if (playerEntity.weapon) {
+    playerEntity.weapon.attackSpeedLevel = normalizeCharacterAttackSpeedLevel(
+      playerProps?.attackSpeedLevel
+    )
+    playerEntity.weapon.maxComboCount = normalizeCharacterMaxComboCount(
+      playerProps?.maxComboCount
+    )
+  }
   if (playerEntity.render) {
     playerEntity.render.bodyProfile = playerBodyProfile ?? null
     playerEntity.render.bodyProfileIndex = hasRenderableBodyProfile(

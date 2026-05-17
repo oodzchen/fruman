@@ -3,6 +3,13 @@ import * as fabric from 'fabric'
 import type { DialogManager } from '../DialogManager'
 import { localizer } from '../Localizer'
 import {
+  CHARACTER_ATTACK_SPEED_LEVELS,
+  MAX_CHARACTER_MAX_COMBO_COUNT,
+  MIN_CHARACTER_MAX_COMBO_COUNT,
+  normalizeCharacterAttackSpeedLevel,
+  normalizeCharacterMaxComboCount,
+} from '../characterActionConfig'
+import {
   getCharacterBodyColor,
   getCharacterBodyProfileHeight,
   getCharacterBodyProfileWidth,
@@ -56,6 +63,7 @@ import {
   normalizeSkeletalBodyProfile,
 } from '../skeletalBodyProfile'
 import type {
+  CharacterAttackSpeedLevel,
   NormalAttackMovesetId,
   NpcAttackMove,
   NpcAttackMoveId,
@@ -102,6 +110,8 @@ type CharacterWeaponBinding = {
   ensureWeaponMarker: (weaponType: WeaponType) => WeaponMarker | null
 }
 
+type CharacterPropertiesTab = 'basic' | 'action' | 'appearance' | 'equipment'
+
 type CharacterDialogOptions = {
   title: string
   marker?: NpcMarker | PlayerMarker
@@ -122,6 +132,8 @@ type CharacterDialogOptions = {
     facing: number
     initialNormalMovesetId: NormalAttackMovesetId
     attackMoves?: NpcAttackMove[]
+    attackSpeedLevel?: CharacterAttackSpeedLevel
+    maxComboCount?: number
     debugNoDamage: boolean
     debugNoDeath: boolean
     redTapeEnabled?: boolean
@@ -169,6 +181,8 @@ type CharacterDialogOptions = {
     facing: number
     initialNormalMovesetId: NormalAttackMovesetId
     attackMoves?: NpcAttackMove[]
+    attackSpeedLevel: CharacterAttackSpeedLevel
+    maxComboCount: number
     maxHealth: number
     maxPosture: number
     maxToughness: number
@@ -468,6 +482,7 @@ export class EditorPropertiesPanel {
       }
 
       const tabBtnBasic = createTabBtn(localizer.t('editor_tab_basic'), true)
+      const tabBtnAction = createTabBtn(localizer.t('editor_tab_action'), false)
       const tabBtnAppearance = createTabBtn(
         localizer.t('editor_tab_appearance'),
         false
@@ -476,6 +491,7 @@ export class EditorPropertiesPanel {
         ? createTabBtn(localizer.t('editor_tab_equipment'), false)
         : null
       tabBar.appendChild(tabBtnBasic)
+      tabBar.appendChild(tabBtnAction)
       tabBar.appendChild(tabBtnAppearance)
       if (tabBtnEquipment) {
         tabBar.appendChild(tabBtnEquipment)
@@ -483,11 +499,14 @@ export class EditorPropertiesPanel {
       leftPanel.appendChild(tabBar)
 
       const basicPanel = document.createElement('div')
+      const actionPanel = document.createElement('div')
       const appearancePanel = document.createElement('div')
       const equipmentPanel = document.createElement('div')
+      actionPanel.style.display = 'none'
       appearancePanel.style.display = 'none'
       equipmentPanel.style.display = 'none'
       leftPanel.appendChild(basicPanel)
+      leftPanel.appendChild(actionPanel)
       leftPanel.appendChild(appearancePanel)
       leftPanel.appendChild(equipmentPanel)
 
@@ -502,15 +521,18 @@ export class EditorPropertiesPanel {
         button.style.borderBottomColor = active ? '#fff' : 'transparent'
       }
 
-      const switchTab = (tab: 'basic' | 'appearance' | 'equipment') => {
+      const switchTab = (tab: CharacterPropertiesTab) => {
         basicPanel.style.display = tab === 'basic' ? '' : 'none'
+        actionPanel.style.display = tab === 'action' ? '' : 'none'
         appearancePanel.style.display = tab === 'appearance' ? '' : 'none'
         equipmentPanel.style.display = tab === 'equipment' ? '' : 'none'
         updateTabButtonState(tabBtnBasic, tab === 'basic')
+        updateTabButtonState(tabBtnAction, tab === 'action')
         updateTabButtonState(tabBtnAppearance, tab === 'appearance')
         updateTabButtonState(tabBtnEquipment, tab === 'equipment')
       }
       tabBtnBasic.addEventListener('click', () => switchTab('basic'))
+      tabBtnAction.addEventListener('click', () => switchTab('action'))
       tabBtnAppearance.addEventListener('click', () => switchTab('appearance'))
       tabBtnEquipment?.addEventListener('click', () => switchTab('equipment'))
 
@@ -578,7 +600,7 @@ export class EditorPropertiesPanel {
           selected: options.data.initialPatrolMode,
         })
         patrolRow.row.appendChild(patrolSelect)
-        basicPanel.appendChild(patrolRow.row)
+        actionPanel.appendChild(patrolRow.row)
       }
 
       let detectionRangeSelect: HTMLSelectElement | null = null
@@ -595,7 +617,7 @@ export class EditorPropertiesPanel {
           selected: options.data.detectionRangeLevel ?? 'near',
         })
         detectionRangeRow.row.appendChild(detectionRangeSelect)
-        basicPanel.appendChild(detectionRangeRow.row)
+        actionPanel.appendChild(detectionRangeRow.row)
       }
 
       // Faction
@@ -743,6 +765,33 @@ export class EditorPropertiesPanel {
       facingRow.row.appendChild(facingSelect)
       basicPanel.appendChild(facingRow.row)
 
+      const attackSpeedRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_character_prop_attack_speed')
+      )
+      const attackSpeedSelect = EditorUIHelper.createSelect({
+        options: CHARACTER_ATTACK_SPEED_LEVELS.map((level) => ({
+          value: level,
+          label: localizer.t(`editor_attack_speed_${level}`),
+        })),
+        selected: normalizeCharacterAttackSpeedLevel(
+          options.data.attackSpeedLevel
+        ),
+      })
+      attackSpeedRow.row.appendChild(attackSpeedSelect)
+      actionPanel.appendChild(attackSpeedRow.row)
+
+      const maxComboCountRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_character_prop_max_combo_count')
+      )
+      const maxComboCountInput = EditorUIHelper.createNumberInput({
+        value: normalizeCharacterMaxComboCount(options.data.maxComboCount),
+        min: String(MIN_CHARACTER_MAX_COMBO_COUNT),
+        max: String(MAX_CHARACTER_MAX_COMBO_COUNT),
+        step: '1',
+      })
+      maxComboCountRow.row.appendChild(maxComboCountInput)
+      actionPanel.appendChild(maxComboCountRow.row)
+
       const initialAttackModuleRow = EditorUIHelper.createFormRow(
         localizer.t('editor_character_prop_attack_module')
       )
@@ -756,7 +805,7 @@ export class EditorPropertiesPanel {
           getDefaultNormalAttackMovesetId(options.attackMovesetOwner),
       })
       initialAttackModuleRow.row.appendChild(initialAttackModuleSelect)
-      basicPanel.appendChild(initialAttackModuleRow.row)
+      actionPanel.appendChild(initialAttackModuleRow.row)
 
       // Attack Moves List
       let buildAttackMoveValues: (() => NpcAttackMove[]) | null = null
@@ -784,18 +833,18 @@ export class EditorPropertiesPanel {
         addMoveBtn.style.padding = '4px 8px'
         addMoveBtn.style.fontSize = '11px'
         attackMovesHeaderRow.row.appendChild(addMoveBtn)
-        basicPanel.appendChild(attackMovesHeaderRow.row)
+        actionPanel.appendChild(attackMovesHeaderRow.row)
 
         const moveList = document.createElement('div')
         moveList.style.cssText =
           'display:flex;flex-direction:column;gap:8px;margin:-4px 0 4px 110px;'
-        basicPanel.appendChild(moveList)
+        actionPanel.appendChild(moveList)
 
         // 总计显示行
         const totalRow = document.createElement('div')
         totalRow.style.cssText =
           'font-size:11px;color:rgba(255,255,255,0.5);margin:0 0 10px 110px;'
-        basicPanel.appendChild(totalRow)
+        actionPanel.appendChild(totalRow)
 
         // 新增时均分所有条目概率
         const redistributeEqually = () => {
@@ -1047,7 +1096,7 @@ export class EditorPropertiesPanel {
         redTapeCheckbox.checked = options.data.redTapeEnabled === true
         redTapeCheckbox.style.cssText = 'cursor:pointer;width:14px;height:14px;'
         redTapeRow.row.appendChild(redTapeCheckbox)
-        basicPanel.appendChild(redTapeRow.row)
+        actionPanel.appendChild(redTapeRow.row)
       }
 
       let retreatEnabledCheckbox: HTMLInputElement | null = null
@@ -1062,7 +1111,7 @@ export class EditorPropertiesPanel {
         retreatEnabledCheckbox.style.cssText =
           'cursor:pointer;width:14px;height:14px;'
         retreatEnabledRow.row.appendChild(retreatEnabledCheckbox)
-        basicPanel.appendChild(retreatEnabledRow.row)
+        actionPanel.appendChild(retreatEnabledRow.row)
 
         const retreatDelayRow = EditorUIHelper.createFormRow(
           localizer.t('editor_enemy_prop_retreat_delay')
@@ -1074,7 +1123,7 @@ export class EditorPropertiesPanel {
         })
         retreatDelayInput.disabled = !retreatEnabledCheckbox.checked
         retreatDelayRow.row.appendChild(retreatDelayInput)
-        basicPanel.appendChild(retreatDelayRow.row)
+        actionPanel.appendChild(retreatDelayRow.row)
 
         retreatEnabledCheckbox.addEventListener('change', () => {
           if (retreatDelayInput) {
@@ -1948,6 +1997,12 @@ export class EditorPropertiesPanel {
         const color = getBodyColor()
         const initialNormalMovesetId =
           initialAttackModuleSelect.value as NormalAttackMovesetId
+        const attackSpeedLevel = normalizeCharacterAttackSpeedLevel(
+          attackSpeedSelect.value
+        )
+        const maxComboCount = normalizeCharacterMaxComboCount(
+          Number.parseInt(maxComboCountInput.value, 10)
+        )
         const moveSpeed = speedInput ? Number.parseFloat(speedInput.value) : 0
         const attackDesire = desireInput
           ? Number.parseFloat(desireInput.value)
@@ -2065,6 +2120,8 @@ export class EditorPropertiesPanel {
             : undefined,
           facing,
           initialNormalMovesetId,
+          attackSpeedLevel,
+          maxComboCount,
           attackMoves: buildAttackMoveValues
             ? buildAttackMoveValues()
             : undefined,
@@ -2211,6 +2268,8 @@ export class EditorPropertiesPanel {
         data.color = values.color
         data.facing = values.facing
         data.initialNormalMovesetId = values.initialNormalMovesetId
+        data.attackSpeedLevel = values.attackSpeedLevel
+        data.maxComboCount = values.maxComboCount
         if (values.attackMoves !== undefined) {
           data.attackMoves = values.attackMoves
           marker.attackMoves = values.attackMoves
@@ -2259,6 +2318,8 @@ export class EditorPropertiesPanel {
         marker.color = data.color
         marker.facing = data.facing
         marker.initialNormalMovesetId = data.initialNormalMovesetId
+        marker.attackSpeedLevel = data.attackSpeedLevel
+        marker.maxComboCount = data.maxComboCount
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
         marker.redTapeEnabled = data.redTapeEnabled
@@ -2409,6 +2470,12 @@ export class EditorPropertiesPanel {
             getDefaultNormalAttackMovesetId('npc'),
           attackMoves:
             template.attackMoves ?? buildDefaultNpcAttackMoves(mainWeaponType),
+          attackSpeedLevel: normalizeCharacterAttackSpeedLevel(
+            template.attackSpeedLevel
+          ),
+          maxComboCount: normalizeCharacterMaxComboCount(
+            template.maxComboCount
+          ),
           debugNoDamage: template.debugNoDamage === true,
           debugNoDeath: template.debugNoDeath === true,
           redTapeEnabled: template.redTapeEnabled === true,
@@ -2457,6 +2524,8 @@ export class EditorPropertiesPanel {
             facing: values.facing,
             initialNormalMovesetId: values.initialNormalMovesetId,
             attackMoves: values.attackMoves,
+            attackSpeedLevel: values.attackSpeedLevel,
+            maxComboCount: values.maxComboCount,
             debugNoDamage: values.debugNoDamage,
             debugNoDeath: values.debugNoDeath,
             redTapeEnabled: values.redTapeEnabled,
@@ -2586,6 +2655,8 @@ export class EditorPropertiesPanel {
         data.color = values.color
         data.facing = values.facing
         data.initialNormalMovesetId = values.initialNormalMovesetId
+        data.attackSpeedLevel = values.attackSpeedLevel
+        data.maxComboCount = values.maxComboCount
         data.debugNoDamage = values.debugNoDamage
         data.debugNoDeath = values.debugNoDeath
         data.factionId = values.factionId
@@ -2608,6 +2679,8 @@ export class EditorPropertiesPanel {
         marker.color = data.color
         marker.facing = data.facing
         marker.initialNormalMovesetId = data.initialNormalMovesetId
+        marker.attackSpeedLevel = data.attackSpeedLevel
+        marker.maxComboCount = data.maxComboCount
         marker.debugNoDamage = data.debugNoDamage
         marker.debugNoDeath = data.debugNoDeath
         marker.factionId = data.factionId

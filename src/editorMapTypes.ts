@@ -1,6 +1,7 @@
 import type { MapTerrainData } from './terrain/TerrainTypes'
 import type {
   AttackPickupKind,
+  CharacterAttackSpeedLevel,
   NormalAttackMovesetId,
   NpcAttackMove,
   NpcDetectionRangeLevel,
@@ -359,6 +360,8 @@ export interface MapNpcConfig {
   facing?: number
   initialNormalMovesetId?: NormalAttackMovesetId
   attackMoves?: NpcAttackMove[]
+  attackSpeedLevel?: CharacterAttackSpeedLevel
+  maxComboCount?: number
   debugNoDamage?: boolean
   debugNoDeath?: boolean
   redTapeEnabled?: boolean
@@ -445,6 +448,8 @@ export interface MapPlayerProperties {
   debugNoDamage?: boolean
   debugNoDeath?: boolean
   initialNormalMovesetId?: NormalAttackMovesetId
+  attackSpeedLevel?: CharacterAttackSpeedLevel
+  maxComboCount?: number
   mainWeapon?: MapNpcWeapon
   secondaryWeapon?: MapNpcWeapon
   factionId?: string

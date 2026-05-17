@@ -1,4 +1,8 @@
 import {
+  normalizeCharacterMaxComboCount,
+  scaleCharacterWindupMs,
+} from '../../characterActionConfig'
+import {
   BOW_GRAVITY_SCALE,
   BOW_MAX_DRAW_MS,
   BOW_MAX_SPEED,
@@ -12,7 +16,6 @@ import {
   DEFAULT_WEAPON_ATTACK_RECOVER_MS,
   DEFAULT_WEAPON_ATTACK_SWING_MS,
   DEFAULT_WEAPON_ATTACK_WINDUP_MS,
-  DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS,
   GRAPE_GRAVITY_SCALE,
   GRAPE_MAX_SPEED,
   GRAPE_MIN_FORCE_RATIO,
@@ -34,7 +37,11 @@ import {
 import type { WeaponTemplate, WeaponType, WeaponVisualType } from '../../types'
 import { getGrapeChargeRangeScale } from '../../weaponTypeUtils'
 import { SOUND_IDS } from '../../worker/effectsProtocol'
-import type { AttackMoveData, ImpactLevel } from '../AttackMoveData'
+import type {
+  AttackMoveData,
+  AttackSequenceData,
+  ImpactLevel,
+} from '../AttackMoveData'
 import { ATTACK_MOVES, ATTACK_MOVESETS } from '../AttackMoveRegistry'
 import type { Entity } from '../Entity'
 import {
@@ -98,6 +105,8 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
 
     let canChain = false
     let nextMove: AttackMoveData | null = null
+    let nextMoveIndex = -1
+    let sequenceMoveCount = 0
 
     if (weapon.attackQueued && weapon.movesetId) {
       const moveset = ATTACK_MOVESETS[weapon.movesetId]
@@ -105,13 +114,11 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
         (sequence) => sequence.id === weapon.activeSequenceId
       )
       if (seq) {
-        if (weapon.activeMoveIndex + 1 < seq.moves.length) {
+        sequenceMoveCount = seq.moves.length
+        nextMoveIndex = this.getNextComboMoveIndex(seq, weapon)
+        if (nextMoveIndex >= 0) {
           canChain = true
-          nextMove = ATTACK_MOVES[seq.moves[weapon.activeMoveIndex + 1]] || null
-        } else if (seq.loop) {
-          canChain = true
-          weapon.activeMoveIndex = -1
-          nextMove = ATTACK_MOVES[seq.moves[0]] || null
+          nextMove = ATTACK_MOVES[seq.moves[nextMoveIndex]] || null
         }
       }
     }
@@ -124,9 +131,15 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
       weapon.attackQueued = false
       weapon.comboCount += 1
 
-      weapon.activeMoveIndex += 1
+      weapon.activeMoveIndex = nextMoveIndex
       weapon.activeMoveId = nextMove.id
-      weapon.swingDirection = nextMove.swingDirection
+      weapon.swingDirection = this.resolveChainedSwingDirection(
+        nextMove,
+        weapon,
+        playerPos,
+        nextMoveIndex,
+        sequenceMoveCount
+      )
       weapon.impactLevel = this.resolveImpactLevel(nextMove, weapon)
       weapon.isUnstoppable = nextMove.isUnstoppable
       attackRadius = (attackRadius * nextMove.radiusScale) / 100
@@ -182,6 +195,63 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
   protected getActiveMove(weapon: Entity['weapon']): AttackMoveData | null {
     if (!weapon || !weapon.activeMoveId) return null
     return ATTACK_MOVES[weapon.activeMoveId] || null
+  }
+
+  protected resolveChainedSwingDirection(
+    move: AttackMoveData,
+    weapon: NonNullable<Entity['weapon']>,
+    playerPos: { x: number; y: number },
+    moveIndex: number,
+    sequenceMoveCount: number
+  ): 'toFront' | 'toHead' {
+    if (
+      move.kind !== 'slash' ||
+      sequenceMoveCount <= 0 ||
+      moveIndex !== sequenceMoveCount - 1
+    ) {
+      return move.swingDirection
+    }
+    return weapon.visual.y > playerPos.y ? 'toHead' : 'toFront'
+  }
+
+  protected getSequenceMoveIndexForComboCount(
+    seq: AttackSequenceData,
+    weapon: Entity['weapon'],
+    comboCount: number
+  ): number {
+    if (!weapon || seq.moves.length === 0 || comboCount <= 0) {
+      return -1
+    }
+    const maxComboCount = normalizeCharacterMaxComboCount(weapon.maxComboCount)
+    if (maxComboCount < seq.moves.length && comboCount >= maxComboCount) {
+      return seq.moves.length - 1
+    }
+    const moveIndex = comboCount - 1
+    if (moveIndex < seq.moves.length) {
+      return moveIndex
+    }
+    if (seq.loop) {
+      return moveIndex % seq.moves.length
+    }
+    return -1
+  }
+
+  protected getNextComboMoveIndex(
+    seq: AttackSequenceData,
+    weapon: Entity['weapon']
+  ): number {
+    if (!weapon) {
+      return -1
+    }
+    const maxComboCount = normalizeCharacterMaxComboCount(weapon.maxComboCount)
+    if (weapon.comboCount >= maxComboCount) {
+      return -1
+    }
+    return this.getSequenceMoveIndexForComboCount(
+      seq,
+      weapon,
+      weapon.comboCount + 1
+    )
   }
 
   protected resolveImpactLevel(
@@ -383,10 +453,17 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
     baseMs: number,
     weapon: Entity['weapon']
   ): number {
+    if (baseMs <= 0) {
+      return 0
+    }
     const ratio = this.getWindupScaleRatio(weapon)
-    return Math.max(
+    const weaponScaledMs = Math.max(
       1,
       Math.floor((baseMs * ratio.numerator) / ratio.denominator)
+    )
+    return scaleCharacterWindupMs(
+      weaponScaledMs,
+      weapon?.attackSpeedLevel ?? 'fast'
     )
   }
 
@@ -403,7 +480,8 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
 
   protected getPauseMs(weapon: Entity['weapon']): number {
     const move = this.getActiveMove(weapon)
-    return move ? move.pauseMs : DEFAULT_WEAPON_ATTACK_PAUSE_MS
+    const baseMs = move ? move.pauseMs : DEFAULT_WEAPON_ATTACK_PAUSE_MS
+    return scaleCharacterWindupMs(baseMs, weapon?.attackSpeedLevel ?? 'fast')
   }
 
   protected getRecoverMs(weapon: Entity['weapon']): number {
@@ -707,29 +785,25 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
     if (weapon.reboundLockedPause && reachedPause) {
       weapon.reboundLockedPause = false
     }
+    if (!reachedPause) return
 
     let canChain = false
     let nextMove: AttackMoveData | null = null
+    let nextMoveIndex = -1
+    let sequenceMoveCount = 0
 
-    if (
-      weapon.attackQueued &&
-      weapon.attackPhase !== 'rebound' &&
-      weapon.attackElapsedMs >= DEFAULT_WEAPON_MIN_ATTACK_INTERVAL_MS
-    ) {
+    if (weapon.attackQueued && weapon.attackPhase !== 'rebound') {
       if (weapon.movesetId) {
         const moveset = ATTACK_MOVESETS[weapon.movesetId]
         const seq = moveset?.sequences.find(
           (sequence) => sequence.id === weapon.activeSequenceId
         )
         if (seq) {
-          if (weapon.activeMoveIndex + 1 < seq.moves.length) {
+          sequenceMoveCount = seq.moves.length
+          nextMoveIndex = this.getNextComboMoveIndex(seq, weapon)
+          if (nextMoveIndex >= 0) {
             canChain = true
-            nextMove =
-              ATTACK_MOVES[seq.moves[weapon.activeMoveIndex + 1]] || null
-          } else if (seq.loop) {
-            canChain = true
-            weapon.activeMoveIndex = -1
-            nextMove = ATTACK_MOVES[seq.moves[0]] || null
+            nextMove = ATTACK_MOVES[seq.moves[nextMoveIndex]] || null
           }
         }
       }
@@ -742,9 +816,15 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
         weapon.attackQueued = false
         weapon.comboCount += 1
 
-        weapon.activeMoveIndex += 1
+        weapon.activeMoveIndex = nextMoveIndex
         weapon.activeMoveId = nextMove.id
-        weapon.swingDirection = nextMove.swingDirection
+        weapon.swingDirection = this.resolveChainedSwingDirection(
+          nextMove,
+          weapon,
+          playerPos,
+          nextMoveIndex,
+          sequenceMoveCount
+        )
         weapon.impactLevel = this.resolveImpactLevel(nextMove, weapon)
         weapon.isUnstoppable = nextMove.isUnstoppable
         attackRadius = (attackRadius * nextMove.radiusScale) / 100
@@ -812,8 +892,6 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
         return
       }
     }
-
-    if (!reachedPause) return
 
     weapon.attackPhase = 'recover'
     weapon.reboundLockedPause = false

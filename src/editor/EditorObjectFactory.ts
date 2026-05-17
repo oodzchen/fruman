@@ -350,6 +350,8 @@ class NpcMarkerRenderObject extends fabric.FabricObject {
   declare color: NpcMarker['color']
   declare facing: NpcMarker['facing']
   declare initialNormalMovesetId: NpcMarker['initialNormalMovesetId']
+  declare attackSpeedLevel: NpcMarker['attackSpeedLevel']
+  declare maxComboCount: NpcMarker['maxComboCount']
   declare debugNoDamage: NpcMarker['debugNoDamage']
   declare debugNoDeath: NpcMarker['debugNoDeath']
   declare redTapeEnabled: NpcMarker['redTapeEnabled']
@@ -406,6 +408,8 @@ class NpcMarkerRenderObject extends fabric.FabricObject {
     this.color = '#000000'
     this.facing = 1
     this.initialNormalMovesetId = '' as NpcMarker['initialNormalMovesetId']
+    this.attackSpeedLevel = 'fast'
+    this.maxComboCount = 5
     this.debugNoDamage = false
     this.debugNoDeath = false
     this.redTapeEnabled = false
