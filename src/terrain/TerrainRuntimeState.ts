@@ -3,10 +3,15 @@ import {
   normalizeRenderLayer,
 } from '../renderLayers'
 import { TerrainChunkGrid } from './TerrainChunkGrid'
-import { getTerrainMaterialByCode } from './TerrainMaterialRegistry'
+import {
+  getTerrainMaterialByCode,
+  getTerrainMaterialCodeById,
+} from './TerrainMaterialRegistry'
 import type { MapTerrainData, MapTerrainLayer } from './TerrainTypes'
 
 const TERRAIN_DAMAGE_SCALE = 100
+const DIRT_MATERIAL_CODE = getTerrainMaterialCodeById('dirt')
+const GRASS_MATERIAL_CODE = getTerrainMaterialCodeById('grass')
 
 export interface TerrainImpactRequest {
   worldX: number
@@ -123,6 +128,7 @@ export function applyTerrainImpactToRuntimeState(
       ) + 1
 
     let layerDestroyed = false
+    const destroyedLayerCells: number[] = []
     for (
       let worldCellY = minWorldCellY;
       worldCellY <= maxWorldCellY;
@@ -204,11 +210,17 @@ export function applyTerrainImpactToRuntimeState(
           layerDestroyed = true
           destroyedAnyCell = true
           destroyedCells1000.push(centerX1000, centerY1000, materialCode)
+          destroyedLayerCells.push(localCellX, localCellY)
         }
       }
     }
 
     if (layerDestroyed) {
+      exposeGrassSubsurfaceBelowDestroyedCells(
+        layerState,
+        runtimeState.chunkSize,
+        destroyedLayerCells
+      )
       layerState.layer.chunks = layerState.grid.serializeChunks()
       layerState.layer.buildRevision = nextBuildRevision()
     }
@@ -218,6 +230,32 @@ export function applyTerrainImpactToRuntimeState(
     return null
   }
   return { destroyedCells1000 }
+}
+
+function exposeGrassSubsurfaceBelowDestroyedCells(
+  layerState: RuntimeTerrainLayerState,
+  chunkSize: number,
+  destroyedLayerCells: readonly number[]
+): void {
+  for (let i = 0; i < destroyedLayerCells.length; i += 2) {
+    const localCellX = destroyedLayerCells[i]
+    const exposedLocalCellY = destroyedLayerCells[i + 1] + 1
+    if (
+      layerState.grid.getCellMaterialCode(localCellX, exposedLocalCellY) !==
+      GRASS_MATERIAL_CODE
+    ) {
+      continue
+    }
+    if (
+      layerState.grid.setCellMaterialCode(
+        localCellX,
+        exposedLocalCellY,
+        DIRT_MATERIAL_CODE
+      )
+    ) {
+      clearCellDamage(layerState, chunkSize, localCellX, exposedLocalCellY)
+    }
+  }
 }
 
 function computeWeightedImpactPower(
