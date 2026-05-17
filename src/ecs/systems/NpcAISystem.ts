@@ -363,9 +363,7 @@ export class NpcAISystem extends System {
         ai,
         effectiveAttackDesire,
         deltaMs,
-        isEngaged,
-        distance,
-        weaponRange
+        isEngaged
       )
 
       if (ai.parryProficiency <= 50 && ai.arrowDefenseTimeRemainingMs > 0) {
@@ -582,6 +580,18 @@ export class NpcAISystem extends System {
         entity.input.lockLostTimer = 0
       }
 
+      if (ai.state === 'probe') {
+        this.handleProbeState(
+          entity,
+          ai,
+          distance,
+          weaponRange,
+          stableFacing,
+          deltaMs
+        )
+        continue
+      }
+
       if (entity.weapon && entity.weaponSlots) {
         const meleeSwitchDistance = ai.detectionRange * ARCHER_MELEE_RANGE_RATIO
         const rangedSlotId = this.getRangedWeaponSlotId(entity)
@@ -656,18 +666,6 @@ export class NpcAISystem extends System {
         }
       }
 
-      if (ai.state === 'probe') {
-        this.handleProbeState(
-          entity,
-          ai,
-          distance,
-          weaponRange,
-          stableFacing,
-          deltaMs
-        )
-        continue
-      }
-
       if (ai.state === 'approach') {
         // 如果正在进行跨越障碍跳跃序列，优先处理
         if (ai.obstacleJumpStage > 0) {
@@ -731,16 +729,6 @@ export class NpcAISystem extends System {
             now - ai.lastAggressionCheckTimestamp > 1000)
         ) {
           ai.lastAggressionCheckTimestamp = now
-          if (distance > weaponRange) {
-            const hesitationChance = Math.max(
-              0,
-              (100 - effectiveAttackDesire) / 100
-            )
-            if (Math.random() < hesitationChance * 0.8) {
-              this.startProbeState(entity, ai, effectiveAttackDesire)
-              continue
-            }
-          }
           ai.pendingAttackMoveId = this.pickConfiguredAttackIntent(ai)
         }
 
@@ -1534,32 +1522,69 @@ export class NpcAISystem extends System {
     ai.soundInvestigationTimeRemainingMs = 0
   }
 
+  private normalizeAttackDesire(attackDesire: number): number {
+    if (!Number.isFinite(attackDesire)) return 0
+    if (attackDesire <= 0) return 0
+    if (attackDesire >= 100) return 100
+    return Math.floor(attackDesire)
+  }
+
+  private shouldProbeForAttackDesire(attackDesire: number): boolean {
+    const normalizedAttackDesire = this.normalizeAttackDesire(attackDesire)
+    if (normalizedAttackDesire >= 100) return false
+    return Math.floor(Math.random() * 100) >= normalizedAttackDesire
+  }
+
+  private resetProbeCycle(entity: Entity, ai: NpcAIComponent): void {
+    if (ai.state === 'probe') {
+      ai.state = 'approach'
+      if (entity.movement) {
+        entity.movement.moveSpeed = ai.moveSpeed
+      }
+    }
+    ai.probeSwitchTimerMs = 0
+    ai.probePaceTimerMs = 0
+    ai.probePaceDirection = 1
+    ai.probePaceMovedDistance = 0
+    ai.probeLastPositionX = 0
+    ai.probeLastPositionY = 0
+    ai.probeHasTriggered = false
+  }
+
+  private startProbeChaseWindow(entity: Entity, ai: NpcAIComponent): void {
+    ai.state = 'approach'
+    ai.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
+    ai.probePaceTimerMs = 0
+    ai.probePaceDirection = 1
+    ai.probePaceMovedDistance = 0
+    if (entity.movement && entity.movement.moveSpeed !== ai.moveSpeed) {
+      entity.movement.moveSpeed = ai.moveSpeed
+    }
+  }
+
+  private chooseProbeOrChaseByDesire(
+    entity: Entity,
+    ai: NpcAIComponent,
+    attackDesire: number
+  ): void {
+    ai.probeHasTriggered = true
+    if (this.shouldProbeForAttackDesire(attackDesire)) {
+      this.startProbeState(entity, ai, attackDesire)
+      return
+    }
+    this.startProbeChaseWindow(entity, ai)
+  }
+
   private updateProbeCycle(
     entity: Entity,
     ai: NpcAIComponent,
     effectiveAttackDesire: number,
     deltaMs: number,
-    isEngaged: boolean,
-    distance: number,
-    weaponRange: number
+    isEngaged: boolean
   ): void {
-    if (
-      (ai.parryProficiency < 50 && effectiveAttackDesire >= 50) ||
-      !isEngaged
-    ) {
-      if (ai.state === 'probe') {
-        ai.state = 'approach'
-        if (entity.movement) {
-          entity.movement.moveSpeed = ai.moveSpeed
-        }
-      }
-      ai.probeSwitchTimerMs = 0
-      ai.probePaceTimerMs = 0
-      ai.probePaceDirection = 1
-      ai.probePaceMovedDistance = 0
-      ai.probeLastPositionX = 0
-      ai.probeLastPositionY = 0
-      ai.probeHasTriggered = false
+    const attackDesire = this.normalizeAttackDesire(effectiveAttackDesire)
+    if (!isEngaged || attackDesire >= 100) {
+      this.resetProbeCycle(entity, ai)
       return
     }
 
@@ -1572,22 +1597,9 @@ export class NpcAISystem extends System {
       return
     }
 
-    if (ai.state === 'approach' && !ai.probeHasTriggered) {
-      const probeTargetDistance = weaponRange * ENEMY_PROBE_DISTANCE_MULTIPLIER
-      const probeBuffer = weaponRange * ENEMY_PROBE_RANGE_BUFFER_RATIO
-      const maxDistance = probeTargetDistance + probeBuffer
-      if (distance <= maxDistance) {
-        if (effectiveAttackDesire >= 90) {
-          return
-        }
-        this.startProbeState(entity, ai, effectiveAttackDesire)
-        return
-      }
-    }
-
     if (ai.state === 'probe') {
       if (ai.probeSwitchTimerMs <= 0) {
-        this.startProbeState(entity, ai, effectiveAttackDesire)
+        this.chooseProbeOrChaseByDesire(entity, ai, attackDesire)
         return
       }
 
@@ -1596,22 +1608,12 @@ export class NpcAISystem extends System {
         return
       }
 
-      ai.state = 'approach'
-      ai.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
-      ai.probePaceTimerMs = 0
-      ai.probePaceDirection = 1
-      ai.probePaceMovedDistance = 0
-      if (entity.movement) {
-        entity.movement.moveSpeed = ai.moveSpeed
-      }
+      this.chooseProbeOrChaseByDesire(entity, ai, attackDesire)
       return
     }
 
     if (ai.probeSwitchTimerMs <= 0) {
-      ai.probeSwitchTimerMs = ENEMY_PROBE_CHASE_DURATION_MS
-      if (entity.movement && entity.movement.moveSpeed !== ai.moveSpeed) {
-        entity.movement.moveSpeed = ai.moveSpeed
-      }
+      this.chooseProbeOrChaseByDesire(entity, ai, attackDesire)
       return
     }
 
@@ -1620,7 +1622,7 @@ export class NpcAISystem extends System {
       return
     }
 
-    this.startProbeState(entity, ai, effectiveAttackDesire)
+    this.chooseProbeOrChaseByDesire(entity, ai, attackDesire)
   }
 
   private startProbeState(
@@ -1646,6 +1648,23 @@ export class NpcAISystem extends System {
     }
   }
 
+  private clearRangedAttackHold(entity: Entity): void {
+    const weapon = entity.weapon
+    if (!weapon || !isRangedWeaponType(weapon.weaponType)) return
+    if (!weapon.bowIsDrawing && !weapon.bowReleasePending) return
+
+    weapon.bowIsDrawing = false
+    weapon.bowDrawElapsedMs = 0
+    weapon.bowDrawRatio = 0
+    weapon.bowForceRatio = 0
+    weapon.bowReleaseRatio = 0
+    weapon.bowReleasePending = false
+    weapon.bowReleaseDelayMs = 0
+    weapon.bowReleaseDelayTotalMs = 0
+    weapon.bowAimAngle = 0
+    weapon.bowHasAim = false
+  }
+
   private handleProbeState(
     entity: Entity,
     ai: NpcAIComponent,
@@ -1659,7 +1678,9 @@ export class NpcAISystem extends System {
     if (entity.weapon) {
       entity.weapon.attackQueued = false
     }
+    entity.input.attackRequested = false
     entity.input.sprintRequested = false
+    this.clearRangedAttackHold(entity)
 
     if (entity.transform) {
       const deltaX = entity.transform.x - ai.probeLastPositionX
