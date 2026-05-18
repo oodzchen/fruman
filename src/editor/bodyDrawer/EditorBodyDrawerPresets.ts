@@ -45,7 +45,7 @@ export function getBodyPresetConfig(
   if (presetId === 'banana') {
     return {
       color: TRANSPARENT_BODY_COLOR,
-      bloodColor: '#8a5424',
+      bloodColor: '#f0d27a',
       eyeX: 0,
       eyeY: -5,
       points: BANANA_PRESET_POINTS,
@@ -56,7 +56,7 @@ export function getBodyPresetConfig(
   if (presetId === 'durian') {
     return {
       color: TRANSPARENT_BODY_COLOR,
-      bloodColor: '#8a7a12',
+      bloodColor: '#d9b95f',
       eyeX: 32,
       eyeY: -5,
       points: DURIAN_PRESET_POINTS,
@@ -66,7 +66,7 @@ export function getBodyPresetConfig(
   if (presetId === 'kiwano') {
     return {
       color: TRANSPARENT_BODY_COLOR,
-      bloodColor: '#8e5a17',
+      bloodColor: '#95b83a',
       eyeX: 20,
       eyeY: -2,
       points: KIWANO_PRESET_POINTS,
@@ -78,7 +78,7 @@ export function getBodyPresetConfig(
   if (presetId === 'pandaAnt') {
     return {
       color: TRANSPARENT_BODY_COLOR,
-      bloodColor: '#2e241f',
+      bloodColor: '#c08a35',
       eyeX: 34,
       eyeY: -8,
       points: PANDA_ANT_PRESET_POINTS,
@@ -90,7 +90,7 @@ export function getBodyPresetConfig(
   if (presetId === 'pineapple') {
     return {
       color: TRANSPARENT_BODY_COLOR,
-      bloodColor: '#7d4a18',
+      bloodColor: '#f0c338',
       eyeX: 0,
       eyeY: 52,
       points: PINEAPPLE_PRESET_POINTS,
@@ -101,7 +101,7 @@ export function getBodyPresetConfig(
   if (presetId === 'tomato') {
     return {
       color: TRANSPARENT_BODY_COLOR,
-      bloodColor: '#8f1414',
+      bloodColor: '#c9251b',
       eyeX: 0,
       eyeY: 3,
       points: TOMATO_PRESET_POINTS,
@@ -111,7 +111,7 @@ export function getBodyPresetConfig(
   }
   return {
     color: TRANSPARENT_BODY_COLOR,
-    bloodColor: '#9b2e22',
+    bloodColor: '#d7352f',
     eyeX: 0,
     eyeY: 1,
     points: WATERMELON_PRESET_POINTS,
