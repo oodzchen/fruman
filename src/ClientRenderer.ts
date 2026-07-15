@@ -2050,12 +2050,11 @@ export class ClientRenderer {
 
     // UI Configuration
     const canvasWidth = this.ctx.canvas.width
-    const canvasHeight = this.ctx.canvas.height
 
     // Weapon Slots Layout (Right side)
     const weaponSlotSize = HUD_SLOT_SIZE
     const weaponTotalWidth = weaponSlotSize * 2 + HUD_SLOT_SPACING
-    const slotY = canvasHeight - HUD_SLOT_MARGIN - weaponSlotSize
+    const slotY = HUD_SLOT_MARGIN
 
     // Health Bar & Exp Bar & Grapple Icon Layout (Left side)
     const barHeight = 12
@@ -2553,7 +2552,7 @@ export class ClientRenderer {
     const canvasHeight = this.ctx.canvas.height
     const totalWidth = HUD_SLOT_SIZE * 2 + HUD_SLOT_SPACING
     const startX = canvasWidth - HUD_SLOT_MARGIN - totalWidth
-    const slotY = canvasHeight - HUD_SLOT_MARGIN - HUD_SLOT_SIZE
+    const slotY = HUD_SLOT_MARGIN
     const mainX = startX
     const secondaryX = startX + HUD_SLOT_SIZE + HUD_SLOT_SPACING
 
