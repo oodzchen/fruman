@@ -39,6 +39,10 @@
         display: flex;
         gap: 10px;
         align-items: flex-start;
+        justify-content: center;
+      }
+      #gameContainer.is-development {
+        justify-content: flex-start;
       }
       canvas {
         flex-shrink: 0;
@@ -485,6 +489,7 @@
         color: #666;
       }
       #controlPanel {
+        display: none;
         border: 1px solid #ccc;
         padding: 5px;
         width: 350px;
@@ -492,6 +497,9 @@
         overflow-y: auto;
         font-size: 12px;
         box-sizing: border-box;
+      }
+      #gameContainer.is-development #controlPanel {
+        display: block;
       }
       #controlPanel h3 {
         margin: 0 0 5px 0;

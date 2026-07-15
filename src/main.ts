@@ -266,6 +266,9 @@ function setupParamResetButton(config: ParamConfig, onReset: () => void): void {
   labelRow.appendChild(resetButton)
 }
 
+const gameContainer = document.getElementById('gameContainer') as HTMLDivElement
+gameContainer.classList.toggle('is-development', import.meta.env.DEV)
+
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
 const dialogManager = new DialogManager(gameViewport, gameViewport)

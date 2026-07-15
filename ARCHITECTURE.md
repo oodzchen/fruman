@@ -533,7 +533,7 @@ src/
     ├── publicAssetUrl.ts
     └── spineCollisionKeyframes.ts
 
-lang/
+public/lang/
 ├── zh-Hans.json               简体中文
 └── en.json                    英文
 
