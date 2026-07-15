@@ -1,5 +1,6 @@
 import * as fabric from 'fabric'
 
+import { DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL } from '../characterActionConfig'
 import {
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
   CHECKPOINT_TREE_TRUNK_COLOR_INACTIVE,
@@ -408,7 +409,7 @@ class NpcMarkerRenderObject extends fabric.FabricObject {
     this.color = '#000000'
     this.facing = 1
     this.initialNormalMovesetId = '' as NpcMarker['initialNormalMovesetId']
-    this.attackSpeedLevel = 'fast'
+    this.attackSpeedLevel = DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL
     this.maxComboCount = 5
     this.debugNoDamage = false
     this.debugNoDeath = false

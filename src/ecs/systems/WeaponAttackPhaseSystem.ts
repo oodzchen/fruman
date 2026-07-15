@@ -1,4 +1,6 @@
 import {
+  DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL,
+  DEFAULT_CHARACTER_MAX_COMBO_COUNT,
   normalizeCharacterMaxComboCount,
   scaleCharacterWindupMs,
 } from '../../characterActionConfig'
@@ -463,7 +465,7 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
     )
     return scaleCharacterWindupMs(
       weaponScaledMs,
-      weapon?.attackSpeedLevel ?? 'fast'
+      weapon?.attackSpeedLevel ?? DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL
     )
   }
 
@@ -481,7 +483,10 @@ export abstract class WeaponAttackPhaseSystem extends WeaponDefenseSystem {
   protected getPauseMs(weapon: Entity['weapon']): number {
     const move = this.getActiveMove(weapon)
     const baseMs = move ? move.pauseMs : DEFAULT_WEAPON_ATTACK_PAUSE_MS
-    return scaleCharacterWindupMs(baseMs, weapon?.attackSpeedLevel ?? 'fast')
+    return scaleCharacterWindupMs(
+      baseMs,
+      weapon?.attackSpeedLevel ?? DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL
+    )
   }
 
   protected getRecoverMs(weapon: Entity['weapon']): number {

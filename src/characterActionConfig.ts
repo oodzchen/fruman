@@ -1,7 +1,7 @@
 import type { CharacterAttackSpeedLevel } from './types'
 
 export const DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL: CharacterAttackSpeedLevel =
-  'fast'
+  'normal'
 export const DEFAULT_CHARACTER_MAX_COMBO_COUNT = 5
 export const MIN_CHARACTER_MAX_COMBO_COUNT = 1
 export const MAX_CHARACTER_MAX_COMBO_COUNT = 8

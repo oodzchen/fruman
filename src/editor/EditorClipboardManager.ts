@@ -1,5 +1,6 @@
 import * as fabric from 'fabric'
 
+import { DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL } from '../characterActionConfig'
 import type {
   MapEnvironmentFlowerOptions,
   MapEnvironmentObjectType,
@@ -306,7 +307,8 @@ export class EditorClipboardManager {
   private npcColor = ''
   private npcFacing = 1
   private npcInitialNormalMovesetId: NormalAttackMovesetId = 'sword_default'
-  private npcAttackSpeedLevel: CharacterAttackSpeedLevel = 'fast'
+  private npcAttackSpeedLevel: CharacterAttackSpeedLevel =
+    DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL
   private npcMaxComboCount = 5
   private npcDebugNoDamage = false
   private npcDebugNoDeath = false
@@ -350,7 +352,7 @@ export class EditorClipboardManager {
     color: '',
     facing: 1,
     initialNormalMovesetId: 'sword_default' as NormalAttackMovesetId,
-    attackSpeedLevel: 'fast' as CharacterAttackSpeedLevel,
+    attackSpeedLevel: DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL,
     maxComboCount: 5,
     debugNoDamage: false,
     debugNoDeath: false,
@@ -375,7 +377,8 @@ export class EditorClipboardManager {
   private playerColor = ''
   private playerFacing = 1
   private playerInitialNormalMovesetId: NormalAttackMovesetId = 'sword_thrust'
-  private playerAttackSpeedLevel: CharacterAttackSpeedLevel = 'fast'
+  private playerAttackSpeedLevel: CharacterAttackSpeedLevel =
+    DEFAULT_CHARACTER_ATTACK_SPEED_LEVEL
   private playerMaxComboCount = 5
   private playerDebugNoDamage = false
   private playerDebugNoDeath = false

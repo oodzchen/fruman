@@ -153,6 +153,7 @@ public/map_data/*
 *~
 .claude
 .gemini
+.antigravitycli
 todo.txt
 REFACTORING.md
 *.backup
