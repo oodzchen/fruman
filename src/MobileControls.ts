@@ -73,6 +73,8 @@ const HUD_SLOT_MARGIN = 16
 const HUD_SKILL_SIZE = 42
 const HUD_SKILL_ULTIMATE_SPACING = 12
 const HUD_ULTIMATE_SIZE = 52
+const ACTION_BUTTON_RADIUS = 28
+const ACTION_BUTTON_GAP = 14
 const MOBILE_SMALL_SIDE = 450
 const MAX_GESTURE_POINTERS = 2
 const ACTION_SWIPE_MAX_DURATION_MS = 220
@@ -147,6 +149,7 @@ export class MobileControls {
   private joystickThumbY = 0
   private jumpPointerCount = 0
   private defensePointerCount = 0
+  private attackDefenseGesturesEnabled = false
   private jumpInputKey: MobileJumpInputKey = MOBILE_FULL_JUMP_KEY
 
   constructor(target: HTMLElement, callbacks: MobileControlsCallbacks) {
@@ -157,6 +160,8 @@ export class MobileControls {
     this.gesturePointer.fill(NO_POINTER)
     this.gestureTargetId.fill(NO_POINTER)
     this.controlAvailable[CONTROL_JOYSTICK] = 1
+    this.controlAvailable[CONTROL_ATTACK] = 1
+    this.controlAvailable[CONTROL_DEFENSE] = 1
     this.controlAvailable[CONTROL_PAUSE] = 1
     this.target.style.touchAction = 'none'
 
@@ -215,13 +220,22 @@ export class MobileControls {
   }
 
   setAttackDefenseGesturesEnabled(enabled: boolean): void {
-    this.setControlAvailable(CONTROL_ATTACK, enabled)
-    this.setControlAvailable(CONTROL_DEFENSE, enabled)
-    if (!enabled) {
+    if (this.attackDefenseGesturesEnabled !== enabled) {
+      this.attackDefenseGesturesEnabled = enabled
       for (let gesture = 0; gesture < MAX_GESTURE_POINTERS; gesture++) {
-        this.releaseGestureAction(gesture, true, false)
+        const action = this.gestureAction[gesture]
+        if (
+          action === GESTURE_ACTION_ATTACK ||
+          action === GESTURE_ACTION_DEFENSE
+        ) {
+          this.releaseGestureAction(gesture, true, false)
+        }
       }
     }
+    const buttonsEnabled = !enabled
+    this.setControlAvailable(CONTROL_ATTACK, buttonsEnabled)
+    this.setControlAvailable(CONTROL_DEFENSE, buttonsEnabled)
+    this.dirty = true
   }
 
   resize(width: number, height: number): void {
@@ -249,6 +263,10 @@ export class MobileControls {
 
     if (this.controlPressed[CONTROL_JOYSTICK] !== 0) {
       this.drawJoystick(ctx)
+    }
+    if (!this.attackDefenseGesturesEnabled) {
+      this.drawActionButton(ctx, CONTROL_DEFENSE)
+      this.drawActionButton(ctx, CONTROL_ATTACK)
     }
     this.drawPauseButton(ctx)
     for (let control = FIRST_HUD_CONTROL; control < CONTROL_COUNT; control++) {
@@ -411,10 +429,10 @@ export class MobileControls {
   }
 
   private beginScreenAction(gesture: number, x: number): void {
+    if (!this.attackDefenseGesturesEnabled) {
+      return
+    }
     if (x < this.canvasWidth >> 1) {
-      if (this.controlAvailable[CONTROL_DEFENSE] === 0) {
-        return
-      }
       this.gestureAction[gesture] = GESTURE_ACTION_DEFENSE
       this.defensePointerCount++
       if (this.defensePointerCount === 1) {
@@ -422,9 +440,7 @@ export class MobileControls {
       }
       return
     }
-    if (this.controlAvailable[CONTROL_ATTACK] !== 0) {
-      this.gestureAction[gesture] = GESTURE_ACTION_ATTACK
-    }
+    this.gestureAction[gesture] = GESTURE_ACTION_ATTACK
   }
 
   private releaseGestureAction(
@@ -823,6 +839,15 @@ export class MobileControls {
       ultimateY,
       HUD_SKILL_SIZE >> 1
     )
+    const actionRadius = this.scaleValue(ACTION_BUTTON_RADIUS, scale)
+    const attackX = this.canvasWidth - HUD_SLOT_MARGIN - actionRadius
+    this.setCircle(CONTROL_ATTACK, attackX, bottomActionCenterY, actionRadius)
+    this.setCircle(
+      CONTROL_DEFENSE,
+      attackX - (actionRadius << 1) - ACTION_BUTTON_GAP,
+      bottomActionCenterY,
+      actionRadius
+    )
   }
 
   private setCircle(
@@ -841,7 +866,11 @@ export class MobileControls {
   }
 
   private findButtonAt(x: number, y: number): number {
-    for (let control = CONTROL_COUNT - 1; control >= CONTROL_PAUSE; control--) {
+    for (
+      let control = CONTROL_COUNT - 1;
+      control >= CONTROL_ATTACK;
+      control--
+    ) {
       if (this.controlAvailable[control] === 0) {
         continue
       }
@@ -960,6 +989,118 @@ export class MobileControls {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.78)'
     this.drawPauseIcon(ctx, x, y, radius)
     ctx.restore()
+  }
+
+  private drawActionButton(ctx: RenderContext2D, control: number): void {
+    const pressed = this.controlPressed[control] !== 0
+    const radius = this.controlRadius[control] + (pressed ? 3 : 0)
+    const x = this.controlX[control]
+    const y = this.controlY[control]
+    ctx.save()
+    ctx.globalAlpha = 1
+    ctx.fillStyle = pressed
+      ? 'rgba(225, 190, 112, 0.3)'
+      : 'rgba(15, 13, 20, 0.38)'
+    ctx.strokeStyle = pressed
+      ? 'rgba(255, 244, 210, 0.92)'
+      : 'rgba(255, 255, 255, 0.3)'
+    ctx.lineWidth = pressed ? 3 : 2
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+    ctx.fillStyle = pressed
+      ? 'rgba(255, 255, 255, 1)'
+      : 'rgba(255, 255, 255, 0.78)'
+    if (control === CONTROL_ATTACK) {
+      this.drawAttackIcon(ctx, x, y, radius, pressed)
+    } else if (control === CONTROL_DEFENSE) {
+      this.drawDefenseIcon(ctx, x, y, radius, pressed)
+    }
+    ctx.restore()
+  }
+
+  private drawAttackIcon(
+    ctx: RenderContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    pressed: boolean
+  ): void {
+    const unit = Math.max(2, (radius / 12) | 0)
+    ctx.strokeStyle = pressed
+      ? 'rgba(255, 244, 210, 1)'
+      : 'rgba(255, 255, 255, 0.68)'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = Math.max(1, unit)
+    ctx.beginPath()
+    ctx.moveTo(x - unit * 8, y - unit * 3)
+    ctx.quadraticCurveTo(x - unit, y - unit * 10, x + unit * 9, y - unit * 5)
+    ctx.stroke()
+    ctx.lineWidth = Math.max(1, unit - 1)
+    ctx.beginPath()
+    ctx.moveTo(x - unit * 6, y - unit * 6)
+    ctx.quadraticCurveTo(x + unit, y - unit * 11, x + unit * 8, y - unit * 8)
+    ctx.stroke()
+
+    ctx.fillStyle = pressed
+      ? 'rgba(255, 255, 255, 1)'
+      : 'rgba(255, 255, 255, 0.86)'
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(x + unit * 7, y - unit * 7)
+    ctx.lineTo(x + unit * 2, y - unit * 5)
+    ctx.lineTo(x - unit * 4, y + unit)
+    ctx.lineTo(x - unit * 2, y + unit * 3)
+    ctx.lineTo(x + unit * 4, y - unit * 3)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.lineWidth = Math.max(2, unit)
+    ctx.beginPath()
+    ctx.moveTo(x - unit * 6, y)
+    ctx.lineTo(x, y + unit * 6)
+    ctx.stroke()
+    ctx.lineWidth = Math.max(2, unit + 1)
+    ctx.beginPath()
+    ctx.moveTo(x - unit * 3, y + unit * 3)
+    ctx.lineTo(x - unit * 6, y + unit * 6)
+    ctx.stroke()
+  }
+
+  private drawDefenseIcon(
+    ctx: RenderContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    pressed: boolean
+  ): void {
+    const unit = Math.max(2, (radius / 10) | 0)
+    ctx.fillStyle = pressed
+      ? 'rgba(255, 244, 210, 0.52)'
+      : 'rgba(255, 255, 255, 0.2)'
+    ctx.strokeStyle = pressed
+      ? 'rgba(255, 255, 255, 1)'
+      : 'rgba(255, 255, 255, 0.82)'
+    ctx.lineWidth = Math.max(2, unit)
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(x, y - unit * 7)
+    ctx.lineTo(x + unit * 6, y - unit * 5)
+    ctx.lineTo(x + unit * 5, y + unit * 2)
+    ctx.quadraticCurveTo(x + unit * 3, y + unit * 6, x, y + unit * 8)
+    ctx.quadraticCurveTo(x - unit * 3, y + unit * 6, x - unit * 5, y + unit * 2)
+    ctx.lineTo(x - unit * 6, y - unit * 5)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+    ctx.lineWidth = Math.max(1, unit - 1)
+    ctx.beginPath()
+    ctx.moveTo(x, y - unit * 5)
+    ctx.lineTo(x, y + unit * 5)
+    ctx.stroke()
   }
 
   private drawPauseIcon(
