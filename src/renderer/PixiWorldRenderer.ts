@@ -2133,7 +2133,10 @@ export class PixiWorldRenderer {
     flags: number,
     alpha: number
   ): void {
-    const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    const radius =
+      buf[offset + OFFSETS.RADIUS] *
+      this.pixelsPerMeter *
+      renderer.getMobileGrappleAnchorScale()
     const highlightScale =
       flags & FLAGS.GRAPPLE_ANCHOR_HIGHLIGHT
         ? GRAPPLE_ANCHOR_HIGHLIGHT_SCALE

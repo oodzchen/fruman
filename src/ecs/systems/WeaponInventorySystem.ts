@@ -47,6 +47,9 @@ import {
   getBodyHalfHeight,
 } from './WeaponSystemShared'
 
+const WEAPON_PICKUP_DISTANCE_SQ =
+  DEFAULT_WEAPON_PICKUP_DISTANCE * DEFAULT_WEAPON_PICKUP_DISTANCE
+
 export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
   protected getSlotForWeaponType(weaponType: WeaponVisualType): WeaponSlotId {
     return isSecondaryWeaponType(weaponType) ? 'secondary' : 'main'
@@ -417,7 +420,10 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
    * 尝试拾取附近的武器
    * @returns 如果消费了互动键（进行了武器替换）返回true，否则返回false
    */
-  tryPickUpWeapon(entity: Entity): boolean {
+  tryPickUpWeapon(
+    entity: Entity,
+    targetEntityId: number | null = null
+  ): boolean {
     if (!entity.transform || !entity.weapon) return false
     if (entity.stats?.isDead) return false
     if (
@@ -431,6 +437,8 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
 
     // 检查是否靠近独立的武器实体
     for (const weaponEntity of this.allEntities) {
+      if (targetEntityId !== null && weaponEntity.id !== targetEntityId)
+        continue
       // 独立武器实体：有 weapon 组件但没有 stats 组件
       if (!weaponEntity.weapon || weaponEntity.stats) continue
       if (weaponEntity.arrow || weaponEntity.weapon.weaponType === 'arrow')
@@ -441,9 +449,9 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
 
       const dx = entity.transform.x - weaponEntity.transform.x
       const dy = entity.transform.y - weaponEntity.transform.y
-      const distance = Math.hypot(dx, dy)
+      const distanceSq = dx * dx + dy * dy
 
-      if (distance <= DEFAULT_WEAPON_PICKUP_DISTANCE) {
+      if (distanceSq <= WEAPON_PICKUP_DISTANCE_SQ) {
         // 检查拾取冷却时间
         if (weaponEntity.weapon.pickupCooldownEndTime > this.currentTimeMs) {
           continue // 还在冷却期内，跳过

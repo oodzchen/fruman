@@ -278,8 +278,8 @@ gameViewport.classList.toggle('is-mobile-game', mobileGame)
 const dialogManager = new DialogManager(gameViewport, gameViewport)
 const displayManager = new DisplayManager(gameViewport)
 const focusOptions: FocusOptions = { preventScroll: true }
-const MOBILE_ATTACK_DEFENSE_BUTTONS_SETTING =
-  'mobileAttackDefenseButtonsVisible'
+const MOBILE_ATTACK_DEFENSE_GESTURES_SETTING =
+  'mobileAttackDefenseGesturesEnabled'
 
 const setupDetailsState = (
   storedValues: Record<string, string>,
@@ -439,13 +439,13 @@ async function initialize() {
       initManager.nextStep(step)
     }
   )
-  game.setMobileAttackDefenseButtonsVisible(
-    storedValues[MOBILE_ATTACK_DEFENSE_BUTTONS_SETTING] === '1'
+  game.setMobileAttackDefenseGesturesEnabled(
+    storedValues[MOBILE_ATTACK_DEFENSE_GESTURES_SETTING] !== '0'
   )
-  game.onMobileAttackDefenseButtonsVisibilityChange((visible) => {
+  game.onMobileAttackDefenseGesturesChange((enabled) => {
     updateStoredValue(
-      MOBILE_ATTACK_DEFENSE_BUTTONS_SETTING,
-      visible ? '1' : '0'
+      MOBILE_ATTACK_DEFENSE_GESTURES_SETTING,
+      enabled ? '1' : '0'
     )
   })
   window.addEventListener(

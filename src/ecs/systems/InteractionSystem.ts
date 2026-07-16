@@ -34,6 +34,12 @@ export class InteractionSystem extends System {
     this.grappleSystem = grappleSystem
   }
 
+  requestTargetInteraction(entity: Entity, targetId: number): void {
+    if (!entity.input || entity.stats?.isDead) return
+    entity.input.interactionTargetId = targetId
+    entity.input.inputBuffer.bufferAction('interact')
+  }
+
   update(entities: Entity[], _deltaTime: number): void {
     for (const entity of entities) {
       if (!entity.input || !entity.stats) continue
@@ -41,9 +47,17 @@ export class InteractionSystem extends System {
 
       const inputBuffer = entity.input.inputBuffer
       const hasInteractAction = inputBuffer.hasActiveAction('interact')
+      const interactionTargetId = entity.input.interactionTargetId
+      entity.input.interactionTargetId = null
       let interactionConsumed = false
 
+      if (hasInteractAction && interactionTargetId !== null) {
+        this.weaponSystem?.tryPickUpWeapon(entity, interactionTargetId)
+        interactionConsumed = true
+      }
+
       if (
+        !interactionConsumed &&
         hasInteractAction &&
         this.checkpointSystem &&
         this.checkpointSystem.tryRequestSleep(entity)

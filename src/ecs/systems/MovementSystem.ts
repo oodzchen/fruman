@@ -509,6 +509,9 @@ export class MovementSystem extends System {
 
     // 1. 处理正在进行的翻滚
     if (entity.movement.isRolling) {
+      if (entity.input.lockedTargetId === null) {
+        entity.input.lastMoveDirection = entity.movement.rollDirection
+      }
       entity.movement.rollElapsedTime += this.currentDeltaTime
       const elapsedMs = entity.movement.rollElapsedTime * 1000
       if (elapsedMs >= entity.movement.rollDuration) {
@@ -544,8 +547,11 @@ export class MovementSystem extends System {
         'roll',
         () => true,
         () => {
-          if (entity.input!.moveDirection !== 0) {
-            this.startRoll(entity)
+          const rollDirection =
+            entity.input!.rollDirectionOverride ?? entity.input!.moveDirection
+          entity.input!.rollDirectionOverride = null
+          if (rollDirection !== 0) {
+            this.startRoll(entity, rollDirection)
           } else {
             this.startBackstep(entity)
           }
@@ -592,7 +598,7 @@ export class MovementSystem extends System {
     return entity.movement.isGrounded
   }
 
-  private startRoll(entity: Entity): void {
+  private startRoll(entity: Entity, direction: number): void {
     if (!entity.movement || !entity.input || !entity.physics) return
 
     // 如果是从崩塌（stagger）状态翻滚，解除崩塌
@@ -625,7 +631,10 @@ export class MovementSystem extends System {
     entity.movement.rollElapsedTime = 0
     entity.movement.rollDuration = DEFAULT_ROLL_DURATION
 
-    entity.movement.rollDirection = entity.input.moveDirection || 1
+    entity.movement.rollDirection = direction
+    if (entity.input.lockedTargetId === null) {
+      entity.input.lastMoveDirection = direction
+    }
 
     entity.movement.isJumping = false
 

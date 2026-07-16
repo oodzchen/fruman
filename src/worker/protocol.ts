@@ -70,6 +70,28 @@ export type WorkerInputMessage = {
   mouseCaptured: boolean
 }
 
+export type WorkerMobileLockTargetMessage = {
+  type: 'mobile_lock_target'
+  targetId: number
+}
+
+export type WorkerMobileInteractTargetMessage = {
+  type: 'mobile_interact_target'
+  targetId: number
+}
+
+export type WorkerMobileRecoverMessage = {
+  type: 'mobile_recover'
+}
+
+export type MobileGrapplePhase = 'press' | 'release' | 'cancel'
+
+export type WorkerMobileGrappleTargetMessage = {
+  type: 'mobile_grapple_target'
+  targetId: number
+  phase: MobileGrapplePhase
+}
+
 export type WorkerBufferReleaseMessage = {
   type: 'buffer_release'
   buffer: ArrayBuffer
@@ -139,6 +161,10 @@ export type WorkerSpineCollisionDataMessage = {
 export type MainToWorkerMessage =
   | WorkerInitMessage
   | WorkerInputMessage
+  | WorkerMobileLockTargetMessage
+  | WorkerMobileInteractTargetMessage
+  | WorkerMobileRecoverMessage
+  | WorkerMobileGrappleTargetMessage
   | WorkerBufferReleaseMessage
   | WorkerControlMessage
   | WorkerMapPreviewMessage

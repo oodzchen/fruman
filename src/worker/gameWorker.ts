@@ -3215,6 +3215,28 @@ ctx.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
         )
       }
       break
+    case 'mobile_lock_target':
+      if (world && playerEntity) {
+        targetingSystem.requestPlayerLockTarget(msg.targetId)
+      }
+      break
+    case 'mobile_interact_target':
+      if (world && playerEntity) {
+        interactionSystem.requestTargetInteraction(playerEntity, msg.targetId)
+      }
+      break
+    case 'mobile_recover':
+      if (world && playerEntity) {
+        syncInputControllerRuntime()
+        inputController.handleMobileRecoverRequest()
+      }
+      break
+    case 'mobile_grapple_target':
+      if (world && playerEntity) {
+        syncInputControllerRuntime()
+        inputController.handleMobileGrappleTarget(msg.targetId, msg.phase)
+      }
+      break
     case 'buffer_release':
       frameStateExporter.releaseStateBuffer(msg.buffer)
       break

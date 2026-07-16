@@ -1,10 +1,20 @@
-import { DEFAULT_GRAPPLE_RANGE, GRAPPLE_LONG_PRESS_MS } from '../constants'
+import {
+  DEFAULT_GRAPPLE_RANGE,
+  GRAPPLE_LONG_PRESS_MS,
+  MOBILE_BACKSTEP_KEY,
+  MOBILE_FULL_JUMP_KEY,
+  MOBILE_FULL_JUMP_LEFT_KEY,
+  MOBILE_FULL_JUMP_RIGHT_KEY,
+  MOBILE_ROLL_LEFT_KEY,
+  MOBILE_ROLL_RIGHT_KEY,
+} from '../constants'
 import type { Entity } from '../ecs/Entity'
 import type { World } from '../ecs/World'
 import type { StatsSystem } from '../ecs/systems/StatsSystem'
 import type { WeaponSystem } from '../ecs/systems/WeaponSystem'
 import { isRangedWeaponType } from '../weaponTypeUtils'
 import type { CameraDirector } from './CameraDirector'
+import type { MobileGrapplePhase } from './protocol'
 
 const GRAPPLE_TARGET_RANGE_SQ = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
 const LOCK_SWITCH_MOUSE_SWIPE_THRESHOLD_PX = 30
@@ -27,6 +37,12 @@ export class WorkerInputController {
   private rHoldMs = 0
   private rHoldActive = false
   private rHoldTriggered = false
+  private mobileGrappleHeld = false
+  private mobileFullJumpActive = false
+  private mobileFullJumpStarted = false
+  private mobileFullJumpPendingMs = 0
+  private mobileFullJumpDirection = 0
+  private mobileJumpDirectionAirborne = false
   private eUsedForUltimate = false
   private lockCancelOnReleaseArmed = false
   private lockSwitchAttemptedDuringHold = false
@@ -64,30 +80,41 @@ export class WorkerInputController {
     this.rHoldMs = 0
     this.rHoldActive = false
     this.rHoldTriggered = false
+    this.mobileGrappleHeld = false
+    this.mobileFullJumpActive = false
+    this.mobileFullJumpStarted = false
+    this.mobileFullJumpPendingMs = 0
+    this.mobileFullJumpDirection = 0
+    this.mobileJumpDirectionAirborne = false
     this.eUsedForUltimate = false
     this.lockCancelOnReleaseArmed = false
     this.lockSwitchAttemptedDuringHold = false
     this.resetLockSwitchMouseSwipe()
   }
 
+  handleMobileRecoverRequest(): void {
+    const playerEntity = this.playerEntity
+    if (!playerEntity || playerEntity.stats?.isDead) return
+    this.tryConsumeLargeSunPickup(playerEntity)
+  }
+
   updateHoldState(): void {
     const playerEntity = this.playerEntity
+    this.updateMobileJumpDirectionHold(playerEntity)
+    this.updateMobileFullJumpHold(playerEntity)
     if (this.rHoldActive && !this.rHoldTriggered) {
-      if (!this.currKeys.has('r')) {
-        this.rHoldActive = false
-        this.rHoldTriggered = false
-        this.rHoldMs = 0
+      if (!this.isGrappleInputHeld()) {
+        this.resetGrappleHold()
       } else if (playerEntity?.input) {
         const isPlayerDead = playerEntity.stats?.isDead ?? false
         if (isPlayerDead) {
-          this.rHoldActive = false
-          this.rHoldTriggered = false
-          this.rHoldMs = 0
+          this.resetGrappleHold()
         } else {
           this.rHoldMs += this.fixedStepMs
           if (this.rHoldMs >= GRAPPLE_LONG_PRESS_MS) {
             this.rHoldTriggered = true
             const canPersistGrapple =
+              playerEntity.input.grappleTargetId !== null ||
               playerEntity.input.lockedTargetId !== null ||
               playerEntity.grapple?.hasAnchorNearby === true
             if (canPersistGrapple) {
@@ -98,6 +125,204 @@ export class WorkerInputController {
         }
       }
     }
+  }
+
+  handleMobileGrappleTarget(targetId: number, phase: MobileGrapplePhase): void {
+    const playerEntity = this.playerEntity
+    if (!playerEntity?.input) {
+      return
+    }
+    const isPlayerDead = playerEntity.stats?.isDead ?? false
+    if (phase === 'press') {
+      this.mobileGrappleHeld = true
+      playerEntity.input.grappleTargetId = targetId
+      this.startGrappleHold(isPlayerDead)
+      return
+    }
+
+    this.mobileGrappleHeld = false
+    if (phase === 'cancel') {
+      playerEntity.input.grappleTargetId = null
+      playerEntity.input.grapplePersistentRequested = false
+      if (!this.currKeys.has('r')) {
+        this.resetGrappleHold()
+      }
+      return
+    }
+    if (!this.currKeys.has('r')) {
+      this.releaseGrappleHold(playerEntity, isPlayerDead)
+    }
+  }
+
+  private isGrappleInputHeld(): boolean {
+    return this.mobileGrappleHeld || this.currKeys.has('r')
+  }
+
+  private startGrappleHold(isPlayerDead: boolean): void {
+    if (!isPlayerDead) {
+      this.rHoldActive = true
+      this.rHoldTriggered = false
+      this.rHoldMs = 0
+      return
+    }
+    this.resetGrappleHold()
+  }
+
+  private resetGrappleHold(): void {
+    this.rHoldActive = false
+    this.rHoldTriggered = false
+    this.rHoldMs = 0
+  }
+
+  private updateMobileJumpDirectionHold(playerEntity: Entity | null): void {
+    if (this.mobileFullJumpDirection === 0) {
+      return
+    }
+
+    const input = playerEntity?.input
+    const movement = playerEntity?.movement
+    const isPlayerDead = playerEntity?.stats?.isDead ?? false
+    const isUltimateActive = playerEntity?.weapon?.ultimatePhase != null
+    if (!input || !movement || isPlayerDead || isUltimateActive) {
+      this.stopMobileJumpDirection()
+      return
+    }
+
+    if (!movement.isGrounded) {
+      this.mobileJumpDirectionAirborne = true
+    } else if (this.mobileJumpDirectionAirborne && !movement.isJumping) {
+      this.stopMobileJumpDirection()
+      return
+    } else if (
+      !this.mobileJumpDirectionAirborne &&
+      !this.mobileFullJumpActive
+    ) {
+      this.stopMobileJumpDirection()
+      return
+    }
+
+    input.moveDirection = this.hasHeldMoveDirection()
+      ? this.getHeldMoveDirection()
+      : this.mobileFullJumpDirection
+  }
+
+  private updateMobileFullJumpHold(playerEntity: Entity | null): void {
+    if (!this.mobileFullJumpActive) {
+      return
+    }
+
+    const input = playerEntity?.input
+    const movement = playerEntity?.movement
+    const isPlayerDead = playerEntity?.stats?.isDead ?? false
+    const isUltimateActive = playerEntity?.weapon?.ultimatePhase != null
+    if (!input || !movement || isPlayerDead || isUltimateActive) {
+      this.stopMobileFullJump()
+      this.stopMobileJumpDirection()
+      if (input && (isPlayerDead || isUltimateActive)) {
+        input.jumpRequested = false
+      }
+      return
+    }
+
+    if (movement.isJumping) {
+      this.mobileFullJumpStarted = true
+      this.mobileFullJumpPendingMs = 0
+      const jumpElapsedMs = movement.jumpElapsedTime * 1000
+      if (jumpElapsedMs < movement.maxJumpDuration) {
+        input.jumpRequested = true
+        return
+      }
+    } else if (!this.mobileFullJumpStarted) {
+      this.mobileFullJumpPendingMs += this.fixedStepMs
+      const bufferWindowMs = input.inputBuffer.getDefaultBufferWindow()
+      const pendingWindowMs =
+        bufferWindowMs > 0 ? bufferWindowMs : this.fixedStepMs
+      if (this.mobileFullJumpPendingMs <= pendingWindowMs) {
+        input.jumpRequested = true
+        return
+      }
+    }
+
+    this.stopMobileFullJump()
+    if (!this.mobileJumpDirectionAirborne) {
+      this.stopMobileJumpDirection()
+    }
+  }
+
+  private stopMobileFullJump(): void {
+    this.mobileFullJumpActive = false
+    this.mobileFullJumpStarted = false
+    this.mobileFullJumpPendingMs = 0
+    const input = this.playerEntity?.input
+    if (input && !this.currKeys.has(' ')) {
+      input.jumpRequested = false
+    }
+  }
+
+  private stopMobileJumpDirection(): void {
+    const hadMobileDirection = this.mobileFullJumpDirection !== 0
+    this.mobileFullJumpDirection = 0
+    this.mobileJumpDirectionAirborne = false
+    const input = this.playerEntity?.input
+    if (
+      input &&
+      hadMobileDirection &&
+      this.playerEntity?.stats?.isDead !== true &&
+      this.playerEntity?.weapon?.ultimatePhase == null
+    ) {
+      input.moveDirection = this.getHeldMoveDirection()
+    }
+  }
+
+  private getHeldMoveDirection(): number {
+    let direction = 0
+    if (this.currKeys.has('a') || this.currKeys.has('arrowleft')) {
+      direction--
+    }
+    if (this.currKeys.has('d') || this.currKeys.has('arrowright')) {
+      direction++
+    }
+    return direction
+  }
+
+  private hasHeldMoveDirection(): boolean {
+    return (
+      this.currKeys.has('a') ||
+      this.currKeys.has('arrowleft') ||
+      this.currKeys.has('d') ||
+      this.currKeys.has('arrowright')
+    )
+  }
+
+  private getMobileFullJumpDirection(keys: Set<string>): number {
+    if (keys.has(MOBILE_FULL_JUMP_LEFT_KEY)) {
+      return -1
+    }
+    if (keys.has(MOBILE_FULL_JUMP_RIGHT_KEY)) {
+      return 1
+    }
+    return 0
+  }
+
+  private isMobileFullJumpPressed(keys: Set<string>): boolean {
+    return (
+      keys.has(MOBILE_FULL_JUMP_KEY) ||
+      keys.has(MOBILE_FULL_JUMP_LEFT_KEY) ||
+      keys.has(MOBILE_FULL_JUMP_RIGHT_KEY)
+    )
+  }
+
+  private getMobileEvadeDirection(keys: Set<string>): -1 | 0 | 1 | null {
+    if (keys.has(MOBILE_ROLL_LEFT_KEY)) {
+      return -1
+    }
+    if (keys.has(MOBILE_ROLL_RIGHT_KEY)) {
+      return 1
+    }
+    if (keys.has(MOBILE_BACKSTEP_KEY)) {
+      return 0
+    }
+    return null
   }
 
   handleInput(
@@ -135,15 +360,29 @@ export class WorkerInputController {
 
     const isPlayerDead = playerEntity.stats?.isDead ?? false
     const isUltimateActive = playerEntity.weapon?.ultimatePhase != null
+    const mobileFullJumpPressed = this.isMobileFullJumpPressed(this.currKeys)
+    const mobileFullJumpJustPressed =
+      mobileFullJumpPressed && !this.isMobileFullJumpPressed(this.prevKeys)
+    const requestedMobileJumpDirection = this.getMobileFullJumpDirection(
+      this.currKeys
+    )
+    const requestedMobileEvadeDirection = this.getMobileEvadeDirection(
+      this.currKeys
+    )
+    const mobileEvadeJustPressed =
+      requestedMobileEvadeDirection !== null &&
+      this.getMobileEvadeDirection(this.prevKeys) === null
 
     if (playerEntity.input) {
       const eHeld = this.currKeys.has('e')
-      let moveDirection = 0
-      if (this.currKeys.has('a') || this.currKeys.has('arrowleft')) {
-        moveDirection -= 1
-      }
-      if (this.currKeys.has('d') || this.currKeys.has('arrowright')) {
-        moveDirection += 1
+      let moveDirection = this.getHeldMoveDirection()
+      if (
+        !this.hasHeldMoveDirection() &&
+        (mobileFullJumpJustPressed || this.mobileFullJumpDirection !== 0)
+      ) {
+        moveDirection = mobileFullJumpJustPressed
+          ? requestedMobileJumpDirection
+          : this.mobileFullJumpDirection
       }
 
       const isRangedEquipped = isRangedWeaponType(
@@ -154,6 +393,8 @@ export class WorkerInputController {
         isPlayerDead || isUltimateActive ? 0 : moveDirection
 
       if (isUltimateActive) {
+        this.stopMobileFullJump()
+        this.stopMobileJumpDirection()
         playerEntity.input.attackRequested = false
         playerEntity.input.blockRequested = false
         playerEntity.input.jumpRequested = false
@@ -172,13 +413,24 @@ export class WorkerInputController {
         return
       }
 
-      if (this.currKeys.has(' ') && !this.prevKeys.has(' ') && !isPlayerDead) {
+      const jumpJustPressed =
+        (this.currKeys.has(' ') && !this.prevKeys.has(' ')) ||
+        mobileFullJumpJustPressed
+      if (jumpJustPressed && !isPlayerDead) {
         if (playerEntity.isStunned()) {
           playerEntity.input.inputBuffer.clearAll()
         }
         playerEntity.input.inputBuffer.bufferAction('jump')
         playerEntity.input.jumpRequested = true
-      } else if (!this.currKeys.has(' ')) {
+        if (mobileFullJumpJustPressed) {
+          this.mobileFullJumpActive = true
+          this.mobileFullJumpStarted = false
+          this.mobileFullJumpPendingMs = 0
+          this.mobileFullJumpDirection = requestedMobileJumpDirection
+          this.mobileJumpDirectionAirborne =
+            playerEntity.movement?.isGrounded === false
+        }
+      } else if (!this.currKeys.has(' ') && !this.mobileFullJumpActive) {
         playerEntity.input.jumpRequested = false
       }
 
@@ -226,14 +478,16 @@ export class WorkerInputController {
         mouseDeltaY
       )
 
-      if (
-        this.currKeys.has('control') &&
-        !this.prevKeys.has('control') &&
-        !isPlayerDead
-      ) {
+      const rollJustPressed =
+        (this.currKeys.has('control') && !this.prevKeys.has('control')) ||
+        mobileEvadeJustPressed
+      if (rollJustPressed && !isPlayerDead) {
         if (playerEntity.isStunned()) {
           playerEntity.input.inputBuffer.clearAll()
         }
+        playerEntity.input.rollDirectionOverride = mobileEvadeJustPressed
+          ? requestedMobileEvadeDirection
+          : null
         playerEntity.input.inputBuffer.bufferAction('roll')
       }
 
@@ -439,40 +693,43 @@ export class WorkerInputController {
     const rJustReleased = !rPressed && this.prevKeys.has('r')
 
     if (rJustPressed) {
-      if (!isPlayerDead) {
-        this.rHoldActive = true
-        this.rHoldTriggered = false
-        this.rHoldMs = 0
-      } else {
-        this.rHoldActive = false
-        this.rHoldTriggered = false
-        this.rHoldMs = 0
-      }
+      this.startGrappleHold(isPlayerDead)
     }
 
-    if (rJustReleased) {
-      if (this.rHoldActive && !this.rHoldTriggered && !isPlayerDead) {
-        const g = playerEntity.grapple
-        const shouldBreakGrapple = g && g.isTethering
-        const shouldGrapple =
-          g &&
-          (g.isPulling ||
-            g.isTethering ||
-            g.hasAnchorNearby ||
-            this.canGrappleLockedTarget(playerEntity))
-        if (shouldBreakGrapple) {
-          playerEntity.input.grappleBreakRequested = true
-          playerEntity.input.inputBuffer.bufferAction('grapple')
-        } else if (shouldGrapple) {
-          playerEntity.input.inputBuffer.bufferAction('grapple')
-        } else {
-          this.tryConsumeLargeSunPickup(playerEntity)
-        }
-      }
-      this.rHoldActive = false
-      this.rHoldTriggered = false
-      this.rHoldMs = 0
+    if (rJustReleased && !this.mobileGrappleHeld) {
+      this.releaseGrappleHold(playerEntity, isPlayerDead)
     }
+  }
+
+  private releaseGrappleHold(
+    playerEntity: Entity,
+    isPlayerDead: boolean
+  ): void {
+    if (!playerEntity.input) {
+      this.resetGrappleHold()
+      return
+    }
+    if (this.rHoldActive && !this.rHoldTriggered && !isPlayerDead) {
+      const grapple = playerEntity.grapple
+      const shouldBreakGrapple = grapple?.isTethering === true
+      const shouldGrapple =
+        grapple !== undefined &&
+        (playerEntity.input.grappleTargetId !== null ||
+          grapple.isPulling ||
+          grapple.isTethering ||
+          grapple.hasAnchorNearby ||
+          this.canGrappleLockedTarget(playerEntity))
+      if (shouldBreakGrapple) {
+        playerEntity.input.grappleBreakRequested = true
+        playerEntity.input.inputBuffer.bufferAction('grapple')
+      } else if (shouldGrapple) {
+        playerEntity.input.inputBuffer.bufferAction('grapple')
+      } else {
+        playerEntity.input.grappleTargetId = null
+        this.tryConsumeLargeSunPickup(playerEntity)
+      }
+    }
+    this.resetGrappleHold()
   }
 
   private handleUltimateAndInteractInput(

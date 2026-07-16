@@ -127,6 +127,18 @@ const AUDIO_PAN_FULL_WIDTH_FACTOR = 1
 const HUD_LEFT_MARGIN = 16
 const HUD_SUN_ICON_SIZE = 42
 const HUD_SUN_ICON_GAP = 16
+const HUD_SUN_TOUCH_RADIUS = 28
+const HUD_HEALTH_BAR_HEIGHT = 12
+const HUD_EXP_BAR_HEIGHT = 6
+const HUD_EXP_BAR_GAP = 3
+const HUD_GRAPPLE_ICON_SIZE = 10
+const HUD_GRAPPLE_ICON_GAP = 6
+const HUD_LEFT_GROUP_HEIGHT =
+  HUD_HEALTH_BAR_HEIGHT +
+  HUD_EXP_BAR_GAP +
+  HUD_EXP_BAR_HEIGHT +
+  HUD_GRAPPLE_ICON_GAP +
+  HUD_GRAPPLE_ICON_SIZE
 const HUD_HEALTH_BAR_MIN_WIDTH = 48
 const HUD_HEALTH_BAR_MAX_SCREEN_PERCENT = 42
 const HUD_HEALTH_BAR_RIGHT_SAFE_GAP = 24
@@ -293,6 +305,7 @@ export class ClientRenderer {
   private hudLastHealthBarWidth = 0
   private mobileHudPressedFlags = 0
   private mobileHudLastPressedFlags = 0
+  private mobileGrappleAnchorScale = 1
   private hudAlwaysVisible = false
 
   constructor(
@@ -668,8 +681,42 @@ export class ClientRenderer {
     return this.hudCtx.canvas.height
   }
 
+  isSolarHudIconHit(x: number, y: number): boolean {
+    const playerOffset = this.findPlayerOffset()
+    if (
+      playerOffset === -1 ||
+      this.stateBuffer[playerOffset + OFFSETS.STATS_HEALTH_MAX] <= 0
+    ) {
+      return false
+    }
+    const centerX = HUD_LEFT_MARGIN + (HUD_SUN_ICON_SIZE >> 1)
+    const centerY =
+      HUD_SLOT_MARGIN +
+      (HUD_SLOT_SIZE >> 1) -
+      HUD_LEFT_GROUP_HEIGHT / 2 +
+      HUD_HEALTH_BAR_HEIGHT / 2
+    const dx = x - centerX
+    const dy = y - centerY
+    return dx * dx + dy * dy <= HUD_SUN_TOUCH_RADIUS * HUD_SUN_TOUCH_RADIUS
+  }
+
+  getPlayerSolarLargeCount(): number {
+    const playerOffset = this.findPlayerOffset()
+    return playerOffset === -1
+      ? 0
+      : this.stateBuffer[playerOffset + OFFSETS.SOLAR_LARGE] | 0
+  }
+
   setMobileHudPressedFlags(flags: number): void {
     this.mobileHudPressedFlags = flags | 0
+  }
+
+  setMobileGrappleAnchorScale(scale: number): void {
+    this.mobileGrappleAnchorScale = Math.max(1, scale | 0)
+  }
+
+  getMobileGrappleAnchorScale(): number {
+    return this.mobileGrappleAnchorScale
   }
 
   setHudAlwaysVisible(visible: boolean): void {
@@ -1826,7 +1873,10 @@ export class ClientRenderer {
   ): void {
     const x = buf[offset + OFFSETS.X]
     const y = buf[offset + OFFSETS.Y]
-    const radius = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
+    const radius =
+      buf[offset + OFFSETS.RADIUS] *
+      this.pixelsPerMeter *
+      this.mobileGrappleAnchorScale
     const colorInt = buf[offset + OFFSETS.COLOR]
     const trunkColorInt = buf[offset + OFFSETS.BORDER_COLOR]
 
@@ -2083,11 +2133,11 @@ export class ClientRenderer {
     const slotY = HUD_SLOT_MARGIN
 
     // Health Bar & Exp Bar & Grapple Icon Layout (Left side)
-    const barHeight = 12
-    const expBarHeight = 6
-    const expBarGap = 3
-    const iconSize = 10
-    const iconGap = 6
+    const barHeight = HUD_HEALTH_BAR_HEIGHT
+    const expBarHeight = HUD_EXP_BAR_HEIGHT
+    const expBarGap = HUD_EXP_BAR_GAP
+    const iconSize = HUD_GRAPPLE_ICON_SIZE
+    const iconGap = HUD_GRAPPLE_ICON_GAP
 
     // Sun icon dimensions
     const sunIconSize = HUD_SUN_ICON_SIZE
@@ -2097,8 +2147,7 @@ export class ClientRenderer {
     const startX = leftMargin + sunIconSize + sunIconGap
 
     // Calculate total height of left UI group (HealthBar + ExpBar + Gap + Icon)
-    const leftGroupHeight =
-      barHeight + expBarGap + expBarHeight + iconGap + iconSize
+    const leftGroupHeight = HUD_LEFT_GROUP_HEIGHT
 
     // Center left group vertically relative to right weapon slots
     const weaponCenterY = slotY + weaponSlotSize / 2

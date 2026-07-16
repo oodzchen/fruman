@@ -27,6 +27,7 @@ export class TargetingSystem extends System {
   private hostileBuffer: Entity[] = []
   private hostileDistSqBuffer: number[] = []
   private entityLookup?: (id: number) => Entity | undefined
+  private requestedPlayerLockTargetId = -1
 
   constructor(box2d: MainModule, worldId: b2WorldId) {
     super()
@@ -55,6 +56,10 @@ export class TargetingSystem extends System {
 
   setEntityLookup(lookup: (id: number) => Entity | undefined): void {
     this.entityLookup = lookup
+  }
+
+  requestPlayerLockTarget(targetId: number): void {
+    this.requestedPlayerLockTargetId = targetId
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -89,12 +94,38 @@ export class TargetingSystem extends System {
     if (!player.input || !player.transform) return
     const input = player.input
     if (player.weapon?.bowFreeAim) {
+      this.requestedPlayerLockTargetId = -1
       input.lockedTargetId = null
       input.lockToggleRequested = false
       input.lockSwitchIntentX = 0
       input.lockSwitchIntentY = 0
       input.lockLostTimer = 0
       return
+    }
+
+    const requestedTargetId = this.requestedPlayerLockTargetId
+    this.requestedPlayerLockTargetId = -1
+    if (requestedTargetId >= 0 && !player.stats?.isDead) {
+      if (input.lockedTargetId === requestedTargetId) {
+        input.lockedTargetId = null
+        input.lockLostTimer = 0
+      } else {
+        const requestedTarget = this.getEntityById(requestedTargetId, entities)
+        if (
+          requestedTarget &&
+          this.canPlayerKeepLockTarget(player, requestedTarget)
+        ) {
+          const dx = requestedTarget.transform.x - player.transform.x
+          const dy = requestedTarget.transform.y - player.transform.y
+          if (
+            dx * dx + dy * dy <= PLAYER_LOCK_RANGE_SQ &&
+            this.hasLineOfSight(player, requestedTarget)
+          ) {
+            input.lockedTargetId = requestedTargetId
+            input.lockLostTimer = 0
+          }
+        }
+      }
     }
 
     // Toggle Lock

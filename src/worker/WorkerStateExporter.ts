@@ -482,9 +482,7 @@ export class WorkerFrameStateExporter {
 
       stateBuffer[offset + OFFSETS.FLAGS] = flags
 
-      stateBuffer[offset + OFFSETS.MOVE_DIR] = e.input
-        ? e.input.lastMoveDirection
-        : 1
+      stateBuffer[offset + OFFSETS.MOVE_DIR] = e.input?.lastMoveDirection ?? 1
       stateBuffer[offset + OFFSETS.SKELETAL_GAIT_PHASE] = e.render?.bodyProfile
         ?.skeletalMode
         ? skeletalSegmentManager.getEntityGaitPhase(e.id)

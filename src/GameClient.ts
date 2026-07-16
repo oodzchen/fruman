@@ -33,6 +33,8 @@ import {
   CATERPILLAR_ATLAS_KEY,
   CATERPILLAR_SPINE_KEY,
   DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
+  DEFAULT_GRAPPLE_RANGE,
+  DEFAULT_WEAPON_PICKUP_DISTANCE,
   TERRAIN_COLLISION_DEBUG_ALPHA,
   TERRAIN_COLLISION_DEBUG_COLOR,
   TERRAIN_COLLISION_DEBUG_LINE_WIDTH,
@@ -111,7 +113,12 @@ import GameWorker from './worker/gameWorker?worker'
 import type {
   CameraDebugData,
   MainToWorkerMessage,
+  MobileGrapplePhase,
   WorkerInputMessage,
+  WorkerMobileGrappleTargetMessage,
+  WorkerMobileInteractTargetMessage,
+  WorkerMobileLockTargetMessage,
+  WorkerMobileRecoverMessage,
   WorkerPerfSnapshotMessage,
   WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
@@ -125,6 +132,16 @@ interface PixiApplicationInitResult {
 }
 
 type RendererPreference = 'webgpu' | 'webgl' | 'canvas'
+
+const MOBILE_LOCK_HIT_MIN_HALF_SIZE_PX = 28
+const MOBILE_GRAPPLE_ANCHOR_SCALE = 2
+const MOBILE_GRAPPLE_RANGE_SQ = DEFAULT_GRAPPLE_RANGE * DEFAULT_GRAPPLE_RANGE
+const MOBILE_WEAPON_PICKUP_RANGE_SQ =
+  DEFAULT_WEAPON_PICKUP_DISTANCE * DEFAULT_WEAPON_PICKUP_DISTANCE
+const MOBILE_INTERACTION_LOCK_TARGET = 0
+const MOBILE_INTERACTION_GRAPPLE_ANCHOR = 1
+const MOBILE_INTERACTION_ITEM = 2
+type MobileInteractionTargetKind = 0 | 1 | 2
 
 interface EnvironmentTextureEntry {
   key: string
@@ -365,7 +382,7 @@ export class GameClient {
   private editorOverlay: HTMLDivElement | null = null
   private inputTarget: HTMLElement
   private mobileControls: MobileControls | null = null
-  private mobileAttackDefenseButtonsVisible = false
+  private mobileAttackDefenseGesturesEnabled = false
   private mobileHudPressedFlags = 0
   private previewActionsContainer: HTMLDivElement | null = null
   private previewExitBtn: HTMLButtonElement | null = null
@@ -407,6 +424,22 @@ export class GameClient {
     mouseDeltaY: 0,
     mouseCaptured: false,
   }
+  private mobileLockTargetMessage: WorkerMobileLockTargetMessage = {
+    type: 'mobile_lock_target',
+    targetId: -1,
+  }
+  private mobileGrappleTargetMessage: WorkerMobileGrappleTargetMessage = {
+    type: 'mobile_grapple_target',
+    targetId: -1,
+    phase: 'cancel',
+  }
+  private mobileInteractTargetMessage: WorkerMobileInteractTargetMessage = {
+    type: 'mobile_interact_target',
+    targetId: -1,
+  }
+  private readonly mobileRecoverMessage: WorkerMobileRecoverMessage = {
+    type: 'mobile_recover',
+  }
 
   // Cached bound functions
   private boundHandleWorkerMessage: (
@@ -430,7 +463,9 @@ export class GameClient {
   private autoReloadPending = false
   private onEditorActionCallback?: () => void
   private onExitActionCallback?: () => Promise<boolean>
-  private onMobileAttackDefenseVisibilityChange?: (visible: boolean) => void
+  private onMobileAttackDefenseGesturesChangeCallback?: (
+    enabled: boolean
+  ) => void
   private pendingStartMenuDelayMs = -1
   private pendingStartMenuSkipAnimation = false
   private startMenuPauseArmed = false
@@ -725,6 +760,7 @@ export class GameClient {
     }
     if (mobileControlsEnabled) {
       this.renderer.setHudAlwaysVisible(true)
+      this.renderer.setMobileGrappleAnchorScale(MOBILE_GRAPPLE_ANCHOR_SCALE)
       this.mobileControls = new MobileControls(this.inputTarget, {
         onKeyChange: (key, pressed) => {
           this.handleMobileKeyChange(key, pressed)
@@ -732,6 +768,16 @@ export class GameClient {
         onHudAction: (action, pressed) => {
           this.handleMobileHudAction(action, pressed)
         },
+        findGrappleAnchor: (x, y) => this.findMobileGrappleAnchor(x, y),
+        onGrappleAnchor: (targetId, phase) =>
+          this.requestMobileGrappleTarget(targetId, phase),
+        findInteractTarget: (x, y) => this.findMobileInteractTarget(x, y),
+        onInteractTarget: (targetId) =>
+          this.requestMobileInteractTarget(targetId),
+        isRecoverActionAt: (x, y) => this.renderer.isSolarHudIconHit(x, y),
+        onRecover: () => this.requestMobileRecover(),
+        findLockTarget: (x, y) => this.findMobileLockTarget(x, y),
+        onLockTarget: (targetId) => this.requestMobileLockTarget(targetId),
         onPause: () => {
           this.togglePauseMenu()
         },
@@ -845,16 +891,16 @@ export class GameClient {
     this.mobileControls?.setEnabled(enabled && !this.editorPreview)
   }
 
-  setMobileAttackDefenseButtonsVisible(visible: boolean): void {
-    this.mobileAttackDefenseButtonsVisible = visible
-    this.mobileControls?.setAttackDefenseButtonsVisible(visible)
-    this.menuManager.setAttackDefenseButtonsVisible(visible)
+  setMobileAttackDefenseGesturesEnabled(enabled: boolean): void {
+    this.mobileAttackDefenseGesturesEnabled = enabled
+    this.mobileControls?.setAttackDefenseGesturesEnabled(enabled)
+    this.menuManager.setAttackDefenseGesturesEnabled(enabled)
   }
 
-  onMobileAttackDefenseButtonsVisibilityChange(
-    callback: (visible: boolean) => void
+  onMobileAttackDefenseGesturesChange(
+    callback: (enabled: boolean) => void
   ): void {
-    this.onMobileAttackDefenseVisibilityChange = callback
+    this.onMobileAttackDefenseGesturesChangeCallback = callback
   }
 
   setDisplayManager(displayManager: DisplayManager): void {
@@ -1417,6 +1463,13 @@ export class GameClient {
     this.inputTarget.addEventListener(
       'contextmenu',
       (e) => {
+        if (
+          this.mobileControls &&
+          (!(e instanceof PointerEvent) || e.pointerType === 'touch')
+        ) {
+          e.preventDefault()
+          return
+        }
         if (this.levelUpManager.isOpen()) {
           e.preventDefault()
           return
@@ -1580,6 +1633,196 @@ export class GameClient {
       this.virtualKeys.delete(key)
     }
     this.sendInput()
+  }
+
+  private findMobileLockTarget(canvasX: number, canvasY: number): number {
+    return this.findMobileInteractionTarget(
+      canvasX,
+      canvasY,
+      MOBILE_INTERACTION_LOCK_TARGET
+    )
+  }
+
+  private findMobileGrappleAnchor(canvasX: number, canvasY: number): number {
+    return this.findMobileInteractionTarget(
+      canvasX,
+      canvasY,
+      MOBILE_INTERACTION_GRAPPLE_ANCHOR
+    )
+  }
+
+  private findMobileInteractTarget(canvasX: number, canvasY: number): number {
+    return this.findMobileInteractionTarget(
+      canvasX,
+      canvasY,
+      MOBILE_INTERACTION_ITEM
+    )
+  }
+
+  private findMobileInteractionTarget(
+    canvasX: number,
+    canvasY: number,
+    targetKind: MobileInteractionTargetKind
+  ): number {
+    const grappleAnchor = targetKind === MOBILE_INTERACTION_GRAPPLE_ANCHOR
+    const item = targetKind === MOBILE_INTERACTION_ITEM
+    const buf = this.renderer.getStateBuffer()
+    const entityCount = this.renderer.getEntityCount()
+    let playerRenderLayer = 0
+    let playerX = 0
+    let playerY = 0
+    let playerFlags = 0
+    for (let i = 0; i < entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      if ((buf[offset + OFFSETS.FLAGS] & FLAGS.IS_PLAYER) !== 0) {
+        playerRenderLayer = buf[offset + OFFSETS.RENDER_LAYER] | 0
+        playerX = buf[offset + OFFSETS.X]
+        playerY = buf[offset + OFFSETS.Y]
+        playerFlags = buf[offset + OFFSETS.FLAGS] | 0
+        break
+      }
+    }
+    if (
+      playerFlags === 0 ||
+      (grappleAnchor && (playerFlags & FLAGS.GRAPPLE_READY) === 0)
+    ) {
+      return -1
+    }
+
+    const canvasWidth = this.renderer.getCanvasWidth()
+    const canvasHeight = this.renderer.getCanvasHeight()
+    const centerX = canvasWidth >> 1
+    const bottomY = canvasHeight
+    const zoom1000 = Math.max(1, Math.round(this.renderZoom * 1000))
+    const cameraX = Math.round(this.camera.x * this.pixelsPerMeter)
+    const cameraY = Math.round(this.camera.y * this.pixelsPerMeter)
+    const shakeX = Math.round(this.renderer.getCameraShakeOffsetX())
+    const shakeY = Math.round(this.renderer.getCameraShakeOffsetY())
+    let closestTargetId = -1
+    let closestDistanceSquared = Number.MAX_SAFE_INTEGER
+
+    for (let i = 0; i < entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      const flags = buf[offset + OFFSETS.FLAGS] | 0
+      if (
+        (flags & FLAGS.VISIBLE) === 0 ||
+        (flags & (FLAGS.IS_PLAYER | FLAGS.DEAD | FLAGS.VANISHED)) !== 0 ||
+        (buf[offset + OFFSETS.RENDER_LAYER] | 0) !== playerRenderLayer
+      ) {
+        continue
+      }
+
+      const targetX = buf[offset + OFFSETS.X]
+      const targetY = buf[offset + OFFSETS.Y]
+      if (grappleAnchor) {
+        const dx = targetX - playerX
+        const dy = targetY - playerY
+        if (
+          (flags & FLAGS.GRAPPLE_ANCHOR) === 0 ||
+          dx * dx + dy * dy > MOBILE_GRAPPLE_RANGE_SQ
+        ) {
+          continue
+        }
+      } else if (item) {
+        const dx = targetX - playerX
+        const dy = targetY - playerY
+        const weaponType = buf[offset + OFFSETS.WEAPON_TYPE] | 0
+        if (
+          buf[offset + OFFSETS.WEAPON_ACTIVE] !== 1 ||
+          buf[offset + OFFSETS.STATS_HEALTH_MAX] > 0 ||
+          weaponType === WEAPON_TYPES.ARROW ||
+          weaponType === WEAPON_TYPES.GRAPE_SHOT ||
+          dx * dx + dy * dy > MOBILE_WEAPON_PICKUP_RANGE_SQ
+        ) {
+          continue
+        }
+      } else if (buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0) {
+        continue
+      }
+
+      const hitTargetX = item ? buf[offset + OFFSETS.WEAPON_X] : targetX
+      const hitTargetY = item ? buf[offset + OFFSETS.WEAPON_Y] : targetY
+      const worldX = Math.round(hitTargetX * this.pixelsPerMeter)
+      const worldY = Math.round(hitTargetY * this.pixelsPerMeter)
+      const screenX =
+        centerX +
+        Math.round(((worldX - cameraX - centerX + shakeX) * zoom1000) / 1000)
+      const screenY =
+        bottomY +
+        Math.round(((worldY - cameraY - bottomY + shakeY) * zoom1000) / 1000)
+      const itemHalfSizePx = item
+        ? Math.max(
+            1,
+            Math.round(
+              (Math.max(
+                buf[offset + OFFSETS.WEAPON_W],
+                buf[offset + OFFSETS.WEAPON_H]
+              ) *
+                this.pixelsPerMeter) /
+                2
+            )
+          )
+        : 0
+      const radiusPx = item
+        ? itemHalfSizePx
+        : Math.max(
+            1,
+            Math.round(
+              buf[offset + OFFSETS.RADIUS] *
+                this.pixelsPerMeter *
+                (grappleAnchor ? MOBILE_GRAPPLE_ANCHOR_SCALE : 1)
+            )
+          )
+      const bodyHeightPx = Math.round(
+        buf[offset + OFFSETS.BODY_HEIGHT] * this.pixelsPerMeter
+      )
+      const bodyHalfHeightPx = grappleAnchor
+        ? radiusPx
+        : Math.max(radiusPx, bodyHeightPx >> 1)
+      const hitHalfWidth = Math.max(
+        MOBILE_LOCK_HIT_MIN_HALF_SIZE_PX,
+        Math.round((radiusPx * zoom1000) / 1000)
+      )
+      const hitHalfHeight = Math.max(
+        MOBILE_LOCK_HIT_MIN_HALF_SIZE_PX,
+        Math.round((bodyHalfHeightPx * zoom1000) / 1000)
+      )
+      const dx = canvasX - screenX
+      const dy = canvasY - screenY
+      if (Math.abs(dx) > hitHalfWidth || Math.abs(dy) > hitHalfHeight) {
+        continue
+      }
+      const distanceSquared = dx * dx + dy * dy
+      if (distanceSquared < closestDistanceSquared) {
+        closestDistanceSquared = distanceSquared
+        closestTargetId = buf[offset + OFFSETS.ID] | 0
+      }
+    }
+    return closestTargetId
+  }
+
+  private requestMobileLockTarget(targetId: number): void {
+    this.mobileLockTargetMessage.targetId = targetId
+    this.worker.postMessage(this.mobileLockTargetMessage)
+  }
+
+  private requestMobileGrappleTarget(
+    targetId: number,
+    phase: MobileGrapplePhase
+  ): void {
+    this.mobileGrappleTargetMessage.targetId = targetId
+    this.mobileGrappleTargetMessage.phase = phase
+    this.worker.postMessage(this.mobileGrappleTargetMessage)
+  }
+
+  private requestMobileInteractTarget(targetId: number): void {
+    this.mobileInteractTargetMessage.targetId = targetId
+    this.worker.postMessage(this.mobileInteractTargetMessage)
+  }
+
+  private requestMobileRecover(): void {
+    if (this.renderer.getPlayerSolarLargeCount() <= 0) return
+    this.worker.postMessage(this.mobileRecoverMessage)
   }
 
   private handleMobileHudAction(
@@ -3005,10 +3248,10 @@ export class GameClient {
             this.onEditorActionCallback()
           }
           break
-        case MenuAction.AttackDefenseButtons: {
-          const visible = !this.mobileAttackDefenseButtonsVisible
-          this.setMobileAttackDefenseButtonsVisible(visible)
-          this.onMobileAttackDefenseVisibilityChange?.(visible)
+        case MenuAction.AttackDefenseGestures: {
+          const enabled = !this.mobileAttackDefenseGesturesEnabled
+          this.setMobileAttackDefenseGesturesEnabled(enabled)
+          this.onMobileAttackDefenseGesturesChangeCallback?.(enabled)
           break
         }
       }

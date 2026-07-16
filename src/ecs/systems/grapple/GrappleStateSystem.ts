@@ -196,14 +196,15 @@ export class GrappleStateSystem {
   ): void {
     const previousTargetX = grapple.targetX
     const previousTargetY = grapple.targetY
-    const shouldStartAnchorPull = grapple.hasAnchorNearby
+    const shouldStartAnchorPull =
+      input.grappleTargetId !== null || grapple.hasAnchorNearby
 
     this.runtime.destroyConnectedPlayerRope(entity, grapple)
     input.grappleBreakRequested = false
     input.grapplePersistentRequested = false
 
     if (shouldStartAnchorPull) {
-      this.runtime.tryStartAnchorGrappleAction(
+      this.runtime.tryStartGrappleAction(
         entity,
         grapple,
         previousTargetX,
@@ -227,6 +228,7 @@ export class GrappleStateSystem {
 
     if (input.grapplePersistentRequested) {
       this.runtime.transferTetherToSelectedTarget(entity, grapple)
+      input.grappleTargetId = null
       inputBuffer.clearAction('grapple')
       return
     }
@@ -268,6 +270,23 @@ export class GrappleStateSystem {
   ): boolean {
     if (!entity.input || !entity.transform) {
       return false
+    }
+
+    const grappleTargetId = entity.input.grappleTargetId
+    if (grappleTargetId !== null) {
+      entity.input.grappleTargetId = null
+      const grappleTarget = this.runtime.getEntityById(grappleTargetId)
+      if (
+        !grappleTarget ||
+        !this.runtime.canUseLockedTarget(entity, grappleTarget)
+      ) {
+        return false
+      }
+      return this.runtime.startLockedTargetGrapple(
+        entity,
+        grapple,
+        grappleTarget
+      )
     }
 
     const lockedTargetId = entity.input.lockedTargetId

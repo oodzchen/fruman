@@ -22,7 +22,7 @@ export enum MenuAction {
   SaveGame,
   Fullscreen,
   Resolution,
-  AttackDefenseButtons,
+  AttackDefenseGestures,
 }
 
 export enum MenuMode {
@@ -72,7 +72,7 @@ export class MenuManager {
   private dialogManager: DialogManager | null = null
   private displayManager: DisplayManager | null = null
   private lastSelectedSaveIndex = -1
-  private attackDefenseButtonsVisible = false
+  private attackDefenseGesturesEnabled = false
 
   constructor(
     canvas: HTMLElement,
@@ -147,11 +147,11 @@ export class MenuManager {
     displayManager.setOnResolutionChange(refresh)
   }
 
-  setAttackDefenseButtonsVisible(visible: boolean): void {
-    if (this.attackDefenseButtonsVisible === visible) {
+  setAttackDefenseGesturesEnabled(enabled: boolean): void {
+    if (this.attackDefenseGesturesEnabled === enabled) {
       return
     }
-    this.attackDefenseButtonsVisible = visible
+    this.attackDefenseGesturesEnabled = enabled
     if (this.visible && this.mode === MenuMode.Settings) {
       this.initMenuItems()
       this.syncMenuDom()
@@ -286,7 +286,7 @@ export class MenuManager {
       const resDisplay = isFs
         ? '-'
         : (this.displayManager?.getCurrentPreset().label ?? '800×600')
-      const attackDefenseDisplay = this.attackDefenseButtonsVisible
+      const attackDefenseDisplay = this.attackDefenseGesturesEnabled
         ? localizer.t('menu_settings_fullscreen_on')
         : localizer.t('menu_settings_fullscreen_off')
 
@@ -310,8 +310,8 @@ export class MenuManager {
           value: resDisplay,
         },
         {
-          label: localizer.t('menu_settings_attack_defense_buttons'),
-          action: MenuAction.AttackDefenseButtons,
+          label: localizer.t('menu_settings_attack_defense_gestures'),
+          action: MenuAction.AttackDefenseGestures,
           y: startY + spacing * 3,
           value: attackDefenseDisplay,
         },
@@ -439,7 +439,7 @@ export class MenuManager {
         } else if (item.action === MenuAction.Fullscreen) {
           e.preventDefault()
           void this.handleToggleFullscreen()
-        } else if (item.action === MenuAction.AttackDefenseButtons) {
+        } else if (item.action === MenuAction.AttackDefenseGestures) {
           e.preventDefault()
           this.selectMenuItem(this.selectedIndex)
         }
@@ -460,7 +460,7 @@ export class MenuManager {
         } else if (item.action === MenuAction.Fullscreen) {
           e.preventDefault()
           void this.handleToggleFullscreen()
-        } else if (item.action === MenuAction.AttackDefenseButtons) {
+        } else if (item.action === MenuAction.AttackDefenseGestures) {
           e.preventDefault()
           this.selectMenuItem(this.selectedIndex)
         }

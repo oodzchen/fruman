@@ -12,6 +12,12 @@ export const DEFAULT_JUMP_BUFFER_WINDOW = 500
 
 // 按住跳跃键持续施力的最大时长（毫秒）
 export const DEFAULT_MAX_JUMP_DURATION = 500
+export const MOBILE_FULL_JUMP_KEY = 'mobile-full-jump'
+export const MOBILE_FULL_JUMP_LEFT_KEY = 'mobile-full-jump-left'
+export const MOBILE_FULL_JUMP_RIGHT_KEY = 'mobile-full-jump-right'
+export const MOBILE_ROLL_LEFT_KEY = 'mobile-roll-left'
+export const MOBILE_ROLL_RIGHT_KEY = 'mobile-roll-right'
+export const MOBILE_BACKSTEP_KEY = 'mobile-backstep'
 
 // 持续跳跃施加的力相对于初始跳跃力度的倍数
 export const DEFAULT_JUMP_FORCE_MULTIPLIER = 0.8

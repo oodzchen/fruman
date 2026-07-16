@@ -2004,6 +2004,12 @@ export class GrappleRopeRuntimeSystem {
     runtime: RopeRuntime,
     source: Entity
   ): Entity | null {
+    const grappleTargetId = entity.input?.grappleTargetId ?? null
+    if (grappleTargetId !== null) {
+      if (grappleTargetId === runtime.anchorEntityId) return null
+      return this.runtime.getEntityById(grappleTargetId)
+    }
+
     const lockedTargetId = entity.input?.lockedTargetId ?? null
     if (lockedTargetId !== null && lockedTargetId !== runtime.anchorEntityId) {
       return this.runtime.getEntityById(lockedTargetId)

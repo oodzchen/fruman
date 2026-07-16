@@ -228,17 +228,20 @@ export class MovementComponent extends Component {
 
 export class InputComponent extends Component {
   moveDirection = 0
+  rollDirectionOverride: -1 | 0 | 1 | null = null
   jumpRequested = false
   sprintRequested = false
   grappleHoldRequested = false
   grapplePersistentRequested = false
   grappleBreakRequested = false
+  grappleTargetId: number | null = null
   grappleLengthAdjustSteps = 0
   grappleClimbHeld = 0
   attackRequested = false
   ultimateRequested = false
   skillRequested = false
   blockRequested = false
+  interactionTargetId: number | null = null
   lockedTargetId: number | null = null
   assassinationTargetId: number | null = null
   lockToggleRequested = false
@@ -261,17 +264,20 @@ export class InputComponent extends Component {
 
   reset(): void {
     this.moveDirection = 0
+    this.rollDirectionOverride = null
     this.jumpRequested = false
     this.sprintRequested = false
     this.grappleHoldRequested = false
     this.grapplePersistentRequested = false
     this.grappleBreakRequested = false
+    this.grappleTargetId = null
     this.grappleLengthAdjustSteps = 0
     this.grappleClimbHeld = 0
     this.attackRequested = false
     this.ultimateRequested = false
     this.skillRequested = false
     this.blockRequested = false
+    this.interactionTargetId = null
     this.lockedTargetId = null
     this.assassinationTargetId = null
     this.lockToggleRequested = false

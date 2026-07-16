@@ -1,6 +1,34 @@
+import {
+  MOBILE_BACKSTEP_KEY,
+  MOBILE_FULL_JUMP_KEY,
+  MOBILE_FULL_JUMP_LEFT_KEY,
+  MOBILE_FULL_JUMP_RIGHT_KEY,
+  MOBILE_ROLL_LEFT_KEY,
+  MOBILE_ROLL_RIGHT_KEY,
+} from './constants'
 import type { RenderContext2D } from './renderer/RenderContext2D'
+import type { MobileGrapplePhase } from './worker/protocol'
 
-export type MobileInputKey = 'w' | 'a' | 's' | 'd' | 'shift' | 'j' | 'k'
+type MobileJumpInputKey =
+  | typeof MOBILE_FULL_JUMP_KEY
+  | typeof MOBILE_FULL_JUMP_LEFT_KEY
+  | typeof MOBILE_FULL_JUMP_RIGHT_KEY
+
+type MobileEvadeInputKey =
+  | typeof MOBILE_ROLL_LEFT_KEY
+  | typeof MOBILE_ROLL_RIGHT_KEY
+  | typeof MOBILE_BACKSTEP_KEY
+
+export type MobileInputKey =
+  | MobileJumpInputKey
+  | MobileEvadeInputKey
+  | 'w'
+  | 'a'
+  | 's'
+  | 'd'
+  | 'shift'
+  | 'j'
+  | 'k'
 
 export type MobileHudAction =
   | 'weapon-main'
@@ -16,6 +44,14 @@ export const MOBILE_HUD_ULTIMATE = 1 << 3
 interface MobileControlsCallbacks {
   onKeyChange: (key: MobileInputKey, pressed: boolean) => void
   onHudAction: (action: MobileHudAction, pressed: boolean) => void
+  findGrappleAnchor: (x: number, y: number) => number
+  onGrappleAnchor: (targetId: number, phase: MobileGrapplePhase) => void
+  findInteractTarget: (x: number, y: number) => number
+  onInteractTarget: (targetId: number) => void
+  isRecoverActionAt: (x: number, y: number) => boolean
+  onRecover: () => void
+  findLockTarget: (x: number, y: number) => number
+  onLockTarget: (targetId: number) => void
   onPause: () => void
 }
 
@@ -38,6 +74,20 @@ const HUD_SKILL_SIZE = 42
 const HUD_SKILL_ULTIMATE_SPACING = 12
 const HUD_ULTIMATE_SIZE = 52
 const MOBILE_SMALL_SIDE = 450
+const MAX_GESTURE_POINTERS = 2
+const ACTION_SWIPE_MAX_DURATION_MS = 220
+const ACTION_SWIPE_MIN_SPEED_PX_PER_SECOND = 320
+const ACTION_SWIPE_CLASSIFY_DURATION_MS = 80
+const GESTURE_PENDING = 0
+const GESTURE_JUMP = 1
+const GESTURE_EVADE = 2
+const GESTURE_ACTION_NONE = 0
+const GESTURE_ACTION_ATTACK = 1
+const GESTURE_ACTION_DEFENSE = 2
+const GESTURE_ACTION_LOCK_TARGET = 3
+const GESTURE_ACTION_GRAPPLE = 4
+const GESTURE_ACTION_INTERACT = 5
+const GESTURE_ACTION_RECOVER = 6
 
 const HUD_ACTIONS: ReadonlyArray<MobileHudAction> = [
   'weapon-main',
@@ -78,6 +128,13 @@ export class MobileControls {
   private readonly controlPressed = new Uint8Array(CONTROL_COUNT)
   private readonly controlAvailable = new Uint8Array(CONTROL_COUNT)
   private readonly joystickKeys = new Uint8Array(5)
+  private readonly gesturePointer = new Int32Array(MAX_GESTURE_POINTERS)
+  private readonly gestureStartX = new Int32Array(MAX_GESTURE_POINTERS)
+  private readonly gestureStartY = new Int32Array(MAX_GESTURE_POINTERS)
+  private readonly gestureStartTimeMs = new Float64Array(MAX_GESTURE_POINTERS)
+  private readonly gestureState = new Uint8Array(MAX_GESTURE_POINTERS)
+  private readonly gestureAction = new Uint8Array(MAX_GESTURE_POINTERS)
+  private readonly gestureTargetId = new Int32Array(MAX_GESTURE_POINTERS)
   private enabled = false
   private dirty = true
   private canvasWidth = 0
@@ -88,12 +145,17 @@ export class MobileControls {
   private boundsScaleY1024 = 1024
   private joystickThumbX = 0
   private joystickThumbY = 0
+  private jumpPointerCount = 0
+  private defensePointerCount = 0
+  private jumpInputKey: MobileJumpInputKey = MOBILE_FULL_JUMP_KEY
 
   constructor(target: HTMLElement, callbacks: MobileControlsCallbacks) {
     this.target = target
     this.callbacks = callbacks
     this.previousTouchAction = this.target.style.touchAction
     this.controlPointer.fill(NO_POINTER)
+    this.gesturePointer.fill(NO_POINTER)
+    this.gestureTargetId.fill(NO_POINTER)
     this.controlAvailable[CONTROL_JOYSTICK] = 1
     this.controlAvailable[CONTROL_PAUSE] = 1
     this.target.style.touchAction = 'none'
@@ -152,9 +214,14 @@ export class MobileControls {
     )
   }
 
-  setAttackDefenseButtonsVisible(visible: boolean): void {
-    this.setControlAvailable(CONTROL_ATTACK, visible)
-    this.setControlAvailable(CONTROL_DEFENSE, visible)
+  setAttackDefenseGesturesEnabled(enabled: boolean): void {
+    this.setControlAvailable(CONTROL_ATTACK, enabled)
+    this.setControlAvailable(CONTROL_DEFENSE, enabled)
+    if (!enabled) {
+      for (let gesture = 0; gesture < MAX_GESTURE_POINTERS; gesture++) {
+        this.releaseGestureAction(gesture, true, false)
+      }
+    }
   }
 
   resize(width: number, height: number): void {
@@ -180,14 +247,10 @@ export class MobileControls {
       return
     }
 
-    this.drawJoystick(ctx)
-    if (this.controlAvailable[CONTROL_ATTACK] !== 0) {
-      this.drawActionButton(ctx, CONTROL_ATTACK)
+    if (this.controlPressed[CONTROL_JOYSTICK] !== 0) {
+      this.drawJoystick(ctx)
     }
-    if (this.controlAvailable[CONTROL_DEFENSE] !== 0) {
-      this.drawActionButton(ctx, CONTROL_DEFENSE)
-    }
-    this.drawActionButton(ctx, CONTROL_PAUSE)
+    this.drawPauseButton(ctx)
     for (let control = FIRST_HUD_CONTROL; control < CONTROL_COUNT; control++) {
       if (this.controlPressed[control] !== 0) {
         this.drawHudPressedEffect(ctx, control)
@@ -218,9 +281,15 @@ export class MobileControls {
     this.syncPointerBounds()
     const x = this.toCanvasX(event.clientX)
     const y = this.toCanvasY(event.clientY)
-    const control = this.findControlAt(x, y)
+    if (this.beginInteractionGesture(event, x, y)) {
+      return
+    }
+    const control = this.findButtonAt(x, y)
+    if (control < 0) {
+      this.beginGesture(event, x, y)
+      return
+    }
     if (
-      control < 0 ||
       this.controlPointer[control] !== NO_POINTER ||
       this.controlAvailable[control] === 0
     ) {
@@ -228,14 +297,10 @@ export class MobileControls {
     }
 
     this.controlPointer[control] = event.pointerId
-    this.controlPressed[control] = 1
     this.target.setPointerCapture(event.pointerId)
-    this.dirty = true
 
-    if (control === CONTROL_JOYSTICK) {
-      this.updateJoystick(x, y)
-      return
-    }
+    this.controlPressed[control] = 1
+    this.dirty = true
     if (control === CONTROL_PAUSE) {
       this.callbacks.onPause()
       return
@@ -257,7 +322,9 @@ export class MobileControls {
       return
     }
     const control = this.findControlByPointer(event.pointerId)
-    if (control < 0) {
+    const gesture =
+      control < 0 ? this.findGestureByPointer(event.pointerId) : -1
+    if (control < 0 && gesture < 0) {
       return
     }
     event.preventDefault()
@@ -266,6 +333,8 @@ export class MobileControls {
     const y = this.toCanvasY(event.clientY)
     if (control === CONTROL_JOYSTICK) {
       this.updateJoystick(x, y)
+    } else if (gesture >= 0) {
+      this.updateGesture(gesture, x, y, Math.round(event.timeStamp))
     }
   }
 
@@ -274,12 +343,302 @@ export class MobileControls {
       return
     }
     const control = this.findControlByPointer(event.pointerId)
-    if (control < 0) {
+    const gesture =
+      control < 0 ? this.findGestureByPointer(event.pointerId) : -1
+    if (control < 0 && gesture < 0) {
       return
     }
     event.preventDefault()
     event.stopPropagation()
-    this.releaseControl(control, true)
+    if (control >= 0) {
+      this.releaseControl(control, true)
+    } else {
+      this.releaseGesture(gesture, true, event.type === 'pointerup')
+    }
+  }
+
+  private beginInteractionGesture(
+    event: PointerEvent,
+    x: number,
+    y: number
+  ): boolean {
+    if (this.callbacks.isRecoverActionAt(x, y)) {
+      this.beginGesture(event, x, y, GESTURE_ACTION_RECOVER)
+      return true
+    }
+    const grappleAnchorId = this.callbacks.findGrappleAnchor(x, y)
+    if (grappleAnchorId !== NO_POINTER) {
+      this.beginGesture(event, x, y, GESTURE_ACTION_GRAPPLE, grappleAnchorId)
+      return true
+    }
+    const interactTargetId = this.callbacks.findInteractTarget(x, y)
+    if (interactTargetId !== NO_POINTER) {
+      this.beginGesture(event, x, y, GESTURE_ACTION_INTERACT, interactTargetId)
+      return true
+    }
+    const lockTargetId = this.callbacks.findLockTarget(x, y)
+    if (lockTargetId === NO_POINTER) {
+      return false
+    }
+    this.beginGesture(event, x, y, GESTURE_ACTION_LOCK_TARGET, lockTargetId)
+    return true
+  }
+
+  private beginGesture(
+    event: PointerEvent,
+    x: number,
+    y: number,
+    action = GESTURE_ACTION_NONE,
+    targetId = NO_POINTER
+  ): void {
+    const gesture = this.findAvailableGesture()
+    if (gesture < 0) {
+      return
+    }
+    this.gesturePointer[gesture] = event.pointerId
+    this.gestureStartX[gesture] = x
+    this.gestureStartY[gesture] = y
+    this.gestureStartTimeMs[gesture] = Math.round(event.timeStamp)
+    this.gestureState[gesture] = GESTURE_PENDING
+    this.gestureAction[gesture] = action
+    this.gestureTargetId[gesture] = targetId
+    if (action === GESTURE_ACTION_GRAPPLE) {
+      this.callbacks.onGrappleAnchor(targetId, 'press')
+    } else if (action === GESTURE_ACTION_NONE) {
+      this.beginScreenAction(gesture, x)
+    }
+    this.target.setPointerCapture(event.pointerId)
+  }
+
+  private beginScreenAction(gesture: number, x: number): void {
+    if (x < this.canvasWidth >> 1) {
+      if (this.controlAvailable[CONTROL_DEFENSE] === 0) {
+        return
+      }
+      this.gestureAction[gesture] = GESTURE_ACTION_DEFENSE
+      this.defensePointerCount++
+      if (this.defensePointerCount === 1) {
+        this.callbacks.onKeyChange('k', true)
+      }
+      return
+    }
+    if (this.controlAvailable[CONTROL_ATTACK] !== 0) {
+      this.gestureAction[gesture] = GESTURE_ACTION_ATTACK
+    }
+  }
+
+  private releaseGestureAction(
+    gesture: number,
+    emitRelease: boolean,
+    triggerTap: boolean
+  ): void {
+    const action = this.gestureAction[gesture]
+    const targetId = this.gestureTargetId[gesture]
+    this.gestureAction[gesture] = GESTURE_ACTION_NONE
+    this.gestureTargetId[gesture] = NO_POINTER
+    if (
+      action === GESTURE_ACTION_LOCK_TARGET &&
+      emitRelease &&
+      triggerTap &&
+      targetId !== NO_POINTER
+    ) {
+      this.callbacks.onLockTarget(targetId)
+      return
+    }
+    if (
+      action === GESTURE_ACTION_INTERACT &&
+      emitRelease &&
+      triggerTap &&
+      targetId !== NO_POINTER
+    ) {
+      this.callbacks.onInteractTarget(targetId)
+      return
+    }
+    if (action === GESTURE_ACTION_RECOVER) {
+      if (emitRelease && triggerTap) {
+        this.callbacks.onRecover()
+      }
+      return
+    }
+    if (action === GESTURE_ACTION_GRAPPLE && targetId !== NO_POINTER) {
+      this.callbacks.onGrappleAnchor(
+        targetId,
+        emitRelease && triggerTap ? 'release' : 'cancel'
+      )
+      return
+    }
+    this.releaseAction(action, emitRelease, triggerTap)
+  }
+
+  private releaseAction(
+    action: number,
+    emitRelease: boolean,
+    triggerTap: boolean
+  ): void {
+    if (action === GESTURE_ACTION_DEFENSE) {
+      this.defensePointerCount--
+      if (emitRelease && this.defensePointerCount === 0) {
+        this.callbacks.onKeyChange('k', false)
+      }
+      return
+    }
+    if (emitRelease && triggerTap && action === GESTURE_ACTION_ATTACK) {
+      this.callbacks.onKeyChange('j', true)
+      this.callbacks.onKeyChange('j', false)
+    }
+  }
+
+  private cancelGestureActionForMovement(gesture: number): void {
+    const action = this.gestureAction[gesture]
+    if (
+      action === GESTURE_ACTION_ATTACK ||
+      action === GESTURE_ACTION_LOCK_TARGET ||
+      action === GESTURE_ACTION_INTERACT ||
+      action === GESTURE_ACTION_RECOVER
+    ) {
+      this.gestureAction[gesture] = GESTURE_ACTION_NONE
+      this.gestureTargetId[gesture] = NO_POINTER
+    } else if (action === GESTURE_ACTION_GRAPPLE) {
+      const targetId = this.gestureTargetId[gesture]
+      this.gestureAction[gesture] = GESTURE_ACTION_NONE
+      this.gestureTargetId[gesture] = NO_POINTER
+      if (targetId !== NO_POINTER) {
+        this.callbacks.onGrappleAnchor(targetId, 'cancel')
+      }
+    } else if (
+      action === GESTURE_ACTION_DEFENSE &&
+      this.controlPointer[CONTROL_JOYSTICK] === NO_POINTER
+    ) {
+      this.releaseGestureAction(gesture, true, false)
+    }
+  }
+
+  private updateGesture(
+    gesture: number,
+    pointerX: number,
+    pointerY: number,
+    eventTimeMs: number
+  ): void {
+    if (this.gestureState[gesture] !== GESTURE_PENDING) {
+      return
+    }
+
+    const dx = pointerX - this.gestureStartX[gesture]
+    const dy = pointerY - this.gestureStartY[gesture]
+    const distanceSquared = dx * dx + dy * dy
+    const joystickThreshold = this.getJoystickActivationThreshold()
+    if (distanceSquared < joystickThreshold * joystickThreshold) {
+      return
+    }
+    this.cancelGestureActionForMovement(gesture)
+
+    const elapsedMs = Math.max(
+      1,
+      eventTimeMs - this.gestureStartTimeMs[gesture]
+    )
+    const absDx = Math.abs(dx)
+    const absDy = Math.abs(dy)
+    const primaryDistance = Math.max(absDx, absDy)
+    const swipeDistance = this.controlRadius[CONTROL_JOYSTICK]
+    const upwardSwipe = dy < 0 && absDy >= absDx
+    const downwardSwipe = dy > 0 && absDy >= absDx
+    const horizontalSwipe = absDx > absDy
+    const withinSwipeWindow = elapsedMs <= ACTION_SWIPE_MAX_DURATION_MS
+    const fastSwipe =
+      withinSwipeWindow &&
+      primaryDistance >= swipeDistance &&
+      primaryDistance * 1000 >= elapsedMs * ACTION_SWIPE_MIN_SPEED_PX_PER_SECOND
+    if (fastSwipe) {
+      if (upwardSwipe) {
+        this.gestureState[gesture] = GESTURE_JUMP
+        this.jumpPointerCount++
+        if (this.jumpPointerCount === 1) {
+          this.jumpInputKey = this.resolveJumpInputKey(dx, joystickThreshold)
+          this.callbacks.onKeyChange(this.jumpInputKey, true)
+        }
+      } else if (downwardSwipe) {
+        this.triggerEvadeGesture(gesture, MOBILE_BACKSTEP_KEY)
+      } else if (horizontalSwipe) {
+        this.triggerEvadeGesture(
+          gesture,
+          dx < 0 ? MOBILE_ROLL_LEFT_KEY : MOBILE_ROLL_RIGHT_KEY
+        )
+      }
+      return
+    }
+
+    const mayBecomeFastSwipe =
+      withinSwipeWindow &&
+      primaryDistance < swipeDistance &&
+      (elapsedMs < ACTION_SWIPE_CLASSIFY_DURATION_MS ||
+        primaryDistance * 1000 >=
+          elapsedMs * ACTION_SWIPE_MIN_SPEED_PX_PER_SECOND)
+    if (mayBecomeFastSwipe) {
+      return
+    }
+    if (this.controlPointer[CONTROL_JOYSTICK] !== NO_POINTER) {
+      return
+    }
+
+    this.controlPointer[CONTROL_JOYSTICK] = this.gesturePointer[gesture]
+    this.controlX[CONTROL_JOYSTICK] = this.gestureStartX[gesture]
+    this.controlY[CONTROL_JOYSTICK] = this.gestureStartY[gesture]
+    this.gesturePointer[gesture] = NO_POINTER
+    this.updateJoystick(pointerX, pointerY)
+  }
+
+  private triggerEvadeGesture(gesture: number, key: MobileEvadeInputKey): void {
+    this.gestureState[gesture] = GESTURE_EVADE
+    this.callbacks.onKeyChange(key, true)
+    this.callbacks.onKeyChange(key, false)
+  }
+
+  private releaseGesture(
+    gesture: number,
+    emitRelease: boolean,
+    triggerTap: boolean
+  ): void {
+    this.gesturePointer[gesture] = NO_POINTER
+    const state = this.gestureState[gesture]
+    this.gestureState[gesture] = GESTURE_PENDING
+    this.releaseGestureAction(
+      gesture,
+      emitRelease,
+      triggerTap && state === GESTURE_PENDING
+    )
+    if (state !== GESTURE_JUMP) {
+      return
+    }
+    this.jumpPointerCount--
+    if (this.jumpPointerCount === 0) {
+      if (emitRelease) {
+        this.callbacks.onKeyChange(this.jumpInputKey, false)
+      }
+      this.jumpInputKey = MOBILE_FULL_JUMP_KEY
+    }
+  }
+
+  private resolveJumpInputKey(
+    dx: number,
+    joystickThreshold: number
+  ): MobileJumpInputKey {
+    if (this.controlPressed[CONTROL_JOYSTICK] !== 0) {
+      if (this.joystickKeys[1] !== 0) {
+        return MOBILE_FULL_JUMP_LEFT_KEY
+      }
+      if (this.joystickKeys[3] !== 0) {
+        return MOBILE_FULL_JUMP_RIGHT_KEY
+      }
+      return MOBILE_FULL_JUMP_KEY
+    }
+    const directionThreshold = Math.max(1, ((joystickThreshold * 3) / 5) | 0)
+    if (dx <= -directionThreshold) {
+      return MOBILE_FULL_JUMP_LEFT_KEY
+    }
+    if (dx >= directionThreshold) {
+      return MOBILE_FULL_JUMP_RIGHT_KEY
+    }
+    return MOBILE_FULL_JUMP_KEY
   }
 
   private releaseControl(control: number, emitRelease: boolean): void {
@@ -318,10 +677,23 @@ export class MobileControls {
     const radius = this.controlRadius[CONTROL_JOYSTICK]
     const dx = pointerX - this.controlX[CONTROL_JOYSTICK]
     const dy = pointerY - this.controlY[CONTROL_JOYSTICK]
-    const threshold = Math.max(10, radius >> 2)
-    const thumbLimit = (radius * 3) / 5
-    const nextThumbX = this.clamp(dx, -thumbLimit, thumbLimit) | 0
-    const nextThumbY = this.clamp(dy, -thumbLimit, thumbLimit) | 0
+    const threshold = this.getJoystickActivationThreshold()
+    const distanceSquared = dx * dx + dy * dy
+    const thresholdSquared = threshold * threshold
+    if (
+      this.controlPressed[CONTROL_JOYSTICK] === 0 &&
+      distanceSquared < thresholdSquared
+    ) {
+      return
+    }
+    if (this.controlPressed[CONTROL_JOYSTICK] === 0) {
+      this.controlPressed[CONTROL_JOYSTICK] = 1
+      this.dirty = true
+    }
+
+    const thumbLimit = ((radius * 3) / 5) | 0
+    const nextThumbX = this.clamp(dx, -thumbLimit, thumbLimit)
+    const nextThumbY = this.clamp(dy, -thumbLimit, thumbLimit)
     if (
       this.joystickThumbX !== nextThumbX ||
       this.joystickThumbY !== nextThumbY
@@ -331,18 +703,25 @@ export class MobileControls {
       this.dirty = true
     }
 
-    const left = dx < -threshold
-    const right = dx > threshold
-    const up = dy < -threshold
-    const down = dy > threshold
-    const sprintThreshold = (radius * 2) / 3
+    const moving = distanceSquared >= thresholdSquared
+    const directionThreshold = ((threshold * 3) / 5) | 0
+    const left = moving && dx < -directionThreshold
+    const right = moving && dx > directionThreshold
+    const up = moving && dy < -directionThreshold
+    const down = moving && dy > directionThreshold
+    const sprintThreshold = ((radius * 2) / 3) | 0
     const sprint =
-      (left || right) && dx * dx + dy * dy >= sprintThreshold * sprintThreshold
+      (left || right) && distanceSquared >= sprintThreshold * sprintThreshold
     this.setJoystickKey(0, 'w', up)
     this.setJoystickKey(1, 'a', left)
     this.setJoystickKey(2, 's', down)
     this.setJoystickKey(3, 'd', right)
     this.setJoystickKey(4, 'shift', sprint)
+  }
+
+  private getJoystickActivationThreshold(): number {
+    const radius = this.controlRadius[CONTROL_JOYSTICK]
+    return Math.max(18, ((radius * 2) / 5) | 0)
   }
 
   private resetJoystick(emitRelease: boolean): void {
@@ -379,6 +758,11 @@ export class MobileControls {
         this.releaseControl(control, emitRelease)
       }
     }
+    for (let gesture = 0; gesture < MAX_GESTURE_POINTERS; gesture++) {
+      if (this.gesturePointer[gesture] !== NO_POINTER) {
+        this.releaseGesture(gesture, emitRelease, false)
+      }
+    }
     this.resetJoystick(emitRelease)
   }
 
@@ -396,32 +780,8 @@ export class MobileControls {
   private layoutControls(): void {
     const shortSide = Math.min(this.canvasWidth, this.canvasHeight)
     const scale = shortSide < MOBILE_SMALL_SIDE ? 84 : LAYOUT_SCALE
-    const left = this.scaleValue(18, scale)
-    const bottom = this.scaleValue(18, scale)
-    const joystickRadius = this.scaleValue(62, scale)
-    this.setCircle(
-      CONTROL_JOYSTICK,
-      left + joystickRadius,
-      this.canvasHeight - bottom - joystickRadius,
-      joystickRadius
-    )
+    this.controlRadius[CONTROL_JOYSTICK] = this.scaleValue(62, scale)
 
-    const right = this.scaleValue(14, scale)
-    const actionBottom = this.scaleValue(12, scale)
-    const actionRight = this.canvasWidth - right
-    const actionBaseY = this.canvasHeight - actionBottom
-    this.setCircle(
-      CONTROL_ATTACK,
-      actionRight - this.scaleValue(40, scale),
-      actionBaseY - this.scaleValue(48, scale),
-      this.scaleValue(38, scale)
-    )
-    this.setCircle(
-      CONTROL_DEFENSE,
-      actionRight - this.scaleValue(108, scale),
-      actionBaseY - this.scaleValue(92, scale),
-      this.scaleValue(32, scale)
-    )
     this.setCircle(
       CONTROL_PAUSE,
       this.canvasWidth >> 1,
@@ -478,8 +838,8 @@ export class MobileControls {
     return ((value * scale) / LAYOUT_SCALE) | 0
   }
 
-  private findControlAt(x: number, y: number): number {
-    for (let control = CONTROL_COUNT - 1; control >= 0; control--) {
+  private findButtonAt(x: number, y: number): number {
+    for (let control = CONTROL_COUNT - 1; control >= CONTROL_PAUSE; control--) {
       if (this.controlAvailable[control] === 0) {
         continue
       }
@@ -497,6 +857,24 @@ export class MobileControls {
     for (let control = 0; control < CONTROL_COUNT; control++) {
       if (this.controlPointer[control] === pointerId) {
         return control
+      }
+    }
+    return -1
+  }
+
+  private findAvailableGesture(): number {
+    for (let gesture = 0; gesture < MAX_GESTURE_POINTERS; gesture++) {
+      if (this.gesturePointer[gesture] === NO_POINTER) {
+        return gesture
+      }
+    }
+    return -1
+  }
+
+  private findGestureByPointer(pointerId: number): number {
+    for (let gesture = 0; gesture < MAX_GESTURE_POINTERS; gesture++) {
+      if (this.gesturePointer[gesture] === pointerId) {
+        return gesture
       }
     }
     return -1
@@ -564,118 +942,22 @@ export class MobileControls {
     ctx.restore()
   }
 
-  private drawActionButton(ctx: RenderContext2D, control: number): void {
-    const pressed = this.controlPressed[control] !== 0
-    const radius = this.controlRadius[control] + (pressed ? 3 : 0)
-    const x = this.controlX[control]
-    const y = this.controlY[control]
+  private drawPauseButton(ctx: RenderContext2D): void {
+    const radius = this.controlRadius[CONTROL_PAUSE]
+    const x = this.controlX[CONTROL_PAUSE]
+    const y = this.controlY[CONTROL_PAUSE]
     ctx.save()
     ctx.globalAlpha = 1
-    ctx.fillStyle = pressed
-      ? 'rgba(225, 190, 112, 0.3)'
-      : 'rgba(15, 13, 20, 0.38)'
-    ctx.strokeStyle = pressed
-      ? 'rgba(255, 244, 210, 0.92)'
-      : 'rgba(255, 255, 255, 0.3)'
-    ctx.lineWidth = pressed ? 3 : 2
+    ctx.fillStyle = 'rgba(15, 13, 20, 0.38)'
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)'
+    ctx.lineWidth = 2
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
     ctx.stroke()
-    ctx.fillStyle = pressed
-      ? 'rgba(255, 255, 255, 1)'
-      : 'rgba(255, 255, 255, 0.78)'
-    if (control === CONTROL_ATTACK) {
-      this.drawAttackIcon(ctx, x, y, radius, pressed)
-    } else if (control === CONTROL_DEFENSE) {
-      this.drawDefenseIcon(ctx, x, y, radius, pressed)
-    } else {
-      this.drawPauseIcon(ctx, x, y, radius)
-    }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.78)'
+    this.drawPauseIcon(ctx, x, y, radius)
     ctx.restore()
-  }
-
-  private drawAttackIcon(
-    ctx: RenderContext2D,
-    x: number,
-    y: number,
-    radius: number,
-    pressed: boolean
-  ): void {
-    const unit = Math.max(2, (radius / 12) | 0)
-    ctx.strokeStyle = pressed
-      ? 'rgba(255, 244, 210, 1)'
-      : 'rgba(255, 255, 255, 0.68)'
-    ctx.lineCap = 'round'
-    ctx.lineWidth = Math.max(1, unit)
-    ctx.beginPath()
-    ctx.moveTo(x - unit * 8, y - unit * 3)
-    ctx.quadraticCurveTo(x - unit, y - unit * 10, x + unit * 9, y - unit * 5)
-    ctx.stroke()
-    ctx.lineWidth = Math.max(1, unit - 1)
-    ctx.beginPath()
-    ctx.moveTo(x - unit * 6, y - unit * 6)
-    ctx.quadraticCurveTo(x + unit, y - unit * 11, x + unit * 8, y - unit * 8)
-    ctx.stroke()
-
-    ctx.fillStyle = pressed
-      ? 'rgba(255, 255, 255, 1)'
-      : 'rgba(255, 255, 255, 0.86)'
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(x + unit * 7, y - unit * 7)
-    ctx.lineTo(x + unit * 2, y - unit * 5)
-    ctx.lineTo(x - unit * 4, y + unit)
-    ctx.lineTo(x - unit * 2, y + unit * 3)
-    ctx.lineTo(x + unit * 4, y - unit * 3)
-    ctx.closePath()
-    ctx.fill()
-    ctx.stroke()
-
-    ctx.lineWidth = Math.max(2, unit)
-    ctx.beginPath()
-    ctx.moveTo(x - unit * 6, y)
-    ctx.lineTo(x, y + unit * 6)
-    ctx.stroke()
-    ctx.lineWidth = Math.max(2, unit + 1)
-    ctx.beginPath()
-    ctx.moveTo(x - unit * 3, y + unit * 3)
-    ctx.lineTo(x - unit * 6, y + unit * 6)
-    ctx.stroke()
-  }
-
-  private drawDefenseIcon(
-    ctx: RenderContext2D,
-    x: number,
-    y: number,
-    radius: number,
-    pressed: boolean
-  ): void {
-    const unit = Math.max(2, (radius / 10) | 0)
-    ctx.fillStyle = pressed
-      ? 'rgba(255, 244, 210, 0.52)'
-      : 'rgba(255, 255, 255, 0.2)'
-    ctx.strokeStyle = pressed
-      ? 'rgba(255, 255, 255, 1)'
-      : 'rgba(255, 255, 255, 0.82)'
-    ctx.lineWidth = Math.max(2, unit)
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-    ctx.moveTo(x, y - unit * 7)
-    ctx.lineTo(x + unit * 6, y - unit * 5)
-    ctx.lineTo(x + unit * 5, y + unit * 2)
-    ctx.quadraticCurveTo(x + unit * 3, y + unit * 6, x, y + unit * 8)
-    ctx.quadraticCurveTo(x - unit * 3, y + unit * 6, x - unit * 5, y + unit * 2)
-    ctx.lineTo(x - unit * 6, y - unit * 5)
-    ctx.closePath()
-    ctx.fill()
-    ctx.stroke()
-    ctx.lineWidth = Math.max(1, unit - 1)
-    ctx.beginPath()
-    ctx.moveTo(x, y - unit * 5)
-    ctx.lineTo(x, y + unit * 5)
-    ctx.stroke()
   }
 
   private drawPauseIcon(
