@@ -1,7 +1,8 @@
 const STORAGE_KEY_RESOLUTION = 'sl2d_resolution'
+const STORAGE_KEY_ORIENTATION = 'sl2d_orientation'
 const DEFAULT_RESOLUTION_VALUE = '800x600'
 const DEFAULT_RESOLUTION_INDEX_FALLBACK = 5 // 800×600
-let resolutionStorageWarningLogged = false
+let displayStorageWarningLogged = false
 const LEGACY_RESOLUTION_VALUES: string[] = [
   '568x320',
   '667x375',
@@ -24,6 +25,15 @@ export interface ResolutionPreset {
   label: string
   width: number
   height: number
+}
+
+export enum DisplayOrientation {
+  Portrait = 'portrait',
+  Landscape = 'landscape',
+}
+
+interface LockableScreenOrientation extends ScreenOrientation {
+  lock(orientation: DisplayOrientation): Promise<void>
 }
 
 export const RESOLUTION_PRESETS: ResolutionPreset[] = [
@@ -73,35 +83,42 @@ function resolveStoredResolutionIndex(savedValue: string | null): number {
   return findResolutionIndex(savedValue)
 }
 
-function readStoredResolutionValue(): string | null {
+function readStoredDisplayValue(key: string): string | null {
   try {
-    return localStorage.getItem(STORAGE_KEY_RESOLUTION)
+    return localStorage.getItem(key)
   } catch (error) {
-    logResolutionStorageWarning(error instanceof Error ? error.message : '')
+    logDisplayStorageWarning(error instanceof Error ? error.message : '')
     return null
   }
 }
 
-function writeStoredResolutionValue(value: string): void {
+function writeStoredDisplayValue(key: string, value: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY_RESOLUTION, value)
+    localStorage.setItem(key, value)
   } catch (error) {
-    logResolutionStorageWarning(error instanceof Error ? error.message : '')
+    logDisplayStorageWarning(error instanceof Error ? error.message : '')
   }
 }
 
-function logResolutionStorageWarning(message: string): void {
-  if (resolutionStorageWarningLogged) {
+function logDisplayStorageWarning(message: string): void {
+  if (displayStorageWarningLogged) {
     return
   }
-  resolutionStorageWarningLogged = true
-  console.warn('[Display] resolution storage unavailable:', message)
+  displayStorageWarningLogged = true
+  console.warn('[Display] storage unavailable:', message)
+}
+
+function resolveStoredOrientation(value: string | null): DisplayOrientation {
+  return value === DisplayOrientation.Landscape
+    ? DisplayOrientation.Landscape
+    : DisplayOrientation.Portrait
 }
 
 export class DisplayManager {
   private viewport: HTMLElement
   private canvasBottom: HTMLElement | null
   private resolutionIndex: number
+  private orientation: DisplayOrientation
   private fullscreenActive = false
   private onFullscreenChangeCallback?: (isFullscreen: boolean) => void
   private onResolutionChangeCallback?: (preset: ResolutionPreset) => void
@@ -111,9 +128,13 @@ export class DisplayManager {
     this.canvasBottom = document.getElementById('canvasBottom')
 
     this.resolutionIndex = resolveStoredResolutionIndex(
-      readStoredResolutionValue()
+      readStoredDisplayValue(STORAGE_KEY_RESOLUTION)
+    )
+    this.orientation = resolveStoredOrientation(
+      readStoredDisplayValue(STORAGE_KEY_ORIENTATION)
     )
     this.persistResolution()
+    this.persistOrientation()
 
     this.applyResolution()
 
@@ -138,6 +159,10 @@ export class DisplayManager {
     return RESOLUTION_PRESETS[this.resolutionIndex]
   }
 
+  getOrientation(): DisplayOrientation {
+    return this.orientation
+  }
+
   setOnFullscreenChange(cb: (isFullscreen: boolean) => void): void {
     this.onFullscreenChangeCallback = cb
   }
@@ -159,12 +184,44 @@ export class DisplayManager {
     try {
       if (!document.fullscreenElement) {
         await this.viewport.requestFullscreen()
+        await this.lockOrientation(this.orientation)
       } else {
         await document.exitFullscreen()
       }
     } catch {
       // 浏览器不支持或未在用户手势中触发
     }
+  }
+
+  async toggleOrientation(): Promise<boolean> {
+    if (!this.getLockableScreenOrientation()) {
+      return false
+    }
+    const next =
+      this.orientation === DisplayOrientation.Portrait
+        ? DisplayOrientation.Landscape
+        : DisplayOrientation.Portrait
+    const enteredFullscreen = !document.fullscreenElement
+    if (enteredFullscreen) {
+      try {
+        await this.viewport.requestFullscreen()
+      } catch {
+        return false
+      }
+    }
+    if (await this.lockOrientation(next)) {
+      this.orientation = next
+      this.persistOrientation()
+      return true
+    }
+    if (enteredFullscreen && document.fullscreenElement === this.viewport) {
+      try {
+        await document.exitFullscreen()
+      } catch {
+        // 浏览器拒绝退出时保留当前全屏状态
+      }
+    }
+    return false
   }
 
   private applyResolution(): void {
@@ -177,8 +234,39 @@ export class DisplayManager {
   }
 
   private persistResolution(): void {
-    writeStoredResolutionValue(
+    writeStoredDisplayValue(
+      STORAGE_KEY_RESOLUTION,
       getResolutionStorageValue(RESOLUTION_PRESETS[this.resolutionIndex])
     )
+  }
+
+  private persistOrientation(): void {
+    writeStoredDisplayValue(STORAGE_KEY_ORIENTATION, this.orientation)
+  }
+
+  private getLockableScreenOrientation(): LockableScreenOrientation | null {
+    const orientation = screen.orientation as ScreenOrientation | undefined
+    if (!orientation) {
+      return null
+    }
+    const lockableOrientation = orientation as LockableScreenOrientation
+    return typeof lockableOrientation.lock === 'function'
+      ? lockableOrientation
+      : null
+  }
+
+  private async lockOrientation(
+    orientation: DisplayOrientation
+  ): Promise<boolean> {
+    const screenOrientation = this.getLockableScreenOrientation()
+    if (!screenOrientation) {
+      return false
+    }
+    try {
+      await screenOrientation.lock(orientation)
+      return true
+    } catch {
+      return false
+    }
   }
 }

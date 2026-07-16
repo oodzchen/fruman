@@ -91,7 +91,14 @@
         font-size: clamp(12px, 4vmin, 16px);
       }
       #gameViewport.is-mobile-game .menu-item.menu-item-back {
-        width: auto;
+        width: max-content;
+        white-space: nowrap;
+      }
+      #gameViewport.is-mobile-game .menu-save-actions .menu-item {
+        width: max-content;
+        max-width: none;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
       #gameViewport.is-mobile-game .menu-item.menu-item-value,
       #gameViewport.is-mobile-game .menu-item.menu-item-cycle {

@@ -1,9 +1,11 @@
 import { DialogManager } from './DialogManager'
 import { findDirectionalIndex } from './DirectionalNav'
-import type { DisplayManager } from './DisplayManager'
+import { type DisplayManager, DisplayOrientation } from './DisplayManager'
 import { Language, localizer } from './Localizer'
 import { saveManager } from './SaveManager'
 import type { SaveMeta } from './saveTypes'
+
+const MENU_ANIMATION_DURATION_MS = 300
 
 export enum MenuAction {
   NewGame,
@@ -21,6 +23,7 @@ export enum MenuAction {
   SaveListDelete,
   SaveGame,
   Fullscreen,
+  Orientation,
   Resolution,
   AttackDefenseGestures,
 }
@@ -63,6 +66,7 @@ export class MenuManager {
   private selectedIndex = 0
   private onActionCallback?: (action: MenuAction, saveId?: string) => void
   private animTime = 0
+  private inputReady = false
 
   private boundHandleItemMouseEnter: (event: Event) => void
   private boundHandleItemClick: (event: Event) => void
@@ -115,6 +119,7 @@ export class MenuManager {
     }
     this.menuOverlay.classList.remove('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'true')
+    this.menuItemsContainer.inert = true
     this.initMenuItems()
     this.setupInput()
   }
@@ -286,41 +291,57 @@ export class MenuManager {
       const resDisplay = isFs
         ? '-'
         : (this.displayManager?.getCurrentPreset().label ?? '800×600')
+      const orientationDisplay =
+        this.displayManager?.getOrientation() === DisplayOrientation.Landscape
+          ? localizer.t('menu_settings_orientation_landscape')
+          : localizer.t('menu_settings_orientation_portrait')
       const attackDefenseDisplay = this.attackDefenseGesturesEnabled
         ? localizer.t('menu_settings_fullscreen_on')
         : localizer.t('menu_settings_fullscreen_off')
 
-      this.menuItems = [
-        {
-          label: localizer.t('menu_settings_language'),
-          action: MenuAction.Language,
-          y: startY,
-          value: langDisplay,
-        },
-        {
-          label: localizer.t('menu_settings_fullscreen'),
-          action: MenuAction.Fullscreen,
-          y: startY + spacing,
-          value: fsDisplay,
-        },
-        {
-          label: localizer.t('menu_settings_resolution'),
-          action: MenuAction.Resolution,
-          y: startY + spacing * 2,
-          value: resDisplay,
-        },
-        {
-          label: localizer.t('menu_settings_attack_defense_gestures'),
-          action: MenuAction.AttackDefenseGestures,
-          y: startY + spacing * 3,
-          value: attackDefenseDisplay,
-        },
-        {
-          label: localizer.t('menu_back'),
-          action: MenuAction.Back,
-          y: startY + spacing * 4,
-        },
-      ]
+      let y = startY
+      this.menuItems.push({
+        label: localizer.t('menu_settings_language'),
+        action: MenuAction.Language,
+        y,
+        value: langDisplay,
+      })
+      y += spacing
+      this.menuItems.push({
+        label: localizer.t('menu_settings_fullscreen'),
+        action: MenuAction.Fullscreen,
+        y,
+        value: fsDisplay,
+      })
+      y += spacing
+      if (this.mobileGame) {
+        this.menuItems.push({
+          label: localizer.t('menu_settings_orientation'),
+          action: MenuAction.Orientation,
+          y,
+          value: orientationDisplay,
+        })
+        y += spacing
+      }
+      this.menuItems.push({
+        label: localizer.t('menu_settings_resolution'),
+        action: MenuAction.Resolution,
+        y,
+        value: resDisplay,
+      })
+      y += spacing
+      this.menuItems.push({
+        label: localizer.t('menu_settings_attack_defense_gestures'),
+        action: MenuAction.AttackDefenseGestures,
+        y,
+        value: attackDefenseDisplay,
+      })
+      y += spacing
+      this.menuItems.push({
+        label: localizer.t('menu_back'),
+        action: MenuAction.Back,
+        y,
+      })
     } else if (this.mode === MenuMode.SaveList) {
       this.initSaveListItems(startY, spacing)
     }
@@ -399,7 +420,7 @@ export class MenuManager {
 
   private setupInput() {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!this.visible) return
+      if (!this.canInteract()) return
       if (this.dialogManager?.consumeBlockedPostCloseKey(e)) return
       if (this.shouldIgnoreKeyEvent(e)) return
 
@@ -439,6 +460,9 @@ export class MenuManager {
         } else if (item.action === MenuAction.Fullscreen) {
           e.preventDefault()
           void this.handleToggleFullscreen()
+        } else if (item.action === MenuAction.Orientation) {
+          e.preventDefault()
+          void this.handleToggleOrientation()
         } else if (item.action === MenuAction.AttackDefenseGestures) {
           e.preventDefault()
           this.selectMenuItem(this.selectedIndex)
@@ -460,6 +484,9 @@ export class MenuManager {
         } else if (item.action === MenuAction.Fullscreen) {
           e.preventDefault()
           void this.handleToggleFullscreen()
+        } else if (item.action === MenuAction.Orientation) {
+          e.preventDefault()
+          void this.handleToggleOrientation()
         } else if (item.action === MenuAction.AttackDefenseGestures) {
           e.preventDefault()
           this.selectMenuItem(this.selectedIndex)
@@ -476,7 +503,7 @@ export class MenuManager {
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (!this.visible) return
+      if (!this.canInteract()) return
       if (this.dialogManager?.consumeBlockedPostCloseKey(e)) return
       if (this.shouldIgnoreKeyEvent(e)) return
 
@@ -581,7 +608,7 @@ export class MenuManager {
   }
 
   private handleItemMouseEnter(event: Event) {
-    if (!this.visible) return
+    if (!this.canInteract()) return
     const target = event.currentTarget
     if (!(target instanceof HTMLButtonElement)) return
     const index = Number.parseInt(target.dataset.index || '', 10)
@@ -592,7 +619,7 @@ export class MenuManager {
   }
 
   private handleItemClick(event: Event) {
-    if (!this.visible) return
+    if (!this.canInteract()) return
     const target = event.currentTarget
     if (!(target instanceof HTMLButtonElement)) return
     const index = Number.parseInt(target.dataset.index || '', 10)
@@ -919,11 +946,25 @@ export class MenuManager {
     await this.displayManager?.toggleFullscreen()
   }
 
+  private async handleToggleOrientation(): Promise<void> {
+    const changed = await this.displayManager?.toggleOrientation()
+    if (!changed || !this.visible || this.mode !== MenuMode.Settings) {
+      return
+    }
+    this.initMenuItems()
+    this.syncMenuDom()
+  }
+
   private selectMenuItem(index: number) {
     const item = this.menuItems[index]
 
     if (item.action === MenuAction.Fullscreen) {
       void this.handleToggleFullscreen()
+      return
+    }
+
+    if (item.action === MenuAction.Orientation) {
+      void this.handleToggleOrientation()
       return
     }
 
@@ -965,6 +1006,16 @@ export class MenuManager {
     return -1
   }
 
+  private canInteract(): boolean {
+    return this.visible && this.inputReady
+  }
+
+  private setInputReady(ready: boolean): void {
+    if (this.inputReady === ready) return
+    this.inputReady = ready
+    this.menuItemsContainer.inert = !ready
+  }
+
   show(mode: MenuMode = MenuMode.Start, skipAnimation = false) {
     if (mode === MenuMode.SaveList) {
       this.dialogManager?.resetPostCloseKeyBlock()
@@ -972,7 +1023,8 @@ export class MenuManager {
     this.mode = mode
     this.visible = true
     this.selectedIndex = 0
-    this.animTime = skipAnimation ? 300 : 0
+    this.animTime = skipAnimation ? MENU_ANIMATION_DURATION_MS : 0
+    this.setInputReady(skipAnimation)
     this.initMenuItems()
     if (mode === MenuMode.SaveList && this.lastSelectedSaveIndex >= 0) {
       this.selectedIndex = this.lastSelectedSaveIndex
@@ -995,6 +1047,7 @@ export class MenuManager {
 
   hide() {
     this.visible = false
+    this.setInputReady(false)
     this.uiLayer.classList.remove('is-interactive')
     this.menuOverlay.classList.remove('is-visible')
     this.menuOverlay.setAttribute('aria-hidden', 'true')
@@ -1023,9 +1076,13 @@ export class MenuManager {
       600
 
     this.animTime += deltaTime * 1000
-    const duration = 300
+    const duration = MENU_ANIMATION_DURATION_MS
     const t = Math.min(1, this.animTime / duration)
     const ease = t
+
+    if (t === 1) {
+      this.setInputReady(true)
+    }
 
     const isSmallScreen = height < 500
     const titleTargetY = isSmallScreen ? height * 0.22 : height / 2 - 150
