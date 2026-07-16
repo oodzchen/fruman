@@ -782,11 +782,14 @@ export class MobileControls {
     const scale = shortSide < MOBILE_SMALL_SIDE ? 84 : LAYOUT_SCALE
     this.controlRadius[CONTROL_JOYSTICK] = this.scaleValue(62, scale)
 
+    const pauseRadius = this.scaleValue(22, scale)
+    const bottomActionCenterY =
+      this.canvasHeight - HUD_SLOT_MARGIN - (HUD_ULTIMATE_SIZE >> 1)
     this.setCircle(
       CONTROL_PAUSE,
-      this.canvasWidth >> 1,
-      this.scaleValue(29, scale),
-      this.scaleValue(22, scale)
+      HUD_SLOT_MARGIN + pauseRadius,
+      bottomActionCenterY,
+      pauseRadius
     )
 
     const weaponTotalWidth = HUD_SLOT_SIZE * 2 + HUD_SLOT_SPACING
@@ -804,8 +807,7 @@ export class MobileControls {
       HUD_SLOT_SIZE >> 1
     )
     const ultimateX = this.canvasWidth >> 1
-    const ultimateY =
-      this.canvasHeight - HUD_SLOT_MARGIN - (HUD_ULTIMATE_SIZE >> 1)
+    const ultimateY = bottomActionCenterY
     this.setCircle(
       CONTROL_ULTIMATE,
       ultimateX,

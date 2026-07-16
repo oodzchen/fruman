@@ -133,12 +133,6 @@ const HUD_EXP_BAR_HEIGHT = 6
 const HUD_EXP_BAR_GAP = 3
 const HUD_GRAPPLE_ICON_SIZE = 10
 const HUD_GRAPPLE_ICON_GAP = 6
-const HUD_LEFT_GROUP_HEIGHT =
-  HUD_HEALTH_BAR_HEIGHT +
-  HUD_EXP_BAR_GAP +
-  HUD_EXP_BAR_HEIGHT +
-  HUD_GRAPPLE_ICON_GAP +
-  HUD_GRAPPLE_ICON_SIZE
 const HUD_HEALTH_BAR_MIN_WIDTH = 48
 const HUD_HEALTH_BAR_MAX_SCREEN_PERCENT = 42
 const HUD_HEALTH_BAR_RIGHT_SAFE_GAP = 24
@@ -690,11 +684,7 @@ export class ClientRenderer {
       return false
     }
     const centerX = HUD_LEFT_MARGIN + (HUD_SUN_ICON_SIZE >> 1)
-    const centerY =
-      HUD_SLOT_MARGIN +
-      (HUD_SLOT_SIZE >> 1) -
-      HUD_LEFT_GROUP_HEIGHT / 2 +
-      HUD_HEALTH_BAR_HEIGHT / 2
+    const centerY = HUD_SLOT_MARGIN + (HUD_SLOT_SIZE >> 1)
     const dx = x - centerX
     const dy = y - centerY
     return dx * dx + dy * dy <= HUD_SUN_TOUCH_RADIUS * HUD_SUN_TOUCH_RADIUS
@@ -2146,15 +2136,9 @@ export class ClientRenderer {
     // Health bar starts after sun icon + gap
     const startX = leftMargin + sunIconSize + sunIconGap
 
-    // Calculate total height of left UI group (HealthBar + ExpBar + Gap + Icon)
-    const leftGroupHeight = HUD_LEFT_GROUP_HEIGHT
-
-    // Center left group vertically relative to right weapon slots
+    // 太阳与血条中心线和右侧武器槽中心线对齐
     const weaponCenterY = slotY + weaponSlotSize / 2
-    const leftGroupStartY = weaponCenterY - leftGroupHeight / 2
-
-    // Start drawing
-    const startY = leftGroupStartY
+    const startY = weaponCenterY - barHeight / 2
 
     // 血条宽度按等级做紧凑映射，避免与实际 maxHealth 数值耦合后被放大
     const targetWidth = this.getHudHealthBarTargetWidth(
