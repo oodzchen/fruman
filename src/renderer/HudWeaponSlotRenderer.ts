@@ -289,9 +289,10 @@ export function drawHudSkillSlot(
   hasSkill: boolean,
   chargesRemaining: number,
   maxCharges: number,
-  iconType = ''
+  iconType = '',
+  size = HUD_SKILL_SIZE
 ): void {
-  const radius = HUD_SKILL_SIZE >> 1
+  const radius = size >> 1
   const depleted = chargesRemaining <= 0
   ctx.save()
   ctx.globalAlpha = 1
@@ -392,9 +393,10 @@ export function drawHudUltimateSlot(
   isReady: boolean,
   flashTimer100: number = 0,
   iconType: 'sword' | 'hammer' | 'spear' = 'sword',
-  hasUltimate: boolean = true
+  hasUltimate: boolean = true,
+  size = HUD_ULTIMATE_SIZE
 ): void {
-  const radius = HUD_ULTIMATE_SIZE / 2
+  const radius = size >> 1
   ctx.save()
   ctx.globalAlpha = 1
 

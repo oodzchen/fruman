@@ -1,5 +1,11 @@
 import type { AudioManager } from './AudioManager'
 import { BowTrajectoryCalculator } from './BowTrajectory'
+import {
+  MOBILE_HUD_MAIN,
+  MOBILE_HUD_SECONDARY,
+  MOBILE_HUD_SKILL,
+  MOBILE_HUD_ULTIMATE,
+} from './MobileControls'
 import { getAttackPickupKindFromId } from './attackPickupUtils'
 import { buildCharacterBodyCollisionPolygons } from './characterBodyCollision'
 import {
@@ -285,6 +291,9 @@ export class ClientRenderer {
   private hudLastCanvasWidth = 0
   private hudLastCanvasHeight = 0
   private hudLastHealthBarWidth = 0
+  private mobileHudPressedFlags = 0
+  private mobileHudLastPressedFlags = 0
+  private hudAlwaysVisible = false
 
   constructor(
     worldCtx: RenderContext2D,
@@ -657,6 +666,18 @@ export class ClientRenderer {
 
   getCanvasHeight(): number {
     return this.hudCtx.canvas.height
+  }
+
+  setMobileHudPressedFlags(flags: number): void {
+    this.mobileHudPressedFlags = flags | 0
+  }
+
+  setHudAlwaysVisible(visible: boolean): void {
+    if (this.hudAlwaysVisible === visible) {
+      return
+    }
+    this.hudAlwaysVisible = visible
+    this.hudLastHash = -1
   }
 
   getRopePointCount(): number {
@@ -1934,6 +1955,10 @@ export class ClientRenderer {
   ]
 
   isHudDirty(canvasWidth: number, canvasHeight: number): boolean {
+    if (this.mobileHudPressedFlags !== this.mobileHudLastPressedFlags) {
+      this.mobileHudLastPressedFlags = this.mobileHudPressedFlags
+      return true
+    }
     if (
       canvasWidth !== this.hudLastCanvasWidth ||
       canvasHeight !== this.hudLastCanvasHeight
@@ -2018,6 +2043,7 @@ export class ClientRenderer {
 
     const flags = buf[playerOffset + OFFSETS.FLAGS]
     if (
+      !this.hudAlwaysVisible &&
       !(flags & FLAGS.IN_COMBAT) &&
       !(flags & FLAGS.HUD_VISIBLE) &&
       !(flags & FLAGS.DEAD)
@@ -2555,6 +2581,11 @@ export class ClientRenderer {
     const slotY = HUD_SLOT_MARGIN
     const mainX = startX
     const secondaryX = startX + HUD_SLOT_SIZE + HUD_SLOT_SPACING
+    const mainPressed = (this.mobileHudPressedFlags & MOBILE_HUD_MAIN) !== 0
+    const secondaryPressed =
+      (this.mobileHudPressedFlags & MOBILE_HUD_SECONDARY) !== 0
+    const mainGrow = mainPressed ? 4 : 0
+    const secondaryGrow = secondaryPressed ? 4 : 0
 
     const mainWeaponKind = this.getWeaponRenderTypeFromId(mainType)
     const secondaryWeaponKind = this.getWeaponRenderTypeFromId(secondaryType)
@@ -2563,10 +2594,10 @@ export class ClientRenderer {
 
     drawHudWeaponSlot(
       this.ctx,
-      mainX,
-      slotY,
-      HUD_SLOT_SIZE,
-      activeSlot === 0,
+      mainX - (mainGrow >> 1),
+      slotY - (mainGrow >> 1),
+      HUD_SLOT_SIZE + mainGrow,
+      activeSlot === 0 || mainPressed,
       mainHasWeapon,
       mainWeaponKind,
       mainWidth,
@@ -2578,10 +2609,10 @@ export class ClientRenderer {
     )
     drawHudWeaponSlot(
       this.ctx,
-      secondaryX,
-      slotY,
-      HUD_SLOT_SIZE,
-      activeSlot === 1,
+      secondaryX - (secondaryGrow >> 1),
+      slotY - (secondaryGrow >> 1),
+      HUD_SLOT_SIZE + secondaryGrow,
+      activeSlot === 1 || secondaryPressed,
       secondaryHasWeapon,
       secondaryWeaponKind,
       secondaryWidth,
@@ -2641,7 +2672,9 @@ export class ClientRenderer {
           : currentWeaponIsSpear
             ? 'spear'
             : 'sword',
-        ultimateHas
+        ultimateHas,
+        HUD_ULTIMATE_SIZE +
+          ((this.mobileHudPressedFlags & MOBILE_HUD_ULTIMATE) !== 0 ? 4 : 0)
       )
     }
 
@@ -2668,7 +2701,9 @@ export class ClientRenderer {
       skillHas,
       skillCharges,
       skillMaxCharges,
-      skillIconType
+      skillIconType,
+      HUD_SKILL_SIZE +
+        ((this.mobileHudPressedFlags & MOBILE_HUD_SKILL) !== 0 ? 4 : 0)
     )
   }
 

@@ -19,6 +19,15 @@ import { InitializationManager } from './InitializationManager'
 import { LevelUpManager } from './LevelUpManager'
 import { localizer } from './Localizer'
 import { MenuAction, MenuManager, MenuMode } from './MenuManager'
+import {
+  MOBILE_HUD_MAIN,
+  MOBILE_HUD_SECONDARY,
+  MOBILE_HUD_SKILL,
+  MOBILE_HUD_ULTIMATE,
+  MobileControls,
+  type MobileHudAction,
+  type MobileInputKey,
+} from './MobileControls'
 import { saveManager } from './SaveManager'
 import {
   CATERPILLAR_ATLAS_KEY,
@@ -341,6 +350,8 @@ export class GameClient {
   // Input State
   private keys = new Set<string>()
   private mouseButtons = new Set<number>()
+  private virtualKeys = new Set<string>()
+  private virtualMouseButtons = new Set<number>()
   private keysArray: string[] = []
   private mouseButtonsArray: number[] = []
   private targetZoom = 1.0
@@ -353,6 +364,9 @@ export class GameClient {
   private inputEnabled = true
   private editorOverlay: HTMLDivElement | null = null
   private inputTarget: HTMLElement
+  private mobileControls: MobileControls | null = null
+  private mobileAttackDefenseButtonsVisible = false
+  private mobileHudPressedFlags = 0
   private previewActionsContainer: HTMLDivElement | null = null
   private previewExitBtn: HTMLButtonElement | null = null
   private previewPauseBtn: HTMLButtonElement | null = null
@@ -416,6 +430,7 @@ export class GameClient {
   private autoReloadPending = false
   private onEditorActionCallback?: () => void
   private onExitActionCallback?: () => Promise<boolean>
+  private onMobileAttackDefenseVisibilityChange?: (visible: boolean) => void
   private pendingStartMenuDelayMs = -1
   private pendingStartMenuSkipAnimation = false
   private startMenuPauseArmed = false
@@ -439,6 +454,7 @@ export class GameClient {
   static async create(
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement,
+    mobileControlsEnabled: boolean,
     onInitProgress?: (step: string) => void
   ): Promise<GameClient> {
     onInitProgress?.('init_renderer')
@@ -474,6 +490,7 @@ export class GameClient {
       rendererLabel,
       menuOverlay,
       inputTarget,
+      mobileControlsEnabled,
       spineCollisionMessages,
       onInitProgress
     )
@@ -564,6 +581,7 @@ export class GameClient {
     rendererLabel: RendererPreference,
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement,
+    mobileControlsEnabled: boolean,
     spineCollisionMessages: WorkerSpineCollisionDataMessage[],
     onInitProgress?: (step: string) => void
   ) {
@@ -695,10 +713,31 @@ export class GameClient {
     )
     this.worldRenderer.setSkyLayerTone(initLightingState.sky)
     this.audioManager = new AudioManager()
-    this.menuManager = new MenuManager(this.appCanvas, menuOverlay, inputTarget)
+    this.menuManager = new MenuManager(
+      this.appCanvas,
+      menuOverlay,
+      inputTarget,
+      mobileControlsEnabled
+    )
     this.inputTarget = inputTarget
     if (this.inputTarget.tabIndex < 0) {
       this.inputTarget.tabIndex = 0
+    }
+    if (mobileControlsEnabled) {
+      this.renderer.setHudAlwaysVisible(true)
+      this.mobileControls = new MobileControls(this.inputTarget, {
+        onKeyChange: (key, pressed) => {
+          this.handleMobileKeyChange(key, pressed)
+        },
+        onHudAction: (action, pressed) => {
+          this.handleMobileHudAction(action, pressed)
+        },
+        onPause: () => {
+          this.togglePauseMenu()
+        },
+      })
+      this.mobileControls.setEnabled(this.inputEnabled)
+      this.mobileControls.resize(width, height)
     }
     this.previewLoadingManager = new InitializationManager(this.inputTarget, {
       titleKey: 'editor_preview_loading',
@@ -782,6 +821,8 @@ export class GameClient {
       }
       this.worldRenderContext.resize(newWidth, newHeight)
       this.hudRenderContext.resize(newWidth, newHeight)
+      this.mobileControls?.resize(newWidth, newHeight)
+      this.menuManager.refreshLayout()
       if (this.fpsTextEl) {
         this.fpsTextEl.position.set(newWidth - 10, 10)
       }
@@ -801,6 +842,19 @@ export class GameClient {
 
   setInputEnabled(enabled: boolean) {
     this.inputEnabled = enabled
+    this.mobileControls?.setEnabled(enabled && !this.editorPreview)
+  }
+
+  setMobileAttackDefenseButtonsVisible(visible: boolean): void {
+    this.mobileAttackDefenseButtonsVisible = visible
+    this.mobileControls?.setAttackDefenseButtonsVisible(visible)
+    this.menuManager.setAttackDefenseButtonsVisible(visible)
+  }
+
+  onMobileAttackDefenseButtonsVisibilityChange(
+    callback: (visible: boolean) => void
+  ): void {
+    this.onMobileAttackDefenseVisibilityChange = callback
   }
 
   setDisplayManager(displayManager: DisplayManager): void {
@@ -820,6 +874,7 @@ export class GameClient {
       }
       this.worldRenderContext.resize(preset.width, preset.height)
       this.hudRenderContext.resize(preset.width, preset.height)
+      this.mobileControls?.resize(preset.width, preset.height)
       if (this.fpsTextEl) {
         this.fpsTextEl.position.set(preset.width - 10, 10)
       }
@@ -836,6 +891,7 @@ export class GameClient {
 
   setEditorPreview(enabled: boolean) {
     this.editorPreview = enabled
+    this.mobileControls?.setEnabled(this.inputEnabled && !enabled)
     if (enabled) {
       this.previewPresentationReady = true
       this.resolvePreviewPresentationWaiters()
@@ -928,6 +984,7 @@ export class GameClient {
         msg.entityCount,
         msg.ropePointCount
       )
+      this.mobileControls?.setHudAvailability(this.getMobileHudAvailability())
       this.lastStateSyncTimeUs = Math.round(
         (performance.now() - stateSyncStartMs) * 1000
       )
@@ -1213,21 +1270,7 @@ export class GameClient {
             return
           }
           e.preventDefault()
-          if (this.previewActive) {
-            this.togglePreviewPause()
-            return
-          }
-          if (this.menuManager.isVisible()) {
-            if (this.menuManager.getMode() !== MenuMode.Pause) {
-              return
-            }
-            this.menuManager.hide()
-            this.resumeGameInput()
-          } else {
-            this.stop()
-            this.menuManager.show(MenuMode.Pause)
-            this.inputEnabled = false
-          }
+          this.togglePauseMenu()
           return
         }
 
@@ -1487,10 +1530,20 @@ export class GameClient {
     for (const k of this.keys) {
       this.keysArray.push(k)
     }
+    for (const k of this.virtualKeys) {
+      if (!this.keys.has(k)) {
+        this.keysArray.push(k)
+      }
+    }
 
     this.mouseButtonsArray.length = 0
     for (const b of this.mouseButtons) {
       this.mouseButtonsArray.push(b)
+    }
+    for (const b of this.virtualMouseButtons) {
+      if (!this.mouseButtons.has(b)) {
+        this.mouseButtonsArray.push(b)
+      }
     }
 
     this.inputMessage.keys = this.keysArray
@@ -1509,10 +1562,115 @@ export class GameClient {
   }
 
   private resetInputState() {
+    this.mobileControls?.reset()
+    this.mobileHudPressedFlags = 0
+    this.renderer.setMobileHudPressedFlags(0)
     this.keys.clear()
     this.mouseButtons.clear()
+    this.virtualKeys.clear()
+    this.virtualMouseButtons.clear()
     this.mouseCaptured = false
     this.sendInput()
+  }
+
+  private handleMobileKeyChange(key: MobileInputKey, pressed: boolean): void {
+    if (pressed) {
+      this.virtualKeys.add(key)
+    } else {
+      this.virtualKeys.delete(key)
+    }
+    this.sendInput()
+  }
+
+  private handleMobileHudAction(
+    action: MobileHudAction,
+    pressed: boolean
+  ): void {
+    const hudFlag =
+      action === 'weapon-main'
+        ? MOBILE_HUD_MAIN
+        : action === 'weapon-secondary'
+          ? MOBILE_HUD_SECONDARY
+          : action === 'skill'
+            ? MOBILE_HUD_SKILL
+            : MOBILE_HUD_ULTIMATE
+    if (pressed) {
+      this.mobileHudPressedFlags |= hudFlag
+    } else {
+      this.mobileHudPressedFlags &= ~hudFlag
+    }
+    this.renderer.setMobileHudPressedFlags(this.mobileHudPressedFlags)
+
+    if (action === 'ultimate') {
+      if (pressed) {
+        this.virtualKeys.add('e')
+        this.virtualMouseButtons.add(1)
+      } else {
+        this.virtualKeys.delete('e')
+        this.virtualMouseButtons.delete(1)
+      }
+      this.sendInput()
+      return
+    }
+
+    const key =
+      action === 'weapon-main' ? '1' : action === 'weapon-secondary' ? '2' : 'f'
+    if (pressed) {
+      this.virtualKeys.add(key)
+    } else {
+      this.virtualKeys.delete(key)
+    }
+    this.sendInput()
+  }
+
+  private getMobileHudAvailability(): number {
+    const buf = this.renderer.getStateBuffer()
+    const entityCount = this.renderer.getEntityCount()
+    let playerOffset = -1
+    for (let i = 0; i < entityCount; i++) {
+      const offset = i * ENTITY_STRIDE
+      if ((buf[offset + OFFSETS.FLAGS] & FLAGS.IS_PLAYER) !== 0) {
+        playerOffset = offset
+        break
+      }
+    }
+    if (playerOffset < 0) {
+      return 0
+    }
+    let availability = 0
+    const mainHasWeapon = buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_HAS] === 1
+    const secondaryHasWeapon =
+      buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_HAS] === 1
+    if (mainHasWeapon) {
+      availability |= MOBILE_HUD_MAIN
+    }
+    if (secondaryHasWeapon) {
+      availability |= MOBILE_HUD_SECONDARY
+    }
+    if (buf[playerOffset + OFFSETS.SKILL_HAS] === 1) {
+      availability |= MOBILE_HUD_SKILL
+    }
+
+    const activeSlot = buf[playerOffset + OFFSETS.WEAPON_SLOT_ACTIVE] | 0
+    const activeType =
+      activeSlot === 0
+        ? buf[playerOffset + OFFSETS.WEAPON_SLOT_MAIN_TYPE] | 0
+        : buf[playerOffset + OFFSETS.WEAPON_SLOT_SECONDARY_TYPE] | 0
+    const activeHasWeapon =
+      activeSlot === 0 ? mainHasWeapon : secondaryHasWeapon
+    const hasVisibleUltimate =
+      activeHasWeapon &&
+      buf[playerOffset + OFFSETS.ULTIMATE_READY] >= 0 &&
+      (activeType === WEAPON_TYPES.SWORD ||
+        activeType === WEAPON_TYPES.SHORT_SWORD ||
+        activeType === WEAPON_TYPES.LONG_SWORD ||
+        activeType === WEAPON_TYPES.HAMMER ||
+        activeType === WEAPON_TYPES.BIG_HAMMER ||
+        activeType === WEAPON_TYPES.SPEAR)
+    if (hasVisibleUltimate) {
+      availability |= MOBILE_HUD_ULTIMATE
+    }
+    return availability
   }
 
   private applyDayNightColors() {
@@ -1889,8 +2047,10 @@ export class GameClient {
     const worldDeltaMs = (deltaMs * this.worldTimeScale1000) / 1000
     const width = this.app.renderer.width
     const height = this.app.renderer.height
-    const hudDirty =
-      this.editorPreview || this.renderer.isHudDirty(width, height)
+    const mobileHudDirty =
+      this.mobileControls?.isHudDirty(width, height) ?? false
+    const playerHudDirty = this.renderer.isHudDirty(width, height)
+    const hudDirty = this.editorPreview || mobileHudDirty || playerHudDirty
     if (hudDirty) {
       this.hudRenderContext.beginFrame()
     }
@@ -1983,6 +2143,7 @@ export class GameClient {
       if (hudDirty) {
         const puiStart = performance.now()
         this.renderer.renderPlayerUI()
+        this.mobileControls?.render(this.hudRenderContext)
         this.lastPlayerUITimeUs = Math.round(
           (performance.now() - puiStart) * 1000
         )
@@ -2721,6 +2882,29 @@ export class GameClient {
     }
   }
 
+  private togglePauseMenu(): void {
+    if (this.isEditorOverlayVisible()) {
+      return
+    }
+    if (this.previewActive) {
+      this.togglePreviewPause()
+      return
+    }
+    if (this.menuManager.isVisible()) {
+      if (this.menuManager.getMode() !== MenuMode.Pause) {
+        return
+      }
+      this.menuManager.hide()
+      this.resumeGameInput()
+      return
+    }
+
+    this.resetInputState()
+    this.stop()
+    this.menuManager.show(MenuMode.Pause)
+    this.setInputEnabled(false)
+  }
+
   private togglePreviewPause() {
     if (!this.previewActive || !this.previewPauseBtn) {
       return
@@ -2821,6 +3005,12 @@ export class GameClient {
             this.onEditorActionCallback()
           }
           break
+        case MenuAction.AttackDefenseButtons: {
+          const visible = !this.mobileAttackDefenseButtonsVisible
+          this.setMobileAttackDefenseButtonsVisible(visible)
+          this.onMobileAttackDefenseVisibilityChange?.(visible)
+          break
+        }
       }
     })
   }
@@ -2924,7 +3114,7 @@ export class GameClient {
     this.clearStartMenuFlow()
     this.levelUpManager.hide()
     this.start()
-    this.inputEnabled = true
+    this.setInputEnabled(true)
     this.requestGameFocus()
   }
 
@@ -4385,6 +4575,8 @@ export class GameClient {
     this.resolvePreviewThumbnailWaiters()
     this.previewLoadingManager?.remove()
     this.previewLoadingManager = null
+    this.mobileControls?.destroy()
+    this.mobileControls = null
 
     this.stop()
     this.worker.terminate()

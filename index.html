@@ -17,6 +17,14 @@
         padding: 5px;
         overflow: hidden;
       }
+      body.is-mobile-game {
+        padding: 0;
+        background: #0d0b18;
+      }
+      body.is-mobile-game #canvasBottom,
+      body.is-mobile-game #controlPanel {
+        display: none !important;
+      }
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -66,6 +74,41 @@
       #gameViewport:fullscreen {
         width: 100% !important;
         height: 100% !important;
+      }
+      #gameViewport.is-mobile-game {
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+      }
+      #gameViewport.is-mobile-game .menu-title {
+        max-width: calc(100% - 24px);
+        font-size: clamp(32px, 12vw, 80px);
+      }
+      #gameViewport.is-mobile-game .menu-item {
+        width: min(300px, calc(100% - 32px));
+        height: clamp(22px, 7vmin, 26px);
+        line-height: clamp(22px, 7vmin, 26px);
+        font-size: clamp(12px, 4vmin, 16px);
+      }
+      #gameViewport.is-mobile-game .menu-item.menu-item-back {
+        width: auto;
+      }
+      #gameViewport.is-mobile-game .menu-item.menu-item-value,
+      #gameViewport.is-mobile-game .menu-item.menu-item-cycle {
+        width: min(340px, calc(100% - 24px));
+        grid-template-columns: minmax(90px, 1fr) 8px minmax(110px, 1fr);
+        gap: 4px;
+      }
+      #gameViewport.is-mobile-game .menu-save-list-container {
+        width: calc(100% - 24px);
+        max-height: calc(100% - 80px);
+        padding: 10px 12px;
+      }
+      #gameViewport.is-mobile-game .menu-save-list-title {
+        font-size: clamp(14px, 5vmin, 20px);
+      }
+      #gameViewport.is-mobile-game .menu-save-list .menu-item.menu-item-save {
+        width: 100%;
       }
       #gameCanvas {
         position: absolute;

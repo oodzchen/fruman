@@ -6,6 +6,7 @@ import { InitializationManager } from './InitializationManager'
 import { Language, localizer } from './Localizer'
 import { MapImportExportPanel } from './MapImportExportPanel'
 import { MenuMode } from './MenuManager'
+import { isMobileGameDevice } from './MobileControls'
 import {
   DEFAULT_BODY_FRICTION,
   DEFAULT_BODY_LINEAR_DAMPING,
@@ -271,9 +272,14 @@ gameContainer.classList.toggle('is-development', import.meta.env.DEV)
 
 const menuOverlay = document.getElementById('menuOverlay') as HTMLDivElement
 const gameViewport = document.getElementById('gameViewport') as HTMLDivElement
+const mobileGame = isMobileGameDevice()
+document.body.classList.toggle('is-mobile-game', mobileGame)
+gameViewport.classList.toggle('is-mobile-game', mobileGame)
 const dialogManager = new DialogManager(gameViewport, gameViewport)
 const displayManager = new DisplayManager(gameViewport)
 const focusOptions: FocusOptions = { preventScroll: true }
+const MOBILE_ATTACK_DEFENSE_BUTTONS_SETTING =
+  'mobileAttackDefenseButtonsVisible'
 
 const setupDetailsState = (
   storedValues: Record<string, string>,
@@ -428,10 +434,20 @@ async function initialize() {
   const game = await GameClient.create(
     menuOverlay,
     gameViewport,
+    mobileGame,
     (step: string) => {
       initManager.nextStep(step)
     }
   )
+  game.setMobileAttackDefenseButtonsVisible(
+    storedValues[MOBILE_ATTACK_DEFENSE_BUTTONS_SETTING] === '1'
+  )
+  game.onMobileAttackDefenseButtonsVisibilityChange((visible) => {
+    updateStoredValue(
+      MOBILE_ATTACK_DEFENSE_BUTTONS_SETTING,
+      visible ? '1' : '0'
+    )
+  })
   window.addEventListener(
     'pagehide',
     () => {

@@ -27,19 +27,21 @@ export class InitializationManager {
     wrapper.style.cssText = `position:absolute;inset:0;display:${display};flex-direction:column;align-items:center;justify-content:center;background:#0b0c0e;z-index:100;font-family:monospace;color:#fff`
 
     const title = document.createElement('div')
-    title.style.cssText = 'font-size:32px;margin-bottom:40px'
+    title.style.cssText =
+      'max-width:90%;font-size:clamp(20px,8vmin,32px);margin-bottom:clamp(20px,8vmin,40px);text-align:center'
     title.textContent = localizer.t(options.titleKey ?? 'title')
 
     const barOuter = document.createElement('div')
     barOuter.style.cssText =
-      'width:400px;height:30px;border:2px solid #fff;position:relative'
+      'width:min(400px,80%);height:clamp(18px,7vmin,30px);border:2px solid #fff;position:relative'
 
     this.barEl = document.createElement('div')
     this.barEl.style.cssText = 'height:100%;width:0;background:#fff'
     barOuter.appendChild(this.barEl)
 
     this.labelEl = document.createElement('div')
-    this.labelEl.style.cssText = 'margin-top:16px;font-size:16px;color:#aaa'
+    this.labelEl.style.cssText =
+      'max-width:90%;margin-top:clamp(8px,4vmin,16px);font-size:clamp(11px,4vmin,16px);color:#aaa;text-align:center'
 
     wrapper.appendChild(title)
     wrapper.appendChild(barOuter)

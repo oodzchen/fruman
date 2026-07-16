@@ -22,6 +22,7 @@ export enum MenuAction {
   SaveGame,
   Fullscreen,
   Resolution,
+  AttackDefenseButtons,
 }
 
 export enum MenuMode {
@@ -51,6 +52,7 @@ export class MenuManager {
   private saveListList: HTMLDivElement
   private saveListActions: HTMLDivElement
   private inputTarget: HTMLElement
+  private readonly mobileGame: boolean
   private focusOptions: FocusOptions = { preventScroll: true }
   private menuItemElements: HTMLButtonElement[] = []
   private activeItemCount = 0
@@ -70,11 +72,13 @@ export class MenuManager {
   private dialogManager: DialogManager | null = null
   private displayManager: DisplayManager | null = null
   private lastSelectedSaveIndex = -1
+  private attackDefenseButtonsVisible = false
 
   constructor(
     canvas: HTMLElement,
     menuOverlay: HTMLDivElement,
-    inputTarget: HTMLElement
+    inputTarget: HTMLElement,
+    mobileGame: boolean
   ) {
     this.canvas = canvas
     this.menuOverlay = menuOverlay
@@ -102,6 +106,7 @@ export class MenuManager {
     this.boundHandleItemMouseEnter = this.handleItemMouseEnter.bind(this)
     this.boundHandleItemClick = this.handleItemClick.bind(this)
     this.inputTarget = inputTarget
+    this.mobileGame = mobileGame
     if (this.inputTarget.tabIndex < 0) {
       this.inputTarget.tabIndex = 0
     }
@@ -142,10 +147,35 @@ export class MenuManager {
     displayManager.setOnResolutionChange(refresh)
   }
 
+  setAttackDefenseButtonsVisible(visible: boolean): void {
+    if (this.attackDefenseButtonsVisible === visible) {
+      return
+    }
+    this.attackDefenseButtonsVisible = visible
+    if (this.visible && this.mode === MenuMode.Settings) {
+      this.initMenuItems()
+      this.syncMenuDom()
+    }
+  }
+
+  refreshLayout(): void {
+    if (!this.visible) {
+      return
+    }
+    this.initMenuItems()
+    this.syncMenuDom()
+    this.render(0)
+  }
+
   private initMenuItems() {
     const preset = this.displayManager?.getCurrentPreset()
-    const width = preset ? preset.width : this.canvas.offsetWidth || 800
-    const height = preset ? preset.height : this.canvas.offsetHeight || 600
+    const width =
+      this.canvas.clientWidth || this.canvas.offsetWidth || preset?.width || 800
+    const height =
+      this.canvas.clientHeight ||
+      this.canvas.offsetHeight ||
+      preset?.height ||
+      600
 
     // Small screen font scaling
     const isSmallScreen = height < 500 || width < 700
@@ -208,6 +238,15 @@ export class MenuManager {
           },
         ]
       }
+      if (this.mobileGame) {
+        const editorIndex = this.findMenuItemIndex(MenuAction.Editor)
+        if (editorIndex >= 0) {
+          this.menuItems.splice(editorIndex, 1)
+          for (let i = editorIndex; i < this.menuItems.length; i++) {
+            this.menuItems[i].y -= spacing
+          }
+        }
+      }
     } else if (this.mode === MenuMode.Pause) {
       this.menuItems = [
         {
@@ -247,6 +286,9 @@ export class MenuManager {
       const resDisplay = isFs
         ? '-'
         : (this.displayManager?.getCurrentPreset().label ?? '800×600')
+      const attackDefenseDisplay = this.attackDefenseButtonsVisible
+        ? localizer.t('menu_settings_fullscreen_on')
+        : localizer.t('menu_settings_fullscreen_off')
 
       this.menuItems = [
         {
@@ -266,6 +308,12 @@ export class MenuManager {
           action: MenuAction.Resolution,
           y: startY + spacing * 2,
           value: resDisplay,
+        },
+        {
+          label: localizer.t('menu_settings_attack_defense_buttons'),
+          action: MenuAction.AttackDefenseButtons,
+          y: startY + spacing * 3,
+          value: attackDefenseDisplay,
         },
         {
           label: localizer.t('menu_back'),
@@ -391,6 +439,9 @@ export class MenuManager {
         } else if (item.action === MenuAction.Fullscreen) {
           e.preventDefault()
           void this.handleToggleFullscreen()
+        } else if (item.action === MenuAction.AttackDefenseButtons) {
+          e.preventDefault()
+          this.selectMenuItem(this.selectedIndex)
         }
       } else if (e.key === 'ArrowRight' || e.key === 'd') {
         if (this.mode === MenuMode.SaveList) {
@@ -409,6 +460,9 @@ export class MenuManager {
         } else if (item.action === MenuAction.Fullscreen) {
           e.preventDefault()
           void this.handleToggleFullscreen()
+        } else if (item.action === MenuAction.AttackDefenseButtons) {
+          e.preventDefault()
+          this.selectMenuItem(this.selectedIndex)
         }
       } else if (e.key === 'Escape') {
         if (
@@ -962,7 +1016,11 @@ export class MenuManager {
     if (!this.visible) return
 
     const preset = this.displayManager?.getCurrentPreset()
-    const height = preset ? preset.height : this.canvas.offsetHeight || 600
+    const height =
+      this.canvas.clientHeight ||
+      this.canvas.offsetHeight ||
+      preset?.height ||
+      600
 
     this.animTime += deltaTime * 1000
     const duration = 300
