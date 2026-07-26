@@ -179,6 +179,7 @@ const PIXI_WORLD_PERF_PARRY = 9
 const PIXI_WORLD_PERF_SPINE = 10
 const PIXI_WORLD_PERF_CHECKPOINT_TEX = 11
 const TERRAIN_COLLISION_DEBUG_COLOR_CSS = '#4f7cff'
+const STATIC_TEXTURE_CACHE_MAX_SIZE_PX = 2048
 
 interface LayerBucket {
   container: Container
@@ -1583,6 +1584,17 @@ export class PixiWorldRenderer {
     for (const bucket of this.buckets.values()) {
       const staticContainer = bucket.staticContainer
       if (staticContainer.children.length === 0) {
+        if (staticContainer.isCachedAsTexture) {
+          staticContainer.cacheAsTexture(false)
+        }
+        bucket.staticCacheDirty = false
+        continue
+      }
+      const bounds = staticContainer.getLocalBounds()
+      if (
+        bounds.maxX - bounds.minX > STATIC_TEXTURE_CACHE_MAX_SIZE_PX ||
+        bounds.maxY - bounds.minY > STATIC_TEXTURE_CACHE_MAX_SIZE_PX
+      ) {
         if (staticContainer.isCachedAsTexture) {
           staticContainer.cacheAsTexture(false)
         }

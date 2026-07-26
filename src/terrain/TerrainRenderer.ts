@@ -53,6 +53,7 @@ type TerrainChunkLookup = Map<number, Map<number, TerrainChunkView>>
 
 export class TerrainRenderer {
   private static readonly TERRAIN_SPRITE_PADDING_PX = 4
+  private static readonly TERRAIN_TEXTURE_TILE_SIZE_PX = 2048
 
   static createPixiTerrainGraphics(
     terrain: TerrainDataLike,
@@ -102,7 +103,7 @@ export class TerrainRenderer {
     layer: TerrainResolvedLayerView,
     cellSizeUnits: number,
     options: TerrainLayerDrawOptions = {}
-  ): Sprite | null {
+  ): Container | null {
     const bounds = this.getLayerPixelBounds(
       layer,
       cellSizeUnits,
@@ -111,6 +112,49 @@ export class TerrainRenderer {
     if (!bounds) {
       return null
     }
+    const width = bounds.maxX - bounds.minX
+    const height = bounds.maxY - bounds.minY
+    const tileSize = this.TERRAIN_TEXTURE_TILE_SIZE_PX
+    if (width <= tileSize && height <= tileSize) {
+      return this.createPixiTerrainTileGraphic(
+        layer,
+        cellSizeUnits,
+        options,
+        bounds
+      )
+    }
+
+    const container = new Container()
+    const overlap = this.TERRAIN_SPRITE_PADDING_PX
+    const tileStep = tileSize - overlap * 2
+    for (let tileY = bounds.minY; tileY < bounds.maxY; tileY += tileStep) {
+      const coreMaxY = Math.min(tileY + tileStep, bounds.maxY)
+      const minY = tileY === bounds.minY ? tileY : tileY - overlap
+      const maxY = coreMaxY === bounds.maxY ? coreMaxY : coreMaxY + overlap
+      for (let tileX = bounds.minX; tileX < bounds.maxX; tileX += tileStep) {
+        const coreMaxX = Math.min(tileX + tileStep, bounds.maxX)
+        const minX = tileX === bounds.minX ? tileX : tileX - overlap
+        const maxX = coreMaxX === bounds.maxX ? coreMaxX : coreMaxX + overlap
+        const sprite = this.createPixiTerrainTileGraphic(
+          layer,
+          cellSizeUnits,
+          options,
+          { minX, minY, maxX, maxY }
+        )
+        if (sprite) {
+          container.addChild(sprite)
+        }
+      }
+    }
+    return container.children.length > 0 ? container : null
+  }
+
+  private static createPixiTerrainTileGraphic(
+    layer: TerrainResolvedLayerView,
+    cellSizeUnits: number,
+    options: TerrainLayerDrawOptions,
+    bounds: TerrainPixelBounds
+  ): Sprite | null {
     const width = Math.max(1, bounds.maxX - bounds.minX)
     const height = Math.max(1, bounds.maxY - bounds.minY)
     const canvas = document.createElement('canvas')
@@ -133,7 +177,7 @@ export class TerrainRenderer {
     chunkIndex: number,
     cellSizeUnits: number,
     options: TerrainLayerDrawOptions = {}
-  ): Sprite | null {
+  ): Container | null {
     if (layer.version >= 4) {
       return this.createPixiTerrainLayerGraphic(layer, cellSizeUnits, options)
     }

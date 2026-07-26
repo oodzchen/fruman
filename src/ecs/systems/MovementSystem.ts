@@ -789,12 +789,8 @@ export class MovementSystem extends System {
       direction = 0
     }
 
-    if (
-      entity.movement.hasSteepContact &&
-      direction !== 0 &&
-      direction === entity.movement.wallDirection
-    ) {
-      direction = 0
+    if (entity.movement.hasSteepContact) {
+      return
     }
 
     if (direction !== 0 && this.isNpcBlocking(entity, direction)) {
@@ -814,9 +810,9 @@ export class MovementSystem extends System {
     const moveSpeed =
       targetMoveSpeed * moveSpeedScale * (agilityScalePercent / 100)
 
-    const retainAirMomentum =
+    const preserveHorizontalMomentum =
       !entity.movement.isGrounded && entity.grapple?.retainAirMomentum === true
-    if (retainAirMomentum) {
+    if (preserveHorizontalMomentum) {
       if (direction === 0) {
         return
       }
@@ -932,6 +928,7 @@ export class MovementSystem extends System {
   private canJump(entity: Entity): boolean {
     if (!entity.movement) return false
     if (entity.isStunned()) return false
+    if (entity.movement.hasSteepContact) return false
 
     if (entity.movement.isJumping) return false
 

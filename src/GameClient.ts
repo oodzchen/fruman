@@ -3698,6 +3698,19 @@ export class GameClient {
         }
         continue
       }
+      const children = graphics.removeChildren()
+      for (let childIndex = 0; childIndex < children.length; childIndex++) {
+        const child = children[childIndex]
+        if (child instanceof Sprite) {
+          const texture = child.texture
+          child.destroy()
+          if (texture !== Texture.EMPTY && texture !== Texture.WHITE) {
+            texture.destroy(true)
+          }
+        } else {
+          child.destroy()
+        }
+      }
       graphics.destroy()
     }
   }
@@ -3872,7 +3885,7 @@ export class GameClient {
       const layer = layers[this.pendingStaticTerrainLayerIndex]
       const resolvedLayer = this.resolveStaticTerrainRenderLayer(layer)
       const terrainBuildStartMs = performance.now()
-      let sprite: Sprite | null
+      let sprite: Container | null
       let appendCollisionDebug = false
       if (layer.version >= 4) {
         sprite = TerrainRenderer.createPixiTerrainLayerGraphic(
