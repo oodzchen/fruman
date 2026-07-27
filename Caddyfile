@@ -1,0 +1,19 @@
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$SITE_ADDRESS:localhost} {
+	root * /srv
+	encode zstd gzip
+
+	header {
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "require-corp"
+		X-Content-Type-Options "nosniff"
+	}
+
+	try_files {path} /index.html
+	file_server
+}
