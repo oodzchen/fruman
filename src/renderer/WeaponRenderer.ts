@@ -26,6 +26,9 @@ export interface WeaponRenderPalette {
   readonly accentStroke: string
 }
 
+export const GROUND_WEAPON_OUTLINE_COLOR = '#ffffff'
+export const GROUND_WEAPON_ICON_SIZE_RADIUS_MULTIPLIER = 2
+
 const SWORD_RUNTIME_PALETTE: WeaponRenderPalette = {
   body: '#c4ccd0',
   bodyStroke: '#6d777d',
@@ -155,8 +158,12 @@ export function getRuntimeWeaponPalette(
   return SWORD_RUNTIME_PALETTE
 }
 
-function getAttackStrokeColor(isAttacking: boolean, color: string): string {
-  return isAttacking ? '#FFFFFF' : color
+function getStrokeColor(
+  isAttacking: boolean,
+  color: string,
+  outlineColor?: string
+): string {
+  return isAttacking ? '#FFFFFF' : (outlineColor ?? color)
 }
 
 export function renderWeapon(
@@ -169,12 +176,30 @@ export function renderWeapon(
   drawRatio: number = 0,
   bowLineWidthOverride?: number,
   stringLineWidthOverride?: number,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   if (weaponType === 'arrow') {
-    renderArrow(ctx, width, height, color, isAttacking, 0, palette)
+    renderArrow(
+      ctx,
+      width,
+      height,
+      color,
+      isAttacking,
+      0,
+      palette,
+      outlineColor
+    )
   } else if (weaponType === 'grapeShot') {
-    renderGrapeShot(ctx, width, height, color, isAttacking, palette)
+    renderGrapeShot(
+      ctx,
+      width,
+      height,
+      color,
+      isAttacking,
+      palette,
+      outlineColor
+    )
   } else if (weaponType === 'bow') {
     renderBow(
       ctx,
@@ -185,20 +210,21 @@ export function renderWeapon(
       drawRatio,
       bowLineWidthOverride,
       stringLineWidthOverride,
-      palette
+      palette,
+      outlineColor
     )
   } else if (weaponType === 'grape') {
-    renderGrape(ctx, width, height, color, isAttacking, palette)
+    renderGrape(ctx, width, height, color, isAttacking, palette, outlineColor)
   } else if (weaponType === 'hook') {
-    renderHook(ctx, width, height, color, isAttacking, palette)
+    renderHook(ctx, width, height, color, isAttacking, palette, outlineColor)
   } else if (weaponType === 'bomb') {
-    renderBomb(ctx, width, height, color, drawRatio, palette)
+    renderBomb(ctx, width, height, color, drawRatio, palette, outlineColor)
   } else if (weaponType === 'spear') {
-    renderSpear(ctx, width, height, color, isAttacking, palette)
+    renderSpear(ctx, width, height, color, isAttacking, palette, outlineColor)
   } else if (weaponType === 'hammer') {
-    renderHammer(ctx, width, height, color, isAttacking, palette)
+    renderHammer(ctx, width, height, color, isAttacking, palette, outlineColor)
   } else {
-    renderSword(ctx, width, height, color, isAttacking, palette)
+    renderSword(ctx, width, height, color, isAttacking, palette, outlineColor)
   }
 }
 
@@ -208,11 +234,12 @@ function renderSword(
   height: number,
   color: string,
   isAttacking: boolean,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const halfLen = width / 2
   const halfHeight = Math.max(1, Math.floor(height / 2))
-  const strokeColor = isAttacking ? '#FFFFFF' : color
+  const strokeColor = getStrokeColor(isAttacking, color, outlineColor)
   const pommelLen = Math.max(1, Math.floor((width * 8) / 100))
   const gripLen = Math.max(1, Math.floor((width * 12) / 100))
   const guardLen = Math.max(1, Math.floor((width * 4) / 100))
@@ -243,7 +270,11 @@ function renderSword(
 
   if (palette) {
     ctx.fillStyle = palette.accent
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.accentStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.accentStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.moveTo(handleStartX, -pommelHalfWidth)
     ctx.lineTo(gripStartX, -gripHalfWidth)
@@ -254,14 +285,22 @@ function renderSword(
     ctx.stroke()
 
     ctx.fillStyle = palette.wood
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.woodStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.woodStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.rect(gripStartX, -gripHalfWidth, gripLen, gripHalfWidth * 2)
     ctx.fill()
     ctx.stroke()
 
     ctx.fillStyle = palette.accent
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.accentStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.accentStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.moveTo(guardStartX, -guardInnerHalfWidth)
     ctx.lineTo(guardStartX, -guardHalfWidth)
@@ -276,7 +315,11 @@ function renderSword(
     ctx.stroke()
 
     ctx.fillStyle = palette.metal
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.metalStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.metalStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.moveTo(bladeStartX, -bladeHalfWidth)
     ctx.lineTo(bladeEndX, -bladeHalfWidth)
@@ -324,7 +367,8 @@ function renderBow(
   drawRatio: number,
   bowLineWidthOverride?: number,
   stringLineWidthOverride?: number,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const halfLen = width / 2
   const clampedDraw = Math.max(0, Math.min(1, drawRatio))
@@ -345,10 +389,8 @@ function renderBow(
       : 2
 
   ctx.strokeStyle = palette
-    ? getAttackStrokeColor(isAttacking, palette.wood)
-    : isAttacking
-      ? '#FFFFFF'
-      : color
+    ? getStrokeColor(isAttacking, palette.wood, outlineColor)
+    : getStrokeColor(isAttacking, color, outlineColor)
   ctx.lineWidth = bowLineWidth
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -362,7 +404,7 @@ function renderBow(
   // Bow string
   const pullOffset = clampedDraw * halfLen * 0.5
   if (palette) {
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.cord)
+    ctx.strokeStyle = getStrokeColor(isAttacking, palette.cord, outlineColor)
   }
   ctx.lineWidth = stringLineWidth
   ctx.beginPath()
@@ -378,7 +420,8 @@ function renderSpear(
   height: number,
   color: string,
   isAttacking: boolean,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const halfLen = width / 2
   const halfThick = height / 2
@@ -394,14 +437,22 @@ function renderSpear(
 
   if (palette) {
     ctx.fillStyle = palette.wood
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.woodStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.woodStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.rect(shaftStartX, -halfThick, shaftLen, height)
     ctx.fill()
     ctx.stroke()
 
     ctx.fillStyle = palette.metal
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.metalStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.metalStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.moveTo(shaftEndX, 0)
     ctx.lineTo(headMidX, -headHalfWidth)
@@ -414,7 +465,7 @@ function renderSpear(
   }
 
   ctx.fillStyle = color
-  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.strokeStyle = getStrokeColor(isAttacking, color, outlineColor)
 
   ctx.beginPath()
   ctx.rect(shaftStartX, -halfThick, shaftLen, height)
@@ -438,7 +489,8 @@ function renderArrow(
   color: string,
   isAttacking: boolean,
   baseOffsetY: number,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const lineWidth = Math.max(1, thicknessPx * 0.9)
   const headLen = Math.max(4, lengthPx * 0.18)
@@ -448,13 +500,13 @@ function renderArrow(
   ctx.lineWidth = lineWidth
 
   if (palette) {
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.wood)
+    ctx.strokeStyle = getStrokeColor(isAttacking, palette.wood, outlineColor)
     ctx.beginPath()
     ctx.moveTo(0, baseOffsetY)
     ctx.lineTo(0, tipY)
     ctx.stroke()
 
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.metal)
+    ctx.strokeStyle = getStrokeColor(isAttacking, palette.metal, outlineColor)
     ctx.beginPath()
     ctx.moveTo(0, tipY)
     ctx.lineTo(-headWidth / 2, tipY + headLen)
@@ -464,7 +516,7 @@ function renderArrow(
     return
   }
 
-  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.strokeStyle = getStrokeColor(isAttacking, color, outlineColor)
 
   ctx.beginPath()
   ctx.moveTo(0, baseOffsetY)
@@ -485,16 +537,15 @@ function renderGrapeShot(
   height: number,
   color: string,
   isAttacking: boolean,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const radius = Math.max(2, Math.min(width, height) * 0.5)
 
   ctx.fillStyle = palette ? palette.body : color
   ctx.strokeStyle = palette
-    ? getAttackStrokeColor(isAttacking, palette.bodyStroke)
-    : isAttacking
-      ? '#FFFFFF'
-      : color
+    ? getStrokeColor(isAttacking, palette.bodyStroke, outlineColor)
+    : getStrokeColor(isAttacking, color, outlineColor)
   ctx.lineWidth = 2
 
   ctx.beginPath()
@@ -509,7 +560,8 @@ function renderGrape(
   height: number,
   color: string,
   isAttacking: boolean,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const radius = Math.max(2, Math.min(width, height) * 0.16)
   const stemWidth = Math.max(2, radius * 0.7)
@@ -526,14 +578,22 @@ function renderGrape(
 
   if (palette) {
     ctx.fillStyle = palette.stem
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.stemStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.stemStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.rect(-stemWidth * 0.5, stemTop, stemWidth, stemHeight)
     ctx.fill()
     ctx.stroke()
 
     ctx.fillStyle = palette.body
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.bodyStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.bodyStroke,
+      outlineColor
+    )
     fillGrapeCircle(ctx, 0, centerY - radius * 1.2, radius)
     fillGrapeCircle(ctx, leftX, centerY, radius)
     fillGrapeCircle(ctx, rightX, centerY, radius)
@@ -545,7 +605,7 @@ function renderGrape(
   }
 
   ctx.fillStyle = color
-  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.strokeStyle = getStrokeColor(isAttacking, color, outlineColor)
 
   ctx.beginPath()
   ctx.rect(-stemWidth * 0.5, stemTop, stemWidth, stemHeight)
@@ -579,7 +639,8 @@ function renderHammer(
   height: number,
   color: string,
   isAttacking: boolean,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const halfLen = width / 2
   const halfThick = height / 2
@@ -597,14 +658,22 @@ function renderHammer(
 
   if (palette) {
     ctx.fillStyle = palette.wood
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.woodStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.woodStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.rect(handleStartX, -handleHalfHeight, handleLen, handleHalfHeight * 2)
     ctx.fill()
     ctx.stroke()
 
     ctx.fillStyle = palette.metal
-    ctx.strokeStyle = getAttackStrokeColor(isAttacking, palette.metalStroke)
+    ctx.strokeStyle = getStrokeColor(
+      isAttacking,
+      palette.metalStroke,
+      outlineColor
+    )
     ctx.beginPath()
     ctx.rect(handleEndX - headInset, headTop, headWidth + headInset, headHeight)
     ctx.fill()
@@ -613,7 +682,7 @@ function renderHammer(
   }
 
   ctx.fillStyle = color
-  ctx.strokeStyle = isAttacking ? '#FFFFFF' : color
+  ctx.strokeStyle = getStrokeColor(isAttacking, color, outlineColor)
 
   ctx.beginPath()
   ctx.rect(handleStartX, -handleHalfHeight, handleLen, handleHalfHeight * 2)
@@ -632,7 +701,8 @@ function renderHook(
   height: number,
   color: string,
   isAttacking: boolean,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const ringRadius = Math.max(3, Math.floor(Math.min(width, height) * 0.26))
   const stroke = Math.max(2, Math.floor(ringRadius * 0.24))
@@ -643,10 +713,8 @@ function renderHook(
   const barHalf = Math.max(4, Math.floor(ringRadius * 0.8))
 
   ctx.strokeStyle = palette
-    ? getAttackStrokeColor(isAttacking, palette.metal)
-    : isAttacking
-      ? '#FFFFFF'
-      : color
+    ? getStrokeColor(isAttacking, palette.metal, outlineColor)
+    : getStrokeColor(isAttacking, color, outlineColor)
   ctx.lineWidth = stroke
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -675,7 +743,8 @@ function renderBomb(
   height: number,
   color: string,
   fuseProgress: number,
-  palette?: WeaponRenderPalette
+  palette?: WeaponRenderPalette,
+  outlineColor?: string
 ): void {
   const radius = Math.max(3, Math.min(width, height) * 0.34)
   const lit = fuseProgress > 0
@@ -691,14 +760,15 @@ function renderBomb(
   ctx.lineCap = 'round'
 
   ctx.fillStyle = palette ? palette.body : color
-  ctx.strokeStyle = palette ? palette.bodyStroke : lit ? '#fff2c8' : color
+  ctx.strokeStyle =
+    outlineColor ?? (palette ? palette.bodyStroke : lit ? '#fff2c8' : color)
   ctx.beginPath()
   ctx.arc(0, 0, radius, 0, Math.PI * 2)
   ctx.fill()
   ctx.stroke()
 
   if (palette) {
-    ctx.strokeStyle = lit ? '#fff2c8' : palette.cord
+    ctx.strokeStyle = outlineColor ?? (lit ? '#fff2c8' : palette.cord)
   }
   ctx.beginPath()
   ctx.moveTo(fuseStartX, fuseStartY)

@@ -61,7 +61,6 @@ import { getBodySpriteSource, isBodyVisualAssetsReady } from './BodyRenderer'
 import { BombExplosionEmitterPool } from './BombExplosionEmitterPool'
 import { createCheckpointTreeTextureSource } from './CheckpointTreeTextureFactory'
 import {
-  HUD_ICON_ALPHA,
   HUD_ICON_COLOR,
   drawAttackPickupIcon as drawAttackPickupIconShape,
 } from './HudWeaponSlotRenderer'
@@ -94,6 +93,8 @@ import {
   releaseSpine,
 } from './SpineBodyManager'
 import {
+  GROUND_WEAPON_ICON_SIZE_RADIUS_MULTIPLIER,
+  GROUND_WEAPON_OUTLINE_COLOR,
   type WeaponRenderPalette,
   type WeaponRenderType,
   getRuntimeWeaponPalette,
@@ -2631,6 +2632,9 @@ export class PixiWorldRenderer {
     const color = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
     const renderType = getWeaponRenderType(weaponType)
     const runtimePalette = getRuntimeWeaponPalette(renderType)
+    const outlineColor = isStandaloneWeapon
+      ? GROUND_WEAPON_OUTLINE_COLOR
+      : undefined
     const weaponLocalX = (weaponX - entityX) * this.pixelsPerMeter
     const weaponLocalY = (weaponY - entityY) * this.pixelsPerMeter
     const projectileRadiusPx =
@@ -2638,7 +2642,9 @@ export class PixiWorldRenderer {
 
     if (isStandaloneWeapon) {
       const maxSizePx = Math.round(
-        (DEFAULT_PLAYER_RADIUS * 4 * this.pixelsPerMeter) / 3
+        DEFAULT_PLAYER_RADIUS *
+          GROUND_WEAPON_ICON_SIZE_RADIUS_MULTIPLIER *
+          this.pixelsPerMeter
       )
       const scale = weaponWidth > 0 ? maxSizePx / weaponWidth : 1
       weaponWidth = Math.round(weaponWidth * scale)
@@ -2675,7 +2681,8 @@ export class PixiWorldRenderer {
         quantizedBowDraw,
         arrowVisible,
         projectileRadiusPx,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
       view.weaponHash = weaponHash
     }
@@ -2683,7 +2690,7 @@ export class PixiWorldRenderer {
     view.weaponSprite.visible = true
     view.weaponSprite.position.set(weaponLocalX, weaponLocalY)
     view.weaponSprite.rotation = weaponRotation
-    view.weaponSprite.alpha = isStandaloneWeapon ? HUD_ICON_ALPHA : alpha
+    view.weaponSprite.alpha = isStandaloneWeapon ? 1 : alpha
 
     if (view.weaponSprite.parent === view.root) {
       const targetChildIndex =
@@ -3564,7 +3571,8 @@ export class PixiWorldRenderer {
     bowDraw: number,
     arrowVisible: boolean,
     projectileRadius: number = 0,
-    palette?: WeaponRenderPalette
+    palette?: WeaponRenderPalette,
+    outlineColor?: string
   ): Texture {
     const quantizedBowDraw =
       weaponType === WEAPON_TYPES.BOW || weaponType === WEAPON_TYPES.BOMB
@@ -3580,6 +3588,7 @@ export class PixiWorldRenderer {
       arrowVisible ? 1 : 0,
       projectileRadius > 0 ? Math.round(projectileRadius) : 0,
       palette ? 1 : 0,
+      outlineColor ?? '',
     ].join('|')
     const cached = this.weaponTextureCache.get(key)
     if (cached) {
@@ -3638,7 +3647,8 @@ export class PixiWorldRenderer {
       quantizedBowDraw,
       undefined,
       undefined,
-      palette
+      palette,
+      outlineColor
     )
     if (
       DEBUG_DRAW_TERRAIN_COLLISION_SHAPE &&

@@ -51,7 +51,6 @@ import { renderBody } from './renderer/BodyRenderer'
 import { renderBodyCached } from './renderer/BodyRenderer'
 import {
   HUD_AMMO_ALPHA,
-  HUD_ICON_ALPHA,
   HUD_ICON_COLOR,
   HUD_SKILL_SIZE,
   HUD_SKILL_ULTIMATE_SPACING,
@@ -72,6 +71,8 @@ import {
   getSpinePreviewMatchedScale,
 } from './renderer/SpineBodyManager'
 import {
+  GROUND_WEAPON_ICON_SIZE_RADIUS_MULTIPLIER,
+  GROUND_WEAPON_OUTLINE_COLOR,
   type WeaponRenderPalette,
   type WeaponRenderType,
   getRuntimeWeaponPalette,
@@ -2851,20 +2852,22 @@ export class ClientRenderer {
     const bodyColor = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
     const renderType = this.getWeaponVisualRenderTypeFromId(weaponType)
     const runtimePalette = getRuntimeWeaponPalette(renderType)
+    const outlineColor = isStandaloneWeapon
+      ? GROUND_WEAPON_OUTLINE_COLOR
+      : undefined
 
     if (isStandaloneWeapon) {
       const maxSizePx = Math.round(
-        (DEFAULT_PLAYER_RADIUS * 2 * 2 * this.pixelsPerMeter) / 3
+        DEFAULT_PLAYER_RADIUS *
+          GROUND_WEAPON_ICON_SIZE_RADIUS_MULTIPLIER *
+          this.pixelsPerMeter
       )
-      const groundScale = maxSizePx / wWidth
+      const groundScale = wWidth > 0 ? maxSizePx / wWidth : 1
       wWidth = Math.round(wWidth * groundScale)
       wHeight = Math.round(wHeight * groundScale)
     }
 
     this.ctx.save()
-    if (isStandaloneWeapon) {
-      this.ctx.globalAlpha = HUD_ICON_ALPHA
-    }
     this.ctx.translate(wx * this.pixelsPerMeter, wy * this.pixelsPerMeter)
     this.ctx.rotate(wRot)
 
@@ -2888,7 +2891,8 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.BOW) {
       renderWeaponShape(
@@ -2901,7 +2905,8 @@ export class ClientRenderer {
         bowDraw,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
 
       const drawRatio = Math.max(0, Math.min(1, bowDraw))
@@ -2938,7 +2943,8 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.HOOK) {
       renderWeaponShape(
@@ -2951,7 +2957,8 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.BOMB) {
       renderWeaponShape(
@@ -2964,7 +2971,8 @@ export class ClientRenderer {
         bowDraw,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.SPEAR) {
       renderWeaponShape(
@@ -2977,7 +2985,8 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
     } else if (
       weaponType === WEAPON_TYPES.HAMMER ||
@@ -2993,7 +3002,8 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
     } else {
       renderWeaponShape(
@@ -3006,7 +3016,8 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette
+        runtimePalette,
+        outlineColor
       )
     }
     this.ctx.restore()
