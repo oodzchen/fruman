@@ -6,6 +6,7 @@
 - Reuse logic wherever possible, create good abstractions, keep the code concise, and avoid excessive special-case handling.
 - Fix issues through simplification, deletion, and logical abstraction. Do not use excessive patches.
 - Base all adjustments on revisions and changes to the existing logic whenever possible. Do not reinvent the wheel or continually add large amounts of new code.
+- You do not need to update the architecture documentation every time you change code.
 - After making code changes, run `npm run lint && npm run format` and fix any errors. Do not run other commands or use Git commands frequently. If there are no errors, simply provide a summary.
 - When debugging with logs, do not add unguarded logging to frame-rate-sensitive functions such as `update`, as this may flood the logs.
 - When creating files, variables, functions, or similar items, refer to neighboring content at the same level or within the same file to maintain a consistent style.
