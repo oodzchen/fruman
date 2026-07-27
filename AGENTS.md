@@ -1,17 +1,17 @@
-- 使用用户输入的语言来回应
-- 请注重性能，严格避免掉帧，不要在update函数中使用过于复杂的逻辑，除了主渲染器的轮询，不要再额外添加计时器
-- 不要使用临时对象，使用对象池，从而避免触发垃圾回收
-- 计时相关尽可能使用delta time而不是Date接口
-- 不用轻易用any和unknown类型，尽可能使用实际的数据类型定义
-- 尽可能逻辑复用，有良好的抽象，保持代码简洁，不要大量的特殊处理
-- 以精简、删减、逻辑抽象的方式修复问题，不要用过多补丁（path）
-- 所有调整尽可能基于现有逻辑进行修订和更改，不要重复造轮子，不要总是新增大量代码
-- 改完代码后运行 `npm run lint && npm run format` 并修复报错，不用运行其他命令，不要频繁执行git命令，没有报错就给总结即可
-- log调试时不要在update这类帧率函数中不加判断的写log ，避免造成大量log泛滥
-- 新建文件、变量、函数等内容的时候请参考同级别或同文件的内容，保证风格一致
-- 不要用通常的网页UI界面元素，使用用符合当前游戏设计风格的极简UI即可，不要蓝色
-- 请避免浮点运算，涉及到数值计算均以整数的形式来完成
-- 添加新代码时注意良好的模块拆分，避免过度耦合的写法，尤其避免超大的上帝类型
-- 所有游戏相关的事件绑定请限定在 game viewport 内，不要直接绑定到 window 或 document 上
-- 键盘上的“方向键”主要是指WASD这几个键位
-- 性能优化的时候注意先添加perf log定位具体的性能热点，根据perf数据进行彻底优化，而不是靠猜测
+- Respond in the language used by the user.
+- Prioritize performance and strictly avoid dropped frames. Do not use overly complex logic in `update` functions, and do not add any timers beyond the main renderer's polling loop.
+- Do not use temporary objects. Use object pools to avoid triggering garbage collection.
+- For timing-related logic, use delta time instead of the `Date` API whenever possible.
+- Do not casually use the `any` or `unknown` types. Define and use concrete types whenever possible.
+- Reuse logic wherever possible, create good abstractions, keep the code concise, and avoid excessive special-case handling.
+- Fix issues through simplification, deletion, and logical abstraction. Do not use excessive patches.
+- Base all adjustments on revisions and changes to the existing logic whenever possible. Do not reinvent the wheel or continually add large amounts of new code.
+- After making code changes, run `npm run lint && npm run format` and fix any errors. Do not run other commands or use Git commands frequently. If there are no errors, simply provide a summary.
+- When debugging with logs, do not add unguarded logging to frame-rate-sensitive functions such as `update`, as this may flood the logs.
+- When creating files, variables, functions, or similar items, refer to neighboring content at the same level or within the same file to maintain a consistent style.
+- Do not use conventional web UI elements. Use a minimal UI that matches the current game's design style, and do not use blue.
+- Avoid floating-point operations. Perform all numerical calculations using integers.
+- When adding new code, ensure proper module separation and avoid excessive coupling, especially oversized god types.
+- Scope all game-related event bindings to the game viewport. Do not bind them directly to `window` or `document`.
+- References to keyboard "direction keys" primarily mean the WASD keys.
+- When optimizing performance, first add performance logs to identify the specific bottlenecks, then optimize thoroughly based on the performance data rather than guessing.
