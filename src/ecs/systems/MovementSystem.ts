@@ -47,6 +47,9 @@ export class MovementSystem extends System {
   private currentDeltaTime = 0
   private currentTimeMs = 0
   private readonly slopeNormalScale = 1024
+  private readonly fullJumpScalePermille = 1000
+  private readonly steepJumpMinScalePermille = 150
+  private readonly steepJumpScaleRangePermille = 250
   private onFallImpact:
     | ((entity: Entity, damage: number, fallDistance1000: number) => void)
     | null = null
@@ -176,6 +179,7 @@ export class MovementSystem extends System {
     let newObstacleWallDirection = 0
     const groundNormalMin = 0.2
     let hasSteepSurface = false
+    let steepJumpScalePermille = this.fullJumpScalePermille
     let hasGroundSurface = false
     let hasObstacleSurface = false
     let groundSurfaceFriction = 0
@@ -200,18 +204,18 @@ export class MovementSystem extends System {
       const isObstacleContact = isObstacleA || isObstacleB
       const bodyA = b2Shape_GetBody(contact.shapeIdA)
       const bodyB = b2Shape_GetBody(contact.shapeIdB)
-      let otherCategory = 0
-      if (
+      const isEntityBodyA =
         bodyA.index1 === entity.physics.bodyId.index1 &&
         bodyA.world0 === entity.physics.bodyId.world0 &&
         bodyA.generation === entity.physics.bodyId.generation
-      ) {
-        otherCategory = categoryB
-      } else if (
+      const isEntityBodyB =
         bodyB.index1 === entity.physics.bodyId.index1 &&
         bodyB.world0 === entity.physics.bodyId.world0 &&
         bodyB.generation === entity.physics.bodyId.generation
-      ) {
+      let otherCategory = 0
+      if (isEntityBodyA) {
+        otherCategory = categoryB
+      } else if (isEntityBodyB) {
         otherCategory = categoryA
       }
       const isStandableContact =
@@ -235,8 +239,36 @@ export class MovementSystem extends System {
         const absNormalX = normalX < 0 ? -normalX : normalX
         const absNormalY = normalY < 0 ? -normalY : normalY
         if (absNormalX > absNormalY) {
-          hasSteepSurface = true
-          isSteepSurface = true
+          const gravityFacingNormalY = isEntityBodyA
+            ? normalY
+            : isEntityBodyB
+              ? -normalY
+              : 0
+          if (gravityFacingNormalY > 0) {
+            for (
+              let pointIndex = 0;
+              pointIndex < contact.manifold.pointCount;
+              pointIndex++
+            ) {
+              const point = contact.manifold.GetPoint(pointIndex)
+              const anchorY = isEntityBodyA ? point.anchorA.y : point.anchorB.y
+              const isBelowBodyCenter =
+                ((anchorY * this.slopeNormalScale) | 0) > 0
+              point.delete()
+              if (isBelowBodyCenter) {
+                hasSteepSurface = true
+                isSteepSurface = true
+                const contactJumpScalePermille =
+                  this.steepJumpMinScalePermille +
+                  (this.steepJumpScaleRangePermille * absNormalY) / absNormalX
+                const normalizedJumpScalePermille = contactJumpScalePermille | 0
+                if (normalizedJumpScalePermille < steepJumpScalePermille) {
+                  steepJumpScalePermille = normalizedJumpScalePermille
+                }
+                break
+              }
+            }
+          }
           if (isObstacleContact) {
             const contactWallDirection = normal.x > 0 ? -1 : 1
             touchingObstacleWall = true
@@ -297,6 +329,9 @@ export class MovementSystem extends System {
       entity.movement.contactFriction = entity.movement.bodyFriction
     }
     entity.movement.hasSteepContact = hasSteepSurface
+    entity.movement.steepJumpScalePermille = hasSteepSurface
+      ? steepJumpScalePermille
+      : this.fullJumpScalePermille
 
     if (entity.movement.isTouchingWall && !grounded) {
       entity.movement.wallDirection = newWallDirection
@@ -913,7 +948,8 @@ export class MovementSystem extends System {
         -entity.movement.jumpForce *
         mass *
         entity.movement.jumpForceMultiplier *
-        jumpScale
+        jumpScale *
+        (entity.movement.activeJumpScalePermille / this.fullJumpScalePermille)
       b2Body_ApplyForceToCenter(entity.physics.bodyId, this.tempVec, true)
     } else if (
       jumpDurationMs >= entity.movement.maxJumpDuration ||
@@ -921,6 +957,7 @@ export class MovementSystem extends System {
       !entity.input.jumpRequested
     ) {
       entity.movement.isJumping = false
+      entity.movement.activeJumpScalePermille = this.fullJumpScalePermille
     }
     vel.delete()
   }
@@ -928,22 +965,27 @@ export class MovementSystem extends System {
   private canJump(entity: Entity): boolean {
     if (!entity.movement) return false
     if (entity.isStunned()) return false
-    if (entity.movement.hasSteepContact) return false
 
     if (entity.movement.isJumping) return false
 
     const isDifferentWall =
       entity.movement.isTouchingWall &&
       !entity.movement.isGrounded &&
+      !entity.movement.hasSteepContact &&
       entity.movement.wallDirection !== entity.movement.lastWallJumpDirection
 
     const canWallJump =
       entity.movement.isTouchingWall &&
       !entity.movement.isGrounded &&
+      !entity.movement.hasSteepContact &&
       (entity.movement.wallJumpCount < entity.movement.maxWallJumps ||
         isDifferentWall)
 
-    return entity.movement.isGrounded || canWallJump
+    return (
+      entity.movement.isGrounded ||
+      entity.movement.hasSteepContact ||
+      canWallJump
+    )
   }
 
   private doJump(entity: Entity): void {
@@ -971,10 +1013,12 @@ export class MovementSystem extends System {
     entity.movement.fallTrackingActive = true
     entity.movement.maxFallVelocity = 0
     entity.movement.fallStartY = entity.transform?.y ?? 0
+    entity.movement.activeJumpScalePermille = this.fullJumpScalePermille
 
     const isDifferentWall =
       entity.movement.isTouchingWall &&
       !entity.movement.isGrounded &&
+      !entity.movement.hasSteepContact &&
       entity.movement.wallDirection !== entity.movement.lastWallJumpDirection
 
     if (isDifferentWall) {
@@ -984,6 +1028,7 @@ export class MovementSystem extends System {
     const canWallJump =
       entity.movement.isTouchingWall &&
       !entity.movement.isGrounded &&
+      !entity.movement.hasSteepContact &&
       entity.movement.wallJumpCount < entity.movement.maxWallJumps
 
     if (canWallJump) {
@@ -1005,8 +1050,11 @@ export class MovementSystem extends System {
       entity.movement.wallJumpElapsedTime = 0
       entity.movement.wallJumpCount++
       entity.movement.lastWallJumpDirection = entity.movement.wallDirection
-    } else if (entity.movement.isGrounded) {
+    } else if (entity.movement.isGrounded || entity.movement.hasSteepContact) {
       entity.movement.wallJumpCount = 0
+      entity.movement.activeJumpScalePermille = entity.movement.hasSteepContact
+        ? entity.movement.steepJumpScalePermille
+        : this.fullJumpScalePermille
       const obstacleEscapeSpeed =
         entity.movement.isTouchingObstacleWall &&
         entity.movement.obstacleWallDirection !== 0
@@ -1016,7 +1064,13 @@ export class MovementSystem extends System {
             2
           : 0
       this.tempVec.x = obstacleEscapeSpeed * mass
-      this.tempVec.y = -entity.movement.jumpForce * mass * 0.6 * jumpScale
+      this.tempVec.y =
+        (-entity.movement.jumpForce *
+          mass *
+          0.6 *
+          jumpScale *
+          entity.movement.activeJumpScalePermille) /
+        this.fullJumpScalePermille
       b2Body_ApplyLinearImpulseToCenter(
         entity.physics.bodyId,
         this.tempVec,

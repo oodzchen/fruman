@@ -136,6 +136,8 @@ export class MovementComponent extends Component {
   contactFriction = DEFAULT_BODY_FRICTION
   hasContactFriction = false
   hasSteepContact = false
+  steepJumpScalePermille = 1000
+  activeJumpScalePermille = 1000
 
   isSprinting = false
   lKeyHoldTime = 0
@@ -195,6 +197,8 @@ export class MovementComponent extends Component {
     this.contactFriction = DEFAULT_BODY_FRICTION
     this.hasContactFriction = false
     this.hasSteepContact = false
+    this.steepJumpScalePermille = 1000
+    this.activeJumpScalePermille = 1000
     this.isSprinting = false
     this.lKeyHoldTime = 0
     this.lKeyIsDown = false
