@@ -3,8 +3,7 @@ import { DisplayManager } from './DisplayManager'
 import { EditorManager } from './EditorManager'
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
-import { Language, localizer } from './Localizer'
-import { MapImportExportPanel } from './MapImportExportPanel'
+import { localizer } from './Localizer'
 import { MenuMode } from './MenuManager'
 import { isMobileGameDevice } from './MobileControls'
 import {
@@ -33,13 +32,15 @@ import {
   DEFAULT_WALL_JUMP_PUSH_AWAY_MULTIPLIER,
   DEFAULT_WALL_JUMP_UPWARD_MULTIPLIER,
 } from './constants'
+import type { PageLocalizer } from './development/PageLocalizer'
+import type { PageTranslationKey } from './development/pageTranslations/zh-Hans'
 import { loadStoredValues, saveStoredValues } from './storage'
 import { initializeTerrainPolygonUtils } from './terrain/TerrainPolygonUtils'
 
 interface ParamConfig {
   id: string
   numberId: string
-  label: string
+  label: PageTranslationKey
   defaultValue: number
 }
 
@@ -226,7 +227,15 @@ const PARAM_CONFIGS: ParamConfig[] = [
   },
 ]
 
-function setupParamResetButton(config: ParamConfig, onReset: () => void): void {
+function setupParamResetButton(
+  config: ParamConfig,
+  onReset: () => void,
+  pageLocalizer: PageLocalizer | null
+): void {
+  if (!pageLocalizer) {
+    return
+  }
+
   const label = document.querySelector<HTMLLabelElement>(
     `label[for="${config.id}"]`
   )
@@ -261,8 +270,13 @@ function setupParamResetButton(config: ParamConfig, onReset: () => void): void {
   resetButton.type = 'button'
   resetButton.className = 'param-reset-button'
   resetButton.dataset.paramId = config.id
-  resetButton.textContent = localizer.t('ui_reset')
-  resetButton.title = `${localizer.t('ui_reset')} ${localizer.t(config.label)}`
+  resetButton.dataset.pageI18n = 'ui_reset'
+  resetButton.dataset.pageI18nTitle = 'ui_reset_parameter'
+  resetButton.dataset.pageI18nTitleParameter = config.label
+  resetButton.textContent = pageLocalizer.t('ui_reset')
+  resetButton.title = pageLocalizer
+    .t('ui_reset_parameter')
+    .replace('{0}', pageLocalizer.t(config.label))
   resetButton.addEventListener('click', onReset)
   labelRow.appendChild(resetButton)
 }
@@ -311,7 +325,8 @@ function syncInputs(
   config: ParamConfig,
   callback: (value: number) => void,
   storedValues: Record<string, string>,
-  updateStoredValue: (id: string, value: string) => void
+  updateStoredValue: (id: string, value: string) => void,
+  pageLocalizer: PageLocalizer | null
 ): SyncInputsResult {
   const { id: rangeId, numberId, defaultValue } = config
   const range = document.getElementById(rangeId)
@@ -353,9 +368,13 @@ function syncInputs(
     }
   }
 
-  setupParamResetButton(config, () => {
-    setPairValue(String(defaultValue), true)
-  })
+  setupParamResetButton(
+    config,
+    () => {
+      setPairValue(String(defaultValue), true)
+    },
+    pageLocalizer
+  )
 
   const applyRange = () => {
     setPairValue(range.value, true)
@@ -405,7 +424,11 @@ function setParamControlValue(id: string, value: number): void {
 }
 
 async function initialize() {
-  await localizer.init(Language.ZhHans)
+  const pageLocalizer = import.meta.env.DEV
+    ? new (await import('./development/PageLocalizer')).PageLocalizer()
+    : null
+  pageLocalizer?.init()
+  await localizer.init()
 
   const initManager = new InitializationManager(gameViewport)
   const steps = [
@@ -473,19 +496,24 @@ async function initialize() {
   const _btnKill = document.getElementById('btnKill') as HTMLButtonElement
   const _btnRevive = document.getElementById('btnRevive') as HTMLButtonElement
 
+  const setStopButtonTranslation = (key: PageTranslationKey): void => {
+    btnStop.dataset.pageI18n = key
+    btnStop.textContent = pageLocalizer?.t(key) ?? ''
+  }
+
   btnStop.addEventListener('click', () => {
     game.stop()
     game.setInputEnabled(false)
-    btnStop.textContent = localizer.t('ui_resume')
+    setStopButtonTranslation('control_resume')
     btnStop.onclick = () => {
       game.start()
       game.setInputEnabled(true)
-      btnStop.textContent = localizer.t('ui_pause')
+      setStopButtonTranslation('control_pause')
       btnStop.onclick = null
       btnStop.addEventListener('click', () => {
         game.stop()
         game.setInputEnabled(false)
-        btnStop.textContent = localizer.t('ui_resume')
+        setStopButtonTranslation('control_resume')
       })
     }
   })
@@ -494,7 +522,7 @@ async function initialize() {
     game.restart()
     game.setInputEnabled(true)
     applyControls.forEach((apply) => apply())
-    btnStop.textContent = localizer.t('ui_pause')
+    setStopButtonTranslation('control_pause')
   })
 
   // 参数回调映射
@@ -539,7 +567,8 @@ async function initialize() {
         config,
         callback,
         storedValues,
-        updateStoredValue
+        updateStoredValue,
+        pageLocalizer
       )
       applyControls.push(result.apply)
     }
@@ -641,11 +670,6 @@ async function initialize() {
     }
   })
   game.scheduleStartMenu(800)
-
-  const mapPanelEl = document.getElementById('mapPanel')
-  if (mapPanelEl) {
-    new MapImportExportPanel(mapPanelEl)
-  }
 }
 
 initialize().catch((error) => {

@@ -3,6 +3,7 @@ import {
   packEditorMapData,
   unpackEditorMapArchive,
 } from './MapArchive'
+import type { PageTranslationKey } from './development/pageTranslations/zh-Hans'
 import type { EditorMapData, EditorMapMeta } from './editorMapTypes'
 import { createEditorMap, listEditorMaps, loadEditorMapData } from './storage'
 
@@ -14,8 +15,13 @@ export class MapImportExportPanel {
   private importing = false
   private exportingMapId: string | null = null
   private statusTimeout: ReturnType<typeof setTimeout> | null = null
+  private translate: (key: PageTranslationKey) => string
 
-  constructor(container: HTMLElement) {
+  constructor(
+    container: HTMLElement,
+    translate: (key: PageTranslationKey) => string
+  ) {
+    this.translate = translate
     const header = document.createElement('div')
     header.className = 'map-panel-header'
 
@@ -27,8 +33,8 @@ export class MapImportExportPanel {
     fileInput.addEventListener('change', () => this.handleImport(fileInput))
 
     this.importBtn = document.createElement('button')
-    this.importBtn.textContent = '导入'
     this.importBtn.className = 'map-panel-btn'
+    this.setTranslatedText(this.importBtn, 'map_import')
     this.importBtn.addEventListener('click', () => {
       if (this.importing || this.exportingMapId !== null) {
         return
@@ -72,7 +78,7 @@ export class MapImportExportPanel {
 
     const btn = document.createElement('button')
     btn.className = 'map-panel-btn'
-    btn.textContent = '导出'
+    this.setTranslatedText(btn, 'map_export')
     btn.addEventListener('click', () => void this.handleExport(meta))
     this.exportButtons.set(meta.id, btn)
 
@@ -90,7 +96,7 @@ export class MapImportExportPanel {
     try {
       const data = await loadEditorMapData(meta.id)
       if (!data) {
-        this.showStatus('导出失败')
+        this.showStatus('map_export_failed')
         return
       }
       const blob = await packEditorMapData(data, meta.name)
@@ -100,9 +106,9 @@ export class MapImportExportPanel {
       a.download = `fruman-${meta.name}.zip`
       a.click()
       URL.revokeObjectURL(url)
-      this.showStatus('已导出')
+      this.showStatus('map_exported')
     } catch {
-      this.showStatus('导出失败')
+      this.showStatus('map_export_failed')
     } finally {
       this.exportingMapId = null
       this.updateButtonStates()
@@ -128,14 +134,14 @@ export class MapImportExportPanel {
       data = archive?.data ?? null
       archiveName = archive?.name ?? null
     } catch {
-      this.showStatus('文件格式错误')
+      this.showStatus('map_invalid_archive')
       this.importing = false
       this.updateButtonStates()
       return
     }
 
     if (!data || !isEditorMapArchiveData(data)) {
-      this.showStatus('无效的地图文件')
+      this.showStatus('map_invalid_data')
       this.importing = false
       this.updateButtonStates()
       return
@@ -149,13 +155,13 @@ export class MapImportExportPanel {
     try {
       const result = await createEditorMap(name, data)
       if (result) {
-        this.showStatus('导入成功')
+        this.showStatus('map_import_succeeded')
         await this.refresh()
       } else {
-        this.showStatus('导入失败')
+        this.showStatus('map_import_failed')
       }
     } catch {
-      this.showStatus('导入失败')
+      this.showStatus('map_import_failed')
     } finally {
       this.importing = false
       this.updateButtonStates()
@@ -165,22 +171,34 @@ export class MapImportExportPanel {
   private updateButtonStates(): void {
     const busy = this.importing || this.exportingMapId !== null
     this.importBtn.disabled = busy
-    this.importBtn.textContent = this.importing ? '导入中...' : '导入'
+    this.setTranslatedText(
+      this.importBtn,
+      this.importing ? 'map_importing' : 'map_import'
+    )
     this.exportButtons.forEach((button, mapId) => {
       const exporting = this.exportingMapId === mapId
       button.disabled = busy
-      button.textContent = exporting ? '导出中...' : '导出'
+      this.setTranslatedText(button, exporting ? 'map_exporting' : 'map_export')
     })
   }
 
-  private showStatus(msg: string): void {
-    this.statusEl.textContent = msg
+  private showStatus(key: PageTranslationKey): void {
+    this.setTranslatedText(this.statusEl, key)
     if (this.statusTimeout !== null) {
       clearTimeout(this.statusTimeout)
     }
     this.statusTimeout = setTimeout(() => {
       this.statusEl.textContent = ''
+      delete this.statusEl.dataset.pageI18n
       this.statusTimeout = null
     }, 2000)
+  }
+
+  private setTranslatedText(
+    element: HTMLElement,
+    key: PageTranslationKey
+  ): void {
+    element.dataset.pageI18n = key
+    element.textContent = this.translate(key)
   }
 }

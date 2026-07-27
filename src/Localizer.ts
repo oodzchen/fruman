@@ -5,6 +5,13 @@ export enum Language {
 
 type Translations = Record<string, string>
 
+export function getBrowserLanguage(): Language {
+  const browserLanguage = navigator.languages[0] ?? navigator.language
+  return browserLanguage.toLowerCase().startsWith('zh')
+    ? Language.ZhHans
+    : Language.En
+}
+
 export class Localizer {
   private static instance: Localizer
   private currentLang: Language
@@ -22,7 +29,7 @@ export class Localizer {
     return Localizer.instance
   }
 
-  async init(lang: Language = Language.ZhHans): Promise<void> {
+  async init(lang: Language = getBrowserLanguage()): Promise<void> {
     this.currentLang = lang
     await this.loadLanguage(lang)
   }

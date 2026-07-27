@@ -472,12 +472,34 @@
       }
       #canvasBottom {
         width: 800px;
-        display: flex;
+        display: none;
         transition: width 0s;
         justify-content: space-between;
         align-items: flex-start;
         gap: 8px;
         box-sizing: border-box;
+      }
+      #gameContainer.is-development #canvasBottom {
+        display: flex;
+      }
+      #pageInfo {
+        flex-shrink: 0;
+      }
+      #pageLanguageControl {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+        color: #000;
+        font-size: 12px;
+      }
+      #pageLanguageSelect {
+        border: 1px solid #999;
+        border-radius: 0;
+        background: #eee;
+        color: #222;
+        font: inherit;
+        padding: 1px 4px;
       }
       #info {
         color: #000;
@@ -486,7 +508,6 @@
         padding: 0;
         border: none;
         box-sizing: border-box;
-        flex-shrink: 0;
       }
       #mapPanel {
         font-family: monospace;
@@ -2268,57 +2289,70 @@
           </div>
         </div>
         <div id="canvasBottom">
-          <div id="info">
-            <div>A / D - 移动</div>
-            <div>W / S - 远程瞄准 / 钩索攀爬</div>
-            <div>Space - 跳跃</div>
-            <div>Shift + A / D - 奔跑</div>
-            <div>Ctrl - 翻滚</div>
-            <div>J / 鼠标左键 - 攻击</div>
-            <div>K / 鼠标右键 - 近战防御 / 远程瞄准切换</div>
-            <div>F - 武器技能</div>
-            <div>Q - 锁定/解锁（按住并移动鼠标切换目标）</div>
-            <div>E - 交互/拾取</div>
-            <div>R - 钩索（长按持续）/ 恢复</div>
-            <div>鼠标中键 - 钩索</div>
-            <div>E + 鼠标中键 - 绝招</div>
-            <div>1 / 2 - 切换主武器 / 副武器</div>
-            <div>I / O / U - 放大 / 缩小 / 重置镜头</div>
-            <div>鼠标滚轮 - 镜头缩放</div>
-            <div>Esc - 暂停/继续</div>
+          <div id="pageInfo">
+            <div id="pageLanguageControl">
+              <label for="pageLanguageSelect" data-page-i18n="page_language">
+              </label>
+              <select id="pageLanguageSelect"></select>
+            </div>
+            <div id="info">
+              <div data-page-i18n="key_move"></div>
+              <div data-page-i18n="key_aim_climb"></div>
+              <div data-page-i18n="key_jump"></div>
+              <div data-page-i18n="key_run"></div>
+              <div data-page-i18n="key_roll"></div>
+              <div data-page-i18n="key_attack"></div>
+              <div data-page-i18n="key_defend_aim"></div>
+              <div data-page-i18n="key_skill"></div>
+              <div data-page-i18n="key_lock"></div>
+              <div data-page-i18n="key_interact"></div>
+              <div data-page-i18n="key_grapple_recover"></div>
+              <div data-page-i18n="key_middle_grapple"></div>
+              <div data-page-i18n="key_ultimate"></div>
+              <div data-page-i18n="key_switch_weapon"></div>
+              <div data-page-i18n="key_camera_controls"></div>
+              <div data-page-i18n="key_camera_wheel"></div>
+              <div data-page-i18n="key_pause"></div>
+            </div>
           </div>
           <div id="mapPanel"></div>
         </div>
       </div>
       <div id="controlPanel">
-        <h3>游戏控制</h3>
+        <h3 data-page-i18n="control_title"></h3>
         <div class="button-row">
-          <button id="btnStop" title="暂停或继续游戏">暂停</button>
-          <button id="btnRestart" title="重新开始游戏，角色回到初始位置">
-            重启
-          </button>
+          <button
+            id="btnStop"
+            data-page-i18n="control_pause"
+            data-page-i18n-title="control_pause_title"
+          ></button>
+          <button
+            id="btnRestart"
+            data-page-i18n="control_restart"
+            data-page-i18n-title="control_restart_title"
+          ></button>
           <button
             id="btnKill"
-            title="让角色死亡，进入布娃娃状态"
+            data-page-i18n="control_kill"
+            data-page-i18n-title="control_kill_title"
             style="display: none"
-          >
-            死亡
-          </button>
+          ></button>
           <button
             id="btnRevive"
-            title="让角色复活，恢复站立状态"
+            data-page-i18n="control_revive"
+            data-page-i18n-title="control_revive_title"
             style="display: none"
-          >
-            复活
-          </button>
+          ></button>
         </div>
 
         <details id="detailsJump" open>
-          <summary>跳跃参数</summary>
+          <summary data-page-i18n="section_jump"></summary>
           <div class="control-group">
-            <label for="jumpForce" title="初始跳跃的向上速度大小"
-              >跳跃力度</label
-            >
+            <label
+              for="jumpForce"
+              data-page-i18n="param_jump_force"
+              data-page-i18n-title="param_jump_force_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2344,9 +2378,9 @@
           <div class="control-group">
             <label
               for="jumpBufferWindow"
-              title="预输入缓存时间(ms)：在空中按跳跃键，如果在该时间内落地则自动跳跃"
-              >跳跃预输入时间(ms)</label
-            >
+              data-page-i18n="param_jump_buffer"
+              data-page-i18n-title="param_jump_buffer_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2372,9 +2406,9 @@
           <div class="control-group">
             <label
               for="maxJumpDuration"
-              title="按住跳跃键时持续施加向上力的最大时长"
-              >跳跃持续时间(ms)</label
-            >
+              data-page-i18n="param_jump_duration"
+              data-page-i18n-title="param_jump_duration_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2400,9 +2434,9 @@
           <div class="control-group">
             <label
               for="jumpForceMultiplier"
-              title="持续跳跃时施加的力相对于jumpForce的倍数"
-              >持续跳跃力倍数</label
-            >
+              data-page-i18n="param_sustained_jump"
+              data-page-i18n-title="param_sustained_jump_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2428,9 +2462,9 @@
           <div class="control-group">
             <label
               for="wallJumpPushAway"
-              title="蹬墙跳时推离墙壁的横向速度倍数（相对于moveSpeed）"
-              >蹬墙横向推离倍数</label
-            >
+              data-page-i18n="param_wall_jump_horizontal"
+              data-page-i18n-title="param_wall_jump_horizontal_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2456,9 +2490,9 @@
           <div class="control-group">
             <label
               for="wallJumpUpward"
-              title="蹬墙跳时向上速度倍数（相对于jumpForce）"
-              >蹬墙向上速度倍数</label
-            >
+              data-page-i18n="param_wall_jump_vertical"
+              data-page-i18n-title="param_wall_jump_vertical_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2482,9 +2516,11 @@
           </div>
 
           <div class="control-group">
-            <label for="maxWallJumps" title="每次离地最多允许的蹬墙跳次数"
-              >最大蹬墙次数</label
-            >
+            <label
+              for="maxWallJumps"
+              data-page-i18n="param_max_wall_jumps"
+              data-page-i18n-title="param_max_wall_jumps_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2509,11 +2545,13 @@
         </details>
 
         <details id="detailsFriction" open>
-          <summary>摩擦力和阻尼</summary>
+          <summary data-page-i18n="section_friction"></summary>
           <div class="control-group">
-            <label for="groundFriction" title="地面与角色接触时的摩擦力"
-              >地面摩擦力</label
-            >
+            <label
+              for="groundFriction"
+              data-page-i18n="param_ground_friction"
+              data-page-i18n-title="param_ground_friction_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2535,9 +2573,11 @@
           </div>
 
           <div class="control-group">
-            <label for="obstacleFriction" title="障碍物与角色接触时的摩擦力"
-              >障碍物摩擦力</label
-            >
+            <label
+              for="obstacleFriction"
+              data-page-i18n="param_obstacle_friction"
+              data-page-i18n-title="param_obstacle_friction_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2559,9 +2599,11 @@
           </div>
 
           <div class="control-group">
-            <label for="bodyFriction" title="圆形角色与其他物体接触时的摩擦力"
-              >身体摩擦力</label
-            >
+            <label
+              for="bodyFriction"
+              data-page-i18n="param_body_friction"
+              data-page-i18n-title="param_body_friction_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2585,9 +2627,9 @@
           <div class="control-group">
             <label
               for="bodyLinearDamping"
-              title="圆形角色的线性阻尼，抑制其运动"
-              >角色线性阻尼</label
-            >
+              data-page-i18n="param_linear_damping"
+              data-page-i18n-title="param_linear_damping_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2610,9 +2652,13 @@
         </details>
 
         <details id="detailsMovement" open>
-          <summary>移动参数</summary>
+          <summary data-page-i18n="section_movement"></summary>
           <div class="control-group">
-            <label for="moveSpeed" title="角色左右移动的速度">移动速度</label>
+            <label
+              for="moveSpeed"
+              data-page-i18n="param_move_speed"
+              data-page-i18n-title="param_move_speed_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2635,13 +2681,13 @@
         </details>
 
         <details id="detailsBreakableCrate" open>
-          <summary>箱子未破坏参数</summary>
+          <summary data-page-i18n="section_crate"></summary>
           <div class="control-group">
             <label
               for="breakableCrateDensity"
-              title="未破坏箱子的密度，影响重量、受力和堆叠稳定性"
-              >箱子密度</label
-            >
+              data-page-i18n="param_breakable_crate_density"
+              data-page-i18n-title="param_breakable_crate_density_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2665,9 +2711,9 @@
           <div class="control-group">
             <label
               for="breakableCrateFriction"
-              title="未破坏箱子的接触摩擦力，数值越高越不容易滑走"
-              >箱子摩擦力</label
-            >
+              data-page-i18n="param_breakable_crate_friction"
+              data-page-i18n-title="param_breakable_crate_friction_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2691,9 +2737,9 @@
           <div class="control-group">
             <label
               for="breakableCrateLinearDamping"
-              title="未破坏箱子的线性阻尼，抑制平移滑动"
-              >箱子线性阻尼</label
-            >
+              data-page-i18n="param_breakable_crate_linear_damping"
+              data-page-i18n-title="param_breakable_crate_linear_damping_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2717,9 +2763,9 @@
           <div class="control-group">
             <label
               for="breakableCrateAngularDamping"
-              title="未破坏箱子的角阻尼，抑制倾倒和转动"
-              >箱子角阻尼</label
-            >
+              data-page-i18n="param_breakable_crate_angular_damping"
+              data-page-i18n-title="param_breakable_crate_angular_damping_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2743,9 +2789,9 @@
           <div class="control-group">
             <label
               for="breakableCrateRestitution"
-              title="未破坏箱子的弹性系数，越高越容易弹跳"
-              >箱子弹性</label
-            >
+              data-page-i18n="param_breakable_crate_restitution"
+              data-page-i18n-title="param_breakable_crate_restitution_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2768,11 +2814,13 @@
         </details>
 
         <details id="detailsCamera" open>
-          <summary>镜头调试</summary>
+          <summary data-page-i18n="section_camera"></summary>
           <div class="control-group">
-            <label for="cameraZoom" title="镜头缩放倍数（也可用鼠标滚轮调整）"
-              >镜头缩放</label
-            >
+            <label
+              for="cameraZoom"
+              data-page-i18n="param_camera_zoom"
+              data-page-i18n-title="param_camera_zoom_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2795,11 +2843,13 @@
         </details>
 
         <details id="detailsRope" open>
-          <summary>绳索物理参数</summary>
+          <summary data-page-i18n="section_rope"></summary>
           <div class="control-group">
-            <label for="ropeDensity" title="绳索段的密度，影响绳索重量和稳定性"
-              >绳索密度</label
-            >
+            <label
+              for="ropeDensity"
+              data-page-i18n="param_rope_density"
+              data-page-i18n-title="param_rope_density_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2825,9 +2875,9 @@
           <div class="control-group">
             <label
               for="ropeLinearDamping"
-              title="绳索段的线性阻尼，影响摆荡持续时间和抖动"
-              >绳索线性阻尼</label
-            >
+              data-page-i18n="param_rope_linear_damping"
+              data-page-i18n-title="param_rope_linear_damping_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2853,9 +2903,9 @@
           <div class="control-group">
             <label
               for="ropeHertz"
-              title="绳索关节的弹簧频率，过高会让多段绳链产生数值抖动"
-              >绳索弹簧频率(Hz)</label
-            >
+              data-page-i18n="param_rope_hertz"
+              data-page-i18n-title="param_rope_hertz_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2881,9 +2931,9 @@
           <div class="control-group">
             <label
               for="ropeDampingRatio"
-              title="绳索弹簧的阻尼比，1附近接近临界阻尼，更高会更快压住回弹"
-              >绳索弹簧阻尼比</label
-            >
+              data-page-i18n="param_rope_damping_ratio"
+              data-page-i18n-title="param_rope_damping_ratio_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2909,9 +2959,9 @@
           <div class="control-group">
             <label
               for="ropeBendStiffness"
-              title="绳索折弯的法向修正强度，过高会让绳子更像硬杆并削弱摆荡"
-              >绳索弯曲刚度</label
-            >
+              data-page-i18n="param_rope_bend_stiffness"
+              data-page-i18n-title="param_rope_bend_stiffness_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2937,9 +2987,9 @@
           <div class="control-group">
             <label
               for="ropeElasticLimitScale"
-              title="绳索达到拉伸限制前允许的长度比例，数值越低越早进入张力限制，越大越有弹性"
-              >绳索拉伸上限比例</label
-            >
+              data-page-i18n="param_rope_elastic_limit_scale"
+              data-page-i18n-title="param_rope_elastic_limit_scale_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2965,9 +3015,9 @@
           <div class="control-group">
             <label
               for="ropeClimbLinearDamping"
-              title="攀爬桥接绳时绳索段的线性阻尼"
-              >攀爬绳索线性阻尼</label
-            >
+              data-page-i18n="param_rope_climb_linear_damping"
+              data-page-i18n-title="param_rope_climb_linear_damping_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -2993,9 +3043,9 @@
           <div class="control-group">
             <label
               for="ropeClimbHertz"
-              title="攀爬桥接绳时绳索关节的弹簧频率，过高会产生数值抖动"
-              >攀爬绳索弹簧频率(Hz)</label
-            >
+              data-page-i18n="param_rope_climb_hertz"
+              data-page-i18n-title="param_rope_climb_hertz_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -3021,9 +3071,9 @@
           <div class="control-group">
             <label
               for="ropeClimbDampingRatio"
-              title="攀爬桥接绳时绳索弹簧的阻尼比，更高会更快压住回弹"
-              >攀爬绳索弹簧阻尼比</label
-            >
+              data-page-i18n="param_rope_climb_damping_ratio"
+              data-page-i18n-title="param_rope_climb_damping_ratio_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -3049,9 +3099,9 @@
           <div class="control-group">
             <label
               for="ropeClimbWeightForceScale"
-              title="攀爬时角色体重施加到桥接绳上的比例"
-              >攀爬体重拉力比例</label
-            >
+              data-page-i18n="param_rope_climb_weight_force_scale"
+              data-page-i18n-title="param_rope_climb_weight_force_scale_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
@@ -3075,9 +3125,11 @@
           </div>
 
           <div class="control-group">
-            <label for="swingForce" title="按方向键时施加的切向摆荡速度"
-              >摆荡推力</label
-            >
+            <label
+              for="swingForce"
+              data-page-i18n="param_swing_force"
+              data-page-i18n-title="param_swing_force_title"
+            ></label>
             <div class="control-inputs">
               <input
                 type="range"
