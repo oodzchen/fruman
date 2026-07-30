@@ -1062,26 +1062,66 @@ export class EditorObjectManager {
     }
   }
 
+  handleGroupContainerMoving(groupObject: fabric.Object): void {
+    if (!this.isGroupContainerObject(groupObject)) {
+      return
+    }
+    const data = this.editorObjectMap.get(groupObject)
+    if (!data) {
+      return
+    }
+    const currentLeft = groupObject.left ?? 0
+    const currentTop = groupObject.top ?? 0
+    const state = groupObject as fabric.Object & {
+      lastGroupLeft?: number
+      lastGroupTop?: number
+    }
+    if (state.lastGroupLeft === undefined || state.lastGroupTop === undefined) {
+      state.lastGroupLeft = currentLeft
+      state.lastGroupTop = currentTop
+      return
+    }
+    const deltaX = currentLeft - state.lastGroupLeft
+    const deltaY = currentTop - state.lastGroupTop
+    state.lastGroupLeft = currentLeft
+    state.lastGroupTop = currentTop
+    if (deltaX === 0 && deltaY === 0) {
+      return
+    }
+    const subtreeIds = this.getSubtreeObjectIds([data.id])
+    for (let i = 0; i < subtreeIds.length; i++) {
+      const childId = subtreeIds[i]
+      if (childId === data.id) {
+        continue
+      }
+      const childData = this.getEditorObjectById(childId)
+      if (!childData?.object) {
+        continue
+      }
+      childData.object.left = (childData.object.left ?? 0) + deltaX
+      childData.object.top = (childData.object.top ?? 0) + deltaY
+      childData.object.setCoords()
+    }
+  }
+
+  resetGroupContainerMoveState(groupObject: fabric.Object | null): void {
+    if (!groupObject || !this.isGroupContainerObject(groupObject)) {
+      return
+    }
+    const state = groupObject as fabric.Object & {
+      lastGroupLeft?: number
+      lastGroupTop?: number
+    }
+    delete state.lastGroupLeft
+    delete state.lastGroupTop
+  }
+
   private synchronizeGroupMemberships(): void {
     for (let i = 0; i < this.editorObjects.length; i++) {
-      this.detachObjectFromGroup(this.editorObjects[i].object)
-    }
-
-    for (let i = 0; i < this.editorObjects.length; i++) {
-      const data = this.editorObjects[i]
-      if (data.parentId === null) {
-        continue
+      const obj = this.editorObjects[i].object
+      if (this.isTrackedGroupedObject(obj)) {
+        this.detachObjectFromGroup(obj)
       }
-      if (this.isGroupContainerObject(data.object)) {
-        continue
-      }
-      const parentData = this.getEditorObjectById(data.parentId)
-      if (!parentData || !this.isGroupContainerObject(parentData.object)) {
-        continue
-      }
-      parentData.object.subTargetCheck = true
-      parentData.object.interactive = true
-      this.attachObjectToGroup(data.object, parentData.object)
     }
   }
 

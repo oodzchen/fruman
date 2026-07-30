@@ -2463,6 +2463,7 @@ export class EditorManager {
     if (!this.visible || this.currentView !== EditorView.Editor) {
       return
     }
+    this.objectManager.resetGroupContainerMoveState(target)
     this.markerManager.refreshEnvironmentMarkerTexture(target)
     this.syncManagedObjectTarget(target)
     if (this.terrainManager.handleModifiedTarget(target)) {
@@ -2473,9 +2474,10 @@ export class EditorManager {
   }
 
   private handleObjectMoving(target: fabric.Object | null) {
-    if (!this.visible || this.currentView !== EditorView.Editor) {
+    if (!this.visible || this.currentView !== EditorView.Editor || !target) {
       return
     }
+    this.objectManager.handleGroupContainerMoving(target)
     this.terrainManager.handleMovingTarget(target)
     this.syncManagedObjectTarget(target)
   }
