@@ -4,12 +4,39 @@ export enum Language {
 }
 
 type Translations = Record<string, string>
+type LanguageChangeCallback = (lang: Language) => void
+
+const STORAGE_KEY_LANGUAGE = 'sl2d_language'
+
+export function getSavedLanguage(): Language | null {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_LANGUAGE)
+    if (saved === Language.ZhHans || saved === Language.En) {
+      return saved
+    }
+  } catch (error) {
+    console.warn('[Localizer] Failed to read saved language:', error)
+  }
+  return null
+}
+
+export function saveLanguagePreference(lang: Language): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_LANGUAGE, lang)
+  } catch (error) {
+    console.warn('[Localizer] Failed to save language:', error)
+  }
+}
 
 export function getBrowserLanguage(): Language {
-  const browserLanguage = navigator.languages[0] ?? navigator.language
+  const browserLanguage = navigator.languages?.[0] ?? navigator.language
   return browserLanguage.toLowerCase().startsWith('zh')
     ? Language.ZhHans
     : Language.En
+}
+
+export function getInitialLanguage(): Language {
+  return getSavedLanguage() ?? getBrowserLanguage()
 }
 
 export class Localizer {
@@ -17,9 +44,10 @@ export class Localizer {
   private currentLang: Language
   private translations: Translations = {}
   private loadedLanguages: Map<Language, Translations> = new Map()
+  private listeners: Set<LanguageChangeCallback> = new Set()
 
   private constructor() {
-    this.currentLang = Language.ZhHans
+    this.currentLang = getInitialLanguage()
   }
 
   static getInstance(): Localizer {
@@ -29,8 +57,9 @@ export class Localizer {
     return Localizer.instance
   }
 
-  async init(lang: Language = getBrowserLanguage()): Promise<void> {
+  async init(lang: Language = getInitialLanguage()): Promise<void> {
     this.currentLang = lang
+    saveLanguagePreference(lang)
     await this.loadLanguage(lang)
   }
 
@@ -55,11 +84,30 @@ export class Localizer {
   }
 
   async setLanguage(lang: Language): Promise<void> {
-    if (this.currentLang === lang) {
+    if (this.currentLang === lang && this.loadedLanguages.has(lang)) {
       return
     }
     this.currentLang = lang
+    saveLanguagePreference(lang)
     await this.loadLanguage(lang)
+    this.notifyLanguageChange(lang)
+  }
+
+  onLanguageChange(callback: LanguageChangeCallback): () => void {
+    this.listeners.add(callback)
+    return () => {
+      this.listeners.delete(callback)
+    }
+  }
+
+  private notifyLanguageChange(lang: Language): void {
+    this.listeners.forEach((callback) => {
+      try {
+        callback(lang)
+      } catch (error) {
+        console.error('[Localizer] Error in language change listener:', error)
+      }
+    })
   }
 
   getCurrentLanguage(): Language {

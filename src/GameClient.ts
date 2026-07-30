@@ -895,6 +895,7 @@ export class GameClient {
     this.mobileAttackDefenseGesturesEnabled = enabled
     this.mobileControls?.setAttackDefenseGesturesEnabled(enabled)
     this.menuManager.setAttackDefenseGesturesEnabled(enabled)
+    this.onMobileAttackDefenseGesturesChangeCallback?.(enabled)
   }
 
   onMobileAttackDefenseGesturesChange(

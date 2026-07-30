@@ -1,4 +1,9 @@
-import { Language, getBrowserLanguage } from '../Localizer'
+import {
+  Language,
+  getInitialLanguage,
+  localizer,
+  saveLanguagePreference,
+} from '../Localizer'
 import { MapImportExportPanel } from '../MapImportExportPanel'
 import { enPageTranslations } from './pageTranslations/en'
 import {
@@ -18,7 +23,7 @@ const LANGUAGE_LABEL_KEYS: Record<Language, PageTranslationKey> = {
 }
 
 export class PageLocalizer {
-  private currentLanguage = getBrowserLanguage()
+  private currentLanguage = getInitialLanguage()
 
   init(): void {
     const languageSelect = document.getElementById('pageLanguageSelect')
@@ -31,15 +36,28 @@ export class PageLocalizer {
       }
       languageSelect.value = this.currentLanguage
       languageSelect.addEventListener('change', () => {
-        this.currentLanguage =
+        const nextLang =
           languageSelect.value === Language.ZhHans
             ? Language.ZhHans
             : Language.En
+        this.currentLanguage = nextLang
+        saveLanguagePreference(nextLang)
         this.applyTranslations()
+        void localizer.setLanguage(nextLang)
       })
     }
 
     this.applyTranslations()
+
+    localizer.onLanguageChange((lang) => {
+      if (this.currentLanguage !== lang) {
+        this.currentLanguage = lang
+        if (languageSelect instanceof HTMLSelectElement) {
+          languageSelect.value = lang
+        }
+        this.applyTranslations()
+      }
+    })
 
     const mapPanel = document.getElementById('mapPanel')
     if (mapPanel) {
