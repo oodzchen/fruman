@@ -1860,6 +1860,20 @@ export class EditorManager {
     return result
   }
 
+  private isObjectOnCanvas(
+    object: fabric.Object,
+    canvas: fabric.Canvas
+  ): boolean {
+    let current: fabric.Object | null = object
+    while (current) {
+      if (current.canvas === canvas) {
+        return true
+      }
+      current = current.group ?? null
+    }
+    return false
+  }
+
   private applyCanvasSelectionFromIds(ids: number[]) {
     const canvas = this.fabricCanvas
     if (!canvas) {
@@ -1883,7 +1897,7 @@ export class EditorManager {
         continue
       }
       const target = this.objectManager.getSelectionTarget(data.object)
-      if (target.canvas !== canvas) {
+      if (!this.isObjectOnCanvas(target, canvas)) {
         continue
       }
       if (!objects.includes(target)) {
@@ -4228,6 +4242,8 @@ export class EditorManager {
       lockScalingX: true,
       lockScalingY: true,
       objectCaching: false,
+      subTargetCheck: true,
+      interactive: true,
     }) as EditorEmptyObject & EditorLayeredObject
     group.left = centerX
     group.top = centerY

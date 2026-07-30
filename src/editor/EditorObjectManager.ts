@@ -376,22 +376,39 @@ export class EditorObjectManager {
     if (!data) {
       return
     }
-    const selectionTarget = this.resolveSelectableObject(data.object)
+    const selectionTarget = data.object
     canvas.setActiveObject(selectionTarget)
     this.handleCanvasSelection([selectionTarget])
     canvas.requestRenderAll()
   }
 
   getSelectionTarget(object: fabric.Object): fabric.Object {
-    return this.resolveSelectableObject(object)
+    return object
   }
 
   isObjectLocked(object: fabric.Object | null): boolean {
     if (!object) {
       return false
     }
-    const data = this.editorObjectMap.get(this.resolveSelectableObject(object))
-    return data?.isLocked === true
+    const data = this.editorObjectMap.get(object)
+    if (!data) {
+      return false
+    }
+    if (data.isLocked) {
+      return true
+    }
+    let parentId = data.parentId
+    while (parentId !== null) {
+      const parentData = this.getEditorObjectById(parentId)
+      if (!parentData) {
+        break
+      }
+      if (parentData.isLocked) {
+        return true
+      }
+      parentId = parentData.parentId
+    }
+    return false
   }
 
   hasLockedObjects(ids: readonly number[]): boolean {
@@ -406,8 +423,7 @@ export class EditorObjectManager {
   }
 
   setObjectLocked(object: fabric.Object, locked: boolean): boolean {
-    const target = this.resolveSelectableObject(object)
-    const data = this.editorObjectMap.get(target)
+    const data = this.editorObjectMap.get(object)
     if (!data || data.isLocked === locked) {
       return false
     }
@@ -443,15 +459,12 @@ export class EditorObjectManager {
     const nextIds: number[] = []
     let nextFocus: fabric.Object | null = null
     for (let i = 0; i < targets.length; i++) {
-      const target = this.resolveSelectableObject(targets[i])
-      if (
-        nextFocus === target ||
-        nextIds.includes(this.editorObjectMap.get(target)?.id ?? -1)
-      ) {
-        continue
-      }
+      const target = targets[i]
       const data = this.editorObjectMap.get(target)
       if (!data) {
+        continue
+      }
+      if (nextFocus === target || nextIds.includes(data.id)) {
         continue
       }
       nextIds.push(data.id)
@@ -684,6 +697,9 @@ export class EditorObjectManager {
       return null
     }
 
+    groupObject.isGroupContainer = true
+    groupObject.subTargetCheck = true
+    groupObject.interactive = true
     canvas.add(groupObject)
     const groupData = this.createEditorObjectData(ObjectType.Empty, groupObject)
     groupData.parentId = parentId
@@ -754,6 +770,8 @@ export class EditorObjectManager {
     }
     const groupObject = object as EditorEmptyObject
     groupObject.isGroupContainer = true
+    groupObject.subTargetCheck = true
+    groupObject.interactive = true
     this.synchronizeGroupMemberships()
     this.applyEditorObjectStacking()
     this.ctx.renderObjectTree()
@@ -1061,6 +1079,8 @@ export class EditorObjectManager {
       if (!parentData || !this.isGroupContainerObject(parentData.object)) {
         continue
       }
+      parentData.object.subTargetCheck = true
+      parentData.object.interactive = true
       this.attachObjectToGroup(data.object, parentData.object)
     }
   }
@@ -1140,13 +1160,5 @@ export class EditorObjectManager {
       emptyObject.editorShape === 'editor-empty' &&
       emptyObject.isGroupContainer === true
     )
-  }
-
-  private resolveSelectableObject(object: fabric.Object): fabric.Object {
-    let current = object
-    while (current.group && this.editorObjectMap.has(current.group)) {
-      current = current.group
-    }
-    return current
   }
 }

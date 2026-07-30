@@ -6,16 +6,16 @@ A high-performance 2D side-scrolling fighting game built on an **ECS (Entity-Com
 
 **Technology Stack**
 
-| Category      | Technology                                             |
-| ------------- | ------------------------------------------------------ |
-| Rendering     | Pixi.js v8 (WebGL by default, Canvas fallback, optional WebGPU) |
-| Physics       | Box2D3-WASM v5.1                                       |
-| Skeletal animation | Spine Pixi v4.2                                   |
-| Particle system | @pixi/particle-emitter                               |
-| Geometry      | d3-delaunay, clipper2-wasm, poly-decomp-es             |
-| Editor canvas | fabric.js v7                                           |
-| Build tools   | Vite v8 + TypeScript 5 strict                          |
-| Code quality  | ESLint v10 + Prettier                                  |
+| Category           | Technology                                                      |
+| ------------------ | --------------------------------------------------------------- |
+| Rendering          | Pixi.js v8 (WebGL by default, Canvas fallback, optional WebGPU) |
+| Physics            | Box2D3-WASM v5.1                                                |
+| Skeletal animation | Spine Pixi v4.2                                                 |
+| Particle system    | @pixi/particle-emitter                                          |
+| Geometry           | d3-delaunay, clipper2-wasm, poly-decomp-es                      |
+| Editor canvas      | fabric.js v7                                                    |
+| Build tools        | Vite v8 + TypeScript 5 strict                                   |
+| Code quality       | ESLint v10 + Prettier                                           |
 
 ---
 
@@ -312,16 +312,16 @@ ECS World.update(deltaTime)
 
 ### Strategy Summary
 
-| Optimization       | Implementation                                      |
-| ------------------ | --------------------------------------------------- |
-| Spatial partitioning | SpatialHash grid limits range-query candidates    |
-| Object reuse       | ArrowPools, EntityComponentPool, particle and render cache pools |
-| Visibility culling | PixiWorldRenderer updates visible entities only     |
-| Fixed time step    | Worker accumulates delta time and advances game state at 60 Hz |
-| Component caching  | Common Entity component fields avoid repeated Map lookups |
-| State transfer     | SharedArrayBuffer, with reusable ArrayBuffer fallback |
-| Bitmask filtering  | ComponentRegistry + World system entity cache       |
-| Resource caching   | Weapon, body, Spine, and procedural environment texture caches |
+| Optimization         | Implementation                                                   |
+| -------------------- | ---------------------------------------------------------------- |
+| Spatial partitioning | SpatialHash grid limits range-query candidates                   |
+| Object reuse         | ArrowPools, EntityComponentPool, particle and render cache pools |
+| Visibility culling   | PixiWorldRenderer updates visible entities only                  |
+| Fixed time step      | Worker accumulates delta time and advances game state at 60 Hz   |
+| Component caching    | Common Entity component fields avoid repeated Map lookups        |
+| State transfer       | SharedArrayBuffer, with reusable ArrayBuffer fallback            |
+| Bitmask filtering    | ComponentRegistry + World system entity cache                    |
+| Resource caching     | Weapon, body, Spine, and procedural environment texture caches   |
 
 Both the main thread and Worker include performance sampling. Use `?perf=1` to display the data and emit logs based on thresholds. Performance conclusions should be based on these samples rather than hard-coded timing estimates in this document.
 

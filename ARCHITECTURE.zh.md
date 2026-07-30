@@ -6,16 +6,16 @@
 
 **技术栈**
 
-| 类别       | 技术                                            |
-| ---------- | ----------------------------------------------- |
+| 类别       | 技术                                              |
+| ---------- | ------------------------------------------------- |
 | 渲染引擎   | Pixi.js v8 (默认 WebGL，Canvas 回退，可选 WebGPU) |
-| 物理引擎   | Box2D3-WASM v5.1                                |
-| 骨骼动画   | Spine Pixi v4.2                                 |
-| 粒子系统   | @pixi/particle-emitter                          |
-| 几何算法   | d3-delaunay, clipper2-wasm, poly-decomp-es      |
-| 编辑器画布 | fabric.js v7                                    |
-| 构建工具   | Vite v8 + TypeScript 5 strict                   |
-| 代码质量   | ESLint v10 + Prettier                           |
+| 物理引擎   | Box2D3-WASM v5.1                                  |
+| 骨骼动画   | Spine Pixi v4.2                                   |
+| 粒子系统   | @pixi/particle-emitter                            |
+| 几何算法   | d3-delaunay, clipper2-wasm, poly-decomp-es        |
+| 编辑器画布 | fabric.js v7                                      |
+| 构建工具   | Vite v8 + TypeScript 5 strict                     |
+| 代码质量   | ESLint v10 + Prettier                             |
 
 ---
 
