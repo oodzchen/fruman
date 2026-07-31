@@ -1,5 +1,7 @@
 # sl2d
 
+English | [中文](README.zh.md)
+
 sl2d is a browser-based 2D side-scrolling action game built with TypeScript. PixiJS handles rendering, Box2D WASM provides physics simulation, and the game logic runs in a Web Worker using an ECS architecture.
 
 The project features real-time combat, weapons and skills, grappling, terrain interactions, lighting, and a day-night cycle. It also includes a built-in editor for creating maps and character bodies.
@@ -17,11 +19,6 @@ npm run dev
 npm run lint
 npm run format
 ```
-
-## Architecture
-
-- [English](ARCHITECTURE.md)
-- [中文](ARCHITECTURE.zh.md)
 
 ## License
 
