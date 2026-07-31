@@ -330,13 +330,15 @@ export class MenuManager {
         value: resDisplay,
       })
       y += spacing
-      this.menuItems.push({
-        label: localizer.t('menu_settings_attack_defense_gestures'),
-        action: MenuAction.AttackDefenseGestures,
-        y,
-        value: attackDefenseDisplay,
-      })
-      y += spacing
+      if (this.mobileGame) {
+        this.menuItems.push({
+          label: localizer.t('menu_settings_attack_defense_gestures'),
+          action: MenuAction.AttackDefenseGestures,
+          y,
+          value: attackDefenseDisplay,
+        })
+        y += spacing
+      }
       this.menuItems.push({
         label: localizer.t('menu_back'),
         action: MenuAction.Back,
