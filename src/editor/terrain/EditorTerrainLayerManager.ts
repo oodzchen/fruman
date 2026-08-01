@@ -1949,15 +1949,7 @@ export class EditorTerrainLayerManager {
     if (!contour) {
       return false
     }
-    for (let i = 0; i < contour.points.length; i += 2) {
-      contour.points[i] += deltaXUnits
-      contour.points[i + 1] += deltaYUnits
-    }
-    this.offsetContourBounds(contour, deltaXUnits, deltaYUnits)
-    this.bumpContourBuildRevision(contour)
-    if (contour.fillLayer) {
-      this.applyLayerUnitDelta(contour.fillLayer, deltaXUnits, deltaYUnits)
-    }
+    this.applyContourUnitDelta(contour, deltaXUnits, deltaYUnits)
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
     return true
@@ -2202,15 +2194,7 @@ export class EditorTerrainLayerManager {
       this.ctx.requestRender()
       return false
     }
-    for (let i = 0; i < contour.points.length; i += 2) {
-      contour.points[i] += deltaX
-      contour.points[i + 1] += deltaY
-    }
-    this.offsetContourBounds(contour, deltaX, deltaY)
-    this.bumpContourBuildRevision(contour)
-    if (contour.fillLayer) {
-      this.applyLayerUnitDelta(contour.fillLayer, deltaX, deltaY)
-    }
+    this.applyContourUnitDelta(contour, deltaX, deltaY)
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
     return true
@@ -2301,23 +2285,11 @@ export class EditorTerrainLayerManager {
       this.movingContourAppliedDeltaX !== 0 ||
       this.movingContourAppliedDeltaY !== 0
     if (changed) {
-      for (let i = 0; i < contour.points.length; i += 2) {
-        contour.points[i] += this.movingContourAppliedDeltaX
-        contour.points[i + 1] += this.movingContourAppliedDeltaY
-      }
-      this.offsetContourBounds(
+      this.applyContourUnitDelta(
         contour,
         this.movingContourAppliedDeltaX,
         this.movingContourAppliedDeltaY
       )
-      this.bumpContourBuildRevision(contour)
-      if (contour.fillLayer) {
-        this.applyLayerUnitDelta(
-          contour.fillLayer,
-          this.movingContourAppliedDeltaX,
-          this.movingContourAppliedDeltaY
-        )
-      }
       this.refreshContourProxy(contour)
     }
     proxy.left = proxy.terrainContourAnchorLeft
@@ -2954,6 +2926,22 @@ export class EditorTerrainLayerManager {
     bounds.maxX += deltaX
     bounds.minY += deltaY
     bounds.maxY += deltaY
+  }
+
+  private applyContourUnitDelta(
+    contour: EditorTerrainContour,
+    deltaX: number,
+    deltaY: number
+  ): void {
+    for (let i = 0; i < contour.points.length; i += 2) {
+      contour.points[i] += deltaX
+      contour.points[i + 1] += deltaY
+    }
+    this.offsetContourBounds(contour, deltaX, deltaY)
+    if (contour.fillLayer) {
+      this.applyLayerUnitDelta(contour.fillLayer, deltaX, deltaY)
+    }
+    this.bumpContourBuildRevision(contour)
   }
 
   private recordContourRefreshPerf(startMs: number): void {
@@ -4344,19 +4332,7 @@ export class EditorTerrainLayerManager {
         continue
       }
       movedContourIds.add(contour.id)
-      for (
-        let pointIndex = 0;
-        pointIndex < contour.points.length;
-        pointIndex += 2
-      ) {
-        contour.points[pointIndex] += deltaXUnits
-        contour.points[pointIndex + 1] += deltaYUnits
-      }
-      this.offsetContourBounds(contour, deltaXUnits, deltaYUnits)
-      this.bumpContourBuildRevision(contour)
-      if (contour.fillLayer) {
-        this.applyLayerUnitDelta(contour.fillLayer, deltaXUnits, deltaYUnits)
-      }
+      this.applyContourUnitDelta(contour, deltaXUnits, deltaYUnits)
       this.refreshContourProxy(contour)
     }
   }
@@ -4760,11 +4736,9 @@ export class EditorTerrainLayerManager {
     const resolvedLayer = this.createResolvedLayerView(layer)
     const offsetXUnits = resolvedLayer.offsetXUnits
     const offsetYUnits = resolvedLayer.offsetYUnits
-    resolvedLayer.offsetXUnits = 0
-    resolvedLayer.offsetYUnits = 0
     ctx.clearRect(0, 0, width, height)
     ctx.save()
-    ctx.translate(-minX, -minY)
+    ctx.translate(-minX - offsetXUnits, -minY - offsetYUnits)
 
     TerrainRenderer.drawLayerView(
       ctx,
