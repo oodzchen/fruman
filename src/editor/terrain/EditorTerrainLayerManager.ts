@@ -220,13 +220,76 @@ class TerrainContourRenderObject extends fabric.FabricObject {
     }
     ctx.stroke()
 
-    if (this.contourShowGuides) {
+    if (this.contourShowGuides && !this.hasControls) {
       if (this.contourReferenceLine) {
         ctx.setLineDash(TERRAIN_SOLID_LINE_DASH)
       }
       this.renderPointGuides(ctx, points, originX, originY, anchorX, anchorY)
     }
     ctx.restore()
+  }
+
+  override findControl(
+    pointer: fabric.Point,
+    forTouch = false
+  ): ReturnType<fabric.FabricObject['findControl']> {
+    if (this.isContourPointHit(pointer)) {
+      this.__corner = undefined
+      return undefined
+    }
+    return super.findControl(pointer, forTouch)
+  }
+
+  override _renderControls(
+    ctx: CanvasRenderingContext2D,
+    styleOverride?: Parameters<fabric.FabricObject['_renderControls']>[1]
+  ): void {
+    super._renderControls(ctx, styleOverride)
+    if (!this.contourShowGuides || !this.hasControls) {
+      return
+    }
+    const viewportTransform = this.getViewportTransform()
+    const width = this.width ?? 1
+    const height = this.height ?? 1
+    ctx.save()
+    ctx.transform(
+      viewportTransform[0],
+      viewportTransform[1],
+      viewportTransform[2],
+      viewportTransform[3],
+      viewportTransform[4],
+      viewportTransform[5]
+    )
+    this.transform(ctx)
+    this.renderPointGuides(
+      ctx,
+      this.contourPoints,
+      -Math.floor(width / 2),
+      -Math.floor(height / 2),
+      this.terrainContourAnchorLeft | 0,
+      this.terrainContourAnchorTop | 0
+    )
+    ctx.restore()
+  }
+
+  private isContourPointHit(pointer: fabric.Point): boolean {
+    if (!this.contourShowGuides || !this.hasControls || !this.canvas) {
+      return false
+    }
+    const transform = this.canvas.viewportTransform
+    const points = this.contourPoints
+    for (let i = 0; i < points.length; i += 2) {
+      const pointX =
+        transform[0] * points[i] + transform[2] * points[i + 1] + transform[4]
+      const pointY =
+        transform[1] * points[i] + transform[3] * points[i + 1] + transform[5]
+      const dx = pointer.x - pointX
+      const dy = pointer.y - pointY
+      if (dx * dx + dy * dy <= TERRAIN_CONTOUR_SELECT_DISTANCE_SQ) {
+        return true
+      }
+    }
+    return false
   }
 
   private renderPointGuides(
