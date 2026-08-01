@@ -238,6 +238,8 @@
   "editor_terrain_properties_straight_edge_hint": "开启后，地形边缘会严格贴合当前轮廓；关闭后，边缘保留基于单元的凹凸效果。",
   "editor_terrain_properties_cell_stroke": "单元线条",
   "editor_terrain_properties_cell_stroke_hint": "开启后绘制地形单元边线；关闭后只保留填充色。",
+  "editor_terrain_properties_edge_protection": "边缘保护",
+  "editor_terrain_properties_edge_protection_hint": "开启后会在顺重力方向的坠落边生成较矮的单向空气墙，防止角色从地形内直接走落；从外侧跳上平台时不会被阻挡。",
   "editor_procedural_properties_cell_stroke_hint": "开启后绘制泰森图单元边线；关闭后只保留填充色。",
   "editor_map_settings": "地图设置",
   "editor_map_settings_title": "地图设置",

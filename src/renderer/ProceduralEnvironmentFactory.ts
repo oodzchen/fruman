@@ -204,6 +204,7 @@ function buildLayer(
     offsetXUnits: 0,
     offsetYUnits: 0,
     renderLayer: 0,
+    edgeProtection: false,
     contourClipPoints: contourPoints,
     contourBuildRevision: buildRevision,
     buildRevision,

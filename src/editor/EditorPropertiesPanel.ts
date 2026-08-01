@@ -265,6 +265,11 @@ export interface EditorPropertiesPanelContext {
   ) => boolean
   getTerrainCellStroke: (target: fabric.Object) => boolean | null
   setTerrainCellStroke: (target: fabric.Object, cellStroke: boolean) => boolean
+  getTerrainEdgeProtection: (target: fabric.Object) => boolean | null
+  setTerrainEdgeProtection: (
+    target: fabric.Object,
+    edgeProtection: boolean
+  ) => boolean
   getProceduralCellStroke: (target: fabric.Object) => boolean | null
   setProceduralCellStroke: (
     target: fabric.Object,
@@ -3163,7 +3168,12 @@ export class EditorPropertiesPanel {
   ): Promise<boolean> {
     const straightEdgeValue = this.context.getTerrainStraightEdge(target)
     const cellStrokeValue = this.context.getTerrainCellStroke(target)
-    if (straightEdgeValue === null && cellStrokeValue === null) {
+    const edgeProtectionValue = this.context.getTerrainEdgeProtection(target)
+    if (
+      straightEdgeValue === null &&
+      cellStrokeValue === null &&
+      edgeProtectionValue === null
+    ) {
       return false
     }
 
@@ -3198,6 +3208,18 @@ export class EditorPropertiesPanel {
       leftPanel.appendChild(cellStrokeRow.row)
     }
 
+    let edgeProtectionCheckbox: HTMLInputElement | null = null
+    if (edgeProtectionValue !== null) {
+      const edgeProtectionRow = EditorUIHelper.createFormRow(
+        localizer.t('editor_terrain_properties_edge_protection')
+      )
+      edgeProtectionCheckbox = document.createElement('input')
+      edgeProtectionCheckbox.type = 'checkbox'
+      edgeProtectionCheckbox.checked = edgeProtectionValue
+      edgeProtectionRow.row.appendChild(edgeProtectionCheckbox)
+      leftPanel.appendChild(edgeProtectionRow.row)
+    }
+
     if (straightEdgeValue !== null) {
       const straightEdgeHint = document.createElement('div')
       straightEdgeHint.textContent = localizer.t(
@@ -3216,6 +3238,16 @@ export class EditorPropertiesPanel {
       cellStrokeHint.style.cssText =
         'margin-top:8px;font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
       rightPanel.appendChild(cellStrokeHint)
+    }
+
+    if (edgeProtectionValue !== null) {
+      const edgeProtectionHint = document.createElement('div')
+      edgeProtectionHint.textContent = localizer.t(
+        'editor_terrain_properties_edge_protection_hint'
+      )
+      edgeProtectionHint.style.cssText =
+        'margin-top:8px;font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+      rightPanel.appendChild(edgeProtectionHint)
     }
 
     const buttonRow = EditorUIHelper.createButtonRow()
@@ -3256,6 +3288,13 @@ export class EditorPropertiesPanel {
             this.context.setTerrainCellStroke(
               target,
               cellStrokeCheckbox.checked
+            ) || changed
+        }
+        if (edgeProtectionCheckbox) {
+          changed =
+            this.context.setTerrainEdgeProtection(
+              target,
+              edgeProtectionCheckbox.checked
             ) || changed
         }
         if (changed) {

@@ -218,6 +218,7 @@ export function createFilledContourLayer(
     offsetCellY: 0,
     offsetXUnits: 0,
     offsetYUnits: 0,
+    edgeProtection: false,
     renderLayer: 0,
     contourClipPoints,
     contourBuildRevision: buildRevision,

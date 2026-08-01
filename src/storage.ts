@@ -2680,6 +2680,8 @@ function normalizeMapTerrain(
                   ? layer.contourId | 0
                   : undefined,
               cellStroke: layer.cellStroke === true ? true : undefined,
+              edgeProtection:
+                layer.edgeProtection === false ? false : undefined,
               buildRevision:
                 typeof layer.buildRevision === 'number'
                   ? layer.buildRevision | 0
@@ -2744,6 +2746,7 @@ function normalizeMapTerrain(
           ? contour.straightEdge
           : undefined,
       cellStroke: contour.cellStroke === true ? true : undefined,
+      edgeProtection: contour.edgeProtection === false ? false : undefined,
       buildRevision:
         typeof contour.buildRevision === 'number'
           ? contour.buildRevision | 0

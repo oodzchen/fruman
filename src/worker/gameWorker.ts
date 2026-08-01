@@ -31,6 +31,7 @@ import {
   DEFAULT_WEAPON_CORNER_RADIUS,
   GRAPPLE_ANCHOR_BORDER_COLOR,
   GRAPPLE_ANCHOR_COLOR,
+  TERRAIN_EDGE_PROTECTION_HEIGHT,
   WEAPON_DEFAULT_DATA,
 } from '../constants'
 import { ArrowPools } from '../ecs/ArrowPools'
@@ -96,10 +97,12 @@ import {
 import {
   configureCollisionLayers,
   getCollisionLayerValue,
+  getEnemyCollisionCategory,
   getGroundCollisionCategory,
   getGroundCollisionMask,
   getObstacleCollisionCategory,
   getObstacleCollisionMask,
+  getPlayerCollisionCategory,
   getWeaponCollisionCategory,
   getWeaponCollisionMask,
 } from '../physicsLayers'
@@ -116,6 +119,7 @@ import type { SaveCheckpointState, SaveData } from '../saveTypes'
 import { ensureDefaultMap } from '../storage'
 import { TerrainCollisionBuilder } from '../terrain/TerrainCollisionBuilder'
 import { hasTerrainContent } from '../terrain/TerrainDataUtils'
+import { buildTerrainEdgeProtectionWalls } from '../terrain/TerrainEdgeProtectionBuilder'
 import { getTerrainMaterialByCode } from '../terrain/TerrainMaterialRegistry'
 import { initializeTerrainPolygonUtils } from '../terrain/TerrainPolygonUtils'
 import {
@@ -1640,6 +1644,7 @@ function createTerrainFromMap(
         materialTag,
       })
     }
+    createTerrainEdgeProtectionBodies(physicsTerrain)
     return
   }
   const rects = TerrainCollisionBuilder.buildRectangles(physicsTerrain)
@@ -1696,6 +1701,102 @@ function createTerrainFromMap(
       materialTag,
     })
   }
+  createTerrainEdgeProtectionBodies(physicsTerrain)
+}
+
+function createTerrainEdgeProtectionBodies(
+  terrain: NonNullable<EditorMapData['terrain']>
+): void {
+  const gravityX = 0
+  const gravityY = DEFAULT_GRAVITY
+  const gravityLength = Math.sqrt(gravityX * gravityX + gravityY * gravityY)
+  if (gravityLength <= 0) {
+    return
+  }
+  const gravityUnitX = gravityX / gravityLength
+  const gravityUnitY = gravityY / gravityLength
+  const walls = buildTerrainEdgeProtectionWalls(terrain, gravityX, gravityY)
+  for (let i = 0; i < walls.length; i++) {
+    const wall = walls[i]
+    const renderLayer = getCollisionLayerValue(wall.renderLayer)
+    const collisionMask =
+      getPlayerCollisionCategory(renderLayer) |
+      getEnemyCollisionCategory(renderLayer)
+    const bodyId = createTerrainEdgeProtectionBody(
+      wall.x,
+      wall.y,
+      wall.interiorX,
+      wall.interiorY,
+      gravityUnitX,
+      gravityUnitY,
+      renderLayer,
+      collisionMask,
+      TERRAIN_EDGE_PROTECTION_HEIGHT
+    )
+    terrainBodyIds.push(bodyId)
+  }
+}
+
+function createTerrainEdgeProtectionBody(
+  ledgeX: number,
+  ledgeY: number,
+  interiorX: number,
+  interiorY: number,
+  gravityUnitX: number,
+  gravityUnitY: number,
+  renderLayer: number,
+  collisionMask: number,
+  height: number
+): b2BodyId {
+  const {
+    b2DefaultBodyDef,
+    b2CreateBody,
+    b2DefaultChainDef,
+    b2DefaultSurfaceMaterial,
+    b2CreateChain,
+    b2Vec2,
+  } = box2d
+  const bodyDef = b2DefaultBodyDef()
+  const bodyId = b2CreateBody(worldId, bodyDef)
+  const topX = ledgeX - gravityUnitX * height
+  const topY = ledgeY - gravityUnitY * height
+  const ledgeToTopX = topX - ledgeX
+  const ledgeToTopY = topY - ledgeY
+  const ledgeToTopRightNormalX = ledgeToTopY
+  const ledgeToTopRightNormalY = -ledgeToTopX
+  const ledgeFirst =
+    ledgeToTopRightNormalX * interiorX + ledgeToTopRightNormalY * interiorY > 0
+  const point1X = ledgeFirst ? ledgeX : topX
+  const point1Y = ledgeFirst ? ledgeY : topY
+  const point2X = ledgeFirst ? topX : ledgeX
+  const point2Y = ledgeFirst ? topY : ledgeY
+  const segmentX = point2X - point1X
+  const segmentY = point2Y - point1Y
+  const points = [
+    new b2Vec2(point1X - segmentX, point1Y - segmentY),
+    new b2Vec2(point1X, point1Y),
+    new b2Vec2(point2X, point2Y),
+    new b2Vec2(point2X + segmentX, point2Y + segmentY),
+  ]
+  const material = b2DefaultSurfaceMaterial()
+  material.friction = 0
+  material.restitution = 0
+  const chainDef = b2DefaultChainDef()
+  chainDef.count = points.length
+  chainDef.SetPoints(points)
+  chainDef.materialCount = 1
+  chainDef.SetMaterials([material])
+  chainDef.filter.categoryBits = getGroundCollisionCategory(renderLayer)
+  chainDef.filter.maskBits = collisionMask
+  b2CreateChain(bodyId, chainDef)
+
+  bodyDef.delete()
+  chainDef.delete()
+  material.delete()
+  for (let i = 0; i < points.length; i++) {
+    points[i].delete()
+  }
+  return bodyId
 }
 
 function createCheckpointsFromMap(map: EditorMapData): void {

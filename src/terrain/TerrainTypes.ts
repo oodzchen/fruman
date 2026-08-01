@@ -56,6 +56,7 @@ export interface TerrainContourLike {
   shapeKind?: TerrainContourShapeKind
   straightEdge?: boolean
   cellStroke?: boolean
+  edgeProtection?: boolean
   buildRevision?: number
 }
 
@@ -76,6 +77,7 @@ export interface TerrainLayerLike {
   renderLayer?: number
   contourId?: number
   cellStroke?: boolean
+  edgeProtection?: boolean
   buildRevision?: number
   chunks: ReadonlyArray<TerrainChunkLike>
 }

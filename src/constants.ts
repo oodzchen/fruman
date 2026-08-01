@@ -290,6 +290,9 @@ export const DEFAULT_WEAPON_PLAYER_CLEARANCE = 0.1
 // 角色半径（米），用于与武器距离计算
 export const DEFAULT_PLAYER_RADIUS = 0.5
 
+// 略低于原型角色半身高度，让普通移动无法越过，但跳跃可以通过。
+export const TERRAIN_EDGE_PROTECTION_HEIGHT = 0.4
+
 // 战斗状态超时时长（毫秒）
 export const DEFAULT_WEAPON_COMBAT_TIMEOUT_MS = 30000
 

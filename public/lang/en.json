@@ -238,6 +238,8 @@
   "editor_terrain_properties_straight_edge_hint": "When enabled, terrain edges follow the current contour exactly. When disabled, edges keep the cell-based rough silhouette.",
   "editor_terrain_properties_cell_stroke": "Cell Lines",
   "editor_terrain_properties_cell_stroke_hint": "When enabled, terrain cell borders are drawn. When disabled, only the fill colors are shown.",
+  "editor_terrain_properties_edge_protection": "Edge Protection",
+  "editor_terrain_properties_edge_protection_hint": "Adds a low one-way invisible wall at gravity-facing drop edges. It prevents walking off from inside the terrain but allows jumping onto the platform from outside.",
   "editor_procedural_properties_cell_stroke_hint": "When enabled, Voronoi cell borders are drawn. When disabled, only the fill colors are shown.",
   "editor_map_settings": "Map Settings",
   "editor_map_settings_title": "Map Settings",

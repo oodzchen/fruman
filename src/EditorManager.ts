@@ -586,6 +586,10 @@ export class EditorManager {
         this.terrainManager.getProxyCellStroke(target),
       setTerrainCellStroke: (target, cellStroke) =>
         this.terrainManager.setProxyCellStroke(target, cellStroke),
+      getTerrainEdgeProtection: (target) =>
+        this.terrainManager.getProxyEdgeProtection(target),
+      setTerrainEdgeProtection: (target, edgeProtection) =>
+        this.terrainManager.setProxyEdgeProtection(target, edgeProtection),
       getProceduralCellStroke: (target) =>
         this.markerManager.getProceduralCellStroke(target),
       setProceduralCellStroke: (target, cellStroke) =>

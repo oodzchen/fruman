@@ -86,6 +86,7 @@ interface EditorTerrainContour {
   shapeKind: TerrainContourShapeKind | null
   straightEdge: boolean
   cellStroke: boolean
+  edgeProtection: boolean
   referenceLine: boolean
   fillLayer: EditorTerrainLayer | null
   proxy: TerrainContourProxy
@@ -98,6 +99,7 @@ export interface TerrainClipboardLayerSnapshot {
   offsetXUnits: number
   offsetYUnits: number
   cellStroke: boolean
+  edgeProtection: boolean
   chunks: MapTerrainLayer['chunks']
 }
 
@@ -790,6 +792,7 @@ export class EditorTerrainLayerManager {
       offsetXUnits: layer.offsetXUnits,
       offsetYUnits: layer.offsetYUnits,
       cellStroke: layer.serializedLayer.cellStroke === true,
+      edgeProtection: layer.serializedLayer.edgeProtection !== false,
       chunks: layer.grid.serializeChunks(),
     }
   }
@@ -828,6 +831,18 @@ export class EditorTerrainLayerManager {
     if (this.isTerrainContourProxy(object)) {
       const contour = this.proxyToContour.get(object)
       return contour && !contour.referenceLine ? contour.cellStroke : null
+    }
+    return null
+  }
+
+  getProxyEdgeProtection(object: fabric.Object | null): boolean | null {
+    if (this.isTerrainProxy(object)) {
+      const layer = this.proxyToLayer.get(object)
+      return layer ? layer.serializedLayer.edgeProtection !== false : null
+    }
+    if (this.isTerrainContourProxy(object)) {
+      const contour = this.proxyToContour.get(object)
+      return contour && !contour.referenceLine ? contour.edgeProtection : null
     }
     return null
   }
@@ -951,6 +966,42 @@ export class EditorTerrainLayerManager {
     return true
   }
 
+  setProxyEdgeProtection(
+    object: fabric.Object | null,
+    edgeProtection: boolean
+  ): boolean {
+    if (this.isTerrainProxy(object)) {
+      const layer = this.proxyToLayer.get(object)
+      if (
+        !layer ||
+        (layer.serializedLayer.edgeProtection !== false) === edgeProtection
+      ) {
+        return false
+      }
+      layer.serializedLayer.edgeProtection = edgeProtection ? undefined : false
+      this.bumpLayerBuildRevision(layer)
+      this.ctx.requestRender()
+      return true
+    }
+    if (!this.isTerrainContourProxy(object)) {
+      return false
+    }
+    const contour = this.proxyToContour.get(object)
+    if (
+      !contour ||
+      contour.referenceLine ||
+      contour.edgeProtection === edgeProtection
+    ) {
+      return false
+    }
+    contour.edgeProtection = edgeProtection
+    const serializedContour = this.getSerializedContour(contour)
+    serializedContour.edgeProtection = edgeProtection ? undefined : false
+    this.bumpContourBuildRevision(contour, serializedContour)
+    this.ctx.requestRender()
+    return true
+  }
+
   pasteClipboardSnapshot(
     snapshot: TerrainClipboardLayerSnapshot,
     sourceLeft: number,
@@ -972,7 +1023,8 @@ export class EditorTerrainLayerManager {
       false,
       snapshot.offsetXUnits + deltaXUnits,
       snapshot.offsetYUnits + deltaYUnits,
-      snapshot.cellStroke
+      snapshot.cellStroke,
+      snapshot.edgeProtection
     )
     layer.grid.loadSerializedChunks(snapshot.chunks)
     if (!layer.grid.hasCells()) {
@@ -1108,6 +1160,8 @@ export class EditorTerrainLayerManager {
         renderLayer: serializedLayer.renderLayer,
         contourId: layer.contourId > 0 ? layer.contourId : undefined,
         cellStroke: serializedLayer.cellStroke === true ? true : undefined,
+        edgeProtection:
+          serializedLayer.edgeProtection === false ? false : undefined,
         buildRevision: serializedLayer.buildRevision,
         chunks: shareData
           ? (serializedLayer.chunks as MapTerrainLayer['chunks'])
@@ -1130,6 +1184,8 @@ export class EditorTerrainLayerManager {
               straightEdge: serializedContour.straightEdge,
               cellStroke:
                 serializedContour.cellStroke === true ? true : undefined,
+              edgeProtection:
+                serializedContour.edgeProtection === false ? false : undefined,
               buildRevision: serializedContour.buildRevision,
             }
           })
@@ -1210,7 +1266,8 @@ export class EditorTerrainLayerManager {
           (source.contourId ?? 0) > 0,
           source.offsetXUnits ? Math.round(source.offsetXUnits) : 0,
           source.offsetYUnits ? Math.round(source.offsetYUnits) : 0,
-          source.cellStroke === true
+          source.cellStroke === true,
+          source.edgeProtection !== false
         )
         if (layer && layer.contourId > 0) {
           contourLayerMap.set(layer.contourId, layer)
@@ -2346,7 +2403,8 @@ export class EditorTerrainLayerManager {
     internalOnly = false,
     offsetXUnits = 0,
     offsetYUnits = 0,
-    cellStroke = false
+    cellStroke = false,
+    edgeProtection = true
   ): EditorTerrainLayer | null {
     const layer = this.createEmptyLayer(
       materialId,
@@ -2357,7 +2415,8 @@ export class EditorTerrainLayerManager {
       internalOnly,
       offsetXUnits,
       offsetYUnits,
-      cellStroke
+      cellStroke,
+      edgeProtection
     )
     layer.grid.loadSerializedChunks(chunks)
     if (!layer.grid.hasCells()) {
@@ -2382,7 +2441,8 @@ export class EditorTerrainLayerManager {
     internalOnly = false,
     offsetXUnits = 0,
     offsetYUnits = 0,
-    cellStroke = false
+    cellStroke = false,
+    edgeProtection = true
   ): EditorTerrainLayer {
     const grid = new TerrainChunkGrid(this.chunkSize, this.randomSeed)
     const layer: EditorTerrainLayer = {
@@ -2405,6 +2465,7 @@ export class EditorTerrainLayerManager {
             : getDefaultTerrainRenderLayer(materialId),
         contourId: contourId > 0 ? contourId : undefined,
         cellStroke: cellStroke ? true : undefined,
+        edgeProtection: edgeProtection ? undefined : false,
         buildRevision: this.nextBuildRevision(),
         chunks: grid.getChunks(),
       },
@@ -2751,6 +2812,7 @@ export class EditorTerrainLayerManager {
       shapeKind: null,
       straightEdge: false,
       cellStroke: false,
+      edgeProtection: true,
       referenceLine,
       fillLayer: null,
       proxy,
@@ -2762,6 +2824,7 @@ export class EditorTerrainLayerManager {
         points: contour.points,
         renderLayer: contour.renderLayer,
         cellStroke: contour.cellStroke ? true : undefined,
+        edgeProtection: contour.edgeProtection ? undefined : false,
         buildRevision: this.nextBuildRevision(),
       })
     }
@@ -2812,6 +2875,7 @@ export class EditorTerrainLayerManager {
       source.straightEdge === true ||
       (source.straightEdge !== false && contour.shapeKind !== null)
     contour.cellStroke = source.cellStroke === true
+    contour.edgeProtection = source.edgeProtection !== false
     contour.fillLayer = contourLayerMap.get(contour.id) ?? null
     this.nextContourId = Math.max(this.nextContourId, contour.id + 1)
     const serializedContour = this.getSerializedContour(contour)
@@ -2821,6 +2885,9 @@ export class EditorTerrainLayerManager {
     serializedContour.shapeKind = contour.shapeKind ?? undefined
     serializedContour.straightEdge = contour.straightEdge
     serializedContour.cellStroke = contour.cellStroke ? true : undefined
+    serializedContour.edgeProtection = contour.edgeProtection
+      ? undefined
+      : false
     serializedContour.buildRevision =
       source.buildRevision ??
       serializedContour.buildRevision ??
@@ -2850,6 +2917,7 @@ export class EditorTerrainLayerManager {
       shapeKind: contour.shapeKind ?? undefined,
       straightEdge: contour.straightEdge,
       cellStroke: contour.cellStroke ? true : undefined,
+      edgeProtection: contour.edgeProtection ? undefined : false,
       buildRevision: this.nextBuildRevision(),
     }
     this.renderData.contours.push(serializedContour)
@@ -4817,6 +4885,9 @@ export class EditorTerrainLayerManager {
       cellStroke: contour
         ? contour.cellStroke
         : layer.serializedLayer.cellStroke === true,
+      edgeProtection: contour
+        ? contour.edgeProtection
+        : layer.serializedLayer.edgeProtection !== false,
       sourceLayer: layer.serializedLayer,
       contourClipPoints:
         contour && contour.straightEdge !== false ? contour.points : undefined,

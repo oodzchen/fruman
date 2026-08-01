@@ -17,6 +17,7 @@ export interface TerrainResolvedLayerView extends TerrainDataLike {
   renderLayer?: number
   buildRevision?: number
   cellStroke?: boolean
+  edgeProtection: boolean
   sourceLayer?: TerrainLayerLike
   layers?: undefined
   contourClipPoints?: readonly number[]
@@ -92,6 +93,7 @@ export function getTerrainLayerViews(
       offsetXUnits: 0,
       offsetYUnits: 0,
       renderLayer: 0,
+      edgeProtection: true,
     },
   ]
 }
@@ -210,6 +212,9 @@ function createLayerView(
     renderLayer: layer.renderLayer,
     buildRevision: layer.buildRevision,
     cellStroke: contour?.cellStroke === true || layer.cellStroke === true,
+    edgeProtection: contour
+      ? contour.edgeProtection !== false
+      : layer.edgeProtection !== false,
     sourceLayer: layer,
     contourClipPoints,
     contourBuildRevision,
