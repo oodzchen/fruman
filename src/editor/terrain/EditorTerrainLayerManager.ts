@@ -160,7 +160,6 @@ class TerrainContourRenderObject extends fabric.FabricObject {
   declare terrainContourHeight: number
 
   private contourPoints: readonly number[] = []
-  private contourShapeKind: TerrainContourShapeKind | null = null
   private contourStrokeColor = TERRAIN_CONTOUR_IDLE_STROKE_COLOR
   private contourShowGuides = false
   private contourReferenceLine = false
@@ -172,14 +171,12 @@ class TerrainContourRenderObject extends fabric.FabricObject {
 
   updateContourVisual(
     points: readonly number[],
-    shapeKind: TerrainContourShapeKind | null,
     strokeColor: string,
     showGuides: boolean,
     referenceLine: boolean,
     activePointIndex: number
   ): void {
     this.contourPoints = points
-    this.contourShapeKind = shapeKind
     this.contourStrokeColor = strokeColor
     this.contourShowGuides = showGuides
     this.contourReferenceLine = referenceLine
@@ -208,28 +205,20 @@ class TerrainContourRenderObject extends fabric.FabricObject {
       ctx.setLineDash(TERRAIN_REFERENCE_LINE_DASH)
     }
 
-    if (this.contourShapeKind === 'rect') {
-      ctx.beginPath()
-      ctx.rect(originX, originY, width, height)
+    ctx.beginPath()
+    ctx.moveTo(originX + points[0] - anchorX, originY + points[1] - anchorY)
+    for (let i = 2; i < points.length; i += 2) {
+      ctx.lineTo(
+        originX + points[i] - anchorX,
+        originY + points[i + 1] - anchorY
+      )
+    }
+    if (points.length >= 6) {
+      ctx.closePath()
       ctx.fillStyle = 'rgba(255,255,255,0.001)'
       ctx.fill()
-      ctx.stroke()
-    } else {
-      ctx.beginPath()
-      ctx.moveTo(originX + points[0] - anchorX, originY + points[1] - anchorY)
-      for (let i = 2; i < points.length; i += 2) {
-        ctx.lineTo(
-          originX + points[i] - anchorX,
-          originY + points[i + 1] - anchorY
-        )
-      }
-      if (points.length >= 6) {
-        ctx.closePath()
-        ctx.fillStyle = 'rgba(255,255,255,0.001)'
-        ctx.fill()
-      }
-      ctx.stroke()
     }
+    ctx.stroke()
 
     if (this.contourShowGuides) {
       if (this.contourReferenceLine) {
@@ -1370,7 +1359,7 @@ export class EditorTerrainLayerManager {
     if (!contour || contour.id !== this.selectedContourId) {
       return false
     }
-    if (contour.shapeKind) {
+    if (!this.isContourVertexEditable(contour)) {
       return false
     }
     const point = canvas.getScenePoint(mouseEvent)
@@ -1705,8 +1694,9 @@ export class EditorTerrainLayerManager {
       this.refreshContourProxy(contour)
       return {
         target,
-        actions: contour.shapeKind
+        actions: this.isContourVertexEditable(contour)
           ? [
+              'remove',
               'fill',
               'terrainProperties',
               'commonProperties',
@@ -1715,7 +1705,6 @@ export class EditorTerrainLayerManager {
               'delete',
             ]
           : [
-              'remove',
               'fill',
               'terrainProperties',
               'commonProperties',
@@ -1728,7 +1717,7 @@ export class EditorTerrainLayerManager {
         insertY: 0,
       }
     }
-    if (edge && !contour.shapeKind) {
+    if (edge && this.isContourVertexEditable(contour)) {
       this.activeContourPointIndex = -1
       this.refreshContourProxy(contour)
       return {
@@ -1778,7 +1767,7 @@ export class EditorTerrainLayerManager {
     if (!contour) {
       return false
     }
-    if (contour.shapeKind) {
+    if (!this.isContourVertexEditable(contour)) {
       return false
     }
     const pointCount = contour.points.length / 2
@@ -1813,7 +1802,7 @@ export class EditorTerrainLayerManager {
     if (!contour) {
       return false
     }
-    if (contour.shapeKind) {
+    if (!this.isContourVertexEditable(contour)) {
       return false
     }
     const pointCount = contour.points.length / 2
@@ -2151,37 +2140,11 @@ export class EditorTerrainLayerManager {
     if (!contour) {
       return false
     }
-    if (contour.referenceLine) {
-      return this.applyReferenceLineTransform(contour, proxy)
-    }
     const scaleX = proxy.scaleX ?? 1
     const scaleY = proxy.scaleY ?? 1
-    if (contour.shapeKind && (scaleX !== 1 || scaleY !== 1)) {
-      const currentLeft = Math.round(
-        proxy.left ?? proxy.terrainContourAnchorLeft
-      )
-      const currentTop = Math.round(proxy.top ?? proxy.terrainContourAnchorTop)
-      const nextWidth = Math.max(1, Math.round(proxy.getScaledWidth()))
-      const nextHeight = Math.max(1, Math.round(proxy.getScaledHeight()))
-      this.applyShapeTemplateToContour(
-        contour,
-        this.getShapeTemplatePoints(contour.shapeKind),
-        {
-          minX: currentLeft,
-          maxX: currentLeft + nextWidth,
-          minY: currentTop,
-          maxY: currentTop + nextHeight,
-        }
-      )
-      this.bumpContourBuildRevision(contour)
-      proxy.scaleX = 1
-      proxy.scaleY = 1
-      if (contour.fillMaterialId) {
-        this.rasterizeContourFill(contour)
-      }
-      this.refreshContourProxy(contour)
-      this.ctx.requestRender()
-      return true
+    const angle = proxy.angle ?? 0
+    if (contour.referenceLine || scaleX !== 1 || scaleY !== 1 || angle !== 0) {
+      return this.applyContourTransform(contour, proxy)
     }
     const currentLeft = Math.round(proxy.left ?? proxy.terrainContourAnchorLeft)
     const currentTop = Math.round(proxy.top ?? proxy.terrainContourAnchorTop)
@@ -2200,7 +2163,7 @@ export class EditorTerrainLayerManager {
     return true
   }
 
-  private applyReferenceLineTransform(
+  private applyContourTransform(
     contour: EditorTerrainContour,
     proxy: TerrainContourProxy
   ): boolean {
@@ -2238,6 +2201,12 @@ export class EditorTerrainLayerManager {
       return false
     }
     this.markContourBoundsDirty(contour)
+    if (!contour.referenceLine) {
+      this.bumpContourBuildRevision(contour)
+      if (contour.fillMaterialId) {
+        this.rasterizeContourFill(contour)
+      }
+    }
     this.refreshContourProxy(contour)
     this.ctx.requestRender()
     return true
@@ -2738,13 +2707,14 @@ export class EditorTerrainLayerManager {
     this.refreshContourProxy(contour)
     const canvas = this.ctx.getFabricCanvas()
     canvas?.add(proxy)
-    this.ctx.registerEditorObject(
+    const editorObject = this.ctx.registerEditorObject(
       referenceLine ? ObjectType.ReferenceLine : ObjectType.Terrain,
       proxy,
       referenceLine
         ? this.buildGeneratedReferenceLineName()
         : this.buildGeneratedContourName()
     )
+    editorObject.hasControlsWhenUnlocked = true
     return contour
   }
 
@@ -2832,6 +2802,10 @@ export class EditorTerrainLayerManager {
       shapeKind === 'circle' ||
       shapeKind === 'polygon'
     )
+  }
+
+  private isContourVertexEditable(contour: EditorTerrainContour): boolean {
+    return contour.shapeKind === null || contour.shapeKind === 'polygon'
   }
 
   private buildGeneratedContourName(): string {
@@ -2996,7 +2970,7 @@ export class EditorTerrainLayerManager {
       (!this.contourEditMode &&
         !this.referenceLineEditMode &&
         contour.id === this.selectedContourId &&
-        !contour.shapeKind)
+        this.isContourVertexEditable(contour))
     const contourStroke = contour.referenceLine
       ? showContourGuides
         ? TERRAIN_REFERENCE_LINE_STROKE_COLOR
@@ -3018,7 +2992,6 @@ export class EditorTerrainLayerManager {
     ;(proxy as EditorLayeredObject).renderLayer = contour.renderLayer
     ;(proxy as TerrainContourRenderObject).updateContourVisual(
       contour.points,
-      contour.shapeKind,
       contourStroke,
       showContourGuides,
       contour.referenceLine,
@@ -3040,8 +3013,7 @@ export class EditorTerrainLayerManager {
     enabled: boolean
   ): void {
     const contour = this.proxyToContour.get(proxy) ?? null
-    const isShapeContour =
-      contour !== null && !contour.referenceLine && contour.shapeKind !== null
+    const canTransform = contour !== null && contour.points.length >= 6
     if (this.contourEditMode || this.referenceLineEditMode) {
       const editableInCurrentMode = this.contourEditMode
         ? contour?.referenceLine !== true
@@ -3058,12 +3030,10 @@ export class EditorTerrainLayerManager {
     }
     proxy.selectable = enabled
     proxy.evented = enabled
-    const isReferenceLine = contour?.referenceLine === true
-    const canTransform = isShapeContour || isReferenceLine
     proxy.hasBorders = enabled
     proxy.hasControls = enabled && canTransform
     proxy.lockScalingFlip = true
-    proxy.lockRotation = !(enabled && isReferenceLine)
+    proxy.lockRotation = !(enabled && canTransform)
     proxy.lockScalingX = !(enabled && canTransform)
     proxy.lockScalingY = !(enabled && canTransform)
     proxy.hoverCursor = 'default'
@@ -3079,7 +3049,7 @@ export class EditorTerrainLayerManager {
     if (pointIndex < 0 || pointIndex * 2 + 1 >= contour.points.length) {
       return
     }
-    if (contour.shapeKind) {
+    if (!this.isContourVertexEditable(contour)) {
       this.moveConstrainedContourPoint(contour, pointIndex, pointX, pointY)
       return
     }
