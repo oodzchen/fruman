@@ -42,7 +42,10 @@ import {
   writeEnvironmentTransformedOffset,
 } from '../environmentTransformUtils'
 import { resolveNpcBodyProfile } from '../npcBodyProfileUtils'
-import { buildDefaultNpcDropList, normalizeNpcDropList } from '../npcDropUtils'
+import {
+  buildDefaultNpcDropList,
+  normalizeNpcDropListWithWeapons,
+} from '../npcDropUtils'
 import { isEnvironmentCellStrokeSupported } from '../renderer/ProceduralEnvironmentFactory'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import { getCharacterBodyTextureDataUrl } from '../skeletalBodyProfile'
@@ -1172,7 +1175,11 @@ export class EditorMarkerManager {
     const allyFactions = spawn?.allyFactions ?? []
     const drops =
       spawn?.drops !== undefined
-        ? normalizeNpcDropList(spawn.drops)
+        ? normalizeNpcDropListWithWeapons(
+            spawn.drops,
+            mainWeaponType,
+            secondaryWeaponType
+          )
         : buildDefaultNpcDropList(mainWeaponType, secondaryWeaponType)
     let centerX: number
     let centerY: number

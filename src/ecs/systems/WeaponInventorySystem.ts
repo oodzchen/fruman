@@ -725,7 +725,7 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
     )
   }
 
-  dropWeaponsOnDeath(entity: Entity): void {
+  dropWeaponsOnDeath(entity: Entity, spawnEquippedWeapons = true): void {
     if (!entity.transform) return
 
     const transform = entity.transform
@@ -754,7 +754,7 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
     ) => {
       if (!slot.hasWeapon) return
       this.fillWeaponDropDataFromSlot(slot, this.tempWeaponDropData)
-      if (this.shouldDropWeaponOnDeath()) {
+      if (spawnEquippedWeapons && this.shouldDropWeaponOnDeath()) {
         this.dropWeapon(
           transform.x + offsetX,
           transform.y,
@@ -794,7 +794,7 @@ export abstract class WeaponInventorySystem extends WeaponProjectileSystem {
 
     if (weapon && weapon.isEquipped) {
       this.fillWeaponDropDataFromWeapon(weapon, this.tempWeaponDropData)
-      if (this.shouldDropWeaponOnDeath()) {
+      if (spawnEquippedWeapons && this.shouldDropWeaponOnDeath()) {
         this.dropWeapon(
           transform.x,
           transform.y,

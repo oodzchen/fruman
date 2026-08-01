@@ -1369,7 +1369,7 @@ export class StatsSystem extends System {
 
   private dropWeaponsOnDeath(entity: Entity): void {
     if (!this.weaponSystem) return
-    this.weaponSystem.dropWeaponsOnDeath(entity)
+    this.weaponSystem.dropWeaponsOnDeath(entity, !entity.npcAI)
   }
 
   private stabilizeBody(entity: Entity): void {

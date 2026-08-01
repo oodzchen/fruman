@@ -89,6 +89,36 @@ export function normalizeNpcDropList(
   return normalizedDrops
 }
 
+export function normalizeNpcDropListWithWeapons(
+  drops: ReadonlyArray<MapNpcDropItem> | null | undefined,
+  mainWeaponType?: WeaponType,
+  secondaryWeaponType?: WeaponType
+): MapNpcDropItem[] {
+  const normalizedDrops = normalizeNpcDropList(drops)
+  appendMissingWeaponDrop(normalizedDrops, mainWeaponType)
+  appendMissingWeaponDrop(normalizedDrops, secondaryWeaponType)
+  return normalizedDrops
+}
+
+function appendMissingWeaponDrop(
+  drops: MapNpcDropItem[],
+  weaponType: WeaponType | undefined
+): void {
+  if (!weaponType) {
+    return
+  }
+  for (let i = 0; i < drops.length; i++) {
+    if (drops[i].itemType === weaponType) {
+      return
+    }
+  }
+  drops.push({
+    itemType: weaponType,
+    chance: DEFAULT_NPC_WEAPON_DROP_CHANCE,
+    count: DEFAULT_NPC_DROP_COUNT,
+  })
+}
+
 export function buildDefaultNpcDropList(
   mainWeaponType?: WeaponType,
   secondaryWeaponType?: WeaponType

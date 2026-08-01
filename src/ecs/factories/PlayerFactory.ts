@@ -41,7 +41,7 @@ import type {
 import { resolveNpcBodyProfile } from '../../npcBodyProfileUtils'
 import {
   buildDefaultNpcDropList,
-  normalizeNpcDropList,
+  normalizeNpcDropListWithWeapons,
 } from '../../npcDropUtils'
 import {
   getEnemyCollisionCategory,
@@ -831,7 +831,11 @@ export function createNpc(
 
   let dropItems: MapNpcDropItem[]
   if (options?.drops !== undefined) {
-    dropItems = normalizeNpcDropList(options.drops)
+    dropItems = normalizeNpcDropListWithWeapons(
+      options.drops,
+      options.mainWeapon?.weaponType,
+      options.secondaryWeapon?.weaponType
+    )
   } else if (npc.weaponSlots) {
     dropItems = buildDefaultNpcDropList(
       npc.weaponSlots.main.hasWeapon

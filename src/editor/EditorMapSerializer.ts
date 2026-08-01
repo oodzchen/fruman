@@ -24,7 +24,7 @@ import {
   normalizeEnvironmentRotationDeg,
   writeEnvironmentTransformedOffset,
 } from '../environmentTransformUtils'
-import { normalizeNpcDropList } from '../npcDropUtils'
+import { normalizeNpcDropListWithWeapons } from '../npcDropUtils'
 import {
   getDefaultShapeRenderLayer,
   normalizeRenderLayer,
@@ -849,7 +849,11 @@ export class EditorMapSerializer {
         equipWeapon: data.equipWeapon,
         mainWeapon,
         secondaryWeapon,
-        drops: normalizeNpcDropList(data.drops),
+        drops: normalizeNpcDropListWithWeapons(
+          data.drops,
+          mainWeapon?.weaponType,
+          secondaryWeapon?.weaponType
+        ),
         factionId: data.factionId,
         npcFactions: data.npcFactions,
         allyFactions: data.allyFactions,

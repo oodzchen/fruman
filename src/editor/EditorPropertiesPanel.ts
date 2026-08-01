@@ -45,6 +45,7 @@ import {
   normalizeNpcDropCount,
   normalizeNpcDropItemType,
   normalizeNpcDropList,
+  normalizeNpcDropListWithWeapons,
 } from '../npcDropUtils'
 import { formatRenderLayerLabel } from '../renderLayers'
 import {
@@ -1348,6 +1349,8 @@ export class EditorPropertiesPanel {
         equipmentPanel.appendChild(weaponSlotsCanvas)
       }
 
+      let syncNpcWeaponDropEntries: (() => void) | null = null
+
       const createWeaponRow = (binding: CharacterWeaponBinding) => {
         const row = EditorUIHelper.createFormRow(binding.label)
         const select = EditorUIHelper.createSelect({
@@ -1427,6 +1430,7 @@ export class EditorPropertiesPanel {
               updateAttackMovesForWeapon('none')
             }
           }
+          syncNpcWeaponDropEntries?.()
           updateConfigBtnVisibility()
           updateCharacterVisualFromInputs()
           renderCharacterPreview()
@@ -1448,17 +1452,18 @@ export class EditorPropertiesPanel {
       let buildNpcDropValues: (() => MapNpcDropItem[]) | null = null
       if (options.showDrops) {
         const dropItemOptions = this.getNpcDropItemOptions()
-        let dropEntries =
+        const mainWeaponType = (mainBinding?.getWeaponType() ?? undefined) as
+          | WeaponType
+          | undefined
+        const secondaryWeaponType = (secondaryBinding?.getWeaponType() ??
+          undefined) as WeaponType | undefined
+        let dropEntries = normalizeNpcDropListWithWeapons(
           options.data.drops === undefined
-            ? buildDefaultNpcDropList(
-                (mainBinding?.getWeaponType() ?? undefined) as
-                  | WeaponType
-                  | undefined,
-                (secondaryBinding?.getWeaponType() ?? undefined) as
-                  | WeaponType
-                  | undefined
-              )
-            : normalizeNpcDropList(options.data.drops)
+            ? buildDefaultNpcDropList(mainWeaponType, secondaryWeaponType)
+            : options.data.drops,
+          mainWeaponType,
+          secondaryWeaponType
+        )
 
         const dropsRow = EditorUIHelper.createFormRow(
           localizer.t('editor_enemy_prop_drops')
@@ -1542,6 +1547,7 @@ export class EditorPropertiesPanel {
                 return
               }
               rowData.itemType = itemType
+              syncNpcWeaponDropEntries?.()
             })
 
             const syncChanceValue = () => {
@@ -1572,7 +1578,7 @@ export class EditorPropertiesPanel {
 
             removeBtn.addEventListener('click', () => {
               dropEntries.splice(i, 1)
-              renderDropRows()
+              syncNpcWeaponDropEntries?.()
             })
 
             dropList.appendChild(row)
@@ -1590,6 +1596,18 @@ export class EditorPropertiesPanel {
           renderDropRows()
         })
 
+        syncNpcWeaponDropEntries = () => {
+          dropEntries = normalizeNpcDropListWithWeapons(
+            dropEntries,
+            (mainBinding?.getWeaponType() ?? undefined) as
+              | WeaponType
+              | undefined,
+            (secondaryBinding?.getWeaponType() ?? undefined) as
+              | WeaponType
+              | undefined
+          )
+          renderDropRows()
+        }
         renderDropRows()
         buildNpcDropValues = () => normalizeNpcDropList(dropEntries)
       }
