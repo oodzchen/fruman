@@ -2957,7 +2957,7 @@ export class EditorBodyDrawerController {
       presetId: MapCharacterBodyPresetId,
       bounds: BodyPresetBounds
     ) => {
-      if (presetId === 'banana') {
+      if (presetId === 'prototype' || presetId === 'banana') {
         textureCtx.clearRect(0, 0, DRAW_WORLD_SIZE, DRAW_WORLD_SIZE)
         textureState.bounds = null
         textureState.boundsDirty = false
@@ -3007,7 +3007,7 @@ export class EditorBodyDrawerController {
       browScaleX = DEFAULT_CHARACTER_BROW_SCALE
       browScaleY = DEFAULT_CHARACTER_BROW_SCALE
       browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
-      colorInput.value = preset.color
+      colorInput.value = preset.color ?? resetBodyColor
       bloodColorInput.value = preset.bloodColor
       bloodColorAssigned = true
       if (preset.imageSrc) {

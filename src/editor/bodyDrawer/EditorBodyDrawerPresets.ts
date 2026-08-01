@@ -18,6 +18,7 @@ import {
   PANDA_ANT_PRESET_POINTS,
   PINEAPPLE_PRESET_IMAGE_SRC,
   PINEAPPLE_PRESET_POINTS,
+  PROTOTYPE_PRESET_POINTS,
   TOMATO_PRESET_IMAGE_SRC,
   TOMATO_PRESET_POINTS,
   TRANSPARENT_BODY_COLOR,
@@ -42,6 +43,15 @@ export function isBodyPresetId(
 export function getBodyPresetConfig(
   presetId: MapCharacterBodyPresetId
 ): BodyPresetConfig {
+  if (presetId === 'prototype') {
+    return {
+      color: null,
+      bloodColor: '#5f9a3a',
+      eyeX: 0,
+      eyeY: 0,
+      points: PROTOTYPE_PRESET_POINTS,
+    }
+  }
   if (presetId === 'banana') {
     return {
       color: TRANSPARENT_BODY_COLOR,

@@ -212,6 +212,7 @@ export const MIN_COLLISION_RADIUS = 4
 export const MIN_COLLISION_HALF_EXTENT = 4
 export const CUSTOM_BODY_PRESET_ID = 'custom'
 export const BODY_PRESET_IDS: MapCharacterBodyPresetId[] = [
+  'prototype',
   'banana',
   'durian',
   'kiwano',
@@ -220,6 +221,10 @@ export const BODY_PRESET_IDS: MapCharacterBodyPresetId[] = [
   'tomato',
   'watermelon',
 ]
+export const PROTOTYPE_PRESET_POINTS = [
+  0, -52, 20, -48, 37, -37, 48, -20, 52, 0, 48, 20, 37, 37, 20, 48, 0, 52, -20,
+  48, -37, 37, -48, 20, -52, 0, -48, -20, -37, -37, -20, -48,
+] as const
 export const PINEAPPLE_PRESET_IMAGE_SRC = '/images/presets/pineapple.png'
 export const TOMATO_PRESET_IMAGE_SRC = '/images/presets/tomato.png'
 export const WATERMELON_PRESET_IMAGE_SRC = '/images/presets/watermelon.png'
@@ -260,7 +265,7 @@ export const WATERMELON_PRESET_POINTS = [
 ] as const
 
 export interface BodyPresetConfig {
-  color: string
+  color: string | null
   bloodColor: string
   eyeX: number
   eyeY: number
