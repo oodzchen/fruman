@@ -792,7 +792,7 @@ export class EditorTerrainLayerManager {
       offsetXUnits: layer.offsetXUnits,
       offsetYUnits: layer.offsetYUnits,
       cellStroke: layer.serializedLayer.cellStroke === true,
-      edgeProtection: layer.serializedLayer.edgeProtection !== false,
+      edgeProtection: layer.serializedLayer.edgeProtection === true,
       chunks: layer.grid.serializeChunks(),
     }
   }
@@ -838,7 +838,7 @@ export class EditorTerrainLayerManager {
   getProxyEdgeProtection(object: fabric.Object | null): boolean | null {
     if (this.isTerrainProxy(object)) {
       const layer = this.proxyToLayer.get(object)
-      return layer ? layer.serializedLayer.edgeProtection !== false : null
+      return layer ? layer.serializedLayer.edgeProtection === true : null
     }
     if (this.isTerrainContourProxy(object)) {
       const contour = this.proxyToContour.get(object)
@@ -974,11 +974,11 @@ export class EditorTerrainLayerManager {
       const layer = this.proxyToLayer.get(object)
       if (
         !layer ||
-        (layer.serializedLayer.edgeProtection !== false) === edgeProtection
+        (layer.serializedLayer.edgeProtection === true) === edgeProtection
       ) {
         return false
       }
-      layer.serializedLayer.edgeProtection = edgeProtection ? undefined : false
+      layer.serializedLayer.edgeProtection = edgeProtection ? true : undefined
       this.bumpLayerBuildRevision(layer)
       this.ctx.requestRender()
       return true
@@ -996,7 +996,7 @@ export class EditorTerrainLayerManager {
     }
     contour.edgeProtection = edgeProtection
     const serializedContour = this.getSerializedContour(contour)
-    serializedContour.edgeProtection = edgeProtection ? undefined : false
+    serializedContour.edgeProtection = edgeProtection ? true : undefined
     this.bumpContourBuildRevision(contour, serializedContour)
     this.ctx.requestRender()
     return true
@@ -1161,7 +1161,7 @@ export class EditorTerrainLayerManager {
         contourId: layer.contourId > 0 ? layer.contourId : undefined,
         cellStroke: serializedLayer.cellStroke === true ? true : undefined,
         edgeProtection:
-          serializedLayer.edgeProtection === false ? false : undefined,
+          serializedLayer.edgeProtection === true ? true : undefined,
         buildRevision: serializedLayer.buildRevision,
         chunks: shareData
           ? (serializedLayer.chunks as MapTerrainLayer['chunks'])
@@ -1185,7 +1185,7 @@ export class EditorTerrainLayerManager {
               cellStroke:
                 serializedContour.cellStroke === true ? true : undefined,
               edgeProtection:
-                serializedContour.edgeProtection === false ? false : undefined,
+                serializedContour.edgeProtection === true ? true : undefined,
               buildRevision: serializedContour.buildRevision,
             }
           })
@@ -1267,7 +1267,7 @@ export class EditorTerrainLayerManager {
           source.offsetXUnits ? Math.round(source.offsetXUnits) : 0,
           source.offsetYUnits ? Math.round(source.offsetYUnits) : 0,
           source.cellStroke === true,
-          source.edgeProtection !== false
+          source.edgeProtection === true
         )
         if (layer && layer.contourId > 0) {
           contourLayerMap.set(layer.contourId, layer)
@@ -2404,7 +2404,7 @@ export class EditorTerrainLayerManager {
     offsetXUnits = 0,
     offsetYUnits = 0,
     cellStroke = false,
-    edgeProtection = true
+    edgeProtection = false
   ): EditorTerrainLayer | null {
     const layer = this.createEmptyLayer(
       materialId,
@@ -2442,7 +2442,7 @@ export class EditorTerrainLayerManager {
     offsetXUnits = 0,
     offsetYUnits = 0,
     cellStroke = false,
-    edgeProtection = true
+    edgeProtection = false
   ): EditorTerrainLayer {
     const grid = new TerrainChunkGrid(this.chunkSize, this.randomSeed)
     const layer: EditorTerrainLayer = {
@@ -2465,7 +2465,7 @@ export class EditorTerrainLayerManager {
             : getDefaultTerrainRenderLayer(materialId),
         contourId: contourId > 0 ? contourId : undefined,
         cellStroke: cellStroke ? true : undefined,
-        edgeProtection: edgeProtection ? undefined : false,
+        edgeProtection: edgeProtection ? true : undefined,
         buildRevision: this.nextBuildRevision(),
         chunks: grid.getChunks(),
       },
@@ -2812,7 +2812,7 @@ export class EditorTerrainLayerManager {
       shapeKind: null,
       straightEdge: false,
       cellStroke: false,
-      edgeProtection: true,
+      edgeProtection: false,
       referenceLine,
       fillLayer: null,
       proxy,
@@ -2824,7 +2824,7 @@ export class EditorTerrainLayerManager {
         points: contour.points,
         renderLayer: contour.renderLayer,
         cellStroke: contour.cellStroke ? true : undefined,
-        edgeProtection: contour.edgeProtection ? undefined : false,
+        edgeProtection: contour.edgeProtection ? true : undefined,
         buildRevision: this.nextBuildRevision(),
       })
     }
@@ -2875,7 +2875,7 @@ export class EditorTerrainLayerManager {
       source.straightEdge === true ||
       (source.straightEdge !== false && contour.shapeKind !== null)
     contour.cellStroke = source.cellStroke === true
-    contour.edgeProtection = source.edgeProtection !== false
+    contour.edgeProtection = source.edgeProtection === true
     contour.fillLayer = contourLayerMap.get(contour.id) ?? null
     this.nextContourId = Math.max(this.nextContourId, contour.id + 1)
     const serializedContour = this.getSerializedContour(contour)
@@ -2885,9 +2885,7 @@ export class EditorTerrainLayerManager {
     serializedContour.shapeKind = contour.shapeKind ?? undefined
     serializedContour.straightEdge = contour.straightEdge
     serializedContour.cellStroke = contour.cellStroke ? true : undefined
-    serializedContour.edgeProtection = contour.edgeProtection
-      ? undefined
-      : false
+    serializedContour.edgeProtection = contour.edgeProtection ? true : undefined
     serializedContour.buildRevision =
       source.buildRevision ??
       serializedContour.buildRevision ??
@@ -2917,7 +2915,7 @@ export class EditorTerrainLayerManager {
       shapeKind: contour.shapeKind ?? undefined,
       straightEdge: contour.straightEdge,
       cellStroke: contour.cellStroke ? true : undefined,
-      edgeProtection: contour.edgeProtection ? undefined : false,
+      edgeProtection: contour.edgeProtection ? true : undefined,
       buildRevision: this.nextBuildRevision(),
     }
     this.renderData.contours.push(serializedContour)
@@ -4887,7 +4885,7 @@ export class EditorTerrainLayerManager {
         : layer.serializedLayer.cellStroke === true,
       edgeProtection: contour
         ? contour.edgeProtection
-        : layer.serializedLayer.edgeProtection !== false,
+        : layer.serializedLayer.edgeProtection === true,
       sourceLayer: layer.serializedLayer,
       contourClipPoints:
         contour && contour.straightEdge !== false ? contour.points : undefined,

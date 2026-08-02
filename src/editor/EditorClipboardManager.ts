@@ -292,7 +292,7 @@ export class EditorClipboardManager {
   private terrainOffsetCellY = 0
   private terrainOffsetXUnits = 0
   private terrainOffsetYUnits = 0
-  private terrainEdgeProtection = true
+  private terrainEdgeProtection = false
   private terrainChunks: MapTerrainChunk[] = []
 
   private npcType: NpcType = 'default'
@@ -1147,7 +1147,7 @@ export class EditorClipboardManager {
       offsetXUnits: snapshot.offsetXUnits,
       offsetYUnits: snapshot.offsetYUnits,
       cellStroke: snapshot.cellStroke === true,
-      edgeProtection: snapshot.edgeProtection !== false,
+      edgeProtection: snapshot.edgeProtection === true,
       chunks,
     }
   }
@@ -1888,7 +1888,7 @@ export class EditorClipboardManager {
     this.terrainOffsetCellY = snapshot.offsetCellY
     this.terrainOffsetXUnits = snapshot.offsetXUnits
     this.terrainOffsetYUnits = snapshot.offsetYUnits
-    this.terrainEdgeProtection = snapshot.edgeProtection !== false
+    this.terrainEdgeProtection = snapshot.edgeProtection === true
     this.terrainChunks.length = snapshot.chunks.length
     for (let i = 0; i < snapshot.chunks.length; i++) {
       const chunk = snapshot.chunks[i]

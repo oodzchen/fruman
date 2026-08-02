@@ -93,7 +93,7 @@ export function getTerrainLayerViews(
       offsetXUnits: 0,
       offsetYUnits: 0,
       renderLayer: 0,
-      edgeProtection: true,
+      edgeProtection: false,
     },
   ]
 }
@@ -213,8 +213,8 @@ function createLayerView(
     buildRevision: layer.buildRevision,
     cellStroke: contour?.cellStroke === true || layer.cellStroke === true,
     edgeProtection: contour
-      ? contour.edgeProtection !== false
-      : layer.edgeProtection !== false,
+      ? contour.edgeProtection === true
+      : layer.edgeProtection === true,
     sourceLayer: layer,
     contourClipPoints,
     contourBuildRevision,
