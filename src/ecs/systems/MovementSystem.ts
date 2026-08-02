@@ -47,6 +47,9 @@ export class MovementSystem extends System {
   private currentDeltaTime = 0
   private currentTimeMs = 0
   private readonly slopeNormalScale = 1024
+  private readonly footContactMinHeightPermille = 450
+  private readonly groundNormalMin = 205
+  private readonly wallNormalMin = 717
   private readonly fullJumpScalePermille = 1000
   private readonly steepJumpMinScalePermille = 150
   private readonly steepJumpScaleRangePermille = 250
@@ -171,17 +174,33 @@ export class MovementSystem extends System {
     vel.delete()
     const capacity = b2Body_GetContactCapacity(entity.physics.bodyId)
     const contactData = b2Body_GetContactData(entity.physics.bodyId, capacity)
+    const renderRadius = entity.render?.radius ?? DEFAULT_PLAYER_RADIUS
+    const profileHeight = entity.render?.bodyProfile?.height ?? 0
+    const configuredBodyHeight = entity.render?.bodyHeight ?? 0
+    const bodyHeight =
+      profileHeight > 0
+        ? profileHeight
+        : configuredBodyHeight > 0
+          ? configuredBodyHeight
+          : renderRadius * 2
+    // 只保留身体最下方约 5% 高度内的接触点作为脚底，排除侧身接触。
+    const footContactMinY =
+      ((((bodyHeight * this.slopeNormalScale) | 0) *
+        this.footContactMinHeightPermille) /
+        this.fullJumpScalePermille) |
+      0
+    const bodyCenterY = entity.transform?.y ?? entity.physics.posY
 
     let grounded = false
     let touchingWall = false
     let touchingObstacleWall = false
     let newWallDirection = 0
     let newObstacleWallDirection = 0
-    const groundNormalMin = 0.2
     let hasSteepSurface = false
     let steepJumpScalePermille = this.fullJumpScalePermille
     let hasGroundSurface = false
     let hasObstacleSurface = false
+    let hasCharacterSupport = false
     let groundSurfaceFriction = 0
     let obstacleSurfaceFriction = 0
     let hasFallImpactContact = false
@@ -190,18 +209,11 @@ export class MovementSystem extends System {
     for (let i = 0; i < contactData.length; i++) {
       const contact = contactData[i]
       const normal = contact.manifold.normal
-      const absX = Math.abs(normal.x)
-      const absY = Math.abs(normal.y)
 
       const filterA = b2Shape_GetFilter(contact.shapeIdA)
       const filterB = b2Shape_GetFilter(contact.shapeIdB)
       const categoryA = filterA.categoryBits
       const categoryB = filterB.categoryBits
-      const isGroundA = isGroundCollisionCategory(categoryA)
-      const isGroundB = isGroundCollisionCategory(categoryB)
-      const isObstacleA = isObstacleCollisionCategory(categoryA)
-      const isObstacleB = isObstacleCollisionCategory(categoryB)
-      const isObstacleContact = isObstacleA || isObstacleB
       const bodyA = b2Shape_GetBody(contact.shapeIdA)
       const bodyB = b2Shape_GetBody(contact.shapeIdB)
       const isEntityBodyA =
@@ -218,14 +230,56 @@ export class MovementSystem extends System {
       } else if (isEntityBodyB) {
         otherCategory = categoryA
       }
-      const isStandableContact =
-        isGroundA || isGroundB || isObstacleA || isObstacleB
+      const otherShapeId = isEntityBodyA ? contact.shapeIdB : contact.shapeIdA
+      const isGroundContact = isGroundCollisionCategory(otherCategory)
+      const isObstacleContact = isObstacleCollisionCategory(otherCategory)
+      const isEnvironmentContact = isGroundContact || isObstacleContact
+      const isCharacterContact = isCharacterCollisionCategory(otherCategory)
+      const normalX = (normal.x * this.slopeNormalScale) | 0
+      const normalY = (normal.y * this.slopeNormalScale) | 0
+      const absNormalX = normalX < 0 ? -normalX : normalX
+      const absNormalY = normalY < 0 ? -normalY : normalY
+      const bodyFacingNormalX = isEntityBodyA
+        ? normalX
+        : isEntityBodyB
+          ? -normalX
+          : 0
+      const bodyFacingNormalY = isEntityBodyA
+        ? normalY
+        : isEntityBodyB
+          ? -normalY
+          : 0
+      let hasFootContact = false
+      if (
+        (isEnvironmentContact || isCharacterContact) &&
+        bodyFacingNormalY > 0
+      ) {
+        for (
+          let pointIndex = 0;
+          pointIndex < contact.manifold.pointCount;
+          pointIndex++
+        ) {
+          const point = contact.manifold.GetPoint(pointIndex)
+          const contactY = point.point.y - bodyCenterY
+          const isFootPoint =
+            ((contactY * this.slopeNormalScale) | 0) >= footContactMinY
+          point.delete()
+          if (isFootPoint) {
+            hasFootContact = true
+            break
+          }
+        }
+      }
       const isFallImpactContact =
-        (isStandableContact ||
-          (otherCategory !== 0 &&
-            isCharacterCollisionCategory(otherCategory))) &&
-        absY > groundNormalMin &&
+        (isEnvironmentContact || isCharacterContact) &&
+        hasFootContact &&
+        bodyFacingNormalY > this.groundNormalMin &&
         isFallingOrStill
+      const isCharacterSupport =
+        isCharacterContact && hasFootContact && isFallingOrStill
+      if (isCharacterSupport) {
+        hasCharacterSupport = true
+      }
       if (isFallImpactContact) {
         hasFallImpactContact = true
         if (isObstacleContact || isCharacterCollisionCategory(otherCategory)) {
@@ -233,81 +287,64 @@ export class MovementSystem extends System {
         }
       }
       let isSteepSurface = false
-      if (isStandableContact) {
-        const normalX = (normal.x * this.slopeNormalScale) | 0
-        const normalY = (normal.y * this.slopeNormalScale) | 0
-        const absNormalX = normalX < 0 ? -normalX : normalX
-        const absNormalY = normalY < 0 ? -normalY : normalY
+      if (isEnvironmentContact && hasFootContact) {
         if (absNormalX > absNormalY) {
-          const gravityFacingNormalY = isEntityBodyA
-            ? normalY
-            : isEntityBodyB
-              ? -normalY
-              : 0
-          if (gravityFacingNormalY > 0) {
-            for (
-              let pointIndex = 0;
-              pointIndex < contact.manifold.pointCount;
-              pointIndex++
-            ) {
-              const point = contact.manifold.GetPoint(pointIndex)
-              const anchorY = isEntityBodyA ? point.anchorA.y : point.anchorB.y
-              const isBelowBodyCenter =
-                ((anchorY * this.slopeNormalScale) | 0) > 0
-              point.delete()
-              if (isBelowBodyCenter) {
-                hasSteepSurface = true
-                isSteepSurface = true
-                const contactJumpScalePermille =
-                  this.steepJumpMinScalePermille +
-                  (this.steepJumpScaleRangePermille * absNormalY) / absNormalX
-                const normalizedJumpScalePermille = contactJumpScalePermille | 0
-                if (normalizedJumpScalePermille < steepJumpScalePermille) {
-                  steepJumpScalePermille = normalizedJumpScalePermille
-                }
-                break
-              }
-            }
+          hasSteepSurface = true
+          isSteepSurface = true
+          const contactJumpScalePermille =
+            this.steepJumpMinScalePermille +
+            (this.steepJumpScaleRangePermille * absNormalY) / absNormalX
+          const normalizedJumpScalePermille = contactJumpScalePermille | 0
+          if (normalizedJumpScalePermille < steepJumpScalePermille) {
+            steepJumpScalePermille = normalizedJumpScalePermille
           }
           if (isObstacleContact) {
-            const contactWallDirection = normal.x > 0 ? -1 : 1
+            const contactWallDirection = bodyFacingNormalX > 0 ? -1 : 1
             touchingObstacleWall = true
             newObstacleWallDirection = contactWallDirection
           }
-        } else if (isGroundA || isGroundB) {
+        } else if (isGroundContact) {
           hasGroundSurface = true
-          const groundShapeId = isGroundA ? contact.shapeIdA : contact.shapeIdB
-          const surfaceFriction = b2Shape_GetFriction(groundShapeId)
+          const surfaceFriction = b2Shape_GetFriction(otherShapeId)
           if (surfaceFriction > groundSurfaceFriction) {
             groundSurfaceFriction = surfaceFriction
           }
-        } else if (isObstacleA || isObstacleB) {
+        } else if (isObstacleContact) {
           hasObstacleSurface = true
-          const obstacleShapeId = isObstacleA
-            ? contact.shapeIdA
-            : contact.shapeIdB
-          const surfaceFriction = b2Shape_GetFriction(obstacleShapeId)
+          const surfaceFriction = b2Shape_GetFriction(otherShapeId)
           if (surfaceFriction > obstacleSurfaceFriction) {
             obstacleSurfaceFriction = surfaceFriction
           }
+        }
+      } else if (isEnvironmentContact && absNormalX > this.wallNormalMin) {
+        touchingWall = true
+        newWallDirection = bodyFacingNormalX > 0 ? -1 : 1
+        if (isObstacleContact) {
+          touchingObstacleWall = true
+          newObstacleWallDirection = newWallDirection
         }
       }
 
       if (isSteepSurface) {
         touchingWall = true
-        newWallDirection = normal.x > 0 ? -1 : 1
+        newWallDirection = bodyFacingNormalX > 0 ? -1 : 1
       } else if (
-        isStandableContact &&
-        absY > groundNormalMin &&
-        isFallingOrStill
+        (isEnvironmentContact &&
+          hasFootContact &&
+          bodyFacingNormalY > this.groundNormalMin &&
+          isFallingOrStill) ||
+        isCharacterSupport
       ) {
         grounded = true
-      } else if (absX > 0.7) {
-        touchingWall = true
-        newWallDirection = normal.x > 0 ? -1 : 1
       }
 
       contact.delete()
+    }
+
+    // 动态角色身体是可站立面，但不继承同时重叠的地形陡坡阻力。
+    if (hasCharacterSupport) {
+      hasSteepSurface = false
+      steepJumpScalePermille = this.fullJumpScalePermille
     }
 
     const hasGroundOrFallImpactContact = grounded || hasFallImpactContact
@@ -315,7 +352,10 @@ export class MovementSystem extends System {
     entity.movement.isTouchingWall = touchingWall
     entity.movement.isTouchingObstacleWall = touchingObstacleWall
     entity.movement.wasGrounded = hasGroundOrFallImpactContact
-    if (hasSteepSurface) {
+    if (hasCharacterSupport) {
+      entity.movement.hasContactFriction = true
+      entity.movement.contactFriction = 0
+    } else if (hasSteepSurface) {
       entity.movement.hasContactFriction = true
       entity.movement.contactFriction = 0
     } else if (hasGroundSurface) {
@@ -1138,6 +1178,10 @@ export class MovementSystem extends System {
       const distanceSquared = dx * dx + dy * dy
       const touchDistanceSquared = touchDistance * touchDistance
       if (distanceSquared > touchDistanceSquared) continue
+      const verticalBlockingDistance =
+        myRadius < otherRadius ? myRadius : otherRadius
+      const absDy = dy < 0 ? -dy : dy
+      if (absDy > verticalBlockingDistance) continue
 
       const isInFront = (direction > 0 && dx > 0) || (direction < 0 && dx < 0)
       if (isInFront) {
