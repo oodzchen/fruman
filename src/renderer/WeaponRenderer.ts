@@ -29,6 +29,21 @@ export interface WeaponRenderPalette {
 export const GROUND_WEAPON_OUTLINE_COLOR = '#ffffff'
 export const GROUND_WEAPON_ICON_SIZE_RADIUS_MULTIPLIER = 2
 
+const GROUND_ITEM_PALETTE: WeaponRenderPalette = {
+  body: '#e8ecef',
+  bodyStroke: '#747d83',
+  metal: '#e8ecef',
+  metalStroke: '#747d83',
+  wood: '#d6b06b',
+  woodStroke: '#8a6530',
+  cord: '#d6b06b',
+  cordStroke: '#8a6530',
+  stem: '#d6b06b',
+  stemStroke: '#8a6530',
+  accent: '#e8ecef',
+  accentStroke: '#747d83',
+}
+
 const SWORD_RUNTIME_PALETTE: WeaponRenderPalette = {
   body: '#c4ccd0',
   bodyStroke: '#6d777d',
@@ -156,6 +171,19 @@ export function getRuntimeWeaponPalette(
     return BOMB_RUNTIME_PALETTE
   }
   return SWORD_RUNTIME_PALETTE
+}
+
+export function getGroundWeaponPalette(
+  weaponType: WeaponRenderType
+): WeaponRenderPalette {
+  if (
+    weaponType === 'grape' ||
+    weaponType === 'hook' ||
+    weaponType === 'bomb'
+  ) {
+    return GROUND_ITEM_PALETTE
+  }
+  return getRuntimeWeaponPalette(weaponType)
 }
 
 function getStrokeColor(

@@ -26,7 +26,9 @@ import {
 } from '../renderer/ProceduralEnvironmentFactory'
 import { getSpinePreviewCanvas } from '../renderer/SpineBodyManager'
 import {
+  GROUND_WEAPON_OUTLINE_COLOR,
   type WeaponRenderPalette,
+  getGroundWeaponPalette,
   getRuntimeWeaponPalette,
 } from '../renderer/WeaponRenderer'
 import type { AttackPickupKind, NpcType, WeaponType } from '../types'
@@ -85,7 +87,8 @@ interface EditorObjectFactoryOptions {
     drawRatio?: number,
     bowLineWidthOverride?: number,
     stringLineWidthOverride?: number,
-    palette?: WeaponRenderPalette
+    palette?: WeaponRenderPalette,
+    outlineColor?: string
   ) => void
 }
 
@@ -116,6 +119,7 @@ type WeaponShape = fabric.Object & {
   weaponBoundingWidthPx: number
   weaponBoundingHeightPx: number
   weaponRenderType: WeaponRenderType
+  isGroundDisplay: boolean
 }
 
 class CharacterBodyRenderObject extends fabric.FabricObject {
@@ -177,6 +181,7 @@ class WeaponRenderObject extends fabric.FabricObject {
   declare weaponBoundingWidthPx: number
   declare weaponBoundingHeightPx: number
   declare weaponRenderType: WeaponRenderType
+  declare isGroundDisplay: boolean
 
   private readonly renderWeaponFn: EditorObjectFactoryOptions['renderWeapon']
   private readonly color: string
@@ -195,9 +200,13 @@ class WeaponRenderObject extends fabric.FabricObject {
     this.weaponBoundingWidthPx = 0
     this.weaponBoundingHeightPx = 0
     this.weaponRenderType = 'sword'
+    this.isGroundDisplay = false
   }
 
   override _render(ctx: CanvasRenderingContext2D): void {
+    const palette = this.isGroundDisplay
+      ? getGroundWeaponPalette(this.weaponRenderType)
+      : getRuntimeWeaponPalette(this.weaponRenderType)
     this.renderWeaponFn(
       ctx,
       this.weaponRenderType,
@@ -208,7 +217,8 @@ class WeaponRenderObject extends fabric.FabricObject {
       0,
       undefined,
       undefined,
-      getRuntimeWeaponPalette(this.weaponRenderType)
+      palette,
+      this.isGroundDisplay ? GROUND_WEAPON_OUTLINE_COLOR : undefined
     )
   }
 }
@@ -883,6 +893,7 @@ export class EditorObjectFactory {
     weaponShape.weaponBoundingWidthPx = dims.boundingWidthPx
     weaponShape.weaponBoundingHeightPx = dims.boundingHeightPx
     weaponShape.weaponRenderType = renderType
+    weaponShape.isGroundDisplay = true
     weaponShape.width = weaponShape.weaponBoundingWidthPx
     weaponShape.height = weaponShape.weaponBoundingHeightPx
 

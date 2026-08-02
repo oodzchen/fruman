@@ -97,6 +97,7 @@ import {
   GROUND_WEAPON_OUTLINE_COLOR,
   type WeaponRenderPalette,
   type WeaponRenderType,
+  getGroundWeaponPalette,
   getRuntimeWeaponPalette,
   renderWeapon,
 } from './WeaponRenderer'
@@ -2631,7 +2632,9 @@ export class PixiWorldRenderer {
     const isInCombat = !!(flags & FLAGS.IN_COMBAT)
     const color = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
     const renderType = getWeaponRenderType(weaponType)
-    const runtimePalette = getRuntimeWeaponPalette(renderType)
+    const renderPalette = isStandaloneWeapon
+      ? getGroundWeaponPalette(renderType)
+      : getRuntimeWeaponPalette(renderType)
     const outlineColor = isStandaloneWeapon
       ? GROUND_WEAPON_OUTLINE_COLOR
       : undefined
@@ -2681,7 +2684,7 @@ export class PixiWorldRenderer {
         quantizedBowDraw,
         arrowVisible,
         projectileRadiusPx,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
       view.weaponHash = weaponHash

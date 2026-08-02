@@ -75,6 +75,7 @@ import {
   GROUND_WEAPON_OUTLINE_COLOR,
   type WeaponRenderPalette,
   type WeaponRenderType,
+  getGroundWeaponPalette,
   getRuntimeWeaponPalette,
   renderWeapon as renderWeaponShape,
 } from './renderer/WeaponRenderer'
@@ -2851,7 +2852,9 @@ export class ClientRenderer {
       buf[offset + OFFSETS.STATS_HEALTH_MAX] <= 0 && !isProjectileWeapon
     const bodyColor = isStandaloneWeapon ? HUD_ICON_COLOR : '#b4bdc7'
     const renderType = this.getWeaponVisualRenderTypeFromId(weaponType)
-    const runtimePalette = getRuntimeWeaponPalette(renderType)
+    const renderPalette = isStandaloneWeapon
+      ? getGroundWeaponPalette(renderType)
+      : getRuntimeWeaponPalette(renderType)
     const outlineColor = isStandaloneWeapon
       ? GROUND_WEAPON_OUTLINE_COLOR
       : undefined
@@ -2878,7 +2881,7 @@ export class ClientRenderer {
         isAttacking,
         bodyColor,
         0,
-        runtimePalette
+        renderPalette
       )
     } else if (weaponType === WEAPON_TYPES.GRAPE_SHOT) {
       renderWeaponShape(
@@ -2891,7 +2894,7 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.BOW) {
@@ -2905,7 +2908,7 @@ export class ClientRenderer {
         bowDraw,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
 
@@ -2943,7 +2946,7 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.HOOK) {
@@ -2957,7 +2960,7 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.BOMB) {
@@ -2971,7 +2974,7 @@ export class ClientRenderer {
         bowDraw,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
     } else if (weaponType === WEAPON_TYPES.SPEAR) {
@@ -2985,7 +2988,7 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
     } else if (
@@ -3002,7 +3005,7 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
     } else {
@@ -3016,7 +3019,7 @@ export class ClientRenderer {
         0,
         undefined,
         undefined,
-        runtimePalette,
+        renderPalette,
         outlineColor
       )
     }
