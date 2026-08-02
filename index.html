@@ -910,6 +910,36 @@
         font-size: 11px;
         box-sizing: border-box;
       }
+      .editor-environment-key-variant-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .editor-environment-key-variant-row {
+        grid-template-columns: minmax(52px, 1fr) 104px auto;
+      }
+      .editor-environment-key-variant-row .editor-environment-property-select {
+        width: 104px;
+      }
+      .editor-environment-key-variant-button {
+        min-height: 22px;
+        padding: 2px 7px;
+        color: var(--ui-color);
+        background: rgba(0, 0, 0, 0.32);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-family: var(--ui-font);
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .editor-environment-key-variant-button:hover:not(:disabled) {
+        background: rgba(240, 220, 180, 0.14);
+        border-color: rgba(240, 220, 180, 0.55);
+      }
+      .editor-environment-key-variant-button:disabled {
+        opacity: 0.42;
+        cursor: default;
+      }
       .editor-environment-property-color {
         width: 34px !important;
         height: 20px !important;

@@ -4,6 +4,7 @@ import type {
   MapCharacterBodyEyeStyle,
   MapCharacterBodyProfile,
   MapEnvironmentFlowerOptions,
+  MapEnvironmentKeyVariant,
   MapEnvironmentObjectType,
   MapNpcDropItem,
   MapNpcWeapon,
@@ -340,6 +341,7 @@ export type EnvironmentMarker = fabric.Object & {
   cellStroke: boolean
   flowerOptions: MapEnvironmentFlowerOptions | null
   keyText: string
+  keyVariants: MapEnvironmentKeyVariant[]
 }
 
 export interface EnvironmentMarkerData {
@@ -350,6 +352,7 @@ export interface EnvironmentMarkerData {
   cellStroke: boolean
   flowerOptions: MapEnvironmentFlowerOptions | null
   keyText: string
+  keyVariants: MapEnvironmentKeyVariant[]
 }
 
 export interface EditorMap {

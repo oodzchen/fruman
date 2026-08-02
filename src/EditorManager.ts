@@ -596,8 +596,14 @@ export class EditorManager {
         this.markerManager.setProceduralCellStroke(target, cellStroke),
       getEnvironmentKeyText: (target) =>
         this.markerManager.getEnvironmentKeyText(target),
-      setEnvironmentKeyText: (target, keyText) =>
-        this.markerManager.setEnvironmentKeyText(target, keyText),
+      getEnvironmentKeyVariants: (target) =>
+        this.markerManager.getEnvironmentKeyVariants(target),
+      setEnvironmentKeyProperties: (target, keyText, keyVariants) =>
+        this.markerManager.setEnvironmentKeyProperties(
+          target,
+          keyText,
+          keyVariants
+        ),
       getFactions: () => this.factions,
       addFaction: (id) => {
         if (!this.factions.includes(id)) {
@@ -2429,6 +2435,8 @@ export class EditorManager {
         ? this.environmentStampFlowerOptionsScratch
         : undefined
     envObject.keyText = this.environmentPalette.getKeyTextForStamp(selection)
+    envObject.keyVariants =
+      this.environmentPalette.getKeyVariantsForStamp(selection)
     const marker = this.markerManager.spawnEnvironmentMarker(
       selection.envType,
       envObject,

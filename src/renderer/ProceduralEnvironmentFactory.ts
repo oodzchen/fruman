@@ -1,5 +1,7 @@
 import type {
   MapEnvironmentFlowerOptions,
+  MapEnvironmentKeyMouseAction,
+  MapEnvironmentKeyVariant,
   MapEnvironmentObjectType,
 } from '../editorMapTypes'
 import { getRuntimeEnvironmentAsset } from '../environmentAssetRegistry'
@@ -28,6 +30,7 @@ import {
 import {
   getEnvironmentKeyTextLength,
   normalizeEnvironmentKeyText,
+  normalizeEnvironmentMouseAction,
 } from '../environmentKeyUtils'
 import { createDefaultTerrainChunkSiteJitter } from '../terrain/TerrainDataUtils'
 import type { TerrainResolvedLayerView } from '../terrain/TerrainDataUtils'
@@ -1727,12 +1730,154 @@ function drawEnvironmentKeyRoundedRect(
   ctx.closePath()
 }
 
+function createEnvironmentMouseTextureSource(
+  actionValue: MapEnvironmentKeyMouseAction | undefined,
+  ppm: number,
+  scaleXPermille: number,
+  scaleYPermille: number
+): EnvironmentTextureSource {
+  const action = normalizeEnvironmentMouseAction(actionValue)
+  const baseWidth = Math.max(32, Math.floor((ppm * 4 + 2) / 5))
+  const baseHeight = Math.floor((baseWidth * 5 + 2) / 4)
+  const width = Math.max(
+    1,
+    Math.floor((baseWidth * scaleXPermille + 500) / 1000)
+  )
+  const height = Math.max(
+    1,
+    Math.floor((baseHeight * scaleYPermille + 500) / 1000)
+  )
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const inset = Math.max(2, Math.floor(width / 16))
+    const shadowHeight = Math.max(4, Math.floor(height / 9))
+    const bodyHeight = Math.max(1, height - shadowHeight - inset)
+    const radius = Math.max(3, Math.floor(width / 2))
+    const centerX = width >> 1
+    const buttonBottom = inset + Math.floor((bodyHeight * 2) / 5)
+
+    drawEnvironmentKeyRoundedRect(
+      ctx,
+      0,
+      shadowHeight,
+      width,
+      height - shadowHeight,
+      radius
+    )
+    ctx.fillStyle = '#514a3f'
+    ctx.fill()
+
+    drawEnvironmentKeyRoundedRect(
+      ctx,
+      inset,
+      inset,
+      Math.max(1, width - inset * 2),
+      bodyHeight,
+      Math.max(1, radius - inset)
+    )
+    ctx.fillStyle = '#e4dcc6'
+    ctx.fill()
+
+    ctx.save()
+    ctx.clip()
+    ctx.fillStyle = '#d69a62'
+    if (action === 'left') {
+      ctx.fillRect(inset, inset, Math.max(1, centerX - inset), buttonBottom)
+    } else if (action === 'right') {
+      ctx.fillRect(
+        centerX,
+        inset,
+        Math.max(1, width - inset - centerX),
+        buttonBottom
+      )
+    }
+    ctx.restore()
+
+    drawEnvironmentKeyRoundedRect(
+      ctx,
+      inset,
+      inset,
+      Math.max(1, width - inset * 2),
+      bodyHeight,
+      Math.max(1, radius - inset)
+    )
+    ctx.strokeStyle = '#746a59'
+    ctx.lineWidth = Math.max(2, Math.floor(width / 24))
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.moveTo(centerX, inset)
+    ctx.lineTo(centerX, buttonBottom)
+    ctx.stroke()
+
+    const wheelWidth = Math.max(4, Math.floor(width / 6))
+    const wheelHeight = Math.max(7, Math.floor(height / 5))
+    const wheelX = centerX - (wheelWidth >> 1)
+    const wheelY = inset + Math.max(3, Math.floor(height / 9))
+    drawEnvironmentKeyRoundedRect(
+      ctx,
+      wheelX,
+      wheelY,
+      wheelWidth,
+      wheelHeight,
+      wheelWidth >> 1
+    )
+    ctx.fillStyle =
+      action === 'middle' || action === 'wheelDown' || action === 'wheelUp'
+        ? '#d69a62'
+        : '#746a59'
+    ctx.fill()
+
+    if (action === 'wheelDown' || action === 'wheelUp') {
+      const arrowY =
+        action === 'wheelUp'
+          ? wheelY - Math.max(3, Math.floor(height / 12))
+          : wheelY + wheelHeight + Math.max(3, Math.floor(height / 12))
+      const arrowSize = Math.max(3, Math.floor(width / 9))
+      ctx.fillStyle = '#746a59'
+      ctx.beginPath()
+      if (action === 'wheelUp') {
+        ctx.moveTo(centerX, arrowY - arrowSize)
+        ctx.lineTo(centerX - arrowSize, arrowY)
+        ctx.lineTo(centerX + arrowSize, arrowY)
+      } else {
+        ctx.moveTo(centerX, arrowY + arrowSize)
+        ctx.lineTo(centerX - arrowSize, arrowY)
+        ctx.lineTo(centerX + arrowSize, arrowY)
+      }
+      ctx.closePath()
+      ctx.fill()
+    }
+  }
+  return {
+    canvas,
+    originX: width >> 1,
+    originY: height,
+    boundsX: 0,
+    boundsY: 0,
+    boundsWidth: width,
+    boundsHeight: height,
+  }
+}
+
 export function createEnvironmentKeyTextureSource(
   keyText: string | null | undefined,
   ppm: number,
   scaleXPermille: number = 1000,
-  scaleYPermille: number = 1000
+  scaleYPermille: number = 1000,
+  keyVariant?: MapEnvironmentKeyVariant | null
 ): EnvironmentTextureSource {
+  if (keyVariant?.type === 'mouse') {
+    return createEnvironmentMouseTextureSource(
+      keyVariant.action,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
+  }
   const text = normalizeEnvironmentKeyText(keyText)
   const characterCount = getEnvironmentKeyTextLength(text)
   const baseHeight = Math.max(32, Math.floor((ppm * 4 + 2) / 5))
@@ -1830,12 +1975,16 @@ export function buildEnvironmentTextureCacheKey(
   scaleYPermille: number = 1000,
   cellStroke = false,
   flowerOptions?: MapEnvironmentFlowerOptions | null,
-  keyText?: string | null
+  keyText?: string | null,
+  keyVariant?: MapEnvironmentKeyVariant | null
 ): string {
   const strokeCode =
     isEnvironmentCellStrokeSupported(type) && cellStroke ? 1 : 0
   const key = `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}_${strokeCode}`
   if (type === 'key') {
+    if (keyVariant?.type === 'mouse') {
+      return `${key}_mouse_${normalizeEnvironmentMouseAction(keyVariant.action)}`
+    }
     const text = normalizeEnvironmentKeyText(keyText)
     return `${key}_${text.length}_${text}`
   }
@@ -1935,7 +2084,8 @@ export function createEnvironmentTextureSource(
   scaleYPermille: number = 1000,
   cellStroke = false,
   flowerOptions?: MapEnvironmentFlowerOptions | null,
-  keyText?: string | null
+  keyText?: string | null,
+  keyVariant?: MapEnvironmentKeyVariant | null
 ): EnvironmentTextureSource {
   const drawCellStroke = isEnvironmentCellStrokeSupported(type) && cellStroke
   const key = buildEnvironmentTextureCacheKey(
@@ -1946,7 +2096,8 @@ export function createEnvironmentTextureSource(
     scaleYPermille,
     drawCellStroke,
     flowerOptions,
-    keyText
+    keyText,
+    keyVariant
   )
   const cached = textureCache.get(key)
   if (cached) {
@@ -2014,7 +2165,8 @@ export function createEnvironmentTextureSource(
       keyText,
       ppm,
       scaleXPermille,
-      scaleYPermille
+      scaleYPermille,
+      keyVariant
     )
   } else {
     source = createEnvironmentHouseTextureSource(

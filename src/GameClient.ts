@@ -41,7 +41,11 @@ import {
   TERRAIN_COLLISION_DEBUG_COLOR,
   TERRAIN_COLLISION_DEBUG_LINE_WIDTH,
 } from './constants'
-import type { EditorMapData, MapEnvironmentObject } from './editorMapTypes'
+import type {
+  EditorMapData,
+  MapEnvironmentKeyVariant,
+  MapEnvironmentObject,
+} from './editorMapTypes'
 import {
   computeDistanceAttenuation,
   getSoundFalloffDistance,
@@ -51,7 +55,11 @@ import {
   getRuntimeEnvironmentAsset,
 } from './environmentAssetRegistry'
 import { buildEnvironmentFlowerOptionsCacheKey } from './environmentFlowerOptions'
-import { normalizeEnvironmentKeyText } from './environmentKeyUtils'
+import {
+  getEnvironmentMouseVariant,
+  normalizeEnvironmentKeyText,
+  normalizeEnvironmentMouseAction,
+} from './environmentKeyUtils'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentRotationDeg,
@@ -229,6 +237,10 @@ export class GameClient {
   private hudRenderContext: PixiRenderContext2D
   private staticTerrainGraphics: Container[] = []
   private staticEnvironmentSprites: Sprite[] = []
+  private staticEnvironmentKeySprites: Sprite[] = []
+  private staticEnvironmentKeyObjects: MapEnvironmentObject[] = []
+  private staticEnvironmentKeyLayers: number[] = []
+  private staticEnvironmentKeySkyDepthFlags: number[] = []
   private interactiveGrassDecorations: InteractiveGrassDecoration[] = []
   private readonly interactiveGrassGrid = new Map<
     number,
@@ -386,6 +398,7 @@ export class GameClient {
   private mouseCaptured = false
   private mouseInside = false
   private inputEnabled = true
+  private environmentKeyInputMode: 'keyboard' | 'mouse' = 'keyboard'
   private editorOverlay: HTMLDivElement | null = null
   private inputTarget: HTMLElement
   private mobileControls: MobileControls | null = null
@@ -1341,6 +1354,8 @@ export class GameClient {
           return
         }
 
+        this.setEnvironmentKeyInputMode('keyboard')
+
         if (
           [
             'arrowup',
@@ -1409,6 +1424,7 @@ export class GameClient {
       ) {
         return
       }
+      this.setEnvironmentKeyInputMode('mouse')
       this.mouseButtons.add(e.button)
       this.sendInput()
     })
@@ -1449,6 +1465,7 @@ export class GameClient {
       if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
+      this.setEnvironmentKeyInputMode('mouse')
       const canvasWidth = this.app.renderer.width
       const canvasHeight = this.app.renderer.height
       let mouseDeltaX = 0
@@ -1514,6 +1531,7 @@ export class GameClient {
       if (this.menuManager.isVisible() || !this.inputEnabled) {
         return
       }
+      this.setEnvironmentKeyInputMode('mouse')
       e.preventDefault()
       const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1
       this.targetZoom = Math.max(
@@ -3741,6 +3759,10 @@ export class GameClient {
       sprite.destroy()
     }
     this.staticEnvironmentSprites.length = 0
+    this.staticEnvironmentKeySprites.length = 0
+    this.staticEnvironmentKeyObjects.length = 0
+    this.staticEnvironmentKeyLayers.length = 0
+    this.staticEnvironmentKeySkyDepthFlags.length = 0
   }
 
   private destroyInteractiveGrassDecorations(): void {
@@ -4080,6 +4102,10 @@ export class GameClient {
         isEnvironmentCellStrokeSupported(obj.type) && obj.cellStroke === true
       const flowerOptions =
         obj.type === 'flower' ? obj.flowerOptions : undefined
+      const keyVariant =
+        obj.type === 'key' && this.environmentKeyInputMode === 'mouse'
+          ? getEnvironmentMouseVariant(obj.keyVariants)
+          : null
       const rawLayer = envLayers?.[index] ?? obj.renderLayer ?? 0
       const resolvedLayer = this.resolveEnvironmentRenderLayer(rawLayer)
       const textureEntry = this.getEnvironmentTextureEntry(
@@ -4092,6 +4118,7 @@ export class GameClient {
         cellStroke,
         flowerOptions,
         obj.keyText,
+        keyVariant,
         resolvedLayer === RENDER_LAYER_SKY
       )
       this.pendingEnvironmentTextureKeys.add(textureEntry.key)
@@ -4149,6 +4176,17 @@ export class GameClient {
       sprite.scale.set(1, 1)
       this.worldRenderer.addStaticMesh(sprite, resolvedLayer)
       this.staticEnvironmentSprites.push(sprite)
+      if (
+        obj.type === 'key' &&
+        getEnvironmentMouseVariant(obj.keyVariants) !== null
+      ) {
+        this.staticEnvironmentKeySprites.push(sprite)
+        this.staticEnvironmentKeyObjects.push(obj)
+        this.staticEnvironmentKeyLayers.push(resolvedLayer)
+        this.staticEnvironmentKeySkyDepthFlags.push(
+          resolvedLayer === RENDER_LAYER_SKY ? 1 : 0
+        )
+      }
       this.recordEnvironmentBuildTime(envBuildStartMs)
       if (
         this.pendingStaticEnvironmentIndex < envObjects.length &&
@@ -4185,6 +4223,7 @@ export class GameClient {
     cellStroke: boolean,
     flowerOptions: MapEnvironmentObject['flowerOptions'],
     keyText: MapEnvironmentObject['keyText'],
+    keyVariant: MapEnvironmentKeyVariant | null,
     applySkyDepthStyle: boolean
   ): EnvironmentTextureEntry {
     const sourceKey =
@@ -4203,7 +4242,8 @@ export class GameClient {
             scaleYPermille,
             cellStroke,
             flowerOptions,
-            keyText
+            keyText,
+            keyVariant
           )
     const key = applySkyDepthStyle
       ? `${sourceKey}_sky_depth_${GameClient.SKY_ENVIRONMENT_TEXTURE_BLUR_PX}`
@@ -4233,7 +4273,8 @@ export class GameClient {
             scaleYPermille,
             cellStroke,
             flowerOptions,
-            keyText
+            keyText,
+            keyVariant
           )
     const renderSource = applySkyDepthStyle
       ? this.createSkyDepthEnvironmentTextureSource(source)
@@ -4310,6 +4351,70 @@ export class GameClient {
       this.environmentTextureCache.delete(key)
     }
     pruneEnvironmentTextureSourceCache(activeKeys, maxEntries)
+  }
+
+  private setEnvironmentKeyInputMode(mode: 'keyboard' | 'mouse'): void {
+    if (this.environmentKeyInputMode === mode) {
+      return
+    }
+    this.environmentKeyInputMode = mode
+    this.refreshStaticEnvironmentKeyVariants()
+  }
+
+  private refreshStaticEnvironmentKeyVariants(): void {
+    if (this.staticEnvironmentKeySprites.length === 0) {
+      return
+    }
+    const ppm = this.pixelsPerMeter
+    for (let i = 0; i < this.staticEnvironmentKeySprites.length; i++) {
+      const sprite = this.staticEnvironmentKeySprites[i]
+      const object = this.staticEnvironmentKeyObjects[i]
+      const scaleXPermille = getEnvironmentScaleXPermille(object)
+      const scaleYPermille = getEnvironmentScaleYPermille(object)
+      const keyVariant =
+        this.environmentKeyInputMode === 'mouse'
+          ? getEnvironmentMouseVariant(object.keyVariants)
+          : null
+      const textureEntry = this.getEnvironmentTextureEntry(
+        object.type,
+        object.assetId,
+        object.seed,
+        ppm,
+        scaleXPermille,
+        scaleYPermille,
+        false,
+        undefined,
+        object.keyText,
+        keyVariant,
+        this.staticEnvironmentKeySkyDepthFlags[i] === 1
+      )
+      this.activeEnvironmentTextureKeys.add(textureEntry.key)
+      if (textureEntry.sourceKey) {
+        this.activeEnvironmentTextureKeys.add(textureEntry.sourceKey)
+      }
+      const rotationDeg = getEnvironmentRotationDeg(object)
+      writeEnvironmentTransformedOffset(
+        textureEntry.anchorOffsetX,
+        textureEntry.anchorOffsetY,
+        rotationDeg,
+        scaleXPermille,
+        scaleYPermille,
+        this.reusableEnvironmentAnchorOffset
+      )
+      sprite.texture = textureEntry.texture
+      sprite.anchor.set(textureEntry.centerAnchorX, textureEntry.centerAnchorY)
+      sprite.x = object.x * ppm - this.reusableEnvironmentAnchorOffset.x
+      sprite.y = object.y * ppm - this.reusableEnvironmentAnchorOffset.y
+      sprite.angle = rotationDeg
+      this.worldRenderer.invalidateStaticMeshCache(
+        this.staticEnvironmentKeyLayers[i]
+      )
+    }
+    for (let i = 0; i < this.staticEnvironmentKeyLayers.length; i++) {
+      this.worldRenderer.refreshStaticMeshCache(
+        this.staticEnvironmentKeyLayers[i]
+      )
+    }
   }
 
   private resolveEnvironmentRenderLayer(layer: number): number {
@@ -4393,6 +4498,15 @@ export class GameClient {
           hash = this.mixTerrainSignatureValue(
             hash ^ Math.imul(keyText.charCodeAt(j), 0x45d9f3b)
           )
+        }
+        const mouseVariant = getEnvironmentMouseVariant(obj.keyVariants)
+        if (mouseVariant) {
+          const action = normalizeEnvironmentMouseAction(mouseVariant.action)
+          for (let j = 0; j < action.length; j++) {
+            hash = this.mixTerrainSignatureValue(
+              hash ^ Math.imul(action.charCodeAt(j), 0x27d4eb2d)
+            )
+          }
         }
       }
       const layerCode = this.resolveEnvironmentRenderLayer(

@@ -43,6 +43,20 @@ export interface MapEnvironmentFlowerOptions {
   stamenColor?: string
 }
 
+export type MapEnvironmentKeyMouseAction =
+  | 'left'
+  | 'middle'
+  | 'right'
+  | 'wheelDown'
+  | 'wheelUp'
+
+export interface MapEnvironmentKeyMouseVariant {
+  type: 'mouse'
+  action: MapEnvironmentKeyMouseAction
+}
+
+export type MapEnvironmentKeyVariant = MapEnvironmentKeyMouseVariant
+
 export const MAP_TIME_PHASE_IDS = [
   'morning',
   'noon',
@@ -74,6 +88,7 @@ export interface MapEnvironmentObject {
   cellStroke?: boolean
   flowerOptions?: MapEnvironmentFlowerOptions
   keyText?: string
+  keyVariants?: MapEnvironmentKeyVariant[]
 }
 
 export interface MapEnvironmentAsset {

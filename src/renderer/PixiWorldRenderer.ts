@@ -1582,33 +1582,55 @@ export class PixiWorldRenderer {
     }
   }
 
+  invalidateStaticMeshCache(layer: number): void {
+    const bucket = this.buckets.get(layer)
+    if (!bucket) {
+      return
+    }
+    if (bucket.staticContainer.isCachedAsTexture) {
+      bucket.staticContainer.cacheAsTexture(false)
+    }
+    bucket.staticCacheDirty = bucket.staticContainer.children.length > 0
+  }
+
   refreshStaticMeshCaches(): void {
     for (const bucket of this.buckets.values()) {
-      const staticContainer = bucket.staticContainer
-      if (staticContainer.children.length === 0) {
-        if (staticContainer.isCachedAsTexture) {
-          staticContainer.cacheAsTexture(false)
-        }
-        bucket.staticCacheDirty = false
-        continue
+      this.refreshStaticMeshCacheBucket(bucket)
+    }
+  }
+
+  refreshStaticMeshCache(layer: number): void {
+    const bucket = this.buckets.get(layer)
+    if (bucket) {
+      this.refreshStaticMeshCacheBucket(bucket)
+    }
+  }
+
+  private refreshStaticMeshCacheBucket(bucket: LayerBucket): void {
+    const staticContainer = bucket.staticContainer
+    if (staticContainer.children.length === 0) {
+      if (staticContainer.isCachedAsTexture) {
+        staticContainer.cacheAsTexture(false)
       }
-      const bounds = staticContainer.getLocalBounds()
-      if (
-        bounds.maxX - bounds.minX > STATIC_TEXTURE_CACHE_MAX_SIZE_PX ||
-        bounds.maxY - bounds.minY > STATIC_TEXTURE_CACHE_MAX_SIZE_PX
-      ) {
-        if (staticContainer.isCachedAsTexture) {
-          staticContainer.cacheAsTexture(false)
-        }
-        bucket.staticCacheDirty = false
-        continue
+      bucket.staticCacheDirty = false
+      return
+    }
+    const bounds = staticContainer.getLocalBounds()
+    if (
+      bounds.maxX - bounds.minX > STATIC_TEXTURE_CACHE_MAX_SIZE_PX ||
+      bounds.maxY - bounds.minY > STATIC_TEXTURE_CACHE_MAX_SIZE_PX
+    ) {
+      if (staticContainer.isCachedAsTexture) {
+        staticContainer.cacheAsTexture(false)
       }
-      if (bucket.staticCacheDirty) {
-        staticContainer.cacheAsTexture(true)
-        bucket.staticCacheDirty = false
-      } else if (!staticContainer.isCachedAsTexture) {
-        staticContainer.cacheAsTexture(true)
-      }
+      bucket.staticCacheDirty = false
+      return
+    }
+    if (bucket.staticCacheDirty) {
+      staticContainer.cacheAsTexture(true)
+      bucket.staticCacheDirty = false
+    } else if (!staticContainer.isCachedAsTexture) {
+      staticContainer.cacheAsTexture(true)
     }
   }
 

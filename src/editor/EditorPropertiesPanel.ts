@@ -35,13 +35,20 @@ import { computeWeaponScaleFactor } from '../ecs/factories/PlayerFactory'
 import type {
   EditorMapData,
   MapCharacterBodyProfile,
+  MapEnvironmentKeyVariant,
   MapNpcDropItem,
   MapNpcTemplate,
   MapNpcWeapon,
   MapSettings,
 } from '../editorMapTypes'
 import { DEFAULT_MAP_TIME_PHASE, MAP_TIME_PHASE_IDS } from '../editorMapTypes'
-import { MAX_ENVIRONMENT_KEY_TEXT_LENGTH } from '../environmentKeyUtils'
+import {
+  ENVIRONMENT_MOUSE_ACTIONS,
+  MAX_ENVIRONMENT_KEY_TEXT_LENGTH,
+  cloneEnvironmentKeyVariants,
+  getEnvironmentMouseVariant,
+  normalizeEnvironmentMouseAction,
+} from '../environmentKeyUtils'
 import {
   MAX_NPC_DROP_COUNT,
   NPC_DROP_ITEM_TYPES,
@@ -281,7 +288,14 @@ export interface EditorPropertiesPanelContext {
     cellStroke: boolean
   ) => boolean
   getEnvironmentKeyText: (target: fabric.Object) => string | null
-  setEnvironmentKeyText: (target: fabric.Object, keyText: string) => boolean
+  getEnvironmentKeyVariants: (
+    target: fabric.Object
+  ) => readonly MapEnvironmentKeyVariant[] | null
+  setEnvironmentKeyProperties: (
+    target: fabric.Object,
+    keyText: string,
+    keyVariants: readonly MapEnvironmentKeyVariant[]
+  ) => boolean
 }
 
 export class EditorPropertiesPanel {
@@ -3187,6 +3201,11 @@ export class EditorPropertiesPanel {
     if (keyText === null) {
       return false
     }
+    const currentVariants = this.context.getEnvironmentKeyVariants(target)
+    if (currentVariants === null) {
+      return false
+    }
+    const keyVariants = cloneEnvironmentKeyVariants(currentVariants)
     const dialog = EditorUIHelper.createPropertiesDialog(
       localizer.t('editor_environment_key_properties_title')
     )
@@ -3202,11 +3221,93 @@ export class EditorPropertiesPanel {
     textRow.row.appendChild(textInput)
     leftPanel.appendChild(textRow.row)
 
+    const variantTitle = document.createElement('div')
+    variantTitle.textContent = localizer.t('editor_environment_key_variants')
+    variantTitle.style.cssText =
+      'margin:8px 0 10px;font-size:12px;color:rgba(255,255,255,0.82);'
+    leftPanel.appendChild(variantTitle)
+
+    const variantList = document.createElement('div')
+    leftPanel.appendChild(variantList)
+    const variantActions = document.createElement('div')
+    variantActions.style.cssText =
+      'display:flex;align-items:center;gap:8px;margin-top:4px;'
+    leftPanel.appendChild(variantActions)
+    const addVariantBtn = EditorUIHelper.createButton(
+      localizer.t('editor_environment_key_variant_add')
+    )
+    variantActions.appendChild(addVariantBtn)
+    const mouseVariantBtn = EditorUIHelper.createButton(
+      localizer.t('editor_environment_key_variant_mouse')
+    )
+    mouseVariantBtn.style.display = 'none'
+    variantActions.appendChild(mouseVariantBtn)
+
+    const renderVariants = () => {
+      variantList.textContent = ''
+      const mouseVariant = getEnvironmentMouseVariant(keyVariants)
+      if (mouseVariant) {
+        const row = EditorUIHelper.createFormRow(
+          localizer.t('editor_environment_key_variant_mouse')
+        )
+        const actionSelect = EditorUIHelper.createSelect({
+          options: ENVIRONMENT_MOUSE_ACTIONS.map((action) => ({
+            value: action,
+            label: localizer.t(`editor_environment_key_mouse_action_${action}`),
+          })),
+          selected: mouseVariant.action,
+          width: '180px',
+        })
+        actionSelect.addEventListener('change', () => {
+          mouseVariant.action = normalizeEnvironmentMouseAction(
+            actionSelect.value as MapEnvironmentKeyVariant['action']
+          )
+        })
+        row.row.appendChild(actionSelect)
+        const removeBtn = EditorUIHelper.createButton(
+          localizer.t('editor_environment_key_variant_remove')
+        )
+        removeBtn.addEventListener('click', () => {
+          keyVariants.length = 0
+          renderVariants()
+        })
+        row.row.appendChild(removeBtn)
+        variantList.appendChild(row.row)
+      }
+      addVariantBtn.disabled = mouseVariant !== null
+      if (mouseVariant) {
+        mouseVariantBtn.style.display = 'none'
+      }
+    }
+
+    addVariantBtn.addEventListener('click', () => {
+      if (getEnvironmentMouseVariant(keyVariants)) {
+        return
+      }
+      mouseVariantBtn.style.display =
+        mouseVariantBtn.style.display === 'none' ? '' : 'none'
+    })
+    mouseVariantBtn.addEventListener('click', () => {
+      if (!getEnvironmentMouseVariant(keyVariants)) {
+        keyVariants.push({ type: 'mouse', action: 'left' })
+      }
+      mouseVariantBtn.style.display = 'none'
+      renderVariants()
+    })
+    renderVariants()
+
     const hint = document.createElement('div')
     hint.textContent = localizer.t('editor_environment_key_text_hint')
     hint.style.cssText =
       'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
     rightPanel.appendChild(hint)
+    const variantHint = document.createElement('div')
+    variantHint.textContent = localizer.t(
+      'editor_environment_key_variant_mouse_hint'
+    )
+    variantHint.style.cssText =
+      'margin-top:8px;font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+    rightPanel.appendChild(variantHint)
 
     const buttonRow = EditorUIHelper.createButtonRow()
     const confirmBtn = EditorUIHelper.createButton(
@@ -3233,7 +3334,13 @@ export class EditorPropertiesPanel {
       }
 
       confirmBtn.addEventListener('click', () => {
-        finish(this.context.setEnvironmentKeyText(target, textInput.value))
+        finish(
+          this.context.setEnvironmentKeyProperties(
+            target,
+            textInput.value,
+            keyVariants
+          )
+        )
       })
       cancelBtn.addEventListener('click', () => finish(false))
       modal.addEventListener('click', (event) => {

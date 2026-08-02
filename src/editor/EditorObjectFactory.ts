@@ -304,6 +304,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
   declare cellStroke: EnvironmentMarker['cellStroke']
   declare flowerOptions: EnvironmentMarker['flowerOptions']
   declare keyText: EnvironmentMarker['keyText']
+  declare keyVariants: EnvironmentMarker['keyVariants']
 
   private textureCanvas: HTMLCanvasElement
   private drawOffsetX: number
@@ -326,6 +327,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
     this.cellStroke = false
     this.flowerOptions = null
     this.keyText = normalizeEnvironmentKeyText(null)
+    this.keyVariants = []
     this.applyTextureConfig(config)
   }
 

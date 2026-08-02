@@ -2,6 +2,7 @@ import { localizer } from '../Localizer'
 import type {
   MapEnvironmentAsset,
   MapEnvironmentFlowerOptions,
+  MapEnvironmentKeyVariant,
   MapEnvironmentObjectType,
 } from '../editorMapTypes'
 import {
@@ -31,8 +32,12 @@ import {
 } from '../environmentFlowerOptions'
 import {
   DEFAULT_ENVIRONMENT_KEY_TEXT,
+  ENVIRONMENT_MOUSE_ACTIONS,
   MAX_ENVIRONMENT_KEY_TEXT_LENGTH,
+  cloneEnvironmentKeyVariants,
+  getEnvironmentMouseVariant,
   normalizeEnvironmentKeyText,
+  normalizeEnvironmentMouseAction,
 } from '../environmentKeyUtils'
 import {
   formatRenderLayerLabel,
@@ -221,6 +226,7 @@ export interface EditorEnvironmentPaletteStampOptions {
   renderLayer: number
   cellStroke: boolean
   keyText: string
+  keyVariants: MapEnvironmentKeyVariant[]
   flower: EditorEnvironmentPaletteFlowerStampOptions
 }
 
@@ -344,6 +350,18 @@ export class EditorEnvironmentPalette {
       return undefined
     }
     return normalizeEnvironmentKeyText(this.getStampOptions(selection).keyText)
+  }
+
+  getKeyVariantsForStamp(
+    selection: EditorEnvironmentPaletteSelection
+  ): MapEnvironmentKeyVariant[] | undefined {
+    if (selection.envType !== 'key') {
+      return undefined
+    }
+    const variants = cloneEnvironmentKeyVariants(
+      this.getStampOptions(selection).keyVariants
+    )
+    return variants.length > 0 ? variants : undefined
   }
 
   writeFlowerOptionsForStamp(
@@ -548,6 +566,7 @@ export class EditorEnvironmentPalette {
       renderLayer: this.getDefaultRenderLayer(),
       cellStroke: false,
       keyText: DEFAULT_ENVIRONMENT_KEY_TEXT,
+      keyVariants: [],
       flower: this.createDefaultFlowerStampOptions(),
     }
     this.stampOptionsByKey.set(key, options)
@@ -559,6 +578,7 @@ export class EditorEnvironmentPalette {
       renderLayer: this.getDefaultRenderLayer(),
       cellStroke: false,
       keyText: DEFAULT_ENVIRONMENT_KEY_TEXT,
+      keyVariants: [],
       flower: this.createDefaultFlowerStampOptions(),
     }
   }
@@ -630,6 +650,7 @@ export class EditorEnvironmentPalette {
     }
     if (selection.envType === 'key') {
       this.propertyBody.appendChild(this.createKeyTextRow(options))
+      this.propertyBody.appendChild(this.createKeyVariantsSection(options))
     }
     this.renderCommonPropertyRows(options)
 
@@ -674,6 +695,95 @@ export class EditorEnvironmentPalette {
     })
     row.appendChild(input)
     return row
+  }
+
+  private createKeyVariantsSection(
+    options: EditorEnvironmentPaletteStampOptions
+  ): HTMLDivElement {
+    const section = document.createElement('div')
+    section.className = 'editor-environment-property-section'
+    const title = document.createElement('div')
+    title.className = 'editor-environment-property-section-title'
+    title.textContent = localizer.t('editor_environment_key_variants')
+    section.appendChild(title)
+    const list = document.createElement('div')
+    section.appendChild(list)
+    const actions = document.createElement('div')
+    actions.className = 'editor-environment-key-variant-actions'
+    section.appendChild(actions)
+    const addButton = document.createElement('button')
+    addButton.type = 'button'
+    addButton.className = 'editor-environment-key-variant-button'
+    addButton.textContent = localizer.t('editor_environment_key_variant_add')
+    actions.appendChild(addButton)
+    const mouseButton = document.createElement('button')
+    mouseButton.type = 'button'
+    mouseButton.className = 'editor-environment-key-variant-button'
+    mouseButton.textContent = localizer.t(
+      'editor_environment_key_variant_mouse'
+    )
+    mouseButton.hidden = true
+    actions.appendChild(mouseButton)
+
+    const renderVariants = () => {
+      list.textContent = ''
+      const mouseVariant = getEnvironmentMouseVariant(options.keyVariants)
+      if (mouseVariant) {
+        const row = this.createFieldRow(
+          localizer.t('editor_environment_key_variant_mouse')
+        )
+        row.classList.add('editor-environment-key-variant-row')
+        const select = document.createElement('select')
+        select.className = 'editor-environment-property-select'
+        for (let i = 0; i < ENVIRONMENT_MOUSE_ACTIONS.length; i++) {
+          const action = ENVIRONMENT_MOUSE_ACTIONS[i]
+          const option = document.createElement('option')
+          option.value = action
+          option.textContent = localizer.t(
+            `editor_environment_key_mouse_action_${action}`
+          )
+          select.appendChild(option)
+        }
+        select.value = mouseVariant.action
+        select.addEventListener('change', () => {
+          mouseVariant.action = normalizeEnvironmentMouseAction(
+            select.value as MapEnvironmentKeyVariant['action']
+          )
+        })
+        row.appendChild(select)
+        const removeButton = document.createElement('button')
+        removeButton.type = 'button'
+        removeButton.className = 'editor-environment-key-variant-button'
+        removeButton.textContent = localizer.t(
+          'editor_environment_key_variant_remove'
+        )
+        removeButton.addEventListener('click', () => {
+          options.keyVariants.length = 0
+          renderVariants()
+        })
+        row.appendChild(removeButton)
+        list.appendChild(row)
+      }
+      addButton.disabled = mouseVariant !== null
+      if (mouseVariant) {
+        mouseButton.hidden = true
+      }
+    }
+
+    addButton.addEventListener('click', () => {
+      if (!getEnvironmentMouseVariant(options.keyVariants)) {
+        mouseButton.hidden = !mouseButton.hidden
+      }
+    })
+    mouseButton.addEventListener('click', () => {
+      if (!getEnvironmentMouseVariant(options.keyVariants)) {
+        options.keyVariants.push({ type: 'mouse', action: 'left' })
+      }
+      mouseButton.hidden = true
+      renderVariants()
+    })
+    renderVariants()
+    return section
   }
 
   private createRenderLayerRow(

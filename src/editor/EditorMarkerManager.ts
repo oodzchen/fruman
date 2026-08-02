@@ -23,6 +23,7 @@ import { setWeaponBackTransform } from '../ecs/WeaponPoseUtils'
 import type {
   MapCharacterBodyProfile,
   MapCheckpoint,
+  MapEnvironmentKeyVariant,
   MapEnvironmentObject,
   MapEnvironmentObjectType,
   MapHookAnchor,
@@ -33,7 +34,11 @@ import type {
 } from '../editorMapTypes'
 import { ensureRuntimeEnvironmentAsset } from '../environmentAssetRegistry'
 import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
-import { normalizeEnvironmentKeyText } from '../environmentKeyUtils'
+import {
+  areEnvironmentKeyVariantsEqual,
+  cloneEnvironmentKeyVariants,
+  normalizeEnvironmentKeyText,
+} from '../environmentKeyUtils'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentEffectiveScalePermille,
@@ -635,6 +640,16 @@ export class EditorMarkerManager {
     return normalizeEnvironmentKeyText(data?.keyText ?? object.keyText)
   }
 
+  getEnvironmentKeyVariants(
+    object: fabric.Object | null
+  ): readonly MapEnvironmentKeyVariant[] | null {
+    if (!this.isEnvironmentMarker(object) || object.envType !== 'key') {
+      return null
+    }
+    const data = this.environmentMarkerMap.get(object)
+    return data?.keyVariants ?? object.keyVariants
+  }
+
   setEnvironmentKeyText(
     object: fabric.Object | null,
     keyText: string
@@ -652,6 +667,37 @@ export class EditorMarkerManager {
       data.keyText = nextKeyText
     }
     this.refreshEnvironmentMarkerTexture(object)
+    return true
+  }
+
+  setEnvironmentKeyProperties(
+    object: fabric.Object | null,
+    keyText: string,
+    keyVariants: readonly MapEnvironmentKeyVariant[]
+  ): boolean {
+    if (!this.isEnvironmentMarker(object) || object.envType !== 'key') {
+      return false
+    }
+    const nextKeyText = normalizeEnvironmentKeyText(keyText)
+    const nextKeyVariants = cloneEnvironmentKeyVariants(keyVariants)
+    const textChanged = object.keyText !== nextKeyText
+    const variantsChanged = !areEnvironmentKeyVariantsEqual(
+      object.keyVariants,
+      nextKeyVariants
+    )
+    if (!textChanged && !variantsChanged) {
+      return false
+    }
+    object.keyText = nextKeyText
+    object.keyVariants = nextKeyVariants
+    const data = this.environmentMarkerMap.get(object)
+    if (data) {
+      data.keyText = nextKeyText
+      data.keyVariants = nextKeyVariants
+    }
+    if (textChanged) {
+      this.refreshEnvironmentMarkerTexture(object)
+    }
     return true
   }
 
@@ -1593,6 +1639,7 @@ export class EditorMarkerManager {
         ? cloneEnvironmentFlowerOptions(spawn?.flowerOptions)
         : undefined
     const keyText = normalizeEnvironmentKeyText(spawn?.keyText)
+    const keyVariants = cloneEnvironmentKeyVariants(spawn?.keyVariants)
     const marker = this.objectFactory.createEnvironmentMarkerWithScale(
       envType,
       envSeed,
@@ -1603,6 +1650,7 @@ export class EditorMarkerManager {
       flowerOptions ?? null,
       keyText
     ) as EnvironmentMarker
+    marker.keyVariants = keyVariants
     marker.angle = rotationDeg
     writeEnvironmentTransformedOffset(
       marker.anchorDX,
@@ -1625,6 +1673,7 @@ export class EditorMarkerManager {
       cellStroke,
       flowerOptions: flowerOptions ?? null,
       keyText,
+      keyVariants,
     }
     this.environmentMarkers.push(envData)
     this.environmentMarkerMap.set(marker, envData)

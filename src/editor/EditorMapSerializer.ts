@@ -17,7 +17,10 @@ import type {
 } from '../editorMapTypes'
 import { DEFAULT_MAP_TIME_PHASE } from '../editorMapTypes'
 import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
-import { normalizeEnvironmentKeyText } from '../environmentKeyUtils'
+import {
+  cloneEnvironmentKeyVariants,
+  normalizeEnvironmentKeyText,
+} from '../environmentKeyUtils'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   type EnvironmentTransformOffset,
@@ -619,6 +622,10 @@ export class EditorMapSerializer {
       }
       if (envType === 'key') {
         envObject.keyText = normalizeEnvironmentKeyText(marker.keyText)
+        const keyVariants = cloneEnvironmentKeyVariants(marker.keyVariants)
+        if (keyVariants.length > 0) {
+          envObject.keyVariants = keyVariants
+        }
       }
       result.push(envObject)
     }
