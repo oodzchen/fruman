@@ -13,6 +13,8 @@ import type {
 const EDITOR_LOCKED_SELECTION_BORDER_COLOR = 'rgba(190, 66, 66, 0.92)'
 const EDITOR_LOCKED_SELECTION_CORNER_COLOR = 'rgba(220, 92, 92, 0.95)'
 const EDITOR_LOCKED_SELECTION_CORNER_STROKE_COLOR = 'rgba(42, 8, 8, 0.85)'
+const EDITOR_DEFAULT_STACKING_PRIORITY = 0
+const EDITOR_CHARACTER_STACKING_PRIORITY = 1
 
 export interface EditorObjectManagerContext {
   fabricCanvas: () => fabric.Canvas | null
@@ -248,7 +250,19 @@ export class EditorObjectManager {
     if (layerDelta !== 0) {
       return layerDelta
     }
+    const priorityDelta =
+      this.getObjectStackingPriority(a) - this.getObjectStackingPriority(b)
+    if (priorityDelta !== 0) {
+      return priorityDelta
+    }
     return (objectOrder.get(a) ?? 0) - (objectOrder.get(b) ?? 0)
+  }
+
+  private getObjectStackingPriority(object: fabric.Object): number {
+    const type = this.editorObjectMap.get(object)?.type
+    return type === ObjectType.Player || type === ObjectType.Npc
+      ? EDITOR_CHARACTER_STACKING_PRIORITY
+      : EDITOR_DEFAULT_STACKING_PRIORITY
   }
 
   private getObjectStackingRenderLayer(object: fabric.Object): number {
