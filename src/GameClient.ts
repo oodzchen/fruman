@@ -3,8 +3,10 @@ import {
   Assets,
   BlurFilter,
   Container,
+  type ExtractImageOptions,
   Graphics,
   Matrix,
+  Rectangle,
   Sprite,
   Text,
   Texture,
@@ -197,9 +199,13 @@ export class GameClient {
   private static readonly SLEEP_OVERLAY_BLUR_STRENGTH = 24
   private static readonly SLEEP_OVERLAY_OVERSCAN_PX = 96
   private static readonly SKY_ENVIRONMENT_TEXTURE_BLUR_PX = 3
+  private static readonly SAVE_THUMBNAIL_WIDTH = 200
+  private static readonly SAVE_THUMBNAIL_HEIGHT = 160
   private worker: Worker
   private app: Application
   private appCanvas: HTMLCanvasElement
+  private readonly saveThumbnailFrame = new Rectangle()
+  private readonly saveThumbnailExtractOptions: ExtractImageOptions
 
   // PixiJS scene elements
   private backgroundSprite: TilingSprite | null = null
@@ -624,6 +630,15 @@ export class GameClient {
     this.appCanvas = app.canvas as HTMLCanvasElement
     this.rendererLabel = rendererLabel
     this.perfDebugEnabled = GameClient.readPerfDebugFlag()
+    this.saveThumbnailExtractOptions = {
+      target: app.stage,
+      frame: this.saveThumbnailFrame,
+      resolution: 1,
+      clearColor: '#0d0b18',
+      antialias: false,
+      format: 'jpg',
+      quality: 0.8,
+    }
 
     const width = app.renderer.width
     const height = app.renderer.height
@@ -4854,19 +4869,41 @@ export class GameClient {
     )
   }
 
-  private captureSaveThumbnail(): Promise<string | null> {
-    const w = this.app.renderer.width
-    const h = this.app.renderer.height
-    const thumbCanvas = document.createElement('canvas')
-    thumbCanvas.width = w
-    thumbCanvas.height = h
-    const thumbCtx = thumbCanvas.getContext('2d')
-    if (!thumbCtx) return Promise.resolve(null)
-    thumbCtx.fillStyle = '#0d0b18'
-    thumbCtx.fillRect(0, 0, w, h)
-    thumbCtx.drawImage(this.appCanvas, 0, 0)
-    const dataUrl = thumbCanvas.toDataURL('image/jpeg', 0.8)
-    return this.resizeThumbnail(dataUrl, 200, 160)
+  private async captureSaveThumbnail(): Promise<string | null> {
+    if (this.rendererContextLost) {
+      return null
+    }
+
+    const sourceWidth = Math.max(1, Math.round(this.app.screen.width))
+    const sourceHeight = Math.max(1, Math.round(this.app.screen.height))
+    const thumbnailWidth = GameClient.SAVE_THUMBNAIL_WIDTH
+    const thumbnailHeight = GameClient.SAVE_THUMBNAIL_HEIGHT
+    let captureWidth = sourceWidth
+    let captureHeight = sourceHeight
+
+    if (sourceWidth * thumbnailHeight > sourceHeight * thumbnailWidth) {
+      captureWidth = Math.floor(
+        (sourceHeight * thumbnailWidth) / thumbnailHeight
+      )
+    } else {
+      captureHeight = Math.floor(
+        (sourceWidth * thumbnailHeight) / thumbnailWidth
+      )
+    }
+
+    this.saveThumbnailFrame.x = (sourceWidth - captureWidth) >> 1
+    this.saveThumbnailFrame.y = (sourceHeight - captureHeight) >> 1
+    this.saveThumbnailFrame.width = captureWidth
+    this.saveThumbnailFrame.height = captureHeight
+    this.saveThumbnailExtractOptions.resolution = thumbnailWidth / captureWidth
+
+    try {
+      return await this.app.renderer.extract.base64(
+        this.saveThumbnailExtractOptions
+      )
+    } catch {
+      return null
+    }
   }
 
   captureCurrentThumbnail(): Promise<string | null> {
@@ -4892,49 +4929,6 @@ export class GameClient {
     return new Promise((resolve) => {
       this.previewPresentationWaiters.push(resolve)
       this.updatePreviewPresentationState()
-    })
-  }
-
-  private resizeThumbnail(
-    dataUrl: string,
-    width: number,
-    height: number
-  ): Promise<string> {
-    return new Promise((resolve) => {
-      const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        if (!ctx) {
-          resolve(dataUrl)
-          return
-        }
-
-        const srcRatio = img.width / img.height
-        const dstRatio = width / height
-
-        let drawW = width
-        let drawH = height
-        let offsetX = 0
-        let offsetY = 0
-
-        if (srcRatio > dstRatio) {
-          drawH = height
-          drawW = height * srcRatio
-          offsetX = (width - drawW) / 2
-        } else {
-          drawW = width
-          drawH = width / srcRatio
-          offsetY = (height - drawH) / 2
-        }
-
-        ctx.drawImage(img, offsetX, offsetY, drawW, drawH)
-        resolve(canvas.toDataURL('image/jpeg', 0.8))
-      }
-      img.onerror = () => resolve(dataUrl)
-      img.src = dataUrl
     })
   }
 
