@@ -101,7 +101,8 @@ export const HIT_STUN_MEDIUM_MS = DEFAULT_HIT_STUN_DURATION_MS
 export const HIT_STUN_HEAVY_MS = 1500
 
 // 冲击力等级对应的速度变化量（m/s），公式：velocity += finalKnockback * 2
-// 地面摩擦减速约 40 m/s²，参考位移距离：medium≈0.45m, large≈1.8m, extreme≈5m
+// 地面硬直滑行减速为 40 m/s²，参考位移距离：medium≈0.45m, large≈1.8m, extreme≈5m
+export const KNOCKBACK_SLIDE_DECELERATION = 40
 export const IMPACT_LEVEL_KNOCKBACK = {
   small: 0,
   medium: 3,

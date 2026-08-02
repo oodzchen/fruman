@@ -1,3 +1,4 @@
+import { KNOCKBACK_SLIDE_DECELERATION } from '../../constants'
 import type { MainModule, b2WorldId } from '../../types'
 import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
@@ -22,9 +23,13 @@ export class PhysicsSystem extends System {
     this.afterStepCallbacks.push(callback)
   }
 
-  update(entities: Entity[], _deltaTime: number): void {
-    const { b2World_Step, b2Body_GetLinearVelocity, b2Body_GetPosition } =
-      this.box2d
+  update(entities: Entity[], deltaTime: number): void {
+    const {
+      b2World_Step,
+      b2Body_GetLinearVelocity,
+      b2Body_GetPosition,
+      b2Body_SetLinearVelocity,
+    } = this.box2d
     const timeStep = 1 / 60
     b2World_Step(this.worldId, timeStep, 8)
 
@@ -36,6 +41,25 @@ export class PhysicsSystem extends System {
       const vel = b2Body_GetLinearVelocity(entity.physics.bodyId)
       const posX = pos.x
       const posY = pos.y
+      if (
+        entity.movement &&
+        entity.movement.currentFriction === 0 &&
+        (entity.movement.isGrounded || entity.movement.wasGrounded) &&
+        entity.isStunned()
+      ) {
+        const deceleration = KNOCKBACK_SLIDE_DECELERATION * deltaTime
+        const velocityX = vel.x
+        if (vel.x > deceleration) {
+          vel.x -= deceleration
+        } else if (vel.x < -deceleration) {
+          vel.x += deceleration
+        } else {
+          vel.x = 0
+        }
+        if (vel.x !== velocityX) {
+          b2Body_SetLinearVelocity(entity.physics.bodyId, vel)
+        }
+      }
       entity.transform.x = posX
       entity.transform.y = posY
       entity.physics.posX = posX
