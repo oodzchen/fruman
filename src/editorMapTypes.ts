@@ -25,6 +25,7 @@ export type MapEnvironmentObjectType =
   | 'grass'
   | 'flower'
   | 'cloud'
+  | 'key'
   | 'custom'
 
 export interface MapEnvironmentFlowerOptions {
@@ -72,6 +73,7 @@ export interface MapEnvironmentObject {
   scaleYPermille?: number
   cellStroke?: boolean
   flowerOptions?: MapEnvironmentFlowerOptions
+  keyText?: string
 }
 
 export interface MapEnvironmentAsset {
@@ -126,6 +128,7 @@ export type EditorTreeObjectType =
   | 'envGrass'
   | 'envFlower'
   | 'envCloud'
+  | 'envKey'
   | 'envCustom'
 
 export interface EditorTreeNode {

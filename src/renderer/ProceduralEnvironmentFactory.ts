@@ -25,6 +25,10 @@ import {
   ENVIRONMENT_FLOWER_STEM_LEAN_PERCENT_MIN,
   buildEnvironmentFlowerOptionsCacheKey,
 } from '../environmentFlowerOptions'
+import {
+  getEnvironmentKeyTextLength,
+  normalizeEnvironmentKeyText,
+} from '../environmentKeyUtils'
 import { createDefaultTerrainChunkSiteJitter } from '../terrain/TerrainDataUtils'
 import type { TerrainResolvedLayerView } from '../terrain/TerrainDataUtils'
 import {
@@ -1700,6 +1704,113 @@ export function createEnvironmentCloudTextureSource(
   }
 }
 
+function drawEnvironmentKeyRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+): void {
+  const right = x + width
+  const bottom = y + height
+  ctx.beginPath()
+  ctx.moveTo(x + radius, y)
+  ctx.lineTo(right - radius, y)
+  ctx.quadraticCurveTo(right, y, right, y + radius)
+  ctx.lineTo(right, bottom - radius)
+  ctx.quadraticCurveTo(right, bottom, right - radius, bottom)
+  ctx.lineTo(x + radius, bottom)
+  ctx.quadraticCurveTo(x, bottom, x, bottom - radius)
+  ctx.lineTo(x, y + radius)
+  ctx.quadraticCurveTo(x, y, x + radius, y)
+  ctx.closePath()
+}
+
+export function createEnvironmentKeyTextureSource(
+  keyText: string | null | undefined,
+  ppm: number,
+  scaleXPermille: number = 1000,
+  scaleYPermille: number = 1000
+): EnvironmentTextureSource {
+  const text = normalizeEnvironmentKeyText(keyText)
+  const characterCount = getEnvironmentKeyTextLength(text)
+  const baseHeight = Math.max(32, Math.floor((ppm * 4 + 2) / 5))
+  const extraCharacterWidth = Math.max(1, Math.floor((baseHeight + 1) / 3))
+  const baseWidth = baseHeight + (characterCount - 1) * extraCharacterWidth
+  const width = Math.max(
+    1,
+    Math.floor((baseWidth * scaleXPermille + 500) / 1000)
+  )
+  const height = Math.max(
+    1,
+    Math.floor((baseHeight * scaleYPermille + 500) / 1000)
+  )
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const radius = Math.max(3, Math.floor(height / 6))
+    const faceInset = Math.max(2, Math.floor(height / 16))
+    const shadowHeight = Math.max(4, Math.floor(height / 6))
+    const faceHeight = Math.max(1, height - shadowHeight - faceInset)
+
+    drawEnvironmentKeyRoundedRect(
+      ctx,
+      0,
+      shadowHeight,
+      width,
+      height - shadowHeight,
+      radius
+    )
+    ctx.fillStyle = '#514a3f'
+    ctx.fill()
+
+    drawEnvironmentKeyRoundedRect(
+      ctx,
+      faceInset,
+      faceInset,
+      Math.max(1, width - faceInset * 2),
+      faceHeight,
+      Math.max(1, radius - faceInset)
+    )
+    ctx.fillStyle = '#e4dcc6'
+    ctx.fill()
+    ctx.strokeStyle = '#746a59'
+    ctx.lineWidth = Math.max(2, Math.floor(height / 24))
+    ctx.stroke()
+
+    const highlightY = faceInset + Math.max(2, Math.floor(height / 12))
+    ctx.strokeStyle = '#fff7df'
+    ctx.lineWidth = Math.max(1, Math.floor(height / 32))
+    ctx.beginPath()
+    ctx.moveTo(faceInset + radius, highlightY)
+    ctx.lineTo(width - faceInset - radius, highlightY)
+    ctx.stroke()
+
+    const fontSize = Math.max(14, Math.floor((height * 11) / 20))
+    ctx.fillStyle = '#302d27'
+    ctx.font = `800 ${fontSize}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(
+      text,
+      width >> 1,
+      faceInset + (faceHeight >> 1) + Math.floor(height / 32)
+    )
+  }
+  return {
+    canvas,
+    originX: width >> 1,
+    originY: height,
+    boundsX: 0,
+    boundsY: 0,
+    boundsWidth: width,
+    boundsHeight: height,
+  }
+}
+
 // ===== DISPATCH =====
 
 const textureCache = new Map<string, EnvironmentTextureSource>()
@@ -1718,11 +1829,16 @@ export function buildEnvironmentTextureCacheKey(
   scaleXPermille: number = 1000,
   scaleYPermille: number = 1000,
   cellStroke = false,
-  flowerOptions?: MapEnvironmentFlowerOptions | null
+  flowerOptions?: MapEnvironmentFlowerOptions | null,
+  keyText?: string | null
 ): string {
   const strokeCode =
     isEnvironmentCellStrokeSupported(type) && cellStroke ? 1 : 0
   const key = `${type}_${seed}_${ppm}_${scaleXPermille}_${scaleYPermille}_${strokeCode}`
+  if (type === 'key') {
+    const text = normalizeEnvironmentKeyText(keyText)
+    return `${key}_${text.length}_${text}`
+  }
   if (type !== 'flower') {
     return key
   }
@@ -1818,7 +1934,8 @@ export function createEnvironmentTextureSource(
   scaleXPermille: number = 1000,
   scaleYPermille: number = 1000,
   cellStroke = false,
-  flowerOptions?: MapEnvironmentFlowerOptions | null
+  flowerOptions?: MapEnvironmentFlowerOptions | null,
+  keyText?: string | null
 ): EnvironmentTextureSource {
   const drawCellStroke = isEnvironmentCellStrokeSupported(type) && cellStroke
   const key = buildEnvironmentTextureCacheKey(
@@ -1828,7 +1945,8 @@ export function createEnvironmentTextureSource(
     scaleXPermille,
     scaleYPermille,
     drawCellStroke,
-    flowerOptions
+    flowerOptions,
+    keyText
   )
   const cached = textureCache.get(key)
   if (cached) {
@@ -1887,6 +2005,13 @@ export function createEnvironmentTextureSource(
   } else if (type === 'cloud') {
     source = createEnvironmentCloudTextureSource(
       seed,
+      ppm,
+      scaleXPermille,
+      scaleYPermille
+    )
+  } else if (type === 'key') {
+    source = createEnvironmentKeyTextureSource(
+      keyText,
       ppm,
       scaleXPermille,
       scaleYPermille

@@ -12,6 +12,7 @@ import type {
   MapNpcWeapon,
   WeaponCategory,
 } from '../editorMapTypes'
+import { normalizeEnvironmentKeyText } from '../environmentKeyUtils'
 import { DEFAULT_ENVIRONMENT_SCALE_PERMILLE } from '../environmentTransformUtils'
 import { renderBody } from '../renderer/BodyRenderer'
 import {
@@ -302,6 +303,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
   declare scaleYPermille: EnvironmentMarker['scaleYPermille']
   declare cellStroke: EnvironmentMarker['cellStroke']
   declare flowerOptions: EnvironmentMarker['flowerOptions']
+  declare keyText: EnvironmentMarker['keyText']
 
   private textureCanvas: HTMLCanvasElement
   private drawOffsetX: number
@@ -323,6 +325,7 @@ class EnvironmentMarkerRenderObject extends fabric.FabricObject {
     this.scaleYPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
     this.cellStroke = false
     this.flowerOptions = null
+    this.keyText = normalizeEnvironmentKeyText(null)
     this.applyTextureConfig(config)
   }
 
@@ -1034,7 +1037,8 @@ export class EditorObjectFactory {
     envSeed: number,
     envAssetId = '',
     cellStroke = false,
-    flowerOptions: MapEnvironmentFlowerOptions | null = null
+    flowerOptions: MapEnvironmentFlowerOptions | null = null,
+    keyText?: string | null
   ) {
     return this.createEnvironmentMarkerWithScale(
       envType,
@@ -1043,7 +1047,8 @@ export class EditorObjectFactory {
       DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
       envAssetId,
       cellStroke,
-      flowerOptions
+      flowerOptions,
+      keyText
     )
   }
 
@@ -1054,7 +1059,8 @@ export class EditorObjectFactory {
     scaleYPermille: number,
     envAssetId = '',
     cellStroke = false,
-    flowerOptions: MapEnvironmentFlowerOptions | null = null
+    flowerOptions: MapEnvironmentFlowerOptions | null = null,
+    keyText?: string | null
   ) {
     const drawCellStroke =
       isEnvironmentCellStrokeSupported(envType) && cellStroke
@@ -1065,7 +1071,8 @@ export class EditorObjectFactory {
       scaleYPermille,
       envAssetId,
       drawCellStroke,
-      flowerOptions
+      flowerOptions,
+      keyText
     )
     const marker = new EnvironmentMarkerRenderObject(textureConfig, {
       originX: 'center',
@@ -1085,6 +1092,7 @@ export class EditorObjectFactory {
     marker.scaleYPermille = scaleYPermille
     marker.cellStroke = drawCellStroke
     marker.flowerOptions = envType === 'flower' ? flowerOptions : null
+    marker.keyText = normalizeEnvironmentKeyText(keyText)
     marker.scaleX = 1
     marker.scaleY = 1
     return marker
@@ -1102,7 +1110,8 @@ export class EditorObjectFactory {
       scaleYPermille,
       marker.envAssetId,
       marker.cellStroke === true,
-      marker.flowerOptions
+      marker.flowerOptions,
+      marker.keyText
     )
     ;(marker as EnvironmentMarkerRenderObject).applyTextureConfig(textureConfig)
     marker.scaleXPermille = scaleXPermille
@@ -1118,7 +1127,8 @@ export class EditorObjectFactory {
     scaleYPermille: number,
     envAssetId = '',
     cellStroke = false,
-    flowerOptions: MapEnvironmentFlowerOptions | null = null
+    flowerOptions: MapEnvironmentFlowerOptions | null = null,
+    keyText?: string | null
   ): EnvironmentMarkerTextureConfig {
     const source =
       envType === 'custom'
@@ -1135,7 +1145,8 @@ export class EditorObjectFactory {
             scaleXPermille,
             scaleYPermille,
             cellStroke,
-            flowerOptions
+            flowerOptions,
+            keyText
           )
     return {
       textureCanvas: source.canvas,

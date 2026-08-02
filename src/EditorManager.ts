@@ -594,6 +594,10 @@ export class EditorManager {
         this.markerManager.getProceduralCellStroke(target),
       setProceduralCellStroke: (target, cellStroke) =>
         this.markerManager.setProceduralCellStroke(target, cellStroke),
+      getEnvironmentKeyText: (target) =>
+        this.markerManager.getEnvironmentKeyText(target),
+      setEnvironmentKeyText: (target, keyText) =>
+        this.markerManager.setEnvironmentKeyText(target, keyText),
       getFactions: () => this.factions,
       addFaction: (id) => {
         if (!this.factions.includes(id)) {
@@ -2287,6 +2291,7 @@ export class EditorManager {
       type === ObjectType.EnvGrass ||
       type === ObjectType.EnvFlower ||
       type === ObjectType.EnvCloud ||
+      type === ObjectType.EnvKey ||
       type === ObjectType.EnvCustom
     )
   }
@@ -2314,6 +2319,9 @@ export class EditorManager {
     }
     if (envType === 'cloud') {
       return ObjectType.EnvCloud
+    }
+    if (envType === 'key') {
+      return ObjectType.EnvKey
     }
     return ObjectType.EnvCustom
   }
@@ -2420,6 +2428,7 @@ export class EditorManager {
       )
         ? this.environmentStampFlowerOptionsScratch
         : undefined
+    envObject.keyText = this.environmentPalette.getKeyTextForStamp(selection)
     const marker = this.markerManager.spawnEnvironmentMarker(
       selection.envType,
       envObject,
@@ -3631,6 +3640,7 @@ export class EditorManager {
         node.type === 'envGrass' ||
         node.type === 'envFlower' ||
         node.type === 'envCloud' ||
+        node.type === 'envKey' ||
         node.type === 'envCustom'
       ) {
         const index = node.index ?? -1
@@ -4123,6 +4133,9 @@ export class EditorManager {
     }
     if (this.markerManager.isEnvironmentMarker(target)) {
       const actions: ContextMenuAction[] = ['copy', 'paste']
+      if (target.envType === 'key') {
+        actions.push('properties')
+      }
       if (this.markerManager.isProceduralCellStrokeSupported(target)) {
         actions.push('terrainProperties')
       }
@@ -4762,14 +4775,24 @@ export class EditorManager {
       return
     }
     if (action === 'properties') {
+      let changed = false
       if (this.markerManager.isWeaponMarker(target)) {
         await this.propertiesPanel.showWeaponPropertiesDialog(target)
       } else if (this.markerManager.isPlayerMarker(target)) {
         await this.propertiesPanel.showPlayerPropertiesDialog(target)
       } else if (this.markerManager.isNpcMarker(target)) {
         await this.propertiesPanel.showNpcPropertiesDialog(target)
+      } else if (
+        this.markerManager.isEnvironmentMarker(target) &&
+        target.envType === 'key'
+      ) {
+        changed =
+          await this.propertiesPanel.showEnvironmentKeyPropertiesDialog(target)
       }
       this.contextMenu.hide()
+      if (changed) {
+        this.captureHistorySnapshot()
+      }
       return
     }
     if (action === 'fill') {

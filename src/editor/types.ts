@@ -44,6 +44,7 @@ export enum ObjectType {
   EnvGrass = 'envGrass',
   EnvFlower = 'envFlower',
   EnvCloud = 'envCloud',
+  EnvKey = 'envKey',
   EnvCustom = 'envCustom',
 }
 
@@ -338,6 +339,7 @@ export type EnvironmentMarker = fabric.Object & {
   scaleYPermille: number
   cellStroke: boolean
   flowerOptions: MapEnvironmentFlowerOptions | null
+  keyText: string
 }
 
 export interface EnvironmentMarkerData {
@@ -347,6 +349,7 @@ export interface EnvironmentMarkerData {
   envAssetId: string
   cellStroke: boolean
   flowerOptions: MapEnvironmentFlowerOptions | null
+  keyText: string
 }
 
 export interface EditorMap {

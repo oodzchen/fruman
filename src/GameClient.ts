@@ -51,6 +51,7 @@ import {
   getRuntimeEnvironmentAsset,
 } from './environmentAssetRegistry'
 import { buildEnvironmentFlowerOptionsCacheKey } from './environmentFlowerOptions'
+import { normalizeEnvironmentKeyText } from './environmentKeyUtils'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentRotationDeg,
@@ -4090,6 +4091,7 @@ export class GameClient {
         scaleYPermille,
         cellStroke,
         flowerOptions,
+        obj.keyText,
         resolvedLayer === RENDER_LAYER_SKY
       )
       this.pendingEnvironmentTextureKeys.add(textureEntry.key)
@@ -4182,6 +4184,7 @@ export class GameClient {
     scaleYPermille: number,
     cellStroke: boolean,
     flowerOptions: MapEnvironmentObject['flowerOptions'],
+    keyText: MapEnvironmentObject['keyText'],
     applySkyDepthStyle: boolean
   ): EnvironmentTextureEntry {
     const sourceKey =
@@ -4199,7 +4202,8 @@ export class GameClient {
             scaleXPermille,
             scaleYPermille,
             cellStroke,
-            flowerOptions
+            flowerOptions,
+            keyText
           )
     const key = applySkyDepthStyle
       ? `${sourceKey}_sky_depth_${GameClient.SKY_ENVIRONMENT_TEXTURE_BLUR_PX}`
@@ -4228,7 +4232,8 @@ export class GameClient {
             scaleXPermille,
             scaleYPermille,
             cellStroke,
-            flowerOptions
+            flowerOptions,
+            keyText
           )
     const renderSource = applySkyDepthStyle
       ? this.createSkyDepthEnvironmentTextureSource(source)
@@ -4382,6 +4387,14 @@ export class GameClient {
           )
         }
       }
+      if (obj.type === 'key') {
+        const keyText = normalizeEnvironmentKeyText(obj.keyText)
+        for (let j = 0; j < keyText.length; j++) {
+          hash = this.mixTerrainSignatureValue(
+            hash ^ Math.imul(keyText.charCodeAt(j), 0x45d9f3b)
+          )
+        }
+      }
       const layerCode = this.resolveEnvironmentRenderLayer(
         envLayers?.[i] ?? obj.renderLayer ?? 0
       )
@@ -4403,7 +4416,9 @@ export class GameClient {
                     ? 6
                     : obj.type === 'cloud'
                       ? 7
-                      : 8
+                      : obj.type === 'key'
+                        ? 8
+                        : 9
       hash = this.mixTerrainSignatureValue(hash ^ Math.imul(typeCode, 0x19660d))
       if (obj.type === 'custom' && obj.assetId) {
         for (let j = 0; j < obj.assetId.length; j++) {

@@ -10,6 +10,7 @@ import type {
 } from '../editorMapTypes'
 import type { WeaponCategory } from '../editorMapTypes'
 import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
+import { DEFAULT_ENVIRONMENT_KEY_TEXT } from '../environmentKeyUtils'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   getEnvironmentEffectiveScalePermille,
@@ -237,6 +238,7 @@ interface ClipboardEnvironmentTreeNode extends ClipboardTreeNodeBase {
   scaleYPermille: number
   cellStroke: boolean
   flowerOptions: MapEnvironmentFlowerOptions | null
+  keyText: string
 }
 
 type RectResetData = Extract<ShapeResetData, { kind: 'rect' }>
@@ -438,6 +440,7 @@ export class EditorClipboardManager {
   private environmentScaleYPermille = DEFAULT_ENVIRONMENT_SCALE_PERMILLE
   private environmentCellStroke = false
   private environmentFlowerOptions: MapEnvironmentFlowerOptions | null = null
+  private environmentKeyText = DEFAULT_ENVIRONMENT_KEY_TEXT
   private environmentAnchorOffset = { x: 0, y: 0 }
 
   private cameraZoom = 1
@@ -999,6 +1002,7 @@ export class EditorClipboardManager {
         cellStroke: target.cellStroke === true,
         flowerOptions:
           cloneEnvironmentFlowerOptions(target.flowerOptions) ?? null,
+        keyText: target.keyText,
       }
     }
 
@@ -1594,6 +1598,7 @@ export class EditorClipboardManager {
       scaleYPermille: node.scaleYPermille,
       cellStroke: node.cellStroke === true,
       flowerOptions: node.flowerOptions ?? undefined,
+      keyText: node.keyText,
     })
     const nextActive = canvas.getActiveObject()
     return nextActive && nextActive !== previousActive ? nextActive : null
@@ -2309,6 +2314,7 @@ export class EditorClipboardManager {
     this.environmentCellStroke = target.cellStroke === true
     this.environmentFlowerOptions =
       cloneEnvironmentFlowerOptions(target.flowerOptions) ?? null
+    this.environmentKeyText = target.keyText
     return true
   }
 
@@ -2353,6 +2359,7 @@ export class EditorClipboardManager {
       scaleYPermille: this.environmentScaleYPermille,
       cellStroke: this.environmentCellStroke,
       flowerOptions: this.environmentFlowerOptions ?? undefined,
+      keyText: this.environmentKeyText,
     })
     return canvas.getActiveObject() ?? null
   }

@@ -33,6 +33,7 @@ import type {
 } from '../editorMapTypes'
 import { ensureRuntimeEnvironmentAsset } from '../environmentAssetRegistry'
 import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
+import { normalizeEnvironmentKeyText } from '../environmentKeyUtils'
 import {
   type EnvironmentTransformOffset,
   getEnvironmentEffectiveScalePermille,
@@ -621,6 +622,34 @@ export class EditorMarkerManager {
     const data = this.environmentMarkerMap.get(object)
     if (data) {
       data.cellStroke = nextCellStroke
+    }
+    this.refreshEnvironmentMarkerTexture(object)
+    return true
+  }
+
+  getEnvironmentKeyText(object: fabric.Object | null): string | null {
+    if (!this.isEnvironmentMarker(object) || object.envType !== 'key') {
+      return null
+    }
+    const data = this.environmentMarkerMap.get(object)
+    return normalizeEnvironmentKeyText(data?.keyText ?? object.keyText)
+  }
+
+  setEnvironmentKeyText(
+    object: fabric.Object | null,
+    keyText: string
+  ): boolean {
+    if (!this.isEnvironmentMarker(object) || object.envType !== 'key') {
+      return false
+    }
+    const nextKeyText = normalizeEnvironmentKeyText(keyText)
+    if (object.keyText === nextKeyText) {
+      return false
+    }
+    object.keyText = nextKeyText
+    const data = this.environmentMarkerMap.get(object)
+    if (data) {
+      data.keyText = nextKeyText
     }
     this.refreshEnvironmentMarkerTexture(object)
     return true
@@ -1563,6 +1592,7 @@ export class EditorMarkerManager {
       envType === 'flower'
         ? cloneEnvironmentFlowerOptions(spawn?.flowerOptions)
         : undefined
+    const keyText = normalizeEnvironmentKeyText(spawn?.keyText)
     const marker = this.objectFactory.createEnvironmentMarkerWithScale(
       envType,
       envSeed,
@@ -1570,7 +1600,8 @@ export class EditorMarkerManager {
       scaleYPermille,
       envAssetId,
       cellStroke,
-      flowerOptions ?? null
+      flowerOptions ?? null,
+      keyText
     ) as EnvironmentMarker
     marker.angle = rotationDeg
     writeEnvironmentTransformedOffset(
@@ -1593,6 +1624,7 @@ export class EditorMarkerManager {
       envAssetId,
       cellStroke,
       flowerOptions: flowerOptions ?? null,
+      keyText,
     }
     this.environmentMarkers.push(envData)
     this.environmentMarkerMap.set(marker, envData)

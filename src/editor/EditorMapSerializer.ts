@@ -17,6 +17,7 @@ import type {
 } from '../editorMapTypes'
 import { DEFAULT_MAP_TIME_PHASE } from '../editorMapTypes'
 import { cloneEnvironmentFlowerOptions } from '../environmentFlowerOptions'
+import { normalizeEnvironmentKeyText } from '../environmentKeyUtils'
 import {
   DEFAULT_ENVIRONMENT_SCALE_PERMILLE,
   type EnvironmentTransformOffset,
@@ -616,6 +617,9 @@ export class EditorMapSerializer {
           envObject.flowerOptions = serializedFlowerOptions
         }
       }
+      if (envType === 'key') {
+        envObject.keyText = normalizeEnvironmentKeyText(marker.keyText)
+      }
       result.push(envObject)
     }
     return result
@@ -713,6 +717,7 @@ export class EditorMapSerializer {
         dataItem.type === 'envGrass' ||
         dataItem.type === 'envFlower' ||
         dataItem.type === 'envCloud' ||
+        dataItem.type === 'envKey' ||
         dataItem.type === 'envCustom'
       ) {
         const index = data.environmentIndexMap.get(dataItem.object)

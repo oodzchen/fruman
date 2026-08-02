@@ -30,6 +30,11 @@ import {
   clearEnvironmentFlowerOptions,
 } from '../environmentFlowerOptions'
 import {
+  DEFAULT_ENVIRONMENT_KEY_TEXT,
+  MAX_ENVIRONMENT_KEY_TEXT_LENGTH,
+  normalizeEnvironmentKeyText,
+} from '../environmentKeyUtils'
+import {
   formatRenderLayerLabel,
   getDefaultShapeRenderLayer,
   normalizeRenderLayer,
@@ -44,6 +49,7 @@ const BUILTIN_ENVIRONMENT_TYPES: readonly MapEnvironmentObjectType[] = [
   'grass',
   'flower',
   'cloud',
+  'key',
 ]
 
 const ICON_SIZE = 32
@@ -214,6 +220,7 @@ interface EditorEnvironmentPaletteFlowerStampOptions {
 export interface EditorEnvironmentPaletteStampOptions {
   renderLayer: number
   cellStroke: boolean
+  keyText: string
   flower: EditorEnvironmentPaletteFlowerStampOptions
 }
 
@@ -328,6 +335,15 @@ export class EditorEnvironmentPalette {
   ): EditorEnvironmentPaletteStampOptions {
     const key = this.buildKey(selection.envType, selection.assetId)
     return this.stampOptionsByKey.get(key) ?? this.stampOptionsFallback
+  }
+
+  getKeyTextForStamp(
+    selection: EditorEnvironmentPaletteSelection
+  ): string | undefined {
+    if (selection.envType !== 'key') {
+      return undefined
+    }
+    return normalizeEnvironmentKeyText(this.getStampOptions(selection).keyText)
   }
 
   writeFlowerOptionsForStamp(
@@ -531,6 +547,7 @@ export class EditorEnvironmentPalette {
     const options: EditorEnvironmentPaletteStampOptions = {
       renderLayer: this.getDefaultRenderLayer(),
       cellStroke: false,
+      keyText: DEFAULT_ENVIRONMENT_KEY_TEXT,
       flower: this.createDefaultFlowerStampOptions(),
     }
     this.stampOptionsByKey.set(key, options)
@@ -541,6 +558,7 @@ export class EditorEnvironmentPalette {
     return {
       renderLayer: this.getDefaultRenderLayer(),
       cellStroke: false,
+      keyText: DEFAULT_ENVIRONMENT_KEY_TEXT,
       flower: this.createDefaultFlowerStampOptions(),
     }
   }
@@ -610,6 +628,9 @@ export class EditorEnvironmentPalette {
     if (selection.envType === 'flower') {
       this.renderFlowerPropertyRows(options.flower)
     }
+    if (selection.envType === 'key') {
+      this.propertyBody.appendChild(this.createKeyTextRow(options))
+    }
     this.renderCommonPropertyRows(options)
 
     this.propertyPanel.classList.add('is-visible')
@@ -633,6 +654,26 @@ export class EditorEnvironmentPalette {
     section.appendChild(this.createRenderLayerRow(options))
     section.appendChild(this.createExistingRenderLayerRow(options))
     this.propertyBody.appendChild(section)
+  }
+
+  private createKeyTextRow(
+    options: EditorEnvironmentPaletteStampOptions
+  ): HTMLLabelElement {
+    const row = this.createFieldRow(localizer.t('editor_environment_key_text'))
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.maxLength = MAX_ENVIRONMENT_KEY_TEXT_LENGTH
+    input.value = options.keyText
+    input.className = 'editor-environment-property-text'
+    input.addEventListener('input', () => {
+      options.keyText = input.value
+    })
+    input.addEventListener('change', () => {
+      options.keyText = normalizeEnvironmentKeyText(input.value)
+      input.value = options.keyText
+    })
+    row.appendChild(input)
+    return row
   }
 
   private createRenderLayerRow(
@@ -1058,6 +1099,26 @@ export class EditorEnvironmentPalette {
       ctx.beginPath()
       ctx.arc(16, 15, 2, 0, Math.PI * 2)
       ctx.fill()
+      return
+    }
+
+    if (envType === 'key') {
+      ctx.fillStyle = '#514a3f'
+      ctx.fillRect(4, 9, 24, 18)
+      ctx.fillStyle = '#e4dcc6'
+      ctx.fillRect(5, 5, 22, 18)
+      ctx.strokeStyle = '#746a59'
+      ctx.strokeRect(5, 5, 22, 18)
+      ctx.strokeStyle = '#fff7df'
+      ctx.beginPath()
+      ctx.moveTo(9, 8)
+      ctx.lineTo(23, 8)
+      ctx.stroke()
+      ctx.fillStyle = '#302d27'
+      ctx.font = '800 13px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(DEFAULT_ENVIRONMENT_KEY_TEXT, 16, 15)
       return
     }
 

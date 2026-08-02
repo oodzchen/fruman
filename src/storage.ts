@@ -2138,6 +2138,7 @@ function isEnvironmentTreeNode(node: EditorTreeNode): boolean {
     node.type === 'envGrass' ||
     node.type === 'envFlower' ||
     node.type === 'envCloud' ||
+    node.type === 'envKey' ||
     node.type === 'envCustom'
   )
 }

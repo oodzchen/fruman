@@ -41,6 +41,7 @@ import type {
   MapSettings,
 } from '../editorMapTypes'
 import { DEFAULT_MAP_TIME_PHASE, MAP_TIME_PHASE_IDS } from '../editorMapTypes'
+import { MAX_ENVIRONMENT_KEY_TEXT_LENGTH } from '../environmentKeyUtils'
 import {
   MAX_NPC_DROP_COUNT,
   NPC_DROP_ITEM_TYPES,
@@ -279,6 +280,8 @@ export interface EditorPropertiesPanelContext {
     target: fabric.Object,
     cellStroke: boolean
   ) => boolean
+  getEnvironmentKeyText: (target: fabric.Object) => string | null
+  setEnvironmentKeyText: (target: fabric.Object, keyText: string) => boolean
 }
 
 export class EditorPropertiesPanel {
@@ -3168,6 +3171,70 @@ export class EditorPropertiesPanel {
         finish(changed)
       })
 
+      cancelBtn.addEventListener('click', () => finish(false))
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+          finish(false)
+        }
+      })
+    })
+  }
+
+  public async showEnvironmentKeyPropertiesDialog(
+    target: fabric.Object
+  ): Promise<boolean> {
+    const keyText = this.context.getEnvironmentKeyText(target)
+    if (keyText === null) {
+      return false
+    }
+    const dialog = EditorUIHelper.createPropertiesDialog(
+      localizer.t('editor_environment_key_properties_title')
+    )
+    const { leftPanel, rightPanel, footerPanel, previewCanvas, modal, close } =
+      dialog
+
+    previewCanvas.style.display = 'none'
+    const textRow = EditorUIHelper.createFormRow(
+      localizer.t('editor_environment_key_text')
+    )
+    const textInput = EditorUIHelper.createTextInput({ value: keyText })
+    textInput.maxLength = MAX_ENVIRONMENT_KEY_TEXT_LENGTH
+    textRow.row.appendChild(textInput)
+    leftPanel.appendChild(textRow.row)
+
+    const hint = document.createElement('div')
+    hint.textContent = localizer.t('editor_environment_key_text_hint')
+    hint.style.cssText =
+      'font-size:11px;line-height:1.6;color:rgba(255,255,255,0.62);'
+    rightPanel.appendChild(hint)
+
+    const buttonRow = EditorUIHelper.createButtonRow()
+    const confirmBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_confirm'),
+      { primary: true }
+    )
+    const cancelBtn = EditorUIHelper.createButton(
+      localizer.t('editor_btn_cancel')
+    )
+    buttonRow.appendChild(confirmBtn)
+    buttonRow.appendChild(cancelBtn)
+    footerPanel.appendChild(buttonRow)
+
+    const viewport = document.getElementById('gameViewport')
+    if (!viewport) {
+      return false
+    }
+    return await new Promise<boolean>((resolve) => {
+      dialog.show(viewport)
+
+      const finish = (changed: boolean) => {
+        close()
+        resolve(changed)
+      }
+
+      confirmBtn.addEventListener('click', () => {
+        finish(this.context.setEnvironmentKeyText(target, textInput.value))
+      })
       cancelBtn.addEventListener('click', () => finish(false))
       modal.addEventListener('click', (event) => {
         if (event.target === modal) {

@@ -105,6 +105,7 @@ export function buildMapObjectLayerLookup(
       type === 'envGrass' ||
       type === 'envFlower' ||
       type === 'envCloud' ||
+      type === 'envKey' ||
       type === 'envCustom'
     ) {
       lookup.environmentObjectLayers[index] = layer
