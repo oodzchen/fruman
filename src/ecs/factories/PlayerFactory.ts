@@ -6,6 +6,7 @@ import {
   getCharacterBloodColor,
   getCharacterBodyColor,
 } from '../../characterBodyProfile'
+import { resolveCharacterDebugProtection } from '../../characterDebug'
 import {
   CHARACTER_DEFAULT_DATA,
   DEFAULT_BODY_FRICTION,
@@ -358,8 +359,8 @@ export function createNpc(
   const maxToughness = options?.maxToughness ?? template.maxToughness
   const color = options?.color ?? template.color
   const facing = options?.facing ?? 1
-  const debugNoDamage = options?.debugNoDamage === true
-  const debugNoDeath = options?.debugNoDeath === true
+  const debugNoDamage = resolveCharacterDebugProtection(options?.debugNoDamage)
+  const debugNoDeath = resolveCharacterDebugProtection(options?.debugNoDeath)
   const initialNormalMovesetId = options?.initialNormalMovesetId ?? ''
   const attackSpeedLevel = normalizeCharacterAttackSpeedLevel(
     options?.attackSpeedLevel

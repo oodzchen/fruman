@@ -15,6 +15,7 @@ import {
   getNpcBodyProfileIndex,
   hasRenderableBodyProfile,
 } from '../characterBodyProfile'
+import { resolveCharacterDebugProtection } from '../characterDebug'
 import {
   CHARACTER_DEFAULT_DATA,
   CHECKPOINT_TREE_TOP_COLOR_INACTIVE,
@@ -2596,8 +2597,12 @@ function createPlayerAndWeapon(
     playerEntity.stats.posture = nextMaxPosture
     playerEntity.stats.maxToughness = nextMaxToughness
     playerEntity.stats.toughness = nextMaxToughness
-    playerEntity.stats.debugNoDamage = playerProps.debugNoDamage === true
-    playerEntity.stats.debugNoDeath = playerProps.debugNoDeath === true
+    playerEntity.stats.debugNoDamage = resolveCharacterDebugProtection(
+      playerProps.debugNoDamage
+    )
+    playerEntity.stats.debugNoDeath = resolveCharacterDebugProtection(
+      playerProps.debugNoDeath
+    )
     if (!playerEntity.stats.persistentId) {
       playerEntity.stats.persistentId = PLAYER_PERSISTENT_ID
     }

@@ -1,3 +1,4 @@
+import { resolveCharacterDebugProtection } from '../../characterDebug'
 import {
   ATTACK_TOUGHNESS_DENOMINATOR,
   ATTACK_TOUGHNESS_NUMERATOR,
@@ -959,7 +960,7 @@ export class StatsSystem extends System {
       }
     }
 
-    if (entity.stats.debugNoDamage) {
+    if (resolveCharacterDebugProtection(entity.stats.debugNoDamage)) {
       finalHealthDamage = 0
       finalPostureDamage = 0
       finalToughnessDamage = 0
@@ -1233,7 +1234,7 @@ export class StatsSystem extends System {
     }
 
     if (entity.stats.health === 0) {
-      if (entity.stats.debugNoDeath) {
+      if (resolveCharacterDebugProtection(entity.stats.debugNoDeath)) {
         entity.stats.health = entity.stats.maxHealth
         entity.stats.posture = entity.stats.maxPosture
         entity.stats.toughness = entity.stats.maxToughness

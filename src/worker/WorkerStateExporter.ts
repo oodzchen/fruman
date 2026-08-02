@@ -9,6 +9,7 @@ import {
   getNpcBodyProfileIndex,
   hasRenderableBodyProfile,
 } from '../characterBodyProfile'
+import { resolveCharacterDebugProtection } from '../characterDebug'
 import {
   DEBUG_DRAW_CAMERA,
   DEBUG_DRAW_PLAYER_COLLISION_SHAPE,
@@ -1466,8 +1467,12 @@ function restoreNpcsState(
       entity.stats.health = savedState.health
       entity.stats.posture = savedState.posture
       entity.stats.toughness = savedState.toughness
-      entity.stats.debugNoDamage = mapNpc?.debugNoDamage === true
-      entity.stats.debugNoDeath = mapNpc?.debugNoDeath === true
+      entity.stats.debugNoDamage = resolveCharacterDebugProtection(
+        mapNpc?.debugNoDamage
+      )
+      entity.stats.debugNoDeath = resolveCharacterDebugProtection(
+        mapNpc?.debugNoDeath
+      )
       entity.stats.isDead = savedState.isDead
       entity.stats.isVanished = savedState.isVanished
       if (savedState.id) {

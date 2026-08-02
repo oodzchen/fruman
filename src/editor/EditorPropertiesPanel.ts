@@ -14,6 +14,10 @@ import {
   getCharacterBodyProfileHeight,
   getCharacterBodyProfileWidth,
 } from '../characterBodyProfile'
+import {
+  CHARACTER_DEBUG_PROTECTION_AVAILABLE,
+  resolveCharacterDebugProtection,
+} from '../characterDebug'
 import { CHARACTER_DEFAULT_DATA, WEAPON_DEFAULT_DATA } from '../constants'
 import {
   type AttackMovesetOwner,
@@ -1074,8 +1078,11 @@ export class EditorPropertiesPanel {
           { value: '0', label: localizer.t('editor_debug_switch_off') },
           { value: '1', label: localizer.t('editor_debug_switch_on') },
         ],
-        selected: options.data.debugNoDamage ? '1' : '0',
+        selected: resolveCharacterDebugProtection(options.data.debugNoDamage)
+          ? '1'
+          : '0',
       })
+      debugNoDamageSelect.disabled = !CHARACTER_DEBUG_PROTECTION_AVAILABLE
       debugNoDamageRow.row.appendChild(debugNoDamageSelect)
       basicPanel.appendChild(debugNoDamageRow.row)
 
@@ -1087,8 +1094,11 @@ export class EditorPropertiesPanel {
           { value: '0', label: localizer.t('editor_debug_switch_off') },
           { value: '1', label: localizer.t('editor_debug_switch_on') },
         ],
-        selected: options.data.debugNoDeath ? '1' : '0',
+        selected: resolveCharacterDebugProtection(options.data.debugNoDeath)
+          ? '1'
+          : '0',
       })
+      debugNoDeathSelect.disabled = !CHARACTER_DEBUG_PROTECTION_AVAILABLE
       debugNoDeathRow.row.appendChild(debugNoDeathSelect)
       basicPanel.appendChild(debugNoDeathRow.row)
 
@@ -2008,8 +2018,12 @@ export class EditorPropertiesPanel {
         const maxHealth = Number.parseFloat(healthInput.value)
         const maxPosture = Number.parseFloat(postureInput.value)
         const maxToughness = Number.parseFloat(toughnessInput.value)
-        const debugNoDamage = debugNoDamageSelect.value === '1'
-        const debugNoDeath = debugNoDeathSelect.value === '1'
+        const debugNoDamage = resolveCharacterDebugProtection(
+          debugNoDamageSelect.value === '1'
+        )
+        const debugNoDeath = resolveCharacterDebugProtection(
+          debugNoDeathSelect.value === '1'
+        )
         const redTapeEnabled = redTapeCheckbox?.checked
         const retreatEnabled = retreatEnabledCheckbox?.checked
         const canBeFollower = canBeFollowerCheckbox?.checked
