@@ -32,6 +32,12 @@ import {
 } from './MobileControls'
 import { saveManager } from './SaveManager'
 import {
+  CAMERA_ZOOM_KEY_STEP,
+  CAMERA_ZOOM_STEP,
+  INITIAL_CAMERA_ZOOM,
+  clampProductionCameraZoom,
+} from './cameraZoom'
+import {
   DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
   DEFAULT_GRAPPLE_RANGE,
   DEFAULT_WEAPON_PICKUP_DISTANCE,
@@ -387,8 +393,8 @@ export class GameClient {
   private virtualMouseButtons = new Set<number>()
   private keysArray: string[] = []
   private mouseButtonsArray: number[] = []
-  private targetZoom = 1.0
-  private renderZoom = 1.0
+  private targetZoom = INITIAL_CAMERA_ZOOM
+  private renderZoom = INITIAL_CAMERA_ZOOM
   private worldTimeScale1000 = 1000
   private mouseX = 0
   private mouseY = 0
@@ -434,7 +440,7 @@ export class GameClient {
     type: 'input',
     keys: [],
     mouseButtons: [],
-    mouseZoom: 1.0,
+    mouseZoom: INITIAL_CAMERA_ZOOM,
     mouseX: 0,
     mouseY: 0,
     mouseDeltaX: 0,
@@ -1343,13 +1349,17 @@ export class GameClient {
         this.sendInput()
 
         if (e.key.toLowerCase() === 'i') {
-          this.targetZoom = Math.max(0.1, this.targetZoom + 0.2)
+          this.targetZoom = clampProductionCameraZoom(
+            Math.max(0.1, this.targetZoom + CAMERA_ZOOM_KEY_STEP)
+          )
           this.sendInput()
         } else if (e.key.toLowerCase() === 'o') {
-          this.targetZoom = Math.max(0.1, this.targetZoom - 0.2)
+          this.targetZoom = clampProductionCameraZoom(
+            Math.max(0.1, this.targetZoom - CAMERA_ZOOM_KEY_STEP)
+          )
           this.sendInput()
         } else if (e.key.toLowerCase() === 'u') {
-          this.targetZoom = 1.0
+          this.targetZoom = INITIAL_CAMERA_ZOOM
           this.sendInput()
         }
       },
@@ -1500,10 +1510,9 @@ export class GameClient {
       }
       this.setEnvironmentKeyInputMode('mouse')
       e.preventDefault()
-      const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1
-      this.targetZoom = Math.max(
-        0.1,
-        Math.min(2.0, this.targetZoom + zoomDelta)
+      const zoomDelta = e.deltaY > 0 ? -CAMERA_ZOOM_STEP : CAMERA_ZOOM_STEP
+      this.targetZoom = clampProductionCameraZoom(
+        Math.max(0.1, Math.min(2.0, this.targetZoom + zoomDelta))
       )
       this.sendInput()
     })
@@ -2998,7 +3007,7 @@ export class GameClient {
     this.updateParam('obstacleFriction', v)
   }
   setZoom(v: number) {
-    this.targetZoom = v
+    this.targetZoom = clampProductionCameraZoom(v)
     this.sendInput()
   }
   getZoom() {

@@ -1,3 +1,4 @@
+import { clampProductionCameraZoom } from '../cameraZoom'
 import {
   DEBUG_DRAW_CAMERA,
   DEFAULT_CAMERA_ZOOM,
@@ -126,7 +127,7 @@ export class CameraDirector {
   }
 
   requestZoom(nextZoom: number): void {
-    this.requestedZoom = nextZoom
+    this.requestedZoom = clampProductionCameraZoom(nextZoom)
   }
 
   getViewHalfWidth(): number {
