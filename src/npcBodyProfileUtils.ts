@@ -1,9 +1,3 @@
-import {
-  CATERPILLAR_ANIMATION_NAME,
-  CATERPILLAR_ATLAS_KEY,
-  CATERPILLAR_SPINE_KEY,
-  CATERPILLAR_SPINE_SCALE,
-} from './constants'
 import type { MapCharacterBodyProfile } from './editorMapTypes'
 import type { NpcType } from './types'
 
@@ -41,12 +35,6 @@ export function getDefaultNpcBodyProfile(
     points: CATERPILLAR_PROFILE_POINTS.slice(),
     width: CATERPILLAR_PROFILE_WIDTH,
     height: CATERPILLAR_PROFILE_HEIGHT,
-    spineKey: CATERPILLAR_SPINE_KEY,
-    spineAtlasKey: CATERPILLAR_ATLAS_KEY,
-    spineAnimationName: CATERPILLAR_ANIMATION_NAME,
-    spineScale: CATERPILLAR_SPINE_SCALE,
-    spineMode: 'replace',
-    spineSegmentedCollision: true,
   }
 }
 

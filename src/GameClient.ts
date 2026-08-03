@@ -32,8 +32,6 @@ import {
 } from './MobileControls'
 import { saveManager } from './SaveManager'
 import {
-  CATERPILLAR_ATLAS_KEY,
-  CATERPILLAR_SPINE_KEY,
   DEBUG_DRAW_TERRAIN_COLLISION_SHAPE,
   DEFAULT_GRAPPLE_RANGE,
   DEFAULT_WEAPON_PICKUP_DISTANCE,
@@ -71,7 +69,6 @@ import {
   buildMapObjectLayerLookup,
   collectStaticRenderLayers,
 } from './mapObjectLayers'
-import { getDefaultNpcBodyProfile } from './npcBodyProfileUtils'
 import type { PlayerUpgradeStat } from './playerUpgrade'
 import { getPublicAssetUrl } from './publicAssetUrl'
 import { RENDER_LAYER_SKY, getDefaultTerrainRenderLayer } from './renderLayers'
@@ -92,11 +89,9 @@ import {
   pruneEnvironmentTextureSourceCache,
 } from './renderer/ProceduralEnvironmentFactory'
 import { PixiRenderContext2D } from './renderer/RenderContext2D'
-import { loadSpineAssets } from './renderer/SpineBodyManager'
 import { WorldLightingController } from './renderer/WorldLightingController'
 import type { SaveData } from './saveTypes'
 import { normalizeCharacterBodyMapProfiles } from './skeletalBodyProfile'
-import { buildSpineCollisionKeyframes } from './spineCollisionKeyframes'
 import { getDefaultMap } from './storage'
 import { TerrainCollisionBuilder } from './terrain/TerrainCollisionBuilder'
 import {
@@ -133,7 +128,6 @@ import type {
   WorkerPerfSnapshotMessage,
   WorkerPlayerLevelUpMessage,
   WorkerSaveResponseMessage,
-  WorkerSpineCollisionDataMessage,
   WorkerToMainMessage,
 } from './worker/protocol'
 
@@ -519,34 +513,13 @@ export class GameClient {
     appCanvas.classList.add('game-canvas')
     inputTarget.prepend(appCanvas)
     this.configurePixiAssetLoading()
-    await loadSpineAssets(
-      CATERPILLAR_SPINE_KEY,
-      getPublicAssetUrl('animations/caterpillar_move/paxing_ske.json'),
-      CATERPILLAR_ATLAS_KEY,
-      getPublicAssetUrl('animations/caterpillar_move/paxing_tex.atlas')
-    )
-    const spineCollisionMessages: WorkerSpineCollisionDataMessage[] = []
-    const caterpillarBodyProfile = getDefaultNpcBodyProfile('caterpillar')
-    if (caterpillarBodyProfile) {
-      const collisionData = buildSpineCollisionKeyframes(
-        'caterpillar',
-        caterpillarBodyProfile,
-        GameClient.DEFAULT_PIXELS_PER_METER
-      )
-      if (collisionData) {
-        spineCollisionMessages.push({
-          type: 'spine_collision_data',
-          data: collisionData,
-        })
-      }
-    }
+    // 默认 Spine 骨骼绑定已停用，避免加载骨骼、图集和纹理数据。
     return new GameClient(
       app,
       rendererLabel,
       menuOverlay,
       inputTarget,
       mobileControlsEnabled,
-      spineCollisionMessages,
       onInitProgress
     )
   }
@@ -637,7 +610,6 @@ export class GameClient {
     menuOverlay: HTMLDivElement,
     inputTarget: HTMLElement,
     mobileControlsEnabled: boolean,
-    spineCollisionMessages: WorkerSpineCollisionDataMessage[],
     onInitProgress?: (step: string) => void
   ) {
     this.app = app
@@ -767,9 +739,6 @@ export class GameClient {
       this.hudRenderContext,
       this.pixelsPerMeter
     )
-    this.renderer.setSpineCollisionProfiles(
-      spineCollisionMessages.map((message) => message.data)
-    )
     this.worldRenderer = new PixiWorldRenderer(
       this.worldContainer,
       this.emissiveContainer,
@@ -864,11 +833,6 @@ export class GameClient {
     onInitProgress?.('init_game_logic')
     this.worker = new GameWorker()
     this.worker.onmessage = this.boundHandleWorkerMessage
-
-    for (let i = 0; i < spineCollisionMessages.length; i++) {
-      const message = spineCollisionMessages[i]
-      this.worker.postMessage(message, [message.data.boneTransforms])
-    }
 
     this.worker.postMessage({
       type: 'init',
