@@ -215,6 +215,7 @@ export class EditorBodyDrawerController {
   private _browCanvas: HTMLCanvasElement
   private _workCanvas: HTMLCanvasElement
   private _outputCanvas: HTMLCanvasElement | null = null
+  private _downloadAnchor: HTMLAnchorElement | null = null
 
   constructor(
     maskCanvas: HTMLCanvasElement,
@@ -235,6 +236,15 @@ export class EditorBodyDrawerController {
       this._outputCanvas = document.createElement('canvas')
     }
     return this._outputCanvas
+  }
+
+  private _downloadPng(dataUrl: string, presetId: string): void {
+    if (!this._downloadAnchor) {
+      this._downloadAnchor = document.createElement('a')
+    }
+    this._downloadAnchor.href = dataUrl
+    this._downloadAnchor.download = `${presetId}.png`
+    this._downloadAnchor.click()
   }
 
   async run(
@@ -289,6 +299,7 @@ export class EditorBodyDrawerController {
       brushValueText,
       colorInput,
       bloodColorInput,
+      exportBtn,
       confirmBtn,
       cancelBtn,
       collisionToolMenu,
@@ -348,6 +359,7 @@ export class EditorBodyDrawerController {
     let browScaleY = DEFAULT_CHARACTER_BROW_SCALE
     let browRotationDeg = DEFAULT_CHARACTER_BROW_ROTATION_DEG
     let resolved = false
+    let exporting = false
     let contourClosed = false
     let contourPoints: number[] = []
     let selectedContourIndex = -1
@@ -1894,11 +1906,15 @@ export class EditorBodyDrawerController {
     }
 
     const updateConfirmState = () => {
-      const canConfirm =
+      const hasExportableBody =
         contourClosed || (skeletalModeEnabled && hasAnyBoneData())
-      confirmBtn.disabled = !canConfirm
-      confirmBtn.style.opacity = canConfirm ? '1' : '0.45'
-      confirmBtn.style.cursor = canConfirm ? 'pointer' : 'default'
+      confirmBtn.disabled = !hasExportableBody
+      confirmBtn.style.opacity = hasExportableBody ? '1' : '0.45'
+      confirmBtn.style.cursor = hasExportableBody ? 'pointer' : 'default'
+      exportBtn.disabled = !hasExportableBody || exporting
+      exportBtn.style.opacity = hasExportableBody && !exporting ? '1' : '0.45'
+      exportBtn.style.cursor =
+        hasExportableBody && !exporting ? 'pointer' : 'default'
     }
 
     const updateAlert = () => {
@@ -4832,6 +4848,56 @@ export class EditorBodyDrawerController {
 
     const promise = new Promise<MapCharacterBodyProfile | null | undefined>(
       (resolve) => {
+        exportBtn.addEventListener('click', async () => {
+          if (exporting) {
+            return
+          }
+          exporting = true
+          updateConfirmState()
+          try {
+            const exportPresetId = currentPresetId
+            let dataUrl: string | null = null
+            if (skeletalModeEnabled && hasAnyBoneData()) {
+              const snapshot = await buildSkeletalSurfaceSnapshot(
+                getBoneSegments(),
+                colorInput.value
+              )
+              dataUrl = snapshot?.dataUrl ?? null
+            } else if (contourClosed) {
+              if (compositeRenderer.renderBody(workCtx)) {
+                const bounds = readAlphaBounds(workCtx, DRAW_WORLD_SIZE)
+                if (bounds) {
+                  const width = bounds.maxX + 1 - bounds.minX
+                  const height = bounds.maxY + 1 - bounds.minY
+                  const outputCanvas = this._getOutputCanvas()
+                  outputCanvas.width = width
+                  outputCanvas.height = height
+                  const outputCtx = outputCanvas.getContext('2d')
+                  if (outputCtx) {
+                    outputCtx.drawImage(
+                      this._workCanvas,
+                      bounds.minX,
+                      bounds.minY,
+                      width,
+                      height,
+                      0,
+                      0,
+                      width,
+                      height
+                    )
+                    dataUrl = outputCanvas.toDataURL('image/png')
+                  }
+                }
+              }
+            }
+            if (dataUrl) {
+              this._downloadPng(dataUrl, exportPresetId)
+            }
+          } finally {
+            exporting = false
+            updateConfirmState()
+          }
+        })
         confirmBtn.addEventListener('click', async () => {
           const canBuildFromSkeleton = skeletalModeEnabled && hasAnyBoneData()
           if (!contourClosed && !canBuildFromSkeleton) {

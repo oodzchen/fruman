@@ -121,6 +121,10 @@ export class EditorBodyDrawerRenderer {
     drawCtx.restore()
   }
 
+  renderBody(ctx: CanvasRenderingContext2D): EditorCanvasBounds | null {
+    return this._drawMergedVisualWorld(ctx, true)
+  }
+
   private _drawEyeLayer(
     ctx: CanvasRenderingContext2D,
     contourBounds: EditorContourBounds | null

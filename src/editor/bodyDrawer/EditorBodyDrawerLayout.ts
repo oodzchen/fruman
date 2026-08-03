@@ -74,6 +74,7 @@ export interface EditorBodyDrawerLayout {
   brushValueText: HTMLSpanElement
   colorInput: EditorColorInputElement
   bloodColorInput: EditorColorInputElement
+  exportBtn: HTMLButtonElement
   confirmBtn: HTMLButtonElement
   cancelBtn: HTMLButtonElement
   collisionToolMenu: HTMLDivElement
@@ -522,6 +523,9 @@ export function createEditorBodyDrawerLayout(
     gap: '12px',
     marginTop: '16px',
   })
+  const exportBtn = EditorUIHelper.createButton(
+    localizer.t('editor_btn_export')
+  )
   const confirmBtn = EditorUIHelper.createButton(
     localizer.t('editor_btn_confirm'),
     { primary: true }
@@ -529,7 +533,7 @@ export function createEditorBodyDrawerLayout(
   const cancelBtn = EditorUIHelper.createButton(
     localizer.t('editor_btn_cancel')
   )
-  appendChildren(footer, confirmBtn, cancelBtn)
+  appendChildren(footer, exportBtn, confirmBtn, cancelBtn)
   form.appendChild(footer)
 
   const collisionToolMenu = createPopupMenu('96px', 3)
@@ -608,6 +612,7 @@ export function createEditorBodyDrawerLayout(
     brushValueText,
     colorInput,
     bloodColorInput,
+    exportBtn,
     confirmBtn,
     cancelBtn,
     collisionToolMenu,

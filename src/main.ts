@@ -49,6 +49,7 @@ const DEFAULT_BREAKABLE_CRATE_FRICTION = 1
 const DEFAULT_BREAKABLE_CRATE_LINEAR_DAMPING = 0.6
 const DEFAULT_BREAKABLE_CRATE_ANGULAR_DAMPING = 1.8
 const DEFAULT_BREAKABLE_CRATE_RESTITUTION = 0.02
+const INITIALIZATION_COMPLETE_HOLD_MS = 300
 
 const PARAM_CONFIGS: ParamConfig[] = [
   {
@@ -438,12 +439,12 @@ async function initialize() {
     'init_game_logic',
     'init_input',
     'init_audio',
+    'init_scene',
     'init_complete',
   ]
   initManager.setSteps(steps)
 
   initManager.nextStep('init_loading_config')
-  await new Promise((resolve) => setTimeout(resolve, 200))
 
   const storedValues = await loadStoredValues()
   await initializeTerrainPolygonUtils()
@@ -486,9 +487,11 @@ async function initialize() {
   // Initially disable input until game starts
   game.setInputEnabled(false)
 
-  initManager.complete()
+  initManager.nextStep('init_scene')
+  await game.waitForInitialPresentationReady()
+  initManager.nextStep('init_complete')
+  await game.waitForInitialPresentationHold(INITIALIZATION_COMPLETE_HOLD_MS)
   initManager.remove()
-  await new Promise((resolve) => setTimeout(resolve, 200))
 
   // Setup control panel
   const btnStop = document.getElementById('btnStop') as HTMLButtonElement
@@ -693,12 +696,9 @@ async function initialize() {
     return dialogManager.confirm(localizer.t('confirm_exit_game'))
   })
 
-  game.setOnFirstFrameRendered(() => {
-    if (!menuManager.isVisible()) {
-      game.scheduleStartMenu(0)
-    }
-  })
-  game.scheduleStartMenu(800)
+  if (!menuManager.isVisible()) {
+    game.scheduleStartMenu(0)
+  }
 }
 
 initialize().catch((error) => {

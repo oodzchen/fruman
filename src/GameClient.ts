@@ -268,6 +268,7 @@ export class GameClient {
   private pendingStaticEnvironmentLayers: number[] | null = null
   private pendingStaticEnvironmentIndex = 0
   private environmentAssetPreloadRevision = 0
+  private runtimeEnvironmentAssetsReady = false
   private readonly environmentTextureCache = new Map<
     string,
     EnvironmentTextureEntry
@@ -372,10 +373,12 @@ export class GameClient {
 
   private hasReceivedMapData = false
   private hasReceivedFirstState = false
-  private isFirstFrameRendered = false
   private introSceneReady = false
+  private introReadyRenderRevision = 0
   private rendererContextLost = false
-  private onFirstFrameRendered?: () => void
+  private initialPresentationWaiters: Array<() => void> = []
+  private initialPresentationHoldRemainingMs = 0
+  private initialPresentationHoldResolve: (() => void) | null = null
 
   // Input State
   private keys = new Set<string>()
@@ -2164,6 +2167,9 @@ export class GameClient {
     if (this.workerStateRevision < this.previewAwaitStateRevision) {
       return 5
     }
+    if (!this.runtimeEnvironmentAssetsReady) {
+      return 15
+    }
 
     let percent = 20
     percent += this.getWeightedPreviewQueueProgress(
@@ -2203,7 +2209,10 @@ export class GameClient {
   }
 
   private getPreviewLoadingLabelKey(): string {
-    if (this.workerStateRevision < this.previewAwaitStateRevision) {
+    if (
+      this.workerStateRevision < this.previewAwaitStateRevision ||
+      !this.runtimeEnvironmentAssetsReady
+    ) {
       return 'editor_preview_loading_runtime'
     }
     if (!this.staticTerrainReady || this.pendingStaticTerrainLayers !== null) {
@@ -2262,19 +2271,11 @@ export class GameClient {
     this.updatePreviewThumbnailWaiters()
     this.updatePreviewLoadingOverlay()
     this.updateIntroSceneReady()
+    this.updateInitialPresentationHold(deltaMs | 0)
 
     if (this.pendingCheckpointCapture) {
       this.pendingCheckpointCapture = false
       void this.captureCheckpointAutosave()
-    }
-
-    if (
-      !this.isFirstFrameRendered &&
-      this.introSceneReady &&
-      this.onFirstFrameRendered
-    ) {
-      this.isFirstFrameRendered = true
-      this.onFirstFrameRendered()
     }
 
     this.recordPerformanceSample(
@@ -2825,6 +2826,7 @@ export class GameClient {
     if (
       this.rendererContextLost ||
       this.workerStateRevision < this.previewAwaitStateRevision ||
+      !this.runtimeEnvironmentAssetsReady ||
       this.previewFirstRenderRevision === 0 ||
       this.renderer.getEntityCount() <= 0
     ) {
@@ -2929,10 +2931,6 @@ export class GameClient {
   }
 
   // Public Control API (Proxy to Worker)
-  setOnFirstFrameRendered(callback: () => void) {
-    this.onFirstFrameRendered = callback
-  }
-
   stop() {
     this.worker.postMessage({ type: 'control', action: 'stop' })
   }
@@ -3557,19 +3555,32 @@ export class GameClient {
   private preloadRuntimeEnvironmentAssets(map: EditorMapData): void {
     this.environmentAssetPreloadRevision += 1
     const revision = this.environmentAssetPreloadRevision
+    this.runtimeEnvironmentAssetsReady = false
     void ensureRuntimeEnvironmentAssetsForMap(map)
       .then((result) => {
         if (
           revision !== this.environmentAssetPreloadRevision ||
-          this.currentMapData !== map ||
-          result.requested === 0 ||
-          result.loaded === 0
+          this.currentMapData !== map
         ) {
           return
         }
-        this.forceRebuildStaticEnvironment(map)
+        if (
+          result.loaded > 0 &&
+          (this.staticEnvironmentReady ||
+            this.pendingStaticEnvironmentIndex > 0)
+        ) {
+          this.forceRebuildStaticEnvironment(map)
+        }
+        this.runtimeEnvironmentAssetsReady = true
       })
-      .catch(() => {})
+      .catch(() => {
+        if (
+          revision === this.environmentAssetPreloadRevision &&
+          this.currentMapData === map
+        ) {
+          this.runtimeEnvironmentAssetsReady = true
+        }
+      })
   }
 
   private forceRebuildStaticEnvironment(map: EditorMapData): void {
@@ -3642,15 +3653,55 @@ export class GameClient {
       this.rendererContextLost ||
       !this.hasReceivedMapData ||
       !this.hasReceivedFirstState ||
+      !this.runtimeEnvironmentAssetsReady ||
       !this.staticTerrainReady ||
       !this.staticEnvironmentReady ||
       this.pendingStaticTerrainLayers !== null ||
       this.pendingStaticEnvironmentObjects !== null ||
+      this.staticSceneCacheRefreshQueued ||
       this.renderer.getEntityCount() <= 0
     ) {
+      this.introReadyRenderRevision = 0
       return
     }
+
+    if (this.introReadyRenderRevision === 0) {
+      this.introReadyRenderRevision = this.renderFrameRevision
+      return
+    }
+    if (this.renderFrameRevision <= this.introReadyRenderRevision) {
+      return
+    }
+
     this.introSceneReady = true
+    this.resolveInitialPresentationWaiters()
+  }
+
+  private resolveInitialPresentationWaiters(): void {
+    const waiters = this.initialPresentationWaiters
+    const count = waiters.length
+    if (count <= 0) {
+      return
+    }
+    for (let i = 0; i < count; i++) {
+      waiters[i]()
+    }
+    waiters.splice(0, count)
+  }
+
+  private updateInitialPresentationHold(deltaMs: number): void {
+    if (this.initialPresentationHoldRemainingMs <= 0) {
+      return
+    }
+    this.initialPresentationHoldRemainingMs -= deltaMs
+    if (this.initialPresentationHoldRemainingMs > 0) {
+      return
+    }
+
+    this.initialPresentationHoldRemainingMs = 0
+    const resolve = this.initialPresentationHoldResolve
+    this.initialPresentationHoldResolve = null
+    resolve?.()
   }
 
   private recordStaticBuildTime(startMs: number): void {
@@ -4038,6 +4089,9 @@ export class GameClient {
   }
 
   private pumpStaticEnvironmentBuild(deadlineMs: number): void {
+    if (!this.runtimeEnvironmentAssetsReady) {
+      return
+    }
     const envObjects = this.pendingStaticEnvironmentObjects
     if (!envObjects || envObjects.length === 0) {
       return
@@ -4935,6 +4989,11 @@ export class GameClient {
       return
     }
     this.destroyed = true
+    this.introSceneReady = true
+    this.resolveInitialPresentationWaiters()
+    this.initialPresentationHoldRemainingMs = 0
+    this.initialPresentationHoldResolve?.()
+    this.initialPresentationHoldResolve = null
     this.previewPresentationReady = true
     this.resolvePreviewPresentationWaiters()
     this.resolvePreviewThumbnailWaiters()
@@ -5011,6 +5070,28 @@ export class GameClient {
     return new Promise((resolve) => {
       this.previewThumbnailWaiters.push(resolve)
       this.updatePreviewThumbnailWaiters()
+    })
+  }
+
+  waitForInitialPresentationReady(): Promise<void> {
+    if (this.introSceneReady) {
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve) => {
+      this.initialPresentationWaiters.push(resolve)
+    })
+  }
+
+  waitForInitialPresentationHold(durationMs: number): Promise<void> {
+    const holdDurationMs = Math.max(0, durationMs | 0)
+    if (holdDurationMs === 0 || this.destroyed) {
+      return Promise.resolve()
+    }
+
+    this.initialPresentationHoldRemainingMs = holdDurationMs
+    return new Promise((resolve) => {
+      this.initialPresentationHoldResolve = resolve
     })
   }
 
