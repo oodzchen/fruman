@@ -1,7 +1,7 @@
 {
   "version": 3,
-  "canvasWidth": 1280,
-  "canvasHeight": 720,
+  "canvasWidth": 800,
+  "canvasHeight": 600,
   "pixelsPerMeter": 50,
   "playerSpawn": {
     "x": 11.071825185958042,
@@ -81,13 +81,6 @@
     "maxComboCount": 5,
     "debugNoDamage": false,
     "debugNoDeath": true,
-    "mainWeapon": {
-      "weaponType": "sword",
-      "sizeLevel": 2,
-      "attackDamage": 2.5,
-      "postureDamage": 6,
-      "toughnessDamage": 2.5
-    },
     "factionId": "player",
     "npcFactions": ["enemy"],
     "allyFactions": []
@@ -110,7 +103,7 @@
         "offsetCellX": 0,
         "offsetCellY": 0,
         "offsetXUnits": 0,
-        "offsetYUnits": 0,
+        "offsetYUnits": -5,
         "renderLayer": 0,
         "contourId": 1,
         "buildRevision": 29,
@@ -8987,12 +8980,12 @@
     "contours": [
       {
         "id": 1,
-        "points": [-1330, 578, 2058, 578, 2058, 1078, -1330, 1078],
+        "points": [-1330, 573, 2058, 573, 2058, 1073, -1330, 1073],
         "fillMaterialId": "grass",
         "renderLayer": 0,
         "shapeKind": "rect",
         "straightEdge": true,
-        "buildRevision": 211
+        "buildRevision": 89
       },
       {
         "id": 2,
