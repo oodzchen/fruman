@@ -1,11 +1,51 @@
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { defineConfig } from 'vite'
 import { ViteImageOptimizer } from 'vite-plugin-image-optimizer'
+import { VitePWA } from 'vite-plugin-pwa'
 
 import { mapDataPlugin } from './build/mapDataPlugin'
 
 export default defineConfig(({ command }) => {
-  const plugins = [mapDataPlugin(), basicSsl()]
+  const plugins = [
+    mapDataPlugin(),
+    basicSsl(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: [
+        'favicon.ico',
+        'favicon-16x16.png',
+        'favicon-32x32.png',
+        'apple-touch-icon.png',
+      ],
+      manifest: {
+        name: 'Fruman Game',
+        short_name: 'Fruman',
+        description: 'Fruman Game',
+        theme_color: '#0d0b18',
+        background_color: '#0d0b18',
+        display: 'standalone',
+        icons: [
+          {
+            src: 'android-chrome-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'android-chrome-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: [
+          '**/*.{js,css,html,ico,png,svg,json,webmanifest,wasm,wav,ogg}',
+        ],
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        navigateFallback: 'index.html',
+      },
+    }),
+  ]
 
   if (command === 'build') {
     plugins.push(
