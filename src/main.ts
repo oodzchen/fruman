@@ -1,6 +1,6 @@
 import { DialogManager } from './DialogManager'
 import { DisplayManager } from './DisplayManager'
-import { EditorManager } from './EditorManager'
+import type { EditorManager } from './EditorManager'
 import { GameClient } from './GameClient'
 import { InitializationManager } from './InitializationManager'
 import { localizer } from './Localizer'
@@ -576,54 +576,88 @@ async function initialize() {
 
   applyControls.forEach((apply) => apply())
 
-  const editorManager = new EditorManager()
   let previewRunToken = 0
-  editorManager.setGameClient(game)
-  editorManager.onBackToMenu(() => {
-    previewRunToken++
-    game.setEditorPreview(false)
-    game.clearMapPreview()
-    game.showStartMenu()
-  })
-  editorManager.onPreview((_meta, data) => {
-    const runToken = ++previewRunToken
-    game.applyMapPreview(data)
+  let editorManager: EditorManager | null = null
+  let editorManagerPromise: Promise<EditorManager> | null = null
 
-    if (data.camera && data.camera.zoom) {
-      setParamControlValue('cameraZoom', data.camera.zoom)
+  const getEditorManager = (): Promise<EditorManager> => {
+    if (editorManager) {
+      return Promise.resolve(editorManager)
     }
-
-    const previewMoveSpeed = data.player?.moveSpeed
-    if (
-      typeof previewMoveSpeed === 'number' &&
-      Number.isFinite(previewMoveSpeed) &&
-      previewMoveSpeed >= 0
-    ) {
-      setParamControlValue('moveSpeed', previewMoveSpeed)
+    if (editorManagerPromise) {
+      return editorManagerPromise
     }
+    editorManagerPromise = import('./EditorManager').then(
+      ({ EditorManager: EditorManagerConstructor }) => {
+        const manager = new EditorManagerConstructor()
+        manager.setGameClient(game)
+        manager.onBackToMenu(() => {
+          previewRunToken++
+          game.setEditorPreview(false)
+          game.clearMapPreview()
+          game.showStartMenu()
+        })
+        manager.onPreview((_meta, data) => {
+          const runToken = ++previewRunToken
+          game.applyMapPreview(data)
 
-    applyControls.forEach((apply) => apply())
-    game.setInputEnabled(false)
-    editorManager.hide()
-    game.start()
-    void game.waitForPreviewPresentationReady().then(() => {
-      if (runToken !== previewRunToken || !game.isPreviewActive()) {
-        return
+          if (data.camera && data.camera.zoom) {
+            setParamControlValue('cameraZoom', data.camera.zoom)
+          }
+
+          const previewMoveSpeed = data.player?.moveSpeed
+          if (
+            typeof previewMoveSpeed === 'number' &&
+            Number.isFinite(previewMoveSpeed) &&
+            previewMoveSpeed >= 0
+          ) {
+            setParamControlValue('moveSpeed', previewMoveSpeed)
+          }
+
+          applyControls.forEach((apply) => apply())
+          game.setInputEnabled(false)
+          manager.hide()
+          game.start()
+          void game.waitForPreviewPresentationReady().then(() => {
+            if (runToken !== previewRunToken || !game.isPreviewActive()) {
+              return
+            }
+            game.setInputEnabled(true)
+            game.requestGameFocus()
+          })
+        })
+        manager.onDefaultMapChanged(() => {
+          game.reloadDefaultMap()
+        })
+        game.setPreviewExitHandler(() => {
+          previewRunToken++
+          game.stop()
+          game.setInputEnabled(false)
+          game.setEditorPreview(true)
+          manager.showEditorForCurrentMap()
+        })
+        editorManager = manager
+        return manager
       }
-      game.setInputEnabled(true)
-      game.requestGameFocus()
-    })
-  })
-  editorManager.onDefaultMapChanged(() => {
-    game.reloadDefaultMap()
-  })
-  game.setPreviewExitHandler(() => {
+    )
+    return editorManagerPromise
+  }
+
+  const showEditor = async (): Promise<void> => {
     previewRunToken++
+    menuManager.hide()
     game.stop()
     game.setInputEnabled(false)
     game.setEditorPreview(true)
-    editorManager.showEditorForCurrentMap()
-  })
+    try {
+      const manager = await getEditorManager()
+      manager.show()
+    } catch (error) {
+      game.setEditorPreview(false)
+      game.showStartMenu()
+      console.error('editor initialization failed', error)
+    }
+  }
 
   // 获取缩放控件引用，用于实时同步
   const cameraZoomRange = document.getElementById(
@@ -652,12 +686,7 @@ async function initialize() {
   const menuManager = game.getMenuManager()
 
   game.setOnEditorAction(() => {
-    previewRunToken++
-    menuManager.hide()
-    game.stop()
-    game.setInputEnabled(false)
-    game.setEditorPreview(true)
-    editorManager.show()
+    void showEditor()
   })
 
   game.setOnExitAction(async () => {

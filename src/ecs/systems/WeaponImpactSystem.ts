@@ -129,7 +129,6 @@ import {
 } from '../OBBCollision'
 import type { SkeletalSegmentManager } from '../SkeletalSegmentManager'
 import type { SpatialHash } from '../SpatialHash'
-import type { SpineSegmentManager } from '../SpineSegmentManager'
 import { System } from '../System'
 import {
   FRONT_SWING_TILT_RAD,
@@ -991,10 +990,8 @@ export abstract class WeaponImpactSystem extends WeaponCollisionSystem {
       weapon.attackRadius !== 0
         ? weapon.attackRadius
         : this.getAttackRadius(attacker)
-    const segmentedQueryRadius = Math.max(
-      this.spineSegmentManager?.getMaxActiveCoverageRadius() ?? 0,
+    const segmentedQueryRadius =
       this.skeletalSegmentManager?.getMaxActiveCoverageRadius() ?? 0
-    )
 
     const nearbyEntities = this.spatialHash
       ? this.spatialHash.query(
@@ -1039,10 +1036,8 @@ export abstract class WeaponImpactSystem extends WeaponCollisionSystem {
         continue
 
       const targetRadius = target.render?.radius ?? DEFAULT_PLAYER_RADIUS
-      const segmentedCoverageRadius = Math.max(
-        this.spineSegmentManager?.getEntityCoverageRadius(target) ?? 0,
+      const segmentedCoverageRadius =
         this.skeletalSegmentManager?.getEntityCoverageRadius(target) ?? 0
-      )
       const collisionRadius =
         segmentedCoverageRadius > 0 ? segmentedCoverageRadius : targetRadius
 
@@ -1055,22 +1050,14 @@ export abstract class WeaponImpactSystem extends WeaponCollisionSystem {
 
       const isSegmentHit =
         segmentedCoverageRadius > 0 &&
-        (this.spineSegmentManager?.testWeaponHit(
+        this.skeletalSegmentManager?.testWeaponHit(
           target.id,
           weaponX,
           weaponY,
           weaponWidth,
           weaponHeight,
           weaponRotation
-        ) === true ||
-          this.skeletalSegmentManager?.testWeaponHit(
-            target.id,
-            weaponX,
-            weaponY,
-            weaponWidth,
-            weaponHeight,
-            weaponRotation
-          ) === true)
+        ) === true
 
       const isCircleHit =
         segmentedCoverageRadius <= 0 &&

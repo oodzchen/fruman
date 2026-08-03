@@ -29,7 +29,6 @@ import { ULTIMATE_COOLDOWN_MS } from '../ecs/Component'
 import type { Entity } from '../ecs/Entity'
 import { SkeletalSegmentManager } from '../ecs/SkeletalSegmentManager'
 import type { SpatialHash } from '../ecs/SpatialHash'
-import { SpineSegmentManager } from '../ecs/SpineSegmentManager'
 import type { World } from '../ecs/World'
 import {
   type NpcSpawnConfig,
@@ -163,7 +162,6 @@ export class WorkerFrameStateExporter {
   private playerEntity: Entity | null = null
   private grappleSystem: GrappleSystem | null = null
   private soundSystem: SoundSystem | null = null
-  private spineSegmentManager: SpineSegmentManager | null = null
   private skeletalSegmentManager: SkeletalSegmentManager | null = null
   private cameraDirector: CameraDirector | null = null
   private ultimateFlashRemainingMs = 0
@@ -181,9 +179,9 @@ export class WorkerFrameStateExporter {
   private readonly emptySoundWaves: SoundWaveDebugData[] = []
   private readonly emptySoundListeners: SoundListenerDebugData[] = []
   private readonly emptySensors: SensorDebugData[] = []
-  private readonly emptySpineCollisions: WorkerDebugMessage['spineCollisions'] =
+  private readonly emptySkeletalCollisions: WorkerDebugMessage['skeletalCollisions'] =
     []
-  private hadSpineCollisionDebugLastFrame = false
+  private hadSkeletalCollisionDebugLastFrame = false
   private readonly stateMessage: WorkerStateMessage = {
     type: 'state',
     entitiesBuffer: null as unknown as ArrayBuffer | SharedArrayBuffer,
@@ -200,7 +198,7 @@ export class WorkerFrameStateExporter {
     soundWaves: [],
     soundListeners: [],
     camera: null,
-    spineCollisions: [],
+    skeletalCollisions: [],
   }
 
   constructor(private readonly postTarget: Worker) {}
@@ -210,7 +208,6 @@ export class WorkerFrameStateExporter {
     playerEntity: Entity | null,
     grappleSystem: GrappleSystem | null,
     soundSystem: SoundSystem | null,
-    spineSegmentManager: SpineSegmentManager | null,
     skeletalSegmentManager: SkeletalSegmentManager | null,
     cameraDirector: CameraDirector | null,
     ultimateFlashRemainingMs: number,
@@ -220,7 +217,6 @@ export class WorkerFrameStateExporter {
     this.playerEntity = playerEntity
     this.grappleSystem = grappleSystem
     this.soundSystem = soundSystem
-    this.spineSegmentManager = spineSegmentManager
     this.skeletalSegmentManager = skeletalSegmentManager
     this.cameraDirector = cameraDirector
     this.ultimateFlashRemainingMs = ultimateFlashRemainingMs
@@ -256,7 +252,7 @@ export class WorkerFrameStateExporter {
   }
 
   resetTransientState(): void {
-    this.hadSpineCollisionDebugLastFrame = false
+    this.hadSkeletalCollisionDebugLastFrame = false
     this.effectsCount = 0
   }
 
@@ -293,14 +289,12 @@ export class WorkerFrameStateExporter {
     const world = this.world
     const playerEntity = this.playerEntity
     const grappleSystem = this.grappleSystem
-    const spineSegmentManager = this.spineSegmentManager
     const skeletalSegmentManager = this.skeletalSegmentManager
     const cameraDirector = this.cameraDirector
     if (
       !world ||
       !playerEntity ||
       !grappleSystem ||
-      !spineSegmentManager ||
       !skeletalSegmentManager ||
       !cameraDirector
     ) {
@@ -883,20 +877,19 @@ export class WorkerFrameStateExporter {
     this.stateMessage.camera.y = camera.y
     this.stateMessage.zoom = cameraDirector.getZoom()
     this.stateMessage.timeScale1000 = cameraDirector.getTimeScale1000()
-    const hasSpineCollisionDebug =
+    const hasSkeletalCollisionDebug =
       DEBUG_DRAW_PLAYER_COLLISION_SHAPE &&
-      (spineSegmentManager.getMaxActiveCoverageRadius() > 0 ||
-        skeletalSegmentManager.getMaxActiveCoverageRadius() > 0)
+      skeletalSegmentManager.getMaxActiveCoverageRadius() > 0
     const shouldSendDebug =
       DEBUG_DRAW_SENSORS ||
       DEBUG_DRAW_SOUND ||
       DEBUG_DRAW_CAMERA ||
-      hasSpineCollisionDebug ||
-      this.hadSpineCollisionDebugLastFrame
+      hasSkeletalCollisionDebug ||
+      this.hadSkeletalCollisionDebugLastFrame
     if (this.sharedStateBuffer) {
       this.postTarget.postMessage(this.stateMessage)
       if (shouldSendDebug) {
-        this.postDebugMessage(entities, hasSpineCollisionDebug)
+        this.postDebugMessage(entities, hasSkeletalCollisionDebug)
       }
       this.effectsCount = 0
       return
@@ -905,7 +898,7 @@ export class WorkerFrameStateExporter {
     const buffer = stateBuffer.buffer as ArrayBuffer
     this.postTarget.postMessage(this.stateMessage, [buffer])
     if (shouldSendDebug) {
-      this.postDebugMessage(entities, hasSpineCollisionDebug)
+      this.postDebugMessage(entities, hasSkeletalCollisionDebug)
     }
     this.effectsCount = 0
 
@@ -917,11 +910,10 @@ export class WorkerFrameStateExporter {
 
   private postDebugMessage(
     entities: Entity[],
-    hasSpineCollisionDebug: boolean
+    hasSkeletalCollisionDebug: boolean
   ): void {
-    const spineSegmentManager = this.spineSegmentManager
     const skeletalSegmentManager = this.skeletalSegmentManager
-    if (!spineSegmentManager || !skeletalSegmentManager) {
+    if (!skeletalSegmentManager) {
       return
     }
     this.debugMessage.sensors = DEBUG_DRAW_SENSORS
@@ -934,13 +926,10 @@ export class WorkerFrameStateExporter {
       ? this.collectSoundListenerDebugData(entities)
       : this.emptySoundListeners
     this.debugMessage.camera = DEBUG_DRAW_CAMERA ? this.debugCameraData : null
-    this.debugMessage.spineCollisions = hasSpineCollisionDebug
-      ? [
-          ...spineSegmentManager.collectDebugCollisionData(),
-          ...skeletalSegmentManager.collectDebugCollisionData(),
-        ]
-      : this.emptySpineCollisions
-    this.hadSpineCollisionDebugLastFrame = hasSpineCollisionDebug
+    this.debugMessage.skeletalCollisions = hasSkeletalCollisionDebug
+      ? skeletalSegmentManager.collectDebugCollisionData()
+      : this.emptySkeletalCollisions
+    this.hadSkeletalCollisionDebugLastFrame = hasSkeletalCollisionDebug
     this.postTarget.postMessage(this.debugMessage)
   }
 

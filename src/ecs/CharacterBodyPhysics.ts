@@ -59,7 +59,7 @@ export function createCharacterPhysicsBody(
   const normalizedBodyProfile = normalizeSkeletalBodyProfile(config.bodyProfile)
   const collisionPolygons = config.segmented
     ? // Spine 分段角色先用轻量代理框完成刚体创建，
-      // 随后会由 SpineSegmentManager 立刻替换为动画驱动的 runtime 多边形。
+      // 随后会由骨骼分段管理器替换为动画驱动的 runtime 多边形。
       typeof config.segmentedProxyHalfWidth === 'number' &&
       config.segmentedProxyHalfWidth > 0 &&
       typeof config.segmentedProxyHalfHeight === 'number' &&

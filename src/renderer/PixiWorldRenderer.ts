@@ -2356,10 +2356,6 @@ export class PixiWorldRenderer {
       spineKey,
       bodyProfile?.spineScale ?? 1
     )
-    // 渲染基准必须吃到与 Spine 分段碰撞同源的纵向偏移，
-    // 否则动画本体会与 runtime bounding box 线框长期存在固定错位。
-    const collisionOffsetY =
-      renderer.getSpineCollisionRenderOffsetYPx(bodyProfile)
     const facing = renderer.getFacingForEntity(buf, offset)
     const radiusPx = buf[offset + OFFSETS.RADIUS] * this.pixelsPerMeter
     const bounds = getSpineBoundsAtScale(spineKey, scale)
@@ -2370,7 +2366,7 @@ export class PixiWorldRenderer {
     spine.scale.set(-facing * scale, scale)
     spine.position.set(
       facing * spineCenterOffsetX,
-      radiusPx - bounds.offsetY - bounds.height + collisionOffsetY
+      radiusPx - bounds.offsetY - bounds.height
     )
     spine.alpha = alpha
     spine.visible = true
@@ -2542,15 +2538,17 @@ export class PixiWorldRenderer {
     g.clear()
     g.visible = true
 
-    const spineCollisionPolygons =
-      renderer.getSpineCollisionDebugPolygons(entityId)
-    if (spineCollisionPolygons && spineCollisionPolygons.length > 0) {
+    const skeletalCollisionPolygons =
+      renderer.getSkeletalCollisionDebugPolygons(entityId)
+    if (skeletalCollisionPolygons && skeletalCollisionPolygons.length > 0) {
       g.scale.x = 1
       g.rotation = 0
       g.position.y = 0
-      // Spine 角色调试时只画运行时分段碰撞；
+      // 骨骼角色调试时只画运行时分段碰撞；
       // 旧版静态轮廓不能与其叠加，否则会误导“真实碰撞形状”的判断。
-      if (!this.appendCollisionDebugPolygons(g, spineCollisionPolygons, ppm)) {
+      if (
+        !this.appendCollisionDebugPolygons(g, skeletalCollisionPolygons, ppm)
+      ) {
         g.visible = false
         return
       }

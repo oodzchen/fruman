@@ -338,6 +338,7 @@ interface PublicMapDataManifestEntry {
   id: string
   name: string
   source: PublicMapDataEntrySource
+  version?: string
   mapPath?: string
   metaPath?: string
   archivePath?: string
@@ -371,6 +372,7 @@ function isPublicMapDataManifestEntry(
     typeof value.name === 'string' &&
     value.name.length > 0 &&
     (source === 'directory' || source === 'zip') &&
+    (value.version === undefined || typeof value.version === 'string') &&
     (value.mapPath === undefined || typeof value.mapPath === 'string') &&
     (value.metaPath === undefined || typeof value.metaPath === 'string') &&
     (value.archivePath === undefined ||
@@ -407,9 +409,7 @@ function resolveSiblingPublicMapDataPath(
 
 async function fetchPublicJson(path: string): Promise<unknown | null> {
   try {
-    const response = await fetch(getPublicAssetUrl(path), {
-      cache: 'no-store',
-    })
+    const response = await fetch(getPublicAssetUrl(path))
     if (!response.ok) {
       return null
     }
@@ -421,9 +421,7 @@ async function fetchPublicJson(path: string): Promise<unknown | null> {
 
 async function fetchPublicBytes(path: string): Promise<Uint8Array | null> {
   try {
-    const response = await fetch(getPublicAssetUrl(path), {
-      cache: 'no-store',
-    })
+    const response = await fetch(getPublicAssetUrl(path))
     if (!response.ok) {
       return null
     }
@@ -435,9 +433,7 @@ async function fetchPublicBytes(path: string): Promise<Uint8Array | null> {
 
 async function fetchPublicBlob(path: string): Promise<Blob | null> {
   try {
-    const response = await fetch(getPublicAssetUrl(path), {
-      cache: 'no-store',
-    })
+    const response = await fetch(getPublicAssetUrl(path))
     if (!response.ok) {
       return null
     }
@@ -761,6 +757,7 @@ async function upsertPublicMapDataMap(
       thumbnail: existingMeta?.thumbnail,
       source: PUBLIC_MAP_DATA_SOURCE,
       sourceDataHash: nextSourceDataHash,
+      sourceVersion: entry.version,
     }
     const shouldWriteMeta =
       !existingMeta ||
@@ -769,7 +766,8 @@ async function upsertPublicMapDataMap(
       existingMeta.isDefault !== nextMeta.isDefault ||
       existingMeta.thumbnail !== nextMeta.thumbnail ||
       existingMeta.source !== nextMeta.source ||
-      existingMeta.sourceDataHash !== nextMeta.sourceDataHash
+      existingMeta.sourceDataHash !== nextMeta.sourceDataHash ||
+      existingMeta.sourceVersion !== nextMeta.sourceVersion
 
     if (!shouldWriteMeta && !shouldWriteData && existingMeta) {
       return { meta: existingMeta, didWriteData: false }
@@ -810,8 +808,18 @@ async function upsertPublicMapDataMap(
 
 async function importPublicMapDataMapsNow(): Promise<void> {
   const entries = await loadPublicMapDataManifest()
+  const metaList = await listEditorMaps()
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i]
+    const mapId = createPublicMapDataMapId(entry.id)
+    const existingMeta = metaList.find((meta) => meta.id === mapId)
+    if (
+      entry.version &&
+      existingMeta?.sourceVersion === entry.version &&
+      (await loadEditorMapData(mapId))
+    ) {
+      continue
+    }
     let loaded: LoadedPublicMapDataEntry | null = null
     try {
       loaded = await loadPublicMapDataEntry(entry)
@@ -1094,6 +1102,7 @@ export async function saveEditorMap(
           ? undefined
           : meta.source,
       sourceDataHash: meta.sourceDataHash,
+      sourceVersion: meta.sourceVersion,
     }
     const dataRecord: StoredMapDataRecord = {
       id: meta.id,
@@ -1147,6 +1156,7 @@ export async function saveEditorMapMeta(
       source:
         meta.source === BUILT_IN_DEFAULT_MAP_SOURCE ? undefined : meta.source,
       sourceDataHash: meta.sourceDataHash,
+      sourceVersion: meta.sourceVersion,
     }
 
     return new Promise((resolve) => {

@@ -171,6 +171,7 @@ export interface EditorMapMeta {
   thumbnail?: string
   source?: 'builtInDefault' | 'publicMapData'
   sourceDataHash?: string
+  sourceVersion?: string
 }
 
 export interface MapVector2 {

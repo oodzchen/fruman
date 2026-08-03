@@ -15,6 +15,7 @@ interface MapDataManifestEntry {
   id: string
   name: string
   source: MapDataManifestEntrySource
+  version: string
   mapPath?: string
   metaPath?: string
   archivePath?: string
@@ -25,6 +26,16 @@ interface MapDataManifestEntry {
 interface MapDataManifest {
   version: 1
   entries: MapDataManifestEntry[]
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  const bytes = await fs.readFile(filePath)
+  let hash = 2166136261
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= bytes[i]
+    hash = Math.imul(hash, 16777619)
+  }
+  return `${bytes.length.toString(36)}-${(hash >>> 0).toString(36)}`
 }
 
 function toPublicPath(value: string): string {
@@ -212,6 +223,7 @@ async function scanMapDataDirectory(
       id: normalizedId,
       name,
       source: 'directory',
+      version: await hashFile(directMapJsonPath),
       mapPath: toPublicPath(path.relative(publicDir, directMapJsonPath)),
       metaPath: metaPath
         ? toPublicPath(path.relative(publicDir, metaPath))
@@ -254,6 +266,7 @@ async function scanMapDataDirectory(
       id: sourceId,
       name,
       source: 'zip',
+      version: await hashFile(archivePath),
       archivePath: toPublicPath(path.relative(publicDir, archivePath)),
       isDefault: isDefaultMapDataEntry(sourceId),
     })

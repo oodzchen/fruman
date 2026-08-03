@@ -17,7 +17,6 @@ import { componentRegistry } from '../ComponentRegistry'
 import type { Entity } from '../Entity'
 import type { SkeletalSegmentManager } from '../SkeletalSegmentManager'
 import type { SpatialHash } from '../SpatialHash'
-import type { SpineSegmentManager } from '../SpineSegmentManager'
 import { System } from '../System'
 import {
   applyOffset,
@@ -70,7 +69,6 @@ export abstract class WeaponSystemCore extends System {
   protected viewportWidth = 16
   protected viewportHeight = 9
   protected arrowPools?: ArrowPools
-  protected spineSegmentManager: SpineSegmentManager | null = null
   protected skeletalSegmentManager: SkeletalSegmentManager | null = null
   protected onBreakableObstacleHit:
     | ((hit: BreakableObstacleHit) => void)
@@ -590,12 +588,6 @@ export abstract class WeaponSystemCore extends System {
 
   setSoundSystem(soundSystem: SoundSystem): void {
     this.soundSystem = soundSystem
-  }
-
-  setSpineSegmentManager(
-    spineSegmentManager: SpineSegmentManager | null
-  ): void {
-    this.spineSegmentManager = spineSegmentManager
   }
 
   setSkeletalSegmentManager(

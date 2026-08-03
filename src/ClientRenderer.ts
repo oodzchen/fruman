@@ -100,10 +100,9 @@ import {
 } from './worker/effectsProtocol'
 import type {
   SensorDebugData,
+  SkeletalCollisionDebugData,
   SoundListenerDebugData,
   SoundWaveDebugData,
-  SpineCollisionDebugData,
-  WorkerSpineCollisionData,
 } from './worker/protocol'
 
 const MAX_PARTICLES = 600
@@ -178,10 +177,6 @@ export class ClientRenderer {
     MapCharacterBodyProfile,
     number
   >()
-  private readonly spineCollisionProfileData = new Map<
-    string,
-    WorkerSpineCollisionData
-  >()
 
   // Pre-allocated buffer to avoid creating new Float32Array each frame
   private stateBuffer = new Float32Array(MAX_ENTITIES * ENTITY_STRIDE)
@@ -215,7 +210,7 @@ export class ClientRenderer {
   private sensorDebugData: SensorDebugData[] = []
   private soundWaveDebugData: SoundWaveDebugData[] = []
   private soundListenerDebugData: SoundListenerDebugData[] = []
-  private spineCollisionDebugData = new Map<number, number[][]>()
+  private skeletalCollisionDebugData = new Map<number, number[][]>()
   private ammoTextCache: string[] = []
   private grappleLineActive = false
   private grappleLineAutoHideRemainingMs = 0
@@ -628,22 +623,16 @@ export class ClientRenderer {
     return this.soundListenerDebugData
   }
 
-  setSpineCollisionDebugData(spineCollisions: SpineCollisionDebugData[]): void {
-    this.spineCollisionDebugData.clear()
-    for (let i = 0; i < spineCollisions.length; i++) {
-      const collision = spineCollisions[i]
-      this.spineCollisionDebugData.set(collision.entityId, collision.polygons)
-    }
-  }
-
-  setSpineCollisionProfiles(
-    collisionProfiles: readonly WorkerSpineCollisionData[]
+  setSkeletalCollisionDebugData(
+    collisions: SkeletalCollisionDebugData[]
   ): void {
-    this.spineCollisionProfileData.clear()
-    for (let i = 0; i < collisionProfiles.length; i++) {
-      const profile = collisionProfiles[i]
-      const key = `${profile.spineKey}|${profile.animationName}`
-      this.spineCollisionProfileData.set(key, profile)
+    this.skeletalCollisionDebugData.clear()
+    for (let i = 0; i < collisions.length; i++) {
+      const collision = collisions[i]
+      this.skeletalCollisionDebugData.set(
+        collision.entityId,
+        collision.polygons
+      )
     }
   }
 
@@ -1019,33 +1008,8 @@ export class ClientRenderer {
     return this.getEntityFacing(buf, offset)
   }
 
-  getSpineCollisionDebugPolygons(entityId: number): number[][] | null {
-    return this.spineCollisionDebugData.get(entityId) ?? null
-  }
-
-  getSpineCollisionRenderOffsetYPx(
-    bodyProfile: MapCharacterBodyProfile | null
-  ): number {
-    if (!bodyProfile?.spineKey || !bodyProfile.spineAnimationName) {
-      return 0
-    }
-    const key = `${bodyProfile.spineKey}|${bodyProfile.spineAnimationName}`
-    const collisionData = this.spineCollisionProfileData.get(key)
-    if (!collisionData || !(collisionData.spineScale > 0)) {
-      return 0
-    }
-
-    const profileScale =
-      typeof bodyProfile.spineScale === 'number' &&
-      Number.isFinite(bodyProfile.spineScale) &&
-      bodyProfile.spineScale > 0
-        ? bodyProfile.spineScale
-        : collisionData.spineScale
-
-    return (
-      (collisionData.segmentOffsetY * profileScale * this.pixelsPerMeter) /
-      collisionData.spineScale
-    )
+  getSkeletalCollisionDebugPolygons(entityId: number): number[][] | null {
+    return this.skeletalCollisionDebugData.get(entityId) ?? null
   }
 
   getSpineBodyHeightPx(bodyProfile: MapCharacterBodyProfile | null): number {

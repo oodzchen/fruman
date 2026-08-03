@@ -1055,7 +1055,7 @@ export class GameClient {
     } else if (msg.type === 'debug') {
       this.renderer.setSensorDebugData(msg.sensors)
       this.renderer.setSoundDebugData(msg.soundWaves, msg.soundListeners)
-      this.renderer.setSpineCollisionDebugData(msg.spineCollisions)
+      this.renderer.setSkeletalCollisionDebugData(msg.skeletalCollisions)
       if (msg.camera) {
         this.cameraDebug.topLimitRatio = msg.camera.topLimitRatio
         this.cameraDebug.bottomLimitRatio = msg.camera.bottomLimitRatio

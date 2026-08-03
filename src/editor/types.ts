@@ -364,6 +364,7 @@ export interface EditorMap {
   thumbnail?: string
   source?: 'builtInDefault' | 'publicMapData'
   sourceDataHash?: string
+  sourceVersion?: string
 }
 
 export interface EditorObjectData {
