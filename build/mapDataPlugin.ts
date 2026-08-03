@@ -5,7 +5,7 @@ import type { Plugin, ResolvedConfig } from 'vite'
 
 const MAP_DATA_DIR_NAME = 'map_data'
 const MAP_DATA_MANIFEST_NAME = 'manifest.json'
-const MAP_DATA_GENERATED_MARKER = '.sl2d-generated-map-data'
+const MAP_DATA_GENERATED_MARKER = '.fruman-generated-map-data'
 const MAP_META_JSON_NAME = 'map-meta.json'
 const ZIP_EXTENSION = '.zip'
 
@@ -427,7 +427,7 @@ export function mapDataPlugin(): Plugin {
   let generatedDirs: string[] = []
 
   return {
-    name: 'sl2d-map-data',
+    name: 'fruman-map-data',
     enforce: 'pre',
     configResolved(config) {
       resolvedConfig = config

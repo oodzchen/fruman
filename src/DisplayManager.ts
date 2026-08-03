@@ -1,5 +1,5 @@
-const STORAGE_KEY_RESOLUTION = 'sl2d_resolution'
-const STORAGE_KEY_ORIENTATION = 'sl2d_orientation'
+const STORAGE_KEY_RESOLUTION = 'fruman_resolution'
+const STORAGE_KEY_ORIENTATION = 'fruman_orientation'
 const DEFAULT_RESOLUTION_VALUE = '800x600'
 const DEFAULT_RESOLUTION_INDEX_FALLBACK = 5 // 800×600
 let displayStorageWarningLogged = false

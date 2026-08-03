@@ -86,7 +86,7 @@ import {
   resolveWeaponStatsForSize,
 } from './weaponTypeUtils'
 
-const DB_NAME = 'sl2d'
+const DB_NAME = 'fruman'
 const DB_VERSION = 7
 
 const SETTINGS_STORE = 'settings'

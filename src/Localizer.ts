@@ -6,7 +6,7 @@ export enum Language {
 type Translations = Record<string, string>
 type LanguageChangeCallback = (lang: Language) => void
 
-const STORAGE_KEY_LANGUAGE = 'sl2d_language'
+const STORAGE_KEY_LANGUAGE = 'fruman_language'
 
 export function getSavedLanguage(): Language | null {
   try {

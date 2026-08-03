@@ -1,4 +1,4 @@
-# sl2d Game Architecture
+# fruman Game Architecture
 
 ## Project Overview
 
