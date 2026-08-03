@@ -250,6 +250,7 @@ export class MovementSystem extends System {
           ? -normalY
           : 0
       let hasFootContact = false
+      let hasBelowCenterContact = false
       if (
         (isEnvironmentContact || isCharacterContact) &&
         bodyFacingNormalY > 0
@@ -261,9 +262,12 @@ export class MovementSystem extends System {
         ) {
           const point = contact.manifold.GetPoint(pointIndex)
           const contactY = point.point.y - bodyCenterY
-          const isFootPoint =
-            ((contactY * this.slopeNormalScale) | 0) >= footContactMinY
+          const contactYScaled = (contactY * this.slopeNormalScale) | 0
+          const isFootPoint = contactYScaled >= footContactMinY
           point.delete()
+          if (contactYScaled > 0) {
+            hasBelowCenterContact = true
+          }
           if (isFootPoint) {
             hasFootContact = true
             break
@@ -287,23 +291,27 @@ export class MovementSystem extends System {
         }
       }
       let isSteepSurface = false
-      if (isEnvironmentContact && hasFootContact) {
-        if (absNormalX > absNormalY) {
-          hasSteepSurface = true
-          isSteepSurface = true
-          const contactJumpScalePermille =
-            this.steepJumpMinScalePermille +
-            (this.steepJumpScaleRangePermille * absNormalY) / absNormalX
-          const normalizedJumpScalePermille = contactJumpScalePermille | 0
-          if (normalizedJumpScalePermille < steepJumpScalePermille) {
-            steepJumpScalePermille = normalizedJumpScalePermille
-          }
-          if (isObstacleContact) {
-            const contactWallDirection = bodyFacingNormalX > 0 ? -1 : 1
-            touchingObstacleWall = true
-            newObstacleWallDirection = contactWallDirection
-          }
-        } else if (isGroundContact) {
+      if (
+        isEnvironmentContact &&
+        hasBelowCenterContact &&
+        absNormalX > absNormalY
+      ) {
+        hasSteepSurface = true
+        isSteepSurface = true
+        const contactJumpScalePermille =
+          this.steepJumpMinScalePermille +
+          (this.steepJumpScaleRangePermille * absNormalY) / absNormalX
+        const normalizedJumpScalePermille = contactJumpScalePermille | 0
+        if (normalizedJumpScalePermille < steepJumpScalePermille) {
+          steepJumpScalePermille = normalizedJumpScalePermille
+        }
+        if (isObstacleContact) {
+          const contactWallDirection = bodyFacingNormalX > 0 ? -1 : 1
+          touchingObstacleWall = true
+          newObstacleWallDirection = contactWallDirection
+        }
+      } else if (isEnvironmentContact && hasFootContact) {
+        if (isGroundContact) {
           hasGroundSurface = true
           const surfaceFriction = b2Shape_GetFriction(otherShapeId)
           if (surfaceFriction > groundSurfaceFriction) {
