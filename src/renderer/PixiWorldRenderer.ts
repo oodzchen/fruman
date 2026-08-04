@@ -519,6 +519,7 @@ export class PixiWorldRenderer {
   private readonly entityViews = new Map<number, EntityView>()
   private readonly overlayContainer: Container
   private readonly particleContainer: Container
+  private readonly instructionContainer: Container
   private readonly ropeGraphics: Graphics
   private readonly soundDebugGraphics: Graphics
   private readonly hammerShockwaveGraphics: Graphics
@@ -600,6 +601,11 @@ export class PixiWorldRenderer {
     this.particleContainer = new Container()
     this.particleContainer.zIndex = 850000
     emissiveRoot.addChild(this.particleContainer)
+
+    this.instructionContainer = new Container()
+    this.instructionContainer.zIndex = 900000
+    emissiveRoot.addChild(this.instructionContainer)
+
     this.bombExplosionEmitterPool = new BombExplosionEmitterPool(
       this.particleContainer
     )
@@ -1570,6 +1576,10 @@ export class PixiWorldRenderer {
     bucket.environmentContainer.addChild(mesh)
   }
 
+  addEnvironmentInstruction(mesh: Container): void {
+    this.instructionContainer.addChild(mesh)
+  }
+
   invalidateStaticMeshCaches(includeSkyLayer = true): void {
     for (const [layer, bucket] of this.buckets) {
       if (!includeSkyLayer && layer === RENDER_LAYER_SKY) {
@@ -1582,26 +1592,8 @@ export class PixiWorldRenderer {
     }
   }
 
-  invalidateStaticMeshCache(layer: number): void {
-    const bucket = this.buckets.get(layer)
-    if (!bucket) {
-      return
-    }
-    if (bucket.staticContainer.isCachedAsTexture) {
-      bucket.staticContainer.cacheAsTexture(false)
-    }
-    bucket.staticCacheDirty = bucket.staticContainer.children.length > 0
-  }
-
   refreshStaticMeshCaches(): void {
     for (const bucket of this.buckets.values()) {
-      this.refreshStaticMeshCacheBucket(bucket)
-    }
-  }
-
-  refreshStaticMeshCache(layer: number): void {
-    const bucket = this.buckets.get(layer)
-    if (bucket) {
       this.refreshStaticMeshCacheBucket(bucket)
     }
   }

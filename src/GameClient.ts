@@ -239,7 +239,6 @@ export class GameClient {
   private staticEnvironmentSprites: Sprite[] = []
   private staticEnvironmentKeySprites: Sprite[] = []
   private staticEnvironmentKeyObjects: MapEnvironmentObject[] = []
-  private staticEnvironmentKeyLayers: number[] = []
   private staticEnvironmentKeySkyDepthFlags: number[] = []
   private interactiveGrassDecorations: InteractiveGrassDecoration[] = []
   private readonly interactiveGrassGrid = new Map<
@@ -3785,7 +3784,6 @@ export class GameClient {
     this.staticEnvironmentSprites.length = 0
     this.staticEnvironmentKeySprites.length = 0
     this.staticEnvironmentKeyObjects.length = 0
-    this.staticEnvironmentKeyLayers.length = 0
     this.staticEnvironmentKeySkyDepthFlags.length = 0
   }
 
@@ -4201,7 +4199,11 @@ export class GameClient {
       sprite.y = renderY
       sprite.angle = rotationDeg
       sprite.scale.set(1, 1)
-      this.worldRenderer.addStaticMesh(sprite, resolvedLayer)
+      if (obj.type === 'key') {
+        this.worldRenderer.addEnvironmentInstruction(sprite)
+      } else {
+        this.worldRenderer.addStaticMesh(sprite, resolvedLayer)
+      }
       this.staticEnvironmentSprites.push(sprite)
       if (
         obj.type === 'key' &&
@@ -4209,7 +4211,6 @@ export class GameClient {
       ) {
         this.staticEnvironmentKeySprites.push(sprite)
         this.staticEnvironmentKeyObjects.push(obj)
-        this.staticEnvironmentKeyLayers.push(resolvedLayer)
         this.staticEnvironmentKeySkyDepthFlags.push(
           resolvedLayer === RENDER_LAYER_SKY ? 1 : 0
         )
@@ -4433,14 +4434,6 @@ export class GameClient {
       sprite.x = object.x * ppm - this.reusableEnvironmentAnchorOffset.x
       sprite.y = object.y * ppm - this.reusableEnvironmentAnchorOffset.y
       sprite.angle = rotationDeg
-      this.worldRenderer.invalidateStaticMeshCache(
-        this.staticEnvironmentKeyLayers[i]
-      )
-    }
-    for (let i = 0; i < this.staticEnvironmentKeyLayers.length; i++) {
-      this.worldRenderer.refreshStaticMeshCache(
-        this.staticEnvironmentKeyLayers[i]
-      )
     }
   }
 
