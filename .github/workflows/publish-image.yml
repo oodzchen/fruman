@@ -12,6 +12,7 @@ jobs:
   publish:
     name: Build and push
     runs-on: ubuntu-latest
+    environment: deploy
     permissions:
       contents: read
 
