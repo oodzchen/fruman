@@ -26,6 +26,7 @@ export enum MenuAction {
   Orientation,
   Resolution,
   AttackDefenseGestures,
+  Community,
 }
 
 export enum MenuMode {
@@ -339,6 +340,11 @@ export class MenuManager {
         })
         y += spacing
       }
+      this.menuItems.push({
+        label: localizer.t('menu_settings_community'),
+        action: MenuAction.Community,
+        y,
+      })
       this.menuItems.push({
         label: localizer.t('menu_back'),
         action: MenuAction.Back,

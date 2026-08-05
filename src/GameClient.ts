@@ -3259,6 +3259,13 @@ export class GameClient {
           this.onMobileAttackDefenseGesturesChangeCallback?.(enabled)
           break
         }
+        case MenuAction.Community:
+          window.open(
+            'https://baklab.app/z/fruman',
+            '_blank',
+            'noopener,noreferrer'
+          )
+          break
       }
     })
   }
